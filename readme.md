@@ -86,10 +86,8 @@ Runs several attack methods provided by Martin Bos (formerly known as pure_hate)
   * Fingerprint Attack
   * Combinator Attack
   * Hybrid Attack
-
-Extra - Just For Good Measure
--------------------------------------------------
- Runs a dictionary attack using wordlists/rockyou.txt with chained "combinator.rule" and "InsidePro-PasswordsPro.rule" rules
+  * Extra - Just For Good Measure
+    - Runs a dictionary attack using wordlists/rockyou.txt with chained "combinator.rule" and "InsidePro-PasswordsPro.rule" rules
 
 -------------------------------------------------
 #### Brute Force Attack
