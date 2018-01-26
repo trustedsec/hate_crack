@@ -72,50 +72,48 @@ $ ./hate_crack.py <hash file> 1000
 Select a task:
 ```
 -------------------------------------------------
-####Quick Crack
+#### Quick Crack
 * Runs a dictionary attack using all wordlists configured in your "hcatOptimizedWordlists" path
 and applies the "best64.rule", with the option of chaining the "best64.rule".
-####Extensive Pure_Hate Methodology Crack
-* Runs several attack methods provided by Martin Bos (formerly known as pure_hate)
-####Brute Force Attack (7 characters)
-####Dictionary Attack
-  * All wordlists in "hcatOptimizedWordlists" with "best64.rule"
-  * wordlists/rockyou.txt with "d3ad0ne.rule"
-  * wordlists/rockyou.txt with "T0XlC.rule"
-####Top Mask Attack (Target Time = 4 Hours)
-####Fingerprint Attack
-####Combinator Attack
-####Hybrid Attack
-
-Extra - Just For Good Measure
--------------------------------------------------
- Runs a dictionary attack using wordlists/rockyou.txt with chained "combinator.rule" and "InsidePro-PasswordsPro.rule" rules
+#### Extensive Pure_Hate Methodology Crack
+Runs several attack methods provided by Martin Bos (formerly known as pure_hate)
+  * Brute Force Attack (7 characters)
+  * Dictionary Attack
+    * All wordlists in "hcatOptimizedWordlists" with "best64.rule"
+    * wordlists/rockyou.txt with "d3ad0ne.rule"
+    * wordlists/rockyou.txt with "T0XlC.rule"
+  * Top Mask Attack (Target Time = 4 Hours)
+  * Fingerprint Attack
+  * Combinator Attack
+  * Hybrid Attack
+  * Extra - Just For Good Measure
+    - Runs a dictionary attack using wordlists/rockyou.txt with chained "combinator.rule" and "InsidePro-PasswordsPro.rule" rules
 
 -------------------------------------------------
-####Brute Force Attack
+#### Brute Force Attack
   
 Brute forces all characters with the choice of a minimum and maximum password length.
 
 -------------------------------------------------
-####Top Mask Attack
+#### Top Mask Attack
 
 Runs a top mask attack using passwords already cracked for the current session.
 Presents the user a choice of target cracking time to spend (default 4 hours).
 
 -------------------------------------------------
-####Fingerprint Attack
+#### Fingerprint Attack
 https://hashcat.net/wiki/doku.php?id=fingerprint_attack
 
 Runs a fingerprint attack using passwords already cracked for the current session.
 
 -------------------------------------------------
-####Combinator Attack
+#### Combinator Attack
 https://hashcat.net/wiki/doku.php?id=combinator_attack
 
 Runs a combinator attack using the "rockyou.txt" wordlist.
 
 -------------------------------------------------
-####Hybrid Attack
+#### Hybrid Attack
 https://hashcat.net/wiki/doku.php?id=hybrid_attack
 
 * Runs several hybrid attacks using the "rockyou.txt" wordlists.
@@ -126,25 +124,25 @@ https://hashcat.net/wiki/doku.php?id=hybrid_attack
   - Hybrid Mask + Wordlist - ?s?d ?1?1?1 wordlists/rockyou.txt
   - Hybrid Mask + Wordlist - ?s?d ?1?1?1?1 wordlists/rockyou.txt
 -------------------------------------------------
-####Pathwell Top 100 Mask Brute Force Crack
+#### Pathwell Top 100 Mask Brute Force Crack
 
 Runs a brute force attack using the top 100 masks from KoreLogic:
 https://blog.korelogic.com/blog/2014/04/04/pathwell_topologies
 
 -------------------------------------------------
-####PRINCE Attack
+#### PRINCE Attack
 https://hashcat.net/events/p14-trondheim/prince-attack.pdf
 
 Runs a PRINCE attack using wordlists/rockyou.txt
 
 -------------------------------------------------
-####YOLO Combinator Attack
+#### YOLO Combinator Attack
 
 Runs a continuous combinator attack using random wordlists from the 
 optimized wordlists for the left and right sides.
 
 -------------------------------------------------
-####Add-on Tools
+#### Add-on Tools
 wordlist_optimizer.py - parses all wordlists from `<input file list>`, sorts
 them by length and de-duplicates into `<output directory>`
 
@@ -154,7 +152,7 @@ usage: python wordlist_optimizer.py <input file list> <output directory>
 $ python wordlist_optimizer.py wordlists.txt ../optimized_wordlists
 ```
 
-###Version History
+### Version History
 
 Version 1.00
   Initial public release
