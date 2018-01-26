@@ -7,8 +7,7 @@
        \/      \/          \/_____/      \/            \/     \/     \/
 ```
 
-Installation
--------------------------------------------------
+## Installation
 Get the latest hashcat binaries (https://hashcat.net/hashcat/)
 
 OSX Install (https://www.phillips321.co.uk/2016/07/09/hashcat-on-os-x-getting-it-going/)
@@ -19,12 +18,20 @@ cd hashcat/
 make
 make install
 ```
--------------------------------------------------
+### Download hate_crack
+```git clone --recursive https://github.com/trustedsec/hate_crack.git```
 * Customize binary and wordlist paths in "config.ini"
 * Make sure that at least "rockyou.txt" is within your "wordlists" path
+### Create Optimized Wordlists
+wordlist_optimizer.py - parses all wordlists from `<input file list>`, sorts them by length and de-duplicates into `<output directory>`
 
-Usage
--------------------------------------------------
+```$ python wordlist_optimizer.py
+usage: python wordlist_optimizer.py <input file list> <output directory>
+
+$ python wordlist_optimizer.py wordlists.txt ../optimized_wordlists
+```
+-------------------------------------------------------------------
+## Usage
 `$ ./hate_crack.py 
 usage: python hate_crack.py <hash_file> <hash_type>`
 
@@ -71,10 +78,11 @@ $ ./hate_crack.py <hash file> 1000
 
 Select a task:
 ```
--------------------------------------------------
+-------------------------------------------------------------------
 #### Quick Crack
 * Runs a dictionary attack using all wordlists configured in your "hcatOptimizedWordlists" path
 and applies the "best64.rule", with the option of chaining the "best64.rule".
+
 #### Extensive Pure_Hate Methodology Crack
 Runs several attack methods provided by Martin Bos (formerly known as pure_hate)
   * Brute Force Attack (7 characters)
@@ -88,31 +96,24 @@ Runs several attack methods provided by Martin Bos (formerly known as pure_hate)
   * Hybrid Attack
   * Extra - Just For Good Measure
     - Runs a dictionary attack using wordlists/rockyou.txt with chained "combinator.rule" and "InsidePro-PasswordsPro.rule" rules
-
--------------------------------------------------
+    
 #### Brute Force Attack
-  
 Brute forces all characters with the choice of a minimum and maximum password length.
 
--------------------------------------------------
 #### Top Mask Attack
-
-Runs a top mask attack using passwords already cracked for the current session.
+Uses StatsGen and MaskGen from PACK (https://thesprawl.org/projects/pack/) to perform a top mask attack using passwords already cracked for the current session.
 Presents the user a choice of target cracking time to spend (default 4 hours).
 
--------------------------------------------------
 #### Fingerprint Attack
 https://hashcat.net/wiki/doku.php?id=fingerprint_attack
 
 Runs a fingerprint attack using passwords already cracked for the current session.
 
--------------------------------------------------
 #### Combinator Attack
 https://hashcat.net/wiki/doku.php?id=combinator_attack
 
 Runs a combinator attack using the "rockyou.txt" wordlist.
 
--------------------------------------------------
 #### Hybrid Attack
 https://hashcat.net/wiki/doku.php?id=hybrid_attack
 
@@ -123,36 +124,21 @@ https://hashcat.net/wiki/doku.php?id=hybrid_attack
   - Hybrid Mask + Wordlist - ?s?d ?1?1 wordlists/rockyou.txt
   - Hybrid Mask + Wordlist - ?s?d ?1?1?1 wordlists/rockyou.txt
   - Hybrid Mask + Wordlist - ?s?d ?1?1?1?1 wordlists/rockyou.txt
--------------------------------------------------
-#### Pathwell Top 100 Mask Brute Force Crack
 
+#### Pathwell Top 100 Mask Brute Force Crack
 Runs a brute force attack using the top 100 masks from KoreLogic:
 https://blog.korelogic.com/blog/2014/04/04/pathwell_topologies
 
--------------------------------------------------
 #### PRINCE Attack
 https://hashcat.net/events/p14-trondheim/prince-attack.pdf
 
 Runs a PRINCE attack using wordlists/rockyou.txt
 
--------------------------------------------------
 #### YOLO Combinator Attack
-
 Runs a continuous combinator attack using random wordlists from the 
 optimized wordlists for the left and right sides.
 
--------------------------------------------------
-#### Add-on Tools
-wordlist_optimizer.py - parses all wordlists from `<input file list>`, sorts
-them by length and de-duplicates into `<output directory>`
-
-```$ python wordlist_optimizer.py
-usage: python wordlist_optimizer.py <input file list> <output directory>
-
-$ python wordlist_optimizer.py wordlists.txt ../optimized_wordlists
-```
-
+-------------------------------------------------------------------
 ### Version History
-
 Version 1.00
   Initial public release
