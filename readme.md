@@ -20,7 +20,7 @@ make install
 ```
 ### Download hate_crack
 ```git clone --recursive https://github.com/trustedsec/hate_crack.git```
-* Customize binary and wordlist paths in "config.ini"
+* Customize binary and wordlist paths in "config.json"
 * Make sure that at least "rockyou.txt" is within your "wordlists" path
 ### Create Optimized Wordlists
 wordlist_optimizer.py - parses all wordlists from `<input file list>`, sorts them by length and de-duplicates into `<output directory>`
