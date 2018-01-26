@@ -68,15 +68,13 @@ def ascii_art():
 # Counts the number of lines in a file
 def lineCount(file):
     try:
-        outFile = open(file)
+        with open(file) as outFile:
+            count = 0
+            for line in outFile:
+                count = count + 1
+        return count
     except:
         return 0
-
-    count = 0
-    for line in outFile:
-        count = count + 1
-    return count
-
 
 # Brute Force Attack
 def hcatBruteForce(hcatHashType, hcatHashFile, hcatMinLen, hcatMaxLen):
@@ -286,7 +284,7 @@ def cleanup():
                         for origLine in hcatOrigFile:
                             if crackedLine.split(":")[0] == origLine.split(":")[3]:
                                 hcatCombinedHashes.write(origLine.strip() + crackedLine.split(":")[1])
-    print("\nCracked passwords combined with original hashes in %s." % (hcatHashFileOrig + ".out"))
+    print("\nCracked passwords combined with original hashes in %s" % (hcatHashFileOrig + ".out"))
     print('\nCleaning up temporary files...')
     if os.path.exists(hcatHashFile + ".masks"):
         os.remove(hcatHashFile + ".masks")
@@ -482,7 +480,7 @@ def main():
                         lineCount(hcatHashFile + ".lm") > 1):
                 lmHashesFound = True
                 lmChoice = input("LM hashes identified. Would you like to brute force the LM hashes first? (Y) ") or "Y"
-                if lmChoice.upper() is 'Y':
+                if lmChoice.upper() == 'Y':
                     hcatLMtoNT()
             hcatHashFileOrig = hcatHashFile
             hcatHashFile = hcatHashFile + ".nt"
