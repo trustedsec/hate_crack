@@ -10,7 +10,7 @@ rli_bin = "hashcat-utils/bin/rli.app"
 
 # Help
 def usage():
-  print "usage: python %s <input file list> <output directory>" % sys.argv[0]
+  print("usage: python %s <input file list> <output directory>" % sys.argv[0])
 
 def lineCount(file):
   try:
@@ -35,7 +35,7 @@ def main():
     
   # Get list of wordlists from <input file list> argument  
   for wordlist in input_list:
-    print wordlist.strip()
+    print(wordlist.strip())
     
     # Parse wordlists by password length into "optimized" <output directory>
     if len(os.listdir(destination)) == 0:
@@ -45,7 +45,7 @@ def main():
         os.mkdir("/tmp/splitlen")
       splitlenProcess = subprocess.Popen("%s /tmp/splitlen < %s" % (splitlen_bin, wordlist), shell=True).wait()
 
-			# Copy unique passwords into "optimized" <output directory>
+      # Copy unique passwords into "optimized" <output directory>
       for file in os.listdir("/tmp/splitlen"):
         if not os.path.isfile(destination + "/" + file):
           shutil.copyfile(file, destination)
