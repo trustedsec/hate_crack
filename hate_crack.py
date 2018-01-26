@@ -2,15 +2,16 @@
 
 # Methodology provided by Martin Bos (pure_hate)
 # Original script provided by Larry Spohn (spoonman)
+# Python refactoring and general fixing, Justin Bollinger (bandrel)
 
 import subprocess
 import sys
 import os
 import signal
 import time
-import ConfigParser
 import random
 import re
+import json
 
 # python2/3 compatability
 try:
@@ -20,16 +21,17 @@ except NameError:
 
 
 hate_path = os.path.dirname(os.path.realpath(__file__))
-hcatConfig = ConfigParser.ConfigParser()
-hcatConfig.readfp(open(hate_path + '/config.ini'))
-hcatPath = hcatConfig.get('Default Paths', 'hcatPath')
-hcatBin = hcatConfig.get('Default Paths', 'hcatBin')
-hcatTuning = hcatConfig.get('Default Paths', 'hcatTuning')
-hcatWordlists = hcatConfig.get('Default Paths', 'hcatWordlists')
-hcatOptimizedWordlists = hcatConfig.get('Default Paths', 'hcatOptimizedWordlists')
-hcatExpanderBin = hcatConfig.get('Default Paths', 'hcatExpanderBin')
-hcatCombinatorBin = hcatConfig.get('Default Paths', 'hcatCombinatorBin')
-hcatPrinceBin = hcatConfig.get('Default Paths', 'hcatPrinceBin')
+with open(hate_path + '/config.json') as config:
+    config_parser = json.load(config)
+
+    hcatPath = config_parser['hcatPath']
+    hcatBin = config_parser['hcatBin']
+    hcatTuning = config_parser['hcatTuning']
+    hcatWordlists = config_parser['hcatWordlists']
+    hcatOptimizedWordlists = config_parser['hcatOptimizedWordlists']
+    hcatExpanderBin = config_parser['hcatExpanderBin']
+    hcatCombinatorBin = config_parser['hcatCombinatorBin']
+    hcatPrinceBin = config_parser['hcatPrinceBin']
 
 hcatHashCount = 0
 hcatHashCracked = 0
