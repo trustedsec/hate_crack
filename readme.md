@@ -30,6 +30,7 @@ usage: python wordlist_optimizer.py <input file list> <output directory>
 
 $ python wordlist_optimizer.py wordlists.txt ../optimized_wordlists
 ```
+-------------------------------------------------------------------
 ## Usage
 `$ ./hate_crack.py 
 usage: python hate_crack.py <hash_file> <hash_type>`
@@ -77,6 +78,7 @@ $ ./hate_crack.py <hash file> 1000
 
 Select a task:
 ```
+-------------------------------------------------------------------
 #### Quick Crack
 * Runs a dictionary attack using all wordlists configured in your "hcatOptimizedWordlists" path
 and applies the "best64.rule", with the option of chaining the "best64.rule".
@@ -136,15 +138,7 @@ Runs a PRINCE attack using wordlists/rockyou.txt
 Runs a continuous combinator attack using random wordlists from the 
 optimized wordlists for the left and right sides.
 
-#### Add-on Tools
-wordlist_optimizer.py - parses all wordlists from `<input file list>`, sorts them by length and de-duplicates into `<output directory>`
-
-```$ python wordlist_optimizer.py
-usage: python wordlist_optimizer.py <input file list> <output directory>
-
-$ python wordlist_optimizer.py wordlists.txt ../optimized_wordlists
-```
-
+-------------------------------------------------------------------
 ### Version History
 Version 1.00
   Initial public release
