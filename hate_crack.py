@@ -529,9 +529,11 @@ def main():
                    "98": show_readme,
                    "99": quit_hc
                    }
-        task = input("\nSelect a task: ")
-        options[task]()
-
+        try:
+            task = input("\nSelect a task: ")
+            options[task]()
+        except KeyError:
+            pass
 # Boilerplate
 if __name__ == '__main__':
     main()
