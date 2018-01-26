@@ -75,17 +75,17 @@ Select a task:
 #### Quick Crack
 * Runs a dictionary attack using all wordlists configured in your "hcatOptimizedWordlists" path
 and applies the "best64.rule", with the option of chaining the "best64.rule".
-####Extensive Pure_Hate Methodology Crack
-* Runs several attack methods provided by Martin Bos (formerly known as pure_hate)
-#### Brute Force Attack (7 characters)
-#### Dictionary Attack
-  * All wordlists in "hcatOptimizedWordlists" with "best64.rule"
-  * wordlists/rockyou.txt with "d3ad0ne.rule"
-  * wordlists/rockyou.txt with "T0XlC.rule"
-#### Top Mask Attack (Target Time = 4 Hours)
-#### Fingerprint Attack
-#### Combinator Attack
-#### Hybrid Attack
+#### Extensive Pure_Hate Methodology Crack
+Runs several attack methods provided by Martin Bos (formerly known as pure_hate)
+  * Brute Force Attack (7 characters)
+  * Dictionary Attack
+    * All wordlists in "hcatOptimizedWordlists" with "best64.rule"
+    * wordlists/rockyou.txt with "d3ad0ne.rule"
+    * wordlists/rockyou.txt with "T0XlC.rule"
+  * Top Mask Attack (Target Time = 4 Hours)
+  * Fingerprint Attack
+  * Combinator Attack
+  * Hybrid Attack
 
 Extra - Just For Good Measure
 -------------------------------------------------
