@@ -2,15 +2,16 @@
 
 # Methodology provided by Martin Bos (pure_hate)
 # Original script provided by Larry Spohn (spoonman)
+# Python refactoring and general fixing, Justin Bollinger (bandrel)
 
 import subprocess
 import sys
 import os
 import signal
 import time
-import json
 import random
 import re
+import json
 
 # python2/3 compatability
 try:
@@ -20,7 +21,6 @@ except NameError:
 
 
 hate_path = os.path.dirname(os.path.realpath(__file__))
-
 with open(hate_path + '/config.json') as config:
     config_parser = json.load(config)
 

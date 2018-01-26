@@ -1,9 +1,9 @@
 {
-  "hcatPath": "/opt/hashcat-3.40/",
-  "hcatBin": "hashcat64.bin",
+  "hcatPath": "/Passwords/hashcat",
+  "hcatBin": "hashcat",
   "hcatTuning": "--force",
-  "hcatWordlists": "/mnt/extra/wordlists",
-  "hcatOptimizedWordlists": "/mnt/extra/rDownloads/new-wordlists",
+  "hcatWordlists": "/Passwords/wordlists",
+  "hcatOptimizedWordlists": "/Passwords/optimized_wordlists",
   "_comment": "Change extension to .bin for Linux and .app for OSX",
   "hcatExpanderBin": "expander.app",
   "hcatCombinatorBin": "combinator.app",
