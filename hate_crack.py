@@ -410,6 +410,9 @@ def pathwell_crack():
 
 # PRINCE Attack
 def prince_attack():
+    if not os.path.isfile(hcatWordlists + 'rockyou.txt'):
+        print("rockyou.txt not found in {0}  Please verify and try again").format(hcatWordlists)
+        return
     hcatPrince(hcatHashType, hcatHashFile)
 
 
