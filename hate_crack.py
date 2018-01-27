@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 
-# Methodology provided by Martin Bos (pure_hate)
-# Original script provided by Larry Spohn (spoonman)
-# Python refactoring and general fixing, Justin Bollinger (bandrel)
+# Methodology provided by Martin Bos (pure_hate) - https://www.trustedsec.com/team-members/martin-bos/
+# Original script created by Larry Spohn (spoonman) - https://www.trustedsec.com/team-members/larry-spohn/
+# Python refactoring and general fixing, Justin Bollinger (bandrel) - https://www.trustedsec.com/team-members/justin-bollinger/
 
 import subprocess
 import sys
