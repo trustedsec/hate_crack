@@ -19,7 +19,7 @@ make
 make install
 ```
 ### Download hate_crack
-```git clone --recursive https://github.com/trustedsec/hate_crack.git```
+```git clone https://github.com/trustedsec/hate_crack.git```
 * Customize binary and wordlist paths in "config.json"
 * Make sure that at least "rockyou.txt" is within your "wordlists" path
 ### Create Optimized Wordlists
