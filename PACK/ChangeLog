@@ -1,0 +1,8 @@
+PACK 0.0.4 August 8, 2013
+-------------------------
+
+* Rewrote maskgen to generate optimized masks in addition to custom parameters.
+* Rewrote policygen to generate non-compliant masks.
+* Rewrote rulegen to use multiple processes for significant speed improvements on multi-core systems.
+* Renamed dictstat to statsgen and removed all regular expressions for performance enhancements.
+* Rewrote statsgen to attempt policy detection.

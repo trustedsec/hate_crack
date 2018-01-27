@@ -1,0 +1,1255 @@
+## Name: prince.rule
+## Version: 1.00
+## Compatibility: hashcat v0.48+, oclHashcat v1.31+
+##
+## Description: 
+##
+## Handwritten ruleset, documented, optimized rule for use with princeprocessor
+## This rule can be used as amplifier in case you're attacking a fast hash
+
+:
+
+## Global cases
+
+l
+u
+c
+C
+t
+E
+
+## Reverse the entire word, Duplicate entire word, Duplicate word reversed
+
+r
+d
+f
+
+## Duplicate every character, multiple times
+
+q
+qq
+qqq
+
+## Swaps first two characters, Swaps last two characters, both
+
+k
+K
+kK
+
+## Deletes character at position N, up to length 15
+
+D1
+D2
+D3
+D4
+D5
+D6
+D7
+D8
+D9
+DA
+DB
+DC
+DD
+DE
+
+## Truncate word at position N, positions 8 - 15
+
+'9
+'A
+'B
+'C
+'D
+'E
+
+## Duplicates first character N times, up to 6 times
+
+z1
+z2
+z3
+z4
+z5
+z6
+
+## Duplicates last character N times, up to 6 times
+
+Z1
+Z2
+Z3
+Z4
+Z5
+Z6
+
+## Duplicates first N characters, up to 6 times
+
+y1
+y2
+y3
+y4
+y5
+y6
+
+## Duplicates last N characters, up to 6 times
+
+Y1
+Y2
+Y3
+Y4
+Y5
+Y6
+
+## Deletes first character, Deletes last character, both combined (remove mutations)
+
+[
+[ [
+[ [ [
+]
+] ]
+] ] ]
+[ ]
+[ ] [ ]
+[ ] [ ] [ ]
+
+## Deletes first character, Deletes last character, both combined (remove mutations), Capitalize word
+
+[ c
+[ [ c
+[ [ [ c
+] c
+] ] c
+] ] ] c
+[ ] c
+[ ] [ ] c
+[ ] [ ] [ ] c
+
+## Deletes first character, Deletes last character, both combined (remove mutations), Uppercase word
+
+[ u
+[ [ u
+[ [ [ u
+] u
+] ] u
+] ] ] u
+[ ] u
+[ ] [ ] u
+[ ] [ ] [ ] u
+
+## Rotates the word left and right
+
+{
+{ {
+{ { {
+}
+} }
+} } }
+
+## Rotates the word left and right, Capitalize word
+
+{ c
+{ { c
+{ { { c
+} c
+} } c
+} } } c
+
+## Rotates the word left and right, Uppercase word
+
+[ u
+[ [ u
+[ [ [ u
+] u
+] ] u
+] ] ] u
+[ ] u
+[ ] [ ] u
+[ ] [ ] [ ] u
+
+## Increment character @ N by 1 ascii value, one char, up to length 15
+
++0
++1
++2
++3
++4
++5
++6
++7
++8
++9
++A
++B
++C
++D
++E
+
+## Increment character @ N by 1 ascii value, two chars, up to length 15
+
++0 +1
++0 +2
++0 +3
++0 +4
++0 +5
++0 +6
++0 +7
++0 +8
++0 +9
++0 +A
++0 +B
++0 +C
++0 +D
++0 +E
++1 +2
++1 +3
++1 +4
++1 +5
++1 +6
++1 +7
++1 +8
++1 +9
++1 +A
++1 +B
++1 +C
++1 +D
++1 +E
++2 +3
++2 +4
++2 +5
++2 +6
++2 +7
++2 +8
++2 +9
++2 +A
++2 +B
++2 +C
++2 +D
++2 +E
++3 +4
++3 +5
++3 +6
++3 +7
++3 +8
++3 +9
++3 +A
++3 +B
++3 +C
++3 +D
++3 +E
++4 +5
++4 +6
++4 +7
++4 +8
++4 +9
++4 +A
++4 +B
++4 +C
++4 +D
++4 +E
++5 +6
++5 +7
++5 +8
++5 +9
++5 +A
++5 +B
++5 +C
++5 +D
++5 +E
++6 +7
++6 +8
++6 +9
++6 +A
++6 +B
++6 +C
++6 +D
++6 +E
++7 +8
++7 +9
++7 +A
++7 +B
++7 +C
++7 +D
++7 +E
++8 +9
++8 +A
++8 +B
++8 +C
++8 +D
++8 +E
++9 +A
++9 +B
++9 +C
++9 +D
++9 +E
++A +B
++A +C
++A +D
++A +E
++B +C
++B +D
++B +E
++C +D
++C +E
++D +E
+
+## Decrement character @ N by 1 ascii value, one char, up to length 15
+
+-0
+-1
+-2
+-3
+-4
+-5
+-6
+-7
+-8
+-9
+-A
+-B
+-C
+-D
+-E
+
+## Decrement character @ N by 1 ascii value, two chars, up to length 15
+
+-0 -1
+-0 -2
+-0 -3
+-0 -4
+-0 -5
+-0 -6
+-0 -7
+-0 -8
+-0 -9
+-0 -A
+-0 -B
+-0 -C
+-0 -D
+-0 -E
+-1 -2
+-1 -3
+-1 -4
+-1 -5
+-1 -6
+-1 -7
+-1 -8
+-1 -9
+-1 -A
+-1 -B
+-1 -C
+-1 -D
+-1 -E
+-2 -3
+-2 -4
+-2 -5
+-2 -6
+-2 -7
+-2 -8
+-2 -9
+-2 -A
+-2 -B
+-2 -C
+-2 -D
+-2 -E
+-3 -4
+-3 -5
+-3 -6
+-3 -7
+-3 -8
+-3 -9
+-3 -A
+-3 -B
+-3 -C
+-3 -D
+-3 -E
+-4 -5
+-4 -6
+-4 -7
+-4 -8
+-4 -9
+-4 -A
+-4 -B
+-4 -C
+-4 -D
+-4 -E
+-5 -6
+-5 -7
+-5 -8
+-5 -9
+-5 -A
+-5 -B
+-5 -C
+-5 -D
+-5 -E
+-6 -7
+-6 -8
+-6 -9
+-6 -A
+-6 -B
+-6 -C
+-6 -D
+-6 -E
+-7 -8
+-7 -9
+-7 -A
+-7 -B
+-7 -C
+-7 -D
+-7 -E
+-8 -9
+-8 -A
+-8 -B
+-8 -C
+-8 -D
+-8 -E
+-9 -A
+-9 -B
+-9 -C
+-9 -D
+-9 -E
+-A -B
+-A -C
+-A -D
+-A -E
+-B -C
+-B -D
+-B -E
+-C -D
+-C -E
+-D -E
+
+## Swaps character X with Y, one char, up to length 15
+
+*01
+*02
+*03
+*04
+*05
+*06
+*07
+*08
+*09
+*0A
+*0B
+*0C
+*0D
+*0E
+*12
+*13
+*14
+*15
+*16
+*17
+*18
+*19
+*1A
+*1B
+*1C
+*1D
+*1E
+*23
+*24
+*25
+*26
+*27
+*28
+*29
+*2A
+*2B
+*2C
+*2D
+*2E
+*34
+*35
+*36
+*37
+*38
+*39
+*3A
+*3B
+*3C
+*3D
+*3E
+*45
+*46
+*47
+*48
+*49
+*4A
+*4B
+*4C
+*4D
+*4E
+*56
+*57
+*58
+*59
+*5A
+*5B
+*5C
+*5D
+*5E
+*67
+*68
+*69
+*6A
+*6B
+*6C
+*6D
+*6E
+*78
+*79
+*7A
+*7B
+*7C
+*7D
+*7E
+*89
+*8A
+*8B
+*8C
+*8D
+*8E
+*9A
+*9B
+*9C
+*9D
+*9E
+*AB
+*AC
+*AD
+*AE
+*BC
+*BD
+*BE
+*CD
+*CE
+*DE
+
+## Replace all instances of X with Y (most common leetspeak chars)
+
+se3
+so0
+si1
+si!
+sa@
+se3 so0
+se3 si1
+se3 si!
+se3 sa@
+so0 si1
+so0 si!
+so0 sa@
+si1 sa@
+si! sa@
+se3 so0 si1
+se3 so0 si!
+se3 so0 sa@
+se3 si1 sa@
+se3 si! sa@
+so0 si1 sa@
+so0 si! sa@
+
+## Replace all instances of X with Y (less common leetspeak chars)
+
+sl1
+slk
+sa4
+ss2
+ss5
+se6
+sun
+
+## Replace all instances of X with Y, toggle the case of characters at position N
+
+se3 T0
+se3 T1
+se3 T2
+se3 T3
+se3 T4
+se3 T5
+se3 T6
+se3 T7
+se3 T8
+se3 T9
+se3 TA
+se3 TB
+se3 TC
+se3 TD
+se3 TE
+so0 T0
+so0 T1
+so0 T2
+so0 T3
+so0 T4
+so0 T5
+so0 T6
+so0 T7
+so0 T8
+so0 T9
+so0 TA
+so0 TB
+so0 TC
+so0 TD
+so0 TE
+si1 T0
+si1 T1
+si1 T2
+si1 T3
+si1 T4
+si1 T5
+si1 T6
+si1 T7
+si1 T8
+si1 T9
+si1 TA
+si1 TB
+si1 TC
+si1 TD
+si1 TE
+si! T0
+si! T1
+si! T2
+si! T3
+si! T4
+si! T5
+si! T6
+si! T7
+si! T8
+si! T9
+si! TA
+si! TB
+si! TC
+si! TD
+si! TE
+sa@ T0
+sa@ T1
+sa@ T2
+sa@ T3
+sa@ T4
+sa@ T5
+sa@ T6
+sa@ T7
+sa@ T8
+sa@ T9
+sa@ TA
+sa@ TB
+sa@ TC
+sa@ TD
+sa@ TE
+se3 so0 T0
+se3 so0 T1
+se3 so0 T2
+se3 so0 T3
+se3 so0 T4
+se3 so0 T5
+se3 so0 T6
+se3 so0 T7
+se3 so0 T8
+se3 so0 T9
+se3 so0 TA
+se3 so0 TB
+se3 so0 TC
+se3 so0 TD
+se3 so0 TE
+se3 si1 T0
+se3 si1 T1
+se3 si1 T2
+se3 si1 T3
+se3 si1 T4
+se3 si1 T5
+se3 si1 T6
+se3 si1 T7
+se3 si1 T8
+se3 si1 T9
+se3 si1 TA
+se3 si1 TB
+se3 si1 TC
+se3 si1 TD
+se3 si1 TE
+se3 si! T0
+se3 si! T1
+se3 si! T2
+se3 si! T3
+se3 si! T4
+se3 si! T5
+se3 si! T6
+se3 si! T7
+se3 si! T8
+se3 si! T9
+se3 si! TA
+se3 si! TB
+se3 si! TC
+se3 si! TD
+se3 si! TE
+se3 sa@ T0
+se3 sa@ T1
+se3 sa@ T2
+se3 sa@ T3
+se3 sa@ T4
+se3 sa@ T5
+se3 sa@ T6
+se3 sa@ T7
+se3 sa@ T8
+se3 sa@ T9
+se3 sa@ TA
+se3 sa@ TB
+se3 sa@ TC
+se3 sa@ TD
+se3 sa@ TE
+so0 si1 T0
+so0 si1 T1
+so0 si1 T2
+so0 si1 T3
+so0 si1 T4
+so0 si1 T5
+so0 si1 T6
+so0 si1 T7
+so0 si1 T8
+so0 si1 T9
+so0 si1 TA
+so0 si1 TB
+so0 si1 TC
+so0 si1 TD
+so0 si1 TE
+so0 si! T0
+so0 si! T1
+so0 si! T2
+so0 si! T3
+so0 si! T4
+so0 si! T5
+so0 si! T6
+so0 si! T7
+so0 si! T8
+so0 si! T9
+so0 si! TA
+so0 si! TB
+so0 si! TC
+so0 si! TD
+so0 si! TE
+so0 sa@ T0
+so0 sa@ T1
+so0 sa@ T2
+so0 sa@ T3
+so0 sa@ T4
+so0 sa@ T5
+so0 sa@ T6
+so0 sa@ T7
+so0 sa@ T8
+so0 sa@ T9
+so0 sa@ TA
+so0 sa@ TB
+so0 sa@ TC
+so0 sa@ TD
+so0 sa@ TE
+si1 sa@ T0
+si1 sa@ T1
+si1 sa@ T2
+si1 sa@ T3
+si1 sa@ T4
+si1 sa@ T5
+si1 sa@ T6
+si1 sa@ T7
+si1 sa@ T8
+si1 sa@ T9
+si1 sa@ TA
+si1 sa@ TB
+si1 sa@ TC
+si1 sa@ TD
+si1 sa@ TE
+si! sa@ T0
+si! sa@ T1
+si! sa@ T2
+si! sa@ T3
+si! sa@ T4
+si! sa@ T5
+si! sa@ T6
+si! sa@ T7
+si! sa@ T8
+si! sa@ T9
+si! sa@ TA
+si! sa@ TB
+si! sa@ TC
+si! sa@ TD
+si! sa@ TE
+se3 so0 si1 T0
+se3 so0 si1 T1
+se3 so0 si1 T2
+se3 so0 si1 T3
+se3 so0 si1 T4
+se3 so0 si1 T5
+se3 so0 si1 T6
+se3 so0 si1 T7
+se3 so0 si1 T8
+se3 so0 si1 T9
+se3 so0 si1 TA
+se3 so0 si1 TB
+se3 so0 si1 TC
+se3 so0 si1 TD
+se3 so0 si1 TE
+se3 so0 si! T0
+se3 so0 si! T1
+se3 so0 si! T2
+se3 so0 si! T3
+se3 so0 si! T4
+se3 so0 si! T5
+se3 so0 si! T6
+se3 so0 si! T7
+se3 so0 si! T8
+se3 so0 si! T9
+se3 so0 si! TA
+se3 so0 si! TB
+se3 so0 si! TC
+se3 so0 si! TD
+se3 so0 si! TE
+se3 so0 sa@ T0
+se3 so0 sa@ T1
+se3 so0 sa@ T2
+se3 so0 sa@ T3
+se3 so0 sa@ T4
+se3 so0 sa@ T5
+se3 so0 sa@ T6
+se3 so0 sa@ T7
+se3 so0 sa@ T8
+se3 so0 sa@ T9
+se3 so0 sa@ TA
+se3 so0 sa@ TB
+se3 so0 sa@ TC
+se3 so0 sa@ TD
+se3 so0 sa@ TE
+se3 si1 sa@ T0
+se3 si1 sa@ T1
+se3 si1 sa@ T2
+se3 si1 sa@ T3
+se3 si1 sa@ T4
+se3 si1 sa@ T5
+se3 si1 sa@ T6
+se3 si1 sa@ T7
+se3 si1 sa@ T8
+se3 si1 sa@ T9
+se3 si1 sa@ TA
+se3 si1 sa@ TB
+se3 si1 sa@ TC
+se3 si1 sa@ TD
+se3 si1 sa@ TE
+se3 si! sa@ T0
+se3 si! sa@ T1
+se3 si! sa@ T2
+se3 si! sa@ T3
+se3 si! sa@ T4
+se3 si! sa@ T5
+se3 si! sa@ T6
+se3 si! sa@ T7
+se3 si! sa@ T8
+se3 si! sa@ T9
+se3 si! sa@ TA
+se3 si! sa@ TB
+se3 si! sa@ TC
+se3 si! sa@ TD
+se3 si! sa@ TE
+so0 si1 sa@ T0
+so0 si1 sa@ T1
+so0 si1 sa@ T2
+so0 si1 sa@ T3
+so0 si1 sa@ T4
+so0 si1 sa@ T5
+so0 si1 sa@ T6
+so0 si1 sa@ T7
+so0 si1 sa@ T8
+so0 si1 sa@ T9
+so0 si1 sa@ TA
+so0 si1 sa@ TB
+so0 si1 sa@ TC
+so0 si1 sa@ TD
+so0 si1 sa@ TE
+so0 si! sa@ T0
+so0 si! sa@ T1
+so0 si! sa@ T2
+so0 si! sa@ T3
+so0 si! sa@ T4
+so0 si! sa@ T5
+so0 si! sa@ T6
+so0 si! sa@ T7
+so0 si! sa@ T8
+so0 si! sa@ T9
+so0 si! sa@ TA
+so0 si! sa@ TB
+so0 si! sa@ TC
+so0 si! sa@ TD
+so0 si! sa@ TE
+
+## Toggle the case of characters at position N, one char, up to position 15
+
+T0
+T1
+T2
+T3
+T4
+T5
+T6
+T7
+T8
+T9
+TA
+TB
+TC
+TD
+TE
+
+## Toggle the case of characters at position N, two chars, up to position 15
+
+T0 T1
+T0 T2
+T0 T3
+T0 T4
+T0 T5
+T0 T6
+T0 T7
+T0 T8
+T0 T9
+T0 TA
+T0 TB
+T0 TC
+T0 TD
+T0 TE
+T1 T2
+T1 T3
+T1 T4
+T1 T5
+T1 T6
+T1 T7
+T1 T8
+T1 T9
+T1 TA
+T1 TB
+T1 TC
+T1 TD
+T1 TE
+T2 T3
+T2 T4
+T2 T5
+T2 T6
+T2 T7
+T2 T8
+T2 T9
+T2 TA
+T2 TB
+T2 TC
+T2 TD
+T2 TE
+T3 T4
+T3 T5
+T3 T6
+T3 T7
+T3 T8
+T3 T9
+T3 TA
+T3 TB
+T3 TC
+T3 TD
+T3 TE
+T4 T5
+T4 T6
+T4 T7
+T4 T8
+T4 T9
+T4 TA
+T4 TB
+T4 TC
+T4 TD
+T4 TE
+T5 T6
+T5 T7
+T5 T8
+T5 T9
+T5 TA
+T5 TB
+T5 TC
+T5 TD
+T5 TE
+T6 T7
+T6 T8
+T6 T9
+T6 TA
+T6 TB
+T6 TC
+T6 TD
+T6 TE
+T7 T8
+T7 T9
+T7 TA
+T7 TB
+T7 TC
+T7 TD
+T7 TE
+T8 T9
+T8 TA
+T8 TB
+T8 TC
+T8 TD
+T8 TE
+T9 TA
+T9 TB
+T9 TC
+T9 TD
+T9 TE
+TA TB
+TA TC
+TA TD
+TA TE
+TB TC
+TB TD
+TB TE
+TC TD
+TC TE
+TD TE
+
+## Inserts character X at position N (passphrase maker), one char, up to length 15
+
+i0      :
+i1      :
+i2      :
+i3      :
+i4      :
+i5      :
+i6      :
+i7      :
+i8      :
+i9      :
+iA      :
+iB      :
+iC      :
+iD      :
+iE      :
+
+## Inserts character X at position N (passphrase maker), two chars, up to length 15
+
+i0  i1  :
+i0  i2  :
+i0  i3  :
+i0  i4  :
+i0  i5  :
+i0  i6  :
+i0  i7  :
+i0  i8  :
+i0  i9  :
+i0  iA  :
+i0  iB  :
+i0  iC  :
+i0  iD  :
+i0  iE  :
+i1  i2  :
+i1  i3  :
+i1  i4  :
+i1  i5  :
+i1  i6  :
+i1  i7  :
+i1  i8  :
+i1  i9  :
+i1  iA  :
+i1  iB  :
+i1  iC  :
+i1  iD  :
+i1  iE  :
+i2  i3  :
+i2  i4  :
+i2  i5  :
+i2  i6  :
+i2  i7  :
+i2  i8  :
+i2  i9  :
+i2  iA  :
+i2  iB  :
+i2  iC  :
+i2  iD  :
+i2  iE  :
+i3  i4  :
+i3  i5  :
+i3  i6  :
+i3  i7  :
+i3  i8  :
+i3  i9  :
+i3  iA  :
+i3  iB  :
+i3  iC  :
+i3  iD  :
+i3  iE  :
+i4  i5  :
+i4  i6  :
+i4  i7  :
+i4  i8  :
+i4  i9  :
+i4  iA  :
+i4  iB  :
+i4  iC  :
+i4  iD  :
+i4  iE  :
+i5  i6  :
+i5  i7  :
+i5  i8  :
+i5  i9  :
+i5  iA  :
+i5  iB  :
+i5  iC  :
+i5  iD  :
+i5  iE  :
+i6  i7  :
+i6  i8  :
+i6  i9  :
+i6  iA  :
+i6  iB  :
+i6  iC  :
+i6  iD  :
+i6  iE  :
+i7  i8  :
+i7  i9  :
+i7  iA  :
+i7  iB  :
+i7  iC  :
+i7  iD  :
+i7  iE  :
+i8  i9  :
+i8  iA  :
+i8  iB  :
+i8  iC  :
+i8  iD  :
+i8  iE  :
+i9  iA  :
+i9  iB  :
+i9  iC  :
+i9  iD  :
+i9  iE  :
+iA  iB  :
+iA  iC  :
+iA  iD  :
+iA  iE  :
+iB  iC  :
+iB  iD  :
+iB  iE  :
+iC  iD  :
+iC  iE  :
+iD  iE  :
+
+## Inserts character X at position N (passphrase maker), one char, up to length 15
+
+i0-     :
+i1-     :
+i2-     :
+i3-     :
+i4-     :
+i5-     :
+i6-     :
+i7-     :
+i8-     :
+i9-     :
+iA-     :
+iB-     :
+iC-     :
+iD-     :
+iE-     :
+
+## Inserts character X at position N (passphrase maker), two chars, up to length 15
+
+i0- i1- :
+i0- i2- :
+i0- i3- :
+i0- i4- :
+i0- i5- :
+i0- i6- :
+i0- i7- :
+i0- i8- :
+i0- i9- :
+i0- iA- :
+i0- iB- :
+i0- iC- :
+i0- iD- :
+i0- iE- :
+i1- i2- :
+i1- i3- :
+i1- i4- :
+i1- i5- :
+i1- i6- :
+i1- i7- :
+i1- i8- :
+i1- i9- :
+i1- iA- :
+i1- iB- :
+i1- iC- :
+i1- iD- :
+i1- iE- :
+i2- i3- :
+i2- i4- :
+i2- i5- :
+i2- i6- :
+i2- i7- :
+i2- i8- :
+i2- i9- :
+i2- iA- :
+i2- iB- :
+i2- iC- :
+i2- iD- :
+i2- iE- :
+i3- i4- :
+i3- i5- :
+i3- i6- :
+i3- i7- :
+i3- i8- :
+i3- i9- :
+i3- iA- :
+i3- iB- :
+i3- iC- :
+i3- iD- :
+i3- iE- :
+i4- i5- :
+i4- i6- :
+i4- i7- :
+i4- i8- :
+i4- i9- :
+i4- iA- :
+i4- iB- :
+i4- iC- :
+i4- iD- :
+i4- iE- :
+i5- i6- :
+i5- i7- :
+i5- i8- :
+i5- i9- :
+i5- iA- :
+i5- iB- :
+i5- iC- :
+i5- iD- :
+i5- iE- :
+i6- i7- :
+i6- i8- :
+i6- i9- :
+i6- iA- :
+i6- iB- :
+i6- iC- :
+i6- iD- :
+i6- iE- :
+i7- i8- :
+i7- i9- :
+i7- iA- :
+i7- iB- :
+i7- iC- :
+i7- iD- :
+i7- iE- :
+i8- i9- :
+i8- iA- :
+i8- iB- :
+i8- iC- :
+i8- iD- :
+i8- iE- :
+i9- iA- :
+i9- iB- :
+i9- iC- :
+i9- iD- :
+i9- iE- :
+iA- iB- :
+iA- iC- :
+iA- iD- :
+iA- iE- :
+iB- iC- :
+iB- iD- :
+iB- iE- :
+iC- iD- :
+iC- iE- :
+iD- iE- :

@@ -1,0 +1,55 @@
+* v0.20 -> v0.21:
+
+- Exit if stdout is closed or has a error
+- Fix for "Bug --pw-min" issue
+- Print position when stopped
+- Allow wordlist as fileparameter
+- Load only NUM words from input wordlist or use 0 to disable
+
+* v0.19 -> v0.20:
+
+- Add dupe suppression
+- Add a fake-GMP header using uint128_t macros. This is to replace depency on GMP
+- Add --case-permute amplifier option, default is disabled
+- Fixed buffer overflow
+- Fixed accidental reverted changes
+- Fixed a bug where ee actually couldn't correctly support output longer than 31 but 32 is supported
+- More memory savings: Use only the actual space needed for each word
+
+* v0.18 -> v0.19:
+
+- Fixed missing free() in shutdown section
+- Fixed wrong version number in source
+- Fixed discrepancies with logic and error messages
+- Added validation check pw-max > elem-cnt-max
+- Untie IN_LEN_* from PW_* to allow --pw-max > 16 without recompilation
+- If out of memory, tell how much we tried to allocate
+- Allow hex input for --skip and --limit
+- Optimized output performance
+
+* v0.17 -> v0.18:
+
+- Fixed major bug where all candidates are of the same length till chain changes
+
+* v0.16 -> v0.17:
+
+- Fixed download url for binaries in README
+- Fixed copy paste bug in input verification
+- Fixed bug where pw_orders is not sorted
+- Fixed memory leak
+- Removed O_BINARY for stderr
+- Removed some unused code
+- Renamed variables so that they match the meaning from the presentation slides
+- Optimized seeking performance
+- Optimized output performance
+
+* v0.15 -> v0.16:
+
+- Open Source the project
+- License is MIT
+- Moved repository to github: https://github.com/jsteube/princeprocessor
+- Added CHANGES
+- Added LICENSE
+- Added README.md
+- Changed default value for --pw-max from 24 to 16 for faster startup time
+
