@@ -33,6 +33,15 @@ with open(hate_path + '/config.json') as config:
     hcatCombinatorBin = config_parser['hcatCombinatorBin']
     hcatPrinceBin = config_parser['hcatPrinceBin']
 
+# hashcat biniary checks for systems that install hashcat binary in different location than the rest of the hashcat files
+if os.path.isfile(hcatBin):
+    pass
+elif os.path.isfile(hcatPath.rstrip('/') + '/' + hcatBin):
+    hcatBin = hcatPath.rstrip('/') + '/' + hcatBin
+else:
+    print('Invalid path for hashcat biniary. Please check configuration and try again.')
+    quit(1)
+
 hcatHashCount = 0
 hcatHashCracked = 0
 hcatBruteCount = 0
@@ -63,7 +72,7 @@ def ascii_art():
  \___|_  /(____  /__|  \___  >____\______  /|__|  (____  /\___  >__|_ \
        \/      \/          \/_____/      \/            \/     \/     \/
                          Public Release
-                          Version 1.00
+                          Version 1.01
   """)
 
 
@@ -83,9 +92,15 @@ def hcatBruteForce(hcatHashType, hcatHashFile, hcatMinLen, hcatMaxLen):
     global hcatBruteCount
     global hcatProcess
     hcatProcess = subprocess.Popen(
-        "%s/%s -m %s %s --remove -o %s.out --increment --increment-min=%s --increment-max=%s -a 3 ?a?a?a?a?a?a?a?a?a?a?a?a?a?a %s --potfile-path=%s/hashcat.pot" % (
-            hcatPath, hcatBin, hcatHashType, hcatHashFile, hcatHashFile, hcatMinLen, hcatMaxLen, hcatTuning, hate_path),
-        shell=True).wait()
+        "{hcbin} -m {hash_type} {hash_file} --remove -o {hash_file}.out --increment --increment-min={min} "
+        "--increment-max={max} -a 3 ?a?a?a?a?a?a?a?a?a?a?a?a?a?a {hcatTuning} --potfile-path={hate_path}/hashcat.pot".format(
+            hcbin=hcatBin,
+            hash_type=hcatHashType,
+            hash_file=hcatHashFile,
+            min=hcatMinLen,
+            max=hcatMaxLen,
+            tuning=hcatTuning,
+            hate_path='hate_path'), shell=True).wait()
     hcatBruteCount = lineCount(hcatHashFile + ".out")
 
 
@@ -94,45 +109,78 @@ def hcatDictionary(hcatHashType, hcatHashFile):
     global hcatDictionaryCount
     global hcatProcess
     hcatProcess = subprocess.Popen(
-        "%s/%s -m %s %s --remove -o %s.out %s/* -r %s/rules/best64.rule %s --potfile-path=%s/hashcat.pot" % (
-            hcatPath, hcatBin, hcatHashType, hcatHashFile, hcatHashFile, hcatOptimizedWordlists, hcatPath, hcatTuning,
-            hate_path), shell=True).wait()
+        "{hcbin} -m {hcatHashType} {hash_file} --remove -o {hash_file}.out {optimized_wordlists}/* "
+        "-r {hcatPath}/rules/best64.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+            hcatPath=hcatPath,
+            hcatBin=hcatBin,
+            hcatHashType=hcatHashType,
+            hcatHashFile=hcatHashFile,
+            optimized_wordlists=hcatOptimizedWordlists,
+            tuning=hcatTuning,
+            hate_path=hate_path), shell=True).wait()
+
     hcatProcess = subprocess.Popen(
-        "%s/%s -m %s %s --remove -o %s.out %s/rockyou.txt -r %s/rules/d3ad0ne.rule %s --potfile-path=%s/hashcat.pot" % (
-            hcatPath, hcatBin, hcatHashType, hcatHashFile, hcatHashFile, hcatWordlists, hcatPath, hcatTuning,
-            hate_path),
-        shell=True).wait()
+        "{hcatBin} -m {hcatHashType} {hash_file} --remove -o {hash_file}.out {hcatWordlists}/rockyou.txt "
+        "-r {hcatPath}/rules/d3ad0ne.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+            hcatBin=hcatBin,
+            hcatHashType=hcatHashType,
+            hash_file=hcatHashFile,
+            hcatWordlists=hcatWordlists,
+            tuning=hcatTuning,
+            hate_path=hate_path), shell=True).wait()
+
     hcatProcess = subprocess.Popen(
-        "%s/%s -m %s %s --remove -o %s.out %s/rockyou.txt -r %s/rules/T0XlC.rule %s --potfile-path=%s/hashcat.pot" % (
-            hcatPath, hcatBin, hcatHashType, hcatHashFile, hcatHashFile, hcatWordlists, hcatPath, hcatTuning,
-            hate_path),
-        shell=True).wait()
+        "{hcatBin} -m {hcatHashType} {hash_file} --remove -o {hash_file}.out {hcatWordlists}/rockyou.txt "
+        "-r {hcatPath}/rules/T0XlC.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+            hcatBin=hcatBin,
+            hcatHashType=hcatHashType,
+            hash_file=hcatHashFile,
+            hcatWordlists=hcatWordlists,
+            tuning=hcatTuning,
+            hate_path=hate_path), shell=True).wait()
     hcatDictionaryCount = lineCount(hcatHashFile + ".out") - hcatBruteCount
 
 
 # Quick Dictionary Attack (Optional Chained Rules)
 def hcatQuickDictionary(hcatHashType, hcatHashFile, hcatChains):
     global hcatProcess
-    hcatProcess = subprocess.Popen("%s/%s -m %s %s --remove -o %s.out %s/* %s %s --potfile-path=%s/hashcat.pot" % (
-        hcatPath, hcatBin, hcatHashType, hcatHashFile, hcatHashFile, hcatOptimizedWordlists, hcatChains, hcatTuning,
-        hate_path), shell=True).wait()
+    hcatProcess = subprocess.Popen(
+        "{hcatBin} -m {hcatHashType} {hash_file} --remove -o {hash_file}.out {optimized_wordlists}/* {chains} "
+        "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
+            hcatBin=hcatBin,
+            hcatHashType=hcatHashType,
+            hash_file=hcatHashFile,
+            optimized_wordlists=hcatOptimizedWordlists,
+            chains=hcatChains,
+            tuning=hcatTuning,
+            hate_path=hate_path), shell=True).wait()
 
 
 # Top Mask Attack
 def hcatTopMask(hcatHashType, hcatHashFile, hcatTargetTime):
     global hcatMaskCount
     global hcatProcess
-    hcatProcess = subprocess.Popen("cat %s.out | cut -d : -f 2 > %s.working" % (hcatHashFile, hcatHashFile),
-                                   shell=True).wait()
     hcatProcess = subprocess.Popen(
-        "%s/PACK/statsgen.py %s.working -o %s.masks" % (hate_path, hcatHashFile, hcatHashFile), shell=True).wait()
+        "cat {hash_file}.out | cut -d : -f 2 > {hash_file}.working".format(
+            hash_file=hcatHashFile), shell=True).wait()
     hcatProcess = subprocess.Popen(
-        "%s/PACK/maskgen.py %s.masks --targettime %s --optindex -q --pps 14000000000 --minlength=7 -o %s.hcmask" % (
-            hate_path, hcatHashFile, hcatTargetTime, hcatHashFile), shell=True).wait()
+        "{hate_path}/PACK/statsgen.py {hash_file}.working -o {hash_file}.masks".format(
+            hash_file=hcatHashFile,
+            hate_path=hate_path), shell=True).wait()
     hcatProcess = subprocess.Popen(
-        "%s/%s -m %s %s --remove -o %s.out -a 3 %s.hcmask %s --potfile-path=%s/hashcat.pot" % (
-            hcatPath, hcatBin, hcatHashType, hcatHashFile, hcatHashFile, hcatHashFile, hcatTuning, hate_path),
-        shell=True).wait()
+        "{hate_path}/PACK/maskgen.py {hash_file}.masks --targettime {target_time} --optindex -q --pps 14000000000 "
+        "--minlength=7 -o {hash_file}.hcmask".format(
+            hash_file=hcatHashFile,
+            target_time=hcatTargetTime,
+            hate_path=hate_path), shell=True).wait()
+    hcatProcess = subprocess.Popen(
+        "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 3 {hash_file}.hcmask {tuning} "
+        "--potfile-path={hate_path}/hashcat.pot".format(
+            hcatBin=hcatBin,
+            hash_type=hcatHashType,
+            hash_file=hcatHashFile,
+            tuning=hcatTuning,
+            hate_path=hate_path), shell=True).wait()
     hcatMaskCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
 
@@ -144,14 +192,21 @@ def hcatFingerprint(hcatHashType, hcatHashFile):
     crackedAfter = 0
     while crackedBefore != crackedAfter:
         crackedBefore = lineCount(hcatHashFile + ".out")
-        hcatProcess = subprocess.Popen("cat %s.out | cut -d : -f 2 > %s.working" % (hcatHashFile, hcatHashFile),
-                                       shell=True).wait()
-        hcatProcess = subprocess.Popen("%s/hashcat-utils/bin/%s < %s.working | sort -u > %s.expanded" % (
-            hate_path, hcatExpanderBin, hcatHashFile, hcatHashFile), shell=True).wait()
+        hcatProcess = subprocess.Popen("cat {hash_file}.out | cut -d : -f 2 > {hash_file}.working".format(
+            hash_file=hcatHashFile), shell=True).wait()
         hcatProcess = subprocess.Popen(
-            "%s/%s -m %s %s --remove -o %s.out -a 1 %s.expanded %s.expanded %s --potfile-path=%s/hashcat.pot" % (
-                hcatPath, hcatBin, hcatHashType, hcatHashFile, hcatHashFile, hcatHashFile, hcatHashFile, hcatTuning,
-                hate_path), shell=True).wait()
+            "{hate_path}/hashcat-utils/bin/{expander_bin} < {hash_file}.working | sort -u > {hash_file}.expanded".format(
+                expander_bin=hcatExpanderBin,
+                hash_file=hcatHashFile,
+                hate_path=hate_path), shell=True).wait()
+        hcatProcess = subprocess.Popen(
+            "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 1 {hash_file}.expanded "
+            "{hash_file}.expanded {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+                hcatBin=hcatBin,
+                hash_type=hcatHashType,
+                hash_file=hcatHashFile,
+                tuning=hcatTuning,
+                hate_path=hate_path), shell=True).wait()
         crackedAfter = lineCount(hcatHashFile + ".out")
     hcatFingerprintCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
@@ -161,9 +216,15 @@ def hcatCombination(hcatHashType, hcatHashFile):
     global hcatCombinationCount
     global hcatProcess
     hcatProcess = subprocess.Popen(
-        "%s/%s -m %s %s --remove -o %s.out -a 1 %s/rockyou.txt %s/rockyou.txt %s --potfile-path=%s/hashcat.pot" % (
-            hcatPath, hcatBin, hcatHashType, hcatHashFile, hcatHashFile, hcatWordlists, hcatWordlists, hcatTuning,
-            hate_path), shell=True).wait()
+        "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 1 {word_lists}/rockyou.txt "
+        "{word_lists}/rockyou.txt {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+            hcatBin=hcatBin,
+            hash_type=hcatHashType,
+            hash_file=hcatHashFile,
+            word_lists=hcatWordlists,
+            tuning=hcatTuning,
+            hate_path=hate_path),
+        shell=True).wait()
     hcatCombinationCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
 
@@ -172,29 +233,59 @@ def hcatHybrid(hcatHashType, hcatHashFile):
     global hcatHybridCount
     global hcatProcess
     hcatProcess = subprocess.Popen(
-        "%s/%s -m %s %s --remove -o %s.out -a 6 -1 ?s?d %s/rockyou.txt ?1?1 %s --potfile-path=%s/hashcat.pot" % (
-            hcatPath, hcatBin, hcatHashType, hcatHashFile, hcatHashFile, hcatWordlists, hcatTuning, hate_path),
-        shell=True).wait()
+        "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 6 -1 ?s?d {word_lists}/rockyou.txt ?1?1 "
+        "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
+            hcatBin=hcatBin,
+            hash_type=hcatHashType,
+            hash_file=hcatHashFile,
+            word_lists=hcatWordlists,
+            tuning=hcatTuning,
+            hate_path=hate_path), shell=True).wait()
     hcatProcess = subprocess.Popen(
-        "%s/%s -m %s %s --remove -o %s.out -a 6 -1 ?s?d %s/rockyou.txt ?1?1?1 %s --potfile-path=%s/hashcat.pot" % (
-            hcatPath, hcatBin, hcatHashType, hcatHashFile, hcatHashFile, hcatWordlists, hcatTuning, hate_path),
-        shell=True).wait()
+        "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 6 -1 ?s?d {word_lists}/rockyou.txt ?1?1?1 "
+        "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
+            hcatBin=hcatBin,
+            hash_type=hcatHashType,
+            hash_file=hcatHashFile,
+            word_lists=hcatWordlists,
+            tuning=hcatTuning,
+            hate_path=hate_path), shell=True).wait()
     hcatProcess = subprocess.Popen(
-        "%s/%s -m %s %s --remove -o %s.out -a 6 -1 ?s?d %s/rockyou.txt ?1?1?1?1 %s --potfile-path=%s/hashcat.pot" % (
-            hcatPath, hcatBin, hcatHashType, hcatHashFile, hcatHashFile, hcatWordlists, hcatTuning, hate_path),
-        shell=True).wait()
+        "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 6 -1 ?s?d {word_lists}/rockyou.txt "
+        "?1?1?1?1 {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+            hcatBin=hcatBin,
+            hash_type=hcatHashType,
+            hash_file=hcatHashFile,
+            word_lists=hcatWordlists,
+            tuning=hcatTuning,
+            hate_path=hate_path), shell=True).wait()
     hcatProcess = subprocess.Popen(
-        "%s/%s -m %s %s --remove -o %s.out -a 7 -1 ?s?d ?1?1 %s/rockyou.txt %s --potfile-path=%s/hashcat.pot" % (
-            hcatPath, hcatBin, hcatHashType, hcatHashFile, hcatHashFile, hcatWordlists, hcatTuning, hate_path),
-        shell=True).wait()
+        "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 7 -1 ?s?d ?1?1 {word_lists}/rockyou.txt "
+        "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
+            hcatBin=hcatBin,
+            hash_type=hcatHashType,
+            hash_file=hcatHashFile,
+            word_lists=hcatWordlists,
+            tuning=hcatTuning,
+            hate_path=hate_path), shell=True).wait()
     hcatProcess = subprocess.Popen(
-        "%s/%s -m %s %s --remove -o %s.out -a 7 -1 ?s?d ?1?1?1 %s/rockyou.txt %s --potfile-path=%s/hashcat.pot" % (
-            hcatPath, hcatBin, hcatHashType, hcatHashFile, hcatHashFile, hcatWordlists, hcatTuning, hate_path),
-        shell=True).wait()
+        "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 7 -1 ?s?d ?1?1?1 {word_lists}/rockyou.txt "
+        "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
+            hcatBin=hcatBin,
+            hash_type=hcatHashType,
+            hash_file=hcatHashFile,
+            word_lists=hcatWordlists,
+            tuning=hcatTuning,
+            hate_path=hate_path), shell=True).wait()
     hcatProcess = subprocess.Popen(
-        "%s/%s -m %s %s --remove -o %s.out -a 7 -1 ?s?d ?1?1?1?1 %s/rockyou.txt %s --potfile-path=%s/hashcat.pot" % (
-            hcatPath, hcatBin, hcatHashType, hcatHashFile, hcatHashFile, hcatWordlists, hcatTuning, hate_path),
-        shell=True).wait()
+        "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 7 -1 ?s?d ?1?1?1?1 {word_lists}/rockyou.txt "
+        "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
+            hcatBin=hcatBin,
+            hash_type=hcatHashType,
+            hash_file=hcatHashFile,
+            word_lists=hcatWordlists,
+            tuning=hcatTuning,
+            hate_path=hate_path), shell=True).wait()
     hcatHybridCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
 
@@ -205,18 +296,29 @@ def hcatYoloCombination(hcatHashType, hcatHashFile):
         hcatLeft = random.choice(os.listdir(hcatOptimizedWordlists))
         hcatRight = random.choice(os.listdir(hcatOptimizedWordlists))
         hcatProcess = subprocess.Popen(
-            "%s/%s -m %s %s --remove -o %s.out -a 1 %s/%s %s/%s %s --potfile-path=%s/hashcat.pot" % (
-                hcatPath, hcatBin, hcatHashType, hcatHashFile, hcatHashFile, hcatOptimizedWordlists, hcatLeft,
-                hcatOptimizedWordlists, hcatRight, hcatTuning, hate_path), shell=True).wait()
-
+            "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 1 {optimized_lists}/{left} "
+            "{optimized_lists}/{right} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+                hcatBin=hcatBin,
+                hash_type=hcatHashType,
+                hash_file=hcatHashFile,
+                word_lists=hcatWordlists,
+                optimized_lists=hcatOptimizedWordlists,
+                tuning=hcatTuning,
+                left=hcatLeft,
+                right=hcatRight,
+                hate_path=hate_path), shell=True).wait()
 
 # Pathwell Mask Brute Force Attack
 def hcatPathwellBruteForce(hcatHashType, hcatHashFile):
     global hcatProcess
     hcatProcess = subprocess.Popen(
-        "%s/%s -m %s %s --remove -o %s.out -a 3 %s/masks/pathwell.hcmask %s --potfile-path=%s/hashcat.pot" % (
-            hcatPath, hcatBin, hcatHashType, hcatHashFile, hcatHashFile, hate_path, hcatTuning, hate_path),
-        shell=True).wait()
+        "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 3 {hate_path}/masks/pathwell.hcmask "
+        "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
+            hcatBin=hcatBin,
+            hash_type=hcatHashType,
+            hash_file=hcatHashFile,
+            tuning=hcatTuning,
+            hate_path=hate_path), shell=True).wait()
 
 
 # PRINCE Attack
@@ -224,10 +326,17 @@ def hcatPrince(hcatHashType, hcatHashFile):
     global hcatProcess
     hcatHashCracked = lineCount(hcatHashFile + ".out")
     hcatProcess = subprocess.Popen(
-        "%s/princeprocessor/%s --case-permute --elem-cnt-min=1 --elem-cnt-max=16 -c < %s/rockyou.txt |%s/%s -m %s %s --remove -o %s.out -r %s/princeprocessor/rules/prince_optimized.rule %s --potfile-path=%s/hashcat.pot" % (
-            hate_path, hcatPrinceBin, hcatWordlists, hcatPath, hcatBin, hcatHashType, hcatHashFile, hcatHashFile,
-            hate_path,
-            hcatTuning, hate_path), shell=True).wait()
+        "{hate_path}/princeprocessor/{prince_bin} --case-permute --elem-cnt-min=1 --elem-cnt-max=16 -c < "
+        "{word_lists}/rockyou.txt | {hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out "
+        "-r {hate_path}/princeprocessor/rules/prince_optimized.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+            hcatBin=hcatBin,
+            prince_bin=hcatPrinceBin,
+            hash_type=hcatHashType,
+            hash_file=hcatHashFile,
+            word_lists=hcatWordlists,
+            optimized_lists=hcatOptimizedWordlists,
+            tuning=hcatTuning,
+            hate_path=hate_path), shell=True).wait()
 
 
 # Extra - Good Measure
@@ -235,30 +344,57 @@ def hcatGoodMeasure(hcatHashType, hcatHashFile):
     global hcatExtraCount
     global hcatProcess
     hcatProcess = subprocess.Popen(
-        "%s/%s -m %s %s --remove -o %s.out -r %s/rules/combinator.rule -r %s/rules/InsidePro-PasswordsPro.rule %s/rockyou.txt %s --potfile-path=%s/hashcat.pot" % (
-            hcatPath, hcatBin, hcatHashType, hcatHashFile, hcatHashFile, hcatPath, hcatPath, hcatWordlists, hcatTuning,
-            hate_path), shell=True).wait()
+        "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -r {hate_path}/rules/combinator.rule "
+        "-r {hate_path}/rules/InsidePro-PasswordsPro.rule {wordlists}/rockyou.txt {tuning} "
+        "--potfile-path={hate_path}/hashcat.pot".format(
+            hcatBin=hcatBin,
+            hash_type=hcatHashType,
+            hash_file=hcatHashFile,
+            word_lists=hcatWordlists,
+            tuning=hcatTuning,
+            hate_path=hate_path), shell=True).wait()
     hcatExtraCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
 
 # LanMan to NT Attack
 def hcatLMtoNT():
     global hcatProcess
-    hcatProcess = subprocess.Popen("%s/%s --show --potfile-path=%s/hashcat.pot -m 3000 %s.lm >%s.lm.cracked" % (
-        hcatPath, hcatBin, hate_path, hcatHashFile, hcatHashFile), shell=True).wait()
     hcatProcess = subprocess.Popen(
-        "%s/%s -m 3000 %s.lm --remove -o %s.lm.cracked -1 ?u?d?s --increment -a 3 ?1?1?1?1?1?1?1 %s --potfile-path=%s/hashcat.pot" % (
-            hcatPath, hcatBin, hcatHashFile, hcatHashFile, hcatTuning, hate_path), shell=True).wait()
-    hcatProcess = subprocess.Popen("cat %s.lm.cracked | cut -d : -f 2 > %s.working" % (hcatHashFile, hcatHashFile),
-                                   shell=True).wait()
-    hcatProcess = subprocess.Popen("%s/hashcat-utils/bin/%s %s.working %s.working | sort -u > %s.combined" % (
-        hate_path, hcatCombinatorBin, hcatHashFile, hcatHashFile, hcatHashFile), shell=True).wait()
-    hcatProcess = subprocess.Popen("%s/%s --show --potfile-path=%s/hashcat.pot -m 1000 %s.nt >%s.nt.out" % (
-        hcatPath, hcatBin, hate_path, hcatHashFile, hcatHashFile), shell=True).wait()
+        "{hcatBin} --show --potfile-path={hate_path}/hashcat.pot -m 3000 {hash_file}.lm > {hash_file}.lm.cracked".format(
+            hcatBin=hcatBin,
+            hash_file=hcatHashFile,
+            hate_path=hate_path), shell=True).wait()
     hcatProcess = subprocess.Popen(
-        "%s/%s -m 1000 %s.nt --remove -o %s.nt.out %s.combined -r %s/rules/toggles-lm-ntlm.rule %s --potfile-path=%s/hashcat.pot" % (
-            hcatPath, hcatBin, hcatHashFile, hcatHashFile, hcatHashFile, hate_path, hcatTuning, hate_path),
-        shell=True).wait()
+        "{hcatBin} -m 3000 {hash_file}.lm --remove -o {hash_file}.lm.cracked -1 ?u?d?s --increment -a 3 ?1?1?1?1?1?1?1 "
+        "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
+            hcatBin=hcatBin,
+            hash_file=hcatHashFile,
+            tuning=hcatTuning,
+            hate_path=hate_path), shell=True).wait()
+    hcatProcess = subprocess.Popen("cat {hash_file}.lm.cracked | cut -d : -f 2 > {hash_file}.working".format(
+        hash_file=hcatHashFile), shell=True).wait()
+    hcatProcess = subprocess.Popen(
+        "{hate_path}/hashcat-utils/bin/{combine_bin} {hash_file}.working {hash_file}.working | sort -u > "
+        "{hash_file}.combined".format(
+            combine_bin=hcatCombinatorBin,
+            hcatBin=hcatBin,
+            hash_file=hcatHashFile,
+            tuning=hcatTuning,
+            hate_path=hate_path), shell=True).wait()
+
+    hcatProcess = subprocess.Popen(
+        "{hcatBin} --show --potfile-path={hate_path}/hashcat.pot -m 1000 {hash_file}.nt > {hash_file}.nt.out".format(
+            hcatBin=hcatBin,
+            hash_file=hcatHashFile,
+            tuning=hcatTuning,
+            hate_path=hate_path), shell=True).wait()
+    hcatProcess = subprocess.Popen(
+        "{hcatBin} -m 1000 {hash_file}.nt --remove -o {hash_file}.nt.out {hash_file}.combined "
+        "-r {hate_path}/rules/toggles-lm-ntlm.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+            hcatBin=hcatBin,
+            hash_file=hcatHashFile,
+            tuning=hcatTuning,
+            hate_path=hate_path), shell=True).wait()
     # toggle-lm-ntlm.rule by Didier Stevens https://blog.didierstevens.com/2016/07/16/tool-to-generate-hashcat-toggle-rules/
 
 
@@ -266,14 +402,17 @@ def hcatLMtoNT():
 def hcatRecycle(hcatHashType, hcatHashFile, hcatNewPasswords):
     global hcatProcess
     if hcatNewPasswords > 0:
-        hcatProcess = subprocess.Popen("cat %s.out | cut -d : -f 2 > %s.working" % (hcatHashFile, hcatHashFile),
-                                       shell=True).wait()
+        hcatProcess = subprocess.Popen("cat {hash_file}.out | cut -d : -f 2 > {hash_file}.working".format(
+            hash_file=hcatHashFile), shell=True).wait()
         hcatProcess = subprocess.Popen(
-            "%s/%s -m %s %s --remove -o %s.out %s.working -r %s/rules/d3ad0ne.rule %s --potfile-path=%s/hashcat.pot" % (
-                hcatPath, hcatBin, hcatHashType, hcatHashFile, hcatHashFile, hcatHashFile, hcatPath, hcatTuning,
-                hate_path),
-            shell=True).wait()
-
+            "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out {hash_file}.working "
+            "-r {hcatPath}/rules/d3ad0ne.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+                hcatBin=hcatBin,
+                hash_type=hcatHashType,
+                hash_file=hcatHashFile,
+                hcatPath=hcatPath,
+                tuning=hcatTuning,
+                hate_path=hate_path), shell=True).wait()
 
 # Cleanup Temp Files
 def cleanup():
@@ -319,10 +458,10 @@ def signal_handler(signal, frame):
 # Quick Dictionary Attack with Optional Chained Best64 Rules
 def quick_crack():
     hcatChainsInput = int(input("\nHow many times would you like to chain the best64.rule? (1): ") or 1)
-    hcatChains = "-r %s/rules/best64.rule " % hcatPath
+    hcatChains = "-r {hcatPath}/rules/best64.rule ".format(hcatPath=hcatPath)
     if hcatChainsInput > 1:
         for n in range(1, hcatChainsInput):
-            hcatChains += "-r %s/rules/best64.rule " % hcatPath
+            hcatChains += "-r {hcatPath}/rules/best64.rule ".format(hcatPath=hcatPath)
 
     hcatQuickDictionary(hcatHashType, hcatHashFile, hcatChains)
 
@@ -475,10 +614,11 @@ def main():
         if re.search(r"[a-z0-9]{32}:[a-z0-9]{32}:::$", hcatHashFileLine):
             print("PWDUMP format detected...")
             print("Parsing NT hashes...")
-            subprocess.Popen("cat %s | cut -d : -f 4 |sort -u > %s.nt" % (hcatHashFile, hcatHashFile),
+            subprocess.Popen(
+                "cat {hash_file} | cut -d : -f 4 |sort -u > {hash_file}.nt".format(hash_file=hcatHashFile),
                              shell=True).wait()
             print("Parsing LM hashes...")
-            subprocess.Popen("cat %s | cut -d : -f 3 |sort -u > %s.lm" % (hcatHashFile, hcatHashFile),
+            subprocess.Popen("cat {hash_file} | cut -d : -f 3 |sort -u > {hash_file}.lm".format(hash_file=hcatHashFile),
                              shell=True).wait()
             if ((lineCount(hcatHashFile + ".lm") == 1) and (
                         hcatHashFileLine.split(":")[2] != "aad3b435b51404eeaad3b435b51404ee")) or (
@@ -495,8 +635,12 @@ def main():
         hcatOutput = open(hcatHashFile + ".out", "w+")
         hcatOutput.close()
         print("Checking POT file for already cracked hashes...")
-        subprocess.Popen("%s/%s --show --potfile-path=%s/hashcat.pot -m %s %s >%s.out" % (
-            hcatPath, hcatBin, hate_path, hcatHashType, hcatHashFile, hcatHashFile), shell=True).wait()
+        subprocess.Popen(
+            "{hcatBin} --show --potfile-path={hate_path}/hashcat.pot -m {hash_type} {hash_file} > {hash_file}.out".format(
+                hcatBin=hcatBin,
+                hash_type=hcatHashType,
+                hash_file=hcatHashFile,
+                hate_path=hate_path), shell=True).wait()
         hcatHashCracked = lineCount(hcatHashFile + ".out")
         if hcatHashCracked > 0:
             print("Found %d hashes already cracked.\nCopied hashes to %s.out" % (hcatHashCracked, hcatHashFile))
