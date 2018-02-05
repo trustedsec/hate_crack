@@ -58,7 +58,7 @@ hcatProcess = 0
 # Help
 def usage():
     print("usage: python hate_crack.py <hash_file> <hash_type>")
-    print("\nThe <hash_type> is attained by running \"%s/%s --help\"\n" % (hcatPath, hcatBin))
+    print("\nThe <hash_type> is attained by running \"{hcatBin} --help\"\n".format(hcatBin=hcatBin))
     print("Example Hashes: http://hashcat.net/wiki/doku.php?id=example_hashes\n")
 
 
