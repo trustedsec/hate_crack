@@ -100,7 +100,7 @@ def hcatBruteForce(hcatHashType, hcatHashFile, hcatMinLen, hcatMaxLen):
             min=hcatMinLen,
             max=hcatMaxLen,
             tuning=hcatTuning,
-            hate_path='hate_path'), shell=True).wait()
+            hate_path=hate_path), shell=True).wait()
     hcatBruteCount = lineCount(hcatHashFile + ".out")
 
 
