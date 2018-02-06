@@ -93,7 +93,7 @@ def hcatBruteForce(hcatHashType, hcatHashFile, hcatMinLen, hcatMaxLen):
     global hcatProcess
     hcatProcess = subprocess.Popen(
         "{hcbin} -m {hash_type} {hash_file} --remove -o {hash_file}.out --increment --increment-min={min} "
-        "--increment-max={max} -a 3 ?a?a?a?a?a?a?a?a?a?a?a?a?a?a {hcatTuning} --potfile-path={hate_path}/hashcat.pot".format(
+        "--increment-max={max} -a 3 ?a?a?a?a?a?a?a?a?a?a?a?a?a?a {tuning} --potfile-path={hate_path}/hashcat.pot".format(
             hcbin=hcatBin,
             hash_type=hcatHashType,
             hash_file=hcatHashFile,
