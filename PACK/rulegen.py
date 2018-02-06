@@ -227,15 +227,13 @@ class RuleGen:
 
     def levenshtein_print(self, matrix, word, password):
         """ Print word X password matrix """
-        print
-        "      %s" % "  ".join(list(word))
+        print "      %s" % "  ".join(list(word))
         for i, row in enumerate(matrix):
-            if i == 0: print
-            " ",
-            else:      print
-            password[i - 1],
-            print
-            " ".join("%2d" % col for col in row)
+            if i == 0:
+                print " ",
+            else:
+                print password[i - 1],
+            print " ".join("%2d" % col for col in row)
 
     def generate_levenshtein_rules(self, word, password):
         """ Generates levenshtein rules. Returns a list of lists of levenshtein rules. """
