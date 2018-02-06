@@ -12,6 +12,7 @@ import time
 import random
 import re
 import json
+import binascii
 
 # python2/3 compatability
 try:
@@ -401,9 +402,16 @@ def hcatLMtoNT():
 # Recycle Cracked Passwords
 def hcatRecycle(hcatHashType, hcatHashFile, hcatNewPasswords):
     global hcatProcess
+    working_file = hcatHashFile + '.working'
     if hcatNewPasswords > 0:
-        hcatProcess = subprocess.Popen("cat {hash_file}.out | cut -d : -f 2 > {hash_file}.working".format(
-            hash_file=hcatHashFile), shell=True).wait()
+        hcatProcess = subprocess.Popen("cat {hash_file}.out | cut -d : -f 2 > {working_file}".format(
+            hash_file=hcatHashFile, working_file=working_file), shell=True).wait()
+        converted = convert_hex(working_file)
+
+        # Overwrite working file with updated converted words
+        with open(working_file, 'w') as f:
+            f.write("\n".join(converted))
+
         hcatProcess = subprocess.Popen(
             "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out {hash_file}.working "
             "-r {hcatPath}/rules/d3ad0ne.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
@@ -559,6 +567,20 @@ def prince_attack():
 def yolo_combination():
     hcatYoloCombination(hcatHashType, hcatHashFile)
 
+
+# convert hex words for recycling
+def convert_hex(working_file):
+    processed_words = []
+    regex = r'^\$HEX\[(\S+)\]'
+    with open(working_file, 'r') as f:
+        for line in f:
+            match = re.search(regex, line.rstrip('\n'))
+            if match:
+                processed_words.append(binascii.unhexlify(match.group(1)).decode('utf-8'))
+            else:
+                processed_words.append(line.rstrip('\n'))
+
+    return processed_words
 
 # Display Cracked Hashes
 def show_results():
