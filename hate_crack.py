@@ -110,12 +110,12 @@ def hcatDictionary(hcatHashType, hcatHashFile):
     global hcatDictionaryCount
     global hcatProcess
     hcatProcess = subprocess.Popen(
-        "{hcbin} -m {hcatHashType} {hash_file} --remove -o {hash_file}.out {optimized_wordlists}/* "
+        "{hcatPath} -m {hcatHashType} {hash_file} --remove -o {hash_file}.out {optimized_wordlists}/* "
         "-r {hcatPath}/rules/best64.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
             hcatPath=hcatPath,
             hcatBin=hcatBin,
             hcatHashType=hcatHashType,
-            hcatHashFile=hcatHashFile,
+            hash_file=hcatHashFile,
             optimized_wordlists=hcatOptimizedWordlists,
             tuning=hcatTuning,
             hate_path=hate_path), shell=True).wait()
@@ -123,6 +123,7 @@ def hcatDictionary(hcatHashType, hcatHashFile):
     hcatProcess = subprocess.Popen(
         "{hcatBin} -m {hcatHashType} {hash_file} --remove -o {hash_file}.out {hcatWordlists}/rockyou.txt "
         "-r {hcatPath}/rules/d3ad0ne.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+            hcatPath=hcatPath,
             hcatBin=hcatBin,
             hcatHashType=hcatHashType,
             hash_file=hcatHashFile,
@@ -133,6 +134,7 @@ def hcatDictionary(hcatHashType, hcatHashFile):
     hcatProcess = subprocess.Popen(
         "{hcatBin} -m {hcatHashType} {hash_file} --remove -o {hash_file}.out {hcatWordlists}/rockyou.txt "
         "-r {hcatPath}/rules/T0XlC.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+            hcatPath=hcatPath,
             hcatBin=hcatBin,
             hcatHashType=hcatHashType,
             hash_file=hcatHashFile,
@@ -345,9 +347,10 @@ def hcatGoodMeasure(hcatHashType, hcatHashFile):
     global hcatExtraCount
     global hcatProcess
     hcatProcess = subprocess.Popen(
-        "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -r {hate_path}/rules/combinator.rule "
-        "-r {hate_path}/rules/InsidePro-PasswordsPro.rule {wordlists}/rockyou.txt {tuning} "
+        "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -r {hcatPath}/rules/combinator.rule "
+        "-r {hcatPath}/rules/InsidePro-PasswordsPro.rule {word_lists}/rockyou.txt {tuning} "
         "--potfile-path={hate_path}/hashcat.pot".format(
+            hcatPath=hcatPath,
             hcatBin=hcatBin,
             hash_type=hcatHashType,
             hash_file=hcatHashFile,
