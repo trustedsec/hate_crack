@@ -314,10 +314,10 @@ def hcatYoloCombination(hcatHashType, hcatHashFile):
 # Holden Combinator Attack
 def hcatHoldenCombinator(hcatHashType, hcatHashFile):
     global hcatProcess
-    numbers = ("0","1","2","3","4","5","6","7","8","9")
-    special = (" ","-","_","+",",","!","#","$","\"","%","&","\'","(",")","*",",",".","/",":",";","<","=",">","?","@","[","\","]","^","`","{","|","}","~",")"
-    print (*special)
-    print (*numbers)
+    numbers = ["0","1","2","3","4","5","6","7","8","9"]
+    special = [" ","-","_","+",",","!","#","$","\"","%","&","\'","(",")","*",",",".","/",":",";","<","=",">","?","@","[","\\","\]","^","`","{","|","}","~","\)"]
+    print (special)
+    print (numbers)
 
     hcatProcess = subprocess.Popen(
         "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 1 -j '$9' {word_lists}/rockyou.txt "
