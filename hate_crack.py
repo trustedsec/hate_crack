@@ -319,17 +319,18 @@ def hcatHoldenCombinator(hcatHashType, hcatHashFile):
     for x in range(len(numbers)):
         print numbers[x],
 
-
-    hcatProcess = subprocess.Popen(
-        "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 1 -j '$9' {word_lists}/rockyou.txt "
-        "{word_lists}/rockyou.txt {tuning} --potfile-path={hate_path}/hashcat.pot".format(
-            hcatBin=hcatBin,
-            hash_type=hcatHashType,
-            hash_file=hcatHashFile,
-            word_lists=hcatWordlists,
-            tuning=hcatTuning,
-            hate_path=hate_path),
-        shell=True).wait()
+    for x in range(len(numbers)):
+        hcatProcess = subprocess.Popen(
+          "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 1 -j '${middle_mask}' {word_lists}/rockyou.txt "
+          "{word_lists}/rockyou.txt {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+                hcatBin=hcatBin,
+                hash_type=hcatHashType,
+                hash_file=hcatHashFile,
+                word_lists=hcatWordlists,
+                tuning=hcatTuning,
+                hate_path=hate_path),
+                middle_mask=numbers[x],
+                shell=True).wait()
 
 
 # Pathwell Mask Brute Force Attack
