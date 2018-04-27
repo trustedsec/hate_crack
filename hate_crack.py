@@ -313,20 +313,23 @@ def hcatYoloCombination(hcatHashType, hcatHashFile):
 
 # Holden Combinator Attack
 def hcatHoldenCombinator(hcatHashType, hcatHashFile):
-    global hcatCombinationCount
     global hcatProcess
-    while 1:
-        hcatProcess = subprocess.Popen(
-            "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 1 -j '$9' {word_lists}/rockyou.txt "
-            "{word_lists}/rockyou.txt {tuning} --potfile-path={hate_path}/hashcat.pot".format(
-                hcatBin=hcatBin,
-                hash_type=hcatHashType,
-                hash_file=hcatHashFile,
-                word_lists=hcatWordlists,
-                tuning=hcatTuning,
-                hate_path=hate_path),
-            shell=True).wait()
-        hcatCombinationCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
+    with open({hate_path}/masks/holdenNum) as middle:
+        for line in middle:
+            print line
+            if 'str' in line:
+                break
+
+    hcatProcess = subprocess.Popen(
+        "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 1 -j '$9' {word_lists}/rockyou.txt "
+        "{word_lists}/rockyou.txt {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+            hcatBin=hcatBin,
+            hash_type=hcatHashType,
+            hash_file=hcatHashFile,
+            word_lists=hcatWordlists,
+            tuning=hcatTuning,
+            hate_path=hate_path),
+        shell=True).wait()
 
 
 # Pathwell Mask Brute Force Attack
@@ -340,7 +343,6 @@ def hcatPathwellBruteForce(hcatHashType, hcatHashFile):
             hash_file=hcatHashFile,
             tuning=hcatTuning,
             hate_path=hate_path), shell=True).wait()
-    print $hcatProcess
 
 
 # PRINCE Attack
