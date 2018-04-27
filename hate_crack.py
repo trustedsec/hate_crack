@@ -73,7 +73,7 @@ def ascii_art():
  \___|_  /(____  /__|  \___  >____\______  /|__|  (____  /\___  >__|_ \
        \/      \/          \/_____/      \/            \/     \/     \/
                          Public Release
-                          Version 1.01
+                          Version 1.02
   """)
 
 
@@ -424,18 +424,21 @@ def hcatRecycle(hcatHashType, hcatHashFile, hcatNewPasswords):
                 hcatPath=hcatPath,
                 tuning=hcatTuning,
                 hate_path=hate_path), shell=True).wait()
+# creating the combined output for pwdformat + cleartext
+def combine_ntlm_output():
+    with open(hcatHashFileOrig + ".out", "w+") as hcatCombinedHashes:
+        with open(hcatHashFile + ".out", "r") as hcatCrackedFile:
+            for crackedLine in hcatCrackedFile:
+                with open(hcatHashFileOrig, "r") as hcatOrigFile:
+                    for origLine in hcatOrigFile:
+                        if crackedLine.split(":")[0] == origLine.split(":")[3]:
+                            hcatCombinedHashes.write(origLine.strip() + crackedLine.split(":")[1])
 
 # Cleanup Temp Files
 def cleanup():
     if hcatHashType == "1000":
         print("\nComparing cracked hashes to original file...")
-        with open(hcatHashFileOrig + ".out", "w+") as hcatCombinedHashes:
-            with open(hcatHashFile + ".out", "r") as hcatCrackedFile:
-                for crackedLine in hcatCrackedFile:
-                    with open(hcatHashFileOrig, "r") as hcatOrigFile:
-                        for origLine in hcatOrigFile:
-                            if crackedLine.split(":")[0] == origLine.split(":")[3]:
-                                hcatCombinedHashes.write(origLine.strip() + crackedLine.split(":")[1])
+        combine_ntlm_output()
     print("\nCracked passwords combined with original hashes in %s" % (hcatHashFileOrig + ".out"))
     print('\nCleaning up temporary files...')
     if os.path.exists(hcatHashFile + ".masks"):
@@ -594,6 +597,52 @@ def show_results():
     else:
         print("No hashes were cracked :(")
 
+# Exports output to excel file
+def export_excel():
+
+    # Check for openyxl dependancy for export
+    try:
+        import openpyxl
+    except:
+        sys.stderr.write('You must install openpyxl first using \'pip install openpyxl\' or \'pip3 install openpyxl\'\n')
+        return
+
+    if hcatHashType == "1000":
+        combine_ntlm_output()
+        output = openpyxl.Workbook()
+        current_ws = output.create_sheet(title='hate_crack output', index=0)
+        current_row = 2
+        current_ws['A1'] = 'Username'
+        current_ws['B1'] = 'SID'
+        current_ws['C1'] = 'LM Hash'
+        current_ws['D1'] = 'NTLM Hash'
+        current_ws['E1'] = 'Clear-Text Password'
+        with open(hcatHashFileOrig+'.out') as input_file:
+            for line in input_file:
+                matches = re.match(r'(^[^:]+):([0-9]+):([a-z0-9]{32}):([a-z0-9]{32}):::(.*)',line.rstrip('\r\n'))
+                username = matches.group(1)
+                sid = matches.group(2)
+                lm = matches.group(3)
+                ntlm = matches.group(4)
+                try:
+                    clear_text = matches.group(5)
+                    match = re.search(r'^\$HEX\[(\S+)\]', clear_text)
+                    if match:
+                        clear_text = binascii.unhexlify(match.group(1)).decode('utf-8')
+                except:
+                    clear_text = ''
+                current_ws['A' + str(current_row)] = username
+                current_ws['B' + str(current_row)] = sid
+                current_ws['C' + str(current_row)] = lm
+                current_ws['D' + str(current_row)] = ntlm
+                current_ws['E' + str(current_row)] = clear_text
+                current_row += 1
+            output.save(hcatHashFile+'.xlsx')
+            print("Output exported succesfully to {0}".format(hcatHashFile+'.xlsx'))
+    else:
+        sys.stderr.write('Excel output only supported for pwdformat for NTLM hashes')
+        return
+
 
 # Show README
 def show_readme():
@@ -684,7 +733,8 @@ def main():
         print("\t(8) Pathwell Top 100 Mask Brute Force Crack")
         print("\t(9) PRINCE Attack")
         print("\t(10) YOLO Combinator Attack")
-        print("\n\t(97) Display Cracked Hashes")
+        print("\n\t(96) Export Output to Excel Format")
+        print("\t(97) Display Cracked Hashes")
         print("\t(98) Display README")
         print("\t(99) Quit")
         options = {"1": quick_crack,
@@ -697,6 +747,7 @@ def main():
                    "8": pathwell_crack,
                    "9": prince_attack,
                    "10": yolo_combination,
+                   "96": export_excel,
                    "97": show_results,
                    "98": show_readme,
                    "99": quit_hc
