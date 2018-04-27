@@ -340,6 +340,7 @@ def hcatPathwellBruteForce(hcatHashType, hcatHashFile):
             hash_file=hcatHashFile,
             tuning=hcatTuning,
             hate_path=hate_path), shell=True).wait()
+    print $hcatProcess
 
 
 # PRINCE Attack
