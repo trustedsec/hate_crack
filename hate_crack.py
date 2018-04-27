@@ -314,7 +314,7 @@ def hcatYoloCombination(hcatHashType, hcatHashFile):
 # Holden Combinator Attack
 def hcatHoldenCombinator(hcatHashType, hcatHashFile):
     global hcatProcess
-    with open({hate_path}/masks/holdenNum) as middle:
+    with open("{hate_path}/masks/holdenNum".format(hate_path=hate_path)) as middle:
         for line in middle:
             print line
             if 'str' in line:
