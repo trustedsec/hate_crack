@@ -40,7 +40,7 @@ if os.path.isfile(hcatBin):
 elif os.path.isfile(hcatPath.rstrip('/') + '/' + hcatBin):
     hcatBin = hcatPath.rstrip('/') + '/' + hcatBin
 else:
-    print('Invalid path for hashcat biniary. Please check configuration and try again.')
+    print('Invalid path for hashcat binary. Please check configuration and try again.')
     quit(1)
 
 hcatHashCount = 0
