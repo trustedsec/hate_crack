@@ -311,6 +311,24 @@ def hcatYoloCombination(hcatHashType, hcatHashFile):
                 right=hcatRight,
                 hate_path=hate_path), shell=True).wait()
 
+# Holden Combinator Attack
+def hcatHoldenCombinator(hcatHashType, hcatHashFile):
+    global hcatCombinationCount
+    global hcatProcess
+    while 1:
+        hcatProcess = subprocess.Popen(
+            "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 1 -j '$9' {word_lists}/rockyou.txt "
+            "{word_lists}/rockyou.txt {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+                hcatBin=hcatBin,
+                hash_type=hcatHashType,
+                hash_file=hcatHashFile,
+                word_lists=hcatWordlists,
+                tuning=hcatTuning,
+                hate_path=hate_path),
+            shell=True).wait()
+        hcatCombinationCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
+
+
 # Pathwell Mask Brute Force Attack
 def hcatPathwellBruteForce(hcatHashType, hcatHashFile):
     global hcatProcess
@@ -570,6 +588,10 @@ def prince_attack():
 def yolo_combination():
     hcatYoloCombination(hcatHashType, hcatHashFile)
 
+# Holden Combinator
+def holden_combinator():
+    hcatHoldenCombinator(hcatHashType, hcatHashFile)
+
 
 # convert hex words for recycling
 def convert_hex(working_file):
@@ -684,6 +706,7 @@ def main():
         print("\t(8) Pathwell Top 100 Mask Brute Force Crack")
         print("\t(9) PRINCE Attack")
         print("\t(10) YOLO Combinator Attack")
+	print("\t(11) Holden Combinator Attack")
         print("\n\t(97) Display Cracked Hashes")
         print("\t(98) Display README")
         print("\t(99) Quit")
@@ -697,6 +720,7 @@ def main():
                    "8": pathwell_crack,
                    "9": prince_attack,
                    "10": yolo_combination,
+		   "11": holden_combinator,
                    "97": show_results,
                    "98": show_readme,
                    "99": quit_hc
