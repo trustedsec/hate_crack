@@ -315,7 +315,7 @@ def hcatYoloCombination(hcatHashType, hcatHashFile):
 def hcatHoldenCombinator(hcatHashType, hcatHashFile):
     global hcatProcess
     numbers = ["0","1","2","3","4","5","6","7","8","9"]
-    special = [" ","-","_","+",",","!","#","$","\"","%","&","\'","(",")","*",",",".","/",":",";","<","=",">","?","@","[","\\","\]","^","`","{","|","}","~","\)"]
+    special = [" ","-","_","+",",","!","#","$","\"","%","&","\'","(",")","*",",",".","/",":",";","<","=",">","?","@","[","\\","]","^","`","{","|","}","~",")"]
     for x in range(len(special)):
         print special[x],
 
