@@ -317,7 +317,7 @@ def hcatHoldenCombinator(hcatHashType, hcatHashFile):
     numbers = [0,1,2,3,4,5,6,7,8,9]
     special = [" ","-","_","+",",","!","#","$","\"","%","&","\'","(",")","*",",",".","/",":",";","<","=",">","?","@","[","\\","]","^","`","{","|","}","~"]
     for x in range(len(numbers)):
-        print special[numbers],
+        print numbers[x],
 
     hcatProcess = subprocess.Popen(
         "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 1 -j '$9' {word_lists}/rockyou.txt "
