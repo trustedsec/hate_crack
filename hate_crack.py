@@ -330,7 +330,7 @@ def hcatHoldenCombinator(hcatHashType, hcatHashFile):
                 tuning=hcatTuning,
                 hate_path=hate_path),
                 middle_mask=numbers[x],
-                shell=True).wait()
+                shell=True).wait(),
 
 
 # Pathwell Mask Brute Force Attack
