@@ -71,6 +71,7 @@ $ ./hate_crack.py <hash file> 1000
 	(8) Pathwell Top 100 Mask Brute Force Crack
 	(9) PRINCE Attack
 	(10) YOLO Combinator Attack
+	(11) Holden Combinator Attack
 
 	(97) Display Cracked Hashes
 	(98) Display README
@@ -137,6 +138,18 @@ Runs a PRINCE attack using wordlists/rockyou.txt
 #### YOLO Combinator Attack
 Runs a continuous combinator attack using random wordlists from the 
 optimized wordlists for the left and right sides.
+
+#### Holden Combinator Attack
+https://jeffh.net/2018/04/26/holden-combinator/
+
+Runs a modified combinator attack using:
+rockyou + ?d + rockyou
+rockyou + ?s + rockyou
+rockyou + ?d + rockyou + ?d
+rockyou + ?s + rockyou + ?s
+rockyou + ?d + rockyou + ?s
+rockyou + ?s + rockyou + ?d
+
 
 -------------------------------------------------------------------
 ### Version History
