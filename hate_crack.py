@@ -319,6 +319,7 @@ def hcatHoldenCombinator(hcatHashType, hcatHashFile):
     for x in range(len(numbers)):
         print numbers[x],
 
+
     hcatProcess = subprocess.Popen(
         "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 1 -j '$9' {word_lists}/rockyou.txt "
         "{word_lists}/rockyou.txt {tuning} --potfile-path={hate_path}/hashcat.pot".format(
