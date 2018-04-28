@@ -318,7 +318,7 @@ def hcatHoldenCombinator(hcatHashType, hcatHashFile):
     special = [" ","-","_","+",",","!","#","$","\"","%","&","\'","(",")","*",",",".","/",":",";","<","=",">","?","@","[","\\","]","^","`","{","|","}","~"]
     for y in range(len(numbers)):
         print numbers[y]
-        print  "-j {middle_mask}".format(middle_mask="'$numbers[y]'")
+        print  "-j '${middle_mask}".format(middle_mask=numbers[y])
 
     for x in range(len(numbers)):
         hcatProcess = subprocess.Popen(
