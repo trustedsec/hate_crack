@@ -71,7 +71,8 @@ $ ./hate_crack.py <hash file> 1000
 	(8) Pathwell Top 100 Mask Brute Force Crack
 	(9) PRINCE Attack
 	(10) YOLO Combinator Attack
-	(11) Holden Combinator Attack
+	(11) Middle Combinator Attack
+	(12) Thorough Combinator Attack
 
 	(97) Display Cracked Hashes
 	(98) Display README
