@@ -318,7 +318,14 @@ def hcatHoldenCombinator(hcatHashType, hcatHashFile):
     special = [" ","-","_","+",",","!","#","$","\"","%","&","\'","(",")","*",",",".","/",":",";","<","=",">","?","@","[","\\","]","^","`","{","|","}","~"]
     for y in range(len(numbers)):
         print numbers[y]
-        print  "-j \'${middle_mask}\'".format(middle_mask=numbers[y])
+        print  "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 1 -j \'${middle_mask}\' {word_lists}/rockyou.txt {word_lists}/rockyou.txt {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+            hcatBin=hcatBin,
+            hash_type=hcatHashType,
+            hash_file=hcatHashFile,
+            word_lists=hcatWordlists,
+            tuning=hcatTuning,
+            hate_path=hate_path,
+            middle_mask = numbers[y])
 
     for x in range(len(numbers)):
         hcatProcess = subprocess.Popen(
