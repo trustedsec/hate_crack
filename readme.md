@@ -140,7 +140,7 @@ Runs a continuous combinator attack using random wordlists from the
 optimized wordlists for the left and right sides.
 
 #### Middle Combinator Attack
-https://jeffh.net/2018/04/26/holden-combinator/
+https://jeffh.net/2018/04/26/combinator_methods/
 
 Runs a modified combinator attack adding a middle character mask:
 wordlists/rockyou.txt + masks + worklists/rockyou.txt
@@ -149,7 +149,7 @@ Where the masks are some of the most commonly used separator characters:
 2 4 <space> - _ , + . &
 
 #### Thorough Combinator Attack
-https://jeffh.net/2018/04/26/holden-combinator/
+https://jeffh.net/2018/04/26/combinator_methods/
 
 *Runs many rounds of different combinator attacks with the rockyou list.
     - Standard Combinator attack: rockyou.txt + rockyou.txt
