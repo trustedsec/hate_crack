@@ -336,8 +336,8 @@ def hcatHoldenCombinator(hcatHashType, hcatHashFile):
                 hash_file=hcatHashFile,
                 word_lists=hcatWordlists,
                 tuning=hcatTuning,
-                hate_path=hate_path),
                 middle_mask=numbers[x],
+                hate_path=hate_path),
                 shell=True).wait()
 
 
