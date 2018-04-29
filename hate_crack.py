@@ -822,7 +822,7 @@ def main():
         print("\t(11) Middle Combinator Attack")
         print("\t(12) Thorough Combinator Attack")
         print("\n\t(96) Export Output to Excel Format")
-        print("\n\t(97) Display Cracked Hashes")
+        print("\t(97) Display Cracked Hashes")
         print("\t(98) Display README")
         print("\t(99) Quit")
         options = {"1": quick_crack,
