@@ -58,7 +58,7 @@ $ ./hate_crack.py <hash file> 1000
  \___|_  /(____  /__|  \___  >____\______  /|__|  (____  /\___  >__|_ \
        \/      \/          \/_____/      \/            \/     \/     \/
                          Public Release
-                          Version 1.00
+                          Version 1.02
   
 
 	(1) Quick Crack
@@ -74,6 +74,7 @@ $ ./hate_crack.py <hash file> 1000
 	(11) Middle Combinator Attack
 	(12) Thorough Combinator Attack
 
+	(96) Export Output to Excel Format
 	(97) Display Cracked Hashes
 	(98) Display README
 	(99) Quit
@@ -164,5 +165,11 @@ https://jeffh.net/2018/04/26/combinator_methods/
 
 -------------------------------------------------------------------
 ### Version History
+Version 1.02
+  Introduction of new feature to export the output of pwdump formated NTDS outputs to excel with clear-text passwords
+
+Version 1.01
+  Minor bug fixes
+
 Version 1.00
   Initial public release
