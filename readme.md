@@ -154,13 +154,14 @@ Where the masks are some of the most commonly used separator characters:
 https://jeffh.net/2018/04/26/combinator_methods/
 
 *Runs many rounds of different combinator attacks with the rockyou list.
-    - Standard Combinator attack: rockyou.txt + rockyou.txt
-    - Middle Combinator attack: rockyou.txt + ?n + rockyou.txt
-    - Middle Combinator attack: rockyou.txt + ?s + rockyou.txt
-    - End Combinator attack: rockyou.txt + rockyou.txt + ?n
-    - End Combinator attack: rockyou.txt + rockyou.txt + ?s
-    - Hybrid middle/end attack: rockyou.txt + ?n + rockyou.txt + ?n
-    - Hybrid middle/end attack: rockyou.txt + ?s + rockyou.txt + ?s
+  - Standard Combinator attack: rockyou.txt + rockyou.txt
+
+  - Middle Combinator attack: rockyou.txt + ?n + rockyou.txt
+  - Middle Combinator attack: rockyou.txt + ?s + rockyou.txt
+  - End Combinator attack: rockyou.txt + rockyou.txt + ?n
+  - End Combinator attack: rockyou.txt + rockyou.txt + ?s
+  - Hybrid middle/end attack: rockyou.txt + ?n + rockyou.txt + ?n
+  - Hybrid middle/end attack: rockyou.txt + ?s + rockyou.txt + ?s
 
 
 -------------------------------------------------------------------
