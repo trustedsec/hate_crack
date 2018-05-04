@@ -110,7 +110,7 @@ def hcatDictionary(hcatHashType, hcatHashFile):
     global hcatDictionaryCount
     global hcatProcess
     hcatProcess = subprocess.Popen(
-        "{hcatPath} -m {hcatHashType} {hash_file} --remove -o {hash_file}.out {optimized_wordlists}/* "
+        "{hcatBin} -m {hcatHashType} {hash_file} --remove -o {hash_file}.out {optimized_wordlists}/* "
         "-r {hcatPath}/rules/best64.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
             hcatPath=hcatPath,
             hcatBin=hcatBin,
