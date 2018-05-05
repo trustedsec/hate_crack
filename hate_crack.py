@@ -47,7 +47,7 @@ if os.path.isfile(hcatBin):
 elif os.path.isfile(hcatPath.rstrip('/') + '/' + hcatBin):
     hcatBin = hcatPath.rstrip('/') + '/' + hcatBin
 else:
-    print('Invalid path for hashcat binary. Please check configuration and try again.')
+    print('Invalid path for hashcat biniary. Please check configuration and try again.')
     quit(1)
 
 hcatHashCount = 0
@@ -80,7 +80,7 @@ def ascii_art():
  \___|_  /(____  /__|  \___  >____\______  /|__|  (____  /\___  >__|_ \
        \/      \/          \/_____/      \/            \/     \/     \/
                          Public Release
-                          Version 1.02
+                          Version 1.01
   """)
 
 
@@ -317,6 +317,85 @@ def hcatYoloCombination(hcatHashType, hcatHashFile):
                 left=hcatLeft,
                 right=hcatRight,
                 hate_path=hate_path), shell=True).wait()
+
+
+# Middle fast Combinator Attack
+def hcatMiddleCombinator(hcatHashType, hcatHashFile):
+    global hcatProcess
+    masks = ["2","4"," ","-","_","+",",",".","&"]
+
+    for x in range(len(masks)):
+        hcatProcess = subprocess.Popen(
+            "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 1 -j '${middle_mask}' {word_lists}/rockyou.txt "
+            "{word_lists}/rockyou.txt {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+                hcatBin=hcatBin,
+                hash_type=hcatHashType,
+                hash_file=hcatHashFile,
+                word_lists=hcatWordlists,
+                tuning=hcatTuning,
+                middle_mask=masks[x],
+                hate_path=hate_path),
+            shell=True).wait()
+
+
+# Middle thorough Combinator Attack
+def hcatThoroughCombinator(hcatHashType, hcatHashFile):
+    global hcatProcess
+    masks = ["0","1","2","3","4","5","6","7","8","9"," ","-","_","+",",","!","#","$","\"","%","&","\'","(",")","*",",",".","/",":",";","<","=",">","?","@","[","\\","]","^","`","{","|","}","~"]
+
+    hcatProcess = subprocess.Popen(
+        "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 1 {word_lists}/rockyou.txt "
+        "{word_lists}/rockyou.txt {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+            hcatBin=hcatBin,
+            hash_type=hcatHashType,
+            hash_file=hcatHashFile,
+            word_lists=hcatWordlists,
+            tuning=hcatTuning,
+            hate_path=hate_path),
+        shell=True).wait()
+
+    for x in range(len(masks)):
+        hcatProcess = subprocess.Popen(
+          "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 1 -j '${middle_mask}' {word_lists}/rockyou.txt "
+          "{word_lists}/rockyou.txt {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+                hcatBin=hcatBin,
+                hash_type=hcatHashType,
+                hash_file=hcatHashFile,
+                word_lists=hcatWordlists,
+                tuning=hcatTuning,
+                middle_mask=masks[x],
+                hate_path=hate_path),
+                shell=True).wait()
+
+    for x in range(len(masks)):
+        hcatProcess = subprocess.Popen(
+          "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 1 -k '${end_mask}' {word_lists}/rockyou.txt "
+          "{word_lists}/rockyou.txt {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+                hcatBin=hcatBin,
+                hash_type=hcatHashType,
+                hash_file=hcatHashFile,
+                word_lists=hcatWordlists,
+                tuning=hcatTuning,
+                end_mask=masks[x],
+                hate_path=hate_path),
+                shell=True).wait()
+
+    for x in range(len(masks)):
+        hcatProcess = subprocess.Popen(
+          "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 1 -j '${middle_mask}' -k '${end_mask}' {word_lists}/rockyou.txt "
+          "{word_lists}/rockyou.txt {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+                hcatBin=hcatBin,
+                hash_type=hcatHashType,
+                hash_file=hcatHashFile,
+                word_lists=hcatWordlists,
+                tuning=hcatTuning,
+                middle_mask=masks[x],
+                end_mask=masks[x],
+                hate_path=hate_path),
+                shell=True).wait()
+
+
+
 
 # Pathwell Mask Brute Force Attack
 def hcatPathwellBruteForce(hcatHashType, hcatHashFile):
@@ -580,6 +659,13 @@ def prince_attack():
 def yolo_combination():
     hcatYoloCombination(hcatHashType, hcatHashFile)
 
+# Thorough Combinator
+def thorough_combinator():
+    hcatThoroughCombinator(hcatHashType, hcatHashFile)
+
+# Middle Combinator
+def middle_combinator():
+    hcatMiddleCombinator(hcatHashType, hcatHashFile)
 
 # convert hex words for recycling
 def convert_hex(working_file):
@@ -740,6 +826,8 @@ def main():
         print("\t(8) Pathwell Top 100 Mask Brute Force Crack")
         print("\t(9) PRINCE Attack")
         print("\t(10) YOLO Combinator Attack")
+        print("\t(11) Middle Combinator Attack")
+        print("\t(12) Thorough Combinator Attack")
         print("\n\t(96) Export Output to Excel Format")
         print("\t(97) Display Cracked Hashes")
         print("\t(98) Display README")
@@ -755,6 +843,8 @@ def main():
                    "9": prince_attack,
                    "10": yolo_combination,
                    "96": export_excel,
+		           "11": middle_combinator,
+                   "12": thorough_combinator,
                    "97": show_results,
                    "98": show_readme,
                    "99": quit_hc
