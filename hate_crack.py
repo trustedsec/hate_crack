@@ -30,9 +30,16 @@ with open(hate_path + '/config.json') as config:
     hcatTuning = config_parser['hcatTuning']
     hcatWordlists = config_parser['hcatWordlists']
     hcatOptimizedWordlists = config_parser['hcatOptimizedWordlists']
-    hcatExpanderBin = config_parser['hcatExpanderBin']
-    hcatCombinatorBin = config_parser['hcatCombinatorBin']
-    hcatPrinceBin = config_parser['hcatPrinceBin']
+
+if sys.platform == 'darwin':
+    hcatExpanderBin = "expander.app"
+    hcatCombinatorBin = "combinator.app"
+    hcatPrinceBin = "pp64.app"
+else:
+    hcatExpanderBin = "expander.bin"
+    hcatCombinatorBin = "combinator.bin"
+    hcatPrinceBin = "pp64.bin"
+
 
 # hashcat biniary checks for systems that install hashcat binary in different location than the rest of the hashcat files
 if os.path.isfile(hcatBin):
