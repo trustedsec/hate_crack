@@ -7,8 +7,6 @@
 import subprocess
 import sys
 import os
-import signal
-import time
 import random
 import re
 import json
