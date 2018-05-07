@@ -397,26 +397,26 @@ def hcatHybrid(hcatHashType, hcatHashFile):
 # YOLO Combination Attack
 def hcatYoloCombination(hcatHashType, hcatHashFile):
     global hcatProcess
-    while 1:
-        hcatLeft = random.choice(os.listdir(hcatOptimizedWordlists))
-        hcatRight = random.choice(os.listdir(hcatOptimizedWordlists))
-        hcatProcess = subprocess.Popen(
-            "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 1 {optimized_lists}/{left} "
-            "{optimized_lists}/{right} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
-                hcatBin=hcatBin,
-                hash_type=hcatHashType,
-                hash_file=hcatHashFile,
-                session_name=os.path.basename(hcatHashFile),
-                word_lists=hcatWordlists,
-                optimized_lists=hcatOptimizedWordlists,
-                tuning=hcatTuning,
-                left=hcatLeft,
-                right=hcatRight,
-                hate_path=hate_path), shell=True)
-        try:
+    try:
+        while 1:
+            hcatLeft = random.choice(os.listdir(hcatOptimizedWordlists))
+            hcatRight = random.choice(os.listdir(hcatOptimizedWordlists))
+            hcatProcess = subprocess.Popen(
+                "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 1 {optimized_lists}/{left} "
+                "{optimized_lists}/{right} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+                    hcatBin=hcatBin,
+                    hash_type=hcatHashType,
+                    hash_file=hcatHashFile,
+                    session_name=os.path.basename(hcatHashFile),
+                    word_lists=hcatWordlists,
+                    optimized_lists=hcatOptimizedWordlists,
+                    tuning=hcatTuning,
+                    left=hcatLeft,
+                    right=hcatRight,
+                    hate_path=hate_path), shell=True)
             hcatProcess.wait()
-        except KeyboardInterrupt:
-            hcatProcess.kill()
+    except KeyboardInterrupt:
+        hcatProcess.kill()
 
 # Pathwell Mask Brute Force Attack
 def hcatPathwellBruteForce(hcatHashType, hcatHashFile):
