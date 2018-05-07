@@ -111,6 +111,7 @@ def hcatBruteForce(hcatHashType, hcatHashFile, hcatMinLen, hcatMaxLen):
     try:
         hcatProcess.wait()
     except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
         hcatProcess.kill()
 
     hcatBruteCount = lineCount(hcatHashFile + ".out")
@@ -134,6 +135,7 @@ def hcatDictionary(hcatHashType, hcatHashFile):
     try:
         hcatProcess.wait()
     except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
         hcatProcess.kill()
 
 
@@ -151,6 +153,7 @@ def hcatDictionary(hcatHashType, hcatHashFile):
     try:
         hcatProcess.wait()
     except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
         hcatProcess.kill()
 
 
@@ -168,6 +171,7 @@ def hcatDictionary(hcatHashType, hcatHashFile):
     try:
         hcatProcess.wait()
     except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
         hcatProcess.kill()
 
     hcatDictionaryCount = lineCount(hcatHashFile + ".out") - hcatBruteCount
@@ -190,6 +194,7 @@ def hcatQuickDictionary(hcatHashType, hcatHashFile, hcatChains):
     try:
         hcatProcess.wait()
     except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
         hcatProcess.kill()
 
 
@@ -208,6 +213,7 @@ def hcatTopMask(hcatHashType, hcatHashFile, hcatTargetTime):
     try:
         hcatProcess.wait()
     except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
         hcatProcess.kill()
 
     hcatProcess = subprocess.Popen(
@@ -219,6 +225,7 @@ def hcatTopMask(hcatHashType, hcatHashFile, hcatTargetTime):
     try:
         hcatProcess.wait()
     except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
         hcatProcess.kill()
 
     hcatProcess = subprocess.Popen(
@@ -233,6 +240,7 @@ def hcatTopMask(hcatHashType, hcatHashFile, hcatTargetTime):
     try:
         hcatProcess.wait()
     except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
         hcatProcess.kill()
 
     hcatMaskCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
@@ -256,6 +264,7 @@ def hcatFingerprint(hcatHashType, hcatHashFile):
         try:
             hcatProcess.wait()
         except KeyboardInterrupt:
+            print('Killing PID {0}...'.format(str(hcatProcess.pid)))
             hcatProcess.kill()
         hcatProcess = subprocess.Popen(
             "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 1 {hash_file}.expanded "
@@ -269,6 +278,7 @@ def hcatFingerprint(hcatHashType, hcatHashFile):
         try:
             hcatProcess.wait()
         except KeyboardInterrupt:
+            print('Killing PID {0}...'.format(str(hcatProcess.pid)))
             hcatProcess.kill()
         crackedAfter = lineCount(hcatHashFile + ".out")
     hcatFingerprintCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
@@ -292,6 +302,7 @@ def hcatCombination(hcatHashType, hcatHashFile):
     try:
         hcatProcess.wait()
     except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
         hcatProcess.kill()
 
     hcatCombinationCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
@@ -314,6 +325,7 @@ def hcatHybrid(hcatHashType, hcatHashFile):
     try:
         hcatProcess.wait()
     except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
         hcatProcess.kill()
 
     hcatProcess = subprocess.Popen(
@@ -329,6 +341,7 @@ def hcatHybrid(hcatHashType, hcatHashFile):
     try:
         hcatProcess.wait()
     except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
         hcatProcess.kill()
 
     hcatProcess = subprocess.Popen(
@@ -344,6 +357,7 @@ def hcatHybrid(hcatHashType, hcatHashFile):
     try:
         hcatProcess.wait()
     except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
         hcatProcess.kill()
 
     hcatProcess = subprocess.Popen(
@@ -359,6 +373,7 @@ def hcatHybrid(hcatHashType, hcatHashFile):
     try:
         hcatProcess.wait()
     except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
         hcatProcess.kill()
 
     hcatProcess = subprocess.Popen(
@@ -374,6 +389,7 @@ def hcatHybrid(hcatHashType, hcatHashFile):
     try:
         hcatProcess.wait()
     except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
         hcatProcess.kill()
 
     hcatProcess = subprocess.Popen(
@@ -389,6 +405,7 @@ def hcatHybrid(hcatHashType, hcatHashFile):
     try:
         hcatProcess.wait()
     except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
         hcatProcess.kill()
 
     hcatHybridCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
@@ -416,6 +433,7 @@ def hcatYoloCombination(hcatHashType, hcatHashFile):
                     hate_path=hate_path), shell=True)
             hcatProcess.wait()
     except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
         hcatProcess.kill()
 
 # Pathwell Mask Brute Force Attack
@@ -433,6 +451,7 @@ def hcatPathwellBruteForce(hcatHashType, hcatHashFile):
     try:
         hcatProcess.wait()
     except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
         hcatProcess.kill()
 
 
@@ -456,6 +475,7 @@ def hcatPrince(hcatHashType, hcatHashFile):
     try:
         hcatProcess.wait()
     except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
         hcatProcess.kill()
 
 # Extra - Good Measure
@@ -477,6 +497,7 @@ def hcatGoodMeasure(hcatHashType, hcatHashFile):
     try:
         hcatProcess.wait()
     except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
         hcatProcess.kill()
 
     hcatExtraCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
@@ -493,6 +514,7 @@ def hcatLMtoNT():
     try:
         hcatProcess.wait()
     except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
         hcatProcess.kill()
 
     hcatProcess = subprocess.Popen(
@@ -521,6 +543,7 @@ def hcatLMtoNT():
     try:
         hcatProcess.wait()
     except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
         hcatProcess.kill()
 
     hcatProcess = subprocess.Popen(
@@ -532,6 +555,7 @@ def hcatLMtoNT():
     try:
         hcatProcess.wait()
     except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
         hcatProcess.kill()
 
     hcatProcess = subprocess.Popen(
@@ -545,6 +569,7 @@ def hcatLMtoNT():
     try:
         hcatProcess.wait()
     except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
         hcatProcess.kill()
 
     # toggle-lm-ntlm.rule by Didier Stevens https://blog.didierstevens.com/2016/07/16/tool-to-generate-hashcat-toggle-rules/
@@ -560,6 +585,7 @@ def hcatRecycle(hcatHashType, hcatHashFile, hcatNewPasswords):
         try:
             hcatProcess.wait()
         except KeyboardInterrupt:
+            print('Killing PID {0}...'.format(str(hcatProcess.pid)))
             hcatProcess.kill()
 
         converted = convert_hex(working_file)
