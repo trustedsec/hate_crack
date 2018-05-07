@@ -621,9 +621,9 @@ def cleanup():
 
 # Quick Dictionary Attack with Optional Chained Best64 Rules
 def quick_crack():
-    hcatChainsInput = int(input("\nHow many times would you like to chain the best64.rule? (1): ") or 1)
-    hcatChains = "-r {hcatPath}/rules/best64.rule ".format(hcatPath=hcatPath)
-    if hcatChainsInput > 1:
+    hcatChainsInput = int(input("\nHow many times would you like to chain the best64.rule? (0): ") or 0)
+    hcatChains = ''
+    if hcatChainsInput > 0:
         for n in range(1, hcatChainsInput):
             hcatChains += "-r {hcatPath}/rules/best64.rule ".format(hcatPath=hcatPath)
 
