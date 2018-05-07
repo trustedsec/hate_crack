@@ -334,11 +334,12 @@ def hcatMiddleCombinator(hcatHashType, hcatHashFile):
 
     for x in range(len(masks)):
         hcatProcess = subprocess.Popen(
-            "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 1 -j '${middle_mask}' {word_lists}/rockyou.txt "
+            "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 1 -j '${middle_mask}' {word_lists}/rockyou.txt "
             "{word_lists}/rockyou.txt {tuning} --potfile-path={hate_path}/hashcat.pot".format(
                 hcatBin=hcatBin,
                 hash_type=hcatHashType,
                 hash_file=hcatHashFile,
+                session_name=os.path.basename(hcatHashFile),
                 word_lists=hcatWordlists,
                 tuning=hcatTuning,
                 middle_mask=masks[x],
@@ -352,7 +353,7 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
     masks = ["0","1","2","3","4","5","6","7","8","9"," ","-","_","+",",","!","#","$","\"","%","&","\'","(",")","*",",",".","/",":",";","<","=",">","?","@","[","\\","]","^","`","{","|","}","~"]
 
     hcatProcess = subprocess.Popen(
-        "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 1 {word_lists}/rockyou.txt "
+        "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 1 {word_lists}/rockyou.txt "
         "{word_lists}/rockyou.txt {tuning} --potfile-path={hate_path}/hashcat.pot".format(
             hcatBin=hcatBin,
             hash_type=hcatHashType,
@@ -364,11 +365,12 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
 
     for x in range(len(masks)):
         hcatProcess = subprocess.Popen(
-          "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 1 -j '${middle_mask}' {word_lists}/rockyou.txt "
+          "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 1 -j '${middle_mask}' {word_lists}/rockyou.txt "
           "{word_lists}/rockyou.txt {tuning} --potfile-path={hate_path}/hashcat.pot".format(
                 hcatBin=hcatBin,
                 hash_type=hcatHashType,
                 hash_file=hcatHashFile,
+                session_name=os.path.basename(hcatHashFile),
                 word_lists=hcatWordlists,
                 tuning=hcatTuning,
                 middle_mask=masks[x],
@@ -377,11 +379,12 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
 
     for x in range(len(masks)):
         hcatProcess = subprocess.Popen(
-          "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 1 -k '${end_mask}' {word_lists}/rockyou.txt "
+          "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 1 -k '${end_mask}' {word_lists}/rockyou.txt "
           "{word_lists}/rockyou.txt {tuning} --potfile-path={hate_path}/hashcat.pot".format(
                 hcatBin=hcatBin,
                 hash_type=hcatHashType,
                 hash_file=hcatHashFile,
+                session_name=os.path.basename(hcatHashFile),
                 word_lists=hcatWordlists,
                 tuning=hcatTuning,
                 end_mask=masks[x],
@@ -390,11 +393,13 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
 
     for x in range(len(masks)):
         hcatProcess = subprocess.Popen(
-          "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 1 -j '${middle_mask}' -k '${end_mask}' {word_lists}/rockyou.txt "
+          "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 1 "
+          "-j '${middle_mask}' -k '${end_mask}' {word_lists}/rockyou.txt "
           "{word_lists}/rockyou.txt {tuning} --potfile-path={hate_path}/hashcat.pot".format(
                 hcatBin=hcatBin,
                 hash_type=hcatHashType,
                 hash_file=hcatHashFile,
+                session_name=os.path.basename(hcatHashFile),
                 word_lists=hcatWordlists,
                 tuning=hcatTuning,
                 middle_mask=masks[x],
@@ -857,7 +862,7 @@ def main():
                    "9": prince_attack,
                    "10": yolo_combination,
                    "96": export_excel,
-		           "11": middle_combinator,
+                   "11": middle_combinator,
                    "12": thorough_combinator,
                    "97": show_results,
                    "98": show_readme,
