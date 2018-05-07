@@ -58,7 +58,7 @@ $ ./hate_crack.py <hash file> 1000
  \___|_  /(____  /__|  \___  >____\______  /|__|  (____  /\___  >__|_ \
        \/      \/          \/_____/      \/            \/     \/     \/
                          Public Release
-                          Version 1.02
+                          Version 1.03
   
 
 	(1) Quick Crack
@@ -165,6 +165,10 @@ https://jeffh.net/2018/04/26/combinator_methods/
 
 -------------------------------------------------------------------
 ### Version History
+Version 1.03
+  Introduction of new feature to use session files for multiple concurrent sessions of hate_crack
+  Minor bug fix
+
 Version 1.02
   Introduction of new feature to export the output of pwdump formated NTDS outputs to excel with clear-text passwords
 
