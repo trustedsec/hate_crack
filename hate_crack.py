@@ -7,8 +7,6 @@
 import subprocess
 import sys
 import os
-import signal
-import time
 import random
 import re
 import json
@@ -109,7 +107,13 @@ def hcatBruteForce(hcatHashType, hcatHashFile, hcatMinLen, hcatMaxLen):
             min=hcatMinLen,
             max=hcatMaxLen,
             tuning=hcatTuning,
-            hate_path=hate_path), shell=True).wait()
+            hate_path=hate_path), shell=True)
+    try:
+        hcatProcess.wait()
+    except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+
     hcatBruteCount = lineCount(hcatHashFile + ".out")
 
 
@@ -127,7 +131,13 @@ def hcatDictionary(hcatHashType, hcatHashFile):
             session_name=os.path.basename(hcatHashFile),
             optimized_wordlists=hcatOptimizedWordlists,
             tuning=hcatTuning,
-            hate_path=hate_path), shell=True).wait()
+            hate_path=hate_path), shell=True)
+    try:
+        hcatProcess.wait()
+    except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+
 
     hcatProcess = subprocess.Popen(
         "{hcatBin} -m {hcatHashType} {hash_file} --session {session_name} --remove -o {hash_file}.out {hcatWordlists}/rockyou.txt "
@@ -136,9 +146,16 @@ def hcatDictionary(hcatHashType, hcatHashFile):
             hcatBin=hcatBin,
             hcatHashType=hcatHashType,
             hash_file=hcatHashFile,
+            session_name=os.path.basename(hcatHashFile),
             hcatWordlists=hcatWordlists,
             tuning=hcatTuning,
-            hate_path=hate_path), shell=True).wait()
+            hate_path=hate_path), shell=True)
+    try:
+        hcatProcess.wait()
+    except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+
 
     hcatProcess = subprocess.Popen(
         "{hcatBin} -m {hcatHashType} {hash_file} --session {session_name} --remove -o {hash_file}.out {hcatWordlists}/rockyou.txt "
@@ -150,7 +167,13 @@ def hcatDictionary(hcatHashType, hcatHashFile):
             session_name=os.path.basename(hcatHashFile),
             hcatWordlists=hcatWordlists,
             tuning=hcatTuning,
-            hate_path=hate_path), shell=True).wait()
+            hate_path=hate_path), shell=True)
+    try:
+        hcatProcess.wait()
+    except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+
     hcatDictionaryCount = lineCount(hcatHashFile + ".out") - hcatBruteCount
 
 
@@ -167,7 +190,13 @@ def hcatQuickDictionary(hcatHashType, hcatHashFile, hcatChains):
             optimized_wordlists=hcatOptimizedWordlists,
             chains=hcatChains,
             tuning=hcatTuning,
-            hate_path=hate_path), shell=True).wait()
+            hate_path=hate_path), shell=True)
+    try:
+        hcatProcess.wait()
+    except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+
 
 
 # Top Mask Attack
@@ -180,13 +209,25 @@ def hcatTopMask(hcatHashType, hcatHashFile, hcatTargetTime):
     hcatProcess = subprocess.Popen(
         "{hate_path}/PACK/statsgen.py {hash_file}.working -o {hash_file}.masks".format(
             hash_file=hcatHashFile,
-            hate_path=hate_path), shell=True).wait()
+            hate_path=hate_path), shell=True)
+    try:
+        hcatProcess.wait()
+    except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+
     hcatProcess = subprocess.Popen(
         "{hate_path}/PACK/maskgen.py {hash_file}.masks --targettime {target_time} --optindex -q --pps 14000000000 "
         "--minlength=7 -o {hash_file}.hcmask".format(
             hash_file=hcatHashFile,
             target_time=hcatTargetTime,
-            hate_path=hate_path), shell=True).wait()
+            hate_path=hate_path), shell=True)
+    try:
+        hcatProcess.wait()
+    except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+
     hcatProcess = subprocess.Popen(
         "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 3 {hash_file}.hcmask {tuning} "
         "--potfile-path={hate_path}/hashcat.pot".format(
@@ -195,7 +236,13 @@ def hcatTopMask(hcatHashType, hcatHashFile, hcatTargetTime):
             hash_file=hcatHashFile,
             session_name=os.path.basename(hcatHashFile),
             tuning=hcatTuning,
-            hate_path=hate_path), shell=True).wait()
+            hate_path=hate_path), shell=True)
+    try:
+        hcatProcess.wait()
+    except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+
     hcatMaskCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
 
@@ -213,7 +260,12 @@ def hcatFingerprint(hcatHashType, hcatHashFile):
             "{hate_path}/hashcat-utils/bin/{expander_bin} < {hash_file}.working | sort -u > {hash_file}.expanded".format(
                 expander_bin=hcatExpanderBin,
                 hash_file=hcatHashFile,
-                hate_path=hate_path), shell=True).wait()
+                hate_path=hate_path), shell=True)
+        try:
+            hcatProcess.wait()
+        except KeyboardInterrupt:
+            print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+            hcatProcess.kill()
         hcatProcess = subprocess.Popen(
             "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 1 {hash_file}.expanded "
             "{hash_file}.expanded {tuning} --potfile-path={hate_path}/hashcat.pot".format(
@@ -222,7 +274,12 @@ def hcatFingerprint(hcatHashType, hcatHashFile):
                 hash_file=hcatHashFile,
                 session_name=os.path.basename(hcatHashFile),
                 tuning=hcatTuning,
-                hate_path=hate_path), shell=True).wait()
+                hate_path=hate_path), shell=True)
+        try:
+            hcatProcess.wait()
+        except KeyboardInterrupt:
+            print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+            hcatProcess.kill()
         crackedAfter = lineCount(hcatHashFile + ".out")
     hcatFingerprintCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
@@ -241,7 +298,13 @@ def hcatCombination(hcatHashType, hcatHashFile):
             word_lists=hcatWordlists,
             tuning=hcatTuning,
             hate_path=hate_path),
-        shell=True).wait()
+        shell=True)
+    try:
+        hcatProcess.wait()
+    except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+
     hcatCombinationCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
 
@@ -250,81 +313,128 @@ def hcatHybrid(hcatHashType, hcatHashFile):
     global hcatHybridCount
     global hcatProcess
     hcatProcess = subprocess.Popen(
-        "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 6 -1 ?s?d {word_lists}/rockyou.txt ?1?1 "
+        "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 6 -1 ?s?d {word_lists}/rockyou.txt ?1?1 "
         "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
             hcatBin=hcatBin,
             hash_type=hcatHashType,
             hash_file=hcatHashFile,
+            session_name=os.path.basename(hcatHashFile),
             word_lists=hcatWordlists,
             tuning=hcatTuning,
-            hate_path=hate_path), shell=True).wait()
+            hate_path=hate_path), shell=True)
+    try:
+        hcatProcess.wait()
+    except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+
     hcatProcess = subprocess.Popen(
         "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 6 -1 ?s?d {word_lists}/rockyou.txt ?1?1?1 "
         "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
             hcatBin=hcatBin,
             hash_type=hcatHashType,
             hash_file=hcatHashFile,
+            session_name=os.path.basename(hcatHashFile),
             word_lists=hcatWordlists,
             tuning=hcatTuning,
-            hate_path=hate_path), shell=True).wait()
+            hate_path=hate_path), shell=True)
+    try:
+        hcatProcess.wait()
+    except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+
     hcatProcess = subprocess.Popen(
         "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 6 -1 ?s?d {word_lists}/rockyou.txt "
         "?1?1?1?1 {tuning} --potfile-path={hate_path}/hashcat.pot".format(
             hcatBin=hcatBin,
             hash_type=hcatHashType,
             hash_file=hcatHashFile,
+            session_name=os.path.basename(hcatHashFile),
             word_lists=hcatWordlists,
             tuning=hcatTuning,
-            hate_path=hate_path), shell=True).wait()
+            hate_path=hate_path), shell=True)
+    try:
+        hcatProcess.wait()
+    except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+
     hcatProcess = subprocess.Popen(
         "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 7 -1 ?s?d ?1?1 {word_lists}/rockyou.txt "
         "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
             hcatBin=hcatBin,
             hash_type=hcatHashType,
             hash_file=hcatHashFile,
+            session_name=os.path.basename(hcatHashFile),
             word_lists=hcatWordlists,
             tuning=hcatTuning,
-            hate_path=hate_path), shell=True).wait()
+            hate_path=hate_path), shell=True)
+    try:
+        hcatProcess.wait()
+    except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+
     hcatProcess = subprocess.Popen(
         "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 7 -1 ?s?d ?1?1?1 {word_lists}/rockyou.txt "
         "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
             hcatBin=hcatBin,
             hash_type=hcatHashType,
             hash_file=hcatHashFile,
+            session_name=os.path.basename(hcatHashFile),
             word_lists=hcatWordlists,
             tuning=hcatTuning,
-            hate_path=hate_path), shell=True).wait()
+            hate_path=hate_path), shell=True)
+    try:
+        hcatProcess.wait()
+    except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+
     hcatProcess = subprocess.Popen(
         "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 7 -1 ?s?d ?1?1?1?1 {word_lists}/rockyou.txt "
         "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
             hcatBin=hcatBin,
             hash_type=hcatHashType,
             hash_file=hcatHashFile,
+            session_name=os.path.basename(hcatHashFile),
             word_lists=hcatWordlists,
             tuning=hcatTuning,
-            hate_path=hate_path), shell=True).wait()
+            hate_path=hate_path), shell=True)
+    try:
+        hcatProcess.wait()
+    except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+
     hcatHybridCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
 
 # YOLO Combination Attack
 def hcatYoloCombination(hcatHashType, hcatHashFile):
     global hcatProcess
-    while 1:
-        hcatLeft = random.choice(os.listdir(hcatOptimizedWordlists))
-        hcatRight = random.choice(os.listdir(hcatOptimizedWordlists))
-        hcatProcess = subprocess.Popen(
-            "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 1 {optimized_lists}/{left} "
-            "{optimized_lists}/{right} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
-                hcatBin=hcatBin,
-                hash_type=hcatHashType,
-                hash_file=hcatHashFile,
-                session_name=os.path.basename(hcatHashFile),
-                word_lists=hcatWordlists,
-                optimized_lists=hcatOptimizedWordlists,
-                tuning=hcatTuning,
-                left=hcatLeft,
-                right=hcatRight,
-                hate_path=hate_path), shell=True).wait()
+    try:
+        while 1:
+            hcatLeft = random.choice(os.listdir(hcatOptimizedWordlists))
+            hcatRight = random.choice(os.listdir(hcatOptimizedWordlists))
+            hcatProcess = subprocess.Popen(
+                "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 1 {optimized_lists}/{left} "
+                "{optimized_lists}/{right} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+                    hcatBin=hcatBin,
+                    hash_type=hcatHashType,
+                    hash_file=hcatHashFile,
+                    session_name=os.path.basename(hcatHashFile),
+                    word_lists=hcatWordlists,
+                    optimized_lists=hcatOptimizedWordlists,
+                    tuning=hcatTuning,
+                    left=hcatLeft,
+                    right=hcatRight,
+                    hate_path=hate_path), shell=True)
+            hcatProcess.wait()
+    except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+        hcatProcess.kill()
 
 
 # Middle fast Combinator Attack
@@ -421,7 +531,12 @@ def hcatPathwellBruteForce(hcatHashType, hcatHashFile):
             hash_file=hcatHashFile,
             session_name=os.path.basename(hcatHashFile),
             tuning=hcatTuning,
-            hate_path=hate_path), shell=True).wait()
+            hate_path=hate_path), shell=True)
+    try:
+        hcatProcess.wait()
+    except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+        hcatProcess.kill()
 
 
 # PRINCE Attack
@@ -440,8 +555,12 @@ def hcatPrince(hcatHashType, hcatHashFile):
             word_lists=hcatWordlists,
             optimized_lists=hcatOptimizedWordlists,
             tuning=hcatTuning,
-            hate_path=hate_path), shell=True).wait()
-
+            hate_path=hate_path), shell=True)
+    try:
+        hcatProcess.wait()
+    except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+        hcatProcess.kill()
 
 # Extra - Good Measure
 def hcatGoodMeasure(hcatHashType, hcatHashFile):
@@ -458,7 +577,13 @@ def hcatGoodMeasure(hcatHashType, hcatHashFile):
             session_name=os.path.basename(hcatHashFile),
             word_lists=hcatWordlists,
             tuning=hcatTuning,
-            hate_path=hate_path), shell=True).wait()
+            hate_path=hate_path), shell=True)
+    try:
+        hcatProcess.wait()
+    except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+
     hcatExtraCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
 
@@ -469,7 +594,13 @@ def hcatLMtoNT():
         "{hcatBin} --show --potfile-path={hate_path}/hashcat.pot -m 3000 {hash_file}.lm > {hash_file}.lm.cracked".format(
             hcatBin=hcatBin,
             hash_file=hcatHashFile,
-            hate_path=hate_path), shell=True).wait()
+            hate_path=hate_path), shell=True)
+    try:
+        hcatProcess.wait()
+    except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+
     hcatProcess = subprocess.Popen(
         "{hcatBin} -m 3000 {hash_file}.lm --session {session_name} --remove -o {hash_file}.lm.cracked -1 ?u?d?s --increment -a 3 ?1?1?1?1?1?1?1 "
         "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
@@ -477,7 +608,12 @@ def hcatLMtoNT():
             hash_file=hcatHashFile,
             session_name=os.path.basename(hcatHashFile),
             tuning=hcatTuning,
-            hate_path=hate_path), shell=True).wait()
+            hate_path=hate_path), shell=True)
+    try:
+        hcatProcess.wait()
+    except KeyboardInterrupt:
+        hcatProcess.kill()
+
     hcatProcess = subprocess.Popen("cat {hash_file}.lm.cracked | cut -d : -f 2 > {hash_file}.working".format(
         hash_file=hcatHashFile), shell=True).wait()
     hcatProcess = subprocess.Popen(
@@ -487,14 +623,25 @@ def hcatLMtoNT():
             hcatBin=hcatBin,
             hash_file=hcatHashFile,
             tuning=hcatTuning,
-            hate_path=hate_path), shell=True).wait()
+            hate_path=hate_path), shell=True)
+    try:
+        hcatProcess.wait()
+    except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+        hcatProcess.kill()
 
     hcatProcess = subprocess.Popen(
         "{hcatBin} --show --potfile-path={hate_path}/hashcat.pot -m 1000 {hash_file}.nt > {hash_file}.nt.out".format(
             hcatBin=hcatBin,
             hash_file=hcatHashFile,
             tuning=hcatTuning,
-            hate_path=hate_path), shell=True).wait()
+            hate_path=hate_path), shell=True)
+    try:
+        hcatProcess.wait()
+    except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+
     hcatProcess = subprocess.Popen(
         "{hcatBin} -m 1000 {hash_file}.nt --session {session_name} --remove -o {hash_file}.nt.out {hash_file}.combined "
         "-r {hate_path}/rules/toggles-lm-ntlm.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
@@ -502,7 +649,13 @@ def hcatLMtoNT():
             hash_file=hcatHashFile,
             session_name=os.path.basename(hcatHashFile),
             tuning=hcatTuning,
-            hate_path=hate_path), shell=True).wait()
+            hate_path=hate_path), shell=True)
+    try:
+        hcatProcess.wait()
+    except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+
     # toggle-lm-ntlm.rule by Didier Stevens https://blog.didierstevens.com/2016/07/16/tool-to-generate-hashcat-toggle-rules/
 
 
@@ -512,7 +665,13 @@ def hcatRecycle(hcatHashType, hcatHashFile, hcatNewPasswords):
     working_file = hcatHashFile + '.working'
     if hcatNewPasswords > 0:
         hcatProcess = subprocess.Popen("cat {hash_file}.out | cut -d : -f 2 > {working_file}".format(
-            hash_file=hcatHashFile, working_file=working_file), shell=True).wait()
+            hash_file=hcatHashFile, working_file=working_file), shell=True)
+        try:
+            hcatProcess.wait()
+        except KeyboardInterrupt:
+            print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+            hcatProcess.kill()
+
         converted = convert_hex(working_file)
 
         # Overwrite working file with updated converted words
@@ -528,7 +687,12 @@ def hcatRecycle(hcatHashType, hcatHashFile, hcatNewPasswords):
                 session_name=os.path.basename(hcatHashFile),
                 hcatPath=hcatPath,
                 tuning=hcatTuning,
-                hate_path=hate_path), shell=True).wait()
+                hate_path=hate_path), shell=True)
+        try:
+            hcatProcess.wait()
+        except KeyboardInterrupt:
+            hcatProcess.kill()
+
 # creating the combined output for pwdformat + cleartext
 def combine_ntlm_output():
     with open(hcatHashFileOrig + ".out", "w+") as hcatCombinedHashes:
@@ -541,44 +705,35 @@ def combine_ntlm_output():
 
 # Cleanup Temp Files
 def cleanup():
-    if hcatHashType == "1000":
-        print("\nComparing cracked hashes to original file...")
-        combine_ntlm_output()
-    print("\nCracked passwords combined with original hashes in %s" % (hcatHashFileOrig + ".out"))
-    print('\nCleaning up temporary files...')
-    if os.path.exists(hcatHashFile + ".masks"):
-        os.remove(hcatHashFile + ".masks")
-    if os.path.exists(hcatHashFile + ".working"):
-        os.remove(hcatHashFile + ".working")
-    if os.path.exists(hcatHashFile + ".expanded"):
-        os.remove(hcatHashFile + ".expanded")
-    if os.path.exists(hcatHashFileOrig + ".combined"):
-        os.remove(hcatHashFileOrig + ".combined")
-    if os.path.exists(hcatHashFileOrig + ".lm"):
-        os.remove(hcatHashFileOrig + ".lm")
-    if os.path.exists(hcatHashFileOrig + ".lm.cracked"):
-        os.remove(hcatHashFileOrig + ".lm.cracked")
-    if os.path.exists(hcatHashFileOrig + ".working"):
-        os.remove(hcatHashFileOrig + ".working")
-
-
-# CTRL-C Function
-def signal_handler(signal, frame):
-    global hcatHashFile
-    global hcatBin
-    global hcatProcess
-
-    print("Killing %s..." % hcatBin)
-    processGroup = os.getpgid(hcatProcess)
-    hcatProcess = subprocess.Popen("kill -%d" % processGroup, shell=True).wait()
-    time.sleep(5)
-
+    try:
+        if hcatHashType == "1000":
+            print("\nComparing cracked hashes to original file...")
+            combine_ntlm_output()
+        print("\nCracked passwords combined with original hashes in %s" % (hcatHashFileOrig + ".out"))
+        print('\nCleaning up temporary files...')
+        if os.path.exists(hcatHashFile + ".masks"):
+            os.remove(hcatHashFile + ".masks")
+        if os.path.exists(hcatHashFile + ".working"):
+            os.remove(hcatHashFile + ".working")
+        if os.path.exists(hcatHashFile + ".expanded"):
+            os.remove(hcatHashFile + ".expanded")
+        if os.path.exists(hcatHashFileOrig + ".combined"):
+            os.remove(hcatHashFileOrig + ".combined")
+        if os.path.exists(hcatHashFileOrig + ".lm"):
+            os.remove(hcatHashFileOrig + ".lm")
+        if os.path.exists(hcatHashFileOrig + ".lm.cracked"):
+            os.remove(hcatHashFileOrig + ".lm.cracked")
+        if os.path.exists(hcatHashFileOrig + ".working"):
+            os.remove(hcatHashFileOrig + ".working")
+    except KeyboardInterrupt:
+        #incase someone mashes the Control+C it will still cleanup
+        cleanup()
 
 # Quick Dictionary Attack with Optional Chained Best64 Rules
 def quick_crack():
-    hcatChainsInput = int(input("\nHow many times would you like to chain the best64.rule? (1): ") or 1)
-    hcatChains = "-r {hcatPath}/rules/best64.rule ".format(hcatPath=hcatPath)
-    if hcatChainsInput > 1:
+    hcatChainsInput = int(input("\nHow many times would you like to chain the best64.rule? (0): ") or 0)
+    hcatChains = ''
+    if hcatChainsInput > 0:
         for n in range(1, hcatChainsInput):
             hcatChains += "-r {hcatPath}/rules/best64.rule ".format(hcatPath=hcatPath)
 
@@ -731,7 +886,7 @@ def export_excel():
         current_ws['E1'] = 'Clear-Text Password'
         with open(hcatHashFileOrig+'.out') as input_file:
             for line in input_file:
-                matches = re.match(r'(^[^:]+):([0-9]+):([a-z0-9]{32}):([a-z0-9]{32}):::(.*)',line.rstrip('\r\n'))
+                matches = re.match(r'(^[^:]+):([0-9]+):([a-z0-9A-Z]{32}):([a-z0-9A-Z]{32}):::(.*)',line.rstrip('\r\n'))
                 username = matches.group(1)
                 sid = matches.group(2)
                 lm = matches.group(3)
@@ -787,9 +942,6 @@ def main():
 
     ascii_art()
 
-    # Catch CTRL-C
-    signal.signal(signal.SIGINT, signal_handler)
-
     # Get Initial Input Hash Count
     hcatHashCount = lineCount(hcatHashFile)
 
@@ -797,7 +949,7 @@ def main():
     if hcatHashType == "1000":
         lmHashesFound = False
         hcatHashFileLine = open(hcatHashFile, "r").readline()
-        if re.search(r"[a-z0-9]{32}:[a-z0-9]{32}:::$", hcatHashFileLine):
+        if re.search(r"[a-z0-9A-Z]{32}:[a-z0-9A-Z]{32}:::$", hcatHashFileLine):
             print("PWDUMP format detected...")
             print("Parsing NT hashes...")
             subprocess.Popen(
@@ -834,45 +986,45 @@ def main():
             print("No hashes found in POT file.")
 
     # Display Options
-    while 1:
-        print("\n\t(1) Quick Crack")
-        print("\t(2) Extensive Pure_Hate Methodology Crack")
-        print("\t(3) Brute Force Attack")
-        print("\t(4) Top Mask Attack")
-        print("\t(5) Fingerprint Attack")
-        print("\t(6) Combinator Attack")
-        print("\t(7) Hybrid Attack")
-        print("\t(8) Pathwell Top 100 Mask Brute Force Crack")
-        print("\t(9) PRINCE Attack")
-        print("\t(10) YOLO Combinator Attack")
-        print("\t(11) Middle Combinator Attack")
-        print("\t(12) Thorough Combinator Attack")
-        print("\n\t(96) Export Output to Excel Format")
-        print("\t(97) Display Cracked Hashes")
-        print("\t(98) Display README")
-        print("\t(99) Quit")
-        options = {"1": quick_crack,
-                   "2": extensive_crack,
-                   "3": brute_force_crack,
-                   "4": top_mask_crack,
-                   "5": fingerprint_crack,
-                   "6": combinator_crack,
-                   "7": hybrid_crack,
-                   "8": pathwell_crack,
-                   "9": prince_attack,
-                   "10": yolo_combination,
-                   "96": export_excel,
-                   "11": middle_combinator,
-                   "12": thorough_combinator,
-                   "97": show_results,
-                   "98": show_readme,
-                   "99": quit_hc
-                   }
-        try:
-            task = input("\nSelect a task: ")
-            options[task]()
-        except KeyError:
-            pass
+    try:
+        while 1:
+            print("\n\t(1) Quick Crack")
+            print("\t(2) Extensive Pure_Hate Methodology Crack")
+            print("\t(3) Brute Force Attack")
+            print("\t(4) Top Mask Attack")
+            print("\t(5) Fingerprint Attack")
+            print("\t(6) Combinator Attack")
+            print("\t(7) Hybrid Attack")
+            print("\t(8) Pathwell Top 100 Mask Brute Force Crack")
+            print("\t(9) PRINCE Attack")
+            print("\t(10) YOLO Combinator Attack")
+            print("\n\t(96) Export Output to Excel Format")
+            print("\t(97) Display Cracked Hashes")
+            print("\t(98) Display README")
+            print("\t(99) Quit")
+            options = {"1": quick_crack,
+                       "2": extensive_crack,
+                       "3": brute_force_crack,
+                       "4": top_mask_crack,
+                       "5": fingerprint_crack,
+                       "6": combinator_crack,
+                       "7": hybrid_crack,
+                       "8": pathwell_crack,
+                       "9": prince_attack,
+                       "10": yolo_combination,
+                       "96": export_excel,
+                       "97": show_results,
+                       "98": show_readme,
+                       "99": quit_hc
+                       }
+            try:
+                task = input("\nSelect a task: ")
+                options[task]()
+            except KeyError:
+                pass
+    except KeyboardInterrupt:
+        quit_hc()
+
 # Boilerplate
 if __name__ == '__main__':
     main()
