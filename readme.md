@@ -71,6 +71,8 @@ $ ./hate_crack.py <hash file> 1000
 	(8) Pathwell Top 100 Mask Brute Force Crack
 	(9) PRINCE Attack
 	(10) YOLO Combinator Attack
+	(11) Middle Combinator Attack
+	(12) Thorough Combinator Attack
 
 	(96) Export Output to Excel Format
 	(97) Display Cracked Hashes
@@ -138,6 +140,28 @@ Runs a PRINCE attack using wordlists/rockyou.txt
 #### YOLO Combinator Attack
 Runs a continuous combinator attack using random wordlists from the 
 optimized wordlists for the left and right sides.
+
+#### Middle Combinator Attack
+https://jeffh.net/2018/04/26/combinator_methods/
+
+Runs a modified combinator attack adding a middle character mask:
+wordlists/rockyou.txt + masks + worklists/rockyou.txt
+
+Where the masks are some of the most commonly used separator characters:
+2 4 <space> - _ , + . &
+
+#### Thorough Combinator Attack
+https://jeffh.net/2018/04/26/combinator_methods/
+
+* Runs many rounds of different combinator attacks with the rockyou list.
+  - Standard Combinator attack: rockyou.txt + rockyou.txt
+  - Middle Combinator attack: rockyou.txt + ?n + rockyou.txt
+  - Middle Combinator attack: rockyou.txt + ?s + rockyou.txt
+  - End Combinator attack: rockyou.txt + rockyou.txt + ?n
+  - End Combinator attack: rockyou.txt + rockyou.txt + ?s
+  - Hybrid middle/end attack: rockyou.txt + ?n + rockyou.txt + ?n
+  - Hybrid middle/end attack: rockyou.txt + ?s + rockyou.txt + ?s
+
 
 -------------------------------------------------------------------
 ### Version History
