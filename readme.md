@@ -57,8 +57,7 @@ $ ./hate_crack.py <hash file> 1000
 \    Y    // __ \|  | \  ___/    \     \____|  | \// __ \\  \___|    < 
  \___|_  /(____  /__|  \___  >____\______  /|__|  (____  /\___  >__|_ \
        \/      \/          \/_____/      \/            \/     \/     \/
-                         Public Release
-                          Version 1.03
+                          Version 1.05
   
 
 	(1) Quick Crack
@@ -165,6 +164,13 @@ https://jeffh.net/2018/04/26/combinator_methods/
 
 -------------------------------------------------------------------
 ### Version History
+Version 1.05
+  Abstraction of rockyou.txt so that you can use whatever dictionary that you would like to specified in the config.json
+  Minor change the quickcrack that allows you to specify 0 for number of times best64 is chained
+
+Version 1.04
+  Two new attacks Middle Combinator and Thorough Combinator
+
 Version 1.03
   Introduction of new feature to use session files for multiple concurrent sessions of hate_crack
   Minor bug fix
