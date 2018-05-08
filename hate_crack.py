@@ -458,7 +458,6 @@ def hcatYoloCombination(hcatHashType, hcatHashFile):
         print('Killing PID {0}...'.format(str(hcatProcess.pid)))
         hcatProcess.kill()
 
-
 # Middle fast Combinator Attack
 def hcatMiddleCombinator(hcatHashType, hcatHashFile):
     global hcatProcess
@@ -567,8 +566,6 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
     except KeyboardInterrupt:
         print('Killing PID {0}...'.format(str(hcatProcess.pid)))
         hcatProcess.kill()
-
-
 
 # Pathwell Mask Brute Force Attack
 def hcatPathwellBruteForce(hcatHashType, hcatHashFile):
