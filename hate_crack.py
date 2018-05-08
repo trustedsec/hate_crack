@@ -998,6 +998,8 @@ def main():
             print("\t(8) Pathwell Top 100 Mask Brute Force Crack")
             print("\t(9) PRINCE Attack")
             print("\t(10) YOLO Combinator Attack")
+            print("\t(11) Middle Combinator Attack")
+            print("\t(12) Thorough Combinator Attack")
             print("\n\t(96) Export Output to Excel Format")
             print("\t(97) Display Cracked Hashes")
             print("\t(98) Display README")
@@ -1012,6 +1014,8 @@ def main():
                        "8": pathwell_crack,
                        "9": prince_attack,
                        "10": yolo_combination,
+                       "11": middle_combinator,
+                       "12": thorough_combinator,
                        "96": export_excel,
                        "97": show_results,
                        "98": show_readme,
