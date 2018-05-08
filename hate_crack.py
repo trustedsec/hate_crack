@@ -35,6 +35,8 @@ with open(hate_path + '/config.json') as config:
     hcatMiddleBaseList = config_parser['hcatMiddleBaseList']
     hcatThoroughCombinatorMasks = config_parser['hcatThoroughCombinatorMasks']
     hcatThoroughBaseList = config_parser['hcatThoroughBaseList']
+    hcatPrinceBaseList = config_parser['hcatPrinceBaseList']
+    hcatGoodMeasureBaseList = config_parser['hcatGoodMeasureBaseList']
 
 
 if sys.platform == 'darwin':
@@ -67,6 +69,8 @@ else:
 #verify and convert wordlists to fully qualified paths
 hcatMiddleBaseList = verify_wordlist_dir(hcatWordlists, hcatMiddleBaseList)
 hcatThoroughBaseList = verify_wordlist_dir(hcatWordlists, hcatThoroughBaseList)
+hcatPrinceBaseList = verify_wordlist_dir(hcatWordlists, hcatPrinceBaseList)
+hcatGoodMeasureBaseList = verify_wordlist_dir(hcatWordlists, hcatGoodMeasureBaseList)
 for x in range(len(hcatDictionaryWordlist)):
     hcatDictionaryWordlist[x] = verify_wordlist_dir(hcatWordlists, hcatDictionaryWordlist[x])
 for x in range(len(hcatHybridlist)):
@@ -601,15 +605,14 @@ def hcatPrince(hcatHashType, hcatHashFile):
     hcatHashCracked = lineCount(hcatHashFile + ".out")
     hcatProcess = subprocess.Popen(
         "{hate_path}/princeprocessor/{prince_bin} --case-permute --elem-cnt-min=1 --elem-cnt-max=16 -c < "
-        "{word_lists}/rockyou.txt | {hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out "
+        "{hcatPrinceBaseList} | {hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out "
         "-r {hate_path}/princeprocessor/rules/prince_optimized.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
             hcatBin=hcatBin,
             prince_bin=hcatPrinceBin,
             hash_type=hcatHashType,
             hash_file=hcatHashFile,
             session_name=os.path.basename(hcatHashFile),
-            word_lists=hcatWordlists,
-            optimized_lists=hcatOptimizedWordlists,
+            hcatPrinceBaseList=hcatPrinceBaseList,
             tuning=hcatTuning,
             hate_path=hate_path), shell=True)
     try:
@@ -624,12 +627,13 @@ def hcatGoodMeasure(hcatHashType, hcatHashFile):
     global hcatProcess
     hcatProcess = subprocess.Popen(
         "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -r {hcatPath}/rules/combinator.rule "
-        "-r {hcatPath}/rules/InsidePro-PasswordsPro.rule {word_lists}/rockyou.txt {tuning} "
+        "-r {hcatPath}/rules/InsidePro-PasswordsPro.rule {hcatGoodMeasureBaseList} {tuning} "
         "--potfile-path={hate_path}/hashcat.pot".format(
             hcatPath=hcatPath,
             hcatBin=hcatBin,
             hash_type=hcatHashType,
             hash_file=hcatHashFile,
+            hcatGoodMeasureBaseList=hcatGoodMeasureBaseList,
             session_name=os.path.basename(hcatHashFile),
             word_lists=hcatWordlists,
             tuning=hcatTuning,
@@ -879,9 +883,6 @@ def pathwell_crack():
 
 # PRINCE Attack
 def prince_attack():
-    if not os.path.isfile(hcatWordlists + '/rockyou.txt'):
-        print("rockyou.txt not found in {0}  Please verify and try again").format(hcatWordlists)
-        return
     hcatPrince(hcatHashType, hcatHashFile)
 
 
