@@ -28,10 +28,14 @@ with open(hate_path + '/config.json') as config:
     hcatTuning = config_parser['hcatTuning']
     hcatWordlists = config_parser['hcatWordlists']
     hcatOptimizedWordlists = config_parser['hcatOptimizedWordlists']
+    hcatDictionaryWordlist = config_parser['hcatDictionaryWordlist']
+    hcatHybridlist = config_parser['hcatHybridlist']
+    hcatCombinationWordlist = config_parser['hcatCombinationWordlist']
     hcatMiddleCombinatorMasks = config_parser['hcatMiddleCombinatorMasks']
     hcatMiddleBaseList = config_parser['hcatMiddleBaseList']
     hcatThoroughCombinatorMasks = config_parser['hcatThoroughCombinatorMasks']
     hcatThoroughBaseList = config_parser['hcatThoroughBaseList']
+
 
 if sys.platform == 'darwin':
     hcatExpanderBin = "expander.app"
@@ -42,6 +46,14 @@ else:
     hcatCombinatorBin = "combinator.bin"
     hcatPrinceBin = "pp64.bin"
 
+def verify_wordlist_dir(directory, wordlist):
+    if os.path.isfile(wordlist):
+        return wordlist
+    elif os.path.isfile(directory + '/' + wordlist):
+        return directory + '/' + wordlist
+    else:
+        print('Invalid path for {0}. Please check configuration and try again.'.format(wordlist))
+        quit(1)
 
 # hashcat biniary checks for systems that install hashcat binary in different location than the rest of the hashcat files
 if os.path.isfile(hcatBin):
@@ -52,22 +64,15 @@ else:
     print('Invalid path for hashcat binary. Please check configuration and try again.')
     quit(1)
 
-if os.path.isfile(hcatMiddleBaseList):
-    pass
-elif os.path.isfile(hcatWordlists+'/'+hcatMiddleBaseList):
-    hcatMiddleBaseList = hcatWordlists+'/'+hcatMiddleBaseList
-else:
-    print('Invalid path for hcatMiddleBaseList. Please check configuration and try again.')
-    quit(1)
-
-if os.path.isfile(hcatThoroughBaseList):
-    pass
-elif os.path.isfile(hcatWordlists+'/'+hcatThoroughBaseList):
-    hcatThoroughBaseList = hcatWordlists+'/'+hcatThoroughBaseList
-else:
-    print('Invalid path for hcatThoroughBaseList. Please check configuration and try again.')
-    quit(1)
-
+#verify and convert wordlists to fully qualified paths
+hcatMiddleBaseList = verify_wordlist_dir(hcatWordlists, hcatMiddleBaseList)
+hcatThoroughBaseList = verify_wordlist_dir(hcatWordlists, hcatThoroughBaseList)
+for x in range(len(hcatDictionaryWordlist)):
+    hcatDictionaryWordlist[x] = verify_wordlist_dir(hcatWordlists, hcatDictionaryWordlist[x])
+for x in range(len(hcatHybridlist)):
+    hcatHybridlist[x] = verify_wordlist_dir(hcatWordlists, hcatHybridlist[x])
+hcatCombinationWordlist[0] = verify_wordlist_dir(hcatWordlists, hcatCombinationWordlist[0])
+hcatCombinationWordlist[1] = verify_wordlist_dir(hcatWordlists, hcatCombinationWordlist[1])
 
 
 hcatHashCount = 0
@@ -161,40 +166,41 @@ def hcatDictionary(hcatHashType, hcatHashFile):
         hcatProcess.kill()
 
 
-    hcatProcess = subprocess.Popen(
-        "{hcatBin} -m {hcatHashType} {hash_file} --session {session_name} --remove -o {hash_file}.out {hcatWordlists}/rockyou.txt "
-        "-r {hcatPath}/rules/d3ad0ne.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
-            hcatPath=hcatPath,
-            hcatBin=hcatBin,
-            hcatHashType=hcatHashType,
-            hash_file=hcatHashFile,
-            session_name=os.path.basename(hcatHashFile),
-            hcatWordlists=hcatWordlists,
-            tuning=hcatTuning,
-            hate_path=hate_path), shell=True)
-    try:
-        hcatProcess.wait()
-    except KeyboardInterrupt:
-        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
-        hcatProcess.kill()
+    for wordlist in hcatDictionaryWordlist:
+        hcatProcess = subprocess.Popen(
+            "{hcatBin} -m {hcatHashType} {hash_file} --session {session_name} --remove -o {hash_file}.out {hcatWordlist} "
+            "-r {hcatPath}/rules/d3ad0ne.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+                hcatPath=hcatPath,
+                hcatBin=hcatBin,
+                hcatHashType=hcatHashType,
+                hash_file=hcatHashFile,
+                session_name=os.path.basename(hcatHashFile),
+                hcatWordlist=wordlist,
+                tuning=hcatTuning,
+                hate_path=hate_path), shell=True)
+        try:
+            hcatProcess.wait()
+        except KeyboardInterrupt:
+            print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+            hcatProcess.kill()
 
 
-    hcatProcess = subprocess.Popen(
-        "{hcatBin} -m {hcatHashType} {hash_file} --session {session_name} --remove -o {hash_file}.out {hcatWordlists}/rockyou.txt "
-        "-r {hcatPath}/rules/T0XlC.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
-            hcatPath=hcatPath,
-            hcatBin=hcatBin,
-            hcatHashType=hcatHashType,
-            hash_file=hcatHashFile,
-            session_name=os.path.basename(hcatHashFile),
-            hcatWordlists=hcatWordlists,
-            tuning=hcatTuning,
-            hate_path=hate_path), shell=True)
-    try:
-        hcatProcess.wait()
-    except KeyboardInterrupt:
-        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
-        hcatProcess.kill()
+        hcatProcess = subprocess.Popen(
+            "{hcatBin} -m {hcatHashType} {hash_file} --session {session_name} --remove -o {hash_file}.out {hcatWordlist} "
+            "-r {hcatPath}/rules/T0XlC.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+                hcatPath=hcatPath,
+                hcatBin=hcatBin,
+                hcatHashType=hcatHashType,
+                hash_file=hcatHashFile,
+                session_name=os.path.basename(hcatHashFile),
+                hcatWordlist=wordlist,
+                tuning=hcatTuning,
+                hate_path=hate_path), shell=True)
+        try:
+            hcatProcess.wait()
+        except KeyboardInterrupt:
+            print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+            hcatProcess.kill()
 
     hcatDictionaryCount = lineCount(hcatHashFile + ".out") - hcatBruteCount
 
@@ -311,13 +317,15 @@ def hcatCombination(hcatHashType, hcatHashFile):
     global hcatCombinationCount
     global hcatProcess
     hcatProcess = subprocess.Popen(
-        "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 1 {word_lists}/rockyou.txt "
-        "{word_lists}/rockyou.txt {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+        "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 1 {left} "
+        "{right} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
             hcatBin=hcatBin,
             hash_type=hcatHashType,
             hash_file=hcatHashFile,
             session_name=os.path.basename(hcatHashFile),
             word_lists=hcatWordlists,
+            left=hcatCombinationWordlist[0],
+            right=hcatCombinationWordlist[1],
             tuning=hcatTuning,
             hate_path=hate_path),
         shell=True)
@@ -334,103 +342,104 @@ def hcatCombination(hcatHashType, hcatHashFile):
 def hcatHybrid(hcatHashType, hcatHashFile):
     global hcatHybridCount
     global hcatProcess
-    hcatProcess = subprocess.Popen(
-        "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 6 -1 ?s?d {word_lists}/rockyou.txt ?1?1 "
-        "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
-            hcatBin=hcatBin,
-            hash_type=hcatHashType,
-            hash_file=hcatHashFile,
-            session_name=os.path.basename(hcatHashFile),
-            word_lists=hcatWordlists,
-            tuning=hcatTuning,
-            hate_path=hate_path), shell=True)
-    try:
-        hcatProcess.wait()
-    except KeyboardInterrupt:
-        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
-        hcatProcess.kill()
+    for wordlist in hcatHybridlist:
+        hcatProcess = subprocess.Popen(
+            "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 6 -1 ?s?d {wordlist} ?1?1 "
+            "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
+                hcatBin=hcatBin,
+                hash_type=hcatHashType,
+                hash_file=hcatHashFile,
+                session_name=os.path.basename(hcatHashFile),
+                wordlist=wordlist,
+                tuning=hcatTuning,
+                hate_path=hate_path), shell=True)
+        try:
+            hcatProcess.wait()
+        except KeyboardInterrupt:
+            print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+            hcatProcess.kill()
 
-    hcatProcess = subprocess.Popen(
-        "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 6 -1 ?s?d {word_lists}/rockyou.txt ?1?1?1 "
-        "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
-            hcatBin=hcatBin,
-            hash_type=hcatHashType,
-            hash_file=hcatHashFile,
-            session_name=os.path.basename(hcatHashFile),
-            word_lists=hcatWordlists,
-            tuning=hcatTuning,
-            hate_path=hate_path), shell=True)
-    try:
-        hcatProcess.wait()
-    except KeyboardInterrupt:
-        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
-        hcatProcess.kill()
+        hcatProcess = subprocess.Popen(
+            "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 6 -1 ?s?d {wordlist} ?1?1?1 "
+            "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
+                hcatBin=hcatBin,
+                hash_type=hcatHashType,
+                hash_file=hcatHashFile,
+                session_name=os.path.basename(hcatHashFile),
+                wordlist=wordlist,
+                tuning=hcatTuning,
+                hate_path=hate_path), shell=True)
+        try:
+            hcatProcess.wait()
+        except KeyboardInterrupt:
+            print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+            hcatProcess.kill()
 
-    hcatProcess = subprocess.Popen(
-        "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 6 -1 ?s?d {word_lists}/rockyou.txt "
-        "?1?1?1?1 {tuning} --potfile-path={hate_path}/hashcat.pot".format(
-            hcatBin=hcatBin,
-            hash_type=hcatHashType,
-            hash_file=hcatHashFile,
-            session_name=os.path.basename(hcatHashFile),
-            word_lists=hcatWordlists,
-            tuning=hcatTuning,
-            hate_path=hate_path), shell=True)
-    try:
-        hcatProcess.wait()
-    except KeyboardInterrupt:
-        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
-        hcatProcess.kill()
+        hcatProcess = subprocess.Popen(
+            "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 6 -1 ?s?d {wordlist} "
+            "?1?1?1?1 {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+                hcatBin=hcatBin,
+                hash_type=hcatHashType,
+                hash_file=hcatHashFile,
+                session_name=os.path.basename(hcatHashFile),
+                wordlist=wordlist,
+                tuning=hcatTuning,
+                hate_path=hate_path), shell=True)
+        try:
+            hcatProcess.wait()
+        except KeyboardInterrupt:
+            print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+            hcatProcess.kill()
 
-    hcatProcess = subprocess.Popen(
-        "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 7 -1 ?s?d ?1?1 {word_lists}/rockyou.txt "
-        "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
-            hcatBin=hcatBin,
-            hash_type=hcatHashType,
-            hash_file=hcatHashFile,
-            session_name=os.path.basename(hcatHashFile),
-            word_lists=hcatWordlists,
-            tuning=hcatTuning,
-            hate_path=hate_path), shell=True)
-    try:
-        hcatProcess.wait()
-    except KeyboardInterrupt:
-        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
-        hcatProcess.kill()
+        hcatProcess = subprocess.Popen(
+            "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 7 -1 ?s?d ?1?1 {wordlist} "
+            "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
+                hcatBin=hcatBin,
+                hash_type=hcatHashType,
+                hash_file=hcatHashFile,
+                session_name=os.path.basename(hcatHashFile),
+                wordlist=wordlist,
+                tuning=hcatTuning,
+                hate_path=hate_path), shell=True)
+        try:
+            hcatProcess.wait()
+        except KeyboardInterrupt:
+            print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+            hcatProcess.kill()
 
-    hcatProcess = subprocess.Popen(
-        "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 7 -1 ?s?d ?1?1?1 {word_lists}/rockyou.txt "
-        "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
-            hcatBin=hcatBin,
-            hash_type=hcatHashType,
-            hash_file=hcatHashFile,
-            session_name=os.path.basename(hcatHashFile),
-            word_lists=hcatWordlists,
-            tuning=hcatTuning,
-            hate_path=hate_path), shell=True)
-    try:
-        hcatProcess.wait()
-    except KeyboardInterrupt:
-        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
-        hcatProcess.kill()
+        hcatProcess = subprocess.Popen(
+            "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 7 -1 ?s?d ?1?1?1 {wordlist} "
+            "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
+                hcatBin=hcatBin,
+                hash_type=hcatHashType,
+                hash_file=hcatHashFile,
+                session_name=os.path.basename(hcatHashFile),
+                wordlist=wordlist,
+                tuning=hcatTuning,
+                hate_path=hate_path), shell=True)
+        try:
+            hcatProcess.wait()
+        except KeyboardInterrupt:
+            print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+            hcatProcess.kill()
 
-    hcatProcess = subprocess.Popen(
-        "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 7 -1 ?s?d ?1?1?1?1 {word_lists}/rockyou.txt "
-        "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
-            hcatBin=hcatBin,
-            hash_type=hcatHashType,
-            hash_file=hcatHashFile,
-            session_name=os.path.basename(hcatHashFile),
-            word_lists=hcatWordlists,
-            tuning=hcatTuning,
-            hate_path=hate_path), shell=True)
-    try:
-        hcatProcess.wait()
-    except KeyboardInterrupt:
-        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
-        hcatProcess.kill()
+        hcatProcess = subprocess.Popen(
+            "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 7 -1 ?s?d ?1?1?1?1 {wordlist} "
+            "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
+                hcatBin=hcatBin,
+                hash_type=hcatHashType,
+                hash_file=hcatHashFile,
+                session_name=os.path.basename(hcatHashFile),
+                wordlist=wordlist,
+                tuning=hcatTuning,
+                hate_path=hate_path), shell=True)
+        try:
+            hcatProcess.wait()
+        except KeyboardInterrupt:
+            print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+            hcatProcess.kill()
 
-    hcatHybridCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
+        hcatHybridCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
 
 # YOLO Combination Attack
