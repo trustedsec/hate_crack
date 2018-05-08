@@ -28,6 +28,10 @@ with open(hate_path + '/config.json') as config:
     hcatTuning = config_parser['hcatTuning']
     hcatWordlists = config_parser['hcatWordlists']
     hcatOptimizedWordlists = config_parser['hcatOptimizedWordlists']
+    hcatMiddleCombinatorMasks = config_parser['hcatMiddleCombinatorMasks']
+    hcatMiddleBaseList = config_parser['hcatMiddleBaseList']
+    hcatThoroughCombinatorMasks = config_parser['hcatThoroughCombinatorMasks']
+    hcatThoroughBaseList = config_parser['hcatThoroughBaseList']
 
 if sys.platform == 'darwin':
     hcatExpanderBin = "expander.app"
@@ -47,6 +51,24 @@ elif os.path.isfile(hcatPath.rstrip('/') + '/' + hcatBin):
 else:
     print('Invalid path for hashcat binary. Please check configuration and try again.')
     quit(1)
+
+if os.path.isfile(hcatMiddleBaseList):
+    pass
+elif os.path.isfile(hcatWordlists+'/'+hcatMiddleBaseList):
+    hcatMiddleBaseList = hcatWordlists+'/'+hcatMiddleBaseList
+else:
+    print('Invalid path for hcatMiddleBaseList. Please check configuration and try again.')
+    quit(1)
+
+if os.path.isfile(hcatThoroughBaseList):
+    pass
+elif os.path.isfile(hcatWordlists+'/'+hcatThoroughBaseList):
+    hcatThoroughBaseList = hcatWordlists+'/'+hcatThoroughBaseList
+else:
+    print('Invalid path for hcatThoroughBaseList. Please check configuration and try again.')
+    quit(1)
+
+
 
 hcatHashCount = 0
 hcatHashCracked = 0
@@ -440,83 +462,111 @@ def hcatYoloCombination(hcatHashType, hcatHashFile):
 # Middle fast Combinator Attack
 def hcatMiddleCombinator(hcatHashType, hcatHashFile):
     global hcatProcess
-    masks = ["2","4"," ","-","_","+",",",".","&"]
-
-    for x in range(len(masks)):
-        hcatProcess = subprocess.Popen(
-            "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 1 -j '${middle_mask}' {word_lists}/rockyou.txt "
-            "{word_lists}/rockyou.txt {tuning} --potfile-path={hate_path}/hashcat.pot".format(
-                hcatBin=hcatBin,
-                hash_type=hcatHashType,
-                hash_file=hcatHashFile,
-                session_name=os.path.basename(hcatHashFile),
-                word_lists=hcatWordlists,
-                tuning=hcatTuning,
-                middle_mask=masks[x],
-                hate_path=hate_path),
-            shell=True).wait()
-
+    masks = hcatMiddleCombinatorMasks
+    try:
+        for x in range(len(masks)):
+            hcatProcess = subprocess.Popen(
+                "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 1 -j '${middle_mask}' {left} "
+                "{right} --potfile-path={hate_path}/hashcat.pot".format(
+                    hcatBin=hcatBin,
+                    hash_type=hcatHashType,
+                    hash_file=hcatHashFile,
+                    session_name=os.path.basename(hcatHashFile),
+                    left=hcatMiddleBaseList,
+                    right=hcatMiddleBaseList,
+                    tuning=hcatTuning,
+                    middle_mask=masks[x],
+                    hate_path=hate_path),
+                shell=True)
+            hcatProcess.wait()
+    except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+        hcatProcess.kill()
 
 # Middle thorough Combinator Attack
 def hcatThoroughCombinator(hcatHashType, hcatHashFile):
     global hcatProcess
-    masks = ["0","1","2","3","4","5","6","7","8","9"," ","-","_","+",",","!","#","$","\"","%","&","\'","(",")","*",",",".","/",":",";","<","=",">","?","@","[","\\","]","^","`","{","|","}","~"]
-
-    hcatProcess = subprocess.Popen(
-        "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 1 {word_lists}/rockyou.txt "
-        "{word_lists}/rockyou.txt {tuning} --potfile-path={hate_path}/hashcat.pot".format(
-            hcatBin=hcatBin,
-            hash_type=hcatHashType,
-            hash_file=hcatHashFile,
-            word_lists=hcatWordlists,
-            tuning=hcatTuning,
-            hate_path=hate_path),
-        shell=True).wait()
-
-    for x in range(len(masks)):
+    masks = hcatThoroughCombinatorMasks
+    try:
         hcatProcess = subprocess.Popen(
-          "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 1 -j '${middle_mask}' {word_lists}/rockyou.txt "
-          "{word_lists}/rockyou.txt {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+            "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 1 {left} "
+            "{right} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
                 hcatBin=hcatBin,
                 hash_type=hcatHashType,
                 hash_file=hcatHashFile,
                 session_name=os.path.basename(hcatHashFile),
+                left=hcatThoroughBaseList,
+                right=hcatThoroughBaseList,
                 word_lists=hcatWordlists,
                 tuning=hcatTuning,
-                middle_mask=masks[x],
                 hate_path=hate_path),
-                shell=True).wait()
+            shell=True)
+        hcatProcess.wait()
+    except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+        hcatProcess.kill()
 
-    for x in range(len(masks)):
-        hcatProcess = subprocess.Popen(
-          "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 1 -k '${end_mask}' {word_lists}/rockyou.txt "
-          "{word_lists}/rockyou.txt {tuning} --potfile-path={hate_path}/hashcat.pot".format(
-                hcatBin=hcatBin,
-                hash_type=hcatHashType,
-                hash_file=hcatHashFile,
-                session_name=os.path.basename(hcatHashFile),
-                word_lists=hcatWordlists,
-                tuning=hcatTuning,
-                end_mask=masks[x],
-                hate_path=hate_path),
-                shell=True).wait()
-
-    for x in range(len(masks)):
-        hcatProcess = subprocess.Popen(
-          "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 1 "
-          "-j '${middle_mask}' -k '${end_mask}' {word_lists}/rockyou.txt "
-          "{word_lists}/rockyou.txt {tuning} --potfile-path={hate_path}/hashcat.pot".format(
-                hcatBin=hcatBin,
-                hash_type=hcatHashType,
-                hash_file=hcatHashFile,
-                session_name=os.path.basename(hcatHashFile),
-                word_lists=hcatWordlists,
-                tuning=hcatTuning,
-                middle_mask=masks[x],
-                end_mask=masks[x],
-                hate_path=hate_path),
-                shell=True).wait()
-
+    try:
+        for x in range(len(masks)):
+            hcatProcess = subprocess.Popen(
+                "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 1 "
+                "-j '${middle_mask}' {left} {right} --potfile-path={hate_path}/hashcat.pot".format(
+                    hcatBin=hcatBin,
+                    hash_type=hcatHashType,
+                    hash_file=hcatHashFile,
+                    session_name=os.path.basename(hcatHashFile),
+                    left=hcatThoroughBaseList,
+                    right=hcatThoroughBaseList,
+                    word_lists=hcatWordlists,
+                    tuning=hcatTuning,
+                    middle_mask=masks[x],
+                    hate_path=hate_path),
+                    shell=True)
+            hcatProcess.wait()
+    except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+    try:
+        for x in range(len(masks)):
+            hcatProcess = subprocess.Popen(
+              "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 1 "
+              "-k '${end_mask}' {left} {right} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+                    hcatBin=hcatBin,
+                    hash_type=hcatHashType,
+                    hash_file=hcatHashFile,
+                    session_name=os.path.basename(hcatHashFile),
+                    left=hcatThoroughBaseList,
+                    right=hcatThoroughBaseList,
+                    word_lists=hcatWordlists,
+                    tuning=hcatTuning,
+                    end_mask=masks[x],
+                    hate_path=hate_path),
+                    shell=True)
+            hcatProcess.wait()
+    except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+    try:
+        for x in range(len(masks)):
+            hcatProcess = subprocess.Popen(
+              "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 1 "
+              "-j '${middle_mask}' -k '${end_mask}' {left} {right} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+                    hcatBin=hcatBin,
+                    hash_type=hcatHashType,
+                    hash_file=hcatHashFile,
+                    session_name=os.path.basename(hcatHashFile),
+                    left=hcatThoroughBaseList,
+                    right=hcatThoroughBaseList,
+                    word_lists=hcatWordlists,
+                    tuning=hcatTuning,
+                    middle_mask=masks[x],
+                    end_mask=masks[x],
+                    hate_path=hate_path),
+                    shell=True)
+            hcatProcess.wait()
+    except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+        hcatProcess.kill()
 
 
 
