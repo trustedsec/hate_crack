@@ -1,7 +1,0 @@
-{
-  "hcatPath": "/Users/justinbollinger/PycharmProjects/hashcat",
-  "hcatBin": "/usr/local/bin/hashcat",
-  "hcatTuning": "--force",
-  "hcatWordlists": "/Passwords/wordlists",
-  "hcatOptimizedWordlists": "/Passwords/optimized_wordlists"
-}
