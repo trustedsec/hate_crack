@@ -11,6 +11,7 @@ import random
 import re
 import json
 import binascii
+import shutil
 
 # python2/3 compatability
 try:
@@ -18,25 +19,72 @@ try:
 except NameError:
     pass
 
-
 hate_path = os.path.dirname(os.path.realpath(__file__))
+if not os.path.isfile(hate_path + '/config.json'):
+    print('Initializing config.json from config.json.example')
+    shutil.copy(hate_path + '/config.json.example',hate_path + '/config.json')
+if not os.path.isfile(sys.argv[1]):
+    print('{0} is not a valid file containing hashes'.format(sys.argv[1]))
+    quit(1)
+
+
 with open(hate_path + '/config.json') as config:
     config_parser = json.load(config)
 
-    hcatPath = config_parser['hcatPath']
-    hcatBin = config_parser['hcatBin']
-    hcatTuning = config_parser['hcatTuning']
-    hcatWordlists = config_parser['hcatWordlists']
-    hcatOptimizedWordlists = config_parser['hcatOptimizedWordlists']
+with open(hate_path + '/config.json.example') as defaults:
+    default_config = json.load(defaults)
+
+hcatPath = config_parser['hcatPath']
+hcatBin = config_parser['hcatBin']
+hcatTuning = config_parser['hcatTuning']
+hcatWordlists = config_parser['hcatWordlists']
+hcatOptimizedWordlists = config_parser['hcatOptimizedWordlists']
+
+try:
     hcatDictionaryWordlist = config_parser['hcatDictionaryWordlist']
+except KeyError as e:
+    print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
+    hcatDictionaryWordlist = default_config['hcatDictionaryWordlist']
+try:
     hcatHybridlist = config_parser['hcatHybridlist']
+except KeyError as e:
+    print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
+    hcatHybridlist = default_config[e.args[0]]
+try:
     hcatCombinationWordlist = config_parser['hcatCombinationWordlist']
+except KeyError as e:
+    print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
+    hcatCombinationWordlist = default_config[e.args[0]]
+try:
     hcatMiddleCombinatorMasks = config_parser['hcatMiddleCombinatorMasks']
+except KeyError as e:
+    print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
+    hcatMiddleCombinatorMasks = default_config[e.args[0]]
+try:
     hcatMiddleBaseList = config_parser['hcatMiddleBaseList']
+except KeyError as e:
+    print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
+    hcatMiddleBaseList = default_config[e.args[0]]
+try:
     hcatThoroughCombinatorMasks = config_parser['hcatThoroughCombinatorMasks']
+except KeyError as e:
+    print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
+    hcatThoroughCombinatorMasks = default_config[e.args[0]]
+try:
     hcatThoroughBaseList = config_parser['hcatThoroughBaseList']
+except KeyError as e:
+    print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
+    hcatThoroughBaseList = default_config[e.args[0]]
+try:
     hcatPrinceBaseList = config_parser['hcatPrinceBaseList']
+except KeyError as e:
+    print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
+    hcatPrinceBaseList = default_config[e.args[0]]
+try:
     hcatGoodMeasureBaseList = config_parser['hcatGoodMeasureBaseList']
+except KeyError as e:
+    print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
+    hcatGoodMeasureBaseList = default_config[e.args[0]]
 
 
 if sys.platform == 'darwin':
