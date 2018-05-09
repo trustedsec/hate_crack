@@ -1,0 +1,11 @@
+{
+  "hcatPath": "/Passwords/hashcat",
+  "hcatBin": "hashcat",
+  "hcatTuning": "--force",
+  "hcatWordlists": "/Passwords/wordlists",
+  "hcatOptimizedWordlists": "/Passwords/optimized_wordlists",
+  "hcatMiddleCombinatorMasks": ["2","4"," ","-","_","+",",",".","&"],
+  "hcatMiddleBaseList": "rockyou.txt",
+  "hcatThoroughCombinatorMasks": ["0","1","2","3","4","5","6","7","8","9"," ","-","_","+",",","!","#","$","\"","%","&","'","(",")","*",",",".","/",":",";","<","=",">","?","@","[","\\","]","^","`","{","|","}","~"],
+  "hcatThoroughBaseList": "rockyou.txt"
+}
