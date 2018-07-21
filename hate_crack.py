@@ -23,10 +23,6 @@ hate_path = os.path.dirname(os.path.realpath(__file__))
 if not os.path.isfile(hate_path + '/config.json'):
     print('Initializing config.json from config.json.example')
     shutil.copy(hate_path + '/config.json.example',hate_path + '/config.json')
-if not os.path.isfile(sys.argv[1]):
-    print('{0} is not a valid file containing hashes'.format(sys.argv[1]))
-    quit(1)
-
 
 with open(hate_path + '/config.json') as config:
     config_parser = json.load(config)
