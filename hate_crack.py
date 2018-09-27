@@ -518,6 +518,18 @@ def hcatYoloCombination(hcatHashType, hcatHashFile):
 def hcatMiddleCombinator(hcatHashType, hcatHashFile):
     global hcatProcess
     masks = hcatMiddleCombinatorMasks
+    # Added support for multiple character masks
+    new_masks = []
+    for mask in masks:
+        tmp = []
+        if len(mask) > 1:
+            for character in mask:
+                tmp.append(character)
+            new_masks.append('$' + '$'.join(tmp))
+        else:
+            new_masks.append('$'+mask)
+    masks = new_masks
+
     try:
         for x in range(len(masks)):
             hcatProcess = subprocess.Popen(
@@ -542,6 +554,18 @@ def hcatMiddleCombinator(hcatHashType, hcatHashFile):
 def hcatThoroughCombinator(hcatHashType, hcatHashFile):
     global hcatProcess
     masks = hcatThoroughCombinatorMasks
+    # Added support for multiple character masks
+    new_masks = []
+    for mask in masks:
+        tmp = []
+        if len(mask) > 1:
+            for character in mask:
+                tmp.append(character)
+            new_masks.append('$' + '$'.join(tmp))
+        else:
+            new_masks.append('$'+mask)
+    masks = new_masks
+
     try:
         hcatProcess = subprocess.Popen(
             "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 1 {left} "
