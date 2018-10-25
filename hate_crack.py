@@ -917,7 +917,8 @@ def quick_crack():
                 except IndexError:
                     continue
     else:
-        selected_hcatRules = hcatRules
+        for rule in hcatRules:
+            selected_hcatRules.append('-r {hcatPath}/rules/{selected_rule}'.format(selected_rule=rule, hcatPath=hcatPath))
 
     for chain in selected_hcatRules:
         hcatQuickDictionary(hcatHashType, hcatHashFile, chain)
