@@ -84,7 +84,23 @@ Select a task:
 -------------------------------------------------------------------
 #### Quick Crack
 * Runs a dictionary attack using all wordlists configured in your "hcatOptimizedWordlists" path
-and applies the "best64.rule", with the option of chaining the "best64.rule".
+and optionally applies a rule that can be selected from a list by ID number. Multiple rules can be selected by using a
+comma separated list, and chains can be created by using the '+' symbol.
+Example:
+```Which rule(s) would you like to run?
+(1) best64.rule
+(2) d3ad0ne.rule
+(3) T0XlC.rule
+(4) dive.rule
+(99) YOLO...run all of the rules
+Enter Comma separated list of rules you would like to run.
+To run rules chained use the + symbol: 
+```
+
+To run best64 twice you would enter `1+1` to run best64 and then d3ad0ne you would enter `1,2`
+ 
+
+
 
 #### Extensive Pure_Hate Methodology Crack
 Runs several attack methods provided by Martin Bos (formerly known as pure_hate)
@@ -162,10 +178,6 @@ https://jeffh.net/2018/04/26/combinator_methods/
   - Hybrid middle/end attack: rockyou.txt + ?n + rockyou.txt + ?n
   - Hybrid middle/end attack: rockyou.txt + ?s + rockyou.txt + ?s
 
-#### Rules Attack
-* Runs one or more selected rules against the optimized wordlist directory. Can customize and add user created rules by
-editing the hcatRules in the config file. Rules need to be in the rules directory of hcatPath.
-  
 -------------------------------------------------------------------
 ### Version History
 Version 1.05
