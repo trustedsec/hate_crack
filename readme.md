@@ -72,6 +72,7 @@ $ ./hate_crack.py <hash file> 1000
 	(10) YOLO Combinator Attack
 	(11) Middle Combinator Attack
 	(12) Thorough Combinator Attack
+	(13) Rules Attack
 
 	(96) Export Output to Excel Format
 	(97) Display Cracked Hashes
@@ -161,7 +162,10 @@ https://jeffh.net/2018/04/26/combinator_methods/
   - Hybrid middle/end attack: rockyou.txt + ?n + rockyou.txt + ?n
   - Hybrid middle/end attack: rockyou.txt + ?s + rockyou.txt + ?s
 
-
+#### Rules Attack
+* Runs one or more selected rules against the optimized wordlist directory. Can customize and add user created rules by
+editing the hcatRules in the config file. Rules need to be in the rules directory of hcatPath.
+  
 -------------------------------------------------------------------
 ### Version History
 Version 1.05
