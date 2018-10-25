@@ -35,7 +35,12 @@ hcatBin = config_parser['hcatBin']
 hcatTuning = config_parser['hcatTuning']
 hcatWordlists = config_parser['hcatWordlists']
 hcatOptimizedWordlists = config_parser['hcatOptimizedWordlists']
-hcatRules = config_parser['hcatRules']
+
+try:
+    hcatRules = config_parser['hcatRules']
+except KeyError as e:
+    print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
+    hcatRules = default_config['hcatRules']
 
 try:
     hcatDictionaryWordlist = config_parser['hcatDictionaryWordlist']
