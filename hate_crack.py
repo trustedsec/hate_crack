@@ -883,15 +883,44 @@ def cleanup():
         #incase someone mashes the Control+C it will still cleanup
         cleanup()
 
-# Quick Dictionary Attack with Optional Chained Best64 Rules
+# Quick Dictionary Attack with Optional Chained Rules
 def quick_crack():
-    hcatChainsInput = int(input("\nHow many times would you like to chain the best64.rule? (1): ") or 1)
-    hcatChains = ''
-    if hcatChainsInput > 0:
-        for n in range(1, hcatChainsInput):
-            hcatChains += "-r {hcatPath}/rules/best64.rule ".format(hcatPath=hcatPath)
+    # Rules Attack
+    rule_choice = None
+    selected_hcatRules = []
 
-    hcatQuickDictionary(hcatHashType, hcatHashFile, hcatChains)
+    print("\nWhich rule(s) would you like to run?")
+    rule_number = 1
+    for rule in hcatRules:
+        print('({0}) {1}'.format(rule_number, rule))
+        rule_number += 1
+    print(('(99) YOLO...run all of the rules'))
+    while rule_choice is None:
+        rule_choice = input('Enter Comma separated list of rules you would like to run.\n'
+                            'To run rules chained use the + symbol: ').split(',')
+
+    if '99' not in rule_choice:
+        for choice in rule_choice:
+            if '+' in choice:
+                combined_choice = ''
+                choices = choice.split('+')
+                for rule in choices:
+                    try:
+                        combined_choice = '{0} {1}'.format(combined_choice, '-r {hcatPath}/rules/{selected_rule}'.format(selected_rule=hcatRules[int(rule) - 1],
+                                                                                                                         hcatPath=hcatPath))
+                    except:
+                        continue
+                selected_hcatRules.append(combined_choice)
+            else:
+                try:
+                    selected_hcatRules.append(hcatPath + '/rules/' + hcatRules[int(choice) - 1])
+                except IndexError:
+                    continue
+    else:
+        selected_hcatRules = hcatRules
+
+    for chain in selected_hcatRules:
+        hcatQuickDictionary(hcatHashType, hcatHashFile, chain)
 
 
 # Extensive Pure_Hate Methodology
@@ -987,30 +1016,6 @@ def yolo_combination():
 # Thorough Combinator
 def thorough_combinator():
     hcatThoroughCombinator(hcatHashType, hcatHashFile)
-
-# Rules Attack
-def rules_crack():
-    rule_choice = None
-    selected_hcatRules = []
-
-    print("\nWhich rule(s) would you like to run?")
-    rule_number = 1
-    for rule in hcatRules:
-        print('({0}) {1}'.format(rule_number,rule))
-        rule_number += 1
-    print(('(99) YOLO...run all of the rules '))
-    while rule_choice is None:
-        rule_choice = input('Enter Comma separated list of rules you would like to run: ').split(',')
-
-    if '99' not in rule_choice:
-        for choice in rule_choice:
-            try:
-                selected_hcatRules.append(hcatRules[int(choice)-1])
-            except IndexError:
-                continue
-    else:
-        selected_hcatRules = hcatRules
-    hcatRules_attack(hcatHashType, hcatHashFile, selected_hcatRules)
 
 # Middle Combinator
 def middle_combinator():
@@ -1175,7 +1180,6 @@ def main():
             print("\t(10) YOLO Combinator Attack")
             print("\t(11) Middle Combinator Attack")
             print("\t(12) Thorough Combinator Attack")
-            print("\t(13) Rules Attack")
             print("\n\t(96) Export Output to Excel Format")
             print("\t(97) Display Cracked Hashes")
             print("\t(98) Display README")
@@ -1192,7 +1196,6 @@ def main():
                        "10": yolo_combination,
                        "11": middle_combinator,
                        "12": thorough_combinator,
-                       "13": rules_crack,
                        "96": export_excel,
                        "97": show_results,
                        "98": show_readme,
