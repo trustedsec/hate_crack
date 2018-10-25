@@ -35,6 +35,7 @@ hcatBin = config_parser['hcatBin']
 hcatTuning = config_parser['hcatTuning']
 hcatWordlists = config_parser['hcatWordlists']
 hcatOptimizedWordlists = config_parser['hcatOptimizedWordlists']
+hcatRules = config_parser['hcatRules']
 
 try:
     hcatDictionaryWordlist = config_parser['hcatDictionaryWordlist']
@@ -820,6 +821,27 @@ def hcatRecycle(hcatHashType, hcatHashFile, hcatNewPasswords):
         except KeyboardInterrupt:
             hcatProcess.kill()
 
+def hcatRules_attack(hcatHashType, hcatHashFile, hcatRules):
+    global hcatProcess
+    for rule in hcatRules:
+        hcatProcess = subprocess.Popen(
+            "{hcatBin} -m {hcatHashType} {hash_file} --session {session_name} --remove -o {hash_file}.out {optimized_wordlists}/* "
+            "-r {hcatPath}/rules/{current_rule} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+                hcatPath=hcatPath,
+                hcatBin=hcatBin,
+                hcatHashType=hcatHashType,
+                hash_file=hcatHashFile,
+                session_name=os.path.basename(hcatHashFile),
+                optimized_wordlists=hcatOptimizedWordlists,
+                tuning=hcatTuning,
+                current_rule=rule,
+                hate_path=hate_path), shell=True)
+        try:
+            hcatProcess.wait()
+        except KeyboardInterrupt:
+            print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+            hcatProcess.kill()
+
 # creating the combined output for pwdformat + cleartext
 def combine_ntlm_output():
     with open(hcatHashFileOrig + ".out", "w+") as hcatCombinedHashes:
@@ -960,6 +982,30 @@ def yolo_combination():
 # Thorough Combinator
 def thorough_combinator():
     hcatThoroughCombinator(hcatHashType, hcatHashFile)
+
+# Rules Attack
+def rules_crack():
+    rule_choice = None
+    selected_hcatRules = []
+
+    print("\nWhich rule(s) would you like to run?")
+    rule_number = 1
+    for rule in hcatRules:
+        print('({0}) {1}'.format(rule_number,rule))
+        rule_number += 1
+    print(('(99) YOLO...run all of the rules '))
+    while rule_choice is None:
+        rule_choice = input('Enter Comma separated list of rules you would like to run: ').split(',')
+
+    if '99' not in rule_choice:
+        for choice in rule_choice:
+            try:
+                selected_hcatRules.append(hcatRules[int(choice)-1])
+            except IndexError:
+                continue
+    else:
+        selected_hcatRules = hcatRules
+    hcatRules_attack(hcatHashType, hcatHashFile, selected_hcatRules)
 
 # Middle Combinator
 def middle_combinator():
@@ -1124,6 +1170,7 @@ def main():
             print("\t(10) YOLO Combinator Attack")
             print("\t(11) Middle Combinator Attack")
             print("\t(12) Thorough Combinator Attack")
+            print("\t(13) Rules Attack")
             print("\n\t(96) Export Output to Excel Format")
             print("\t(97) Display Cracked Hashes")
             print("\t(98) Display README")
@@ -1140,6 +1187,7 @@ def main():
                        "10": yolo_combination,
                        "11": middle_combinator,
                        "12": thorough_combinator,
+                       "13": rules_crack,
                        "96": export_excel,
                        "97": show_results,
                        "98": show_readme,
