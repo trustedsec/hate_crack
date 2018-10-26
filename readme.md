@@ -179,6 +179,9 @@ https://jeffh.net/2018/04/26/combinator_methods/
 
 -------------------------------------------------------------------
 ### Version History
+Version 1.06
+  Updated the quick crack and recylcing functions to use user customizable rules.
+
 Version 1.05
   Abstraction of rockyou.txt so that you can use whatever dictionary that you would like to specified in the config.json
   Minor change the quickcrack that allows you to specify 0 for number of times best64 is chained
