@@ -810,21 +810,22 @@ def hcatRecycle(hcatHashType, hcatHashFile, hcatNewPasswords):
         # Overwrite working file with updated converted words
         with open(working_file, 'w') as f:
             f.write("\n".join(converted))
-
-        hcatProcess = subprocess.Popen(
-            "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out {hash_file}.working "
-            "-r {hcatPath}/rules/d3ad0ne.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
-                hcatBin=hcatBin,
-                hash_type=hcatHashType,
-                hash_file=hcatHashFile,
-                session_name=os.path.basename(hcatHashFile),
-                hcatPath=hcatPath,
-                tuning=hcatTuning,
-                hate_path=hate_path), shell=True)
-        try:
-            hcatProcess.wait()
-        except KeyboardInterrupt:
-            hcatProcess.kill()
+        for rule in hcatRules:
+            hcatProcess = subprocess.Popen(
+                "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out {hash_file}.working "
+                "-r {hcatPath}/rules/{rule} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+                    rule=rule,
+                    hcatBin=hcatBin,
+                    hash_type=hcatHashType,
+                    hash_file=hcatHashFile,
+                    session_name=os.path.basename(hcatHashFile),
+                    hcatPath=hcatPath,
+                    tuning=hcatTuning,
+                    hate_path=hate_path), shell=True)
+            try:
+                hcatProcess.wait()
+            except KeyboardInterrupt:
+                hcatProcess.kill()
 
 def hcatRules_attack(hcatHashType, hcatHashFile, hcatRules):
     global hcatProcess
@@ -896,8 +897,9 @@ def quick_crack():
         rule_number += 1
     print(('(99) YOLO...run all of the rules'))
     while rule_choice is None:
-        rule_choice = input('Enter Comma separated list of rules you would like to run.\n'
-                            'To run rules chained use the + symbol: ').split(',')
+        rule_choice = input('Enter Comma separated list of rules you would like to run. To run rules chained use the + symbol.\n'
+                            'For example 1+1 will run {0} chained twice and 1,2 would run {0} and then {1} sequentially.\n'
+                            'Choose wisely: '.format(hcatRules[0], hcatRules[1])).split(',')
 
     if '99' not in rule_choice:
         for choice in rule_choice:
@@ -921,7 +923,7 @@ def quick_crack():
             selected_hcatRules.append('-r {hcatPath}/rules/{selected_rule}'.format(selected_rule=rule, hcatPath=hcatPath))
 
     for chain in selected_hcatRules:
-        hcatQuickDictionary(hcatHashType, hcatHashFile, chain)
+         hcatQuickDictionary(hcatHashType, hcatHashFile, chain)
 
 
 # Extensive Pure_Hate Methodology
