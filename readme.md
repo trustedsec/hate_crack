@@ -72,7 +72,6 @@ $ ./hate_crack.py <hash file> 1000
 	(10) YOLO Combinator Attack
 	(11) Middle Combinator Attack
 	(12) Thorough Combinator Attack
-	(13) Rules Attack
 
 	(96) Export Output to Excel Format
 	(97) Display Cracked Hashes
