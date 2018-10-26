@@ -827,27 +827,6 @@ def hcatRecycle(hcatHashType, hcatHashFile, hcatNewPasswords):
             except KeyboardInterrupt:
                 hcatProcess.kill()
 
-def hcatRules_attack(hcatHashType, hcatHashFile, hcatRules):
-    global hcatProcess
-    for rule in hcatRules:
-        hcatProcess = subprocess.Popen(
-            "{hcatBin} -m {hcatHashType} {hash_file} --session {session_name} --remove -o {hash_file}.out {optimized_wordlists}/* "
-            "-r {hcatPath}/rules/{current_rule} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
-                hcatPath=hcatPath,
-                hcatBin=hcatBin,
-                hcatHashType=hcatHashType,
-                hash_file=hcatHashFile,
-                session_name=os.path.basename(hcatHashFile),
-                optimized_wordlists=hcatOptimizedWordlists,
-                tuning=hcatTuning,
-                current_rule=rule,
-                hate_path=hate_path), shell=True)
-        try:
-            hcatProcess.wait()
-        except KeyboardInterrupt:
-            print('Killing PID {0}...'.format(str(hcatProcess.pid)))
-            hcatProcess.kill()
-
 # creating the combined output for pwdformat + cleartext
 def combine_ntlm_output():
     with open(hcatHashFileOrig + ".out", "w+") as hcatCombinedHashes:
