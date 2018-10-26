@@ -86,18 +86,18 @@ Select a task:
 * Runs a dictionary attack using all wordlists configured in your "hcatOptimizedWordlists" path
 and optionally applies a rule that can be selected from a list by ID number. Multiple rules can be selected by using a
 comma separated list, and chains can be created by using the '+' symbol.
-Example:
-```Which rule(s) would you like to run?
+
+```
+Which rule(s) would you like to run?
 (1) best64.rule
 (2) d3ad0ne.rule
 (3) T0XlC.rule
 (4) dive.rule
 (99) YOLO...run all of the rules
-Enter Comma separated list of rules you would like to run.
-To run rules chained use the + symbol: 
+Enter Comma separated list of rules you would like to run. To run rules chained use the + symbol.
+For example 1+1 will run best64.rule chained twice and 1,2 would run best64.rule and then d3ad0ne.rule sequentially.
+Choose wisely: 
 ```
-
-To run best64 twice you would enter `1+1` to run best64 and then d3ad0ne you would enter `1,2`
  
 
 
