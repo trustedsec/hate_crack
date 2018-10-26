@@ -892,10 +892,12 @@ def quick_crack():
 
     print("\nWhich rule(s) would you like to run?")
     rule_number = 1
+    print('(0) To run without any rules')
     for rule in hcatRules:
         print('({0}) {1}'.format(rule_number, rule))
         rule_number += 1
-    print(('(99) YOLO...run all of the rules'))
+    print('(99) YOLO...run all of the rules')
+
     while rule_choice is None:
         rule_choice = input('Enter Comma separated list of rules you would like to run. To run rules chained use the + symbol.\n'
                             'For example 1+1 will run {0} chained twice and 1,2 would run {0} and then {1} sequentially.\n'
@@ -922,6 +924,7 @@ def quick_crack():
         for rule in hcatRules:
             selected_hcatRules.append('-r {hcatPath}/rules/{selected_rule}'.format(selected_rule=rule, hcatPath=hcatPath))
 
+    #Run Quick Crack with each selected rule
     for chain in selected_hcatRules:
          hcatQuickDictionary(hcatHashType, hcatHashFile, chain)
 
