@@ -878,11 +878,18 @@ def quick_crack():
     print('(99) YOLO...run all of the rules')
 
     while rule_choice is None:
-        rule_choice = input('Enter Comma separated list of rules you would like to run. To run rules chained use the + symbol.\n'
+        raw_choice = input('Enter Comma separated list of rules you would like to run. To run rules chained use the + symbol.\n'
                             'For example 1+1 will run {0} chained twice and 1,2 would run {0} and then {1} sequentially.\n'
-                            'Choose wisely: '.format(hcatRules[0], hcatRules[1])).split(',')
+                            'Choose wisely: '.format(hcatRules[0], hcatRules[1]))
+        if raw_choice is not '':
+            rule_choice = raw_choice.split(',')
 
-    if '99' not in rule_choice:
+    if '99' in rule_choice:
+        for rule in hcatRules:
+            selected_hcatRules.append('-r {hcatPath}/rules/{selected_rule}'.format(selected_rule=rule, hcatPath=hcatPath))
+    elif '0' in rule_choice:
+        selected_hcatRules = ['']
+    else:
         for choice in rule_choice:
             if '+' in choice:
                 combined_choice = ''
@@ -899,9 +906,6 @@ def quick_crack():
                     selected_hcatRules.append(hcatPath + '/rules/' + hcatRules[int(choice) - 1])
                 except IndexError:
                     continue
-    else:
-        for rule in hcatRules:
-            selected_hcatRules.append('-r {hcatPath}/rules/{selected_rule}'.format(selected_rule=rule, hcatPath=hcatPath))
 
     #Run Quick Crack with each selected rule
     for chain in selected_hcatRules:
