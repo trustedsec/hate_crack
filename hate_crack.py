@@ -37,6 +37,12 @@ hcatWordlists = config_parser['hcatWordlists']
 hcatOptimizedWordlists = config_parser['hcatOptimizedWordlists']
 
 try:
+    hcatRules = config_parser['hcatRules']
+except KeyError as e:
+    print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
+    hcatRules = default_config['hcatRules']
+
+try:
     hcatDictionaryWordlist = config_parser['hcatDictionaryWordlist']
 except KeyError as e:
     print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
@@ -152,7 +158,7 @@ def ascii_art():
 \    Y    // __ \|  | \  ___/    \     \____|  | \// __ \\  \___|    < 
  \___|_  /(____  /__|  \___  >____\______  /|__|  (____  /\___  >__|_ \
        \/      \/          \/_____/      \/            \/     \/     \/
-                          Version 1.05
+                          Version 1.06
   """)
 
 
@@ -804,20 +810,42 @@ def hcatRecycle(hcatHashType, hcatHashFile, hcatNewPasswords):
         # Overwrite working file with updated converted words
         with open(working_file, 'w') as f:
             f.write("\n".join(converted))
+        for rule in hcatRules:
+            hcatProcess = subprocess.Popen(
+                "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out {hash_file}.working "
+                "-r {hcatPath}/rules/{rule} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+                    rule=rule,
+                    hcatBin=hcatBin,
+                    hash_type=hcatHashType,
+                    hash_file=hcatHashFile,
+                    session_name=os.path.basename(hcatHashFile),
+                    hcatPath=hcatPath,
+                    tuning=hcatTuning,
+                    hate_path=hate_path), shell=True)
+            try:
+                hcatProcess.wait()
+            except KeyboardInterrupt:
+                hcatProcess.kill()
 
+def hcatRules_attack(hcatHashType, hcatHashFile, hcatRules):
+    global hcatProcess
+    for rule in hcatRules:
         hcatProcess = subprocess.Popen(
-            "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out {hash_file}.working "
-            "-r {hcatPath}/rules/d3ad0ne.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+            "{hcatBin} -m {hcatHashType} {hash_file} --session {session_name} --remove -o {hash_file}.out {optimized_wordlists}/* "
+            "-r {hcatPath}/rules/{current_rule} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+                hcatPath=hcatPath,
                 hcatBin=hcatBin,
-                hash_type=hcatHashType,
+                hcatHashType=hcatHashType,
                 hash_file=hcatHashFile,
                 session_name=os.path.basename(hcatHashFile),
-                hcatPath=hcatPath,
+                optimized_wordlists=hcatOptimizedWordlists,
                 tuning=hcatTuning,
+                current_rule=rule,
                 hate_path=hate_path), shell=True)
         try:
             hcatProcess.wait()
         except KeyboardInterrupt:
+            print('Killing PID {0}...'.format(str(hcatProcess.pid)))
             hcatProcess.kill()
 
 # creating the combined output for pwdformat + cleartext
@@ -856,15 +884,46 @@ def cleanup():
         #incase someone mashes the Control+C it will still cleanup
         cleanup()
 
-# Quick Dictionary Attack with Optional Chained Best64 Rules
+# Quick Dictionary Attack with Optional Chained Rules
 def quick_crack():
-    hcatChainsInput = int(input("\nHow many times would you like to chain the best64.rule? (1): ") or 1)
-    hcatChains = ''
-    if hcatChainsInput > 0:
-        for n in range(1, hcatChainsInput):
-            hcatChains += "-r {hcatPath}/rules/best64.rule ".format(hcatPath=hcatPath)
+    # Rules Attack
+    rule_choice = None
+    selected_hcatRules = []
 
-    hcatQuickDictionary(hcatHashType, hcatHashFile, hcatChains)
+    print("\nWhich rule(s) would you like to run?")
+    rule_number = 1
+    for rule in hcatRules:
+        print('({0}) {1}'.format(rule_number, rule))
+        rule_number += 1
+    print(('(99) YOLO...run all of the rules'))
+    while rule_choice is None:
+        rule_choice = input('Enter Comma separated list of rules you would like to run. To run rules chained use the + symbol.\n'
+                            'For example 1+1 will run {0} chained twice and 1,2 would run {0} and then {1} sequentially.\n'
+                            'Choose wisely: '.format(hcatRules[0], hcatRules[1])).split(',')
+
+    if '99' not in rule_choice:
+        for choice in rule_choice:
+            if '+' in choice:
+                combined_choice = ''
+                choices = choice.split('+')
+                for rule in choices:
+                    try:
+                        combined_choice = '{0} {1}'.format(combined_choice, '-r {hcatPath}/rules/{selected_rule}'.format(selected_rule=hcatRules[int(rule) - 1],
+                                                                                                                         hcatPath=hcatPath))
+                    except:
+                        continue
+                selected_hcatRules.append(combined_choice)
+            else:
+                try:
+                    selected_hcatRules.append(hcatPath + '/rules/' + hcatRules[int(choice) - 1])
+                except IndexError:
+                    continue
+    else:
+        for rule in hcatRules:
+            selected_hcatRules.append('-r {hcatPath}/rules/{selected_rule}'.format(selected_rule=rule, hcatPath=hcatPath))
+
+    for chain in selected_hcatRules:
+         hcatQuickDictionary(hcatHashType, hcatHashFile, chain)
 
 
 # Extensive Pure_Hate Methodology
