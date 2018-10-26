@@ -57,7 +57,7 @@ $ ./hate_crack.py <hash file> 1000
 \    Y    // __ \|  | \  ___/    \     \____|  | \// __ \\  \___|    < 
  \___|_  /(____  /__|  \___  >____\______  /|__|  (____  /\___  >__|_ \
        \/      \/          \/_____/      \/            \/     \/     \/
-                          Version 1.05
+                          Version 1.06
   
 
 	(1) Quick Crack
@@ -83,7 +83,23 @@ Select a task:
 -------------------------------------------------------------------
 #### Quick Crack
 * Runs a dictionary attack using all wordlists configured in your "hcatOptimizedWordlists" path
-and applies the "best64.rule", with the option of chaining the "best64.rule".
+and optionally applies a rule that can be selected from a list by ID number. Multiple rules can be selected by using a
+comma separated list, and chains can be created by using the '+' symbol.
+
+```
+Which rule(s) would you like to run?
+(1) best64.rule
+(2) d3ad0ne.rule
+(3) T0XlC.rule
+(4) dive.rule
+(99) YOLO...run all of the rules
+Enter Comma separated list of rules you would like to run. To run rules chained use the + symbol.
+For example 1+1 will run best64.rule chained twice and 1,2 would run best64.rule and then d3ad0ne.rule sequentially.
+Choose wisely: 
+```
+ 
+
+
 
 #### Extensive Pure_Hate Methodology Crack
 Runs several attack methods provided by Martin Bos (formerly known as pure_hate)
@@ -161,9 +177,11 @@ https://jeffh.net/2018/04/26/combinator_methods/
   - Hybrid middle/end attack: rockyou.txt + ?n + rockyou.txt + ?n
   - Hybrid middle/end attack: rockyou.txt + ?s + rockyou.txt + ?s
 
-
 -------------------------------------------------------------------
 ### Version History
+Version 1.06
+  Updated the quick crack and recylcing functions to use user customizable rules.
+
 Version 1.05
   Abstraction of rockyou.txt so that you can use whatever dictionary that you would like to specified in the config.json
   Minor change the quickcrack that allows you to specify 0 for number of times best64 is chained
