@@ -903,8 +903,8 @@ def quick_crack():
                 selected_hcatRules.append(combined_choice)
             else:
                 try:
-                    selected_hcatRules.append(hcatPath + '/rules/' + hcatRules[int(choice) - 1])
-                except IndexError:
+                    selected_hcatRules.append('-r {hcatPath}/rules/{selected_rule}'.format(selected_rule=hcatRules[int(choice) - 1],hcatPath=hcatPath))
+                except IndexError:NameError
                     continue
 
     #Run Quick Crack with each selected rule
