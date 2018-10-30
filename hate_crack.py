@@ -1018,7 +1018,10 @@ def convert_hex(working_file):
         for line in f:
             match = re.search(regex, line.rstrip('\n'))
             if match:
-                processed_words.append(binascii.unhexlify(match.group(1)).decode('utf-8'))
+                try:
+                    processed_words.append(binascii.unhexlify(match.group(1)).decode('utf-8'))
+                except UnicodeDecodeError:
+                    pass
             else:
                 processed_words.append(line.rstrip('\n'))
 
