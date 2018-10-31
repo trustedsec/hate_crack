@@ -12,6 +12,7 @@ import re
 import json
 import binascii
 import shutil
+import argparse
 
 # python2/3 compatability
 try:
@@ -158,7 +159,7 @@ def ascii_art():
 \    Y    // __ \|  | \  ___/    \     \____|  | \// __ \\  \___|    < 
  \___|_  /(____  /__|  \___  >____\______  /|__|  (____  /\___  >__|_ \
        \/      \/          \/_____/      \/            \/     \/     \/
-                          Version 1.06
+                          Version 1.07
   """)
 
 
@@ -864,9 +865,9 @@ def cleanup():
         cleanup()
 
 # Quick Dictionary Attack with Optional Chained Rules
-def quick_crack():
+def quick_crack(rules):
     # Rules Attack
-    rule_choice = None
+    rule_choice = rules
     selected_hcatRules = []
 
     print("\nWhich rule(s) would you like to run?")
@@ -959,15 +960,24 @@ def extensive_crack():
 
 
 # Brute Force
-def brute_force_crack():
-    hcatMinLen = int(input("\nEnter the minimum password length to brute force (1): ") or 1)
-    hcatMaxLen = int(input("\nEnter the maximum password length to brute force (7): ") or 7)
+def brute_force_crack(rules):
+    try:
+      split_rules = rules.split(',')
+      hcatMinLen = int(split_rules[0])
+      hcatMaxLen = int(split_rules[1])
+    except:
+      hcatMinLen = int(input("\nEnter the minimum password length to brute force (1): ") or 1)
+      hcatMaxLen = int(input("\nEnter the maximum password length to brute force (7): ") or 7)
     hcatBruteForce(hcatHashType, hcatHashFile, hcatMinLen, hcatMaxLen)
 
 
 # Top Mask
-def top_mask_crack():
-    hcatTargetTime = int(input("\nEnter a target time for completion in hours (4): ") or 4)
+def top_mask_crack(rules):
+    hcatTargetTime = 0
+    try:
+      hcatTargetTime = int(rules)
+    except:
+      hcatTargetTime = int(input("\nEnter a target time for completion in hours (4): ") or 4)      
     hcatTargetTime = hcatTargetTime * 60 * 60
     hcatTopMask(hcatHashType, hcatHashFile, hcatTargetTime)
 
@@ -1094,6 +1104,16 @@ def quit_hc():
     cleanup()
     sys.exit(0)
 
+# The Argument Parser
+def argument_parser():
+    parser = argparse.ArgumentParser(description="A tool for automating cracking methodologies through Hashcat from the TrustedSec team.")
+    parser.add_argument("hash_file", help="the hash file to crack")
+    parser.add_argument("hash_type", type=int, help="""the hash type in the hash file.
+    Attained by running \"hashcat64.exe --help\".
+    Example Hashes: http://hashcat.net/wiki/doku.php?id=example_hashes""")
+    parser.add_argument("-m","--method", help="Optional argument to launch a particular cracking method from the command line")
+    parser.add_argument("-r","--rules", help="Optional argument to select rules for a cracking method from the command line")
+    return parser.parse_args()
 
 # The Main Guts
 def main():
@@ -1104,9 +1124,11 @@ def main():
 
     hcatHashFileOrig = ""
 
+    args = argument_parser()
+
     try:
-        hcatHashFile = sys.argv[1]
-        hcatHashType = sys.argv[2]
+        hcatHashFile = args.hash_file
+        hcatHashType = args.hash_type
 
     except IndexError:
         usage()
@@ -1194,8 +1216,11 @@ def main():
                        "99": quit_hc
                        }
             try:
-                task = input("\nSelect a task: ")
-                options[task]()
+                if args.method is not None:
+                  options[args.method](args.rules)
+                else:
+                  task = input("\nSelect a task: ")
+                  options[task]()
             except KeyError:
                 pass
     except KeyboardInterrupt:
