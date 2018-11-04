@@ -5,9 +5,6 @@ import os
 import subprocess
 import shutil
 
-splitlen_bin = "hashcat-utils/bin/splitlen.app"
-rli_bin = "hashcat-utils/bin/rli.app"
-
 # Help
 def usage():
   print("usage: python %s <input file list> <output directory>" % sys.argv[0])
@@ -32,8 +29,15 @@ def main():
   except IndexError:
     usage()
     sys.exit()
-    
-  # Get list of wordlists from <input file list> argument  
+
+  if sys.platform == 'darwin':
+    splitlen_bin = "hashcat-utils/bin/splitlen.app"
+    rli_bin = "hashcat-utils/bin/rli.app"
+  else:
+    splitlen_bin = "hashcat-utils/bin/splitlen.bin"
+    rli_bin = "hashcat-utils/bin/rli.bin"
+
+  # Get list of wordlists from <input file list> argument
   for wordlist in input_list:
     print(wordlist.strip())
     
