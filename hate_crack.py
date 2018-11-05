@@ -1012,9 +1012,11 @@ def middle_combinator():
 
 # Remove Duplicate Accounts
 def remove_duplicate_accounts():
+    print "test\n"
 
 # Remove Computer Accounts
 def remove_computer_accounts():
+    print "test\n"
 
 # convert hex words for recycling
 def convert_hex(working_file):
