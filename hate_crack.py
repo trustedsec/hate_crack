@@ -1024,7 +1024,7 @@ def remove_computer_accounts():
     with open(hcatHashFile, 'r') as f:
         lines = f.readlines()
         print lines
-        username = line.split('::')
+        username = lines.split('::')
        # if username(0)[-1:] == "$":
         #    print "Found Computer Account"
 
