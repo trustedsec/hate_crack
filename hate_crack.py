@@ -1021,11 +1021,12 @@ def remove_computer_accounts():
         from shutil import copyfile
         copyfile(hcatHashFile, hcatHashFile + ".orig")
 #Remove accounts ending in $
+    newfile = open(hcatHashFile + ".tmp", 'w')
     with open(hcatHashFile, 'r') as f:
             for lines in f:
                 line = lines.split("::")
                 if line[0][-1:] != "$":
-                    print line
+                    newfile.write(str(line))
 
 
 
