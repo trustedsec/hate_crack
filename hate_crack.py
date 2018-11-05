@@ -1027,6 +1027,8 @@ def remove_computer_accounts():
                 line = lines.split("::")
                 if line[0][-1:] != "$":
                     newfile.write(str(line))
+    newfile.close()
+    shutil.move(hcatHashFile + ".tmp", hcatHashFile)
 
 
 
