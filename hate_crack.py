@@ -1011,10 +1011,10 @@ def middle_combinator():
     hcatMiddleCombinator(hcatHashType, hcatHashFile)
 
 # Remove Duplicate Accounts
-def remove_duplicate_accounts();
+def remove_duplicate_accounts():
 
 # Remove Computer Accounts
-def remove_computer_accounts();
+def remove_computer_accounts():
 
 # convert hex words for recycling
 def convert_hex(working_file):
