@@ -1029,6 +1029,7 @@ def remove_computer_accounts():
                     newfile.write(str(line))
     newfile.close()
     shutil.move(hcatHashFile + ".tmp", hcatHashFile)
+    print "Computer Accounts Removed\n"
 
 
 
