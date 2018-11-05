@@ -1172,6 +1172,8 @@ def main():
             print("\t(10) YOLO Combinator Attack")
             print("\t(11) Middle Combinator Attack")
             print("\t(12) Thorough Combinator Attack")
+            print("\n\t(50) Remove Computer Accounts")
+            print("\t(51) Remove Duplicate Accounts")
             print("\n\t(96) Export Output to Excel Format")
             print("\t(97) Display Cracked Hashes")
             print("\t(98) Display README")
@@ -1188,6 +1190,8 @@ def main():
                        "10": yolo_combination,
                        "11": middle_combinator,
                        "12": thorough_combinator,
+                       "50": Remove_Computer_Accounts,
+                       "51": Remove_Duplicate_Accounts,
                        "96": export_excel,
                        "97": show_results,
                        "98": show_readme,
