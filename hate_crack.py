@@ -1016,9 +1016,16 @@ def remove_duplicate_accounts():
 
 # Remove Computer Accounts
 def remove_computer_accounts():
+    #create copy of origional file
     if not os.path.isfile(hcatHashFile + ".orig"):
         from shutil import copyfile
         copyfile(hcatHashFile, hcatHashFile + ".orig")
+    with open(hcatHashFile) as f:
+        content = f.readlines()
+        username = conent.split("::")
+        if username(0)[-1:]  = "$"
+            print "Found Computer Account"
+
 
 
 # convert hex words for recycling
