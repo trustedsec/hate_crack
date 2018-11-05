@@ -1026,7 +1026,7 @@ def remove_computer_accounts():
                 #print line
                 username = line.split("::")
                 if username(0)[-1:] == "$":
-                print "Found Computer Account"
+                    print "Found Computer Account"
 
 
 
