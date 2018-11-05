@@ -1016,13 +1016,14 @@ def remove_duplicate_accounts():
 
 # Remove Computer Accounts
 def remove_computer_accounts():
-    #create copy of origional file
+#create copy of origional file
     if not os.path.isfile(hcatHashFile + ".orig"):
         from shutil import copyfile
         copyfile(hcatHashFile, hcatHashFile + ".orig")
+#Remove accounts ending in $
     with open(hcatHashFile, 'r') as f:
         lines = f.readlines()
-        print "lines"
+        print lines
        # username = re.split('::', lines)
        # if username(0)[-1:] == "$":
         #    print "Found Computer Account"
