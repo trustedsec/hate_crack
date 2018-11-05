@@ -1018,8 +1018,8 @@ def remove_duplicate_accounts():
 def remove_computer_accounts():
     if not os.path.isfile(hcatHashFile + ".orig"):
         from shutil import copyfile
-        copyfile(hcatHashFile, hcatHashFile + ".orig", "w+")
-        
+        copyfile(hcatHashFile, hcatHashFile + ".orig")
+
 
 # convert hex words for recycling
 def convert_hex(working_file):
