@@ -1018,8 +1018,8 @@ def remove_duplicate_accounts():
 def remove_computer_accounts():
 #create copy of origional file
     if not os.path.isfile(hcatHashFile + ".orig"):
-        from shutil import copyfile
-        copyfile(hcatHashFile, hcatHashFile + ".orig")
+        #from shutil import copyfile
+        shutil.copyfile(hcatHashFile, hcatHashFile + ".orig")
 #Remove accounts ending in $
     newfile = open(hcatHashFile + ".tmp", 'w')
     with open(hcatHashFile, 'r') as f:
