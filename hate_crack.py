@@ -1010,6 +1010,12 @@ def thorough_combinator():
 def middle_combinator():
     hcatMiddleCombinator(hcatHashType, hcatHashFile)
 
+# Remove Duplicate Accounts
+def remove_duplicate_accounts();
+
+# Remove Computer Accounts
+def remove_computer_accounts();
+
 # convert hex words for recycling
 def convert_hex(working_file):
     processed_words = []
@@ -1190,8 +1196,8 @@ def main():
                        "10": yolo_combination,
                        "11": middle_combinator,
                        "12": thorough_combinator,
-                       "50": Remove_Computer_Accounts,
-                       "51": Remove_Duplicate_Accounts,
+                       "50": remove_computer_accounts,
+                       "51": remove_duplicate_accounts,
                        "96": export_excel,
                        "97": show_results,
                        "98": show_readme,
