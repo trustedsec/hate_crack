@@ -1024,7 +1024,7 @@ def remove_duplicate_accounts():
             line = lines.split(":")
             fullUserName = line[0] + ":" + line[2]
             if fullUserName not in uniqueUsers:
-                uniqueUsers.update(fullUserName)
+                uniqueUsers.add(fullUserName)
                 newfile.write(str(lines))
             else:
                 count = count + 1
