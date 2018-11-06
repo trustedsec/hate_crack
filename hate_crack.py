@@ -1046,7 +1046,7 @@ def remove_computer_accounts():
                     count = count + 1
     newfile.close()
     shutil.move(hcatHashFile + ".tmp", hcatHashFile)
-    print Count + " Computer Accounts Removed\n"
+    print count + " Computer Accounts Removed\n"
 
 
 
