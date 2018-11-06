@@ -1021,7 +1021,7 @@ def remove_duplicate_accounts():
     with open(hcatHashFile, 'r') as f:
         for lines in f:
             line = lines.split("::")
-            print line[0]
+            print line[0] + "::" + line[1]
             #if line[0] + "::" + line[1] not in uniqueUsers:
             #    uniqueUsers.update(line[0] + "::" + line[1])
             #    newfile.write(str(line))
