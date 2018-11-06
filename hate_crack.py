@@ -1043,7 +1043,7 @@ def remove_computer_accounts():
                 if line[0][-1:] != "$":
                     newfile.write(str(line))
                 if line[0][-1:] == "$":
-                    count++
+                    count = count + 1
     newfile.close()
     shutil.move(hcatHashFile + ".tmp", hcatHashFile)
     print Count + " Computer Accounts Removed\n"
