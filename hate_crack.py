@@ -1034,7 +1034,7 @@ def remove_duplicate_accounts():
     if count == 0:
         print "No Duplicate Accounts"
     else:
-        print str(count) + "Duplicate Accounts Removed\n"
+        print str(count) + " Duplicate Accounts Removed\n"
 
 # Remove Computer Accounts
 def remove_computer_accounts():
