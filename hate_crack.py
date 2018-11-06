@@ -1018,17 +1018,23 @@ def remove_duplicate_accounts():
     # Remove duplicate username + domain
     newfile = open(hcatHashFile + ".tmp", 'w')
     uniqueUsers = {}
+    count = 0
     with open(hcatHashFile, 'r') as f:
         for lines in f:
             line = lines.split(":")
-            print line[0] + ":" + line[2]
-            if line[0] + ":" + line[2] not in uniqueUsers:
-                uniqueUsers.update(line[0] + ":" + line[2])
+            fullUserName = line[0] + ":" + line[2]
+            if fullUserName not in uniqueUsers:
+                uniqueUsers.update(fullUserName)
                 newfile.write(str(line))
+            else:
+                count = count + 1
 
     newfile.close()
     #shutil.move(hcatHashFile + ".tmp", hcatHashFile)
-    print "Duplicate Accounts Removed\n"
+    if count == 0:
+        print "No Duplicate Accounts"
+    else:
+        print "Duplicate Accounts Removed\n"
 
 # Remove Computer Accounts
 def remove_computer_accounts():
