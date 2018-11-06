@@ -1025,7 +1025,7 @@ def remove_duplicate_accounts():
             fullUserName = line[0] + ":" + line[2]
             if fullUserName not in uniqueUsers:
                 uniqueUsers.update(fullUserName)
-                newfile.write(str(line))
+                newfile.write(str(lines))
             else:
                 count = count + 1
 
@@ -1048,7 +1048,7 @@ def remove_computer_accounts():
             for lines in f:
                 line = lines.split(":")
                 if line[0][-1:] != "$":
-                    newfile.write(str(line))
+                    newfile.write(str(lines))
                 if line[0][-1:] == "$":
                     count = count + 1
     newfile.close()
