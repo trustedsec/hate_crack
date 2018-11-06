@@ -1037,6 +1037,7 @@ def remove_computer_accounts():
         shutil.copyfile(hcatHashFile, hcatHashFile + ".orig")
 #Remove accounts ending in $
     newfile = open(hcatHashFile + ".tmp", 'w')
+    count = 0
     with open(hcatHashFile, 'r') as f:
             for lines in f:
                 line = lines.split("::")
