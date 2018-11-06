@@ -1027,7 +1027,7 @@ def remove_duplicate_accounts():
             #    newfile.write(str(line))
 
     newfile.close()
-    shutil.move(hcatHashFile + ".tmp", hcatHashFile)
+    #shutil.move(hcatHashFile + ".tmp", hcatHashFile)
     print "Duplicate Accounts Removed\n"
 
 # Remove Computer Accounts
