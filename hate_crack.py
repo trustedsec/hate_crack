@@ -1030,7 +1030,7 @@ def remove_duplicate_accounts():
                 count = count + 1
 
     newfile.close()
-    #shutil.move(hcatHashFile + ".tmp", hcatHashFile)
+    shutil.move(hcatHashFile + ".tmp", hcatHashFile)
     if count == 0:
         print "No Duplicate Accounts"
     else:
