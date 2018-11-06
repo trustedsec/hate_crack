@@ -1050,7 +1050,7 @@ def remove_computer_accounts():
     if count == 0:
         print "No Computer Accounts Found"
     else:
-        print count + " Computer Accounts Removed\n"
+        print str(count) + " Computer Accounts Removed\n"
 
 
 
