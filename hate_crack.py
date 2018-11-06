@@ -1017,7 +1017,7 @@ def remove_duplicate_accounts():
         shutil.copyfile(hcatHashFile, hcatHashFile + ".orig")
     # Remove duplicate username + domain
     newfile = open(hcatHashFile + ".tmp", 'w')
-    uniqueUsers = Set([])
+    uniqueUsers = set([])
     count = 0
     with open(hcatHashFile, 'r') as f:
         for lines in f:
