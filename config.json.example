@@ -1,7 +1,7 @@
 {
   "hcatPath": "/Passwords/hashcat",
   "hcatBin": "hashcat",
-  "hcatTuning": "--force",
+  "hcatTuning": "--force --remove",
   "hcatWordlists": "/Passwords/wordlists",
   "hcatOptimizedWordlists": "/Passwords/optimized_wordlists",
   "hcatDictionaryWordlist": ["rockyou.txt"],

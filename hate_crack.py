@@ -178,7 +178,7 @@ def hcatBruteForce(hcatHashType, hcatHashFile, hcatMinLen, hcatMaxLen):
     global hcatBruteCount
     global hcatProcess
     hcatProcess = subprocess.Popen(
-        "{hcbin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out --increment --increment-min={min} "
+        "{hcbin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out --increment --increment-min={min} "
         "--increment-max={max} -a 3 ?a?a?a?a?a?a?a?a?a?a?a?a?a?a {tuning} --potfile-path={hate_path}/hashcat.pot".format(
             hcbin=hcatBin,
             hash_type=hcatHashType,
@@ -202,7 +202,7 @@ def hcatDictionary(hcatHashType, hcatHashFile):
     global hcatDictionaryCount
     global hcatProcess
     hcatProcess = subprocess.Popen(
-        "{hcatBin} -m {hcatHashType} {hash_file} --session {session_name} --remove -o {hash_file}.out {optimized_wordlists}/* "
+        "{hcatBin} -m {hcatHashType} {hash_file} --session {session_name} -o {hash_file}.out {optimized_wordlists}/* "
         "-r {hcatPath}/rules/best64.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
             hcatPath=hcatPath,
             hcatBin=hcatBin,
@@ -221,7 +221,7 @@ def hcatDictionary(hcatHashType, hcatHashFile):
 
     for wordlist in hcatDictionaryWordlist:
         hcatProcess = subprocess.Popen(
-            "{hcatBin} -m {hcatHashType} {hash_file} --session {session_name} --remove -o {hash_file}.out {hcatWordlist} "
+            "{hcatBin} -m {hcatHashType} {hash_file} --session {session_name} -o {hash_file}.out {hcatWordlist} "
             "-r {hcatPath}/rules/d3ad0ne.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
                 hcatPath=hcatPath,
                 hcatBin=hcatBin,
@@ -239,7 +239,7 @@ def hcatDictionary(hcatHashType, hcatHashFile):
 
 
         hcatProcess = subprocess.Popen(
-            "{hcatBin} -m {hcatHashType} {hash_file} --session {session_name} --remove -o {hash_file}.out {hcatWordlist} "
+            "{hcatBin} -m {hcatHashType} {hash_file} --session {session_name} -o {hash_file}.out {hcatWordlist} "
             "-r {hcatPath}/rules/T0XlC.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
                 hcatPath=hcatPath,
                 hcatBin=hcatBin,
@@ -262,7 +262,7 @@ def hcatDictionary(hcatHashType, hcatHashFile):
 def hcatQuickDictionary(hcatHashType, hcatHashFile, hcatChains):
     global hcatProcess
     hcatProcess = subprocess.Popen(
-        "{hcatBin} -m {hcatHashType} {hash_file} --session {session_name} --remove -o {hash_file}.out "
+        "{hcatBin} -m {hcatHashType} {hash_file} --session {session_name} -o {hash_file}.out "
         "{optimized_wordlists}/* {chains} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
             hcatBin=hcatBin,
             hcatHashType=hcatHashType,
@@ -310,7 +310,7 @@ def hcatTopMask(hcatHashType, hcatHashFile, hcatTargetTime):
         hcatProcess.kill()
 
     hcatProcess = subprocess.Popen(
-        "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 3 {hash_file}.hcmask {tuning} "
+        "{hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out -a 3 {hash_file}.hcmask {tuning} "
         "--potfile-path={hate_path}/hashcat.pot".format(
             hcatBin=hcatBin,
             hash_type=hcatHashType,
@@ -348,7 +348,7 @@ def hcatFingerprint(hcatHashType, hcatHashFile):
             print('Killing PID {0}...'.format(str(hcatProcess.pid)))
             hcatProcess.kill()
         hcatProcess = subprocess.Popen(
-            "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 1 {hash_file}.expanded "
+            "{hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out -a 1 {hash_file}.expanded "
             "{hash_file}.expanded {tuning} --potfile-path={hate_path}/hashcat.pot".format(
                 hcatBin=hcatBin,
                 hash_type=hcatHashType,
@@ -370,7 +370,7 @@ def hcatCombination(hcatHashType, hcatHashFile):
     global hcatCombinationCount
     global hcatProcess
     hcatProcess = subprocess.Popen(
-        "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 1 {left} "
+        "{hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out -a 1 {left} "
         "{right} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
             hcatBin=hcatBin,
             hash_type=hcatHashType,
@@ -397,7 +397,7 @@ def hcatHybrid(hcatHashType, hcatHashFile):
     global hcatProcess
     for wordlist in hcatHybridlist:
         hcatProcess = subprocess.Popen(
-            "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 6 -1 ?s?d {wordlist} ?1?1 "
+            "{hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out -a 6 -1 ?s?d {wordlist} ?1?1 "
             "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
                 hcatBin=hcatBin,
                 hash_type=hcatHashType,
@@ -413,7 +413,7 @@ def hcatHybrid(hcatHashType, hcatHashFile):
             hcatProcess.kill()
 
         hcatProcess = subprocess.Popen(
-            "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 6 -1 ?s?d {wordlist} ?1?1?1 "
+            "{hcatBin} -m {hash_type} {hash_file} -o {hash_file}.out -a 6 -1 ?s?d {wordlist} ?1?1?1 "
             "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
                 hcatBin=hcatBin,
                 hash_type=hcatHashType,
@@ -429,7 +429,7 @@ def hcatHybrid(hcatHashType, hcatHashFile):
             hcatProcess.kill()
 
         hcatProcess = subprocess.Popen(
-            "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 6 -1 ?s?d {wordlist} "
+            "{hcatBin} -m {hash_type} {hash_file} -o {hash_file}.out -a 6 -1 ?s?d {wordlist} "
             "?1?1?1?1 {tuning} --potfile-path={hate_path}/hashcat.pot".format(
                 hcatBin=hcatBin,
                 hash_type=hcatHashType,
@@ -445,7 +445,7 @@ def hcatHybrid(hcatHashType, hcatHashFile):
             hcatProcess.kill()
 
         hcatProcess = subprocess.Popen(
-            "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 7 -1 ?s?d ?1?1 {wordlist} "
+            "{hcatBin} -m {hash_type} {hash_file} -o {hash_file}.out -a 7 -1 ?s?d ?1?1 {wordlist} "
             "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
                 hcatBin=hcatBin,
                 hash_type=hcatHashType,
@@ -461,7 +461,7 @@ def hcatHybrid(hcatHashType, hcatHashFile):
             hcatProcess.kill()
 
         hcatProcess = subprocess.Popen(
-            "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 7 -1 ?s?d ?1?1?1 {wordlist} "
+            "{hcatBin} -m {hash_type} {hash_file} -o {hash_file}.out -a 7 -1 ?s?d ?1?1?1 {wordlist} "
             "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
                 hcatBin=hcatBin,
                 hash_type=hcatHashType,
@@ -477,7 +477,7 @@ def hcatHybrid(hcatHashType, hcatHashFile):
             hcatProcess.kill()
 
         hcatProcess = subprocess.Popen(
-            "{hcatBin} -m {hash_type} {hash_file} --remove -o {hash_file}.out -a 7 -1 ?s?d ?1?1?1?1 {wordlist} "
+            "{hcatBin} -m {hash_type} {hash_file} -o {hash_file}.out -a 7 -1 ?s?d ?1?1?1?1 {wordlist} "
             "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
                 hcatBin=hcatBin,
                 hash_type=hcatHashType,
@@ -503,7 +503,7 @@ def hcatYoloCombination(hcatHashType, hcatHashFile):
             hcatLeft = random.choice(os.listdir(hcatOptimizedWordlists))
             hcatRight = random.choice(os.listdir(hcatOptimizedWordlists))
             hcatProcess = subprocess.Popen(
-                "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 1 {optimized_lists}/{left} "
+                "{hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out -a 1 {optimized_lists}/{left} "
                 "{optimized_lists}/{right} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
                     hcatBin=hcatBin,
                     hash_type=hcatHashType,
@@ -539,7 +539,7 @@ def hcatMiddleCombinator(hcatHashType, hcatHashFile):
     try:
         for x in range(len(masks)):
             hcatProcess = subprocess.Popen(
-                "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 1 -j '${middle_mask}' {left} "
+                "{hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out -a 1 -j '${middle_mask}' {left} "
                 "{right} --potfile-path={hate_path}/hashcat.pot".format(
                     hcatBin=hcatBin,
                     hash_type=hcatHashType,
@@ -574,7 +574,7 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
 
     try:
         hcatProcess = subprocess.Popen(
-            "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 1 {left} "
+            "{hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out -a 1 {left} "
             "{right} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
                 hcatBin=hcatBin,
                 hash_type=hcatHashType,
@@ -594,7 +594,7 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
     try:
         for x in range(len(masks)):
             hcatProcess = subprocess.Popen(
-                "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 1 "
+                "{hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out -a 1 "
                 "-j '${middle_mask}' {left} {right} --potfile-path={hate_path}/hashcat.pot".format(
                     hcatBin=hcatBin,
                     hash_type=hcatHashType,
@@ -614,7 +614,7 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
     try:
         for x in range(len(masks)):
             hcatProcess = subprocess.Popen(
-              "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 1 "
+              "{hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out -a 1 "
               "-k '${end_mask}' {left} {right} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
                     hcatBin=hcatBin,
                     hash_type=hcatHashType,
@@ -634,7 +634,7 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
     try:
         for x in range(len(masks)):
             hcatProcess = subprocess.Popen(
-              "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 1 "
+              "{hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out -a 1 "
               "-j '${middle_mask}' -k '${end_mask}' {left} {right} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
                     hcatBin=hcatBin,
                     hash_type=hcatHashType,
@@ -657,7 +657,7 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
 def hcatPathwellBruteForce(hcatHashType, hcatHashFile):
     global hcatProcess
     hcatProcess = subprocess.Popen(
-        "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -a 3 {hate_path}/masks/pathwell.hcmask "
+        "{hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out -a 3 {hate_path}/masks/pathwell.hcmask "
         "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
             hcatBin=hcatBin,
             hash_type=hcatHashType,
@@ -678,7 +678,7 @@ def hcatPrince(hcatHashType, hcatHashFile):
     hcatHashCracked = lineCount(hcatHashFile + ".out")
     hcatProcess = subprocess.Popen(
         "{hate_path}/princeprocessor/{prince_bin} --case-permute --elem-cnt-min=1 --elem-cnt-max=16 -c < "
-        "{hcatPrinceBaseList} | {hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out "
+        "{hcatPrinceBaseList} | {hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out "
         "-r {hate_path}/princeprocessor/rules/prince_optimized.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
             hcatBin=hcatBin,
             prince_bin=hcatPrinceBin,
@@ -699,7 +699,7 @@ def hcatGoodMeasure(hcatHashType, hcatHashFile):
     global hcatExtraCount
     global hcatProcess
     hcatProcess = subprocess.Popen(
-        "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out -r {hcatPath}/rules/combinator.rule "
+        "{hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out -r {hcatPath}/rules/combinator.rule "
         "-r {hcatPath}/rules/InsidePro-PasswordsPro.rule {hcatGoodMeasureBaseList} {tuning} "
         "--potfile-path={hate_path}/hashcat.pot".format(
             hcatPath=hcatPath,
@@ -735,7 +735,7 @@ def hcatLMtoNT():
         hcatProcess.kill()
 
     hcatProcess = subprocess.Popen(
-        "{hcatBin} -m 3000 {hash_file}.lm --session {session_name} --remove -o {hash_file}.lm.cracked -1 ?u?d?s --increment -a 3 ?1?1?1?1?1?1?1 "
+        "{hcatBin} -m 3000 {hash_file}.lm --session {session_name} -o {hash_file}.lm.cracked -1 ?u?d?s --increment -a 3 ?1?1?1?1?1?1?1 "
         "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
             hcatBin=hcatBin,
             hash_file=hcatHashFile,
@@ -776,7 +776,7 @@ def hcatLMtoNT():
         hcatProcess.kill()
 
     hcatProcess = subprocess.Popen(
-        "{hcatBin} -m 1000 {hash_file}.nt --session {session_name} --remove -o {hash_file}.nt.out {hash_file}.combined "
+        "{hcatBin} -m 1000 {hash_file}.nt --session {session_name} -o {hash_file}.nt.out {hash_file}.combined "
         "-r {hate_path}/rules/toggles-lm-ntlm.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
             hcatBin=hcatBin,
             hash_file=hcatHashFile,
@@ -812,7 +812,7 @@ def hcatRecycle(hcatHashType, hcatHashFile, hcatNewPasswords):
             f.write("\n".join(converted))
         for rule in hcatRules:
             hcatProcess = subprocess.Popen(
-                "{hcatBin} -m {hash_type} {hash_file} --session {session_name} --remove -o {hash_file}.out {hash_file}.working "
+                "{hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out {hash_file}.working "
                 "-r {hcatPath}/rules/{rule} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
                     rule=rule,
                     hcatBin=hcatBin,
