@@ -1,9 +1,10 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import sys
 import os
 import subprocess
 import shutil
+import pathlib
 
 # Help
 def usage():
@@ -23,9 +24,22 @@ def lineCount(file):
 # Main guts
 def main():
   try:
+    if not os.path.isfile(sys.argv[1]):
+      print('{0} is not a valid file.\n'.format(sys.argv[1]))
+      sys.exit()
+    if not os.path.isdir(sys.argv[2]):
+      create_directory = input('{0} is not a directory. Do you want to create it? (Y or N)'.format(sys.argv[2]))
+      if create_directory.upper() == 'Y':
+        try:
+          pathlib.Path(sys.argv[2]).mkdir(parents=True, exist_ok=True)
+        except PermissionError:
+          print('You do not have the correct permissions to receate the directory. Please try a different path or create manually')
+          sys.exit()
+      else:
+        print('Please specify a valid directory and try again')
+        sys.exit()
     input_list = open(sys.argv[1], "r")
     destination = sys.argv[2]
-
   except IndexError:
     usage()
     sys.exit()
