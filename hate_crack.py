@@ -1019,7 +1019,7 @@ def convert_hex(working_file):
             match = re.search(regex, line.rstrip('\n'))
             if match:
                 try:
-                    processed_words.append(binascii.unhexlify(match.group(1)).decode('utf-8'))
+                    processed_words.append(binascii.unhexlify(match.group(1)).decode('iso-8859-9'))
                 except UnicodeDecodeError:
                     pass
             else:
