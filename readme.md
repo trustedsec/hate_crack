@@ -179,6 +179,9 @@ https://jeffh.net/2018/04/26/combinator_methods/
 
 -------------------------------------------------------------------
 ### Version History
+Version 1.07
+  Minor bug fixes with pwdump formating and unhexify function
+
 Version 1.06
   Updated the quick crack and recylcing functions to use user customizable rules.
 
