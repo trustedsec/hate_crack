@@ -1121,7 +1121,7 @@ def main():
     if hcatHashType == "1000":
         lmHashesFound = False
         hcatHashFileLine = open(hcatHashFile, "r").readline()
-        if re.search(r"[a-z0-9A-Z]{32}:[a-z0-9A-Z]{32}:\S*::$", hcatHashFileLine):
+        if re.search(r"[a-z0-9A-Z]{32}:[a-z0-9A-Z]{32}:[^:]*::$", hcatHashFileLine):
             print("PWDUMP format detected...")
             print("Parsing NT hashes...")
             subprocess.Popen(
