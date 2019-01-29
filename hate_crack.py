@@ -1121,7 +1121,7 @@ def main():
     if hcatHashType == "1000":
         lmHashesFound = False
         hcatHashFileLine = open(hcatHashFile, "r").readline()
-        if re.search(r"[a-z0-9A-Z]{32}:[a-z0-9A-Z]{32}:::$", hcatHashFileLine):
+        if re.search(r"[a-z0-9A-Z]{32}:[a-z0-9A-Z]{32}:\S*::$", hcatHashFileLine):
             print("PWDUMP format detected...")
             print("Parsing NT hashes...")
             subprocess.Popen(
@@ -1131,7 +1131,7 @@ def main():
             subprocess.Popen("cat {hash_file} | cut -d : -f 3 |sort -u > {hash_file}.lm".format(hash_file=hcatHashFile),
                              shell=True).wait()
             if ((lineCount(hcatHashFile + ".lm") == 1) and (
-                        hcatHashFileLine.split(":")[2] != "aad3b435b51404eeaad3b435b51404ee")) or (
+                        hcatHashFileLine.split(":")[2].lower() != "aad3b435b51404eeaad3b435b51404ee")) or (
                         lineCount(hcatHashFile + ".lm") > 1):
                 lmHashesFound = True
                 lmChoice = input("LM hashes identified. Would you like to brute force the LM hashes first? (Y) ") or "Y"
