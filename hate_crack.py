@@ -1067,7 +1067,7 @@ def export_excel():
                     clear_text = matches.group(5)
                     match = re.search(r'^\$HEX\[(\S+)\]', clear_text)
                     if match:
-                        clear_text = binascii.unhexlify(match.group(1)).decode('utf-8')
+                        clear_text = binascii.unhexlify(match.group(1)).decode('iso-8859-9')
                 except:
                     clear_text = ''
                 current_ws['A' + str(current_row)] = username
