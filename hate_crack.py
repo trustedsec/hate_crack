@@ -1036,6 +1036,15 @@ def show_results():
     else:
         print("No hashes were cracked :(")
 
+# Analyze Hashes with Pipal
+def pipal():
+    if os.path.isfile(hcatHashFile + ".out"):
+        with open(hcatHashFile + ".out") as hcatOutput:
+            for cracked_hash in hcatOutput:
+                print(cracked_hash.strip())
+    else:
+        print("No hashes were cracked :(")
+
 # Exports output to excel file
 def export_excel():
 
