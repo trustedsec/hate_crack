@@ -13,5 +13,6 @@
   "hcatThoroughBaseList": "rockyou.txt",
   "hcatGoodMeasureBaseList": "rockyou.txt",
   "hcatRules": ["best64.rule","d3ad0ne.rule", "T0XlC.rule", "dive.rule"],
-  "hcatPrinceBaseList": "rockyou.txt"
+  "hcatPrinceBaseList": "rockyou.txt",
+  "pipalPath": "/path/to/pipal"
 }
