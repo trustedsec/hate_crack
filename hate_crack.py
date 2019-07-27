@@ -1039,9 +1039,11 @@ def show_results():
 # Analyze Hashes with Pipal
 def pipal():
     if os.path.isfile(hcatHashFile + ".out"):
+        pipalFile = open(hcatHashFile + ".pipal", 'w')
         with open(hcatHashFile + ".out") as hcatOutput:
             for cracked_hash in hcatOutput:
-                print(cracked_hash.strip())
+                password = cracked_hash.split(':')
+                pipalFile.write(password[1] + "\n")
     else:
         print("No hashes were cracked :(")
 
