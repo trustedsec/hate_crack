@@ -1172,7 +1172,8 @@ def main():
             print("\t(10) YOLO Combinator Attack")
             print("\t(11) Middle Combinator Attack")
             print("\t(12) Thorough Combinator Attack")
-            print("\n\t(96) Export Output to Excel Format")
+            print("\n\t(95) Analyze hashes with Pipal")
+            print("\t(96) Export Output to Excel Format")
             print("\t(97) Display Cracked Hashes")
             print("\t(98) Display README")
             print("\t(99) Quit")
@@ -1188,6 +1189,7 @@ def main():
                        "10": yolo_combination,
                        "11": middle_combinator,
                        "12": thorough_combinator,
+                       "95": pipal,
                        "96": export_excel,
                        "97": show_results,
                        "98": show_readme,
