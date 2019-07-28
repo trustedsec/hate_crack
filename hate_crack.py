@@ -35,6 +35,7 @@ hcatBin = config_parser['hcatBin']
 hcatTuning = config_parser['hcatTuning']
 hcatWordlists = config_parser['hcatWordlists']
 hcatOptimizedWordlists = config_parser['hcatOptimizedWordlists']
+pipalPath = config_parser['pipalPath']
 
 try:
     hcatRules = config_parser['hcatRules']
@@ -1044,6 +1045,17 @@ def pipal():
             for cracked_hash in hcatOutput:
                 password = cracked_hash.split(':')
                 pipalFile.write(password[6])
+        pipalProcess = subprocess.Popen(
+            "{pipal_path}  {pipal_file} --output {pipal_out} ".format(
+                pipal_path=pipalPath,
+                pipal_file=pipalFile,
+                pipal_out="pipal.out"),
+            shell=True)
+        try:
+            pipalProcess.wait()
+        except KeyboardInterrupt:
+            print('Killing PID {0}...'.format(str(pipalProcess.pid)))
+            pipalProcess.kill()
     else:
         print("No hashes were cracked :(")
 
