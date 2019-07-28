@@ -1043,7 +1043,7 @@ def pipal():
         with open(hcatHashFile + ".out") as hcatOutput:
             for cracked_hash in hcatOutput:
                 password = cracked_hash.split(':')
-                pipalFile.write(password[1] + "\n")
+                pipalFile.write(password[6])
     else:
         print("No hashes were cracked :(")
 
