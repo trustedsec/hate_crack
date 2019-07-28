@@ -35,7 +35,12 @@ hcatBin = config_parser['hcatBin']
 hcatTuning = config_parser['hcatTuning']
 hcatWordlists = config_parser['hcatWordlists']
 hcatOptimizedWordlists = config_parser['hcatOptimizedWordlists']
-pipalPath = config_parser['pipalPath']
+
+try:
+    pipalPath = config_parser['pipalPath']
+except KeyError as e:
+    print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
+    pipalPath = default_config['pipalPath']
 
 try:
     hcatRules = config_parser['hcatRules']
@@ -1043,8 +1048,8 @@ def pipal():
         pipalFile = open(hcatHashFile + ".pipal", 'w')
         with open(hcatHashFile + ".out") as hcatOutput:
             for cracked_hash in hcatOutput:
-                password = cracked_hash.split(':')
-                pipalFile.write(password[6])
+                password = cracked_hash.rsplit(':',1)
+                pipalFile.write(password[0])
         print pipalFile
         pipalProcess = subprocess.Popen(
             "{pipal_path}  {pipal_file} --output {pipal_out} ".format(
