@@ -1055,13 +1055,15 @@ def pipal():
             "{pipal_path}  {pipal_file} --output {pipal_out} ".format(
                 pipal_path=pipalPath,
                 pipal_file=hcatHashFile + ".pipal",
-                pipal_out="pipal.out"),
+                pipal_out=hcatHashFile + ".pipal.out"),
             shell=True)
         try:
             pipalProcess.wait()
         except KeyboardInterrupt:
             print('Killing PID {0}...'.format(str(pipalProcess.pid)))
             pipalProcess.kill()
+        os.remove(hcatHashFile + ".pipal")
+        print "Pipal file is at " + hcatHashFile + ".pipal.out\n"
     else:
         print("No hashes were cracked :(")
 
