@@ -1045,10 +1045,11 @@ def pipal():
             for cracked_hash in hcatOutput:
                 password = cracked_hash.split(':')
                 pipalFile.write(password[6])
+        print pipalFile
         pipalProcess = subprocess.Popen(
             "{pipal_path}  {pipal_file} --output {pipal_out} ".format(
                 pipal_path=pipalPath,
-                pipal_file=pipalFile,
+                pipal_file=hcatHashFile + ".pipal",
                 pipal_out="pipal.out"),
             shell=True)
         try:
