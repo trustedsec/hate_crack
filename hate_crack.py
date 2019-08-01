@@ -1044,28 +1044,32 @@ def show_results():
 
 # Analyze Hashes with Pipal
 def pipal():
-    if os.path.isfile(hcatHashFile + ".out"):
-        pipalFile = open(hcatHashFile + ".pipal", 'w')
-        with open(hcatHashFile + ".out") as hcatOutput:
-            for cracked_hash in hcatOutput:
-                password = cracked_hash.split(':')
-                pipalFile.write(password[-1])
-        print pipalFile
-        pipalProcess = subprocess.Popen(
-            "{pipal_path}  {pipal_file} --output {pipal_out} ".format(
-                pipal_path=pipalPath,
-                pipal_file=hcatHashFile + ".pipal",
-                pipal_out=hcatHashFile + ".pipal.out"),
-            shell=True)
-        try:
-            pipalProcess.wait()
-        except KeyboardInterrupt:
-            print('Killing PID {0}...'.format(str(pipalProcess.pid)))
-            pipalProcess.kill()
-        os.remove(hcatHashFile + ".pipal")
-        print "Pipal file is at " + hcatHashFile + ".pipal.out\n"
+    if os.path.isfile(pipalPath):
+        if os.path.isfile(hcatHashFile + ".out"):
+            pipalFile = open(hcatHashFile + ".pipal", 'w')
+            with open(hcatHashFile + ".out") as hcatOutput:
+                for cracked_hash in hcatOutput:
+                    password = cracked_hash.split(':')
+                    pipalFile.write(password[-1])
+            print pipalFile
+            pipalProcess = subprocess.Popen(
+                "{pipal_path}  {pipal_file} --output {pipal_out} ".format(
+                    pipal_path=pipalPath,
+                    pipal_file=hcatHashFile + ".pipal",
+                    pipal_out=hcatHashFile + ".pipal.out"),
+                shell=True)
+            try:
+                pipalProcess.wait()
+            except KeyboardInterrupt:
+                print('Killing PID {0}...'.format(str(pipalProcess.pid)))
+                pipalProcess.kill()
+            os.remove(hcatHashFile + ".pipal")
+            print "Pipal file is at " + hcatHashFile + ".pipal.out\n"
+        else:
+         print("No hashes were cracked :(")
     else:
-        print("No hashes were cracked :(")
+        print("Pipal path is either not set, or is still the default path.")
+
 
 # Exports output to excel file
 def export_excel():
