@@ -1068,7 +1068,7 @@ def pipal():
         else:
          print("No hashes were cracked :(")
     else:
-        print("Pipal path is either not set, or is still the default path.")
+        print("The path to pipal.rb is either not set, or is incorrect.")
 
 
 # Exports output to excel file
