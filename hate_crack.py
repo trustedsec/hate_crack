@@ -865,6 +865,8 @@ def cleanup():
             os.remove(hcatHashFileOrig + ".lm.cracked")
         if os.path.exists(hcatHashFileOrig + ".working"):
             os.remove(hcatHashFileOrig + ".working")
+        if os.path.exists(hcatHashFileOrig + ".passwords"):
+            os.remove(hcatHashFileOrig + ".passwords")
     except KeyboardInterrupt:
         #incase someone mashes the Control+C it will still cleanup
         cleanup()
@@ -1068,14 +1070,14 @@ def pipal():
                 "{pipal_path}  {pipal_file} --output {pipal_out} ".format(
                     pipal_path=pipalPath,
                     pipal_file=hcatHashFilePipal + ".passwords",
-                    pipal_out=hcatHashFileOrig + ".pipal.txt"),
+                    pipal_out=hcatHashFileOrig + ".pipal"),
                 shell=True)
             try:
                 pipalProcess.wait()
             except KeyboardInterrupt:
                 print('Killing PID {0}...'.format(str(pipalProcess.pid)))
                 pipalProcess.kill()
-            print "Pipal file is at " + hcatHashFilePipal + ".pipal.out\n"
+            print "Pipal file is at " + hcatHashFilePipal + ".pipal\n"
         else:
          print("No hashes were cracked :(")
     else:
