@@ -1068,7 +1068,7 @@ def pipal():
                 "{pipal_path}  {pipal_file} --output {pipal_out} ".format(
                     pipal_path=pipalPath,
                     pipal_file=hcatHashFilePipal + ".passwords",
-                    pipal_out=hcatHashFilePipal + ".pipal.out"),
+                    pipal_out=hcatHashFileOrig + ".pipal.txt"),
                 shell=True)
             try:
                 pipalProcess.wait()
