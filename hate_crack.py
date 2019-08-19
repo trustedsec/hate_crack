@@ -1051,8 +1051,6 @@ def pipal():
         combine_ntlm_output()
         hcatHashFilePipal = hcatHashFileOrig
 
-    print(hcatHashFilePipal + ".out\n")
-
     if os.path.isfile(pipalPath):
         if os.path.isfile(hcatHashFilePipal + ".out"):
             pipalFile = open(hcatHashFilePipal + ".passwords", 'w')
@@ -1064,13 +1062,13 @@ def pipal():
                     if match:
                         clearTextPass = binascii.unhexlify(match.group(1)).decode('iso-8859-9')
                     pipalFile.write(clearTextPass)
+                pipalFile.close()
 
-            print pipalFile
             pipalProcess = subprocess.Popen(
                 "{pipal_path}  {pipal_file} --output {pipal_out} ".format(
                     pipal_path=pipalPath,
                     pipal_file=hcatHashFilePipal + ".passwords",
-                    pipal_out=hcatHashFileOrig + ".pipal"),
+                    pipal_out=hcatHashFilePipal + ".pipal"),
                 shell=True)
             try:
                 pipalProcess.wait()
