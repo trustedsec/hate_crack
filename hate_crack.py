@@ -1044,14 +1044,17 @@ def show_results():
 
 # Analyze Hashes with Pipal
 def pipal():
+    hcatHashFilePipal = hcatHashFile
     if hcatHashType == "1000":
         combine_ntlm_output()
-        print(hcatHashFile + ".out\n")
+        hcatHashFilePipal = hcatHashFileOrig
+
+    print(hcatHashFilePipal + ".out\n")
 
     if os.path.isfile(pipalPath):
-        if os.path.isfile(hcatHashFile + ".out"):
-            pipalFile = open(hcatHashFile + ".pipal", 'w')
-            with open(hcatHashFile + ".out") as hcatOutput:
+        if os.path.isfile(hcatHashFilePipal + ".out"):
+            pipalFile = open(hcatHashFilePipal + ".pipal", 'w')
+            with open(hcatHashFilePipal + ".out") as hcatOutput:
                 for cracked_hash in hcatOutput:
                     password = cracked_hash.split(':')
                     clearTextPass = password[-1]
@@ -1073,7 +1076,7 @@ def pipal():
                 print('Killing PID {0}...'.format(str(pipalProcess.pid)))
                 pipalProcess.kill()
             os.remove(hcatHashFile + ".pipal")
-            print "Pipal file is at " + hcatHashFile + ".pipal.out\n"
+            print "Pipal file is at " + hcatHashFilePipal + ".pipal.out\n"
         else:
          print("No hashes were cracked :(")
     else:
