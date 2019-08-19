@@ -1044,13 +1044,21 @@ def show_results():
 
 # Analyze Hashes with Pipal
 def pipal():
+    if hcatHashType == "1000":
+        combine_ntlm_output()
+
     if os.path.isfile(pipalPath):
         if os.path.isfile(hcatHashFile + ".out"):
             pipalFile = open(hcatHashFile + ".pipal", 'w')
             with open(hcatHashFile + ".out") as hcatOutput:
                 for cracked_hash in hcatOutput:
                     password = cracked_hash.split(':')
-                    pipalFile.write(password[-1])
+                    clearTextPass = password[-1])
+                    match = re.search(r'^\$HEX\[(\S+)\]', clearTextPass)
+                    if match:
+                        clearTextPass = binascii.unhexlify(match.group(1)).decode('iso-8859-9')
+                    pipalFile.write(clearTextPass)
+
             print pipalFile
             pipalProcess = subprocess.Popen(
                 "{pipal_path}  {pipal_file} --output {pipal_out} ".format(
