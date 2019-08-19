@@ -1046,6 +1046,7 @@ def show_results():
 def pipal():
     if hcatHashType == "1000":
         combine_ntlm_output()
+        print (hcatHashFile + ".out\n"):
 
     if os.path.isfile(pipalPath):
         if os.path.isfile(hcatHashFile + ".out"):
