@@ -1082,6 +1082,7 @@ def pipal():
         print("The path to pipal.rb is either not set, or is incorrect.")
 
 
+
 # Exports output to excel file
 def export_excel():
 
