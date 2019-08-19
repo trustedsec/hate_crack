@@ -1053,7 +1053,7 @@ def pipal():
 
     if os.path.isfile(pipalPath):
         if os.path.isfile(hcatHashFilePipal + ".out"):
-            pipalFile = open(hcatHashFilePipal + ".pipal", 'w')
+            pipalFile = open(hcatHashFilePipal + ".passwords", 'w')
             with open(hcatHashFilePipal + ".out") as hcatOutput:
                 for cracked_hash in hcatOutput:
                     password = cracked_hash.split(':')
@@ -1067,8 +1067,8 @@ def pipal():
             pipalProcess = subprocess.Popen(
                 "{pipal_path}  {pipal_file} --output {pipal_out} ".format(
                     pipal_path=pipalPath,
-                    pipal_file=hcatHashFile + ".pipal",
-                    pipal_out=hcatHashFile + ".pipal.out"),
+                    pipal_file=hcatHashFilePipal + ".passwords",
+                    pipal_out=hcatHashFilePipal + ".pipal.out"),
                 shell=True)
             try:
                 pipalProcess.wait()
