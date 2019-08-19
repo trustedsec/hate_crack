@@ -1053,7 +1053,7 @@ def pipal():
             with open(hcatHashFile + ".out") as hcatOutput:
                 for cracked_hash in hcatOutput:
                     password = cracked_hash.split(':')
-                    clearTextPass = password[-1])
+                    clearTextPass = password[-1]
                     match = re.search(r'^\$HEX\[(\S+)\]', clearTextPass)
                     if match:
                         clearTextPass = binascii.unhexlify(match.group(1)).decode('iso-8859-9')
