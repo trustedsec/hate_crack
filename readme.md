@@ -57,7 +57,7 @@ $ ./hate_crack.py <hash file> 1000
 \    Y    // __ \|  | \  ___/    \     \____|  | \// __ \\  \___|    < 
  \___|_  /(____  /__|  \___  >____\______  /|__|  (____  /\___  >__|_ \
        \/      \/          \/_____/      \/            \/     \/     \/
-                          Version 1.06
+                          Version 1.08
   
 
 	(1) Quick Crack
@@ -73,6 +73,7 @@ $ ./hate_crack.py <hash file> 1000
 	(11) Middle Combinator Attack
 	(12) Thorough Combinator Attack
 
+    (95) Analyze hashes with Pipal 
 	(96) Export Output to Excel Format
 	(97) Display Cracked Hashes
 	(98) Display README
@@ -179,6 +180,9 @@ https://jeffh.net/2018/04/26/combinator_methods/
 
 -------------------------------------------------------------------
 ### Version History
+Version 1.08
+  Added a Pipal menu Option to analyze hashes. https://github.com/digininja/pipal
+
 Version 1.07
   Minor bug fixes with pwdump formating and unhexify function
 

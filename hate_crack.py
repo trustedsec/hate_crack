@@ -37,6 +37,12 @@ hcatWordlists = config_parser['hcatWordlists']
 hcatOptimizedWordlists = config_parser['hcatOptimizedWordlists']
 
 try:
+    pipalPath = config_parser['pipalPath']
+except KeyError as e:
+    print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
+    pipalPath = default_config['pipalPath']
+
+try:
     hcatRules = config_parser['hcatRules']
 except KeyError as e:
     print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
@@ -158,7 +164,7 @@ def ascii_art():
 \    Y    // __ \|  | \  ___/    \     \____|  | \// __ \\  \___|    < 
  \___|_  /(____  /__|  \___  >____\______  /|__|  (____  /\___  >__|_ \
        \/      \/          \/_____/      \/            \/     \/     \/
-                          Version 1.07
+                          Version 1.08
   """)
 
 
@@ -859,6 +865,8 @@ def cleanup():
             os.remove(hcatHashFileOrig + ".lm.cracked")
         if os.path.exists(hcatHashFileOrig + ".working"):
             os.remove(hcatHashFileOrig + ".working")
+        if os.path.exists(hcatHashFileOrig + ".passwords"):
+            os.remove(hcatHashFileOrig + ".passwords")
     except KeyboardInterrupt:
         #incase someone mashes the Control+C it will still cleanup
         cleanup()
@@ -1036,6 +1044,45 @@ def show_results():
     else:
         print("No hashes were cracked :(")
 
+# Analyze Hashes with Pipal
+def pipal():
+    hcatHashFilePipal = hcatHashFile
+    if hcatHashType == "1000":
+        combine_ntlm_output()
+        hcatHashFilePipal = hcatHashFileOrig
+
+    if os.path.isfile(pipalPath):
+        if os.path.isfile(hcatHashFilePipal + ".out"):
+            pipalFile = open(hcatHashFilePipal + ".passwords", 'w')
+            with open(hcatHashFilePipal + ".out") as hcatOutput:
+                for cracked_hash in hcatOutput:
+                    password = cracked_hash.split(':')
+                    clearTextPass = password[-1]
+                    match = re.search(r'^\$HEX\[(\S+)\]', clearTextPass)
+                    if match:
+                        clearTextPass = binascii.unhexlify(match.group(1)).decode('iso-8859-9')
+                    pipalFile.write(clearTextPass)
+                pipalFile.close()
+
+            pipalProcess = subprocess.Popen(
+                "{pipal_path}  {pipal_file} --output {pipal_out} ".format(
+                    pipal_path=pipalPath,
+                    pipal_file=hcatHashFilePipal + ".passwords",
+                    pipal_out=hcatHashFilePipal + ".pipal"),
+                shell=True)
+            try:
+                pipalProcess.wait()
+            except KeyboardInterrupt:
+                print('Killing PID {0}...'.format(str(pipalProcess.pid)))
+                pipalProcess.kill()
+            print "Pipal file is at " + hcatHashFilePipal + ".pipal\n"
+        else:
+         print("No hashes were cracked :(")
+    else:
+        print("The path to pipal.rb is either not set, or is incorrect.")
+
+
+
 # Exports output to excel file
 def export_excel():
 
@@ -1172,7 +1219,8 @@ def main():
             print("\t(10) YOLO Combinator Attack")
             print("\t(11) Middle Combinator Attack")
             print("\t(12) Thorough Combinator Attack")
-            print("\n\t(96) Export Output to Excel Format")
+            print("\n\t(95) Analyze hashes with Pipal")
+            print("\t(96) Export Output to Excel Format")
             print("\t(97) Display Cracked Hashes")
             print("\t(98) Display README")
             print("\t(99) Quit")
@@ -1188,6 +1236,7 @@ def main():
                        "10": yolo_combination,
                        "11": middle_combinator,
                        "12": thorough_combinator,
+                       "95": pipal,
                        "96": export_excel,
                        "97": show_results,
                        "98": show_readme,
