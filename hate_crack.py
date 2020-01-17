@@ -1075,7 +1075,7 @@ def pipal():
             except KeyboardInterrupt:
                 print('Killing PID {0}...'.format(str(pipalProcess.pid)))
                 pipalProcess.kill()
-            print "Pipal file is at " + hcatHashFilePipal + ".pipal\n"
+            print("Pipal file is at " + hcatHashFilePipal + ".pipal\n")
         else:
          print("No hashes were cracked :(")
     else:
