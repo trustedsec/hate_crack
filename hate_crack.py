@@ -265,16 +265,16 @@ def hcatDictionary(hcatHashType, hcatHashFile):
 
 
 # Quick Dictionary Attack (Optional Chained Rules)
-def hcatQuickDictionary(hcatHashType, hcatHashFile, hcatChains):
+def hcatQuickDictionary(hcatHashType, hcatHashFile, hcatChains, wordlists):
     global hcatProcess
     hcatProcess = subprocess.Popen(
         "{hcatBin} -m {hcatHashType} {hash_file} --session {session_name} -o {hash_file}.out "
-        "{optimized_wordlists}/* {chains} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+        "'{wordlists}' {chains} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
             hcatBin=hcatBin,
             hcatHashType=hcatHashType,
             hash_file=hcatHashFile,
             session_name=os.path.basename(hcatHashFile),
-            optimized_wordlists=hcatOptimizedWordlists,
+            wordlists=wordlists,
             chains=hcatChains,
             tuning=hcatTuning,
             hate_path=hate_path), shell=True)
@@ -874,8 +874,17 @@ def cleanup():
 # Quick Dictionary Attack with Optional Chained Rules
 def quick_crack():
     # Rules Attack
+    wordlist_choice = None
     rule_choice = None
     selected_hcatRules = []
+    while wordlist_choice is None:
+        raw_choice = input("\nEnter path of wordlist or wordlist directory.\n"
+                           "Press Enter for default optimized wordlists [{0}]:".format(hcatOptimizedWordlists))
+        if raw_choice is '':
+            wordlist_choice = hcatOptimizedWordlists
+        else:
+            if os.path.exists(raw_choice):
+                wordlist_choice = raw_choice
 
     print("\nWhich rule(s) would you like to run?")
     rule_number = 1
@@ -917,7 +926,7 @@ def quick_crack():
 
     #Run Quick Crack with each selected rule
     for chain in selected_hcatRules:
-         hcatQuickDictionary(hcatHashType, hcatHashFile, chain)
+         hcatQuickDictionary(hcatHashType, hcatHashFile, chain, wordlist_choice)
 
 
 # Extensive Pure_Hate Methodology
