@@ -526,6 +526,34 @@ def hcatYoloCombination(hcatHashType, hcatHashFile):
         print('Killing PID {0}...'.format(str(hcatProcess.pid)))
         hcatProcess.kill()
 
+# Company Name plus
+def hcatCnameplus(hcatHashType, hcatHashFile):
+    global hcatProcess
+    while True:
+        company_name = input('What is the company name? ')
+        if company_name:
+            break
+    mask1 = '-1={0}{1}'.format(company_name[0].lower(),company_name[0].upper())
+    mask2 = ' ?1{0}'.format(company_name[1:])
+    for x in range(6):
+        mask2 += '?a'
+    hcatProcess = subprocess.Popen(
+        "{hcatBin} -m {hash_type} -a 3 --session {session_name} -o {hash_file}.out "
+        "{tuning} --potfile-path={hate_path}/hashcat.pot -i {hcmask1} {hash_file} {hcmask2}".format(
+            hcatBin=hcatBin,
+            hash_type=hcatHashType,
+            hash_file=hcatHashFile,
+            session_name=os.path.basename(hcatHashFile),
+            tuning=hcatTuning,
+            hcmask1=mask1,
+            hcmask2=mask2,
+            hate_path=hate_path), shell=True)
+    try:
+        hcatProcess.wait()
+    except KeyboardInterrupt:
+        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+
 # Middle fast Combinator Attack
 def hcatMiddleCombinator(hcatHashType, hcatHashFile):
     global hcatProcess
@@ -1027,6 +1055,12 @@ def thorough_combinator():
 def middle_combinator():
     hcatMiddleCombinator(hcatHashType, hcatHashFile)
 
+# Company Name
+def cname_plus():
+    hcatCnameplus(hcatHashType, hcatHashFile)
+
+
+
 # convert hex words for recycling
 def convert_hex(working_file):
     processed_words = []
@@ -1228,6 +1262,7 @@ def main():
             print("\t(10) YOLO Combinator Attack")
             print("\t(11) Middle Combinator Attack")
             print("\t(12) Thorough Combinator Attack")
+            print("\t(13) Company Name plus")
             print("\n\t(95) Analyze hashes with Pipal")
             print("\t(96) Export Output to Excel Format")
             print("\t(97) Display Cracked Hashes")
@@ -1245,6 +1280,7 @@ def main():
                        "10": yolo_combination,
                        "11": middle_combinator,
                        "12": thorough_combinator,
+                       "13": cname_plus,
                        "95": pipal,
                        "96": export_excel,
                        "97": show_results,
