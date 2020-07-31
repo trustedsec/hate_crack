@@ -43,6 +43,12 @@ except KeyError as e:
     maxruntime = default_config['bandrelmaxruntime']
 
 try:
+    bandrelbasewords = config_parser['bandrel_common_basedwords']
+except KeyError as e:
+    print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
+    bandrelbasewords = default_config['bandrel_common_basedwords']
+
+try:
     pipalPath = config_parser['pipalPath']
 except KeyError as e:
     print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
@@ -535,11 +541,16 @@ def hcatYoloCombination(hcatHashType, hcatHashFile):
 # Bandrel methodlogy
 def hcatBandrel(hcatHashType, hcatHashFile):
     global hcatProcess
+    basewords = []
     while True:
         company_name = input('What is the company name (Enter multiples comma separated)? ')
         if company_name:
             break
     for name in company_name.split(','):
+        basewords.append(name)
+    for word in bandrelbasewords.split(','):
+        basewords.append(word)
+    for name in basewords:
         mask1 = '-1={0}{1}'.format(name[0].lower(),name[0].upper())
         mask2 = ' ?1{0}'.format(name[1:])
         for x in range(6):
