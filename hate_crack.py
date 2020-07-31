@@ -530,29 +530,30 @@ def hcatYoloCombination(hcatHashType, hcatHashFile):
 def hcatCnameplus(hcatHashType, hcatHashFile):
     global hcatProcess
     while True:
-        company_name = input('What is the company name? ')
+        company_name = input('What is the company name (Enter multiples comma separated)? ')
         if company_name:
             break
-    mask1 = '-1={0}{1}'.format(company_name[0].lower(),company_name[0].upper())
-    mask2 = ' ?1{0}'.format(company_name[1:])
-    for x in range(6):
-        mask2 += '?a'
-    hcatProcess = subprocess.Popen(
-        "{hcatBin} -m {hash_type} -a 3 --session {session_name} -o {hash_file}.out "
-        "{tuning} --potfile-path={hate_path}/hashcat.pot -i {hcmask1} {hash_file} {hcmask2}".format(
-            hcatBin=hcatBin,
-            hash_type=hcatHashType,
-            hash_file=hcatHashFile,
-            session_name=os.path.basename(hcatHashFile),
-            tuning=hcatTuning,
-            hcmask1=mask1,
-            hcmask2=mask2,
-            hate_path=hate_path), shell=True)
-    try:
-        hcatProcess.wait()
-    except KeyboardInterrupt:
-        print('Killing PID {0}...'.format(str(hcatProcess.pid)))
-        hcatProcess.kill()
+    for name in company_name.split(','):
+        mask1 = '-1={0}{1}'.format(name[0].lower(),name[0].upper())
+        mask2 = ' ?1{0}'.format(name[1:])
+        for x in range(6):
+            mask2 += '?a'
+        hcatProcess = subprocess.Popen(
+            "{hcatBin} -m {hash_type} -a 3 --session {session_name} -o {hash_file}.out "
+            "{tuning} --potfile-path={hate_path}/hashcat.pot -i {hcmask1} {hash_file} {hcmask2}".format(
+                hcatBin=hcatBin,
+                hash_type=hcatHashType,
+                hash_file=hcatHashFile,
+                session_name=os.path.basename(hcatHashFile),
+                tuning=hcatTuning,
+                hcmask1=mask1,
+                hcmask2=mask2,
+                hate_path=hate_path), shell=True)
+        try:
+            hcatProcess.wait()
+        except KeyboardInterrupt:
+            print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+            hcatProcess.kill()
 
 # Middle fast Combinator Attack
 def hcatMiddleCombinator(hcatHashType, hcatHashFile):
@@ -868,8 +869,9 @@ def combine_ntlm_output():
             for crackedLine in hcatCrackedFile:
                 with open(hcatHashFileOrig, "r") as hcatOrigFile:
                     for origLine in hcatOrigFile:
-                        if crackedLine.split(":")[0] == origLine.split(":")[3]:
-                            hcatCombinedHashes.write(origLine.strip() + crackedLine.split(":")[1])
+                        if len(origLine.split(':')) == 7:
+                            if crackedLine.split(":")[0] == origLine.split(":")[3]:
+                                hcatCombinedHashes.write(origLine.strip() + crackedLine.split(":")[1])
 
 # Cleanup Temp Files
 def cleanup():
