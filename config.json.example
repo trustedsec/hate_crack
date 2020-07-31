@@ -14,5 +14,7 @@
   "hcatGoodMeasureBaseList": "rockyou.txt",
   "hcatRules": ["best64.rule","d3ad0ne.rule", "T0XlC.rule", "dive.rule"],
   "hcatPrinceBaseList": "rockyou.txt",
-  "pipalPath": "/path/to/pipal"
+  "pipalPath": "/path/to/pipal",
+  "bandrelmaxruntime": "300",
+  "bandrel_common_basedwords": "welcome,password,letmein,summer,winter,spring,fall,autumn,monday,tuesday,wednesday,thursday,friday,satruday,sunday,january,february,march,april,may,june,july,august,september,october,november,december,christmas,covid19"
 }
