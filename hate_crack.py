@@ -37,6 +37,12 @@ hcatWordlists = config_parser['hcatWordlists']
 hcatOptimizedWordlists = config_parser['hcatOptimizedWordlists']
 
 try:
+    maxruntime = config_parser['bandrelmaxruntime']
+except KeyError as e:
+    print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
+    maxruntime = default_config['bandrelmaxruntime']
+
+try:
     pipalPath = config_parser['pipalPath']
 except KeyError as e:
     print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
@@ -526,8 +532,8 @@ def hcatYoloCombination(hcatHashType, hcatHashFile):
         print('Killing PID {0}...'.format(str(hcatProcess.pid)))
         hcatProcess.kill()
 
-# Company Name plus
-def hcatCnameplus(hcatHashType, hcatHashFile):
+# Bandrel methodlogy
+def hcatBandrel(hcatHashType, hcatHashFile):
     global hcatProcess
     while True:
         company_name = input('What is the company name (Enter multiples comma separated)? ')
@@ -540,7 +546,7 @@ def hcatCnameplus(hcatHashType, hcatHashFile):
             mask2 += '?a'
         hcatProcess = subprocess.Popen(
             "{hcatBin} -m {hash_type} -a 3 --session {session_name} -o {hash_file}.out "
-            "{tuning} --potfile-path={hate_path}/hashcat.pot -i {hcmask1} {hash_file} {hcmask2}".format(
+            "{tuning} --potfile-path={hate_path}/hashcat.pot --runtime {maxruntime} -i {hcmask1} {hash_file} {hcmask2}".format(
                 hcatBin=hcatBin,
                 hash_type=hcatHashType,
                 hash_file=hcatHashFile,
@@ -548,6 +554,7 @@ def hcatCnameplus(hcatHashType, hcatHashFile):
                 tuning=hcatTuning,
                 hcmask1=mask1,
                 hcmask2=mask2,
+                maxruntime=maxruntime,
                 hate_path=hate_path), shell=True)
         try:
             hcatProcess.wait()
@@ -1057,10 +1064,9 @@ def thorough_combinator():
 def middle_combinator():
     hcatMiddleCombinator(hcatHashType, hcatHashFile)
 
-# Company Name
-def cname_plus():
-    hcatCnameplus(hcatHashType, hcatHashFile)
-
+# Bandrel Methodology
+def bandrel_method():
+    hcatBandrel(hcatHashType, hcatHashFile)
 
 
 # convert hex words for recycling
@@ -1264,7 +1270,7 @@ def main():
             print("\t(10) YOLO Combinator Attack")
             print("\t(11) Middle Combinator Attack")
             print("\t(12) Thorough Combinator Attack")
-            print("\t(13) Company Name plus")
+            print("\t(13) Bandrel Methodology")
             print("\n\t(95) Analyze hashes with Pipal")
             print("\t(96) Export Output to Excel Format")
             print("\t(97) Display Cracked Hashes")
@@ -1282,7 +1288,7 @@ def main():
                        "10": yolo_combination,
                        "11": middle_combinator,
                        "12": thorough_combinator,
-                       "13": cname_plus,
+                       "13": bandrel_method,
                        "95": pipal,
                        "96": export_excel,
                        "97": show_results,
