@@ -835,13 +835,19 @@ def hcatRecycle(hcatHashType, hcatHashFile, hcatNewPasswords):
 
 # creating the combined output for pwdformat + cleartext
 def combine_ntlm_output():
+    hashes = {}
+    with open(hcatHashFile + ".out", "r") as hcatCrackedFile:
+        for crackedLine in hcatCrackedFile:
+            hash, password = crackedLine.split(':')
+            hashes[hash] = password.rstrip()
     with open(hcatHashFileOrig + ".out", "w+") as hcatCombinedHashes:
-        with open(hcatHashFile + ".out", "r") as hcatCrackedFile:
-            for crackedLine in hcatCrackedFile:
-                with open(hcatHashFileOrig, "r") as hcatOrigFile:
-                    for origLine in hcatOrigFile:
-                        if crackedLine.split(":")[0] == origLine.split(":")[3]:
-                            hcatCombinedHashes.write(origLine.strip() + crackedLine.split(":")[1])
+        with open(hcatHashFileOrig, "r") as hcatOrigFile:
+            for origLine in hcatOrigFile:
+                if origLine.split(':')[3] in hashes:
+                    password = hashes[origLine.split(':')[3]]
+                    hcatCombinedHashes.write(origLine.strip() + ' ' + password+'\n')
+                else:
+                    hcatCombinedHashes.write(origLine)
 
 # Cleanup Temp Files
 def cleanup():
