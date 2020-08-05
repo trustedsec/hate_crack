@@ -37,6 +37,18 @@ hcatWordlists = config_parser['hcatWordlists']
 hcatOptimizedWordlists = config_parser['hcatOptimizedWordlists']
 
 try:
+    maxruntime = config_parser['bandrelmaxruntime']
+except KeyError as e:
+    print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
+    maxruntime = default_config['bandrelmaxruntime']
+
+try:
+    bandrelbasewords = config_parser['bandrel_common_basedwords']
+except KeyError as e:
+    print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
+    bandrelbasewords = default_config['bandrel_common_basedwords']
+
+try:
     pipalPath = config_parser['pipalPath']
 except KeyError as e:
     print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
@@ -525,6 +537,41 @@ def hcatYoloCombination(hcatHashType, hcatHashFile):
     except KeyboardInterrupt:
         print('Killing PID {0}...'.format(str(hcatProcess.pid)))
         hcatProcess.kill()
+
+# Bandrel methodlogy
+def hcatBandrel(hcatHashType, hcatHashFile):
+    global hcatProcess
+    basewords = []
+    while True:
+        company_name = input('What is the company name (Enter multiples comma separated)? ')
+        if company_name:
+            break
+    for name in company_name.split(','):
+        basewords.append(name)
+    for word in bandrelbasewords.split(','):
+        basewords.append(word)
+    for name in basewords:
+        mask1 = '-1={0}{1}'.format(name[0].lower(),name[0].upper())
+        mask2 = ' ?1{0}'.format(name[1:])
+        for x in range(6):
+            mask2 += '?a'
+        hcatProcess = subprocess.Popen(
+            "{hcatBin} -m {hash_type} -a 3 --session {session_name} -o {hash_file}.out "
+            "{tuning} --potfile-path={hate_path}/hashcat.pot --runtime {maxruntime} -i {hcmask1} {hash_file} {hcmask2}".format(
+                hcatBin=hcatBin,
+                hash_type=hcatHashType,
+                hash_file=hcatHashFile,
+                session_name=os.path.basename(hcatHashFile),
+                tuning=hcatTuning,
+                hcmask1=mask1,
+                hcmask2=mask2,
+                maxruntime=maxruntime,
+                hate_path=hate_path), shell=True)
+        try:
+            hcatProcess.wait()
+        except KeyboardInterrupt:
+            print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+            hcatProcess.kill()
 
 # Middle fast Combinator Attack
 def hcatMiddleCombinator(hcatHashType, hcatHashFile):
@@ -1033,6 +1080,11 @@ def thorough_combinator():
 def middle_combinator():
     hcatMiddleCombinator(hcatHashType, hcatHashFile)
 
+# Bandrel Methodology
+def bandrel_method():
+    hcatBandrel(hcatHashType, hcatHashFile)
+
+
 # convert hex words for recycling
 def convert_hex(working_file):
     processed_words = []
@@ -1234,6 +1286,7 @@ def main():
             print("\t(10) YOLO Combinator Attack")
             print("\t(11) Middle Combinator Attack")
             print("\t(12) Thorough Combinator Attack")
+            print("\t(13) Bandrel Methodology")
             print("\n\t(95) Analyze hashes with Pipal")
             print("\t(96) Export Output to Excel Format")
             print("\t(97) Display Cracked Hashes")
@@ -1251,6 +1304,7 @@ def main():
                        "10": yolo_combination,
                        "11": middle_combinator,
                        "12": thorough_combinator,
+                       "13": bandrel_method,
                        "95": pipal,
                        "96": export_excel,
                        "97": show_results,
