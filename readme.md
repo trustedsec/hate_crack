@@ -178,8 +178,21 @@ https://jeffh.net/2018/04/26/combinator_methods/
   - Hybrid middle/end attack: rockyou.txt + ?n + rockyou.txt + ?n
   - Hybrid middle/end attack: rockyou.txt + ?s + rockyou.txt + ?s
 
+
+#### Bandrel Methodology
+
+* Prompts for input of comma separated names and then creates a pseudo hybrid attack by capitalizing the first letter
+and adding up to six additional characters at the end. Each word is limited to a total of five minutes.
+  - Built in additional common words including seasons, months has been included as a customizable config.json entry
+  - The default five minute time limit is customizable via the config.json
+  
 -------------------------------------------------------------------
 ### Version History
+Version 1.9
+  Revamped the hate_crack output to increase processing speed exponentially combine_ntlm_output function for combining
+  Introducing New Attack mode "Bandrel Methodology"
+  Updated pipal function to output top x number of basewords
+     
 Version 1.08
   Added a Pipal menu Option to analyze hashes. https://github.com/digininja/pipal
 
