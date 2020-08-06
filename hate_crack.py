@@ -49,6 +49,13 @@ except KeyError as e:
     bandrelbasewords = default_config['bandrel_common_basedwords']
 
 try:
+
+    pipal_count = config_parser['pipal_count']
+except KeyError as e:
+    print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
+    pipal_count = default_config['pipal_count']
+
+try:
     pipalPath = config_parser['pipalPath']
 except KeyError as e:
     print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
@@ -176,7 +183,7 @@ def ascii_art():
 \    Y    // __ \|  | \  ___/    \     \____|  | \// __ \\  \___|    < 
  \___|_  /(____  /__|  \___  >____\______  /|__|  (____  /\___  >__|_ \
        \/      \/          \/_____/      \/            \/     \/     \/
-                          Version 1.08
+                          Version 1.09
   """)
 
 
@@ -572,6 +579,30 @@ def hcatBandrel(hcatHashType, hcatHashFile):
         except KeyboardInterrupt:
             print('Killing PID {0}...'.format(str(hcatProcess.pid)))
             hcatProcess.kill()
+    print('Checking passwords against pipal for top {0} passwords and basewords'.format(pipal_count))
+    pipal_basewords = pipal()
+    for word in pipal_basewords:
+        mask1 = '-1={0}{1}'.format(word[0].lower(),word[0].upper())
+        mask2 = ' ?1{0}'.format(word[1:])
+        for x in range(6):
+            mask2 += '?a'
+        hcatProcess = subprocess.Popen(
+            "{hcatBin} -m {hash_type} -a 3 --session {session_name} -o {hash_file}.out "
+            "{tuning} --potfile-path={hate_path}/hashcat.pot --runtime {maxruntime} -i {hcmask1} {hash_file} {hcmask2}".format(
+                hcatBin=hcatBin,
+                hash_type=hcatHashType,
+                hash_file=hcatHashFile,
+                session_name=os.path.basename(hcatHashFile),
+                tuning=hcatTuning,
+                hcmask1=mask1,
+                hcmask2=mask2,
+                maxruntime=maxruntime,
+                hate_path=hate_path), shell=True)
+        try:
+            hcatProcess.wait()
+        except KeyboardInterrupt:
+            print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+            hcatProcess.kill()
 
 # Middle fast Combinator Attack
 def hcatMiddleCombinator(hcatHashType, hcatHashFile):
@@ -933,7 +964,7 @@ def quick_crack():
     while wordlist_choice is None:
         raw_choice = input("\nEnter path of wordlist or wordlist directory.\n"
                            "Press Enter for default optimized wordlists [{0}]:".format(hcatOptimizedWordlists))
-        if raw_choice is '':
+        if raw_choice == '':
             wordlist_choice = hcatOptimizedWordlists
         else:
             if os.path.exists(raw_choice):
@@ -951,7 +982,7 @@ def quick_crack():
         raw_choice = input('Enter Comma separated list of rules you would like to run. To run rules chained use the + symbol.\n'
                             'For example 1+1 will run {0} chained twice and 1,2 would run {0} and then {1} sequentially.\n'
                             'Choose wisely: '.format(hcatRules[0], hcatRules[1]))
-        if raw_choice is not '':
+        if raw_choice != '':
             rule_choice = raw_choice.split(',')
 
     if '99' in rule_choice:
@@ -1132,10 +1163,11 @@ def pipal():
                 pipalFile.close()
 
             pipalProcess = subprocess.Popen(
-                "{pipal_path}  {pipal_file} --output {pipal_out} ".format(
+                "{pipal_path} {pipal_file} -t {pipal_count} --output {pipal_out}".format(
                     pipal_path=pipalPath,
                     pipal_file=hcatHashFilePipal + ".passwords",
-                    pipal_out=hcatHashFilePipal + ".pipal"),
+                    pipal_out=hcatHashFilePipal + ".pipal",
+                    pipal_count=pipal_count),
                 shell=True)
             try:
                 pipalProcess.wait()
@@ -1143,6 +1175,19 @@ def pipal():
                 print('Killing PID {0}...'.format(str(pipalProcess.pid)))
                 pipalProcess.kill()
             print("Pipal file is at " + hcatHashFilePipal + ".pipal\n")
+            with open(hcatHashFilePipal + ".pipal") as pipalfile:
+                pipal_content = pipalfile.readlines()
+                raw_pipal = '\n'.join(pipal_content)
+                raw_pipal = re.sub('\n+', '\n', raw_pipal)
+                raw_regex = r'Top [0-9]+ base words\n'
+                for word in range(pipal_count):
+                    raw_regex += r'(\S+).*\n'
+                basewords_re = re.compile(raw_regex)
+                results = re.search(basewords_re,raw_pipal)
+                top_basewords = []
+                for i in range(1, results.lastindex + 1):
+                    top_basewords.append(results.group(i))
+                return(top_basewords)
         else:
          print("No hashes were cracked :(")
     else:
