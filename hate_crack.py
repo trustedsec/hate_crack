@@ -911,9 +911,25 @@ def hcatRecycle(hcatHashType, hcatHashFile, hcatNewPasswords):
             except KeyboardInterrupt:
                 hcatProcess.kill()
 
+def check_potfile():
+    print("Checking POT file for already cracked hashes...")
+    subprocess.Popen(
+        "{hcatBin} --show --potfile-path={hate_path}/hashcat.pot -m {hash_type} {hash_file} > {hate_path}/{hash_file}.out".format(
+            hcatBin=hcatBin,
+            hash_type=hcatHashType,
+            hash_file=hcatHashFile,
+            hate_path=hate_path), shell=True)
+    hcatHashCracked = lineCount(hcatHashFile + ".out")
+    if hcatHashCracked > 0:
+        print("Found %d hashes already cracked.\nCopied hashes to %s.out" % (hcatHashCracked, hcatHashFile))
+    else:
+        print("No hashes found in POT file.")
+
+
 # creating the combined output for pwdformat + cleartext
 def combine_ntlm_output():
     hashes = {}
+    check_potfile()
     with open(hcatHashFile + ".out", "r") as hcatCrackedFile:
         for crackedLine in hcatCrackedFile:
             hash, password = crackedLine.split(':')
