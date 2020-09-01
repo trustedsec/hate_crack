@@ -923,9 +923,7 @@ def combine_ntlm_output():
             for origLine in hcatOrigFile:
                 if origLine.split(':')[3] in hashes:
                     password = hashes[origLine.split(':')[3]]
-                    hcatCombinedHashes.write(origLine.strip() + ' ' + password+'\n')
-                else:
-                    hcatCombinedHashes.write(origLine)
+                    hcatCombinedHashes.write(origLine.strip()+password+'\n')
 
 # Cleanup Temp Files
 def cleanup():
