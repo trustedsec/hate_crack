@@ -66,7 +66,7 @@ def main():
       # Copy unique passwords into "optimized" <output directory>
       for file in os.listdir("/tmp/splitlen"):
         if not os.path.isfile(destination + "/" + file):
-          shutil.copyfile(file, destination)
+          shutil.copyfile("/tmp/splitlen/" + file, destination + "/" + file)
         else:
           rliProcess = subprocess.Popen("%s /tmp/splitlen/%s /tmp/splitlen.out %s/%s" % (rli_bin, file, destination, file), shell=True).wait()
           if lineCount("/tmp/splitlen.out") > 0:
