@@ -1,4 +1,16 @@
 {
+  "Comments": [
+    "For Windows only:",
+      "Copy the hashcat files and folders into the hate_crack folder.",
+      "Download and extract some needed GNU tools for Windows into the hate_crack folder:",
+        "CoreUtils for Windows (http://gnuwin32.sourceforge.net/packages/coreutils.htm): cat.exe, cut.exe and sort.exe needed",
+        "LibIntl for Windows (http://gnuwin32.sourceforge.net/packages/libintl.htm): libintl3.dll needed",
+        "LibIconv for Windows (http://gnuwin32.sourceforge.net/packages/libiconv.htm): libiconv2.dll needed",
+      "Avoid spaces in paths and filenames!",
+      "Folder path format: C:\\<FolderName>\\<SubfolderName>",
+      "Value of hcatBin: hashcat.exe",
+      "Value of pipalPath: C:\\<FolderName>\\pipal.rb"
+  ],
   "hcatPath": "/Passwords/hashcat",
   "hcatBin": "hashcat",
   "hcatTuning": "--force --remove",
