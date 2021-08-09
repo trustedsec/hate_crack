@@ -44,10 +44,20 @@ def main():
     usage()
     sys.exit()
 
+  # Windows compatability
   if sys.platform == 'darwin':
     splitlen_bin = "hashcat-utils/bin/splitlen.app"
     rli_bin = "hashcat-utils/bin/rli.app"
+  elif sys.platform == 'win32':
+    dir_separator = "\\"
+    splitlen_dir = r"tmp\splitlen"
+    splitlen_out = r"tmp\splitlen.out"
+    splitlen_bin = r"hashcat-utils\bin\splitlen.exe"
+    rli_bin = r"hashcat-utils\bin\rli.exe"    
   else:
+    dir_separator = "/"
+    splitlen_dir = "/tmp/splitlen"
+    splitlen_out = "/tmp/splitlen.out"
     splitlen_bin = "hashcat-utils/bin/splitlen.bin"
     rli_bin = "hashcat-utils/bin/rli.bin"
 
@@ -58,29 +68,29 @@ def main():
     # Parse wordlists by password length into "optimized" <output directory>
     if len(os.listdir(destination)) == 0:
       splitlenProcess = subprocess.Popen("%s %s < %s" % (splitlen_bin, destination, wordlist), shell=True).wait()
-    else:
-      if not os.path.isdir("/tmp/splitlen"):
-        os.mkdir("/tmp/splitlen")
-      splitlenProcess = subprocess.Popen("%s /tmp/splitlen < %s" % (splitlen_bin, wordlist), shell=True).wait()
+    else: 
+      if not os.path.isdir(splitlen_dir):
+        os.makedirs(splitlen_dir)
+      splitlenProcess = subprocess.Popen("%s %s < %s" % (splitlen_bin, splitlen_dir, wordlist), shell=True).wait()
 
       # Copy unique passwords into "optimized" <output directory>
-      for file in os.listdir("/tmp/splitlen"):
-        if not os.path.isfile(destination + "/" + file):
-          shutil.copyfile("/tmp/splitlen/" + file, destination + "/" + file)
+      for file in os.listdir(splitlen_dir):
+        if not os.path.isfile(destination + dir_separator + file):
+          shutil.copyfile(splitlen_dir + dir_separator + file, destination + dir_separator + file)
         else:
-          rliProcess = subprocess.Popen("%s /tmp/splitlen/%s /tmp/splitlen.out %s/%s" % (rli_bin, file, destination, file), shell=True).wait()
-          if lineCount("/tmp/splitlen.out") > 0:
-            destination_file = open(destination + "/" + file, "a")
-            splitlen_file = open("/tmp/splitlen.out", "r")
+          rliProcess = subprocess.Popen("%s %s%s%s %s %s%s%s" % (rli_bin, splitlen_dir, dir_separator, file, splitlen_out, destination, dir_separator, file), shell=True).wait()
+          if lineCount(splitlen_out) > 0:
+            destination_file = open(destination + dir_separator + file, "a")
+            splitlen_file = open(splitlen_out, "r")
             destination_file.write(splitlen_file.read())
             destination_file.close()
             splitlen_file.close()
             
     # Clean Up
-    if os.path.isdir("/tmp/splitlen"):
-      shutil.rmtree('/tmp/splitlen')
-    if os.path.isfile("/tmp/splitlen.out"):
-      os.remove("/tmp/splitlen.out")
+    if os.path.isdir(splitlen_dir):
+      shutil.rmtree(splitlen_dir)
+    if os.path.isfile(splitlen_out):
+      os.remove(splitlen_out)
 
 
 # Standard boilerplate to call the main() function
