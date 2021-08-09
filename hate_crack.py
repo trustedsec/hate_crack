@@ -12,6 +12,7 @@ import re
 import json
 import binascii
 import shutil
+import codecs
 
 # python2/3 compatability
 try:
@@ -19,15 +20,23 @@ try:
 except NameError:
     pass
 
-hate_path = os.path.dirname(os.path.realpath(__file__))
-if not os.path.isfile(hate_path + '/config.json'):
-    print('Initializing config.json from config.json.example')
-    shutil.copy(hate_path + '/config.json.example',hate_path + '/config.json')
+# Windows compatability
+if sys.platform == 'win32':
+    dir_separator = "\\"
+    quote = "\""
+else:
+    dir_separator = "/"
+    quote = "'"
 
-with open(hate_path + '/config.json') as config:
+hate_path = os.path.dirname(os.path.realpath(__file__))
+if not os.path.isfile(hate_path + dir_separator + 'config.json'):
+    print('Initializing config.json from config.json.example')
+    shutil.copy(hate_path + dir_separator + 'config.json.example',hate_path + dir_separator + 'config.json')
+
+with open(hate_path + dir_separator + 'config.json') as config:
     config_parser = json.load(config)
 
-with open(hate_path + '/config.json.example') as defaults:
+with open(hate_path + dir_separator + 'config.json.example') as defaults:
     default_config = json.load(defaults)
 
 hcatPath = config_parser['hcatPath']
@@ -94,11 +103,15 @@ except KeyError as e:
     print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
     hcatGoodMeasureBaseList = default_config[e.args[0]]
 
-
+# Windows compatability
 if sys.platform == 'darwin':
     hcatExpanderBin = "expander.app"
     hcatCombinatorBin = "combinator.app"
     hcatPrinceBin = "pp64.app"
+elif sys.platform == 'win32':
+    hcatExpanderBin = "expander.exe"
+    hcatCombinatorBin = "combinator.exe"
+    hcatPrinceBin = "pp64.exe"
 else:
     hcatExpanderBin = "expander.bin"
     hcatCombinatorBin = "combinator.bin"
@@ -107,8 +120,8 @@ else:
 def verify_wordlist_dir(directory, wordlist):
     if os.path.isfile(wordlist):
         return wordlist
-    elif os.path.isfile(directory + '/' + wordlist):
-        return directory + '/' + wordlist
+    elif os.path.isfile(directory + dir_separator + wordlist):
+        return directory + dir_separator + wordlist
     else:
         print('Invalid path for {0}. Please check configuration and try again.'.format(wordlist))
         quit(1)
@@ -116,8 +129,8 @@ def verify_wordlist_dir(directory, wordlist):
 # hashcat biniary checks for systems that install hashcat binary in different location than the rest of the hashcat files
 if os.path.isfile(hcatBin):
     pass
-elif os.path.isfile(hcatPath.rstrip('/') + '/' + hcatBin):
-    hcatBin = hcatPath.rstrip('/') + '/' + hcatBin
+elif os.path.isfile(hcatPath.rstrip(dir_separator) + dir_separator + hcatBin):
+    hcatBin =hcatPath.rstrip(dir_separator) + dir_separator + hcatBin
 else:
     print('Invalid path for hashcat binary. Please check configuration and try again.')
     quit(1)
@@ -185,7 +198,7 @@ def hcatBruteForce(hcatHashType, hcatHashFile, hcatMinLen, hcatMaxLen):
     global hcatProcess
     hcatProcess = subprocess.Popen(
         "{hcbin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out --increment --increment-min={min} "
-        "--increment-max={max} -a 3 ?a?a?a?a?a?a?a?a?a?a?a?a?a?a {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+        "--increment-max={max} -a 3 ?a?a?a?a?a?a?a?a?a?a?a?a?a?a {tuning} --potfile-path={hate_path}{dir_separator}hashcat.pot".format(
             hcbin=hcatBin,
             hash_type=hcatHashType,
             hash_file=hcatHashFile,
@@ -193,6 +206,7 @@ def hcatBruteForce(hcatHashType, hcatHashFile, hcatMinLen, hcatMaxLen):
             min=hcatMinLen,
             max=hcatMaxLen,
             tuning=hcatTuning,
+            dir_separator=dir_separator,
             hate_path=hate_path), shell=True)
     try:
         hcatProcess.wait()
@@ -208,8 +222,8 @@ def hcatDictionary(hcatHashType, hcatHashFile):
     global hcatDictionaryCount
     global hcatProcess
     hcatProcess = subprocess.Popen(
-        "{hcatBin} -m {hcatHashType} {hash_file} --session {session_name} -o {hash_file}.out {optimized_wordlists}/* "
-        "-r {hcatPath}/rules/best64.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+        "{hcatBin} -m {hcatHashType} {hash_file} --session {session_name} -o {hash_file}.out {optimized_wordlists}{dir_separator}* "
+        "-r {hcatPath}{dir_separator}rules{dir_separator}best64.rule {tuning} --potfile-path={hate_path}{dir_separator}hashcat.pot".format(
             hcatPath=hcatPath,
             hcatBin=hcatBin,
             hcatHashType=hcatHashType,
@@ -217,6 +231,7 @@ def hcatDictionary(hcatHashType, hcatHashFile):
             session_name=os.path.basename(hcatHashFile),
             optimized_wordlists=hcatOptimizedWordlists,
             tuning=hcatTuning,
+            dir_separator=dir_separator,
             hate_path=hate_path), shell=True)
     try:
         hcatProcess.wait()
@@ -228,7 +243,7 @@ def hcatDictionary(hcatHashType, hcatHashFile):
     for wordlist in hcatDictionaryWordlist:
         hcatProcess = subprocess.Popen(
             "{hcatBin} -m {hcatHashType} {hash_file} --session {session_name} -o {hash_file}.out {hcatWordlist} "
-            "-r {hcatPath}/rules/d3ad0ne.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+            "-r {hcatPath}{dir_separator}rules{dir_separator}d3ad0ne.rule {tuning} --potfile-path={hate_path}{dir_separator}hashcat.pot".format(
                 hcatPath=hcatPath,
                 hcatBin=hcatBin,
                 hcatHashType=hcatHashType,
@@ -236,6 +251,7 @@ def hcatDictionary(hcatHashType, hcatHashFile):
                 session_name=os.path.basename(hcatHashFile),
                 hcatWordlist=wordlist,
                 tuning=hcatTuning,
+                dir_separator=dir_separator,
                 hate_path=hate_path), shell=True)
         try:
             hcatProcess.wait()
@@ -246,7 +262,7 @@ def hcatDictionary(hcatHashType, hcatHashFile):
 
         hcatProcess = subprocess.Popen(
             "{hcatBin} -m {hcatHashType} {hash_file} --session {session_name} -o {hash_file}.out {hcatWordlist} "
-            "-r {hcatPath}/rules/T0XlC.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+            "-r {hcatPath}{dir_separator}rules{dir_separator}T0XlC.rule {tuning} --potfile-path={hate_path}{dir_separator}hashcat.pot".format(
                 hcatPath=hcatPath,
                 hcatBin=hcatBin,
                 hcatHashType=hcatHashType,
@@ -254,6 +270,7 @@ def hcatDictionary(hcatHashType, hcatHashFile):
                 session_name=os.path.basename(hcatHashFile),
                 hcatWordlist=wordlist,
                 tuning=hcatTuning,
+                dir_separator=dir_separator,
                 hate_path=hate_path), shell=True)
         try:
             hcatProcess.wait()
@@ -269,7 +286,7 @@ def hcatQuickDictionary(hcatHashType, hcatHashFile, hcatChains, wordlists):
     global hcatProcess
     hcatProcess = subprocess.Popen(
         "{hcatBin} -m {hcatHashType} {hash_file} --session {session_name} -o {hash_file}.out "
-        "'{wordlists}' {chains} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+        "{quote}{wordlists}{quote} {chains} {tuning} --potfile-path={hate_path}{dir_separator}hashcat.pot".format(
             hcatBin=hcatBin,
             hcatHashType=hcatHashType,
             hash_file=hcatHashFile,
@@ -277,6 +294,8 @@ def hcatQuickDictionary(hcatHashType, hcatHashFile, hcatChains, wordlists):
             wordlists=wordlists,
             chains=hcatChains,
             tuning=hcatTuning,
+            dir_separator=dir_separator,
+            quote=quote,
             hate_path=hate_path), shell=True)
     try:
         hcatProcess.wait()
@@ -294,8 +313,9 @@ def hcatTopMask(hcatHashType, hcatHashFile, hcatTargetTime):
         "cat {hash_file}.out | cut -d : -f 2 > {hash_file}.working".format(
             hash_file=hcatHashFile), shell=True).wait()
     hcatProcess = subprocess.Popen(
-        "{hate_path}/PACK/statsgen.py {hash_file}.working -o {hash_file}.masks".format(
+        "python {hate_path}{dir_separator}PACK{dir_separator}statsgen.py {hash_file}.working -o {hash_file}.masks".format(
             hash_file=hcatHashFile,
+            dir_separator=dir_separator,
             hate_path=hate_path), shell=True)
     try:
         hcatProcess.wait()
@@ -304,10 +324,11 @@ def hcatTopMask(hcatHashType, hcatHashFile, hcatTargetTime):
         hcatProcess.kill()
 
     hcatProcess = subprocess.Popen(
-        "{hate_path}/PACK/maskgen.py {hash_file}.masks --targettime {target_time} --optindex -q --pps 14000000000 "
+        "python {hate_path}{dir_separator}PACK{dir_separator}maskgen.py {hash_file}.masks --targettime {target_time} --optindex -q --pps 14000000000 "
         "--minlength=7 -o {hash_file}.hcmask".format(
             hash_file=hcatHashFile,
             target_time=hcatTargetTime,
+            dir_separator=dir_separator,
             hate_path=hate_path), shell=True)
     try:
         hcatProcess.wait()
@@ -317,12 +338,13 @@ def hcatTopMask(hcatHashType, hcatHashFile, hcatTargetTime):
 
     hcatProcess = subprocess.Popen(
         "{hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out -a 3 {hash_file}.hcmask {tuning} "
-        "--potfile-path={hate_path}/hashcat.pot".format(
+        "--potfile-path={hate_path}{dir_separator}hashcat.pot".format(
             hcatBin=hcatBin,
             hash_type=hcatHashType,
             hash_file=hcatHashFile,
             session_name=os.path.basename(hcatHashFile),
             tuning=hcatTuning,
+            dir_separator=dir_separator,
             hate_path=hate_path), shell=True)
     try:
         hcatProcess.wait()
@@ -342,11 +364,12 @@ def hcatFingerprint(hcatHashType, hcatHashFile):
     while crackedBefore != crackedAfter:
         crackedBefore = lineCount(hcatHashFile + ".out")
         hcatProcess = subprocess.Popen("cat {hash_file}.out | cut -d : -f 2 > {hash_file}.working".format(
-            hash_file=hcatHashFile), shell=True).wait()
+                hash_file=hcatHashFile), shell=True).wait()
         hcatProcess = subprocess.Popen(
-            "{hate_path}/hashcat-utils/bin/{expander_bin} < {hash_file}.working | sort -u > {hash_file}.expanded".format(
+            "{hate_path}{dir_separator}hashcat-utils{dir_separator}bin{dir_separator}{expander_bin} < {hash_file}.working | sort -u > {hash_file}.expanded".format(
                 expander_bin=hcatExpanderBin,
                 hash_file=hcatHashFile,
+                dir_separator=dir_separator,
                 hate_path=hate_path), shell=True)
         try:
             hcatProcess.wait()
@@ -355,12 +378,13 @@ def hcatFingerprint(hcatHashType, hcatHashFile):
             hcatProcess.kill()
         hcatProcess = subprocess.Popen(
             "{hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out -a 1 {hash_file}.expanded "
-            "{hash_file}.expanded {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+            "{hash_file}.expanded {tuning} --potfile-path={hate_path}{dir_separator}hashcat.pot".format(
                 hcatBin=hcatBin,
                 hash_type=hcatHashType,
                 hash_file=hcatHashFile,
                 session_name=os.path.basename(hcatHashFile),
                 tuning=hcatTuning,
+                dir_separator=dir_separator,
                 hate_path=hate_path), shell=True)
         try:
             hcatProcess.wait()
@@ -377,7 +401,7 @@ def hcatCombination(hcatHashType, hcatHashFile):
     global hcatProcess
     hcatProcess = subprocess.Popen(
         "{hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out -a 1 {left} "
-        "{right} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+        "{right} {tuning} --potfile-path={hate_path}{dir_separator}hashcat.pot".format(
             hcatBin=hcatBin,
             hash_type=hcatHashType,
             hash_file=hcatHashFile,
@@ -386,6 +410,7 @@ def hcatCombination(hcatHashType, hcatHashFile):
             left=hcatCombinationWordlist[0],
             right=hcatCombinationWordlist[1],
             tuning=hcatTuning,
+            dir_separator=dir_separator,
             hate_path=hate_path),
         shell=True)
     try:
@@ -404,13 +429,14 @@ def hcatHybrid(hcatHashType, hcatHashFile):
     for wordlist in hcatHybridlist:
         hcatProcess = subprocess.Popen(
             "{hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out -a 6 -1 ?s?d {wordlist} ?1?1 "
-            "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
+            "{tuning} --potfile-path={hate_path}{dir_separator}hashcat.pot".format(
                 hcatBin=hcatBin,
                 hash_type=hcatHashType,
                 hash_file=hcatHashFile,
                 session_name=os.path.basename(hcatHashFile),
                 wordlist=wordlist,
                 tuning=hcatTuning,
+                dir_separator=dir_separator,
                 hate_path=hate_path), shell=True)
         try:
             hcatProcess.wait()
@@ -420,13 +446,14 @@ def hcatHybrid(hcatHashType, hcatHashFile):
 
         hcatProcess = subprocess.Popen(
             "{hcatBin} -m {hash_type} {hash_file} -o {hash_file}.out -a 6 -1 ?s?d {wordlist} ?1?1?1 "
-            "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
+            "{tuning} --potfile-path={hate_path}{dir_separator}hashcat.pot".format(
                 hcatBin=hcatBin,
                 hash_type=hcatHashType,
                 hash_file=hcatHashFile,
                 session_name=os.path.basename(hcatHashFile),
                 wordlist=wordlist,
                 tuning=hcatTuning,
+                dir_separator=dir_separator,
                 hate_path=hate_path), shell=True)
         try:
             hcatProcess.wait()
@@ -436,13 +463,14 @@ def hcatHybrid(hcatHashType, hcatHashFile):
 
         hcatProcess = subprocess.Popen(
             "{hcatBin} -m {hash_type} {hash_file} -o {hash_file}.out -a 6 -1 ?s?d {wordlist} "
-            "?1?1?1?1 {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+            "?1?1?1?1 {tuning} --potfile-path={hate_path}{dir_separator}hashcat.pot".format(
                 hcatBin=hcatBin,
                 hash_type=hcatHashType,
                 hash_file=hcatHashFile,
                 session_name=os.path.basename(hcatHashFile),
                 wordlist=wordlist,
                 tuning=hcatTuning,
+                dir_separator=dir_separator,
                 hate_path=hate_path), shell=True)
         try:
             hcatProcess.wait()
@@ -452,13 +480,14 @@ def hcatHybrid(hcatHashType, hcatHashFile):
 
         hcatProcess = subprocess.Popen(
             "{hcatBin} -m {hash_type} {hash_file} -o {hash_file}.out -a 7 -1 ?s?d ?1?1 {wordlist} "
-            "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
+            "{tuning} --potfile-path={hate_path}{dir_separator}hashcat.pot".format(
                 hcatBin=hcatBin,
                 hash_type=hcatHashType,
                 hash_file=hcatHashFile,
                 session_name=os.path.basename(hcatHashFile),
                 wordlist=wordlist,
                 tuning=hcatTuning,
+                dir_separator=dir_separator,
                 hate_path=hate_path), shell=True)
         try:
             hcatProcess.wait()
@@ -468,13 +497,14 @@ def hcatHybrid(hcatHashType, hcatHashFile):
 
         hcatProcess = subprocess.Popen(
             "{hcatBin} -m {hash_type} {hash_file} -o {hash_file}.out -a 7 -1 ?s?d ?1?1?1 {wordlist} "
-            "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
+            "{tuning} --potfile-path={hate_path}{dir_separator}hashcat.pot".format(
                 hcatBin=hcatBin,
                 hash_type=hcatHashType,
                 hash_file=hcatHashFile,
                 session_name=os.path.basename(hcatHashFile),
                 wordlist=wordlist,
                 tuning=hcatTuning,
+                dir_separator=dir_separator,
                 hate_path=hate_path), shell=True)
         try:
             hcatProcess.wait()
@@ -484,13 +514,14 @@ def hcatHybrid(hcatHashType, hcatHashFile):
 
         hcatProcess = subprocess.Popen(
             "{hcatBin} -m {hash_type} {hash_file} -o {hash_file}.out -a 7 -1 ?s?d ?1?1?1?1 {wordlist} "
-            "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
+            "{tuning} --potfile-path={hate_path}{dir_separator}hashcat.pot".format(
                 hcatBin=hcatBin,
                 hash_type=hcatHashType,
                 hash_file=hcatHashFile,
                 session_name=os.path.basename(hcatHashFile),
                 wordlist=wordlist,
                 tuning=hcatTuning,
+                dir_separator=dir_separator,
                 hate_path=hate_path), shell=True)
         try:
             hcatProcess.wait()
@@ -509,8 +540,8 @@ def hcatYoloCombination(hcatHashType, hcatHashFile):
             hcatLeft = random.choice(os.listdir(hcatOptimizedWordlists))
             hcatRight = random.choice(os.listdir(hcatOptimizedWordlists))
             hcatProcess = subprocess.Popen(
-                "{hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out -a 1 {optimized_lists}/{left} "
-                "{optimized_lists}/{right} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+                "{hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out -a 1 {optimized_lists}{dir_separator}{left} "
+                "{optimized_lists}{dir_separator}{right} {tuning} --potfile-path={hate_path}{dir_separator}hashcat.pot".format(
                     hcatBin=hcatBin,
                     hash_type=hcatHashType,
                     hash_file=hcatHashFile,
@@ -520,6 +551,7 @@ def hcatYoloCombination(hcatHashType, hcatHashFile):
                     tuning=hcatTuning,
                     left=hcatLeft,
                     right=hcatRight,
+                    dir_separator=dir_separator,
                     hate_path=hate_path), shell=True)
             hcatProcess.wait()
     except KeyboardInterrupt:
@@ -537,16 +569,37 @@ def hcatMiddleCombinator(hcatHashType, hcatHashFile):
         if len(mask) > 1:
             for character in mask:
                 tmp.append(character)
-            new_masks.append('$' + '$'.join(tmp))
+            # Windows compatability
+            if sys.platform == 'win32':
+                if character == '\\':
+                    new_masks.append('"$\\' + '""$\\'.join(tmp) + '"')
+                elif character == '\"':
+                    new_masks.append('$\\' + '$\\'.join(tmp))
+                else:
+                    new_masks.append('$' + '$'.join(tmp))
+            else:
+                if character == '\'':
+                    new_masks.append('\'$\\' + '$\\'.join(tmp) + '\'')
+                else:
+                    new_masks.append('$' + '$'.join(tmp))
         else:
-            new_masks.append('$'+mask)
+            if sys.platform == 'win32':
+                if mask == '\\':
+                    new_masks.append('"$\\' + mask + '"')
+                else:
+                    new_masks.append('$' + mask)
+            else:
+                if mask == '\'':
+                    new_masks.append('\'$\\' + mask + '\'')
+                else:
+                    new_masks.append('$' + mask)
     masks = new_masks
 
     try:
         for x in range(len(masks)):
             hcatProcess = subprocess.Popen(
-                "{hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out -a 1 -j '${middle_mask}' {left} "
-                "{right} --potfile-path={hate_path}/hashcat.pot".format(
+                "{hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out -a 1 -j {quote}{middle_mask}{quote} {left} "
+                "{right} --potfile-path={hate_path}{dir_separator}hashcat.pot".format(
                     hcatBin=hcatBin,
                     hash_type=hcatHashType,
                     hash_file=hcatHashFile,
@@ -555,6 +608,8 @@ def hcatMiddleCombinator(hcatHashType, hcatHashFile):
                     right=hcatMiddleBaseList,
                     tuning=hcatTuning,
                     middle_mask=masks[x],
+                    dir_separator=dir_separator,
+                    quote=quote,
                     hate_path=hate_path),
                 shell=True)
             hcatProcess.wait()
@@ -573,15 +628,36 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
         if len(mask) > 1:
             for character in mask:
                 tmp.append(character)
-            new_masks.append('$' + '$'.join(tmp))
+            # Windows compatability
+            if sys.platform == 'win32':
+                if character == '\\':
+                    new_masks.append('"$\\' + '""$\\'.join(tmp) + '"')
+                elif character == '\"':
+                    new_masks.append('$\\' + '$\\'.join(tmp))
+                else:
+                    new_masks.append('$' + '$'.join(tmp))
+            else:
+                if character == '\'':
+                    new_masks.append('\'$\\' + '$\\'.join(tmp) + '\'')
+                else:
+                    new_masks.append('$' + '$'.join(tmp))
         else:
-            new_masks.append('$'+mask)
+            if sys.platform == 'win32':
+                if mask == '\\':
+                    new_masks.append('"$\\' + mask + '"')
+                else:
+                    new_masks.append('$' + mask)
+            else:
+                if mask == '\'':
+                    new_masks.append('\'$\\' + mask + '\'')
+                else:
+                    new_masks.append('$' + mask)
     masks = new_masks
 
     try:
         hcatProcess = subprocess.Popen(
             "{hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out -a 1 {left} "
-            "{right} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+            "{right} {tuning} --potfile-path={hate_path}{dir_separator}hashcat.pot".format(
                 hcatBin=hcatBin,
                 hash_type=hcatHashType,
                 hash_file=hcatHashFile,
@@ -590,6 +666,7 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
                 right=hcatThoroughBaseList,
                 word_lists=hcatWordlists,
                 tuning=hcatTuning,
+                dir_separator=dir_separator,
                 hate_path=hate_path),
             shell=True)
         hcatProcess.wait()
@@ -601,7 +678,7 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
         for x in range(len(masks)):
             hcatProcess = subprocess.Popen(
                 "{hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out -a 1 "
-                "-j '${middle_mask}' {left} {right} --potfile-path={hate_path}/hashcat.pot".format(
+                "-j {quote}{middle_mask}{quote} {left} {right} --potfile-path={hate_path}{dir_separator}hashcat.pot".format(
                     hcatBin=hcatBin,
                     hash_type=hcatHashType,
                     hash_file=hcatHashFile,
@@ -611,6 +688,8 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
                     word_lists=hcatWordlists,
                     tuning=hcatTuning,
                     middle_mask=masks[x],
+                    dir_separator=dir_separator,
+                    quote=quote,
                     hate_path=hate_path),
                     shell=True)
             hcatProcess.wait()
@@ -621,7 +700,7 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
         for x in range(len(masks)):
             hcatProcess = subprocess.Popen(
               "{hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out -a 1 "
-              "-k '${end_mask}' {left} {right} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+              "-k {quote}{end_mask}{quote} {left} {right} {tuning} --potfile-path={hate_path}{dir_separator}hashcat.pot".format(
                     hcatBin=hcatBin,
                     hash_type=hcatHashType,
                     hash_file=hcatHashFile,
@@ -631,6 +710,8 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
                     word_lists=hcatWordlists,
                     tuning=hcatTuning,
                     end_mask=masks[x],
+                    dir_separator=dir_separator,
+                    quote=quote,
                     hate_path=hate_path),
                     shell=True)
             hcatProcess.wait()
@@ -641,7 +722,7 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
         for x in range(len(masks)):
             hcatProcess = subprocess.Popen(
               "{hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out -a 1 "
-              "-j '${middle_mask}' -k '${end_mask}' {left} {right} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+              "-j {quote}{middle_mask}{quote} -k {quote}{end_mask}{quote} {left} {right} {tuning} --potfile-path={hate_path}{dir_separator}hashcat.pot".format(
                     hcatBin=hcatBin,
                     hash_type=hcatHashType,
                     hash_file=hcatHashFile,
@@ -652,6 +733,8 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
                     tuning=hcatTuning,
                     middle_mask=masks[x],
                     end_mask=masks[x],
+                    dir_separator=dir_separator,
+                    quote=quote,
                     hate_path=hate_path),
                     shell=True)
             hcatProcess.wait()
@@ -663,13 +746,14 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
 def hcatPathwellBruteForce(hcatHashType, hcatHashFile):
     global hcatProcess
     hcatProcess = subprocess.Popen(
-        "{hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out -a 3 {hate_path}/masks/pathwell.hcmask "
-        "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
+        "{hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out -a 3 {hate_path}{dir_separator}masks{dir_separator}pathwell.hcmask "
+        "{tuning} --potfile-path={hate_path}{dir_separator}hashcat.pot".format(
             hcatBin=hcatBin,
             hash_type=hcatHashType,
             hash_file=hcatHashFile,
             session_name=os.path.basename(hcatHashFile),
             tuning=hcatTuning,
+            dir_separator=dir_separator,
             hate_path=hate_path), shell=True)
     try:
         hcatProcess.wait()
@@ -683,9 +767,9 @@ def hcatPrince(hcatHashType, hcatHashFile):
     global hcatProcess
     hcatHashCracked = lineCount(hcatHashFile + ".out")
     hcatProcess = subprocess.Popen(
-        "{hate_path}/princeprocessor/{prince_bin} --case-permute --elem-cnt-min=1 --elem-cnt-max=16 -c < "
+        "{hate_path}{dir_separator}princeprocessor{dir_separator}{prince_bin} --case-permute --elem-cnt-min=1 --elem-cnt-max=16 -c < "
         "{hcatPrinceBaseList} | {hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out "
-        "-r {hate_path}/princeprocessor/rules/prince_optimized.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+        "-r {hate_path}{dir_separator}princeprocessor{dir_separator}rules{dir_separator}prince_optimized.rule {tuning} --potfile-path={hate_path}{dir_separator}hashcat.pot".format(
             hcatBin=hcatBin,
             prince_bin=hcatPrinceBin,
             hash_type=hcatHashType,
@@ -693,6 +777,7 @@ def hcatPrince(hcatHashType, hcatHashFile):
             session_name=os.path.basename(hcatHashFile),
             hcatPrinceBaseList=hcatPrinceBaseList,
             tuning=hcatTuning,
+            dir_separator=dir_separator,
             hate_path=hate_path), shell=True)
     try:
         hcatProcess.wait()
@@ -705,9 +790,9 @@ def hcatGoodMeasure(hcatHashType, hcatHashFile):
     global hcatExtraCount
     global hcatProcess
     hcatProcess = subprocess.Popen(
-        "{hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out -r {hcatPath}/rules/combinator.rule "
-        "-r {hcatPath}/rules/InsidePro-PasswordsPro.rule {hcatGoodMeasureBaseList} {tuning} "
-        "--potfile-path={hate_path}/hashcat.pot".format(
+        "{hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out -r {hcatPath}{dir_separator}rules{dir_separator}combinator.rule "
+        "-r {hcatPath}{dir_separator}rules{dir_separator}InsidePro-PasswordsPro.rule {hcatGoodMeasureBaseList} {tuning} "
+        "--potfile-path={hate_path}{dir_separator}hashcat.pot".format(
             hcatPath=hcatPath,
             hcatBin=hcatBin,
             hash_type=hcatHashType,
@@ -716,6 +801,7 @@ def hcatGoodMeasure(hcatHashType, hcatHashFile):
             session_name=os.path.basename(hcatHashFile),
             word_lists=hcatWordlists,
             tuning=hcatTuning,
+            dir_separator=dir_separator,
             hate_path=hate_path), shell=True)
     try:
         hcatProcess.wait()
@@ -730,9 +816,10 @@ def hcatGoodMeasure(hcatHashType, hcatHashFile):
 def hcatLMtoNT():
     global hcatProcess
     hcatProcess = subprocess.Popen(
-        "{hcatBin} --show --potfile-path={hate_path}/hashcat.pot -m 3000 {hash_file}.lm > {hash_file}.lm.cracked".format(
+        "{hcatBin} --show --potfile-path={hate_path}{dir_separator}hashcat.pot -m 3000 {hash_file}.lm > {hash_file}.lm.cracked".format(
             hcatBin=hcatBin,
             hash_file=hcatHashFile,
+            dir_separator=dir_separator,
             hate_path=hate_path), shell=True)
     try:
         hcatProcess.wait()
@@ -742,11 +829,12 @@ def hcatLMtoNT():
 
     hcatProcess = subprocess.Popen(
         "{hcatBin} -m 3000 {hash_file}.lm --session {session_name} -o {hash_file}.lm.cracked -1 ?u?d?s --increment -a 3 ?1?1?1?1?1?1?1 "
-        "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
+        "{tuning} --potfile-path={hate_path}{dir_separator}hashcat.pot".format(
             hcatBin=hcatBin,
             hash_file=hcatHashFile,
             session_name=os.path.basename(hcatHashFile),
             tuning=hcatTuning,
+            dir_separator=dir_separator,
             hate_path=hate_path), shell=True)
     try:
         hcatProcess.wait()
@@ -754,14 +842,15 @@ def hcatLMtoNT():
         hcatProcess.kill()
 
     hcatProcess = subprocess.Popen("cat {hash_file}.lm.cracked | cut -d : -f 2 > {hash_file}.working".format(
-        hash_file=hcatHashFile), shell=True).wait()
+            hash_file=hcatHashFile), shell=True).wait()
     hcatProcess = subprocess.Popen(
-        "{hate_path}/hashcat-utils/bin/{combine_bin} {hash_file}.working {hash_file}.working | sort -u > "
+        "{hate_path}{dir_separator}hashcat-utils{dir_separator}bin{dir_separator}{combine_bin} {hash_file}.working {hash_file}.working | sort -u > "
         "{hash_file}.combined".format(
             combine_bin=hcatCombinatorBin,
             hcatBin=hcatBin,
             hash_file=hcatHashFile,
             tuning=hcatTuning,
+            dir_separator=dir_separator,
             hate_path=hate_path), shell=True)
     try:
         hcatProcess.wait()
@@ -770,10 +859,11 @@ def hcatLMtoNT():
         hcatProcess.kill()
 
     hcatProcess = subprocess.Popen(
-        "{hcatBin} --show --potfile-path={hate_path}/hashcat.pot -m 1000 {hash_file}.nt > {hash_file}.nt.out".format(
+        "{hcatBin} --show --potfile-path={hate_path}{dir_separator}hashcat.pot -m 1000 {hash_file}.nt > {hash_file}.nt.out".format(
             hcatBin=hcatBin,
             hash_file=hcatHashFile,
             tuning=hcatTuning,
+            dir_separator=dir_separator,
             hate_path=hate_path), shell=True)
     try:
         hcatProcess.wait()
@@ -783,11 +873,12 @@ def hcatLMtoNT():
 
     hcatProcess = subprocess.Popen(
         "{hcatBin} -m 1000 {hash_file}.nt --session {session_name} -o {hash_file}.nt.out {hash_file}.combined "
-        "-r {hate_path}/rules/toggles-lm-ntlm.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+        "-r {hate_path}{dir_separator}rules{dir_separator}toggles-lm-ntlm.rule {tuning} --potfile-path={hate_path}{dir_separator}hashcat.pot".format(
             hcatBin=hcatBin,
             hash_file=hcatHashFile,
             session_name=os.path.basename(hcatHashFile),
             tuning=hcatTuning,
+            dir_separator=dir_separator,
             hate_path=hate_path), shell=True)
     try:
         hcatProcess.wait()
@@ -819,7 +910,7 @@ def hcatRecycle(hcatHashType, hcatHashFile, hcatNewPasswords):
         for rule in hcatRules:
             hcatProcess = subprocess.Popen(
                 "{hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out {hash_file}.working "
-                "-r {hcatPath}/rules/{rule} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+                "-r {hcatPath}{dir_separator}rules{dir_separator}{rule} {tuning} --potfile-path={hate_path}{dir_separator}hashcat.pot".format(
                     rule=rule,
                     hcatBin=hcatBin,
                     hash_type=hcatHashType,
@@ -827,6 +918,7 @@ def hcatRecycle(hcatHashType, hcatHashFile, hcatNewPasswords):
                     session_name=os.path.basename(hcatHashFile),
                     hcatPath=hcatPath,
                     tuning=hcatTuning,
+                    dir_separator=dir_separator,
                     hate_path=hate_path), shell=True)
             try:
                 hcatProcess.wait()
@@ -880,7 +972,7 @@ def quick_crack():
     while wordlist_choice is None:
         raw_choice = input("\nEnter path of wordlist or wordlist directory.\n"
                            "Press Enter for default optimized wordlists [{0}]:".format(hcatOptimizedWordlists))
-        if raw_choice is '':
+        if raw_choice == '':
             wordlist_choice = hcatOptimizedWordlists
         else:
             if os.path.exists(raw_choice):
@@ -898,12 +990,15 @@ def quick_crack():
         raw_choice = input('Enter Comma separated list of rules you would like to run. To run rules chained use the + symbol.\n'
                             'For example 1+1 will run {0} chained twice and 1,2 would run {0} and then {1} sequentially.\n'
                             'Choose wisely: '.format(hcatRules[0], hcatRules[1]))
-        if raw_choice is not '':
+        if raw_choice != '':
             rule_choice = raw_choice.split(',')
 
     if '99' in rule_choice:
         for rule in hcatRules:
-            selected_hcatRules.append('-r {hcatPath}/rules/{selected_rule}'.format(selected_rule=rule, hcatPath=hcatPath))
+            selected_hcatRules.append('-r {hcatPath}{dir_separator}rules{dir_separator}{selected_rule}'.format(
+                selected_rule=rule,
+                hcatPath=hcatPath,
+                dir_separator=dir_separator))
     elif '0' in rule_choice:
         selected_hcatRules = ['']
     else:
@@ -913,14 +1008,19 @@ def quick_crack():
                 choices = choice.split('+')
                 for rule in choices:
                     try:
-                        combined_choice = '{0} {1}'.format(combined_choice, '-r {hcatPath}/rules/{selected_rule}'.format(selected_rule=hcatRules[int(rule) - 1],
-                                                                                                                         hcatPath=hcatPath))
+                        combined_choice = '{0} {1}'.format(combined_choice, '-r {hcatPath}{dir_separator}rules{dir_separator}{selected_rule}'.format(
+                            selected_rule=hcatRules[int(rule) - 1],
+                            dir_separator=dir_separator,
+                            hcatPath=hcatPath))
                     except:
                         continue
                 selected_hcatRules.append(combined_choice)
             else:
                 try:
-                    selected_hcatRules.append('-r {hcatPath}/rules/{selected_rule}'.format(selected_rule=hcatRules[int(choice) - 1],hcatPath=hcatPath))
+                    selected_hcatRules.append('-r {hcatPath}{dir_separator}rules{dir_separator}{selected_rule}'.format(
+                        selected_rule=hcatRules[int(choice) - 1],
+                        hcatPath=hcatPath,
+                        dir_separator=dir_separator))
                 except IndexError:
                     continue
 
@@ -1036,7 +1136,7 @@ def convert_hex(working_file):
             match = re.search(regex, line.rstrip('\n'))
             if match:
                 try:
-                    processed_words.append(binascii.unhexlify(match.group(1)).decode('iso-8859-9'))
+                    processed_words.append(binascii.unhexlify(match.group(1)).decode('utf-8'))
                 except UnicodeDecodeError:
                     pass
             else:
@@ -1047,7 +1147,7 @@ def convert_hex(working_file):
 # Display Cracked Hashes
 def show_results():
     if os.path.isfile(hcatHashFile + ".out"):
-        with open(hcatHashFile + ".out") as hcatOutput:
+        with codecs.open(hcatHashFile + ".out", encoding='utf-8') as hcatOutput:
             for cracked_hash in hcatOutput:
                 print(cracked_hash.strip())
     else:
@@ -1069,7 +1169,7 @@ def pipal():
                     clearTextPass = password[-1]
                     match = re.search(r'^\$HEX\[(\S+)\]', clearTextPass)
                     if match:
-                        clearTextPass = binascii.unhexlify(match.group(1)).decode('iso-8859-9')
+                        clearTextPass = binascii.unhexlify(match.group(1)).decode('utf-8')
                     pipalFile.write(clearTextPass)
                 pipalFile.close()
 
@@ -1094,7 +1194,7 @@ def pipal():
 
 # Exports output to excel file
 def export_excel():
-
+    
     # Check for openyxl dependancy for export
     try:
         import openpyxl
@@ -1112,7 +1212,7 @@ def export_excel():
         current_ws['C1'] = 'LM Hash'
         current_ws['D1'] = 'NTLM Hash'
         current_ws['E1'] = 'Clear-Text Password'
-        with open(hcatHashFileOrig+'.out') as input_file:
+        with codecs.open(hcatHashFileOrig+'.out', encoding='utf-8') as input_file:
             for line in input_file:
                 matches = re.match(r'(^[^:]+):([0-9]+):([a-z0-9A-Z]{32}):([a-z0-9A-Z]{32}):::(.*)',line.rstrip('\r\n'))
                 username = matches.group(1)
@@ -1123,7 +1223,7 @@ def export_excel():
                     clear_text = matches.group(5)
                     match = re.search(r'^\$HEX\[(\S+)\]', clear_text)
                     if match:
-                        clear_text = binascii.unhexlify(match.group(1)).decode('iso-8859-9')
+                        clear_text = binascii.unhexlify(match.group(1)).decode('utf-8')
                 except:
                     clear_text = ''
                 current_ws['A' + str(current_row)] = username
@@ -1141,7 +1241,7 @@ def export_excel():
 
 # Show README
 def show_readme():
-    with open(hate_path + "/readme.md") as hcatReadme:
+    with open(hate_path + dir_separator + "readme.md") as hcatReadme:
         print(hcatReadme.read())
 
 
@@ -1181,11 +1281,11 @@ def main():
             print("PWDUMP format detected...")
             print("Parsing NT hashes...")
             subprocess.Popen(
-                "cat {hash_file} | cut -d : -f 4 |sort -u > {hash_file}.nt".format(hash_file=hcatHashFile),
-                             shell=True).wait()
+                "cat {hash_file} | cut -d : -f 4 | sort -u > {hash_file}.nt".format(hash_file=hcatHashFile),
+                    shell=True).wait()
             print("Parsing LM hashes...")
-            subprocess.Popen("cat {hash_file} | cut -d : -f 3 |sort -u > {hash_file}.lm".format(hash_file=hcatHashFile),
-                             shell=True).wait()
+            subprocess.Popen("cat {hash_file} | cut -d : -f 3 | sort -u > {hash_file}.lm".format(hash_file=hcatHashFile),
+                    shell=True).wait()
             if ((lineCount(hcatHashFile + ".lm") == 1) and (
                         hcatHashFileLine.split(":")[2].lower() != "aad3b435b51404eeaad3b435b51404ee")) or (
                         lineCount(hcatHashFile + ".lm") > 1):
@@ -1202,10 +1302,11 @@ def main():
         hcatOutput.close()
         print("Checking POT file for already cracked hashes...")
         subprocess.Popen(
-            "{hcatBin} --show --potfile-path={hate_path}/hashcat.pot -m {hash_type} {hash_file} > {hash_file}.out".format(
+            "{hcatBin} --show --potfile-path={hate_path}{dir_separator}hashcat.pot -m {hash_type} {hash_file} > {hash_file}.out".format(
                 hcatBin=hcatBin,
                 hash_type=hcatHashType,
                 hash_file=hcatHashFile,
+                dir_separator=dir_separator,
                 hate_path=hate_path), shell=True).wait()
         hcatHashCracked = lineCount(hcatHashFile + ".out")
         if hcatHashCracked > 0:
