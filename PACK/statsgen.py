@@ -75,13 +75,13 @@ class StatsGen:
                 advancedmask_string += "?d"
                 if not simplemask or not simplemask[-1] == 'digit': simplemask.append('digit')
 
-            elif letter in string.lowercase:
+            elif letter in string.ascii_lowercase:
                 lower += 1
                 advancedmask_string += "?l"
                 if not simplemask or not simplemask[-1] == 'string': simplemask.append('string')
 
 
-            elif letter in string.uppercase:
+            elif letter in string.ascii_uppercase:
                 upper += 1
                 advancedmask_string += "?u"
                 if not simplemask or not simplemask[-1] == 'string': simplemask.append('string')
@@ -199,14 +199,14 @@ class StatsGen:
         "    NOTE: Statistics below is relative to the number of analyzed passwords, not total number of passwords"
         print
         "\n[*] Length:"
-        for (length, count) in sorted(self.stats_length.iteritems(), key=operator.itemgetter(1), reverse=True):
+        for (length, count) in sorted(self.stats_length.items(), key=operator.itemgetter(1), reverse=True):
             if self.hiderare and not count * 100 / self.filter_counter > 0: continue
             print
             "[+] %25d: %02d%% (%d)" % (length, count * 100 / self.filter_counter, count)
 
         print
         "\n[*] Character-set:"
-        for (char, count) in sorted(self.stats_charactersets.iteritems(), key=operator.itemgetter(1), reverse=True):
+        for (char, count) in sorted(self.stats_charactersets.items(), key=operator.itemgetter(1), reverse=True):
             if self.hiderare and not count * 100 / self.filter_counter > 0: continue
             print
             "[+] %25s: %02d%% (%d)" % (char, count * 100 / self.filter_counter, count)
@@ -224,14 +224,14 @@ class StatsGen:
 
         print
         "\n[*] Simple Masks:"
-        for (simplemask, count) in sorted(self.stats_simplemasks.iteritems(), key=operator.itemgetter(1), reverse=True):
+        for (simplemask, count) in sorted(self.stats_simplemasks.items(), key=operator.itemgetter(1), reverse=True):
             if self.hiderare and not count * 100 / self.filter_counter > 0: continue
             print
             "[+] %25s: %02d%% (%d)" % (simplemask, count * 100 / self.filter_counter, count)
 
         print
         "\n[*] Advanced Masks:"
-        for (advancedmask, count) in sorted(self.stats_advancedmasks.iteritems(), key=operator.itemgetter(1),
+        for (advancedmask, count) in sorted(self.stats_advancedmasks.items(), key=operator.itemgetter(1),
                                             reverse=True):
             if count * 100 / self.filter_counter > 0:
                 print
