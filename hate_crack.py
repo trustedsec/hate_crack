@@ -558,7 +558,7 @@ def hcatBandrel(hcatHashType, hcatHashFile):
     for word in bandrelbasewords.split(','):
         basewords.append(word)
     for name in basewords:
-        mask1 = '-1={0}{1}'.format(name[0].lower(),name[0].upper())
+        mask1 = '-1{0}{1}'.format(name[0].lower(),name[0].upper())
         mask2 = ' ?1{0}'.format(name[1:])
         for x in range(6):
             mask2 += '?a'
@@ -833,9 +833,11 @@ def hcatLMtoNT():
 
     hcatProcess = subprocess.Popen("cat {hash_file}.lm.cracked | cut -d : -f 2 > {hash_file}.working".format(
         hash_file=hcatHashFile), shell=True).wait()
+    converted = convert_hex("{hash_file}.working".format(hash_file=hcatHashFile))
+    with open("{hash_file}.working".format(hash_file=hcatHashFile),mode='w') as working:
+        working.writelines(converted)
     hcatProcess = subprocess.Popen(
-        "{hate_path}/hashcat-utils/bin/{combine_bin} {hash_file}.working {hash_file}.working | sort -u > "
-        "{hash_file}.combined".format(
+        "{hate_path}/hashcat-utils/bin/{combine_bin} {hash_file}.working {hash_file}.working | sort -u > {hash_file}.combined".format(
             combine_bin=hcatCombinatorBin,
             hcatBin=hcatBin,
             hash_file=hcatHashFile,
