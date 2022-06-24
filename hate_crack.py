@@ -880,7 +880,7 @@ def quick_crack():
     while wordlist_choice is None:
         raw_choice = input("\nEnter path of wordlist or wordlist directory.\n"
                            "Press Enter for default optimized wordlists [{0}]:".format(hcatOptimizedWordlists))
-        if raw_choice is '':
+        if raw_choice == '':
             wordlist_choice = hcatOptimizedWordlists
         else:
             if os.path.exists(raw_choice):
@@ -898,7 +898,7 @@ def quick_crack():
         raw_choice = input('Enter Comma separated list of rules you would like to run. To run rules chained use the + symbol.\n'
                             'For example 1+1 will run {0} chained twice and 1,2 would run {0} and then {1} sequentially.\n'
                             'Choose wisely: '.format(hcatRules[0], hcatRules[1]))
-        if raw_choice is not '':
+        if raw_choice != '':
             rule_choice = raw_choice.split(',')
 
     if '99' in rule_choice:
