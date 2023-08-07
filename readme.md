@@ -72,6 +72,7 @@ $ ./hate_crack.py <hash file> 1000
 	(10) YOLO Combinator Attack
 	(11) Middle Combinator Attack
 	(12) Thorough Combinator Attack
+	(13) Bandrel Methodology
 
     (95) Analyze hashes with Pipal 
 	(96) Export Output to Excel Format
