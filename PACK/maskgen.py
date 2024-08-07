@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 # MaskGen - Generate Password Masks
 #
 # This tool is part of PACK (Password Analysis and Cracking Kit)
@@ -36,6 +36,11 @@ class MaskGen:
         self.minoccurrence = None
         self.maxoccurrence = None
 
+        self.customcharset1len = None
+        self.customcharset2len = None
+        self.customcharset3len = None
+        self.customcharset4len = None
+
         # PPS (Passwords per Second) Cracking Speed
         self.pps = 1000000000
         self.showmasks = False
@@ -57,42 +62,60 @@ class MaskGen:
                 count *= 33
             elif char == "a":
                 count *= 95
+            elif char == "b":
+                count *= 256
+            elif char == "h":
+                count *= 16
+            elif char == "H":
+                count *= 16
+            elif char == "1" and self.customcharset1len:
+                count *= self.customcharset1len
+            elif char == "2" and self.customcharset2len:
+                count *= self.customcharset2len
+            elif char == "3" and self.customcharset3len:
+                count *= self.customcharset3len
+            elif char == "4" and self.customcharset4len:
+                count *= self.customcharset4len
             else:
-                print
-            "[!] Error, unknown mask ?%s in a mask %s" % (char, mask)
+                print("[!] Error, unknown mask ?%s in a mask %s" %
+                      (char, mask))
 
         return count
 
     def loadmasks(self, filename):
         """ Load masks and apply filters. """
-        maskReader = csv.reader(open(args[0], 'r'), delimiter=',', quotechar='"')
+        maskReader = csv.reader(
+            open(args[0], 'r'), delimiter=',', quotechar='"')
 
         for (mask, occurrence) in maskReader:
 
-            if mask == "": continue
+            if mask == "":
+                continue
 
             mask_occurrence = int(occurrence)
-            mask_length = len(mask) / 2
+            mask_length = len(mask)/2
             mask_complexity = self.getcomplexity(mask)
-            mask_time = mask_complexity / self.pps
+            mask_time = mask_complexity/self.pps
 
             self.total_occurrence += mask_occurrence
 
             # Apply filters based on occurrence, length, complexity and time
             if (self.minoccurrence == None or mask_occurrence >= self.minoccurrence) and \
-                    (self.maxoccurrence == None or mask_occurrence <= self.maxoccurrence) and \
-                    (self.mincomplexity == None or mask_complexity <= self.mincomplexity) and \
-                    (self.maxcomplexity == None or mask_complexity <= self.maxcomplexity) and \
-                    (self.mintime == None or mask_time <= self.mintime) and \
-                    (self.maxtime == None or mask_time <= self.maxtime) and \
-                    (self.maxlength == None or mask_length <= self.maxlength) and \
-                    (self.minlength == None or mask_length >= self.minlength):
+               (self.maxoccurrence == None or mask_occurrence <= self.maxoccurrence) and \
+               (self.mincomplexity == None or mask_complexity >= self.mincomplexity) and \
+               (self.maxcomplexity == None or mask_complexity <= self.maxcomplexity) and \
+               (self.mintime == None or mask_time >= self.mintime) and \
+               (self.maxtime == None or mask_time <= self.maxtime) and \
+               (self.maxlength == None or mask_length <= self.maxlength) and \
+               (self.minlength == None or mask_length >= self.minlength):
+
                 self.masks[mask] = dict()
                 self.masks[mask]['length'] = mask_length
                 self.masks[mask]['occurrence'] = mask_occurrence
                 self.masks[mask]['complexity'] = 1 - mask_complexity
                 self.masks[mask]['time'] = mask_time
-                self.masks[mask]['optindex'] = 1 - mask_complexity / mask_occurrence
+                self.masks[mask]['optindex'] = 1 - \
+                    mask_complexity/mask_occurrence
 
     def generate_masks(self, sorting_mode):
         """ Generate optimal password masks sorted by occurrence, complexity or optindex """
@@ -104,16 +127,15 @@ class MaskGen:
         #      Group by length   1,2,3,4,5,6,7,8,9,10....
         #      Group by occurrence 10%, 20%, 30%, 40%, 50%....
 
-        if self.showmasks: print
-        "[L:] Mask:                          [ Occ:  ] [ Time:  ]"
-        for mask in sorted(self.masks.keys(), key=lambda mask: self.masks[mask][sorting_mode], reverse=True):
+        if self.showmasks:
+            print("[L:] Mask:                          [ Occ:  ] [ Time:  ]")
+        for mask in sorted(list(self.masks.keys()), key=lambda mask: self.masks[mask][sorting_mode], reverse=True):
 
             if self.showmasks:
-                time_human = ">1 year" if self.masks[mask]['time'] > 60 * 60 * 24 * 365 else str(
+                time_human = ">1 year" if self.masks[mask]['time'] > 60*60*24*365 else str(
                     datetime.timedelta(seconds=self.masks[mask]['time']))
-                print
-                "[{:>2}] {:<30} [{:<7}] [{:>8}]  ".format(self.masks[mask]['length'], mask,
-                                                          self.masks[mask]['occurrence'], time_human)
+                print("[{:>2}] {:<30} [{:<7}] [{:>8}]  ".format(
+                    self.masks[mask]['length'], mask, self.masks[mask]['occurrence'], time_human))
 
             if self.output_file:
                 self.output_file.write("%s\n" % mask)
@@ -123,20 +145,16 @@ class MaskGen:
             sample_count += 1
 
             if self.target_time and sample_time > self.target_time:
-                print
-                "[!] Target time exceeded."
+                print("[!] Target time exceeded.")
                 break
 
-        print
-        "[*] Finished generating masks:"
-        print
-        "    Masks generated: %s" % sample_count
-        print
-        "    Masks coverage:  %d%% (%d/%d)" % (
-            sample_occurrence * 100 / self.total_occurrence, sample_occurrence, self.total_occurrence)
-        time_human = ">1 year" if sample_time > 60 * 60 * 24 * 365 else str(datetime.timedelta(seconds=sample_time))
-        print
-        "    Masks runtime:   %s" % time_human
+        print("[*] Finished generating masks:")
+        print("    Masks generated: %s" % sample_count)
+        print("    Masks coverage:  %d%% (%d/%d)" % (sample_occurrence*100 /
+              self.total_occurrence, sample_occurrence, self.total_occurrence))
+        time_human = ">1 year" if sample_time > 60*60*24 * \
+            365 else str(datetime.timedelta(seconds=sample_time))
+        print("    Masks runtime:   %s" % time_human)
 
     def getmaskscoverage(self, checkmasks):
 
@@ -145,8 +163,8 @@ class MaskGen:
 
         total_complexity = 0
 
-        if self.showmasks: print
-        "[L:] Mask:                          [ Occ:  ] [ Time:  ]"
+        if self.showmasks:
+            print("[L:] Mask:                          [ Occ:  ] [ Time:  ]")
         for mask in checkmasks:
             mask = mask.strip()
             mask_complexity = self.getcomplexity(mask)
@@ -156,11 +174,10 @@ class MaskGen:
             if mask in self.masks:
 
                 if self.showmasks:
-                    time_human = ">1 year" if self.masks[mask]['time'] > 60 * 60 * 24 * 365 else str(
+                    time_human = ">1 year" if self.masks[mask]['time'] > 60*60*24*365 else str(
                         datetime.timedelta(seconds=self.masks[mask]['time']))
-                    print
-                    "[{:>2}] {:<30} [{:<7}] [{:>8}]  ".format(self.masks[mask]['length'], mask,
-                                                              self.masks[mask]['occurrence'], time_human)
+                    print("[{:>2}] {:<30} [{:<7}] [{:>8}]  ".format(
+                        self.masks[mask]['length'], mask, self.masks[mask]['occurrence'], time_human))
 
                 if self.output_file:
                     self.output_file.write("%s\n" % mask)
@@ -168,23 +185,19 @@ class MaskGen:
                 sample_occurrence += self.masks[mask]['occurrence']
                 sample_count += 1
 
-            if self.target_time and total_complexity / self.pps > self.target_time:
-                print
-                "[!] Target time exceeded."
+            if self.target_time and total_complexity/self.pps > self.target_time:
+                print("[!] Target time exceeded.")
                 break
 
         # TODO: Something wrong here, complexity and time doesn't match with estimated from policygen
-        total_time = total_complexity / self.pps
-        time_human = ">1 year" if total_time > 60 * 60 * 24 * 365 else str(datetime.timedelta(seconds=total_time))
-        print
-        "[*] Finished matching masks:"
-        print
-        "    Masks matched: %s" % sample_count
-        print
-        "    Masks coverage:  %d%% (%d/%d)" % (
-            sample_occurrence * 100 / self.total_occurrence, sample_occurrence, self.total_occurrence)
-        print
-        "    Masks runtime:   %s" % time_human
+        total_time = total_complexity/self.pps
+        time_human = ">1 year" if total_time > 60*60*24 * \
+            365 else str(datetime.timedelta(seconds=total_time))
+        print("[*] Finished matching masks:")
+        print("    Masks matched: %s" % sample_count)
+        print("    Masks coverage:  %d%% (%d/%d)" % (sample_occurrence*100 /
+              self.total_occurrence, sample_occurrence, self.total_occurrence))
+        print("    Masks runtime:   %s" % time_human)
 
 
 if __name__ == "__main__":
@@ -199,85 +212,127 @@ if __name__ == "__main__":
     header += "     |_| iphelix@thesprawl.org\n"
     header += "\n"
 
-    parser = OptionParser("%prog pass0.masks [pass1.masks ...] [options]", version="%prog " + VERSION)
+    parser = OptionParser(
+        "%prog pass0.masks [pass1.masks ...] [options]", version="%prog "+VERSION)
 
-    parser.add_option("-t", "--targettime", dest="target_time", type="int", metavar="86400",
-                      help="Target time of all masks (seconds)")
-    parser.add_option("-o", "--outputmasks", dest="output_masks", metavar="masks.hcmask", help="Save masks to a file")
+    parser.add_option("-t", "--targettime",  dest="target_time",  type="int",
+                      metavar="86400", help="Target time of all masks (seconds)")
+    parser.add_option("-o", "--outputmasks", dest="output_masks",
+                      metavar="masks.hcmask",     help="Save masks to a file")
 
     filters = OptionGroup(parser, "Individual Mask Filter Options")
-    filters.add_option("--minlength", dest="minlength", type="int", metavar="8", help="Minimum password length")
-    filters.add_option("--maxlength", dest="maxlength", type="int", metavar="8", help="Maximum password length")
-    filters.add_option("--mintime", dest="mintime", type="int", metavar="3600", help="Minimum mask runtime (seconds)")
-    filters.add_option("--maxtime", dest="maxtime", type="int", metavar="3600", help="Maximum mask runtime (seconds)")
-    filters.add_option("--mincomplexity", dest="mincomplexity", type="int", metavar="1", help="Minimum complexity")
-    filters.add_option("--maxcomplexity", dest="maxcomplexity", type="int", metavar="100", help="Maximum complexity")
-    filters.add_option("--minoccurrence", dest="minoccurrence", type="int", metavar="1", help="Minimum occurrence")
-    filters.add_option("--maxoccurrence", dest="maxoccurrence", type="int", metavar="100", help="Maximum occurrence")
+    filters.add_option("--minlength",     dest="minlength",
+                       type="int", metavar="8",    help="Minimum password length")
+    filters.add_option("--maxlength",     dest="maxlength",
+                       type="int", metavar="8",    help="Maximum password length")
+    filters.add_option("--mintime",       dest="mintime",       type="int",
+                       metavar="3600", help="Minimum mask runtime (seconds)")
+    filters.add_option("--maxtime",       dest="maxtime",       type="int",
+                       metavar="3600", help="Maximum mask runtime (seconds)")
+    filters.add_option("--mincomplexity", dest="mincomplexity",
+                       type="int", metavar="1",    help="Minimum complexity")
+    filters.add_option("--maxcomplexity", dest="maxcomplexity",
+                       type="int", metavar="100",  help="Maximum complexity")
+    filters.add_option("--minoccurrence", dest="minoccurrence",
+                       type="int", metavar="1",    help="Minimum occurrence")
+    filters.add_option("--maxoccurrence", dest="maxoccurrence",
+                       type="int", metavar="100",  help="Maximum occurrence")
     parser.add_option_group(filters)
 
     sorting = OptionGroup(parser, "Mask Sorting Options")
-    sorting.add_option("--optindex", action="store_true", dest="optindex", help="sort by mask optindex (default)",
-                       default=False)
-    sorting.add_option("--occurrence", action="store_true", dest="occurrence", help="sort by mask occurrence",
-                       default=False)
-    sorting.add_option("--complexity", action="store_true", dest="complexity", help="sort by mask complexity",
-                       default=False)
+    sorting.add_option("--optindex",   action="store_true", dest="optindex",
+                       help="sort by mask optindex (default)", default=False)
+    sorting.add_option("--occurrence", action="store_true", dest="occurrence",
+                       help="sort by mask occurrence",         default=False)
+    sorting.add_option("--complexity", action="store_true", dest="complexity",
+                       help="sort by mask complexity",         default=False)
     parser.add_option_group(sorting)
 
     coverage = OptionGroup(parser, "Check mask coverage")
-    coverage.add_option("--checkmasks", dest="checkmasks", help="check mask coverage",
-                        metavar="?u?l?l?l?l?l?d,?l?l?l?l?l?d?d")
-    coverage.add_option("--checkmasksfile", dest="checkmasks_file", help="check mask coverage in a file",
-                        metavar="masks.hcmask")
+    coverage.add_option("--checkmasks", dest="checkmasks",
+                        help="check mask coverage", metavar="?u?l?l?l?l?l?d,?l?l?l?l?l?d?d")
+    coverage.add_option("--checkmasksfile", dest="checkmasks_file",
+                        help="check mask coverage in a file", metavar="masks.hcmask")
     parser.add_option_group(coverage)
 
-    parser.add_option("--showmasks", dest="showmasks", help="Show matching masks", action="store_true", default=False)
+    parser.add_option("--showmasks", dest="showmasks",
+                      help="Show matching masks", action="store_true", default=False)
+
+    custom = OptionGroup(parser, "Custom charater set options")
+    custom.add_option("--custom-charset1-len", dest="customcharset1len",
+                      type="int", metavar="26",  help="Length of cutom character set 1")
+    custom.add_option("--custom-charset2-len", dest="customcharset2len",
+                      type="int", metavar="26",  help="Length of cutom character set 2")
+    custom.add_option("--custom-charset3-len", dest="customcharset3len",
+                      type="int", metavar="26",  help="Length of cutom character set 3")
+    custom.add_option("--custom-charset4-len", dest="customcharset4len",
+                      type="int", metavar="26",  help="Length of cutom character set 4")
+    parser.add_option_group(custom)
 
     misc = OptionGroup(parser, "Miscellaneous options")
-    misc.add_option("--pps", dest="pps", help="Passwords per Second", type="int", metavar="1000000000")
-    misc.add_option("-q", "--quiet", action="store_true", dest="quiet", default=False, help="Don't show headers.")
+    misc.add_option("--pps", dest="pps", help="Passwords per Second",
+                    type="int", metavar="1000000000")
+    misc.add_option("-q", "--quiet", action="store_true",
+                    dest="quiet", default=False, help="Don't show headers.")
     parser.add_option_group(misc)
 
     (options, args) = parser.parse_args()
 
     # Print program header
     if not options.quiet:
-        print
-        header
+        print(header)
 
     if len(args) < 1:
-        parser.error("no masks file specified! Please provide statsgen output.")
+        parser.error(
+            "no masks file specified! Please provide statsgen output.")
         exit(1)
 
-    print
-    "[*] Analyzing masks in [%s]" % args[0]
+    print("[*] Analyzing masks in [%s]" % args[0])
 
     maskgen = MaskGen()
 
     # Settings
-    if options.target_time: maskgen.target_time = options.target_time
+    if options.target_time:
+        maskgen.target_time = options.target_time
     if options.output_masks:
-        print
-        "[*] Saving generated masks to [%s]" % options.output_masks
+        print("[*] Saving generated masks to [%s]" % options.output_masks)
         maskgen.output_file = open(options.output_masks, 'w')
 
     # Filters
-    if options.minlength:     maskgen.minlength = options.minlength
-    if options.maxlength:     maskgen.maxlength = options.maxlength
-    if options.mintime:       maskgen.mintime = options.mintime
-    if options.maxtime:       maskgen.maxtime = options.maxtime
-    if options.mincomplexity: maskgen.mincomplexity = options.mincomplexity
-    if options.maxcomplexity: maskgen.maxcomplexity = options.maxcomplexity
-    if options.minoccurrence: maskgen.minoccurrence = options.minoccurrence
-    if options.maxoccurrence: maskgen.maxoccurrence = options.maxoccurrence
+    if options.minlength:
+        maskgen.minlength = options.minlength
+    if options.maxlength:
+        maskgen.maxlength = options.maxlength
+    if options.mintime:
+        maskgen.mintime = options.mintime
+    if options.maxtime:
+        maskgen.maxtime = options.maxtime
+    if options.mincomplexity:
+        maskgen.mincomplexity = options.mincomplexity
+    if options.maxcomplexity:
+        maskgen.maxcomplexity = options.maxcomplexity
+    if options.minoccurrence:
+        maskgen.minoccurrence = options.minoccurrence
+    if options.maxoccurrence:
+        maskgen.maxoccurrence = options.maxoccurrence
+
+    # Custom
+    if options.customcharset1len:
+        maskgen.customcharset1len = options.customcharset1len
+    if options.customcharset2len:
+        maskgen.customcharset2len = options.customcharset2len
+    if options.customcharset3len:
+        maskgen.customcharset3len = options.customcharset3len
+    if options.customcharset4len:
+        maskgen.customcharset4len = options.customcharset4len
 
     # Misc
-    if options.pps: maskgen.pps = options.pps
-    if options.showmasks: maskgen.showmasks = options.showmasks
+    if options.pps:
+        maskgen.pps = options.pps
+    if options.showmasks:
+        maskgen.showmasks = options.showmasks
 
-    print
-    "[*] Using {:,d} keys/sec for calculations.".format(maskgen.pps)
+    print("[*] Using {:,d} keys/sec for calculations.".format(maskgen.pps))
 
     # Load masks
     for arg in args:
@@ -286,15 +341,15 @@ if __name__ == "__main__":
     # Matching masks from the command-line
     if options.checkmasks:
         checkmasks = [m.strip() for m in options.checkmasks.split(',')]
-        print
-        "[*] Checking coverage of the these masks [%s]" % ", ".join(checkmasks)
+        print("[*] Checking coverage of the these masks [%s]" %
+              ", ".join(checkmasks))
         maskgen.getmaskscoverage(checkmasks)
 
     # Matching masks from a file
     elif options.checkmasks_file:
         checkmasks_file = open(options.checkmasks_file, 'r')
-        print
-        "[*] Checking coverage of masks in [%s]" % options.checkmasks_file
+        print("[*] Checking coverage of masks in [%s]" %
+              options.checkmasks_file)
         maskgen.getmaskscoverage(checkmasks_file)
 
     # Printing masks in a file
@@ -307,6 +362,5 @@ if __name__ == "__main__":
         else:
             sorting_mode = "optindex"
 
-        print
-        "[*] Sorting masks by their [%s]." % sorting_mode
+        print("[*] Sorting masks by their [%s]." % sorting_mode)
         maskgen.generate_masks(sorting_mode)
