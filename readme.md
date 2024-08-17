@@ -10,10 +10,8 @@
 ## Installation
 Get the latest hashcat binaries (https://hashcat.net/hashcat/)
 
-OSX Install (https://www.phillips321.co.uk/2016/07/09/hashcat-on-os-x-getting-it-going/)
-```git clone https://github.com/hashcat/hashcat.git
-mkdir -p hashcat/deps
-git clone https://github.com/KhronosGroup/OpenCL-Headers.git hashcat/deps/OpenCL
+```
+git clone https://github.com/hashcat/hashcat.git
 cd hashcat/
 make
 make install
