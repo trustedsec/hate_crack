@@ -977,14 +977,29 @@ def quick_crack():
     wordlist_choice = None
     rule_choice = None
     selected_hcatRules = []
+
+    wordlist_files =  sorted(os.listdir(hcatWordlists))
+    print("\nWordlists:")
+    for i, file in enumerate(wordlist_files, start=1):
+        print(f"{i}. {file}")
+
     while wordlist_choice is None:
-        raw_choice = input("\nEnter path of wordlist or wordlist directory.\n"
-                           "Press Enter for default optimized wordlists [{0}]:".format(hcatOptimizedWordlists))
-        if raw_choice == '':
-            wordlist_choice = hcatOptimizedWordlists
-        else:
-            if os.path.exists(raw_choice):
+        try:
+            raw_choice = input("\nEnter path of wordlist or wordlist directory.\n"
+                            "Press Enter for default optimized wordlists [{0}]: ".format(hcatOptimizedWordlists))
+            if raw_choice == '':
+                wordlist_choice = hcatOptimizedWordlists
+            elif os.path.exists(raw_choice):
                 wordlist_choice = raw_choice
+            elif 1 <= int(raw_choice) <= len(wordlist_files):
+                if os.path.exists(hcatWordlists + '/' + wordlist_files[int(raw_choice) - 1]):
+                    wordlist_choice = hcatWordlists + '/' + wordlist_files[int(raw_choice) - 1]
+                    print(wordlist_choice)
+            else:
+                wordlist_choice = None
+                print('Please enter a valid wordlist or wordlist directory.')
+        except ValueError:
+            print("Please enter a valid number.")
 
     print("\nWhich rule(s) would you like to run?")
     rule_number = 1
