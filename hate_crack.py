@@ -1001,23 +1001,22 @@ def quick_crack():
         except ValueError:
             print("Please enter a valid number.")
 
+    rule_files =  sorted(os.listdir(hcatPath + '/rules'))
     print("\nWhich rule(s) would you like to run?")
-    rule_number = 1
-    print('(0) To run without any rules')
-    for rule in hcatRules:
-        print('({0}) {1}'.format(rule_number, rule))
-        rule_number += 1
-    print('(99) YOLO...run all of the rules')
+    print('0. To run without any rules')
+    for i, file in enumerate(rule_files, start=1):
+        print(f"{i}. {file}")
+    print('99. YOLO...run all of the rules')
 
     while rule_choice is None:
         raw_choice = input('Enter Comma separated list of rules you would like to run. To run rules chained use the + symbol.\n'
                             'For example 1+1 will run {0} chained twice and 1,2 would run {0} and then {1} sequentially.\n'
-                            'Choose wisely: '.format(hcatRules[0], hcatRules[1]))
+                            'Choose wisely: '.format(rule_files[0], rule_files[1]))
         if raw_choice != '':
             rule_choice = raw_choice.split(',')
 
     if '99' in rule_choice:
-        for rule in hcatRules:
+        for rule in rule_files:
             selected_hcatRules.append('-r {hcatPath}/rules/{selected_rule}'.format(selected_rule=rule, hcatPath=hcatPath))
     elif '0' in rule_choice:
         selected_hcatRules = ['']
@@ -1028,14 +1027,14 @@ def quick_crack():
                 choices = choice.split('+')
                 for rule in choices:
                     try:
-                        combined_choice = '{0} {1}'.format(combined_choice, '-r {hcatPath}/rules/{selected_rule}'.format(selected_rule=hcatRules[int(rule) - 1],
+                        combined_choice = '{0} {1}'.format(combined_choice, '-r {hcatPath}/rules/{selected_rule}'.format(selected_rule=rule_files[int(rule) - 1],
                                                                                                                          hcatPath=hcatPath))
                     except:
                         continue
                 selected_hcatRules.append(combined_choice)
             else:
                 try:
-                    selected_hcatRules.append('-r {hcatPath}/rules/{selected_rule}'.format(selected_rule=hcatRules[int(choice) - 1],hcatPath=hcatPath))
+                    selected_hcatRules.append('-r {hcatPath}/rules/{selected_rule}'.format(selected_rule=rule_files[int(choice) - 1],hcatPath=hcatPath))
                 except IndexError:
                     continue
 

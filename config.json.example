@@ -12,7 +12,6 @@
   "hcatThoroughCombinatorMasks": ["0","1","2","3","4","5","6","7","8","9"," ","-","_","+",",","!","#","$","\"","%","&","'","(",")","*",",",".","/",":",";","<","=",">","?","@","[","\\","]","^","`","{","|","}","~"],
   "hcatThoroughBaseList": "rockyou.txt",
   "hcatGoodMeasureBaseList": "rockyou.txt",
-  "hcatRules": ["best64.rule","d3ad0ne.rule", "T0XlC.rule", "dive.rule"],
   "hcatPrinceBaseList": "rockyou.txt",
   "pipalPath": "/path/to/pipal",
   "pipal_count" : 10,
