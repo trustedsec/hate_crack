@@ -35,6 +35,7 @@ hcatBin = config_parser['hcatBin']
 hcatTuning = config_parser['hcatTuning']
 hcatWordlists = config_parser['hcatWordlists']
 hcatOptimizedWordlists = config_parser['hcatOptimizedWordlists']
+hcatRules = []
 
 try:
     maxruntime = config_parser['bandrelmaxruntime']
