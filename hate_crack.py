@@ -62,12 +62,6 @@ except KeyError as e:
     pipalPath = default_config['pipalPath']
 
 try:
-    hcatRules = config_parser['hcatRules']
-except KeyError as e:
-    print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
-    hcatRules = default_config['hcatRules']
-
-try:
     hcatDictionaryWordlist = config_parser['hcatDictionaryWordlist']
 except KeyError as e:
     print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
