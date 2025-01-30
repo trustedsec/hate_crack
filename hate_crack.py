@@ -1308,7 +1308,7 @@ def main():
         lmHashesFound = False
         pwdump_format = False
         hcatHashFileLine = open(hcatHashFile, "r").readline()
-        if re.search(r"[a-z0-9A-Z]{32}:[a-z0-9A-Z]{32}:.*::", hcatHashFileLine):
+        if re.search(r"[a-f0-9A-F]{32}:[a-f0-9A-F]{32}:::", hcatHashFileLine):
             pwdump_format = True
             print("PWDUMP format detected...")
             print("Parsing NT hashes...")
@@ -1331,6 +1331,15 @@ def main():
             pwdump_format = False
             print("PWDUMP format was not detected...")
             print("Hash only detected")
+        elif re.search(r"^.+:[a-f0-9A-F]{32}$", hcatHashFileLine):
+            pwdump_format = False
+            print("PWDUMP format was not detected...")
+            print("username with Hash detected")
+            subprocess.Popen(
+                "cat {hash_file} | cut -d : -f 2 |sort -u > {hash_file}.nt".format(hash_file=hcatHashFile),
+                             shell=True).wait()
+            hcatHashFileOrig = hcatHashFile
+            hcatHashFile = hcatHashFile + ".nt"
         else:
             print("unknown format....does it have usernames?")
             exit(1)
