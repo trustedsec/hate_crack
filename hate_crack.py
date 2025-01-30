@@ -35,18 +35,32 @@ hcatBin = config_parser['hcatBin']
 hcatTuning = config_parser['hcatTuning']
 hcatWordlists = config_parser['hcatWordlists']
 hcatOptimizedWordlists = config_parser['hcatOptimizedWordlists']
+hcatRules = []
+
+try:
+    maxruntime = config_parser['bandrelmaxruntime']
+except KeyError as e:
+    print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
+    maxruntime = default_config['bandrelmaxruntime']
+
+try:
+    bandrelbasewords = config_parser['bandrel_common_basedwords']
+except KeyError as e:
+    print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
+    bandrelbasewords = default_config['bandrel_common_basedwords']
+
+try:
+
+    pipal_count = config_parser['pipal_count']
+except KeyError as e:
+    print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
+    pipal_count = default_config['pipal_count']
 
 try:
     pipalPath = config_parser['pipalPath']
 except KeyError as e:
     print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
     pipalPath = default_config['pipalPath']
-
-try:
-    hcatRules = config_parser['hcatRules']
-except KeyError as e:
-    print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
-    hcatRules = default_config['hcatRules']
 
 try:
     hcatDictionaryWordlist = config_parser['hcatDictionaryWordlist']
@@ -164,7 +178,7 @@ def ascii_art():
 \    Y    // __ \|  | \  ___/    \     \____|  | \// __ \\  \___|    < 
  \___|_  /(____  /__|  \___  >____\______  /|__|  (____  /\___  >__|_ \
        \/      \/          \/_____/      \/            \/     \/     \/
-                          Version 1.08
+                          Version 1.09
   """)
 
 
@@ -209,7 +223,7 @@ def hcatDictionary(hcatHashType, hcatHashFile):
     global hcatProcess
     hcatProcess = subprocess.Popen(
         "{hcatBin} -m {hcatHashType} {hash_file} --session {session_name} -o {hash_file}.out {optimized_wordlists}/* "
-        "-r {hcatPath}/rules/best64.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+        "-r {hcatPath}/rules/best66.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
             hcatPath=hcatPath,
             hcatBin=hcatBin,
             hcatHashType=hcatHashType,
@@ -526,6 +540,65 @@ def hcatYoloCombination(hcatHashType, hcatHashFile):
         print('Killing PID {0}...'.format(str(hcatProcess.pid)))
         hcatProcess.kill()
 
+# Bandrel methodlogy
+def hcatBandrel(hcatHashType, hcatHashFile):
+    global hcatProcess
+    basewords = []
+    while True:
+        company_name = input('What is the company name (Enter multiples comma separated)? ')
+        if company_name:
+            break
+    for name in company_name.split(','):
+        basewords.append(name)
+    for word in bandrelbasewords.split(','):
+        basewords.append(word)
+    for name in basewords:
+        mask1 = '-1{0}{1}'.format(name[0].lower(),name[0].upper())
+        mask2 = ' ?1{0}'.format(name[1:])
+        for x in range(6):
+            mask2 += '?a'
+        hcatProcess = subprocess.Popen(
+            "{hcatBin} -m {hash_type} -a 3 --session {session_name} -o {hash_file}.out "
+            "{tuning} --potfile-path={hate_path}/hashcat.pot --runtime {maxruntime} -i {hcmask1} {hash_file} {hcmask2}".format(
+                hcatBin=hcatBin,
+                hash_type=hcatHashType,
+                hash_file=hcatHashFile,
+                session_name=os.path.basename(hcatHashFile),
+                tuning=hcatTuning,
+                hcmask1=mask1,
+                hcmask2=mask2,
+                maxruntime=maxruntime,
+                hate_path=hate_path), shell=True)
+        try:
+            hcatProcess.wait()
+        except KeyboardInterrupt:
+            print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+            hcatProcess.kill()
+    print('Checking passwords against pipal for top {0} passwords and basewords'.format(pipal_count))
+    pipal_basewords = pipal()
+    for word in pipal_basewords:
+        mask1 = '-1={0}{1}'.format(word[0].lower(),word[0].upper())
+        mask2 = ' ?1{0}'.format(word[1:])
+        for x in range(6):
+            mask2 += '?a'
+        hcatProcess = subprocess.Popen(
+            "{hcatBin} -m {hash_type} -a 3 --session {session_name} -o {hash_file}.out "
+            "{tuning} --potfile-path={hate_path}/hashcat.pot --runtime {maxruntime} -i {hcmask1} {hash_file} {hcmask2}".format(
+                hcatBin=hcatBin,
+                hash_type=hcatHashType,
+                hash_file=hcatHashFile,
+                session_name=os.path.basename(hcatHashFile),
+                tuning=hcatTuning,
+                hcmask1=mask1,
+                hcmask2=mask2,
+                maxruntime=maxruntime,
+                hate_path=hate_path), shell=True)
+        try:
+            hcatProcess.wait()
+        except KeyboardInterrupt:
+            print('Killing PID {0}...'.format(str(hcatProcess.pid)))
+            hcatProcess.kill()
+
 # Middle fast Combinator Attack
 def hcatMiddleCombinator(hcatHashType, hcatHashFile):
     global hcatProcess
@@ -755,9 +828,11 @@ def hcatLMtoNT():
 
     hcatProcess = subprocess.Popen("cat {hash_file}.lm.cracked | cut -d : -f 2 > {hash_file}.working".format(
         hash_file=hcatHashFile), shell=True).wait()
+    converted = convert_hex("{hash_file}.working".format(hash_file=hcatHashFile))
+    with open("{hash_file}.working".format(hash_file=hcatHashFile),mode='w') as working:
+        working.writelines(converted)
     hcatProcess = subprocess.Popen(
-        "{hate_path}/hashcat-utils/bin/{combine_bin} {hash_file}.working {hash_file}.working | sort -u > "
-        "{hash_file}.combined".format(
+        "{hate_path}/hashcat-utils/bin/{combine_bin} {hash_file}.working {hash_file}.working | sort -u > {hash_file}.combined".format(
             combine_bin=hcatCombinatorBin,
             hcatBin=hcatBin,
             hash_file=hcatHashFile,
@@ -833,15 +908,35 @@ def hcatRecycle(hcatHashType, hcatHashFile, hcatNewPasswords):
             except KeyboardInterrupt:
                 hcatProcess.kill()
 
+def check_potfile():
+    print("Checking POT file for already cracked hashes...")
+    subprocess.Popen(
+        "{hcatBin} --show --potfile-path={hate_path}/hashcat.pot -m {hash_type} {hash_file} > {hate_path}/{hash_file}.out".format(
+            hcatBin=hcatBin,
+            hash_type=hcatHashType,
+            hash_file=hcatHashFile,
+            hate_path=hate_path), shell=True)
+    hcatHashCracked = lineCount(hcatHashFile + ".out")
+    if hcatHashCracked > 0:
+        print("Found %d hashes already cracked.\nCopied hashes to %s.out" % (hcatHashCracked, hcatHashFile))
+    else:
+        print("No hashes found in POT file.")
+
+
 # creating the combined output for pwdformat + cleartext
 def combine_ntlm_output():
+    hashes = {}
+    check_potfile()
+    with open(hcatHashFile + ".out", "r") as hcatCrackedFile:
+        for crackedLine in hcatCrackedFile:
+            hash, password = crackedLine.split(':')
+            hashes[hash] = password.rstrip()
     with open(hcatHashFileOrig + ".out", "w+") as hcatCombinedHashes:
-        with open(hcatHashFile + ".out", "r") as hcatCrackedFile:
-            for crackedLine in hcatCrackedFile:
-                with open(hcatHashFileOrig, "r") as hcatOrigFile:
-                    for origLine in hcatOrigFile:
-                        if crackedLine.split(":")[0] == origLine.split(":")[3]:
-                            hcatCombinedHashes.write(origLine.strip() + crackedLine.split(":")[1])
+        with open(hcatHashFileOrig, "r") as hcatOrigFile:
+            for origLine in hcatOrigFile:
+                if origLine.split(':')[3] in hashes:
+                    password = hashes[origLine.split(':')[3]]
+                    hcatCombinedHashes.write(origLine.strip()+password+'\n')
 
 # Cleanup Temp Files
 def cleanup():
@@ -877,32 +972,46 @@ def quick_crack():
     wordlist_choice = None
     rule_choice = None
     selected_hcatRules = []
-    while wordlist_choice is None:
-        raw_choice = input("\nEnter path of wordlist or wordlist directory.\n"
-                           "Press Enter for default optimized wordlists [{0}]:".format(hcatOptimizedWordlists))
-        if raw_choice == '':
-            wordlist_choice = hcatOptimizedWordlists
-        else:
-            if os.path.exists(raw_choice):
-                wordlist_choice = raw_choice
 
+    wordlist_files =  sorted(os.listdir(hcatWordlists))
+    print("\nWordlists:")
+    for i, file in enumerate(wordlist_files, start=1):
+        print(f"{i}. {file}")
+
+    while wordlist_choice is None:
+        try:
+            raw_choice = input("\nEnter path of wordlist or wordlist directory.\n"
+                            "Press Enter for default optimized wordlists [{0}]: ".format(hcatOptimizedWordlists))
+            if raw_choice == '':
+                wordlist_choice = hcatOptimizedWordlists
+            elif os.path.exists(raw_choice):
+                wordlist_choice = raw_choice
+            elif 1 <= int(raw_choice) <= len(wordlist_files):
+                if os.path.exists(hcatWordlists + '/' + wordlist_files[int(raw_choice) - 1]):
+                    wordlist_choice = hcatWordlists + '/' + wordlist_files[int(raw_choice) - 1]
+                    print(wordlist_choice)
+            else:
+                wordlist_choice = None
+                print('Please enter a valid wordlist or wordlist directory.')
+        except ValueError:
+            print("Please enter a valid number.")
+
+    rule_files =  sorted(os.listdir(hcatPath + '/rules'))
     print("\nWhich rule(s) would you like to run?")
-    rule_number = 1
-    print('(0) To run without any rules')
-    for rule in hcatRules:
-        print('({0}) {1}'.format(rule_number, rule))
-        rule_number += 1
-    print('(99) YOLO...run all of the rules')
+    print('0. To run without any rules')
+    for i, file in enumerate(rule_files, start=1):
+        print(f"{i}. {file}")
+    print('99. YOLO...run all of the rules')
 
     while rule_choice is None:
         raw_choice = input('Enter Comma separated list of rules you would like to run. To run rules chained use the + symbol.\n'
                             'For example 1+1 will run {0} chained twice and 1,2 would run {0} and then {1} sequentially.\n'
-                            'Choose wisely: '.format(hcatRules[0], hcatRules[1]))
+                            'Choose wisely: '.format(rule_files[0], rule_files[1]))
         if raw_choice != '':
             rule_choice = raw_choice.split(',')
 
     if '99' in rule_choice:
-        for rule in hcatRules:
+        for rule in rule_files:
             selected_hcatRules.append('-r {hcatPath}/rules/{selected_rule}'.format(selected_rule=rule, hcatPath=hcatPath))
     elif '0' in rule_choice:
         selected_hcatRules = ['']
@@ -913,14 +1022,14 @@ def quick_crack():
                 choices = choice.split('+')
                 for rule in choices:
                     try:
-                        combined_choice = '{0} {1}'.format(combined_choice, '-r {hcatPath}/rules/{selected_rule}'.format(selected_rule=hcatRules[int(rule) - 1],
+                        combined_choice = '{0} {1}'.format(combined_choice, '-r {hcatPath}/rules/{selected_rule}'.format(selected_rule=rule_files[int(rule) - 1],
                                                                                                                          hcatPath=hcatPath))
                     except:
                         continue
                 selected_hcatRules.append(combined_choice)
             else:
                 try:
-                    selected_hcatRules.append('-r {hcatPath}/rules/{selected_rule}'.format(selected_rule=hcatRules[int(choice) - 1],hcatPath=hcatPath))
+                    selected_hcatRules.append('-r {hcatPath}/rules/{selected_rule}'.format(selected_rule=rule_files[int(choice) - 1],hcatPath=hcatPath))
                 except IndexError:
                     continue
 
@@ -1027,6 +1136,11 @@ def thorough_combinator():
 def middle_combinator():
     hcatMiddleCombinator(hcatHashType, hcatHashFile)
 
+# Bandrel Methodology
+def bandrel_method():
+    hcatBandrel(hcatHashType, hcatHashFile)
+
+
 # convert hex words for recycling
 def convert_hex(working_file):
     processed_words = []
@@ -1074,10 +1188,11 @@ def pipal():
                 pipalFile.close()
 
             pipalProcess = subprocess.Popen(
-                "{pipal_path}  {pipal_file} --output {pipal_out} ".format(
+                "{pipal_path} {pipal_file} -t {pipal_count} --output {pipal_out}".format(
                     pipal_path=pipalPath,
                     pipal_file=hcatHashFilePipal + ".passwords",
-                    pipal_out=hcatHashFilePipal + ".pipal"),
+                    pipal_out=hcatHashFilePipal + ".pipal",
+                    pipal_count=pipal_count),
                 shell=True)
             try:
                 pipalProcess.wait()
@@ -1085,6 +1200,19 @@ def pipal():
                 print('Killing PID {0}...'.format(str(pipalProcess.pid)))
                 pipalProcess.kill()
             print("Pipal file is at " + hcatHashFilePipal + ".pipal\n")
+            with open(hcatHashFilePipal + ".pipal") as pipalfile:
+                pipal_content = pipalfile.readlines()
+                raw_pipal = '\n'.join(pipal_content)
+                raw_pipal = re.sub('\n+', '\n', raw_pipal)
+                raw_regex = r'Top [0-9]+ base words\n'
+                for word in range(pipal_count):
+                    raw_regex += r'(\S+).*\n'
+                basewords_re = re.compile(raw_regex)
+                results = re.search(basewords_re,raw_pipal)
+                top_basewords = []
+                for i in range(1, results.lastindex + 1):
+                    top_basewords.append(results.group(i))
+                return(top_basewords)
         else:
          print("No hashes were cracked :(")
     else:
@@ -1228,6 +1356,7 @@ def main():
             print("\t(10) YOLO Combinator Attack")
             print("\t(11) Middle Combinator Attack")
             print("\t(12) Thorough Combinator Attack")
+            print("\t(13) Bandrel Methodology")
             print("\n\t(95) Analyze hashes with Pipal")
             print("\t(96) Export Output to Excel Format")
             print("\t(97) Display Cracked Hashes")
@@ -1245,6 +1374,7 @@ def main():
                        "10": yolo_combination,
                        "11": middle_combinator,
                        "12": thorough_combinator,
+                       "13": bandrel_method,
                        "95": pipal,
                        "96": export_excel,
                        "97": show_results,

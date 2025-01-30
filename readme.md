@@ -10,10 +10,8 @@
 ## Installation
 Get the latest hashcat binaries (https://hashcat.net/hashcat/)
 
-OSX Install (https://www.phillips321.co.uk/2016/07/09/hashcat-on-os-x-getting-it-going/)
-```git clone https://github.com/hashcat/hashcat.git
-mkdir -p hashcat/deps
-git clone https://github.com/KhronosGroup/OpenCL-Headers.git hashcat/deps/OpenCL
+```
+git clone https://github.com/hashcat/hashcat.git
 cd hashcat/
 make
 make install
@@ -57,7 +55,7 @@ $ ./hate_crack.py <hash file> 1000
 \    Y    // __ \|  | \  ___/    \     \____|  | \// __ \\  \___|    < 
  \___|_  /(____  /__|  \___  >____\______  /|__|  (____  /\___  >__|_ \
        \/      \/          \/_____/      \/            \/     \/     \/
-                          Version 1.08
+                          Version 1.09
   
 
 	(1) Quick Crack
@@ -72,6 +70,7 @@ $ ./hate_crack.py <hash file> 1000
 	(10) YOLO Combinator Attack
 	(11) Middle Combinator Attack
 	(12) Thorough Combinator Attack
+	(13) Bandrel Methodology
 
     (95) Analyze hashes with Pipal 
 	(96) Export Output to Excel Format
@@ -178,8 +177,21 @@ https://jeffh.net/2018/04/26/combinator_methods/
   - Hybrid middle/end attack: rockyou.txt + ?n + rockyou.txt + ?n
   - Hybrid middle/end attack: rockyou.txt + ?s + rockyou.txt + ?s
 
+
+#### Bandrel Methodology
+
+* Prompts for input of comma separated names and then creates a pseudo hybrid attack by capitalizing the first letter
+and adding up to six additional characters at the end. Each word is limited to a total of five minutes.
+  - Built in additional common words including seasons, months has been included as a customizable config.json entry
+  - The default five minute time limit is customizable via the config.json
+  
 -------------------------------------------------------------------
 ### Version History
+Version 1.9
+  Revamped the hate_crack output to increase processing speed exponentially combine_ntlm_output function for combining
+  Introducing New Attack mode "Bandrel Methodology"
+  Updated pipal function to output top x number of basewords
+     
 Version 1.08
   Added a Pipal menu Option to analyze hashes. https://github.com/digininja/pipal
 
