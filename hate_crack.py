@@ -911,7 +911,7 @@ def hcatRecycle(hcatHashType, hcatHashFile, hcatNewPasswords):
 def check_potfile():
     print("Checking POT file for already cracked hashes...")
     subprocess.Popen(
-        "{hcatBin} --show --potfile-path={hate_path}/hashcat.pot -m {hash_type} {hash_file} > {hate_path}/{hash_file}.out".format(
+        "{hcatBin} --show --potfile-path={hate_path}/hashcat.pot -m {hash_type} {hash_file} > {hash_file}.out".format(
             hcatBin=hcatBin,
             hash_type=hcatHashType,
             hash_file=hcatHashFile,
@@ -940,8 +940,10 @@ def combine_ntlm_output():
 
 # Cleanup Temp Files
 def cleanup():
+    global pwdump_format
+    global hcatHashFileOrig
     try:
-        if hcatHashType == "1000":
+        if hcatHashType == "1000" and pwdump_format:
             print("\nComparing cracked hashes to original file...")
             combine_ntlm_output()
         print("\nCracked passwords combined with original hashes in %s" % (hcatHashFileOrig + ".out"))
@@ -1281,12 +1283,11 @@ def quit_hc():
 
 # The Main Guts
 def main():
+    global pwdump_format
     global hcatHashFile
     global hcatHashType
     global hcatHashFileOrig
     global lmHashesFound
-
-    hcatHashFileOrig = ""
 
     try:
         hcatHashFile = sys.argv[1]
@@ -1296,6 +1297,7 @@ def main():
         usage()
         sys.exit()
 
+    hcatHashFileOrig = hcatHashFile
     ascii_art()
 
     # Get Initial Input Hash Count
@@ -1304,8 +1306,10 @@ def main():
     # If LM or NT Mode Selected and pwdump Format Detected, Prompt For LM to NT Attack
     if hcatHashType == "1000":
         lmHashesFound = False
+        pwdump_format = False
         hcatHashFileLine = open(hcatHashFile, "r").readline()
-        if re.search(r"[a-z0-9A-Z]{32}:[a-z0-9A-Z]{32}:.*::", hcatHashFileLine):
+        if re.search(r"[a-f0-9A-F]{32}:[a-f0-9A-F]{32}:::", hcatHashFileLine):
+            pwdump_format = True
             print("PWDUMP format detected...")
             print("Parsing NT hashes...")
             subprocess.Popen(
@@ -1323,7 +1327,22 @@ def main():
                     hcatLMtoNT()
             hcatHashFileOrig = hcatHashFile
             hcatHashFile = hcatHashFile + ".nt"
-
+        elif re.search(r"^[a-f0-9A-F]{32}$", hcatHashFileLine):
+            pwdump_format = False
+            print("PWDUMP format was not detected...")
+            print("Hash only detected")
+        elif re.search(r"^.+:[a-f0-9A-F]{32}$", hcatHashFileLine):
+            pwdump_format = False
+            print("PWDUMP format was not detected...")
+            print("username with Hash detected")
+            subprocess.Popen(
+                "cat {hash_file} | cut -d : -f 2 |sort -u > {hash_file}.nt".format(hash_file=hcatHashFile),
+                             shell=True).wait()
+            hcatHashFileOrig = hcatHashFile
+            hcatHashFile = hcatHashFile + ".nt"
+        else:
+            print("unknown format....does it have usernames?")
+            exit(1)
     # Check POT File for Already Cracked Hashes
     if not os.path.isfile(hcatHashFile + ".out"):
         hcatOutput = open(hcatHashFile + ".out", "w+")
