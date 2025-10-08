@@ -109,14 +109,9 @@ except KeyError as e:
     hcatGoodMeasureBaseList = default_config[e.args[0]]
 
 
-if sys.platform == 'darwin':
-    hcatExpanderBin = "expander.app"
-    hcatCombinatorBin = "combinator.app"
-    hcatPrinceBin = "pp64.app"
-else:
-    hcatExpanderBin = "expander.bin"
-    hcatCombinatorBin = "combinator.bin"
-    hcatPrinceBin = "pp64.bin"
+hcatExpanderBin = "expander.bin"
+hcatCombinatorBin = "combinator.bin"
+hcatPrinceBin = "pp64.bin"
 
 def verify_wordlist_dir(directory, wordlist):
     if os.path.isfile(wordlist):
@@ -830,7 +825,7 @@ def hcatLMtoNT():
         hash_file=hcatHashFile), shell=True).wait()
     converted = convert_hex("{hash_file}.working".format(hash_file=hcatHashFile))
     with open("{hash_file}.working".format(hash_file=hcatHashFile),mode='w') as working:
-        working.writelines(converted)
+        working.writelines('\n'.join(converted))
     hcatProcess = subprocess.Popen(
         "{hate_path}/hashcat-utils/bin/{combine_bin} {hash_file}.working {hash_file}.working | sort -u > {hash_file}.combined".format(
             combine_bin=hcatCombinatorBin,
