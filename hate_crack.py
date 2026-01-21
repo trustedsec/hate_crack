@@ -152,6 +152,52 @@ else:
     print('Invalid path for hashcat binary. Please check configuration and try again.')
     quit(1)
 
+# Verify hashcat-utils binaries exist and work
+hashcat_utils_path = hate_path + '/hashcat-utils/bin'
+required_binaries = [
+    (hcatExpanderBin, 'expander'),
+    (hcatCombinatorBin, 'combinator'),
+]
+
+for binary, name in required_binaries:
+    binary_path = hashcat_utils_path + '/' + binary
+    if not os.path.isfile(binary_path):
+        print(f'Error: {name} binary not found at {binary_path}')
+        print('Please ensure hashcat-utils is properly installed.')
+        quit(1)
+    # Check if binary is executable
+    if not os.access(binary_path, os.X_OK):
+        print(f'Error: {name} binary at {binary_path} is not executable')
+        print('Try running: chmod +x {0}'.format(binary_path))
+        quit(1)
+    # Test binary execution
+    try:
+        test_result = subprocess.run(
+            [binary_path], 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE, 
+            timeout=2
+        )
+        # Binary should show usage and exit with error code (that's expected)
+        # If we get here without exception, the binary is executable
+    except subprocess.TimeoutExpired:
+        # Timeout is fine - means binary is running
+        pass
+    except Exception as e:
+        print(f'Error: {name} binary at {binary_path} failed to execute: {e}')
+        print('The binary may be compiled for the wrong architecture.')
+        print('Try recompiling hashcat-utils for your system.')
+        quit(1)
+
+# Verify princeprocessor binary
+prince_path = hate_path + '/princeprocessor/' + hcatPrinceBin
+if not os.path.isfile(prince_path):
+    print(f'Warning: PRINCE binary not found at {prince_path}')
+    print('PRINCE attacks will not be available.')
+elif not os.access(prince_path, os.X_OK):
+    print(f'Warning: PRINCE binary at {prince_path} is not executable')
+    print('Try running: chmod +x {0}'.format(prince_path))
+
 #verify and convert wordlists to fully qualified paths
 hcatMiddleBaseList = verify_wordlist_dir(hcatWordlists, hcatMiddleBaseList)
 hcatThoroughBaseList = verify_wordlist_dir(hcatWordlists, hcatThoroughBaseList)
@@ -176,6 +222,7 @@ hcatHybridCount = 0
 hcatExtraCount = 0
 hcatRecycleCount = 0
 hcatProcess = 0
+debug_mode = True
 
 
 # Help
@@ -1012,10 +1059,10 @@ class HashviewAPI:
         'hash_only': 5,
     }
     
-    def __init__(self, base_url, api_key):
+    def __init__(self, base_url, api_key, debug=False):
         self.base_url = base_url.rstrip('/')
         self.api_key = api_key
-        self.agent_uuid = None
+        self.debug = debug
         self.session = requests.Session()
         self.session.cookies.set('uuid', api_key)
         # Disable SSL certificate verification for self-signed certificates
@@ -1023,14 +1070,6 @@ class HashviewAPI:
         # Suppress SSL warnings
         import urllib3
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-    
-    def use_agent_mode(self):
-        """Switch to using agent UUID for operations that require it"""
-        if not self.agent_uuid:
-            raise Exception("No agent registered. Call register_agent() first.")
-        
-        # Switch session to use agent UUID
-        self.session = self.agent_session
     
     def upload_wordlist(self, file_path, wordlist_name=None):
         if wordlist_name is None:
@@ -1066,43 +1105,41 @@ class HashviewAPI:
         response.raise_for_status()
         return response.json()
     
-    def upload_cracked_hashes(self, file_path, hash_type=1000):
-        # Read and convert file - API expects hex-encoded plaintext (uppercase)
+    def upload_cracked_hashes(self, file_path, hash_type='1000'):
+        # Read file - API expects plaintext format: hash:plaintext
         print(f"Importing cracked hashes: {os.path.basename(file_path)}")
-        print(f"  Converting plaintext to hex encoding...")
+        print(f"  Reading hash:plaintext pairs...")
         
-        converted_lines = []
+        valid_lines = []
         line_count = 0
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             for line in f:
                 line = line.strip()
+                if '31d6cfe0d16ae931b73c59d7e0c089c0' in line:
+                    continue
                 if not line or ':' not in line:
                     continue
                 
                 parts = line.split(':', 1)
                 if len(parts) != 2:
-                    continue
+                     break #might need to add encoding into HEX conversion here
                     
                 hash_value = parts[0].strip()
                 plaintext = parts[1].strip()
                 
-                # Convert plaintext to hex (uppercase as API expects)
-                plaintext_hex = plaintext.encode('utf-8').hex().upper()
-                converted_lines.append(f"{hash_value}:{plaintext_hex}")
+                # Keep format as-is: hash:plaintext
+                valid_lines.append(f"{hash_value}:{plaintext}")
                 line_count += 1
         
-        converted_content = '\n'.join(converted_lines)
+        # Join all lines into a single string with newline separators
+        converted_content = '\n'.join(valid_lines)
         
         print(f"  Processed {line_count} hash:plaintext pairs")
         
-        # Use the actual endpoint from api_routes.py
-        url = f"{self.base_url}/v1/uploadCrackFile/{hash_type}"
+        url = f"{self.base_url}/v1/hashes/import/{hash_type}"
         
-        # API expects JSON with 'file' field
-        payload = {
-            "file": converted_content
-        }
-        headers = {'Content-Type': 'application/json'}
+        # API expects plain text body with hash:plaintext format
+        headers = {'Content-Type': 'text/plain'}
         
         print(f"\n  === REQUEST DETAILS ===")
         print(f"  URL: {url}")
@@ -1110,11 +1147,20 @@ class HashviewAPI:
         print(f"  Headers: {headers}")
         print(f"  Cookies: {dict(self.session.cookies)}")
         print(f"  Hash type: {hash_type}")
-        print(f"  Payload preview (first 500 chars):")
+        print(f"  Content preview (first 500 chars):")
         print(converted_content[:500])
-        print(f"  Uploading...")
         
-        response = self.session.post(url, json=payload, headers=headers)
+        # Generate curl command for manual testing
+        print(f"\n  === CURL COMMAND ===")
+        curl_data_preview = converted_content[:200].replace("'", "'\\''")  # Escape single quotes
+        print(f"  curl --insecure -X POST '{url}' \\")
+        print(f"    -H 'Content-Type: text/plain' \\")
+        print(f"    --cookie 'uuid={self.api_key}' \\")
+        print(f"    --data '{converted_content}...'")
+        
+        print(f"\n  Uploading...")
+        
+        response = self.session.post(url, data=converted_content, headers=headers)
         
         # Debug: print response details
         print(f"\n  === RESPONSE DETAILS ===")
@@ -1149,10 +1195,10 @@ class HashviewAPI:
         
         return data
     
-    def create_customer(self, name, description=""):
+    def create_customer(self, name):
         url = f"{self.base_url}/v1/customers/add"
         headers = {'Content-Type': 'application/json'}
-        data = {"name": name, "description": description}
+        data = {"name": name}
         
         print(f"Creating customer: {name}")
         response = self.session.post(url, json=data, headers=headers)
@@ -1246,7 +1292,7 @@ class HashviewAPI:
         return {'output_file': output_file, 'size': file_size}
 
 
-def hashview_upload():
+def hashview_api():
     """Upload data to Hashview API"""
     global hcatHashFile, hcatHashType
     
@@ -1268,19 +1314,18 @@ def hashview_upload():
     print(f"\nConnecting to Hashview at: {hashview_url}")
     
     try:
-        uploader = HashviewAPI(hashview_url, hashview_api_key)
+        api_harness = HashviewAPI(hashview_url, hashview_api_key, debug=debug_mode)
         
         while True:
             print("\n" + "="*60)
             print("What would you like to do?")
             print("="*60)
             print("\t(1) Upload Cracked Hashes from current session")
-            print("\t(2) Upload Wordlist")
-            print("\t(3) Upload Hashfile and Create Job")
-            print("\t(4) List Customers")
-            print("\t(5) Create Customer")
-            print("\t(6) Download Left Hashes")
-            print("\t(9) Back to Main Menu")
+            print("\t(2) Create Job")
+            print("\t(3) List Customers")
+            print("\t(4) Create Customer")
+            print("\t(5) Download Left Hashes")
+            print("\t(99) Back to Main Menu")
             
             choice = input("\nSelect an option: ")
             
@@ -1299,6 +1344,11 @@ def hashview_upload():
                         if os.path.exists(potential_file):
                             session_file = potential_file
                             print(f"Found session file: {session_file}")
+                    elif 'hcatHashFile' in globals() and hcatHashFile:
+                        potential_file = hcatHashFile + "nt.out"
+                        if os.path.exists(potential_file):
+                            session_file = potential_file
+                            print(f"Found session file: {session_file}")
                 except:
                     pass
                 
@@ -1309,7 +1359,7 @@ def hashview_upload():
                         cracked_file = session_file
                 
                 if not cracked_file:
-                    cracked_file = input("Enter path to cracked hashes file (.out format): ").strip()
+                    cracked_file = input(f"Enter path to cracked hashes file (.out format) [hash type: {hcatHashType}]: ").strip()
                 
                 # Validate file exists
                 if not os.path.exists(cracked_file):
@@ -1324,25 +1374,13 @@ def hashview_upload():
                 print(f"Size: {file_size} bytes")
                 print(f"Lines: {line_count}")
                 
-                # Hash type is always 1000 (NTLM) for import endpoint
-                hash_type = 1000
-                
-                # Check if agent is registered
-                if not uploader.agent_uuid:
-                    print("\n⚠ Warning: Upload cracked hashes requires agent authorization")
-                    print("You must first:")
-                    print("  1. Select option (7) to register as an agent")
-                    print("  2. Authorize the agent in Hashview web UI")
-                    print("  3. Then come back and upload")
-                    continue
-                
-                # Switch to agent mode for upload
-                uploader.use_agent_mode()
+                # Use the same hash type from main menu
+                hash_type = hcatHashType
                 
                 # Upload
                 print(f"\nUploading to Hashview (hash type: {hash_type})...")
                 try:
-                    result = uploader.upload_cracked_hashes(cracked_file, hash_type)
+                    result = api_harness.upload_cracked_hashes(cracked_file, hash_type)
                     print(f"\n✓ Success: {result.get('msg', 'Cracked hashes uploaded')}")
                     if 'count' in result:
                         print(f"  Imported: {result['count']} hashes")
@@ -1353,23 +1391,6 @@ def hashview_upload():
                     traceback.print_exc()
             
             elif choice == '2':
-                # Upload wordlist
-                wordlist_path = input("\nEnter path to wordlist file: ")
-                if not os.path.exists(wordlist_path):
-                    print(f"Error: File not found: {wordlist_path}")
-                    continue
-                
-                wordlist_name = input(f"Enter wordlist name (default: {os.path.basename(wordlist_path)}): ") or None
-                
-                try:
-                    result = uploader.upload_wordlist(wordlist_path, wordlist_name)
-                    print(f"\n✓ Success: {result.get('msg', 'Wordlist uploaded')}")
-                    if 'wordlist_id' in result:
-                        print(f"  Wordlist ID: {result['wordlist_id']}")
-                except Exception as e:
-                    print(f"\n✗ Error uploading wordlist: {str(e)}")
-            
-            elif choice == '3':
                 # Upload hashfile and create job
                 hashfile_path = input("\nEnter path to hashfile: ")
                 if not os.path.exists(hashfile_path):
@@ -1387,7 +1408,7 @@ def hashview_upload():
                 hashfile_name = input(f"Enter hashfile name (default: {os.path.basename(hashfile_path)}): ") or None
                 
                 try:
-                    result = uploader.upload_hashfile(
+                    result = api_harness.upload_hashfile(
                         hashfile_path, customer_id, hash_type, file_format, hashfile_name
                     )
                     print(f"\n✓ Success: {result.get('msg', 'Hashfile uploaded')}")
@@ -1404,7 +1425,7 @@ def hashview_upload():
                             notify_email = input("Send email notifications? (Y/n): ").upper() != 'N'
                             
                             try:
-                                job_result = uploader.create_job(
+                                job_result = api_harness.create_job(
                                     job_name, result['hashfile_id'], customer_id,
                                     limit_recovered, notify_email
                                 )
@@ -1415,17 +1436,17 @@ def hashview_upload():
                                     # Offer to start the job
                                     start_now = input("\nStart the job now? (Y/n): ") or "Y"
                                     if start_now.upper() == 'Y':
-                                        start_result = uploader.start_job(job_result['job_id'])
+                                        start_result = api_harness.start_job(job_result['job_id'])
                                         print(f"\n✓ Success: {start_result.get('msg', 'Job started')}")
                             except Exception as e:
                                 print(f"\n✗ Error creating job: {str(e)}")
                 except Exception as e:
                     print(f"\n✗ Error uploading hashfile: {str(e)}")
             
-            elif choice == '4':
+            elif choice == '3':
                 # List customers
                 try:
-                    result = uploader.list_customers()
+                    result = api_harness.list_customers()
                     if 'customers' in result and result['customers']:
                         print("\n" + "="*60)
                         print("Customers:")
@@ -1435,31 +1456,28 @@ def hashview_upload():
                         for customer in result['customers']:
                             cust_id = customer.get('id', 'N/A')
                             cust_name = customer.get('name', 'N/A')
-                            cust_desc = customer.get('description', '')
-                            print(f"{cust_id:<10} {cust_name:<30} {cust_desc}")
+                            print(f"{cust_id:<10} {cust_name:<30}")
                     else:
                         print("\nNo customers found.")
                 except Exception as e:
                     print(f"\n✗ Error fetching customers: {str(e)}")
             
-            elif choice == '5':
+            elif choice == '4':
                 # Create customer
                 customer_name = input("\nEnter customer name: ")
-                customer_desc = input("Enter customer description (optional): ")
-                
                 try:
-                    result = uploader.create_customer(customer_name, customer_desc)
+                    result = api_harness.create_customer(customer_name)
                     print(f"\n✓ Success: {result.get('msg', 'Customer created')}")
                     if 'customer_id' in result:
                         print(f"  Customer ID: {result['customer_id']}")
                 except Exception as e:
                     print(f"\n✗ Error creating customer: {str(e)}")
             
-            elif choice == '6':
+            elif choice == '5':
                 # Download left hashes
                 try:
                     # First, list customers to help user select
-                    result = uploader.list_customers()
+                    result = api_harness.list_customers()
                     if 'customers' in result and result['customers']:
                         print("\n" + "="*60)
                         print("Available Customers:")
@@ -1474,10 +1492,45 @@ def hashview_upload():
                     # Get customer ID and hashfile ID directly
                     customer_id = int(input("\nEnter customer ID: "))
                     
-                    # Note: API doesn't provide hashfile listing
-                    print("\nNote: To find the hashfile ID, visit the Hashview web interface:")
-                    print(f"  {hashview_url}/hashfiles")
-                    print("  Look for hashfiles belonging to the selected customer.")
+                    # List hashfiles for the customer
+                    try:
+                        # Note: Using a simple GET to list hashfiles
+                        list_url = f"{hashview_url}/v1/hashfiles"
+                        response = api_harness.session.get(list_url)
+                        response.raise_for_status()
+                        
+                        hashfiles_data = response.json()
+                        
+                        # Parse hashfiles - may be JSON string
+                        if 'hashfiles' in hashfiles_data:
+                            if isinstance(hashfiles_data['hashfiles'], str):
+                                hashfiles = json.loads(hashfiles_data['hashfiles'])
+                            else:
+                                hashfiles = hashfiles_data['hashfiles']
+                            
+                            # Filter by customer_id
+                            customer_hashfiles = [hf for hf in hashfiles if hf.get('customer_id') == customer_id]
+                            
+                            if customer_hashfiles:
+                                print("\n" + "="*60)
+                                print(f"Hashfiles for Customer ID {customer_id}:")
+                                print("="*60)
+                                print(f"{'ID':<10} {'Name':<30} {'Hash Count':<15}")
+                                print("-" * 60)
+                                for hf in customer_hashfiles:
+                                    hf_id = hf.get('id', 'N/A')
+                                    hf_name = hf.get('name', 'N/A')
+                                    hf_count = hf.get('hash_count', 'N/A')
+                                    print(f"{hf_id:<10} {hf_name:<30} {hf_count:<15}")
+                            else:
+                                print(f"\nNo hashfiles found for customer ID {customer_id}")
+                        else:
+                            print("\nCould not retrieve hashfiles list")
+                    except Exception as e:
+                        print(f"\nWarning: Could not list hashfiles: {e}")
+                        print("You may need to manually find the hashfile ID in the web interface.")
+                    
+
                     
                     hashfile_id = int(input("\nEnter hashfile ID: "))
                     
@@ -1485,18 +1538,26 @@ def hashview_upload():
                     output_file = f"left_{customer_id}_{hashfile_id}.txt"
 
                     # Download the left hashes
-                    download_result = uploader.download_left_hashes(
+                    download_result = api_harness.download_left_hashes(
                         customer_id, hashfile_id, output_file
                     )
                     print(f"\n✓ Success: Downloaded {download_result['size']} bytes")
                     print(f"  File: {download_result['output_file']}")
+                    
+                    # Ask if user wants to switch to this hashfile
+                    switch = input("\nSwitch to this hashfile for cracking? (Y/n): ").strip().lower()
+                    if switch != 'n':
+                        hcatHashFile = download_result['output_file']
+                        print(f"✓ Switched to hashfile: {hcatHashFile}")
+                        print("\nReturning to main menu to start cracking...")
+                        return  # Exit hashview menu and return to main menu
                         
                 except ValueError:
                     print("\n✗ Error: Invalid ID entered. Please enter a numeric ID.")
                 except Exception as e:
                     print(f"\n✗ Error downloading hashes: {str(e)}")
             
-            elif choice == '9':
+            elif choice == '99':
                 break
             else:
                 print("Invalid option. Please try again.")
@@ -1834,10 +1895,14 @@ def main():
     global hcatHashType
     global hcatHashFileOrig
     global lmHashesFound
+    global debug_mode
 
+    # Parse command line arguments
+    args = sys.argv[1:]
+    
     try:
-        hcatHashFile = sys.argv[1]
-        hcatHashType = sys.argv[2]
+        hcatHashFile = args[0]
+        hcatHashType = args[1]
 
     except IndexError:
         # No arguments provided - show menu
@@ -1864,10 +1929,10 @@ def main():
                 sys.exit(1)
             
             try:
-                uploader = HashviewAPI(hashview_url, hashview_api_key)
+                api_harness = HashviewAPI(hashview_url, hashview_api_key)
                 
                 # List customers
-                result = uploader.list_customers()
+                result = api_harness.list_customers()
                 if 'customers' in result and result['customers']:
                     print("\n" + "="*60)
                     print("Available Customers:")
@@ -1899,7 +1964,7 @@ def main():
                 output_file = f"left_{customer_id}_{hashfile_id}.txt"
                 
                 # Download the left hashes
-                download_result = uploader.download_left_hashes(
+                download_result = api_harness.download_left_hashes(
                     customer_id, hashfile_id, output_file
                 )
                 print(f"\n✓ Success: Downloaded {download_result['size']} bytes")
@@ -2003,7 +2068,7 @@ def main():
             print("\t(11) Middle Combinator Attack")
             print("\t(12) Thorough Combinator Attack")
             print("\t(13) Bandrel Methodology")
-            print("\n\t(94) Upload to Hashview")
+            print("\n\t(94) Hashview")
             print("\t(95) Analyze hashes with Pipal")
             print("\t(96) Export Output to Excel Format")
             print("\t(97) Display Cracked Hashes")
@@ -2022,7 +2087,7 @@ def main():
                        "11": middle_combinator,
                        "12": thorough_combinator,
                        "13": bandrel_method,
-                       "94": hashview_upload,
+                       "94": hashview_api,
                        "95": pipal,
                        "96": export_excel,
                        "97": show_results,
