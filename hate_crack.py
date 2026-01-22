@@ -14,6 +14,8 @@ import re
 import json
 import binascii
 import shutil
+import readline
+import glob
 
 try:
     import requests
@@ -243,6 +245,79 @@ def ascii_art():
        \/      \/          \/_____/      \/            \/     \/     \/
                           Version 1.09
   """)
+
+
+# File selector with tab autocomplete
+def select_file_with_autocomplete(prompt, default=None, allow_multiple=False):
+    """
+    Interactive file selector with tab autocomplete functionality.
+    
+    Args:
+        prompt: The prompt to display to the user
+        default: Optional default value if user presses Enter
+        allow_multiple: If True, allows comma-separated file list
+    
+    Returns:
+        String path or list of paths (if allow_multiple=True)
+    """
+    def path_completer(text, state):
+        """Tab completion function for file paths"""
+        if not text:
+            text = './'
+        
+        # Expand ~ to home directory
+        text = os.path.expanduser(text)
+        
+        # Handle both absolute and relative paths
+        if text.startswith('/') or text.startswith('./') or text.startswith('../') or text.startswith('~'):
+            matches = glob.glob(text + '*')
+        else:
+            matches = glob.glob('./' + text + '*')
+            matches = [m[2:] if m.startswith('./') else m for m in matches]
+        
+        # Add trailing slash for directories
+        matches = [m + '/' if os.path.isdir(m) else m for m in matches]
+        
+        try:
+            return matches[state]
+        except IndexError:
+            return None
+    
+    # Configure readline for tab completion
+    readline.set_completer_delims(' \t\n;')
+    # Disable the "Display all X possibilities?" prompt
+    try:
+        readline.parse_and_bind("set completion-query-items -1")
+    except:
+        pass
+    try:
+        readline.parse_and_bind("tab: complete")
+    except:
+        pass
+    try:
+        readline.parse_and_bind("bind ^I rl_complete")
+    except:
+        pass
+    readline.set_completer(path_completer)
+    
+    # Build prompt
+    full_prompt = f"\n{prompt}"
+    if default:
+        full_prompt += f" (default: {default})"
+    full_prompt += ": "
+    
+    result = input(full_prompt).strip()
+    
+    # Handle default
+    if not result and default:
+        return default
+    
+    # Handle multiple files
+    if allow_multiple and ',' in result:
+        files = [f.strip() for f in result.split(',')]
+        return [os.path.expanduser(f) for f in files if f]
+    
+    return os.path.expanduser(result) if result else None
 
 
 # Counts the number of lines in a file
@@ -475,10 +550,19 @@ def hcatCombination(hcatHashType, hcatHashFile):
 
 
 # Hybrid Attack
-def hcatHybrid(hcatHashType, hcatHashFile):
+def hcatHybrid(hcatHashType, hcatHashFile, wordlists=None):
     global hcatHybridCount
     global hcatProcess
-    for wordlist in hcatHybridlist:
+    
+    # Use provided wordlists or fall back to config default
+    if wordlists is None:
+        wordlists = hcatHybridlist
+    
+    # Ensure wordlists is a list
+    if not isinstance(wordlists, list):
+        wordlists = [wordlists]
+    
+    for wordlist in wordlists:
         hcatProcess = subprocess.Popen(
             "{hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out -a 6 -1 ?s?d {wordlist} ?1?1 "
             "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
@@ -1149,15 +1233,6 @@ class HashviewAPI:
         print(f"  Hash type: {hash_type}")
         print(f"  Content preview (first 500 chars):")
         print(converted_content[:500])
-        
-        # Generate curl command for manual testing
-        print(f"\n  === CURL COMMAND ===")
-        curl_data_preview = converted_content[:200].replace("'", "'\\''")  # Escape single quotes
-        print(f"  curl --insecure -X POST '{url}' \\")
-        print(f"    -H 'Content-Type: text/plain' \\")
-        print(f"    --cookie 'uuid={self.api_key}' \\")
-        print(f"    --data '{converted_content}...'")
-        
         print(f"\n  Uploading...")
         
         response = self.session.post(url, data=converted_content, headers=headers)
@@ -1414,8 +1489,11 @@ def hashview_api():
                     print(f"\n✓ Success: {result.get('msg', 'Hashfile uploaded')}")
                     if 'hashfile_id' in result:
                         print(f"  Hashfile ID: {result['hashfile_id']}")
-                        print(f"  Hash count: {result.get('hash_count', 'N/A')}")
-                        print(f"  Insta-cracked: {result.get('instacracked', 0)}")
+                        # Hash count is not returned by the upload API, so we don't display it
+                        if 'hash_count' in result:
+                            print(f"  Hash count: {result['hash_count']}")
+                        if 'instacracked' in result:
+                            print(f"  Insta-cracked: {result['instacracked']}")
                         
                         # Offer to create a job
                         create_job = input("\nWould you like to create a job for this hashfile? (Y/n): ") or "Y"
@@ -1580,9 +1658,55 @@ def quick_crack():
     for i, file in enumerate(wordlist_files, start=1):
         print(f"{i}. {file}")
 
+    # Setup tab completion for file paths
+    def path_completer(text, state):
+        """Tab completion function for file paths"""
+        if not text:
+            # If empty, complete from current directory
+            text = './'
+        
+        # Expand ~ to home directory
+        text = os.path.expanduser(text)
+        
+        # Handle both absolute and relative paths
+        if text.startswith('/') or text.startswith('./') or text.startswith('../') or text.startswith('~'):
+            # Path-based completion
+            matches = glob.glob(text + '*')
+        else:
+            # Complete from current directory
+            matches = glob.glob('./' + text + '*')
+            # Remove the ./ prefix for cleaner display
+            matches = [m[2:] if m.startswith('./') else m for m in matches]
+        
+        # Add trailing slash for directories
+        matches = [m + '/' if os.path.isdir(m) else m for m in matches]
+        
+        try:
+            return matches[state]
+        except IndexError:
+            return None
+    
+    # Configure readline for tab completion
+    readline.set_completer_delims(' \t\n;')
+    # Disable the "Display all X possibilities?" prompt
+    try:
+        readline.parse_and_bind("set completion-query-items -1")
+    except:
+        pass
+    # Try both GNU readline and libedit (macOS) key bindings
+    try:
+        readline.parse_and_bind("tab: complete")
+    except:
+        pass
+    try:
+        readline.parse_and_bind("bind ^I rl_complete")
+    except:
+        pass
+    readline.set_completer(path_completer)
+
     while wordlist_choice is None:
         try:
-            raw_choice = input("\nEnter path of wordlist or wordlist directory.\n"
+            raw_choice = input("\nEnter path of wordlist or wordlist directory (tab to autocomplete).\n"
                             "Press Enter for default optimized wordlists [{0}]: ".format(hcatOptimizedWordlists))
             if raw_choice == '':
                 wordlist_choice = hcatOptimizedWordlists
@@ -1712,7 +1836,74 @@ def combinator_crack():
 
 # Hybrid
 def hybrid_crack():
-    hcatHybrid(hcatHashType, hcatHashFile)
+    """Interactive hybrid attack with dynamic wordlist selection"""
+    print("\n" + "="*60)
+    print("HYBRID ATTACK")
+    print("="*60)
+    print("This attack combines wordlists with masks to generate candidates.")
+    print("Examples:")
+    print("  - Mode 6: wordlist + mask (e.g., 'password' + '123')")
+    print("  - Mode 7: mask + wordlist (e.g., '123' + 'password')")
+    print("="*60)
+    
+    # Ask if user wants to use config default or select custom wordlist(s)
+    use_default = input("\nUse default hybrid wordlist from config? (Y/n): ").strip().lower()
+    
+    if use_default != 'n':
+        # Use config default
+        print(f"\nUsing default wordlist(s) from config:")
+        if isinstance(hcatHybridlist, list):
+            for wl in hcatHybridlist:
+                print(f"  - {wl}")
+            wordlists = hcatHybridlist
+        else:
+            print(f"  - {hcatHybridlist}")
+            wordlists = [hcatHybridlist]
+    else:
+        # Let user select wordlist(s)
+        print("\nSelect wordlist(s) for hybrid attack.")
+        print("You can enter:")
+        print("  - A single file path")
+        print("  - Multiple paths separated by commas")
+        print("  - Press TAB to autocomplete file paths")
+        
+        selection = select_file_with_autocomplete(
+            "Enter wordlist file(s) (comma-separated for multiple)",
+            allow_multiple=True
+        )
+        
+        if not selection:
+            print("No wordlist selected. Aborting hybrid attack.")
+            return
+        
+        # Convert to list if single file
+        if isinstance(selection, str):
+            wordlists = [selection]
+        else:
+            wordlists = selection
+        
+        # Validate all files exist
+        valid_wordlists = []
+        for wl in wordlists:
+            if os.path.isfile(wl):
+                valid_wordlists.append(wl)
+                print(f"✓ Found: {wl}")
+            else:
+                print(f"✗ Not found: {wl}")
+        
+        if not valid_wordlists:
+            print("\nNo valid wordlists found. Aborting hybrid attack.")
+            return
+        
+        wordlists = valid_wordlists
+    
+    # Confirm before starting
+    print(f"\nStarting hybrid attack with {len(wordlists)} wordlist(s)...")
+    print(f"Hash type: {hcatHashType}")
+    print(f"Hash file: {hcatHashFile}")
+    
+    # Run the attack with selected wordlist(s)
+    hcatHybrid(hcatHashType, hcatHashFile, wordlists)
 
 
 # Pathwell Top 100 Bruteforce Mask
