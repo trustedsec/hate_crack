@@ -1255,6 +1255,59 @@ class HashviewAPI:
             # Not valid JSON
             raise Exception(f"Invalid API response: {response.text[:200]}")
     
+    def display_customers_multicolumn(self, customers):
+        """Display customers in multiple columns to minimize scrolling
+        
+        Args:
+            customers: List of customer dictionaries
+        """
+        if not customers:
+            print("\nNo customers found.")
+            return
+        
+        # Get terminal width, default to 120 if can't determine
+        try:
+            terminal_width = shutil.get_terminal_size().columns
+        except:
+            terminal_width = 120
+        
+        # Each entry is "ID: Name" - calculate column width
+        # Find max ID width
+        max_id_len = max(len(str(c.get('id', ''))) for c in customers)
+        # Add formatting: "ID: Name  " (ID + ": " + some name space + padding)
+        # Use reasonable name width (30 chars) for column sizing
+        col_width = max_id_len + 2 + 30 + 2  # ID + ": " + name + padding
+        
+        # Calculate number of columns that fit
+        num_cols = max(1, terminal_width // col_width)
+        
+        print("\n" + "="*terminal_width)
+        print("Available Customers:")
+        print("="*terminal_width)
+        
+        # Organize customers into columns
+        num_customers = len(customers)
+        rows = (num_customers + num_cols - 1) // num_cols  # Ceiling division
+        
+        for row in range(rows):
+            line_parts = []
+            for col in range(num_cols):
+                idx = row + col * rows
+                if idx < num_customers:
+                    customer = customers[idx]
+                    cust_id = customer.get('id', 'N/A')
+                    cust_name = customer.get('name', 'N/A')
+                    # Truncate name to fit column width
+                    name_width = col_width - max_id_len - 2 - 2
+                    if len(str(cust_name)) > name_width:
+                        cust_name = str(cust_name)[:name_width-3] + "..."
+                    entry = f"{cust_id}: {cust_name}"
+                    line_parts.append(entry.ljust(col_width))
+            print("".join(line_parts).rstrip())
+        
+        print("="*terminal_width)
+        print(f"Total: {len(customers)} customer(s)")
+    
     def list_customers(self):
         url = f"{self.base_url}/v1/customers"
         
@@ -1270,6 +1323,30 @@ class HashviewAPI:
         
         return data
     
+    def list_hashfiles(self):
+        """Get all hashfiles from Hashview"""
+        url = f"{self.base_url}/v1/hashfiles"
+        
+        response = self.session.get(url)
+        response.raise_for_status()
+        data = response.json()
+        
+        # Parse hashfiles - may be JSON string
+        if 'hashfiles' in data:
+            if isinstance(data['hashfiles'], str):
+                hashfiles = json.loads(data['hashfiles'])
+            else:
+                hashfiles = data['hashfiles']
+            return hashfiles
+        
+        return []
+    
+    def get_customer_hashfiles(self, customer_id):
+        """Get hashfiles for a specific customer"""
+        all_hashfiles = self.list_hashfiles()
+        # Filter by customer_id - handle both int and string comparisons
+        return [hf for hf in all_hashfiles if int(hf.get('customer_id', 0)) == customer_id]
+    
     def create_customer(self, name):
         url = f"{self.base_url}/v1/customers/add"
         headers = {'Content-Type': 'application/json'}
@@ -1283,13 +1360,12 @@ class HashviewAPI:
     def create_job(self, name, hashfile_id, customer_id, limit_recovered=False, notify_email=True):
         url = f"{self.base_url}/v1/jobs/add"
         headers = {'Content-Type': 'application/json'}
+        # Only send the minimum required fields - server has issues with notification parameters
         data = {
             "name": name,
             "hashfile_id": hashfile_id,
             "customer_id": customer_id,
-            "limit_recovered": limit_recovered,
-            "notify_email": notify_email,
-            "notify_pushover": False
+            # Note: notify_email and notify_pushover cause server errors - do not send them
         }
         
         print(f"Creating job: {name}")
@@ -1362,7 +1438,11 @@ class HashviewAPI:
             f.write(response.content)
         
         file_size = len(response.content)
-        print(f"✓ Downloaded {file_size} bytes to {output_file}")
+        # Wrap output to 100 columns
+        import textwrap
+        message = f"✓ Downloaded {file_size} bytes to {output_file}"
+        wrapped = textwrap.fill(message, width=100, subsequent_indent="  ")
+        print(wrapped)
         
         return {'output_file': output_file, 'size': file_size}
     
@@ -1411,7 +1491,7 @@ class HashviewAPI:
 
 
 def hashview_api():
-    """Upload data to Hashview API"""
+    """Download/Upload data to Hashview API"""
     global hcatHashFile, hcatHashType
     
     if not REQUESTS_AVAILABLE:
@@ -1439,7 +1519,7 @@ def hashview_api():
             print("What would you like to do?")
             print("="*60)
             print("\t(1) Upload Cracked Hashes from current session")
-            print("\t(2) Create Job")
+            # print("\t(2) Create Job")
             print("\t(3) List Customers")
             print("\t(4) Create Customer")
             print("\t(5) Download Left Hashes")
@@ -1512,133 +1592,125 @@ def hashview_api():
                     print("\nFull error details:")
                     traceback.print_exc()
             
-            elif choice == '2':
-                # Upload hashfile and create job
-                hashfile_path = select_file_with_autocomplete(
-                    "Enter path to hashfile (TAB to autocomplete)"
-                )
-                if not hashfile_path or not os.path.exists(hashfile_path):
-                    print(f"Error: File not found: {hashfile_path}")
-                    continue
+            # elif choice == '2':
+            #     # Upload hashfile and create job
+            #     hashfile_path = select_file_with_autocomplete(
+            #         "Enter path to hashfile (TAB to autocomplete)"
+            #     )
+            #     if not hashfile_path or not os.path.exists(hashfile_path):
+            #         print(f"Error: File not found: {hashfile_path}")
+            #         continue
                 
-                customer_id = int(input("Enter customer ID: "))
-                hash_type = int(input(f"Enter hash type (default: {hcatHashType}): ") or hcatHashType)
+            #     customer_id = int(input("Enter customer ID: "))
+            #     hash_type = int(input(f"Enter hash type (default: {hcatHashType}): ") or hcatHashType)
                 
-                print("\nFile formats:")
-                print("  0 = pwdump, 1 = NetNTLM, 2 = kerberos")
-                print("  3 = shadow, 4 = user:hash, 5 = hash_only")
-                file_format = int(input("Enter file format (default: 5): ") or 5)
+            #     print("\nFile formats:")
+            #     print("  0 = pwdump, 1 = NetNTLM, 2 = kerberos")
+            #     print("  3 = shadow, 4 = user:hash, 5 = hash_only")
+            #     file_format = int(input("Enter file format (default: 5): ") or 5)
                 
-                hashfile_name = input(f"Enter hashfile name (default: {os.path.basename(hashfile_path)}): ") or None
+            #     hashfile_name = input(f"Enter hashfile name (default: {os.path.basename(hashfile_path)}): ") or None
                 
-                try:
-                    result = api_harness.upload_hashfile(
-                        hashfile_path, customer_id, hash_type, file_format, hashfile_name
-                    )
-                    print(f"\n✓ Success: {result.get('msg', 'Hashfile uploaded')}")
-                    if 'hashfile_id' in result:
-                        print(f"  Hashfile ID: {result['hashfile_id']}")
-                        # Hash count is not returned by the upload API, so we don't display it
-                        if 'hash_count' in result:
-                            print(f"  Hash count: {result['hash_count']}")
-                        if 'instacracked' in result:
-                            print(f"  Insta-cracked: {result['instacracked']}")
+            #     try:
+            #         result = api_harness.upload_hashfile(
+            #             hashfile_path, customer_id, hash_type, file_format, hashfile_name
+            #         )
+            #         print(f"\n✓ Success: {result.get('msg', 'Hashfile uploaded')}")
+            #         if 'hashfile_id' in result:
+            #             print(f"  Hashfile ID: {result['hashfile_id']}")
+            #             # Hash count is not returned by the upload API, so we don't display it
+            #             if 'hash_count' in result:
+            #                 print(f"  Hash count: {result['hash_count']}")
+            #             if 'instacracked' in result:
+            #                 print(f"  Insta-cracked: {result['instacracked']}")
                         
-                        # Offer to create a job
-                        create_job = input("\nWould you like to create a job for this hashfile? (Y/n): ") or "Y"
-                        if create_job.upper() == 'Y':
-                            job_name = input("Enter job name: ")
-                            limit_recovered = input("Limit to recovered hashes only? (y/N): ").upper() == 'Y'
-                            notify_email = input("Send email notifications? (Y/n): ").upper() != 'N'
+            #             # Offer to create a job
+            #             create_job = input("\nWould you like to create a job for this hashfile? (Y/n): ") or "Y"
+            #             if create_job.upper() == 'Y':
+            #                 job_name = input("Enter job name: ")
+            #                 limit_recovered = input("Limit to recovered hashes only? (y/N): ").upper() == 'Y'
+            #                 notify_email = input("Send email notifications? (Y/n): ").upper() != 'N'
                             
-                            # Ask if user wants to upload a custom wordlist for this job
-                            upload_wordlist = input("\nUpload a custom wordlist to Hashview? (y/N): ").upper() == 'Y'
-                            uploaded_wordlist_id = None
+            #                 # Ask if user wants to upload a custom wordlist for this job
+            #                 upload_wordlist = input("\nUpload a custom wordlist to Hashview? (y/N): ").upper() == 'Y'
+            #                 uploaded_wordlist_id = None
                             
-                            if upload_wordlist:
-                                print("\n" + "="*60)
-                                print("WORDLIST UPLOAD")
-                                print("="*60)
-                                print("Select a wordlist file to upload to Hashview.")
-                                print("After upload, you'll need to:")
-                                print("  1. Create a task in Hashview using this wordlist")
-                                print("  2. Manually add the task to this job via web interface")
-                                print("\nPress TAB to autocomplete file paths.")
-                                print("="*60)
+            #                 if upload_wordlist:
+            #                     print("\n" + "="*60)
+            #                     print("WORDLIST UPLOAD")
+            #                     print("="*60)
+            #                     print("Select a wordlist file to upload to Hashview.")
+            #                     print("After upload, you'll need to:")
+            #                     print("  1. Create a task in Hashview using this wordlist")
+            #                     print("  2. Manually add the task to this job via web interface")
+            #                     print("\nPress TAB to autocomplete file paths.")
+            #                     print("="*60)
                                 
-                                wordlist_path = select_file_with_autocomplete(
-                                    "Enter path to wordlist file"
-                                )
+            #                     wordlist_path = select_file_with_autocomplete(
+            #                         "Enter path to wordlist file"
+            #                     )
                                 
-                                if wordlist_path and os.path.isfile(wordlist_path):
-                                    # Ask for wordlist name
-                                    default_name = os.path.basename(wordlist_path)
-                                    wordlist_name = input(f"\nEnter wordlist name (default: {default_name}): ").strip() or default_name
+            #                     if wordlist_path and os.path.isfile(wordlist_path):
+            #                         # Ask for wordlist name
+            #                         default_name = os.path.basename(wordlist_path)
+            #                         wordlist_name = input(f"\nEnter wordlist name (default: {default_name}): ").strip() or default_name
                                     
-                                    try:
-                                        # Upload the wordlist
-                                        upload_result = api_harness.upload_wordlist(wordlist_path, wordlist_name)
-                                        print(f"\n✓ Success: {upload_result.get('msg', 'Wordlist uploaded')}")
-                                        if 'wordlist_id' in upload_result:
-                                            uploaded_wordlist_id = upload_result['wordlist_id']
-                                            print(f"  Wordlist ID: {uploaded_wordlist_id}")
-                                            print(f"  Wordlist Name: {wordlist_name}")
-                                    except Exception as e:
-                                        print(f"\n✗ Error uploading wordlist: {str(e)}")
-                                        print("Continuing with job creation...")
-                                else:
-                                    print("\n✗ No valid wordlist file selected.")
-                                    print("Continuing with job creation...")
+            #                         try:
+            #                             # Upload the wordlist
+            #                             upload_result = api_harness.upload_wordlist(wordlist_path, wordlist_name)
+            #                             print(f"\n✓ Success: {upload_result.get('msg', 'Wordlist uploaded')}")
+            #                             if 'wordlist_id' in upload_result:
+            #                                 uploaded_wordlist_id = upload_result['wordlist_id']
+            #                                 print(f"  Wordlist ID: {uploaded_wordlist_id}")
+            #                                 print(f"  Wordlist Name: {wordlist_name}")
+            #                         except Exception as e:
+            #                             print(f"\n✗ Error uploading wordlist: {str(e)}")
+            #                             print("Continuing with job creation...")
+            #                     else:
+            #                         print("\n✗ No valid wordlist file selected.")
+            #                         print("Continuing with job creation...")
                             
-                            try:
-                                job_result = api_harness.create_job(
-                                    job_name, result['hashfile_id'], customer_id,
-                                    limit_recovered, notify_email
-                                )
-                                print(f"\n✓ Success: {job_result.get('msg', 'Job created')}")
-                                if 'job_id' in job_result:
-                                    print(f"  Job ID: {job_result['job_id']}")
-                                    print(f"\nNote: Job created with automatically assigned tasks based on")
-                                    print(f"      historical effectiveness for hash type {hash_type}.")
+            #                 try:
+            #                     job_result = api_harness.create_job(
+            #                         job_name, result['hashfile_id'], customer_id,
+            #                         limit_recovered, notify_email
+            #                     )
+            #                     print(f"\n✓ Success: {job_result.get('msg', 'Job created')}")
+            #                     if 'job_id' in job_result:
+            #                         print(f"  Job ID: {job_result['job_id']}")
+            #                         print(f"\nNote: Job created with automatically assigned tasks based on")
+            #                         print(f"      historical effectiveness for hash type {hash_type}.")
                                     
-                                    if uploaded_wordlist_id:
-                                        print(f"\n{'='*60}")
-                                        print("NEXT STEPS - Configure Task in Hashview Web Interface:")
-                                        print(f"{'='*60}")
-                                        print(f"1. Go to: {hashview_url}")
-                                        print(f"2. Navigate to Tasks → Create New Task")
-                                        print(f"3. Configure task with:")
-                                        print(f"   - Wordlist ID: {uploaded_wordlist_id} ({wordlist_name})")
-                                        print(f"   - Rule: (select appropriate rule)")
-                                        print(f"   - Attack mode: 0 (dictionary)")
-                                        print(f"4. Go to Jobs → Job ID {job_result['job_id']}")
-                                        print(f"5. Add the new task to this job")
-                                        print(f"{'='*60}")
+            #                         if uploaded_wordlist_id:
+            #                             print(f"\n{'='*60}")
+            #                             print("NEXT STEPS - Configure Task in Hashview Web Interface:")
+            #                             print(f"{'='*60}")
+            #                             print(f"1. Go to: {hashview_url}")
+            #                             print(f"2. Navigate to Tasks → Create New Task")
+            #                             print(f"3. Configure task with:")
+            #                             print(f"   - Wordlist ID: {uploaded_wordlist_id} ({wordlist_name})")
+            #                             print(f"   - Rule: (select appropriate rule)")
+            #                             print(f"   - Attack mode: 0 (dictionary)")
+            #                             print(f"4. Go to Jobs → Job ID {job_result['job_id']}")
+            #                             print(f"5. Add the new task to this job")
+            #                             print(f"{'='*60}")
                                     
-                                    # Offer to start the job
-                                    start_now = input("\nStart the job now? (Y/n): ") or "Y"
-                                    if start_now.upper() == 'Y':
-                                        start_result = api_harness.start_job(job_result['job_id'])
-                                        print(f"\n✓ Success: {start_result.get('msg', 'Job started')}")
-                            except Exception as e:
-                                print(f"\n✗ Error creating job: {str(e)}")
-                except Exception as e:
-                    print(f"\n✗ Error uploading hashfile: {str(e)}")
+            #                         # Offer to start the job
+            #                         start_now = input("\nStart the job now? (Y/n): ") or "Y"
+            #                         if start_now.upper() == 'Y':
+            #                             start_result = api_harness.start_job(job_result['job_id'])
+            #                             print(f"\n✓ Success: {start_result.get('msg', 'Job started')}")
+            #                 except Exception as e:
+            #                     print(f"\n✗ Error creating job: {str(e)}")
+            #     except Exception as e:
+            #         print(f"\n✗ Error uploading hashfile: {str(e)}")
             
             elif choice == '3':
                 # List customers
                 try:
                     result = api_harness.list_customers()
                     if 'customers' in result and result['customers']:
-                        print("\n" + "="*60)
-                        print("Customers:")
-                        print("="*60)
-                        print(f"{'ID':<10} {'Name':<30} {'Description'}")
-                        print("-" * 60)
-                        for customer in result['customers']:
-                            cust_id = customer.get('id', 'N/A')
-                            cust_name = customer.get('name', 'N/A')
-                            print(f"{cust_id:<10} {cust_name:<30}")
+                        api_harness.display_customers_multicolumn(result['customers'])
                     else:
                         print("\nNo customers found.")
                 except Exception as e:
@@ -1661,66 +1733,35 @@ def hashview_api():
                     # First, list customers to help user select
                     result = api_harness.list_customers()
                     if 'customers' in result and result['customers']:
-                        print("\n" + "="*60)
-                        print("Available Customers:")
-                        print("="*60)
-                        print(f"{'ID':<10} {'Name':<30}")
-                        print("-" * 60)
-                        for customer in result['customers']:
-                            cust_id = customer.get('id', 'N/A')
-                            cust_name = customer.get('name', 'N/A')
-                            print(f"{cust_id:<10} {cust_name:<30}")
+                        api_harness.display_customers_multicolumn(result['customers'])
                     
                     # Get customer ID and hashfile ID directly
                     customer_id = int(input("\nEnter customer ID: "))
                     
                     # List hashfiles for the customer
                     try:
-                        # Note: Using a simple GET to list hashfiles
-                        list_url = f"{hashview_url}/v1/hashfiles"
-                        response = api_harness.session.get(list_url)
-                        response.raise_for_status()
+                        customer_hashfiles = api_harness.get_customer_hashfiles(customer_id)
                         
-                        hashfiles_data = response.json()
-                        
-                        # Parse hashfiles - may be JSON string
-                        if 'hashfiles' in hashfiles_data:
-                            if isinstance(hashfiles_data['hashfiles'], str):
-                                hashfiles = json.loads(hashfiles_data['hashfiles'])
-                            else:
-                                hashfiles = hashfiles_data['hashfiles']
-                            
-                            # Debug: Show total hashfiles
-                            print(f"\nDebug: Total hashfiles returned: {len(hashfiles)}")
-                            
-                            # Filter by customer_id - handle both int and string comparisons
-                            customer_hashfiles = [hf for hf in hashfiles if int(hf.get('customer_id', 0)) == customer_id]
-                            
-                            # Debug: Show what customer IDs we found
-                            if not customer_hashfiles:
-                                found_customer_ids = set(hf.get('customer_id') for hf in hashfiles)
-                                print(f"Debug: Found customer IDs in hashfiles: {sorted(found_customer_ids)}")
-                                print(f"Debug: Looking for customer_id: {customer_id} (type: {type(customer_id)})")
-                            
-                            if customer_hashfiles:
-                                print("\n" + "="*60)
-                                print(f"Hashfiles for Customer ID {customer_id}:")
-                                print("="*60)
-                                print(f"{'ID':<10} {'Name':<40}")
-                                print("-" * 60)
-                                for hf in customer_hashfiles:
-                                    hf_id = hf.get('id', 'N/A')
-                                    hf_name = hf.get('name', 'N/A')
-                                    print(f"{hf_id:<10} {hf_name:<40}")
-                            else:
-                                print(f"\nNo hashfiles found for customer ID {customer_id}")
+                        if customer_hashfiles:
+                            print("\n" + "="*100)
+                            print(f"Hashfiles for Customer ID {customer_id}:")
+                            print("="*100)
+                            print(f"{'ID':<10} {'Name':<88}")
+                            print("-" * 100)
+                            for hf in customer_hashfiles:
+                                hf_id = hf.get('id', 'N/A')
+                                hf_name = hf.get('name', 'N/A')
+                                # Truncate long names to fit within 100 columns
+                                if len(str(hf_name)) > 88:
+                                    hf_name = str(hf_name)[:85] + "..."
+                                print(f"{hf_id:<10} {hf_name:<88}")
+                            print("="*100)
+                            print(f"Total: {len(customer_hashfiles)} hashfile(s)")
                         else:
-                            print("\nCould not retrieve hashfiles list")
+                            print(f"\nNo hashfiles found for customer ID {customer_id}")
                     except Exception as e:
                         print(f"\nWarning: Could not list hashfiles: {e}")
                         print("You may need to manually find the hashfile ID in the web interface.")
-                    
-
                     
                     hashfile_id = int(input("\nEnter hashfile ID: "))
                     
@@ -2237,61 +2278,32 @@ def main():
                 # List customers
                 result = api_harness.list_customers()
                 if 'customers' in result and result['customers']:
-                    print("\n" + "="*60)
-                    print("Available Customers:")
-                    print("="*60)
-                    print(f"{'ID':<10} {'Name':<30}")
-                    print("-" * 60)
-                    for customer in result['customers']:
-                        cust_id = customer.get('id', 'N/A')
-                        cust_name = customer.get('name', 'N/A')
-                        print(f"{cust_id:<10} {cust_name:<30}")
+                    api_harness.display_customers_multicolumn(result['customers'])
                 
                 # Get customer ID
                 customer_id = int(input("\nEnter customer ID: "))
                 
                 # List hashfiles for the customer
                 try:
-                    # Note: Using a simple GET to list hashfiles
-                    list_url = f"{hashview_url}/v1/hashfiles"
-                    response = api_harness.session.get(list_url)
-                    response.raise_for_status()
+                    customer_hashfiles = api_harness.get_customer_hashfiles(customer_id)
                     
-                    hashfiles_data = response.json()
-                    
-                    # Parse hashfiles - may be JSON string
-                    if 'hashfiles' in hashfiles_data:
-                        if isinstance(hashfiles_data['hashfiles'], str):
-                            hashfiles = json.loads(hashfiles_data['hashfiles'])
-                        else:
-                            hashfiles = hashfiles_data['hashfiles']
-                        
-                        # Debug: Show total hashfiles
-                        print(f"\nDebug: Total hashfiles returned: {len(hashfiles)}")
-                        
-                        # Filter by customer_id - handle both int and string comparisons
-                        customer_hashfiles = [hf for hf in hashfiles if int(hf.get('customer_id', 0)) == customer_id]
-                        
-                        # Debug: Show what customer IDs we found
-                        if not customer_hashfiles:
-                            found_customer_ids = set(hf.get('customer_id') for hf in hashfiles)
-                            print(f"Debug: Found customer IDs in hashfiles: {sorted(found_customer_ids)}")
-                            print(f"Debug: Looking for customer_id: {customer_id} (type: {type(customer_id)})")
-                        
-                        if customer_hashfiles:
-                            print("\n" + "="*60)
-                            print(f"Hashfiles for Customer ID {customer_id}:")
-                            print("="*60)
-                            print(f"{'ID':<10} {'Name':<40}")
-                            print("-" * 60)
-                            for hf in customer_hashfiles:
-                                hf_id = hf.get('id', 'N/A')
-                                hf_name = hf.get('name', 'N/A')
-                                print(f"{hf_id:<10} {hf_name:<40}")
-                        else:
-                            print(f"\nNo hashfiles found for customer ID {customer_id}")
+                    if customer_hashfiles:
+                        print("\n" + "="*100)
+                        print(f"Hashfiles for Customer ID {customer_id}:")
+                        print("="*100)
+                        print(f"{'ID':<10} {'Name':<88}")
+                        print("-" * 100)
+                        for hf in customer_hashfiles:
+                            hf_id = hf.get('id', 'N/A')
+                            hf_name = hf.get('name', 'N/A')
+                            # Truncate long names to fit within 100 columns
+                            if len(str(hf_name)) > 88:
+                                hf_name = str(hf_name)[:85] + "..."
+                            print(f"{hf_id:<10} {hf_name:<88}")
+                        print("="*100)
+                        print(f"Total: {len(customer_hashfiles)} hashfile(s)")
                     else:
-                        print("\nCould not retrieve hashfiles list")
+                        print(f"\nNo hashfiles found for customer ID {customer_id}")
                 except Exception as e:
                     print(f"\nWarning: Could not list hashfiles: {e}")
                     print("You may need to manually find the hashfile ID in the web interface.")
