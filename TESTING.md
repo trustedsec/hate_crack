@@ -1,13 +1,13 @@
-# Test Mocking Summary
+# Testing Guide
 
 ## Overview
-All Hashview API tests have been updated to use mocked responses instead of real API calls. This allows tests to run in CI/CD environments (like GitHub Actions) without requiring connectivity to a Hashview server or actual API credentials.
+The test suite uses mocked API responses and local fixtures so it can run without external services (Hashview, Hashmob, Weakpass). Most tests are fast and run entirely offline.
 
 ## Changes Made
 
-### 1. Updated Test Files
+### 1. Test Files (Current)
 
-**test_hashview.py** (consolidated test suite)
+**tests/test_hashview.py** (mocked Hashview API tests)
 - Added `unittest.mock` imports (Mock, patch, MagicMock)
 - Removed dependency on config.json file
 - Replaced all real API calls with mocked responses
@@ -17,6 +17,23 @@ All Hashview API tests have been updated to use mocked responses instead of real
   - Authentication and authorization
   - Hashfile upload
   - Complete job creation workflow
+
+**tests/test_hate_crack_utils.py**
+- Unit tests for utility helpers (session id generation, line counts, path resolution, hex conversion)
+- Uses `HATE_CRACK_SKIP_INIT=1` to avoid heavy dependency checks
+
+**tests/test_menu_snapshots.py**
+- Snapshot-based tests for menu output text
+- Uses fixtures in `tests/fixtures/menu_outputs/`
+
+**tests/test_dependencies.py**
+- Checks local tool availability (7z, transmission-cli)
+
+**tests/test_module_imports.py**
+- Ensures core modules import cleanly (`hashview`, `hashmob_wordlist`, `weakpass`, `cli`, `api`, `attacks`)
+
+**tests/test_hashmob_connectivity.py**
+- Mocked Hashmob API connectivity test
 
 ### 2. Key Mock Patterns
 
@@ -32,33 +49,25 @@ mock_response.raise_for_status = Mock()
 api.session.get.return_value = mock_response
 ```
 
-### 3. GitHub Actions Workflow
+### 3. Documentation
 
-Created `.github/workflows/tests.yml` to automatically run tests on:
-- Push to main/master/develop branches
-- Pull requests to main/master/develop branches
-- Tests run against Python 3.9, 3.10, 3.11, and 3.12
-
-### 4. Documentation
-
-Updated readme.md with:
+Updated `readme.md` with:
 - Testing section explaining how to run tests locally
 - Description of test structure
-- Information about CI/CD integration
 
 ## Test Results
 
-✅ 6 tests passing  
-⚡ Tests run in ~0.1 seconds (vs ~20 seconds with real API calls)
+✅ 25 tests passing  
+⚡ Tests run in <1 second on a typical dev machine
 
 ### Test Coverage
 
-1. **test_list_customers_success** - Validates customer listing with multiple customers
-2. **test_list_customers_returns_valid_data** - Validates customer data structure
-3. **test_connection_and_auth** - Tests successful authentication
-4. **test_invalid_api_key_fails** - Tests authentication failure handling
-5. **test_upload_hashfile** - Tests hashfile upload functionality
-6. **test_create_job_workflow** - Tests complete end-to-end job creation workflow
+Highlights:
+1. Hashview API workflows (list customers, upload hashfile, create jobs, download left hashes)
+2. Utility helpers (sanitize session ids, line count, path resolution, hex conversion)
+3. Menu output snapshots
+4. Hashmob connectivity (mocked)
+5. Module import sanity checks
 
 ## Benefits
 
@@ -78,10 +87,10 @@ pip install pytest pytest-mock requests
 pytest -v
 
 # Run specific test
-pytest test_hashview.py -v
+pytest tests/test_hashview.py -v
 
 # Run a specific test method
-pytest test_hashview.py::TestHashviewAPI::test_create_job_workflow -v
+pytest tests/test_hashview.py::TestHashviewAPI::test_create_job_workflow -v
 ```
 
 ## Note on Real API Testing

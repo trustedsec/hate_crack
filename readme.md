@@ -20,8 +20,6 @@ make install
 ```git clone https://github.com/trustedsec/hate_crack.git```
 * Customize binary and wordlist paths in "config.json"
 * Make sure that at least "rockyou.txt" is within your "wordlists" path
-### Create Optimized Wordlists
-wordlist_optimizer.py - parses all wordlists from `<input file list>`, sorts them by length and de-duplicates into `<output directory>`
 
 ```$ python wordlist_optimizer.py
 usage: python wordlist_optimizer.py <input file list> <output directory>
@@ -29,9 +27,40 @@ usage: python wordlist_optimizer.py <input file list> <output directory>
 $ python wordlist_optimizer.py wordlists.txt ../optimized_wordlists
 ```
 -------------------------------------------------------------------
+## Project Structure
+Core logic is now split into modules under `hate_crack/`:
+
+- `hate_crack/cli.py`: argparse helpers and config overrides.
+- `hate_crack/api.py`: Hashview + Weakpass + Hashmob flows.
+- `hate_crack/attacks.py`: menu attack handlers.
+- `hate_crack/hashview.py`: Hashview API client.
+- `hate_crack/hashmob_wordlist.py`: Hashmob wordlist utilities.
+- `hate_crack/weakpass.py`: Weakpass wordlist utilities.
+
+The top-level `hate_crack.py` remains the main entry point and orchestrates these modules.
+
+-------------------------------------------------------------------
 ## Usage
-`$ ./hate_crack.py 
-usage: python hate_crack.py <hash_file> <hash_type>`
+`$ ./hate_crack.py`
+
+```
+usage: python hate_crack.py <hash_file> <hash_type> [options]
+```
+
+Common options:
+- `--task <N>`: Run a specific menu task number (e.g., 1, 93).
+- `--download-hashview`: Download hashes from Hashview before cracking.
+- `--weakpass`: Download wordlists from Weakpass.
+- `--hashmob`: Download wordlists from Hashmob.net.
+- `--download-torrent <FILENAME>`: Download a specific Weakpass torrent file.
+- `--download-all-torrents`: Download all available Weakpass torrents from cache.
+- `--hashview-url <URL>` / `--hashview-api-key <KEY>`: Override Hashview settings.
+- `--hcat-path <PATH>` / `--hcat-bin <BIN>`: Override hashcat path/binary.
+- `--wordlists-dir <PATH>` / `--optimized-wordlists-dir <PATH>`: Override wordlist directories.
+- `--pipal-path <PATH>`: Override pipal path.
+- `--maxruntime <SECONDS>`: Override max runtime.
+- `--bandrel-basewords <PATH>`: Override bandrel basewords file.
+- `--debug`: Enable debug logging (writes `hate_crack.log` in repo root).
 
 The <hash_type> is attained by running `hashcat --help`
 
@@ -55,7 +84,7 @@ $ ./hate_crack.py <hash file> 1000
 \    Y    // __ \|  | \  ___/    \     \____|  | \// __ \\  \___|    < 
  \___|_  /(____  /__|  \___  >____\______  /|__|  (____  /\___  >__|_ \
        \/      \/          \/_____/      \/            \/     \/     \/
-                          Version 1.09
+                          Version 2.0
   
 
 ## Testing
@@ -72,12 +101,12 @@ pip install pytest pytest-mock requests
 pytest -v
 
 # Run specific test
-pytest test_hashview.py -v
+pytest tests/test_hashview.py -v
 ```
 
 ### Test Structure
 
-- **test_hashview.py**: Comprehensive test suite for HashviewAPI class with mocked API responses, including:
+- **tests/test_hashview.py**: Comprehensive test suite for HashviewAPI class with mocked API responses, including:
   - Customer listing and data validation
   - Authentication and authorization tests
   - Hashfile upload functionality
@@ -220,6 +249,14 @@ and adding up to six additional characters at the end. Each word is limited to a
   
 -------------------------------------------------------------------
 ### Version History
+Version 2.0
+  Modularized codebase into CLI/API/attacks modules
+  Unified CLI options with config overrides (hashview, hashcat, wordlists, pipal)
+  Added Hashview API integration
+  Added Weakpass torrent download helpers and Hashmob download wrapper
+  Improved test coverage and snapshot-based menu validation
+  Updated documentation and versioning
+
 Version 1.9
   Revamped the hate_crack output to increase processing speed exponentially combine_ntlm_output function for combining
   Introducing New Attack mode "Bandrel Methodology"
