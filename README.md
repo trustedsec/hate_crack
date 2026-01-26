@@ -20,12 +20,6 @@ make install
 ```git clone https://github.com/trustedsec/hate_crack.git```
 * Customize binary and wordlist paths in "config.json"
 * Make sure that at least "rockyou.txt" is within your "wordlists" path
-
-```$ python wordlist_optimizer.py
-usage: python wordlist_optimizer.py <input file list> <output directory>
-
-$ python wordlist_optimizer.py wordlists.txt ../optimized_wordlists
-```
 -------------------------------------------------------------------
 ## Project Structure
 Core logic is now split into modules under `hate_crack/`:
@@ -48,7 +42,6 @@ usage: python hate_crack.py <hash_file> <hash_type> [options]
 ```
 
 Common options:
-- `--task <N>`: Run a specific menu task number (e.g., 1, 93).
 - `--download-hashview`: Download hashes from Hashview before cracking.
 - `--weakpass`: Download wordlists from Weakpass.
 - `--hashmob`: Download wordlists from Hashmob.net.
@@ -120,25 +113,27 @@ Tests automatically run on GitHub Actions for every push and pull request. The w
 
 -------------------------------------------------------------------
 
-	(1) Quick Crack
-	(2) Extensive Pure_Hate Methodology Crack
-	(3) Brute Force Attack
-	(4) Top Mask Attack
-	(5) Fingerprint Attack
-	(6) Combinator Attack
-	(7) Hybrid Attack
-	(8) Pathwell Top 100 Mask Brute Force Crack
-	(9) PRINCE Attack
-	(10) YOLO Combinator Attack
-	(11) Middle Combinator Attack
-	(12) Thorough Combinator Attack
-	(13) Bandrel Methodology
+  (1) Quick Crack
+  (2) Extensive Pure_Hate Methodology Crack
+  (3) Brute Force Attack
+  (4) Top Mask Attack
+  (5) Fingerprint Attack
+  (6) Combinator Attack
+  (7) Hybrid Attack
+  (8) Pathwell Top 100 Mask Brute Force Crack
+  (9) PRINCE Attack
+  (10) YOLO Combinator Attack
+  (11) Middle Combinator Attack
+  (12) Thorough Combinator Attack
+  (13) Bandrel Methodology
 
-    (95) Analyze hashes with Pipal 
-	(96) Export Output to Excel Format
-	(97) Display Cracked Hashes
-	(98) Display README
-	(99) Quit
+  (93) Download Wordlists
+  (94) Hashview Integration
+  (95) Analyze hashes with Pipal
+  (96) Export Output to Excel Format
+  (97) Display Cracked Hashes
+  (98) Display README
+  (99) Quit
 
 Select a task:
 ```
