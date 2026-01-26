@@ -1977,7 +1977,6 @@ def main():
     parser.add_argument('--download-all-torrents', action='store_true', help='Download all available Weakpass torrents from cache')
     parser.add_argument('--weakpass', action='store_true', help='Download wordlists from Weakpass')
     parser.add_argument('--hashmob', action='store_true', help='Download wordlists from Hashmob.net')
-    parser.add_argument('--task', metavar='TASK', help='Run a menu task by number (e.g., 1, 93)')
     parser.add_argument('--debug', action='store_true', help='Enable debug mode')
     add_common_args(parser)
     args = parser.parse_args()
@@ -2034,10 +2033,6 @@ def main():
     if args.weakpass:
         weakpass_wordlist_menu()
         sys.exit(0)
-
-    if args.task and not (args.hashfile and args.hashtype) and not args.download_hashview:
-        print("Error: --task requires <hashfile> <hashtype> or --download-hashview to supply hashes.")
-        sys.exit(1)
 
     if args.hashfile and args.hashtype:
         hcatHashFile = resolve_path(args.hashfile)
@@ -2171,13 +2166,6 @@ def main():
                    "98": show_readme,
                    "99": quit_hc
                    }
-        if args.task:
-            task = str(args.task).strip()
-            if task not in options:
-                print(f"Invalid task: {task}. Valid options are: {', '.join(sorted(options.keys(), key=int))}")
-                sys.exit(1)
-            options[task]()
-            sys.exit(0)
         while 1:
             print("\n\t(1) Quick Crack")
             print("\t(2) Extensive Pure_Hate Methodology Crack")
