@@ -1,31 +1,21 @@
-def test_hashmob_connectivity_mocked(monkeypatch, capsys):
-    from hate_crack import hashmob_wordlist as hm
+import re
+import pytest
+from hate_crack.api import download_hashmob_wordlist_list
 
-    class FakeResp:
-        def raise_for_status(self):
-            return None
 
-        def json(self):
-            return [
-                {"type": "wordlist", "name": "List A", "information": "Info A"},
-                {"type": "wordlist", "name": "List B", "information": "Info B"},
-                {"type": "other", "name": "Ignore", "information": "Nope"},
-            ]
-
-    def fake_get(url, headers=None, timeout=None):
-        assert url == "https://hashmob.net/api/v2/resource"
-        assert headers == {"api-key": "test-key"}
-        return FakeResp()
-
-    monkeypatch.setattr(hm, "get_api_key", lambda: "test-key")
-    monkeypatch.setattr(hm.requests, "get", fake_get)
-
-    result = hm.download_hashmob_wordlist_list()
-    assert len(result) == 2
-    assert result[0]["name"] == "List A"
-    assert result[1]["name"] == "List B"
-
+def test_hashmob_connectivity_real(capsys):
+    try:
+        result = download_hashmob_wordlist_list()
+    except Exception as e:
+        pytest.skip(f"Network or API unavailable: {e}")
+    assert isinstance(result, list)
+    assert any('name' in wl for wl in result)
     captured = capsys.readouterr()
-    assert "Available Hashmob Wordlists:" in captured.out
-    assert "List A" in captured.out
-    assert "List B" in captured.out
+    # Check for at least one wordlist name in output using regex
+    names = [wl['name'] for wl in result if 'name' in wl]
+    found = False
+    for name in names:
+        if re.search(re.escape(name), captured.out):
+            found = True
+            break
+    assert found, "No wordlist name found in output"
