@@ -1,4 +1,69 @@
-# Utility function to check and build .bin/.app files
+import sys
+import os
+import json
+import shutil
+import logging
+
+#!/usr/bin/env python3
+
+try:
+    import requests
+    REQUESTS_AVAILABLE = True
+except Exception:
+    requests = None
+    REQUESTS_AVAILABLE = False
+
+# Ensure project root is on sys.path so package imports work when loaded via spec.
+_root_dir = os.path.dirname(os.path.realpath(__file__))
+if _root_dir not in sys.path:
+    sys.path.insert(0, _root_dir)
+
+# Allow submodule imports (hate_crack.*) even when this file is imported as a module.
+_pkg_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "hate_crack")
+if os.path.isdir(_pkg_dir):
+    __path__ = [_pkg_dir]
+    if "__spec__" in globals() and __spec__ is not None:
+        __spec__.submodule_search_locations = __path__
+
+# Methodology provided by Martin Bos (pure_hate) - https://www.trustedsec.com/team/martin-bos/
+# Original script created by Larry Spohn (spoonman) - https://www.trustedsec.com/team/larry-spohn/
+# Python refactoring and general fixing, Justin Bollinger (bandrel) - https://www.trustedsec.com/team/justin-bollinger/
+# Hashview integration by Justin Bollinger (bandrel) and Claude Sonnet 4.5 
+#   special thanks to hans for all his hard work on hashview and creating APIs for us to use 
+
+# Load config before anything that needs hashview_url/hashview_api_key
+hate_path = os.path.dirname(os.path.realpath(__file__))
+if not os.path.isfile(hate_path + '/config.json'):
+    print('Initializing config.json from config.json.example')
+    shutil.copy(hate_path + '/config.json.example', hate_path + '/config.json')
+
+with open(hate_path + '/config.json') as config:
+    config_parser = json.load(config)
+
+with open(hate_path + '/config.json.example') as defaults:
+    default_config = json.load(defaults)
+
+try:
+    hashview_url = config_parser['hashview_url']
+except KeyError as e:
+    print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
+    hashview_url = default_config.get('hashview_url', 'https://localhost:8443')
+
+try:
+    hashview_api_key = config_parser['hashview_api_key']
+except KeyError as e:
+    print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
+    hashview_api_key = default_config.get('hashview_api_key', '')
+
+SKIP_INIT = os.environ.get("HATE_CRACK_SKIP_INIT") == "1"
+
+logger = logging.getLogger("hate_crack")
+if not logger.handlers:
+    logger.addHandler(logging.NullHandler())
+
+
+
+
 def ensure_binary(binary_path, build_dir=None, name=None):
     if not os.path.isfile(binary_path) or not os.access(binary_path, os.X_OK):
         if build_dir:
@@ -17,16 +82,238 @@ def ensure_binary(binary_path, build_dir=None, name=None):
             print(f'Error: {name or binary_path} not found or not executable at {binary_path}.')
             quit(1)
     return binary_path
-#!/usr/bin/env python3
 
-# Methodology provided by Martin Bos (pure_hate) - https://www.trustedsec.com/team/martin-bos/
-# Original script created by Larry Spohn (spoonman) - https://www.trustedsec.com/team/larry-spohn/
-# Python refactoring and general fixing, Justin Bollinger (bandrel) - https://www.trustedsec.com/team/justin-bollinger/
-# Hashview integration by Justin Bollinger (bandrel) and Claude Sonnet 4.5 
-#   special thanks to hans for all his hard work on hashview and creating APIs for us to use 
 
-import subprocess
-import sys
+
+# Weakpass wordlist menu and fetch logic moved here
+import threading
+from queue import Queue
+# --- Weakpass Wordlist Download Logic ---
+def fetch_all_weakpass_wordlists_multithreaded(total_pages=67, threads=10, output_file="weakpass_wordlists.json"):
+    """Fetch all Weakpass wordlist pages in parallel using threads and save to a local JSON file."""
+    import json
+    from bs4 import BeautifulSoup
+    wordlists = []
+    lock = threading.Lock()
+    q = Queue()
+    headers = {"User-Agent": "Mozilla/5.0"}
+
+    def worker():
+        while True:
+            page = q.get()
+            if page is None:
+                break
+            try:
+                url = f"https://weakpass.com/wordlists?page={page}"
+                r = requests.get(url, headers=headers, timeout=30)
+                soup = BeautifulSoup(r.text, "html.parser")
+                app_div = soup.find("div", id="app")
+                if not app_div or not app_div.has_attr("data-page"):
+                    q.task_done()
+                    continue
+                data_page_val = app_div["data-page"]
+                if not isinstance(data_page_val, str):
+                    data_page_val = str(data_page_val)
+                data = json.loads(data_page_val)
+                wordlists_data = data.get("props", {}).get("wordlists", {})
+                if isinstance(wordlists_data, dict) and 'data' in wordlists_data:
+                    wordlists_data = wordlists_data['data']
+                with lock:
+                    for wl in wordlists_data:
+                        wordlists.append({
+                            "name": wl.get("name", ""),
+                            "size": wl.get("size", ""),
+                            "rank": wl.get("rank", ""),
+                            "downloads": wl.get("downloaded", ""),
+                            "torrent_url": wl.get("torrent_link", "")
+                        })
+            except Exception as e:
+                print(f"Error fetching page {page}: {e}")
+            q.task_done()
+
+    for page in range(1, total_pages + 1):
+        q.put(page)
+
+    threads_list = []
+    for _ in range(threads):
+        t = threading.Thread(target=worker)
+        t.start()
+        threads_list.append(t)
+
+    q.join()
+
+    for _ in range(threads):
+        q.put(None)
+    for t in threads_list:
+        t.join()
+
+    seen = set()
+    unique_wordlists = []
+    for wl in wordlists:
+        if wl['name'] not in seen:
+            unique_wordlists.append(wl)
+            seen.add(wl['name'])
+
+    with open(output_file, "w", encoding="utf-8") as f:
+        json.dump(unique_wordlists, f, indent=2)
+    print(f"Saved {len(unique_wordlists)} wordlists to {output_file}")
+
+def download_torrent_file(torrent_url, save_dir="wordlists"):
+    import os
+    from bs4 import BeautifulSoup
+
+    os.makedirs(save_dir, exist_ok=True)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+
+
+    # Only use id from data-page JSON in <div id="app">
+    if not torrent_url.startswith("http"):
+        filename = torrent_url
+    else:
+        filename = torrent_url.split("/")[-1]
+
+    wordlist_base = filename.replace('.torrent', '').replace('.7z', '').replace('.txt', '')
+    wordlist_uri = f"https://weakpass.com/wordlists/{wordlist_base}"
+    print(f"[+] Fetching wordlist page: {wordlist_uri}")
+    r = requests.get(wordlist_uri, headers=headers)
+    if r.status_code != 200:
+        print(f"[!] Failed to fetch wordlist page: {wordlist_uri}")
+        return None
+
+    soup = BeautifulSoup(r.text, "html.parser")
+    app_div = soup.find("div", id="app")
+    if not app_div or not app_div.has_attr("data-page"):
+        print(f"[!] Could not find app data on {wordlist_uri}")
+        return None
+
+    import json
+    data_page_val = app_div["data-page"]
+    if not isinstance(data_page_val, str):
+        data_page_val = str(data_page_val)
+    # Unescape HTML entities
+    data_page_val = data_page_val.replace('&quot;', '"')
+    try:
+        data = json.loads(data_page_val)
+        wordlist = data.get('props', {}).get('wordlist')
+        wordlist_id = None
+        torrent_link_from_data = None
+        if wordlist:
+            wordlist_id = wordlist.get('id')
+            torrent_link_from_data = wordlist.get('torrent_link')
+        else:
+            # Try to match in 'wordlists' (list page)
+            wordlists = data.get('props', {}).get('wordlists')
+            if isinstance(wordlists, dict) and 'data' in wordlists:
+                wordlists = wordlists['data']
+            if isinstance(wordlists, list):
+                # Try to match by exact filename or base name
+                for wl in wordlists:
+                    if wl.get('torrent_link') == filename or wl.get('name') == filename:
+                        wordlist_id = wl.get('id')
+                        torrent_link_from_data = wl.get('torrent_link')
+                        break
+                    # Try matching base name
+                    if wordlist_base in wl.get('name', ''):
+                        wordlist_id = wl.get('id')
+                        torrent_link_from_data = wl.get('torrent_link')
+                        break
+    except Exception as e:
+        print(f"[!] Failed to parse data-page JSON: {e}")
+        return None
+
+    if not (torrent_link_from_data and wordlist_id):
+        print(f"[!] No torrent link or id found in wordlist data for {filename}.")
+        return None
+    if not torrent_link_from_data.startswith('http'):
+        torrent_link = f"https://weakpass.com/download/{wordlist_id}/{torrent_link_from_data}"
+    else:
+        torrent_link = torrent_link_from_data
+
+    print(f"[+] Downloading .torrent file from: {torrent_link}")
+    r2 = requests.get(torrent_link, headers=headers, stream=True)
+    content_type = r2.headers.get("Content-Type", "")
+    local_filename = os.path.join(save_dir, filename if filename.endswith('.torrent') else filename + '.torrent')
+    if r2.status_code == 200 and not content_type.startswith("text/html"):
+        with open(local_filename, 'wb') as f:
+            for chunk in r2.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+        print(f"Saved to {local_filename}")
+    else:
+        print(f"Failed to download a valid torrent file: {torrent_link}")
+        try:
+            html = r2.content.decode(errors="replace")
+            print("--- Begin HTML Debug Output ---")
+            print(html[:2000])
+            print("--- End HTML Debug Output ---")
+        except Exception as e:
+            print(f"Could not decode response for debug: {e}")
+        return None
+
+    import shutil
+    if shutil.which("transmission-cli") is None:
+        print("[ERROR] transmission-cli is not installed or not in your PATH.")
+        print("Please install it with: brew install transmission-cli (on macOS) or your package manager.")
+        print(f"Torrent file saved at {local_filename}, but download will not start until transmission-cli is available.")
+        return local_filename
+
+    def run_transmission(torrent_file, output_dir):
+        import subprocess
+        import glob
+        print(f"Starting transmission-cli for {torrent_file}...")
+        try:
+            proc = subprocess.Popen([
+                "transmission-cli",
+                "-w", output_dir,
+                torrent_file
+            ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, universal_newlines=True)
+            if proc.stdout is not None:
+                for line in proc.stdout:
+                    print(line, end='')
+            proc.wait()
+            if proc.returncode != 0:
+                print(f"transmission-cli failed for {torrent_file} (exit {proc.returncode})")
+                return
+            else:
+                print(f"Download complete for {torrent_file}")
+            sevenz_files = glob.glob(os.path.join(output_dir, '*.7z'))
+            if not sevenz_files:
+                print("[i] No .7z files found to extract.")
+                return
+            for zfile in sevenz_files:
+                print(f"[+] Extracting {zfile} ...")
+                sevenz_bin = shutil.which('7z') or shutil.which('7za')
+                if not sevenz_bin:
+                    print("[!] 7z or 7za not found in PATH. Please install p7zip-full or 7-zip to extract archives.")
+                    continue
+                try:
+                    extract_result = subprocess.run([
+                        sevenz_bin, 'x', '-y', zfile, f'-o{output_dir}'
+                    ], capture_output=True, text=True)
+                    print(extract_result.stdout)
+                    if extract_result.returncode == 0:
+                        print(f"[+] Extraction complete: {zfile}")
+                    else:
+                        print(f"[!] Extraction failed for {zfile}: {extract_result.stderr}")
+                except Exception as e:
+                    print(f"[!] Error extracting {zfile}: {e}")
+        except Exception as e:
+            print(f"Error running transmission-cli: {e}")
+
+    import threading
+    t = threading.Thread(target=run_transmission, args=(local_filename, save_dir))
+    t.start()
+    print(f"transmission-cli launched in background for {local_filename}")
+    return local_filename
+
+def weakpass_wordlist_menu():
+    from hate_crack.weakpass import weakpass_wordlist_menu as _weakpass_wordlist_menu
+    return _weakpass_wordlist_menu()
+
+
+
 import os
 import random
 import re
@@ -35,30 +322,23 @@ import binascii
 import shutil
 import readline
 import glob
+import subprocess
+import argparse
 
-try:
-    import requests
-    REQUESTS_AVAILABLE = True
-except ImportError:
-    REQUESTS_AVAILABLE = False
-
-# python2/3 compatability
-try:
-    input = raw_input
-except NameError:
-    
-    pass
-
-hate_path = os.path.dirname(os.path.realpath(__file__))
-if not os.path.isfile(hate_path + '/config.json'):
-    print('Initializing config.json from config.json.example')
-    shutil.copy(hate_path + '/config.json.example',hate_path + '/config.json')
-
-with open(hate_path + '/config.json') as config:
-    config_parser = json.load(config)
-
-with open(hate_path + '/config.json.example') as defaults:
-    default_config = json.load(defaults)
+from hate_crack.weakpass import fetch_all_weakpass_wordlists_multithreaded, download_torrent_file, weakpass_wordlist_menu
+from hate_crack.hashview import HashviewAPI
+from hate_crack.api import (
+    download_all_weakpass_torrents,
+    download_hashes_from_hashview,
+    download_hashmob_wordlists,
+    download_weakpass_torrent,
+)
+from hate_crack.cli import (
+    add_common_args,
+    apply_config_overrides,
+    resolve_path,
+    setup_logging,
+)
 
 hcatPath = config_parser['hcatPath']
 hcatBin = config_parser['hcatBin']
@@ -138,19 +418,6 @@ except KeyError as e:
     print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
     hcatGoodMeasureBaseList = default_config[e.args[0]]
 
-try:
-    hashview_url = config_parser['hashview_url']
-except KeyError as e:
-    print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
-    hashview_url = default_config.get('hashview_url', 'https://localhost:8443')
-
-try:
-    hashview_api_key = config_parser['hashview_api_key']
-except KeyError as e:
-    print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
-    hashview_api_key = default_config.get('hashview_api_key', '')
-
-
 hcatExpanderBin = "expander.bin"
 hcatCombinatorBin = "combinator.bin"
 hcatPrinceBin = "pp64.bin"
@@ -164,69 +431,70 @@ def verify_wordlist_dir(directory, wordlist):
         print('Invalid path for {0}. Please check configuration and try again.'.format(wordlist))
         quit(1)
 
-# hashcat biniary checks for systems that install hashcat binary in different location than the rest of the hashcat files
-if hcatPath:
-    candidate = hcatPath.rstrip('/') + '/' + hcatBin
-    if os.path.isfile(candidate):
-        hcatBin = candidate
-    elif os.path.isfile(hcatBin):
-        pass
+if not SKIP_INIT:
+    # hashcat biniary checks for systems that install hashcat binary in different location than the rest of the hashcat files
+    if hcatPath:
+        candidate = hcatPath.rstrip('/') + '/' + hcatBin
+        if os.path.isfile(candidate):
+            hcatBin = candidate
+        elif os.path.isfile(hcatBin):
+            pass
+        else:
+            print('Invalid path for hashcat binary. Please check configuration and try again.')
+            quit(1)
     else:
-        print('Invalid path for hashcat binary. Please check configuration and try again.')
-        quit(1)
-else:
-    # No hcatPath set, just use hcatBin (should be in PATH)
-    if shutil.which(hcatBin) is None:
-        print('Hashcat binary not found in PATH. Please check configuration and try again.')
-        quit(1)
+        # No hcatPath set, just use hcatBin (should be in PATH)
+        if shutil.which(hcatBin) is None:
+            print('Hashcat binary not found in PATH. Please check configuration and try again.')
+            quit(1)
 
-# Verify hashcat-utils binaries exist and work
-hashcat_utils_path = hate_path + '/hashcat-utils/bin'
-required_binaries = [
-    (hcatExpanderBin, 'expander'),
-    (hcatCombinatorBin, 'combinator'),
-]
+    # Verify hashcat-utils binaries exist and work
+    hashcat_utils_path = hate_path + '/hashcat-utils/bin'
+    required_binaries = [
+        (hcatExpanderBin, 'expander'),
+        (hcatCombinatorBin, 'combinator'),
+    ]
 
-for binary, name in required_binaries:
-    binary_path = hashcat_utils_path + '/' + binary
-    ensure_binary(binary_path, build_dir=os.path.join(hate_path, 'hashcat-utils'), name=name)
-    # Test binary execution
+    for binary, name in required_binaries:
+        binary_path = hashcat_utils_path + '/' + binary
+        ensure_binary(binary_path, build_dir=os.path.join(hate_path, 'hashcat-utils'), name=name)
+        # Test binary execution
+        try:
+            test_result = subprocess.run(
+                [binary_path], 
+                stdout=subprocess.PIPE, 
+                stderr=subprocess.PIPE, 
+                timeout=2
+            )
+            # Binary should show usage and exit with error code (that's expected)
+            # If we get here without exception, the binary is executable
+        except subprocess.TimeoutExpired:
+            # Timeout is fine - means binary is running
+            pass
+        except Exception as e:
+            print(f'Error: {name} binary at {binary_path} failed to execute: {e}')
+            print('The binary may be compiled for the wrong architecture.')
+            print('Try recompiling hashcat-utils for your system.')
+            quit(1)
+
+    # Verify princeprocessor binary
+    prince_path = hate_path + '/princeprocessor/' + hcatPrinceBin
     try:
-        test_result = subprocess.run(
-            [binary_path], 
-            stdout=subprocess.PIPE, 
-            stderr=subprocess.PIPE, 
-            timeout=2
-        )
-        # Binary should show usage and exit with error code (that's expected)
-        # If we get here without exception, the binary is executable
-    except subprocess.TimeoutExpired:
-        # Timeout is fine - means binary is running
-        pass
-    except Exception as e:
-        print(f'Error: {name} binary at {binary_path} failed to execute: {e}')
-        print('The binary may be compiled for the wrong architecture.')
-        print('Try recompiling hashcat-utils for your system.')
-        quit(1)
+        ensure_binary(prince_path, build_dir=os.path.join(hate_path, 'princeprocessor'), name='PRINCE')
+    except SystemExit:
+        print('PRINCE attacks will not be available.')
 
-# Verify princeprocessor binary
-prince_path = hate_path + '/princeprocessor/' + hcatPrinceBin
-try:
-    ensure_binary(prince_path, build_dir=os.path.join(hate_path, 'princeprocessor'), name='PRINCE')
-except SystemExit:
-    print('PRINCE attacks will not be available.')
-
-#verify and convert wordlists to fully qualified paths
-hcatMiddleBaseList = verify_wordlist_dir(hcatWordlists, hcatMiddleBaseList)
-hcatThoroughBaseList = verify_wordlist_dir(hcatWordlists, hcatThoroughBaseList)
-hcatPrinceBaseList = verify_wordlist_dir(hcatWordlists, hcatPrinceBaseList)
-hcatGoodMeasureBaseList = verify_wordlist_dir(hcatWordlists, hcatGoodMeasureBaseList)
-for x in range(len(hcatDictionaryWordlist)):
-    hcatDictionaryWordlist[x] = verify_wordlist_dir(hcatWordlists, hcatDictionaryWordlist[x])
-for x in range(len(hcatHybridlist)):
-    hcatHybridlist[x] = verify_wordlist_dir(hcatWordlists, hcatHybridlist[x])
-hcatCombinationWordlist[0] = verify_wordlist_dir(hcatWordlists, hcatCombinationWordlist[0])
-hcatCombinationWordlist[1] = verify_wordlist_dir(hcatWordlists, hcatCombinationWordlist[1])
+    #verify and convert wordlists to fully qualified paths
+    hcatMiddleBaseList = verify_wordlist_dir(hcatWordlists, hcatMiddleBaseList)
+    hcatThoroughBaseList = verify_wordlist_dir(hcatWordlists, hcatThoroughBaseList)
+    hcatPrinceBaseList = verify_wordlist_dir(hcatWordlists, hcatPrinceBaseList)
+    hcatGoodMeasureBaseList = verify_wordlist_dir(hcatWordlists, hcatGoodMeasureBaseList)
+    for x in range(len(hcatDictionaryWordlist)):
+        hcatDictionaryWordlist[x] = verify_wordlist_dir(hcatWordlists, hcatDictionaryWordlist[x])
+    for x in range(len(hcatHybridlist)):
+        hcatHybridlist[x] = verify_wordlist_dir(hcatWordlists, hcatHybridlist[x])
+    hcatCombinationWordlist[0] = verify_wordlist_dir(hcatWordlists, hcatCombinationWordlist[0])
+    hcatCombinationWordlist[1] = verify_wordlist_dir(hcatWordlists, hcatCombinationWordlist[1])
 
 
 hcatHashCount = 0
@@ -240,7 +508,7 @@ hcatHybridCount = 0
 hcatExtraCount = 0
 hcatRecycleCount = 0
 hcatProcess = 0
-debug_mode = True
+debug_mode = False
 
 
 # Sanitize filename for use as hashcat session name
@@ -275,7 +543,7 @@ def ascii_art():
 \    Y    // __ \|  | \  ___/    \     \____|  | \// __ \\  \___|    < 
  \___|_  /(____  /__|  \___  >____\______  /|__|  (____  /\___  >__|_ \
        \/      \/          \/_____/      \/            \/     \/     \/
-                          Version 1.09
+                          Version 2.0
   """)
 
 
@@ -566,7 +834,6 @@ def hcatCombination(hcatHashType, hcatHashFile):
             hash_type=hcatHashType,
             hash_file=hcatHashFile,
             session_name=generate_session_id(),
-            word_lists=hcatWordlists,
             left=hcatCombinationWordlist[0],
             right=hcatCombinationWordlist[1],
             tuning=hcatTuning,
@@ -708,7 +975,6 @@ def hcatYoloCombination(hcatHashType, hcatHashFile):
                     hash_type=hcatHashType,
                     hash_file=hcatHashFile,
                     session_name=generate_session_id(),
-                    word_lists=hcatWordlists,
                     optimized_lists=hcatOptimizedWordlists,
                     tuning=hcatTuning,
                     left=hcatLeft,
@@ -759,9 +1025,16 @@ def hcatBandrel(hcatHashType, hcatHashFile):
             hcatProcess.kill()
     print('Checking passwords against pipal for top {0} passwords and basewords'.format(pipal_count))
     pipal_basewords = pipal()
-    for word in pipal_basewords:
-        mask1 = '-1={0}{1}'.format(word[0].lower(),word[0].upper())
-        mask2 = ' ?1{0}'.format(word[1:])
+    if pipal_basewords:
+        for word in pipal_basewords:
+            if word:
+                mask1 = '-1={0}{1}'.format(word[0].lower(),word[0].upper())
+                mask2 = ' ?1{0}'.format(word[1:])
+                # ...existing code using mask1, mask2...
+            else:
+                continue
+    else:
+        pass
         for x in range(6):
             mask2 += '?a'
         hcatProcess = subprocess.Popen(
@@ -809,7 +1082,6 @@ def hcatMiddleCombinator(hcatHashType, hcatHashFile):
                     session_name=generate_session_id(),
                     left=hcatMiddleBaseList,
                     right=hcatMiddleBaseList,
-                    tuning=hcatTuning,
                     middle_mask=masks[x],
                     hate_path=hate_path),
                 shell=True)
@@ -847,7 +1119,6 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
             session_name=generate_session_id(),
             left=hcatThoroughBaseList,
             right=hcatThoroughBaseList,
-            word_lists=hcatWordlists,
             tuning=hcatTuning,
             hate_path=hate_path),
         shell=True)
@@ -868,8 +1139,6 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
                     session_name=generate_session_id(),
                     left=hcatThoroughBaseList,
                     right=hcatThoroughBaseList,
-                    word_lists=hcatWordlists,
-                    tuning=hcatTuning,
                     middle_mask=masks[x],
                     hate_path=hate_path),
                     shell=True)
@@ -892,7 +1161,6 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
                     session_name=generate_session_id(),
                     left=hcatThoroughBaseList,
                     right=hcatThoroughBaseList,
-                    word_lists=hcatWordlists,
                     tuning=hcatTuning,
                     end_mask=masks[x],
                     hate_path=hate_path),
@@ -916,7 +1184,6 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
                     session_name=generate_session_id(),
                     left=hcatThoroughBaseList,
                     right=hcatThoroughBaseList,
-                    word_lists=hcatWordlists,
                     tuning=hcatTuning,
                     middle_mask=masks[x],
                     end_mask=masks[x],
@@ -982,7 +1249,6 @@ def hcatGoodMeasure(hcatHashType, hcatHashFile):
             hash_file=hcatHashFile,
             hcatGoodMeasureBaseList=hcatGoodMeasureBaseList,
             session_name=generate_session_id(),
-            word_lists=hcatWordlists,
             tuning=hcatTuning,
             hate_path=hate_path), shell=True)
     try:
@@ -1029,9 +1295,7 @@ def hcatLMtoNT():
     hcatProcess = subprocess.Popen(
         "{hate_path}/hashcat-utils/bin/{combine_bin} {hash_file}.working {hash_file}.working | sort -u > {hash_file}.combined".format(
             combine_bin=hcatCombinatorBin,
-            hcatBin=hcatBin,
             hash_file=hcatHashFile,
-            tuning=hcatTuning,
             hate_path=hate_path), shell=True)
     try:
         hcatProcess.wait()
@@ -1043,7 +1307,6 @@ def hcatLMtoNT():
         "{hcatBin} --show --potfile-path={hate_path}/hashcat.pot -m 1000 {hash_file}.nt > {hash_file}.nt.out".format(
             hcatBin=hcatBin,
             hash_file=hcatHashFile,
-            tuning=hcatTuning,
             hate_path=hate_path), shell=True)
     try:
         hcatProcess.wait()
@@ -1162,364 +1425,7 @@ def cleanup():
         #incase someone mashes the Control+C it will still cleanup
         cleanup()
 
-# Hashview Integration
-class HashviewAPI:
-    """Upload files to Hashview API"""
-    
-    FILE_FORMATS = {
-        'pwdump': 0,
-        'netntlm': 1,
-        'kerberos': 2,
-        'shadow': 3,
-        'user:hash': 4,
-        'hash_only': 5,
-    }
-    
-    def __init__(self, base_url, api_key, debug=False):
-        self.base_url = base_url.rstrip('/')
-        self.api_key = api_key
-        self.debug = debug
-        self.session = requests.Session()
-        self.session.cookies.set('uuid', api_key)
-        # Disable SSL certificate verification for self-signed certificates
-        self.session.verify = False
-        # Suppress SSL warnings
-        import urllib3
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-    
-    def upload_wordlist(self, file_path, wordlist_name=None):
-        if wordlist_name is None:
-            wordlist_name = os.path.basename(file_path)
-        
-        with open(file_path, 'rb') as f:
-            file_content = f.read()
-        
-        url = f"{self.base_url}/v1/wordlists/add/{wordlist_name}"
-        headers = {'Content-Type': 'text/plain'}
-        
-        print(f"Uploading wordlist: {os.path.basename(file_path)} -> {wordlist_name}")
-        response = self.session.post(url, data=file_content, headers=headers)
-        response.raise_for_status()
-        return response.json()
-    
-    def upload_hashfile(self, file_path, customer_id, hash_type, file_format=5, hashfile_name=None):
-        if hashfile_name is None:
-            hashfile_name = os.path.basename(file_path)
-        
-        with open(file_path, 'rb') as f:
-            file_content = f.read()
-        
-        url = (
-            f"{self.base_url}/v1/hashfiles/upload/"
-            f"{customer_id}/{file_format}/{hash_type}/{hashfile_name}"
-        )
-        
-        headers = {'Content-Type': 'text/plain'}
-        
-        print(f"Uploading hashfile: {os.path.basename(file_path)} -> {hashfile_name}")
-        response = self.session.post(url, data=file_content, headers=headers)
-        response.raise_for_status()
-        return response.json()
-    
-    def upload_cracked_hashes(self, file_path, hash_type='1000'):
-        # Read file - API expects plaintext format: hash:plaintext
-        print(f"Importing cracked hashes: {os.path.basename(file_path)}")
-        print(f"  Reading hash:plaintext pairs...")
-        
-        valid_lines = []
-        line_count = 0
-        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-            for line in f:
-                line = line.strip()
-                if '31d6cfe0d16ae931b73c59d7e0c089c0' in line:
-                    continue
-                if not line or ':' not in line:
-                    continue
-                
-                parts = line.split(':', 1)
-                if len(parts) != 2:
-                     break #might need to add encoding into HEX conversion here
-                    
-                hash_value = parts[0].strip()
-                plaintext = parts[1].strip()
-                
-                # Keep format as-is: hash:plaintext
-                valid_lines.append(f"{hash_value}:{plaintext}")
-                line_count += 1
-        
-        # Join all lines into a single string with newline separators
-        converted_content = '\n'.join(valid_lines)
-        
-        print(f"  Processed {line_count} hash:plaintext pairs")
-        
-        url = f"{self.base_url}/v1/hashes/import/{hash_type}"
-        
-        # API expects plain text body with hash:plaintext format
-        headers = {'Content-Type': 'text/plain'}
-        
-        print(f"\n  === REQUEST DETAILS ===")
-        print(f"  URL: {url}")
-        print(f"  Method: POST")
-        print(f"  Headers: {headers}")
-        print(f"  Cookies: {dict(self.session.cookies)}")
-        print(f"  Hash type: {hash_type}")
-        print(f"  Content preview (first 500 chars):")
-        print(converted_content[:500])
-        print(f"\n  Uploading...")
-        
-        response = self.session.post(url, data=converted_content, headers=headers)
-        
-        # Debug: print response details
-        print(f"\n  === RESPONSE DETAILS ===")
-        print(f"  Status code: {response.status_code}")
-        print(f"  Response headers: {dict(response.headers)}")
-        print(f"  Response content: {response.text[:500]}")
-        
-        response.raise_for_status()
-        
-        # Check if response is JSON error
-        try:
-            json_response = response.json()
-            if 'type' in json_response and json_response['type'] == 'Error':
-                raise Exception(f"Hashview API Error: {json_response.get('msg', 'Unknown error')}")
-            return json_response
-        except (json.JSONDecodeError, ValueError) as e:
-            # Not valid JSON
-            raise Exception(f"Invalid API response: {response.text[:200]}")
-    
-    def display_customers_multicolumn(self, customers):
-        """Display customers in multiple columns to minimize scrolling
-        
-        Args:
-            customers: List of customer dictionaries
-        """
-        if not customers:
-            print("\nNo customers found.")
-            return
-        
-        # Get terminal width, default to 120 if can't determine
-        try:
-            terminal_width = shutil.get_terminal_size().columns
-        except:
-            terminal_width = 120
-        
-        # Each entry is "ID: Name" - calculate column width
-        # Find max ID width
-        max_id_len = max(len(str(c.get('id', ''))) for c in customers)
-        # Add formatting: "ID: Name  " (ID + ": " + some name space + padding)
-        # Use reasonable name width (30 chars) for column sizing
-        col_width = max_id_len + 2 + 30 + 2  # ID + ": " + name + padding
-        
-        # Calculate number of columns that fit
-        num_cols = max(1, terminal_width // col_width)
-        
-        print("\n" + "="*terminal_width)
-        print("Available Customers:")
-        print("="*terminal_width)
-        
-        # Organize customers into columns
-        num_customers = len(customers)
-        rows = (num_customers + num_cols - 1) // num_cols  # Ceiling division
-        
-        for row in range(rows):
-            line_parts = []
-            for col in range(num_cols):
-                idx = row + col * rows
-                if idx < num_customers:
-                    customer = customers[idx]
-                    cust_id = customer.get('id', 'N/A')
-                    cust_name = customer.get('name', 'N/A')
-                    # Truncate name to fit column width
-                    name_width = col_width - max_id_len - 2 - 2
-                    if len(str(cust_name)) > name_width:
-                        cust_name = str(cust_name)[:name_width-3] + "..."
-                    entry = f"{cust_id}: {cust_name}"
-                    line_parts.append(entry.ljust(col_width))
-            print("".join(line_parts).rstrip())
-        
-        print("="*terminal_width)
-        print(f"Total: {len(customers)} customer(s)")
-    
-    def list_customers(self):
-        url = f"{self.base_url}/v1/customers"
-        
-        print("Fetching customer list...")
-        response = self.session.get(url)
-        response.raise_for_status()
-        data = response.json()
-        
-        # Parse the 'users' JSON string into a list
-        if 'users' in data:
-            customers = json.loads(data['users'])
-            return {'customers': customers}
-        
-        return data
-    
-    def list_hashfiles(self):
-        """Get all hashfiles from Hashview"""
-        url = f"{self.base_url}/v1/hashfiles"
-        
-        response = self.session.get(url)
-        response.raise_for_status()
-        data = response.json()
-        
-        # Parse hashfiles - may be JSON string
-        if 'hashfiles' in data:
-            if isinstance(data['hashfiles'], str):
-                hashfiles = json.loads(data['hashfiles'])
-            else:
-                hashfiles = data['hashfiles']
-            return hashfiles
-        
-        return []
-    
-    def get_customer_hashfiles(self, customer_id):
-        """Get hashfiles for a specific customer"""
-        all_hashfiles = self.list_hashfiles()
-        # Filter by customer_id - handle both int and string comparisons
-        return [hf for hf in all_hashfiles if int(hf.get('customer_id', 0)) == customer_id]
-    
-    def create_customer(self, name):
-        url = f"{self.base_url}/v1/customers/add"
-        headers = {'Content-Type': 'application/json'}
-        data = {"name": name}
-        
-        print(f"Creating customer: {name}")
-        response = self.session.post(url, json=data, headers=headers)
-        response.raise_for_status()
-        return response.json()
-    
-    def create_job(self, name, hashfile_id, customer_id, limit_recovered=False, notify_email=True):
-        url = f"{self.base_url}/v1/jobs/add"
-        headers = {'Content-Type': 'application/json'}
-        # Only send the minimum required fields - server has issues with notification parameters
-        data = {
-            "name": name,
-            "hashfile_id": hashfile_id,
-            "customer_id": customer_id,
-            # Note: notify_email and notify_pushover cause server errors - do not send them
-        }
-        
-        print(f"Creating job: {name}")
-        response = self.session.post(url, json=data, headers=headers)
-        response.raise_for_status()
-        return response.json()
-    
-    def start_job(self, job_id):
-        url = f"{self.base_url}/v1/jobs/start/{job_id}"
-        
-        print(f"Starting job ID: {job_id}")
-        response = self.session.post(url)
-        response.raise_for_status()
-        return response.json()
-    
-    def list_jobs(self, customer_id=None):
-        # The API doesn't have a filter by customer endpoint, get all jobs
-        url = f"{self.base_url}/v1/jobs"
-        
-        if customer_id:
-            print(f"Fetching jobs for customer ID {customer_id}...")
-        else:
-            print("Fetching all jobs...")
-        
-        response = self.session.get(url)
-        response.raise_for_status()
-        data = response.json()
-        
-        # Parse the response - may return 'jobs' as JSON string
-        if 'jobs' in data and isinstance(data['jobs'], str):
-            jobs = json.loads(data['jobs'])
-            # Filter by customer_id if provided
-            if customer_id:
-                jobs = [job for job in jobs if job.get('customer_id') == customer_id]
-            return {'jobs': jobs}
-        
-        return data
-    
-    def download_left_hashes(self, customer_id, hashfile_id, output_file=None):
-        # Use the proper API v1 endpoint for downloading hashfiles (left only)
-        url = f"{self.base_url}/v1/hashfiles/{hashfile_id}"
-        
-        print(f"Downloading left hashes...")
-        print(f"  Customer ID: {customer_id}")
-        print(f"  Hashfile ID: {hashfile_id}")
-        
-        response = self.session.get(url)
-        
-        # Check if we got HTML (login page) instead of hash data
-        if response.content.startswith(b'<!DOCTYPE') or response.content.startswith(b'<html'):
-            raise Exception("Authentication failed - received HTML login page instead of hash data.")
-        
-        response.raise_for_status()
-        
-        # Check if response is JSON error message
-        try:
-            json_response = response.json()
-            if 'type' in json_response and json_response['type'] == 'Error':
-                raise Exception(f"Hashview API Error: {json_response.get('msg', 'Unknown error')}")
-        except (json.JSONDecodeError, ValueError):
-            # Not JSON, assume it's the actual hash file content
-            pass
-        
-        # If no output file specified, generate one
-        if output_file is None:
-            output_file = f"left_{customer_id}_{hashfile_id}.txt"
-        
-        # Write the content to file
-        with open(output_file, 'wb') as f:
-            f.write(response.content)
-        
-        file_size = len(response.content)
-        # Wrap output to 100 columns
-        import textwrap
-        message = f"✓ Downloaded {file_size} bytes to {output_file}"
-        wrapped = textwrap.fill(message, width=100, subsequent_indent="  ")
-        print(wrapped)
-        
-        return {'output_file': output_file, 'size': file_size}
-    
-    def list_wordlists(self):
-        """Get all available wordlists"""
-        url = f"{self.base_url}/v1/wordlists"
-        
-        print("Fetching wordlists...")
-        response = self.session.get(url)
-        response.raise_for_status()
-        data = response.json()
-        
-        # Parse the response - may return 'wordlists' as JSON string
-        if 'wordlists' in data:
-            if isinstance(data['wordlists'], str):
-                wordlists = json.loads(data['wordlists'])
-                return {'wordlists': wordlists}
-            return data
-        
-        return data
-    
-    def upload_wordlist(self, wordlist_path, wordlist_name=None):
-        """Upload a wordlist to Hashview"""
-        if not os.path.exists(wordlist_path):
-            raise FileNotFoundError(f"Wordlist not found: {wordlist_path}")
-        
-        # Use filename if no name provided
-        if not wordlist_name:
-            wordlist_name = os.path.basename(wordlist_path)
-        
-        url = f"{self.base_url}/v1/wordlists/add/{wordlist_name}"
-        
-        print(f"Uploading wordlist: {wordlist_name}")
-        print(f"  File: {wordlist_path}")
-        
-        with open(wordlist_path, 'rb') as f:
-            response = self.session.post(url, data=f, headers={'Content-Type': 'text/plain'})
-        
-        response.raise_for_status()
-        result = response.json()
-        
-        if result.get('type') == 'Error':
-            raise Exception(result.get('msg', 'Unknown error'))
-        
-        return result
+
 
 
 def hashview_api():
@@ -1530,6 +1436,7 @@ def hashview_api():
         print("\nError: 'requests' module not found.")
         print("Install it with: pip install requests")
         return
+    
     
     print("\n" + "="*60)
     print("Hashview Integration")
@@ -1584,7 +1491,7 @@ def hashview_api():
                 
                 # Prompt for file
                 if session_file:
-                    use_session = input(f"Use this file? (Y/n): ").strip().lower()
+                    use_session = input("Use this file? (Y/n): ").strip().lower()
                     if use_session != 'n':
                         cracked_file = session_file
                 
@@ -1592,14 +1499,18 @@ def hashview_api():
                     cracked_file = select_file_with_autocomplete(
                         f"Enter path to cracked hashes file (.out format) [hash type: {hcatHashType}] (TAB to autocomplete)"
                     )
-                    if cracked_file:
+                    # select_file_with_autocomplete may return a list if allow_multiple=True, but we expect a string
+                    if isinstance(cracked_file, list):
+                        if cracked_file:
+                            cracked_file = cracked_file[0]  # Use the first file
+                        else:
+                            cracked_file = None
+                    if isinstance(cracked_file, str):
                         cracked_file = cracked_file.strip()
-                
                 # Validate file exists
-                if not os.path.exists(cracked_file):
+                if not cracked_file or not isinstance(cracked_file, str) or not os.path.exists(cracked_file):
                     print(f"✗ Error: File not found: {cracked_file}")
                     continue
-                
                 # Show file info
                 file_size = os.path.getsize(cracked_file)
                 with open(cracked_file, 'r') as f:
@@ -1831,292 +1742,68 @@ def hashview_api():
         print(f"\nError connecting to Hashview: {str(e)}")
 
 
-# Quick Dictionary Attack with Optional Chained Rules
+# Attack menu handlers live in hate_crack.attacks
+from hate_crack import attacks as _attacks
+from types import SimpleNamespace
+
+
+def _attack_ctx():
+    ctx = sys.modules.get(__name__)
+    if ctx is None:
+        return SimpleNamespace(**globals())
+    return ctx
+
+
 def quick_crack():
-    # Rules Attack
-    wordlist_choice = None
-    rule_choice = None
-    selected_hcatRules = []
-
-    wordlist_files =  sorted(os.listdir(hcatWordlists))
-    print("\nWordlists:")
-    for i, file in enumerate(wordlist_files, start=1):
-        print(f"{i}. {file}")
-
-    # Setup tab completion for file paths
-    def path_completer(text, state):
-        """Tab completion function for file paths"""
-        if not text:
-            # If empty, complete from current directory
-            text = './'
-        
-        # Expand ~ to home directory
-        text = os.path.expanduser(text)
-        
-        # Handle both absolute and relative paths
-        if text.startswith('/') or text.startswith('./') or text.startswith('../') or text.startswith('~'):
-            # Path-based completion
-            matches = glob.glob(text + '*')
-        else:
-            # Complete from current directory
-            matches = glob.glob('./' + text + '*')
-            # Remove the ./ prefix for cleaner display
-            matches = [m[2:] if m.startswith('./') else m for m in matches]
-        
-        # Add trailing slash for directories
-        matches = [m + '/' if os.path.isdir(m) else m for m in matches]
-        
-        try:
-            return matches[state]
-        except IndexError:
-            return None
-    
-    # Configure readline for tab completion
-    readline.set_completer_delims(' \t\n;')
-    # Disable the "Display all X possibilities?" prompt
-    try:
-        readline.parse_and_bind("set completion-query-items -1")
-    except:
-        pass
-    # Try both GNU readline and libedit (macOS) key bindings
-    try:
-        readline.parse_and_bind("tab: complete")
-    except:
-        pass
-    try:
-        readline.parse_and_bind("bind ^I rl_complete")
-    except:
-        pass
-    readline.set_completer(path_completer)
-
-    while wordlist_choice is None:
-        try:
-            raw_choice = input("\nEnter path of wordlist or wordlist directory (tab to autocomplete).\n"
-                            "Press Enter for default optimized wordlists [{0}]: ".format(hcatOptimizedWordlists))
-            if raw_choice == '':
-                wordlist_choice = hcatOptimizedWordlists
-            elif os.path.exists(raw_choice):
-                wordlist_choice = raw_choice
-            elif 1 <= int(raw_choice) <= len(wordlist_files):
-                if os.path.exists(hcatWordlists + '/' + wordlist_files[int(raw_choice) - 1]):
-                    wordlist_choice = hcatWordlists + '/' + wordlist_files[int(raw_choice) - 1]
-                    print(wordlist_choice)
-            else:
-                wordlist_choice = None
-                print('Please enter a valid wordlist or wordlist directory.')
-        except ValueError:
-            print("Please enter a valid number.")
-
-    rule_files =  sorted(os.listdir(hcatPath + '/rules'))
-    print("\nWhich rule(s) would you like to run?")
-    print('0. To run without any rules')
-    for i, file in enumerate(rule_files, start=1):
-        print(f"{i}. {file}")
-    print('99. YOLO...run all of the rules')
-
-    while rule_choice is None:
-        raw_choice = input('Enter Comma separated list of rules you would like to run. To run rules chained use the + symbol.\n'
-                            'For example 1+1 will run {0} chained twice and 1,2 would run {0} and then {1} sequentially.\n'
-                            'Choose wisely: '.format(rule_files[0], rule_files[1]))
-        if raw_choice != '':
-            rule_choice = raw_choice.split(',')
-
-    if '99' in rule_choice:
-        for rule in rule_files:
-            selected_hcatRules.append('-r {hcatPath}/rules/{selected_rule}'.format(selected_rule=rule, hcatPath=hcatPath))
-    elif '0' in rule_choice:
-        selected_hcatRules = ['']
-    else:
-        for choice in rule_choice:
-            if '+' in choice:
-                combined_choice = ''
-                choices = choice.split('+')
-                for rule in choices:
-                    try:
-                        combined_choice = '{0} {1}'.format(combined_choice, '-r {hcatPath}/rules/{selected_rule}'.format(selected_rule=rule_files[int(rule) - 1],
-                                                                                                                         hcatPath=hcatPath))
-                    except:
-                        continue
-                selected_hcatRules.append(combined_choice)
-            else:
-                try:
-                    selected_hcatRules.append('-r {hcatPath}/rules/{selected_rule}'.format(selected_rule=rule_files[int(choice) - 1],hcatPath=hcatPath))
-                except IndexError:
-                    continue
-
-    #Run Quick Crack with each selected rule
-    for chain in selected_hcatRules:
-         hcatQuickDictionary(hcatHashType, hcatHashFile, chain, wordlist_choice)
+    return _attacks.quick_crack(_attack_ctx())
 
 
-# Extensive Pure_Hate Methodology
 def extensive_crack():
-    # Brute Force Attack
-    hcatBruteForce(hcatHashType, hcatHashFile, "1", "7")
-
-    # Recycle Cracked Passwords
-    hcatRecycle(hcatHashType, hcatHashFile, hcatBruteCount)
-
-    # Dictionary Attack
-    hcatDictionary(hcatHashType, hcatHashFile)
-
-    # Recycle Cracked Passwords
-    hcatRecycle(hcatHashType, hcatHashFile, hcatDictionaryCount)
-
-    # Top Mask Attack
-    hcatTargetTime = 4 * 60 * 60  # 4 Hours
-    hcatTopMask(hcatHashType, hcatHashFile, hcatTargetTime)
-
-    # Recycle Cracked Passwords
-    hcatRecycle(hcatHashType, hcatHashFile, hcatMaskCount)
-
-    # Fingerprint Attack
-    hcatFingerprint(hcatHashType, hcatHashFile)
-
-    # Recycle Cracked Passwords
-    hcatRecycle(hcatHashType, hcatHashFile, hcatFingerprintCount)
-
-    # Combination Attack
-    hcatCombination(hcatHashType, hcatHashFile)
-
-    # Recycle Cracked Passwords
-    hcatRecycle(hcatHashType, hcatHashFile, hcatCombinationCount)
-
-    # Hybrid Attack
-    hcatHybrid(hcatHashType, hcatHashFile)
-
-    # Recycle Cracked Passwords
-    hcatRecycle(hcatHashType, hcatHashFile, hcatHybridCount)
-
-    # Extra - Just For Good Measure
-    hcatGoodMeasure(hcatHashType, hcatHashFile)
-
-    # Recycle Cracked Passwords
-    hcatRecycle(hcatHashType, hcatHashFile, hcatExtraCount)
+    return _attacks.extensive_crack(_attack_ctx())
 
 
-# Brute Force
 def brute_force_crack():
-    hcatMinLen = int(input("\nEnter the minimum password length to brute force (1): ") or 1)
-    hcatMaxLen = int(input("\nEnter the maximum password length to brute force (7): ") or 7)
-    hcatBruteForce(hcatHashType, hcatHashFile, hcatMinLen, hcatMaxLen)
+    return _attacks.brute_force_crack(_attack_ctx())
 
 
-# Top Mask
 def top_mask_crack():
-    hcatTargetTime = int(input("\nEnter a target time for completion in hours (4): ") or 4)
-    hcatTargetTime = hcatTargetTime * 60 * 60
-    hcatTopMask(hcatHashType, hcatHashFile, hcatTargetTime)
+    return _attacks.top_mask_crack(_attack_ctx())
 
 
-# Fingerprint
 def fingerprint_crack():
-    hcatFingerprint(hcatHashType, hcatHashFile)
+    return _attacks.fingerprint_crack(_attack_ctx())
 
 
-# Combinator
 def combinator_crack():
-    hcatCombination(hcatHashType, hcatHashFile)
+    return _attacks.combinator_crack(_attack_ctx())
 
 
-# Hybrid
 def hybrid_crack():
-    """Interactive hybrid attack with dynamic wordlist selection"""
-    print("\n" + "="*60)
-    print("HYBRID ATTACK")
-    print("="*60)
-    print("This attack combines wordlists with masks to generate candidates.")
-    print("Examples:")
-    print("  - Mode 6: wordlist + mask (e.g., 'password' + '123')")
-    print("  - Mode 7: mask + wordlist (e.g., '123' + 'password')")
-    print("="*60)
-    
-    # Ask if user wants to use config default or select custom wordlist(s)
-    use_default = input("\nUse default hybrid wordlist from config? (Y/n): ").strip().lower()
-    
-    if use_default != 'n':
-        # Use config default
-        print(f"\nUsing default wordlist(s) from config:")
-        if isinstance(hcatHybridlist, list):
-            for wl in hcatHybridlist:
-                print(f"  - {wl}")
-            wordlists = hcatHybridlist
-        else:
-            print(f"  - {hcatHybridlist}")
-            wordlists = [hcatHybridlist]
-    else:
-        # Let user select wordlist(s)
-        print("\nSelect wordlist(s) for hybrid attack.")
-        print("You can enter:")
-        print("  - A single file path")
-        print("  - Multiple paths separated by commas")
-        print("  - Press TAB to autocomplete file paths")
-        
-        selection = select_file_with_autocomplete(
-            "Enter wordlist file(s) (comma-separated for multiple)",
-            allow_multiple=True
-        )
-        
-        if not selection:
-            print("No wordlist selected. Aborting hybrid attack.")
-            return
-        
-        # Convert to list if single file
-        if isinstance(selection, str):
-            wordlists = [selection]
-        else:
-            wordlists = selection
-        
-        # Validate all files exist
-        valid_wordlists = []
-        for wl in wordlists:
-            if os.path.isfile(wl):
-                valid_wordlists.append(wl)
-                print(f"✓ Found: {wl}")
-            else:
-                print(f"✗ Not found: {wl}")
-        
-        if not valid_wordlists:
-            print("\nNo valid wordlists found. Aborting hybrid attack.")
-            return
-        
-        wordlists = valid_wordlists
-    
-    # Confirm before starting
-    print(f"\nStarting hybrid attack with {len(wordlists)} wordlist(s)...")
-    print(f"Hash type: {hcatHashType}")
-    print(f"Hash file: {hcatHashFile}")
-    
-    # Run the attack with selected wordlist(s)
-    hcatHybrid(hcatHashType, hcatHashFile, wordlists)
+    return _attacks.hybrid_crack(_attack_ctx())
 
 
-# Pathwell Top 100 Bruteforce Mask
 def pathwell_crack():
-    # Bruteforce Mask Attack
-    hcatPathwellBruteForce(hcatHashType, hcatHashFile)
+    return _attacks.pathwell_crack(_attack_ctx())
 
 
-# PRINCE Attack
 def prince_attack():
-    hcatPrince(hcatHashType, hcatHashFile)
+    return _attacks.prince_attack(_attack_ctx())
 
 
-# YOLO Combination
 def yolo_combination():
-    hcatYoloCombination(hcatHashType, hcatHashFile)
+    return _attacks.yolo_combination(_attack_ctx())
 
-# Thorough Combinator
+
 def thorough_combinator():
-    hcatThoroughCombinator(hcatHashType, hcatHashFile)
+    return _attacks.thorough_combinator(_attack_ctx())
 
-# Middle Combinator
+
 def middle_combinator():
-    hcatMiddleCombinator(hcatHashType, hcatHashFile)
+    return _attacks.middle_combinator(_attack_ctx())
 
-# Bandrel Methodology
+
 def bandrel_method():
-    hcatBandrel(hcatHashType, hcatHashFile)
+    return _attacks.bandrel_method(_attack_ctx())
 
 
 # convert hex words for recycling
@@ -2189,8 +1876,12 @@ def pipal():
                 results = re.search(basewords_re,raw_pipal)
                 top_basewords = []
                 if results:
-                    for i in range(1, results.lastindex + 1):
-                        top_basewords.append(results.group(i))
+                    if results.lastindex is not None:
+                        for i in range(1, results.lastindex + 1):
+                            if i is not None:
+                                top_basewords.append(results.group(i))
+                    else:
+                        pass
                     return top_basewords
                 else:
                     return []
@@ -2209,8 +1900,8 @@ def export_excel():
     # Check for openyxl dependancy for export
     try:
         import openpyxl
-    except:
-        sys.stderr.write('You must install openpyxl first using \'pip install openpyxl\' or \'pip3 install openpyxl\'\n')
+    except ImportError:
+        sys.stderr.write("You must install openpyxl first using 'pip install openpyxl' or 'pip3 install openpyxl'\n")
         return
 
     if hcatHashType == "1000":
@@ -2263,7 +1954,6 @@ def quit_hc():
     cleanup()
     sys.exit(0)
 
-
 # The Main Guts
 def main():
     global pwdump_format
@@ -2272,115 +1962,132 @@ def main():
     global hcatHashFileOrig
     global lmHashesFound
     global debug_mode
+    global hashview_url, hashview_api_key
+    global hcatPath, hcatBin, hcatWordlists, hcatOptimizedWordlists
+    global pipalPath, maxruntime, bandrelbasewords
 
-    # Parse command line arguments
-    args = sys.argv[1:]
-    
-    try:
-        hcatHashFile = args[0]
-        hcatHashType = args[1]
 
-    except IndexError:
-        # No arguments provided - show menu
+    import argparse
+
+    parser = argparse.ArgumentParser(description="hate_crack - Hashcat automation and wordlist management tool")
+    parser.add_argument('hashfile', nargs='?', default=None, help='Path to hash file to crack (positional, optional)')
+    parser.add_argument('hashtype', nargs='?', default=None, help='Hashcat hash type (e.g., 1000 for NTLM) (positional, optional)')
+    parser.add_argument('--download-hashview', action='store_true', help='Download hashes from Hashview')
+    parser.add_argument('--download-torrent', metavar='FILENAME', help='Download a specific Weakpass torrent file')
+    parser.add_argument('--download-all-torrents', action='store_true', help='Download all available Weakpass torrents from cache')
+    parser.add_argument('--weakpass', action='store_true', help='Download wordlists from Weakpass')
+    parser.add_argument('--hashmob', action='store_true', help='Download wordlists from Hashmob.net')
+    parser.add_argument('--task', metavar='TASK', help='Run a menu task by number (e.g., 1, 93)')
+    parser.add_argument('--debug', action='store_true', help='Enable debug mode')
+    add_common_args(parser)
+    args = parser.parse_args()
+
+    global debug_mode
+    debug_mode = args.debug
+
+    setup_logging(logger, hate_path, debug_mode)
+
+    from types import SimpleNamespace
+
+    config = SimpleNamespace(
+        hashview_url=hashview_url,
+        hashview_api_key=hashview_api_key,
+        hcatPath=hcatPath,
+        hcatBin=hcatBin,
+        hcatWordlists=hcatWordlists,
+        hcatOptimizedWordlists=hcatOptimizedWordlists,
+        pipalPath=pipalPath,
+        maxruntime=maxruntime,
+        bandrelbasewords=bandrelbasewords,
+    )
+    apply_config_overrides(args, config=config)
+
+    hashview_url = config.hashview_url
+    hashview_api_key = config.hashview_api_key
+    hcatPath = config.hcatPath
+    hcatBin = config.hcatBin
+    hcatWordlists = config.hcatWordlists
+    hcatOptimizedWordlists = config.hcatOptimizedWordlists
+    pipalPath = config.pipalPath
+    maxruntime = config.maxruntime
+    bandrelbasewords = config.bandrelbasewords
+
+    if args.download_torrent:
+        download_weakpass_torrent(
+            download_torrent=download_torrent_file,
+            filename=args.download_torrent,
+            print_fn=print,
+        )
+        sys.exit(0)
+
+    if args.download_all_torrents:
+        try:
+            download_all_weakpass_torrents(
+                fetch_all_wordlists=fetch_all_weakpass_wordlists_multithreaded,
+                download_torrent=download_torrent_file,
+                print_fn=print,
+            )
+        except Exception:
+            sys.exit(1)
+        sys.exit(0)
+
+    if args.weakpass:
+        weakpass_wordlist_menu()
+        sys.exit(0)
+
+    if args.task and not (args.hashfile and args.hashtype) and not args.download_hashview:
+        print("Error: --task requires <hashfile> <hashtype> or --download-hashview to supply hashes.")
+        sys.exit(1)
+
+    if args.hashfile and args.hashtype:
+        hcatHashFile = resolve_path(args.hashfile)
+        hcatHashType = args.hashtype
+        if not hcatHashFile or not os.path.isfile(hcatHashFile):
+            print(f"Error: hashfile not found: {args.hashfile}")
+            sys.exit(1)
+        if not str(hcatHashType).isdigit():
+            print(f"Error: invalid hash type: {hcatHashType}")
+            sys.exit(1)
+    else:
         ascii_art()
         print("\n" + "="*60)
         print("No hash file provided. What would you like to do?")
         print("="*60)
         print("\t(1) Download hashes from Hashview")
-        print("\t(2) Show usage information")
-        print("\t(3) Exit")
-        
+        print("\t(2) Download wordlists from Weakpass")
+        print("\t(3) Download wordlists from Hashmob.net")
+        print("\t(4) Exit")
         choice = input("\nSelect an option: ")
-        
-        if choice == '1':
-            # Download from Hashview
-            if not REQUESTS_AVAILABLE:
-                print("\nError: 'requests' module not found.")
-                print("Install it with: pip install requests")
-                sys.exit(1)
-            
+        if choice == '1' or args.download_hashview:
             if not hashview_api_key:
                 print("\nError: Hashview API key not configured.")
                 print("Please set 'hashview_api_key' in config.json")
                 sys.exit(1)
-            
             try:
-                api_harness = HashviewAPI(hashview_url, hashview_api_key)
-                
-                # List customers
-                result = api_harness.list_customers()
-                if 'customers' in result and result['customers']:
-                    api_harness.display_customers_multicolumn(result['customers'])
-                
-                # Get customer ID
-                customer_id = int(input("\nEnter customer ID: "))
-                
-                # List hashfiles for the customer
-                try:
-                    customer_hashfiles = api_harness.get_customer_hashfiles(customer_id)
-                    
-                    if customer_hashfiles:
-                        print("\n" + "="*100)
-                        print(f"Hashfiles for Customer ID {customer_id}:")
-                        print("="*100)
-                        print(f"{'ID':<10} {'Name':<88}")
-                        print("-" * 100)
-                        for hf in customer_hashfiles:
-                            hf_id = hf.get('id', 'N/A')
-                            hf_name = hf.get('name', 'N/A')
-                            # Truncate long names to fit within 100 columns
-                            if len(str(hf_name)) > 88:
-                                hf_name = str(hf_name)[:85] + "..."
-                            print(f"{hf_id:<10} {hf_name:<88}")
-                        print("="*100)
-                        print(f"Total: {len(customer_hashfiles)} hashfile(s)")
-                    else:
-                        print(f"\nNo hashfiles found for customer ID {customer_id}")
-                except Exception as e:
-                    print(f"\nWarning: Could not list hashfiles: {e}")
-                    print("You may need to manually find the hashfile ID in the web interface.")
-                
-                # Prompt directly for hashfile ID
-                hashfile_id = int(input("\nEnter hashfile ID: "))
-                
-                # Get hash type
-                # print("\nEnter hash type (e.g., 1000 for NTLM, 0 for MD5)")
-                # print("See hashcat --help for hash type reference")
-                # hcatHashType = input("Hash type: ")
-                hcatHashType = "1000" # Default to NTLM for simplicity
-                
-                # Set output filename automatically
-                output_file = f"left_{customer_id}_{hashfile_id}.txt"
-                
-                # Download the left hashes
-                download_result = api_harness.download_left_hashes(
-                    customer_id, hashfile_id, output_file
+                hcatHashFile, hcatHashType = download_hashes_from_hashview(
+                    hashview_url,
+                    hashview_api_key,
+                    debug_mode,
+                    input_fn=input,
+                    print_fn=print,
                 )
-                print(f"\n✓ Success: Downloaded {download_result['size']} bytes")
-                print(f"  File: {download_result['output_file']}")
-                
-                # Set the hash file for processing
-                hcatHashFile = download_result['output_file']
-                
-                print(f"\nNow starting hate_crack with:")
-                print(f"  Hash file: {hcatHashFile}")
-                print(f"  Hash type: {hcatHashType}")
-                    
             except ValueError:
                 print("\n✗ Error: Invalid ID entered. Please enter a numeric ID.")
                 sys.exit(1)
             except Exception as e:
                 print(f"\n✗ Error downloading hashes: {str(e)}")
                 sys.exit(1)
-        elif choice == '2':
-            usage()
+        elif choice == '2' or args.weakpass:
+            weakpass_wordlist_menu()
+            sys.exit(0)
+        elif choice == '3' or args.hashmob:
+            download_hashmob_wordlists(print_fn=print)
             sys.exit(0)
         else:
             sys.exit(0)
 
     hcatHashFileOrig = hcatHashFile
     ascii_art()
-
     # Get Initial Input Hash Count
     hcatHashCount = lineCount(hcatHashFile)
 
@@ -2443,6 +2150,34 @@ def main():
 
     # Display Options
     try:
+        options = {"1": quick_crack,
+                   "2": extensive_crack,
+                   "3": brute_force_crack,
+                   "4": top_mask_crack,
+                   "5": fingerprint_crack,
+                   "6": combinator_crack,
+                   "7": hybrid_crack,
+                   "8": pathwell_crack,
+                   "9": prince_attack,
+                   "10": yolo_combination,
+                   "11": middle_combinator,
+                   "12": thorough_combinator,
+                   "13": bandrel_method,
+                   "93": weakpass_wordlist_menu,
+                   "94": hashview_api,
+                   "95": pipal,
+                   "96": export_excel,
+                   "97": show_results,
+                   "98": show_readme,
+                   "99": quit_hc
+                   }
+        if args.task:
+            task = str(args.task).strip()
+            if task not in options:
+                print(f"Invalid task: {task}. Valid options are: {', '.join(sorted(options.keys(), key=int))}")
+                sys.exit(1)
+            options[task]()
+            sys.exit(0)
         while 1:
             print("\n\t(1) Quick Crack")
             print("\t(2) Extensive Pure_Hate Methodology Crack")
@@ -2457,32 +2192,13 @@ def main():
             print("\t(11) Middle Combinator Attack")
             print("\t(12) Thorough Combinator Attack")
             print("\t(13) Bandrel Methodology")
-            print("\n\t(94) Hashview")
+            print("\n\t(93) Download wordlists from Weakpass")
+            print("\t(94) Hashview")
             print("\t(95) Analyze hashes with Pipal")
             print("\t(96) Export Output to Excel Format")
             print("\t(97) Display Cracked Hashes")
             print("\t(98) Display README")
             print("\t(99) Quit")
-            options = {"1": quick_crack,
-                       "2": extensive_crack,
-                       "3": brute_force_crack,
-                       "4": top_mask_crack,
-                       "5": fingerprint_crack,
-                       "6": combinator_crack,
-                       "7": hybrid_crack,
-                       "8": pathwell_crack,
-                       "9": prince_attack,
-                       "10": yolo_combination,
-                       "11": middle_combinator,
-                       "12": thorough_combinator,
-                       "13": bandrel_method,
-                       "94": hashview_api,
-                       "95": pipal,
-                       "96": export_excel,
-                       "97": show_results,
-                       "98": show_readme,
-                       "99": quit_hc
-                       }
             try:
                 task = input("\nSelect a task: ")
                 options[task]()
