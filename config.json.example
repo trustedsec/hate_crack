@@ -1,5 +1,5 @@
 {
-  "hcatPath": "/Passwords/hashcat",
+  "hcatPath": "",
   "hcatBin": "hashcat",
   "hcatTuning": "--force --remove",
   "hcatWordlists": "/Passwords/wordlists",
