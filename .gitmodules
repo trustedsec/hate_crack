@@ -1,0 +1,3 @@
+[submodule "hashcat-utils"]
+	path = hashcat-utils
+	url = https://github.com/hashcat/hashcat-utils.git
