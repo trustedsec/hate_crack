@@ -1,3 +1,22 @@
+# Utility function to check and build .bin/.app files
+def ensure_binary(binary_path, build_dir=None, name=None):
+    if not os.path.isfile(binary_path) or not os.access(binary_path, os.X_OK):
+        if build_dir:
+            print(f'Attempting to build {name or binary_path} via make in {build_dir}...')
+            try:
+                subprocess.run(['make'], cwd=build_dir, check=True)
+                print(f'Successfully ran make in {build_dir}.')
+            except Exception as e:
+                print(f'Error running make in {build_dir}: {e}')
+                print('Please ensure build tools are installed and try again.')
+                quit(1)
+            if not os.path.isfile(binary_path) or not os.access(binary_path, os.X_OK):
+                print(f'Error: {name or binary_path} still not found or not executable at {binary_path} after make.')
+                quit(1)
+        else:
+            print(f'Error: {name or binary_path} not found or not executable at {binary_path}.')
+            quit(1)
+    return binary_path
 #!/usr/bin/env python3
 
 # Methodology provided by Martin Bos (pure_hate) - https://www.trustedsec.com/team/martin-bos/
@@ -170,26 +189,7 @@ required_binaries = [
 
 for binary, name in required_binaries:
     binary_path = hashcat_utils_path + '/' + binary
-    needs_make = False
-    if not os.path.isfile(binary_path):
-        print(f'Warning: {name} binary not found at {binary_path}. Attempting to build hashcat-utils...')
-        needs_make = True
-    elif not os.access(binary_path, os.X_OK):
-        print(f'Warning: {name} binary at {binary_path} is not executable. Attempting to build hashcat-utils...')
-        needs_make = True
-    if needs_make:
-        make_dir = os.path.join(hate_path, 'hashcat-utils')
-        try:
-            subprocess.run(['make'], cwd=make_dir, check=True)
-            print('Successfully ran make in hashcat-utils.')
-        except Exception as e:
-            print(f'Error running make in hashcat-utils: {e}')
-            print('Please ensure build tools are installed and try again.')
-            quit(1)
-        # Re-check after make
-        if not os.path.isfile(binary_path) or not os.access(binary_path, os.X_OK):
-            print(f'Error: {name} binary still not found or not executable at {binary_path} after make.')
-            quit(1)
+    ensure_binary(binary_path, build_dir=os.path.join(hate_path, 'hashcat-utils'), name=name)
     # Test binary execution
     try:
         test_result = subprocess.run(
@@ -211,12 +211,10 @@ for binary, name in required_binaries:
 
 # Verify princeprocessor binary
 prince_path = hate_path + '/princeprocessor/' + hcatPrinceBin
-if not os.path.isfile(prince_path):
-    print(f'Warning: PRINCE binary not found at {prince_path}')
+try:
+    ensure_binary(prince_path, build_dir=os.path.join(hate_path, 'princeprocessor'), name='PRINCE')
+except SystemExit:
     print('PRINCE attacks will not be available.')
-elif not os.access(prince_path, os.X_OK):
-    print(f'Warning: PRINCE binary at {prince_path} is not executable')
-    print('Try running: chmod +x {0}'.format(prince_path))
 
 #verify and convert wordlists to fully qualified paths
 hcatMiddleBaseList = verify_wordlist_dir(hcatWordlists, hcatMiddleBaseList)
