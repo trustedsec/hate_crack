@@ -85,235 +85,6 @@ def ensure_binary(binary_path, build_dir=None, name=None):
 
 
 
-# Weakpass wordlist menu and fetch logic moved here
-import threading
-from queue import Queue
-# --- Weakpass Wordlist Download Logic ---
-def fetch_all_weakpass_wordlists_multithreaded(total_pages=67, threads=10, output_file="weakpass_wordlists.json"):
-    """Fetch all Weakpass wordlist pages in parallel using threads and save to a local JSON file."""
-    import json
-    from bs4 import BeautifulSoup
-    wordlists = []
-    lock = threading.Lock()
-    q = Queue()
-    headers = {"User-Agent": "Mozilla/5.0"}
-
-    def worker():
-        while True:
-            page = q.get()
-            if page is None:
-                break
-            try:
-                url = f"https://weakpass.com/wordlists?page={page}"
-                r = requests.get(url, headers=headers, timeout=30)
-                soup = BeautifulSoup(r.text, "html.parser")
-                app_div = soup.find("div", id="app")
-                if not app_div or not app_div.has_attr("data-page"):
-                    q.task_done()
-                    continue
-                data_page_val = app_div["data-page"]
-                if not isinstance(data_page_val, str):
-                    data_page_val = str(data_page_val)
-                data = json.loads(data_page_val)
-                wordlists_data = data.get("props", {}).get("wordlists", {})
-                if isinstance(wordlists_data, dict) and 'data' in wordlists_data:
-                    wordlists_data = wordlists_data['data']
-                with lock:
-                    for wl in wordlists_data:
-                        wordlists.append({
-                            "name": wl.get("name", ""),
-                            "size": wl.get("size", ""),
-                            "rank": wl.get("rank", ""),
-                            "downloads": wl.get("downloaded", ""),
-                            "torrent_url": wl.get("torrent_link", "")
-                        })
-            except Exception as e:
-                print(f"Error fetching page {page}: {e}")
-            q.task_done()
-
-    for page in range(1, total_pages + 1):
-        q.put(page)
-
-    threads_list = []
-    for _ in range(threads):
-        t = threading.Thread(target=worker)
-        t.start()
-        threads_list.append(t)
-
-    q.join()
-
-    for _ in range(threads):
-        q.put(None)
-    for t in threads_list:
-        t.join()
-
-    seen = set()
-    unique_wordlists = []
-    for wl in wordlists:
-        if wl['name'] not in seen:
-            unique_wordlists.append(wl)
-            seen.add(wl['name'])
-
-    with open(output_file, "w", encoding="utf-8") as f:
-        json.dump(unique_wordlists, f, indent=2)
-    print(f"Saved {len(unique_wordlists)} wordlists to {output_file}")
-
-def download_torrent_file(torrent_url, save_dir="wordlists"):
-    import os
-    from bs4 import BeautifulSoup
-
-    os.makedirs(save_dir, exist_ok=True)
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
-
-
-    # Only use id from data-page JSON in <div id="app">
-    if not torrent_url.startswith("http"):
-        filename = torrent_url
-    else:
-        filename = torrent_url.split("/")[-1]
-
-    wordlist_base = filename.replace('.torrent', '').replace('.7z', '').replace('.txt', '')
-    wordlist_uri = f"https://weakpass.com/wordlists/{wordlist_base}"
-    print(f"[+] Fetching wordlist page: {wordlist_uri}")
-    r = requests.get(wordlist_uri, headers=headers)
-    if r.status_code != 200:
-        print(f"[!] Failed to fetch wordlist page: {wordlist_uri}")
-        return None
-
-    soup = BeautifulSoup(r.text, "html.parser")
-    app_div = soup.find("div", id="app")
-    if not app_div or not app_div.has_attr("data-page"):
-        print(f"[!] Could not find app data on {wordlist_uri}")
-        return None
-
-    import json
-    data_page_val = app_div["data-page"]
-    if not isinstance(data_page_val, str):
-        data_page_val = str(data_page_val)
-    # Unescape HTML entities
-    data_page_val = data_page_val.replace('&quot;', '"')
-    try:
-        data = json.loads(data_page_val)
-        wordlist = data.get('props', {}).get('wordlist')
-        wordlist_id = None
-        torrent_link_from_data = None
-        if wordlist:
-            wordlist_id = wordlist.get('id')
-            torrent_link_from_data = wordlist.get('torrent_link')
-        else:
-            # Try to match in 'wordlists' (list page)
-            wordlists = data.get('props', {}).get('wordlists')
-            if isinstance(wordlists, dict) and 'data' in wordlists:
-                wordlists = wordlists['data']
-            if isinstance(wordlists, list):
-                # Try to match by exact filename or base name
-                for wl in wordlists:
-                    if wl.get('torrent_link') == filename or wl.get('name') == filename:
-                        wordlist_id = wl.get('id')
-                        torrent_link_from_data = wl.get('torrent_link')
-                        break
-                    # Try matching base name
-                    if wordlist_base in wl.get('name', ''):
-                        wordlist_id = wl.get('id')
-                        torrent_link_from_data = wl.get('torrent_link')
-                        break
-    except Exception as e:
-        print(f"[!] Failed to parse data-page JSON: {e}")
-        return None
-
-    if not (torrent_link_from_data and wordlist_id):
-        print(f"[!] No torrent link or id found in wordlist data for {filename}.")
-        return None
-    if not torrent_link_from_data.startswith('http'):
-        torrent_link = f"https://weakpass.com/download/{wordlist_id}/{torrent_link_from_data}"
-    else:
-        torrent_link = torrent_link_from_data
-
-    print(f"[+] Downloading .torrent file from: {torrent_link}")
-    r2 = requests.get(torrent_link, headers=headers, stream=True)
-    content_type = r2.headers.get("Content-Type", "")
-    local_filename = os.path.join(save_dir, filename if filename.endswith('.torrent') else filename + '.torrent')
-    if r2.status_code == 200 and not content_type.startswith("text/html"):
-        with open(local_filename, 'wb') as f:
-            for chunk in r2.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
-        print(f"Saved to {local_filename}")
-    else:
-        print(f"Failed to download a valid torrent file: {torrent_link}")
-        try:
-            html = r2.content.decode(errors="replace")
-            print("--- Begin HTML Debug Output ---")
-            print(html[:2000])
-            print("--- End HTML Debug Output ---")
-        except Exception as e:
-            print(f"Could not decode response for debug: {e}")
-        return None
-
-    import shutil
-    if shutil.which("transmission-cli") is None:
-        print("[ERROR] transmission-cli is not installed or not in your PATH.")
-        print("Please install it with: brew install transmission-cli (on macOS) or your package manager.")
-        print(f"Torrent file saved at {local_filename}, but download will not start until transmission-cli is available.")
-        return local_filename
-
-    def run_transmission(torrent_file, output_dir):
-        import subprocess
-        import glob
-        print(f"Starting transmission-cli for {torrent_file}...")
-        try:
-            proc = subprocess.Popen([
-                "transmission-cli",
-                "-w", output_dir,
-                torrent_file
-            ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, universal_newlines=True)
-            if proc.stdout is not None:
-                for line in proc.stdout:
-                    print(line, end='')
-            proc.wait()
-            if proc.returncode != 0:
-                print(f"transmission-cli failed for {torrent_file} (exit {proc.returncode})")
-                return
-            else:
-                print(f"Download complete for {torrent_file}")
-            sevenz_files = glob.glob(os.path.join(output_dir, '*.7z'))
-            if not sevenz_files:
-                print("[i] No .7z files found to extract.")
-                return
-            for zfile in sevenz_files:
-                print(f"[+] Extracting {zfile} ...")
-                sevenz_bin = shutil.which('7z') or shutil.which('7za')
-                if not sevenz_bin:
-                    print("[!] 7z or 7za not found in PATH. Please install p7zip-full or 7-zip to extract archives.")
-                    continue
-                try:
-                    extract_result = subprocess.run([
-                        sevenz_bin, 'x', '-y', zfile, f'-o{output_dir}'
-                    ], capture_output=True, text=True)
-                    print(extract_result.stdout)
-                    if extract_result.returncode == 0:
-                        print(f"[+] Extraction complete: {zfile}")
-                    else:
-                        print(f"[!] Extraction failed for {zfile}: {extract_result.stderr}")
-                except Exception as e:
-                    print(f"[!] Error extracting {zfile}: {e}")
-        except Exception as e:
-            print(f"Error running transmission-cli: {e}")
-
-    import threading
-    t = threading.Thread(target=run_transmission, args=(local_filename, save_dir))
-    t.start()
-    print(f"transmission-cli launched in background for {local_filename}")
-    return local_filename
-
-def weakpass_wordlist_menu():
-    from hate_crack.weakpass import weakpass_wordlist_menu as _weakpass_wordlist_menu
-    return _weakpass_wordlist_menu()
-
-
-
 import os
 import random
 import re
@@ -325,8 +96,8 @@ import glob
 import subprocess
 import argparse
 
-from hate_crack.weakpass import fetch_all_weakpass_wordlists_multithreaded, download_torrent_file, weakpass_wordlist_menu
-from hate_crack.hashview import HashviewAPI
+from hate_crack.api import fetch_all_weakpass_wordlists_multithreaded, download_torrent_file, weakpass_wordlist_menu
+from hate_crack.api import HashviewAPI
 from hate_crack.api import (
     download_all_weakpass_torrents,
     download_hashes_from_hashview,
@@ -335,7 +106,6 @@ from hate_crack.api import (
 )
 from hate_crack.cli import (
     add_common_args,
-    apply_config_overrides,
     resolve_path,
     setup_logging,
 )
@@ -429,7 +199,22 @@ def verify_wordlist_dir(directory, wordlist):
         return directory + '/' + wordlist
     else:
         print('Invalid path for {0}. Please check configuration and try again.'.format(wordlist))
-        quit(1)
+        response = input(f"Wordlist '{wordlist}' not found. Would you like to download rockyou.txt automatically? (Y/n): ").strip().lower()
+        if response in ('', 'y', 'yes'):
+            try:
+                import urllib.request
+                rockyou_url = "https://weakpass.com/download/90/rockyou.txt.gz"
+                dest_path = os.path.join(directory, "rockyou.txt.gz")
+                print(f"Downloading rockyou.txt.gz to {dest_path} ...")
+                urllib.request.urlretrieve(rockyou_url, dest_path)
+                print("Download complete.")
+                return dest_path
+            except Exception as e:
+                print(f"Failed to download rockyou.txt.gz: {e}")
+            return None
+        else:
+            print('Exiting. Please check configuration and try again.')
+            return None
 
 if not SKIP_INIT:
     # hashcat biniary checks for systems that install hashcat binary in different location than the rest of the hashcat files
@@ -1976,9 +1761,10 @@ def main():
     parser.add_argument('--download-torrent', metavar='FILENAME', help='Download a specific Weakpass torrent file')
     parser.add_argument('--download-all-torrents', action='store_true', help='Download all available Weakpass torrents from cache')
     parser.add_argument('--weakpass', action='store_true', help='Download wordlists from Weakpass')
+    parser.add_argument('--rank', type=int, default=-1, help='Only show wordlists with this rank (use 0 to show all, default: >4)')
     parser.add_argument('--hashmob', action='store_true', help='Download wordlists from Hashmob.net')
     parser.add_argument('--debug', action='store_true', help='Enable debug mode')
-    add_common_args(parser)
+    # Removed add_common_args(parser) since config items are now only set via config file
     args = parser.parse_args()
 
     global debug_mode
@@ -1999,8 +1785,7 @@ def main():
         maxruntime=maxruntime,
         bandrelbasewords=bandrelbasewords,
     )
-    apply_config_overrides(args, config=config)
-
+    
     hashview_url = config.hashview_url
     hashview_api_key = config.hashview_api_key
     hcatPath = config.hcatPath
@@ -2030,8 +1815,13 @@ def main():
             sys.exit(1)
         sys.exit(0)
 
+
     if args.weakpass:
-        weakpass_wordlist_menu()
+        weakpass_wordlist_menu(rank=args.rank)
+        sys.exit(0)
+
+    if args.hashmob:
+        download_hashmob_wordlists(print_fn=print)
         sys.exit(0)
 
     if args.hashfile and args.hashtype:
@@ -2073,7 +1863,7 @@ def main():
                 print(f"\n✗ Error downloading hashes: {str(e)}")
                 sys.exit(1)
         elif choice == '2' or args.weakpass:
-            weakpass_wordlist_menu()
+            weakpass_wordlist_menu(rank=args.rank)
             sys.exit(0)
         elif choice == '3' or args.hashmob:
             download_hashmob_wordlists(print_fn=print)
