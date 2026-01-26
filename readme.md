@@ -58,6 +58,39 @@ $ ./hate_crack.py <hash file> 1000
                           Version 1.09
   
 
+## Testing
+
+The project includes comprehensive test coverage for the Hashview integration.
+
+### Running Tests Locally
+
+```bash
+# Install test dependencies
+pip install pytest pytest-mock requests
+
+# Run all tests
+pytest -v
+
+# Run specific test
+pytest test_hashview.py -v
+```
+
+### Test Structure
+
+- **test_hashview.py**: Comprehensive test suite for HashviewAPI class with mocked API responses, including:
+  - Customer listing and data validation
+  - Authentication and authorization tests
+  - Hashfile upload functionality
+  - Complete job creation workflow
+
+All tests use mocked API calls, so they can run without connectivity to a Hashview server. This allows tests to run in CI/CD environments (like GitHub Actions) without requiring actual API credentials.
+
+### Continuous Integration
+
+Tests automatically run on GitHub Actions for every push and pull request. The workflow tests against multiple Python versions (3.9, 3.10, 3.11, 3.12) to ensure compatibility.
+
+-------------------------------------------------------------------
+
 	(1) Quick Crack
 	(2) Extensive Pure_Hate Methodology Crack
 	(3) Brute Force Attack
