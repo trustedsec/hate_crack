@@ -20,12 +20,6 @@ make install
 ```git clone https://github.com/trustedsec/hate_crack.git```
 * Customize binary and wordlist paths in "config.json"
 * Make sure that at least "rockyou.txt" is within your "wordlists" path
-
-```$ python wordlist_optimizer.py
-usage: python wordlist_optimizer.py <input file list> <output directory>
-
-$ python wordlist_optimizer.py wordlists.txt ../optimized_wordlists
-```
 -------------------------------------------------------------------
 ## Project Structure
 Core logic is now split into modules under `hate_crack/`:
@@ -48,7 +42,6 @@ usage: python hate_crack.py <hash_file> <hash_type> [options]
 ```
 
 Common options:
-- `--task <N>`: Run a specific menu task number (e.g., 1, 93).
 - `--download-hashview`: Download hashes from Hashview before cracking.
 - `--weakpass`: Download wordlists from Weakpass.
 - `--hashmob`: Download wordlists from Hashmob.net.
