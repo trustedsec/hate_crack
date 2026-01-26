@@ -170,15 +170,26 @@ required_binaries = [
 
 for binary, name in required_binaries:
     binary_path = hashcat_utils_path + '/' + binary
+    needs_make = False
     if not os.path.isfile(binary_path):
-        print(f'Error: {name} binary not found at {binary_path}')
-        print('Please ensure hashcat-utils is properly installed.')
-        quit(1)
-    # Check if binary is executable
-    if not os.access(binary_path, os.X_OK):
-        print(f'Error: {name} binary at {binary_path} is not executable')
-        print('Try running: chmod +x {0}'.format(binary_path))
-        quit(1)
+        print(f'Warning: {name} binary not found at {binary_path}. Attempting to build hashcat-utils...')
+        needs_make = True
+    elif not os.access(binary_path, os.X_OK):
+        print(f'Warning: {name} binary at {binary_path} is not executable. Attempting to build hashcat-utils...')
+        needs_make = True
+    if needs_make:
+        make_dir = os.path.join(hate_path, 'hashcat-utils')
+        try:
+            subprocess.run(['make'], cwd=make_dir, check=True)
+            print('Successfully ran make in hashcat-utils.')
+        except Exception as e:
+            print(f'Error running make in hashcat-utils: {e}')
+            print('Please ensure build tools are installed and try again.')
+            quit(1)
+        # Re-check after make
+        if not os.path.isfile(binary_path) or not os.access(binary_path, os.X_OK):
+            print(f'Error: {name} binary still not found or not executable at {binary_path} after make.')
+            quit(1)
     # Test binary execution
     try:
         test_result = subprocess.run(
