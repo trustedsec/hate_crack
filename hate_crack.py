@@ -146,13 +146,20 @@ def verify_wordlist_dir(directory, wordlist):
         quit(1)
 
 # hashcat biniary checks for systems that install hashcat binary in different location than the rest of the hashcat files
-if os.path.isfile(hcatBin):
-    pass
-elif os.path.isfile(hcatPath.rstrip('/') + '/' + hcatBin):
-    hcatBin = hcatPath.rstrip('/') + '/' + hcatBin
+if hcatPath:
+    candidate = hcatPath.rstrip('/') + '/' + hcatBin
+    if os.path.isfile(candidate):
+        hcatBin = candidate
+    elif os.path.isfile(hcatBin):
+        pass
+    else:
+        print('Invalid path for hashcat binary. Please check configuration and try again.')
+        quit(1)
 else:
-    print('Invalid path for hashcat binary. Please check configuration and try again.')
-    quit(1)
+    # No hcatPath set, just use hcatBin (should be in PATH)
+    if shutil.which(hcatBin) is None:
+        print('Hashcat binary not found in PATH. Please check configuration and try again.')
+        quit(1)
 
 # Verify hashcat-utils binaries exist and work
 hashcat_utils_path = hate_path + '/hashcat-utils/bin'
