@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch, MagicMock
 # Add the parent directory to the path to import hate_crack
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from hate_crack.hashview import HashviewAPI
+from hate_crack.api import HashviewAPI
 
 # Test configuration - these are mock values, not real credentials
 HASHVIEW_URL = 'https://hashview.example.com'

@@ -2145,27 +2145,30 @@ def main():
 
     # Display Options
     try:
-        options = {"1": quick_crack,
-                   "2": extensive_crack,
-                   "3": brute_force_crack,
-                   "4": top_mask_crack,
-                   "5": fingerprint_crack,
-                   "6": combinator_crack,
-                   "7": hybrid_crack,
-                   "8": pathwell_crack,
-                   "9": prince_attack,
-                   "10": yolo_combination,
-                   "11": middle_combinator,
-                   "12": thorough_combinator,
-                   "13": bandrel_method,
-                   "93": weakpass_wordlist_menu,
-                   "94": hashview_api,
-                   "95": pipal,
-                   "96": export_excel,
-                   "97": show_results,
-                   "98": show_readme,
-                   "99": quit_hc
-                   }
+        options = {
+            "1": quick_crack,
+            "2": extensive_crack,
+            "3": brute_force_crack,
+            "4": top_mask_crack,
+            "5": fingerprint_crack,
+            "6": combinator_crack,
+            "7": hybrid_crack,
+            "8": pathwell_crack,
+            "9": prince_attack,
+            "10": yolo_combination,
+            "11": middle_combinator,
+            "12": thorough_combinator,
+            "13": bandrel_method,
+            "92": weakpass_wordlist_menu,
+            "93": download_hashmob_wordlists,
+            "94": weakpass_wordlist_menu,
+            "95": hashview_api,
+            "96": pipal,
+            "97": export_excel,
+            "98": show_results,
+            "99": show_readme,
+            "100": quit_hc
+        }
         while 1:
             print("\n\t(1) Quick Crack")
             print("\t(2) Extensive Pure_Hate Methodology Crack")
@@ -2180,13 +2183,15 @@ def main():
             print("\t(11) Middle Combinator Attack")
             print("\t(12) Thorough Combinator Attack")
             print("\t(13) Bandrel Methodology")
-            print("\n\t(93) Download wordlists from Weakpass")
-            print("\t(94) Hashview")
-            print("\t(95) Analyze hashes with Pipal")
-            print("\t(96) Export Output to Excel Format")
-            print("\t(97) Display Cracked Hashes")
-            print("\t(98) Display README")
-            print("\t(99) Quit")
+            print("\n\t(92) Download wordlists from Weakpass")
+            print("\t(93) Download wordlists from Hashmob.net")
+            print("\t(94) Weakpass Wordlist Menu")
+            print("\t(95) Hashview API")
+            print("\t(96) Analyze hashes with Pipal")
+            print("\t(97) Export Output to Excel Format")
+            print("\t(98) Display Cracked Hashes")
+            print("\t(99) Display README")
+            print("\t(100) Quit")
             try:
                 task = input("\nSelect a task: ")
                 options[task]()
