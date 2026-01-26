@@ -227,6 +227,22 @@ hcatProcess = 0
 debug_mode = True
 
 
+# Sanitize filename for use as hashcat session name
+def generate_session_id():
+    """Sanitize the hashfile name for use as a hashcat session name
+    
+    Hashcat session names can only contain alphanumeric characters, hyphens, and underscores.
+    This function removes the file extension and replaces problematic characters.
+    """
+    # Get just the filename without path
+    filename = os.path.basename(hcatHashFile)
+    # Remove extension
+    name_without_ext = os.path.splitext(filename)[0]
+    # Replace any non-alphanumeric chars (except - and _) with underscore
+    sanitized = re.sub(r'[^a-zA-Z0-9_-]', '_', name_without_ext)
+    return sanitized
+
+
 # Help
 def usage():
     print("usage: python hate_crack.py <hash_file> <hash_type>")
@@ -341,7 +357,7 @@ def hcatBruteForce(hcatHashType, hcatHashFile, hcatMinLen, hcatMaxLen):
             hcbin=hcatBin,
             hash_type=hcatHashType,
             hash_file=hcatHashFile,
-            session_name=os.path.basename(hcatHashFile),
+            session_name=generate_session_id(),
             min=hcatMinLen,
             max=hcatMaxLen,
             tuning=hcatTuning,
@@ -366,7 +382,7 @@ def hcatDictionary(hcatHashType, hcatHashFile):
             hcatBin=hcatBin,
             hcatHashType=hcatHashType,
             hash_file=hcatHashFile,
-            session_name=os.path.basename(hcatHashFile),
+            session_name=generate_session_id(),
             optimized_wordlists=hcatOptimizedWordlists,
             tuning=hcatTuning,
             hate_path=hate_path), shell=True)
@@ -385,7 +401,7 @@ def hcatDictionary(hcatHashType, hcatHashFile):
                 hcatBin=hcatBin,
                 hcatHashType=hcatHashType,
                 hash_file=hcatHashFile,
-                session_name=os.path.basename(hcatHashFile),
+                session_name=generate_session_id(),
                 hcatWordlist=wordlist,
                 tuning=hcatTuning,
                 hate_path=hate_path), shell=True)
@@ -403,7 +419,7 @@ def hcatDictionary(hcatHashType, hcatHashFile):
                 hcatBin=hcatBin,
                 hcatHashType=hcatHashType,
                 hash_file=hcatHashFile,
-                session_name=os.path.basename(hcatHashFile),
+                session_name=generate_session_id(),
                 hcatWordlist=wordlist,
                 tuning=hcatTuning,
                 hate_path=hate_path), shell=True)
@@ -425,7 +441,7 @@ def hcatQuickDictionary(hcatHashType, hcatHashFile, hcatChains, wordlists):
             hcatBin=hcatBin,
             hcatHashType=hcatHashType,
             hash_file=hcatHashFile,
-            session_name=os.path.basename(hcatHashFile),
+            session_name=generate_session_id(),
             wordlists=wordlists,
             chains=hcatChains,
             tuning=hcatTuning,
@@ -473,7 +489,7 @@ def hcatTopMask(hcatHashType, hcatHashFile, hcatTargetTime):
             hcatBin=hcatBin,
             hash_type=hcatHashType,
             hash_file=hcatHashFile,
-            session_name=os.path.basename(hcatHashFile),
+            session_name=generate_session_id(),
             tuning=hcatTuning,
             hate_path=hate_path), shell=True)
     try:
@@ -511,7 +527,7 @@ def hcatFingerprint(hcatHashType, hcatHashFile):
                 hcatBin=hcatBin,
                 hash_type=hcatHashType,
                 hash_file=hcatHashFile,
-                session_name=os.path.basename(hcatHashFile),
+                session_name=generate_session_id(),
                 tuning=hcatTuning,
                 hate_path=hate_path), shell=True)
         try:
@@ -533,7 +549,7 @@ def hcatCombination(hcatHashType, hcatHashFile):
             hcatBin=hcatBin,
             hash_type=hcatHashType,
             hash_file=hcatHashFile,
-            session_name=os.path.basename(hcatHashFile),
+            session_name=generate_session_id(),
             word_lists=hcatWordlists,
             left=hcatCombinationWordlist[0],
             right=hcatCombinationWordlist[1],
@@ -569,7 +585,7 @@ def hcatHybrid(hcatHashType, hcatHashFile, wordlists=None):
                 hcatBin=hcatBin,
                 hash_type=hcatHashType,
                 hash_file=hcatHashFile,
-                session_name=os.path.basename(hcatHashFile),
+                session_name=generate_session_id(),
                 wordlist=wordlist,
                 tuning=hcatTuning,
                 hate_path=hate_path), shell=True)
@@ -585,7 +601,7 @@ def hcatHybrid(hcatHashType, hcatHashFile, wordlists=None):
                 hcatBin=hcatBin,
                 hash_type=hcatHashType,
                 hash_file=hcatHashFile,
-                session_name=os.path.basename(hcatHashFile),
+                session_name=generate_session_id(),
                 wordlist=wordlist,
                 tuning=hcatTuning,
                 hate_path=hate_path), shell=True)
@@ -601,7 +617,7 @@ def hcatHybrid(hcatHashType, hcatHashFile, wordlists=None):
                 hcatBin=hcatBin,
                 hash_type=hcatHashType,
                 hash_file=hcatHashFile,
-                session_name=os.path.basename(hcatHashFile),
+                session_name=generate_session_id(),
                 wordlist=wordlist,
                 tuning=hcatTuning,
                 hate_path=hate_path), shell=True)
@@ -617,7 +633,7 @@ def hcatHybrid(hcatHashType, hcatHashFile, wordlists=None):
                 hcatBin=hcatBin,
                 hash_type=hcatHashType,
                 hash_file=hcatHashFile,
-                session_name=os.path.basename(hcatHashFile),
+                session_name=generate_session_id(),
                 wordlist=wordlist,
                 tuning=hcatTuning,
                 hate_path=hate_path), shell=True)
@@ -633,7 +649,7 @@ def hcatHybrid(hcatHashType, hcatHashFile, wordlists=None):
                 hcatBin=hcatBin,
                 hash_type=hcatHashType,
                 hash_file=hcatHashFile,
-                session_name=os.path.basename(hcatHashFile),
+                session_name=generate_session_id(),
                 wordlist=wordlist,
                 tuning=hcatTuning,
                 hate_path=hate_path), shell=True)
@@ -649,7 +665,7 @@ def hcatHybrid(hcatHashType, hcatHashFile, wordlists=None):
                 hcatBin=hcatBin,
                 hash_type=hcatHashType,
                 hash_file=hcatHashFile,
-                session_name=os.path.basename(hcatHashFile),
+                session_name=generate_session_id(),
                 wordlist=wordlist,
                 tuning=hcatTuning,
                 hate_path=hate_path), shell=True)
@@ -675,7 +691,7 @@ def hcatYoloCombination(hcatHashType, hcatHashFile):
                     hcatBin=hcatBin,
                     hash_type=hcatHashType,
                     hash_file=hcatHashFile,
-                    session_name=os.path.basename(hcatHashFile),
+                    session_name=generate_session_id(),
                     word_lists=hcatWordlists,
                     optimized_lists=hcatOptimizedWordlists,
                     tuning=hcatTuning,
@@ -714,7 +730,7 @@ def hcatBandrel(hcatHashType, hcatHashFile):
                 hcatBin=hcatBin,
                 hash_type=hcatHashType,
                 hash_file=hcatHashFile,
-                session_name=os.path.basename(hcatHashFile),
+                session_name=generate_session_id(),
                 tuning=hcatTuning,
                 hcmask1=mask1,
                 hcmask2=mask2,
@@ -738,7 +754,7 @@ def hcatBandrel(hcatHashType, hcatHashFile):
                 hcatBin=hcatBin,
                 hash_type=hcatHashType,
                 hash_file=hcatHashFile,
-                session_name=os.path.basename(hcatHashFile),
+                session_name=generate_session_id(),
                 tuning=hcatTuning,
                 hcmask1=mask1,
                 hcmask2=mask2,
@@ -774,7 +790,7 @@ def hcatMiddleCombinator(hcatHashType, hcatHashFile):
                     hcatBin=hcatBin,
                     hash_type=hcatHashType,
                     hash_file=hcatHashFile,
-                    session_name=os.path.basename(hcatHashFile),
+                    session_name=generate_session_id(),
                     left=hcatMiddleBaseList,
                     right=hcatMiddleBaseList,
                     tuning=hcatTuning,
@@ -812,7 +828,7 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
             hcatBin=hcatBin,
             hash_type=hcatHashType,
             hash_file=hcatHashFile,
-            session_name=os.path.basename(hcatHashFile),
+            session_name=generate_session_id(),
             left=hcatThoroughBaseList,
             right=hcatThoroughBaseList,
             word_lists=hcatWordlists,
@@ -833,7 +849,7 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
                     hcatBin=hcatBin,
                     hash_type=hcatHashType,
                     hash_file=hcatHashFile,
-                    session_name=os.path.basename(hcatHashFile),
+                    session_name=generate_session_id(),
                     left=hcatThoroughBaseList,
                     right=hcatThoroughBaseList,
                     word_lists=hcatWordlists,
@@ -857,7 +873,7 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
                     hcatBin=hcatBin,
                     hash_type=hcatHashType,
                     hash_file=hcatHashFile,
-                    session_name=os.path.basename(hcatHashFile),
+                    session_name=generate_session_id(),
                     left=hcatThoroughBaseList,
                     right=hcatThoroughBaseList,
                     word_lists=hcatWordlists,
@@ -881,7 +897,7 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
                     hcatBin=hcatBin,
                     hash_type=hcatHashType,
                     hash_file=hcatHashFile,
-                    session_name=os.path.basename(hcatHashFile),
+                    session_name=generate_session_id(),
                     left=hcatThoroughBaseList,
                     right=hcatThoroughBaseList,
                     word_lists=hcatWordlists,
@@ -904,7 +920,7 @@ def hcatPathwellBruteForce(hcatHashType, hcatHashFile):
             hcatBin=hcatBin,
             hash_type=hcatHashType,
             hash_file=hcatHashFile,
-            session_name=os.path.basename(hcatHashFile),
+            session_name=generate_session_id(),
             tuning=hcatTuning,
             hate_path=hate_path), shell=True)
     try:
@@ -926,7 +942,7 @@ def hcatPrince(hcatHashType, hcatHashFile):
             prince_bin=hcatPrinceBin,
             hash_type=hcatHashType,
             hash_file=hcatHashFile,
-            session_name=os.path.basename(hcatHashFile),
+            session_name=generate_session_id(),
             hcatPrinceBaseList=hcatPrinceBaseList,
             tuning=hcatTuning,
             hate_path=hate_path), shell=True)
@@ -949,7 +965,7 @@ def hcatGoodMeasure(hcatHashType, hcatHashFile):
             hash_type=hcatHashType,
             hash_file=hcatHashFile,
             hcatGoodMeasureBaseList=hcatGoodMeasureBaseList,
-            session_name=os.path.basename(hcatHashFile),
+            session_name=generate_session_id(),
             word_lists=hcatWordlists,
             tuning=hcatTuning,
             hate_path=hate_path), shell=True)
@@ -981,7 +997,7 @@ def hcatLMtoNT():
         "{tuning} --potfile-path={hate_path}/hashcat.pot".format(
             hcatBin=hcatBin,
             hash_file=hcatHashFile,
-            session_name=os.path.basename(hcatHashFile),
+            session_name=generate_session_id(),
             tuning=hcatTuning,
             hate_path=hate_path), shell=True)
     try:
@@ -1024,7 +1040,7 @@ def hcatLMtoNT():
         "-r {hate_path}/rules/toggles-lm-ntlm.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
             hcatBin=hcatBin,
             hash_file=hcatHashFile,
-            session_name=os.path.basename(hcatHashFile),
+            session_name=generate_session_id(),
             tuning=hcatTuning,
             hate_path=hate_path), shell=True)
     try:
@@ -1062,7 +1078,7 @@ def hcatRecycle(hcatHashType, hcatHashFile, hcatNewPasswords):
                     hcatBin=hcatBin,
                     hash_type=hcatHashType,
                     hash_file=hcatHashFile,
-                    session_name=os.path.basename(hcatHashFile),
+                    session_name=generate_session_id(),
                     hcatPath=hcatPath,
                     tuning=hcatTuning,
                     hate_path=hate_path), shell=True)
@@ -2312,9 +2328,10 @@ def main():
                 hashfile_id = int(input("\nEnter hashfile ID: "))
                 
                 # Get hash type
-                print("\nEnter hash type (e.g., 1000 for NTLM, 0 for MD5)")
-                print("See hashcat --help for hash type reference")
-                hcatHashType = input("Hash type: ")
+                # print("\nEnter hash type (e.g., 1000 for NTLM, 0 for MD5)")
+                # print("See hashcat --help for hash type reference")
+                # hcatHashType = input("Hash type: ")
+                hcatHashType = "1000" # Default to NTLM for simplicity
                 
                 # Set output filename automatically
                 output_file = f"left_{customer_id}_{hashfile_id}.txt"
