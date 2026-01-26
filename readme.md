@@ -249,6 +249,14 @@ and adding up to six additional characters at the end. Each word is limited to a
   
 -------------------------------------------------------------------
 ### Version History
+Version 2.0
+  Modularized codebase into CLI/API/attacks modules
+  Unified CLI options with config overrides (hashview, hashcat, wordlists, pipal)
+  Added Hashview API integration
+  Added Weakpass torrent download helpers and Hashmob download wrapper
+  Improved test coverage and snapshot-based menu validation
+  Updated documentation and versioning
+
 Version 1.9
   Revamped the hate_crack output to increase processing speed exponentially combine_ntlm_output function for combining
   Introducing New Attack mode "Bandrel Methodology"
