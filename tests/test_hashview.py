@@ -151,19 +151,39 @@ class TestHashviewAPI:
         assert result['name'] == "New Customer"
 
     def test_download_left_hashes(self, api, tmp_path):
-        """Test downloading left hashes writes file"""
-        mock_response = Mock()
-        mock_response.content = b"hash1\nhash2\n"
-        mock_response.raise_for_status = Mock()
-        api.session.get.return_value = mock_response
+        """Test downloading left hashes: real API if possible, else mock."""
+        hashview_url = os.environ.get('HASHVIEW_URL')
+        hashview_api_key = os.environ.get('HASHVIEW_API_KEY')
+        customer_id = os.environ.get('HASHVIEW_CUSTOMER_ID')
+        hashfile_id = os.environ.get('HASHVIEW_HASHFILE_ID')
+        if all([hashview_url, hashview_api_key, customer_id, hashfile_id]):
+            # Real API test
+            real_api = HashviewAPI(hashview_url, hashview_api_key)
+            output_file = tmp_path / f"left_{customer_id}_{hashfile_id}.txt"
+            result = real_api.download_left_hashes(int(customer_id), int(hashfile_id), output_file=str(output_file))
+            assert os.path.exists(result['output_file'])
+            with open(result['output_file'], 'rb') as f:
+                content = f.read()
+            print(f"[DEBUG] Downloaded {len(content)} bytes to {result['output_file']}")
+            assert result['size'] == len(content)
+        else:
+            # Mock test
+            mock_response = Mock()
+            mock_response.content = b"hash1\nhash2\n"
+            mock_response.raise_for_status = Mock()
+            mock_response.headers = {'content-length': '0'}
+            def iter_content(chunk_size=8192):
+                yield mock_response.content
+            mock_response.iter_content = iter_content
+            api.session.get.return_value = mock_response
 
-        output_file = tmp_path / "left_1_2.txt"
-        result = api.download_left_hashes(1, 2, output_file=str(output_file))
-        assert os.path.exists(result['output_file'])
-        with open(result['output_file'], 'rb') as f:
-            content = f.read()
-        assert content == b"hash1\nhash2\n"
-        assert result['size'] == len(content)
+            output_file = tmp_path / "left_1_2.txt"
+            result = api.download_left_hashes(1, 2, output_file=str(output_file))
+            assert os.path.exists(result['output_file'])
+            with open(result['output_file'], 'rb') as f:
+                content = f.read()
+            assert content == b"hash1\nhash2\n"
+            assert result['size'] == len(content)
     
     def test_create_job_workflow(self, api, test_hashfile):
         """Test creating a job in Hashview (option 2 complete workflow)"""
