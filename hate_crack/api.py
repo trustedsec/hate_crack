@@ -8,6 +8,8 @@ from typing import Callable, Tuple
 import requests
 from bs4 import BeautifulSoup
 
+_TORRENT_CLEANUP_REGISTERED = False
+
 def check_7z():
     import shutil
     if shutil.which('7z') or shutil.which('7za'):
@@ -53,6 +55,29 @@ def get_hcat_wordlists_dir():
             continue
     os.makedirs(default, exist_ok=True)
     return default
+
+def cleanup_torrent_files(directory=None):
+    """Remove stray .torrent files from the wordlists directory on graceful exit."""
+    if directory is None:
+        directory = get_hcat_wordlists_dir()
+    try:
+        for name in os.listdir(directory):
+            if name.endswith(".torrent"):
+                path = os.path.join(directory, name)
+                try:
+                    os.remove(path)
+                except Exception as e:
+                    print(f"[!] Failed to remove torrent file {path}: {e}")
+    except Exception as e:
+        print(f"[!] Failed to cleanup torrent files in {directory}: {e}")
+
+def register_torrent_cleanup():
+    global _TORRENT_CLEANUP_REGISTERED
+    if _TORRENT_CLEANUP_REGISTERED:
+        return
+    import atexit
+    atexit.register(cleanup_torrent_files)
+    _TORRENT_CLEANUP_REGISTERED = True
 
 def fetch_all_weakpass_wordlists_multithreaded(total_pages=67, threads=10, output_file="weakpass_wordlists.json"):
     wordlists = []
@@ -122,6 +147,7 @@ def fetch_all_weakpass_wordlists_multithreaded(total_pages=67, threads=10, outpu
     print(f"Saved {len(unique_wordlists)} wordlists to {output_file}")
 
 def download_torrent_file(torrent_url, save_dir=None, wordlist_id=None):
+    register_torrent_cleanup()
 
     if not save_dir:
         save_dir = get_hcat_wordlists_dir()
@@ -254,9 +280,7 @@ def download_torrent_file(torrent_url, save_dir=None, wordlist_id=None):
         except Exception as e:
             print(f"Error running transmission-cli: {e}")
 
-    t = threading.Thread(target=run_transmission, args=(local_filename, save_dir))
-    t.start()
-    print(f"transmission-cli launched in background for {local_filename}")
+    run_transmission(local_filename, save_dir)
     return local_filename
 
 def weakpass_wordlist_menu(rank=-1):
@@ -870,6 +894,7 @@ def download_official_wordlist(file_name, out_path):
     import sys
 
     url = f"https://hashmob.net/api/v2/downloads/research/official/{file_name}"
+    archive_path = None
     try:
         with requests.get(url, stream=True, timeout=120) as r:
             r.raise_for_status()
@@ -882,8 +907,9 @@ def download_official_wordlist(file_name, out_path):
             out_path = sanitize_filename(file_name)
             dest_dir = get_hcat_wordlists_dir()
             archive_path = os.path.join(dest_dir, out_path) if not os.path.isabs(out_path) else out_path
+            temp_path = archive_path + ".part"
             os.makedirs(os.path.dirname(archive_path), exist_ok=True)
-            with open(archive_path, 'wb') as f:
+            with open(temp_path, 'wb') as f:
                 for chunk in r.iter_content(chunk_size=chunk_size):
                     if chunk:
                         f.write(chunk)
@@ -900,10 +926,21 @@ def download_official_wordlist(file_name, out_path):
                             sys.stdout.write(f"\rDownloaded {downloaded // 1024} KB")
                             sys.stdout.flush()
             sys.stdout.write("\n")
+        os.replace(temp_path, archive_path)
         print(f"Downloaded {archive_path}")
         if archive_path.endswith('.7z'):
             extract_with_7z(archive_path)
         return True
+    except KeyboardInterrupt:
+        print("\nKeyboard interrupt: Cleaning up partial download...")
+        temp_path = f"{archive_path}.part" if archive_path else None
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+                print(f"Removed partial file: {temp_path}")
+            except Exception as e:
+                print(f"Failed to remove partial file: {e}")
+        return False
     except Exception as e:
         print(f"Error downloading official wordlist: {e}")
         return False
@@ -914,8 +951,7 @@ def extract_with_7z(archive_path, output_dir=None, remove_archive=True):
     import subprocess
 
     if output_dir is None:
-        output_dir = os.path.splitext(archive_path)[0]
-    os.makedirs(output_dir, exist_ok=True)
+        output_dir = os.path.dirname(archive_path) or "."
     sevenz_bin = shutil.which('7z') or shutil.which('7za')
     if not sevenz_bin:
         print("[!] 7z or 7za not found in PATH. Please install p7zip-full or 7-zip to extract archives.")
@@ -923,7 +959,7 @@ def extract_with_7z(archive_path, output_dir=None, remove_archive=True):
     try:
         print(f"Extracting {archive_path} to {output_dir} ...")
         result = subprocess.run(
-            [sevenz_bin, 'x', '-y', archive_path],
+            [sevenz_bin, 'e', '-y', archive_path],
             capture_output=True,
             text=True,
             cwd=output_dir
