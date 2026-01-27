@@ -20,6 +20,7 @@ make install
 ```git clone https://github.com/trustedsec/hate_crack.git```
 * Customize binary and wordlist paths in "config.json"
 * Make sure that at least "rockyou.txt" is within your "wordlists" path
+* The hashcat-utils repo is a submodule. Initialize with `git submodule update --init --recursive`
 -------------------------------------------------------------------
 ## Project Structure
 Core logic is now split into modules under `hate_crack/`:

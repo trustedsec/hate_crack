@@ -202,7 +202,7 @@ def verify_wordlist_dir(directory, wordlist):
         return directory + '/' + wordlist
     else:
         print('Invalid path for {0}. Please check configuration and try again.'.format(wordlist))
-        response = input(f"Wordlist '{wordlist}' not found. Would you like to download rockyou.txt automatically? (Y/n): ").strip().lower()
+        response = input(f"Wordlist '{wordlist}' not found. Would you like to download rockyou.txt.gz automatically? (Y/n): ").strip().lower()
         if response in ('', 'y', 'yes'):
             try:
                 import urllib.request
@@ -1351,10 +1351,15 @@ def hashview_api():
                 print(f"File: {cracked_file}")
                 print(f"Size: {file_size} bytes")
                 print(f"Lines: {line_count}")
-                
+
+                # Block upload if file is empty
+                if file_size == 0 or line_count == 0:
+                    print(f"✗ Error: File {cracked_file} is empty. Upload aborted.")
+                    continue
+
                 # Use the same hash type from main menu
                 hash_type = hcatHashType
-                
+
                 # Upload
                 print(f"\nUploading to Hashview (hash type: {hash_type})...")
                 try:
