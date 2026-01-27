@@ -1757,7 +1757,8 @@ def main():
     parser = argparse.ArgumentParser(description="hate_crack - Hashcat automation and wordlist management tool")
     parser.add_argument('hashfile', nargs='?', default=None, help='Path to hash file to crack (positional, optional)')
     parser.add_argument('hashtype', nargs='?', default=None, help='Hashcat hash type (e.g., 1000 for NTLM) (positional, optional)')
-    parser.add_argument('--download-hashview', action='store_true', help='Download hashes from Hashview')
+    parser.add_argument('--download-hashview', action='store_true', help='Download hashes from Hashview (legacy menu)')
+    parser.add_argument('--hashview', action='store_true', help='Jump directly to Hashview customer/hashfile menu')
     parser.add_argument('--download-torrent', metavar='FILENAME', help='Download a specific Weakpass torrent file')
     parser.add_argument('--download-all-torrents', action='store_true', help='Download all available Weakpass torrents from cache')
     parser.add_argument('--weakpass', action='store_true', help='Download wordlists from Weakpass')
@@ -1815,6 +1816,28 @@ def main():
             sys.exit(1)
         sys.exit(0)
 
+
+
+    if args.hashview:
+        if not hashview_api_key:
+            print("\nError: Hashview API key not configured.")
+            print("Please set 'hashview_api_key' in config.json")
+            sys.exit(1)
+        try:
+            hcatHashFile, hcatHashType = download_hashes_from_hashview(
+                hashview_url,
+                hashview_api_key,
+                debug_mode,
+                input_fn=input,
+                print_fn=print,
+            )
+        except ValueError:
+            print("\n✗ Error: Invalid ID entered. Please enter a numeric ID.")
+            sys.exit(1)
+        except Exception as e:
+            print(f"\n✗ Error downloading hashes: {str(e)}")
+            sys.exit(1)
+        sys.exit(0)
 
     if args.weakpass:
         weakpass_wordlist_menu(rank=args.rank)
