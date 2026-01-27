@@ -1,3 +1,7 @@
 config.json
 hashcat.pot
 hate_crack/__init__.pyc
+__pycache__/
+hate_crack/__pycache__/
+tests/__pycache__/
+uv.lock
