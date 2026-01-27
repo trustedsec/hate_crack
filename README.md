@@ -21,6 +21,7 @@ make install
 * Customize binary and wordlist paths in "config.json"
 
 * The hashcat-utils repo is a submodule. If you didnt clone with --recurse-submodules then initialize with
+
 ```cd hate_crack;git submodule update --init --recursive```
 
 -------------------------------------------------------------------
