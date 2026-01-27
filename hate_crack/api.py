@@ -57,6 +57,31 @@ def get_hcat_wordlists_dir():
     os.makedirs(default, exist_ok=True)
     return default
 
+def get_rules_dir():
+    pkg_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.abspath(os.path.join(pkg_dir, os.pardir))
+    candidates = [
+        os.path.join(pkg_dir, 'config.json'),
+        os.path.join(project_root, 'config.json')
+    ]
+    default = os.path.join(project_root, 'rules')
+    for config_path in candidates:
+        try:
+            if os.path.isfile(config_path):
+                with open(config_path) as f:
+                    config = json.load(f)
+                    path = config.get('rules_directory')
+                    if path:
+                        path = os.path.expanduser(path)
+                        if not os.path.isabs(path):
+                            path = os.path.join(project_root, path)
+                        os.makedirs(path, exist_ok=True)
+                        return path
+        except Exception:
+            continue
+    os.makedirs(default, exist_ok=True)
+    return default
+
 def cleanup_torrent_files(directory=None):
     """Remove stray .torrent files from the wordlists directory on graceful exit."""
     if directory is None:
@@ -165,9 +190,27 @@ def download_torrent_file(torrent_url, save_dir=None, wordlist_id=None):
         if not os.path.isabs(save_dir):
             save_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), save_dir)
     os.makedirs(save_dir, exist_ok=True)
+    # Optionally include hashmob_api_key in headers if present
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
+    hashmob_api_key = None
+    # Try to get hashmob_api_key from config
+    pkg_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.abspath(os.path.join(pkg_dir, os.pardir))
+    for cfg in (os.path.join(pkg_dir, 'config.json'), os.path.join(project_root, 'config.json')):
+        if os.path.isfile(cfg):
+            try:
+                with open(cfg) as f:
+                    config = json.load(f)
+                    key = config.get('hashmob_api_key')
+                    if key:
+                        hashmob_api_key = key
+                        break
+            except Exception:
+                continue
+    if hashmob_api_key:
+        headers["api-key"] = hashmob_api_key
 
     # Resolve a filename even if a URL is provided.
     if not torrent_url.startswith("http"):
@@ -777,47 +820,136 @@ def download_hashmob_wordlist(file_name, out_path):
     url = f"https://hashmob.net/api/v2/downloads/research/wordlists/{file_name}"
     api_key = get_hashmob_api_key()
     headers = {"api-key": api_key} if api_key else {}
+    import time
+    base_backoff = 256
+    max_backoff = 300
+    penalty_add = 2
+    penalty = base_backoff
+    import threading
+    lock = getattr(download_hashmob_wordlist, '_rate_lock', None)
+    if lock is None:
+        lock = threading.Lock()
+        download_hashmob_wordlist._rate_lock = lock
+    while True:
+        with lock:
+            time.sleep(15)
+        try:
+            with requests.get(url, headers=headers, stream=True, timeout=60, allow_redirects=True) as r:
+                if r.status_code == 429:
+                    print(f"[!] Rate limit hit (429). Backing off for {penalty} seconds...")
+                    time.sleep(penalty)
+                    penalty = min(penalty + penalty_add, max_backoff)
+                    penalty_add *= 2
+                    continue
+                if r.status_code in (301, 302, 303, 307, 308):
+                    redirect_url = r.headers.get('Location')
+                    if redirect_url:
+                        print(f"Following redirect to: {redirect_url}")
+                        return download_hashmob_wordlist(redirect_url, out_path)
+                    print("Redirect with no Location header!")
+                    return False
+                r.raise_for_status()
+                content_type = r.headers.get('Content-Type', '')
+                if 'text/plain' in content_type:
+                    html = r.content.decode(errors='replace')
+                    import re
+                    match = re.search(
+                        r"<meta[^>]+http-equiv=['\"]refresh['\"][^>]+content=['\"]0;url=([^'\"]+)['\"]",
+                        html,
+                        re.IGNORECASE
+                    )
+                    if match:
+                        real_url = match.group(1)
+                        print(f"Found meta refresh redirect to: {real_url}")
+                        with requests.get(real_url, stream=True, timeout=120) as r2:
+                            r2.raise_for_status()
+                            with open(out_path, 'wb') as f:
+                                for chunk in r2.iter_content(chunk_size=8192):
+                                    if chunk:
+                                        f.write(chunk)
+                        print(f"Downloaded {out_path}")
+                        return True
+                    print("Error: Received HTML instead of file. Possible permission or quota issue.")
+                    return False
+                with open(out_path, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+            print(f"Downloaded {out_path}")
+            return True
+        except Exception as e:
+            if hasattr(e, 'response') and getattr(e.response, 'status_code', None) == 429:
+                print(f"[!] Rate limit hit (429). Backing off for {penalty} seconds...")
+                time.sleep(penalty)
+                penalty = min(penalty + penalty_add, max_backoff)
+                penalty_add *= 2
+                continue
+            print(f"Error downloading wordlist: {e}")
+            return False
+
+
+def download_hashmob_rule_list():
+    """Fetch available rules from Hashmob API v2 and print them."""
+    url = "https://hashmob.net/api/v2/resource"
+    api_key = get_hashmob_api_key()
+    headers = {"api-key": api_key} if api_key else {}
     try:
-        with requests.get(url, headers=headers, stream=True, timeout=60, allow_redirects=True) as r:
-            if r.status_code in (301, 302, 303, 307, 308):
-                redirect_url = r.headers.get('Location')
-                if redirect_url:
-                    print(f"Following redirect to: {redirect_url}")
-                    return download_hashmob_wordlist(redirect_url, out_path)
-                print("Redirect with no Location header!")
-                return False
-            r.raise_for_status()
-            content_type = r.headers.get('Content-Type', '')
-            if 'text/plain' in content_type:
-                html = r.content.decode(errors='replace')
-                import re
-                match = re.search(
-                    r"<meta[^>]+http-equiv=['\"]refresh['\"][^>]+content=['\"]0;url=([^'\"]+)['\"]",
-                    html,
-                    re.IGNORECASE
-                )
-                if match:
-                    real_url = match.group(1)
-                    print(f"Found meta refresh redirect to: {real_url}")
-                    with requests.get(real_url, stream=True, timeout=120) as r2:
-                        r2.raise_for_status()
-                        with open(out_path, 'wb') as f:
-                            for chunk in r2.iter_content(chunk_size=8192):
-                                if chunk:
-                                    f.write(chunk)
-                    print(f"Downloaded {out_path}")
-                    return True
-                print("Error: Received HTML instead of file. Possible permission or quota issue.")
-                return False
-            with open(out_path, 'wb') as f:
-                for chunk in r.iter_content(chunk_size=8192):
-                    if chunk:
-                        f.write(chunk)
-        print(f"Downloaded {out_path}")
-        return True
+        resp = requests.get(url, headers=headers, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        rules = [r for r in data if r.get('type') in ('rule', 'official_rule')]
+        print("Available Hashmob Rules:")
+        for idx, rule in enumerate(rules):
+            print(f"{idx+1}. {rule.get('name', rule.get('file_name', ''))}")
+        return rules
     except Exception as e:
-        print(f"Error downloading wordlist: {e}")
-        return False
+        print(f"Error fetching Hashmob rules: {e}")
+        return []
+
+
+def download_hashmob_rule(file_name, out_path):
+    """Download a rule file from Hashmob by file name."""
+    url = f"https://hashmob.net/api/v2/downloads/research/official/hashmob_rules/{file_name}"
+    api_key = get_hashmob_api_key()
+    headers = {"api-key": api_key} if api_key else {}
+    import time
+    base_backoff = 256
+    max_backoff = 300
+    penalty_add = 2
+    penalty = base_backoff
+    import threading
+    lock = getattr(download_hashmob_rule, '_rate_lock', None)
+    if lock is None:
+        lock = threading.Lock()
+        download_hashmob_rule._rate_lock = lock
+    while True:
+        with lock:
+            time.sleep(15)
+        try:
+            with requests.get(url, headers=headers, stream=True, timeout=60, allow_redirects=True) as r:
+                if r.status_code == 429:
+                    print(f"[!] Rate limit hit (429). Backing off for {penalty} seconds...")
+                    time.sleep(penalty)
+                    penalty = min(penalty + penalty_add, max_backoff)
+                    penalty_add *= 2
+                    continue
+                r.raise_for_status()
+                with open(out_path, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+            print(f"Downloaded {out_path}")
+            return True
+        except Exception as e:
+            # If it's a 429 error, handle backoff, else fail
+            if hasattr(e, 'response') and getattr(e.response, 'status_code', None) == 429:
+                print(f"[!] Rate limit hit (429). Backing off for {penalty} seconds...")
+                time.sleep(penalty)
+                penalty = min(penalty + penalty_add, max_backoff)
+                penalty_add *= 2
+                continue
+            print(f"Error downloading rule: {e}")
+            return False
 
 
 def list_official_wordlists():
@@ -916,6 +1048,79 @@ def list_and_download_official_wordlists():
         print(f"Error listing official wordlists: {e}")
 
 
+def list_and_download_hashmob_rules():
+    """List rules via the Hashmob API, prompt for selection, and download."""
+    rules = download_hashmob_rule_list()
+    if not rules:
+        return
+    print("a. Download ALL files")
+    sel = input("Enter the number(s) to download (e.g. 1,3,5-7), or 'a' for all, or 'q' to quit: ")
+    if sel.lower() == 'q':
+        return
+    rules_dir = get_rules_dir()
+
+    def parse_indices(selection, max_index):
+        indices = set()
+        for part in selection.split(','):
+            part = part.strip()
+            if not part:
+                continue
+            if '-' in part:
+                try:
+                    start, end = map(int, part.split('-', 1))
+                    if start > end:
+                        start, end = end, start
+                    indices.update(range(start, end + 1))
+                except Exception:
+                    continue
+            else:
+                try:
+                    indices.add(int(part))
+                except Exception:
+                    continue
+        return sorted(i for i in indices if 1 <= i <= max_index)
+
+    # Track already-downloaded rules to avoid duplicates
+    downloaded_rules = set()
+    # Scan rules_dir for existing files
+    if os.path.isdir(rules_dir):
+        for fname in os.listdir(rules_dir):
+            downloaded_rules.add(fname)
+
+    def already_downloaded(file_name):
+        sanitized = sanitize_filename(file_name)
+        return sanitized in downloaded_rules
+
+    if sel.lower() == 'a':
+        for entry in rules:
+            file_name = entry.get('file_name')
+            if not file_name:
+                print("No file_name found for an entry, skipping.")
+                continue
+            out_path = os.path.join(rules_dir, sanitize_filename(file_name))
+            if already_downloaded(file_name):
+                print(f"[i] Skipping already downloaded rule: {file_name}")
+                continue
+            download_hashmob_rule(file_name, out_path)
+        return
+
+    indices = parse_indices(sel, len(rules))
+    if not indices:
+        print("No valid selection.")
+        return
+    for idx in indices:
+        entry = rules[idx - 1]
+        file_name = entry.get('file_name')
+        if not file_name:
+            print("No file_name found for selection, skipping.")
+            continue
+        out_path = os.path.join(rules_dir, sanitize_filename(file_name))
+        if already_downloaded(file_name):
+            print(f"[i] Skipping already downloaded rule: {file_name}")
+            continue
+        download_hashmob_rule(file_name, out_path)
+
+
 def download_official_wordlist(file_name, out_path):
     """Download a file from the official wordlists directory with a progress bar."""
     import sys
@@ -1011,6 +1216,12 @@ def download_hashmob_wordlists(print_fn=print) -> None:
     """Download official Hashmob wordlists."""
     list_and_download_official_wordlists()
     print_fn("Hashmob wordlist download complete.")
+
+
+def download_hashmob_rules(print_fn=print) -> None:
+    """Download Hashmob rules."""
+    list_and_download_hashmob_rules()
+    print_fn("Hashmob rules download complete.")
 
 
 def download_weakpass_torrent(download_torrent, filename: str, print_fn=print) -> None:
