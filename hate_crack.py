@@ -1698,6 +1698,12 @@ def pipal():
                 print('Killing PID {0}...'.format(str(pipalProcess.pid)))
                 pipalProcess.kill()
             print("Pipal file is at " + hcatHashFilePipal + ".pipal\n")
+            view_choice = input("Would you like to view (cat) the pipal output? (Y/n): ").strip().lower()
+            if view_choice in ('', 'y', 'yes'):
+                print("\n--- Pipal Output Start ---\n")
+                with open(hcatHashFilePipal + ".pipal") as pipalfile:
+                    print(pipalfile.read())
+                print("\n--- Pipal Output End ---\n")
             with open(hcatHashFilePipal + ".pipal") as pipalfile:
                 pipal_content = pipalfile.readlines()
                 raw_pipal = '\n'.join(pipal_content)
