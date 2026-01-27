@@ -17,10 +17,10 @@ make
 make install
 ```
 ### Download hate_crack
-```git clone https://github.com/trustedsec/hate_crack.git```
+```git clone --recurse-submodules https://github.com/trustedsec/hate_crack.git```
 * Customize binary and wordlist paths in "config.json"
-* Make sure that at least "rockyou.txt" is within your "wordlists" path
-* The hashcat-utils repo is a submodule. Initialize with `git submodule update --init --recursive`
+
+* The hashcat-utils repo is a submodule. If you didnt clone with --recurse-submodules then initialize with `cd hate_crack;git submodule update --init --recursive`
 -------------------------------------------------------------------
 ## Project Structure
 Core logic is now split into modules under `hate_crack/`:
@@ -44,10 +44,12 @@ This project depends on and is inspired by a number of external projects and ser
 
 -------------------------------------------------------------------
 ## Usage
-`$ ./hate_crack.py`
+`$ uv run hate_crack`
 
 ```
-usage: python hate_crack.py <hash_file> <hash_type> [options]
+usage: uv run hate_crack.py 
+or 
+usage: uv run hate_crack.py <hash_file> <hash_type> [options]
 ```
 
 Common options:
@@ -56,8 +58,6 @@ Common options:
 - `--hashmob`: Download wordlists from Hashmob.net.
 - `--download-torrent <FILENAME>`: Download a specific Weakpass torrent file.
 - `--download-all-torrents`: Download all available Weakpass torrents from cache.
-- `--hashview-url <URL>` / `--hashview-api-key <KEY>`: Override Hashview settings.
-- `--hcat-path <PATH>` / `--hcat-bin <BIN>`: Override hashcat path/binary.
 - `--wordlists-dir <PATH>` / `--optimized-wordlists-dir <PATH>`: Override wordlist directories.
 - `--pipal-path <PATH>`: Override pipal path.
 - `--maxruntime <SECONDS>`: Override max runtime.
@@ -96,14 +96,11 @@ The project includes comprehensive test coverage for the Hashview integration.
 ### Running Tests Locally
 
 ```bash
-# Install test dependencies
-pip install pytest pytest-mock requests
-
 # Run all tests
-pytest -v
+uv run pytest -v
 
 # Run specific test
-pytest tests/test_hashview.py -v
+uv run pytest tests/test_hashview.py -v
 ```
 
 ### Test Structure
