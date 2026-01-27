@@ -4,6 +4,7 @@
   "hcatTuning": "--force --remove",
   "hcatWordlists": "/Passwords/wordlists",
   "hcatOptimizedWordlists": "/Passwords/optimized_wordlists",
+  "rules_directory": "/path/to/hashcat/rules",
   "hcatDictionaryWordlist": ["rockyou.txt"],
   "hcatCombinationWordlist": ["rockyou.txt","rockyou.txt"],
   "hcatHybridlist": ["rockyou.txt"],
