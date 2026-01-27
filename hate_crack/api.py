@@ -473,7 +473,7 @@ class HashviewAPI:
 
     def get_hashfile_details(self, hashfile_id):
         """Get hashfile details and hashtype for a given hashfile_id."""
-        url = f"{self.base_url}/v1/hashfiles/{hashfile_id}"
+        url = f"{self.base_url}/v1/hashfiles/{hashfile_id}/hash_type"
         resp = self.session.get(url)
         resp.raise_for_status()
         try:
