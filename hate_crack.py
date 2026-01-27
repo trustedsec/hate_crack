@@ -1,3 +1,11 @@
+# Methodology provided by Martin Bos (pure_hate) - https://www.trustedsec.com/team/martin-bos/
+# Original script created by Larry Spohn (spoonman) - https://www.trustedsec.com/team/larry-spohn/
+# Python refactoring and general fixing, Justin Bollinger (bandrel) - https://www.trustedsec.com/team/justin-bollinger/
+# Hashview integration by Justin Bollinger (bandrel) and Claude Sonnet 4.5 
+#   special thanks to hans for all his hard work on hashview and creating APIs for us to use 
+
+# Load config before anything that needs hashview_url/hashview_api_key
+
 import sys
 import os
 import json
@@ -25,13 +33,7 @@ if os.path.isdir(_pkg_dir):
     if "__spec__" in globals() and __spec__ is not None:
         __spec__.submodule_search_locations = __path__
 
-# Methodology provided by Martin Bos (pure_hate) - https://www.trustedsec.com/team/martin-bos/
-# Original script created by Larry Spohn (spoonman) - https://www.trustedsec.com/team/larry-spohn/
-# Python refactoring and general fixing, Justin Bollinger (bandrel) - https://www.trustedsec.com/team/justin-bollinger/
-# Hashview integration by Justin Bollinger (bandrel) and Claude Sonnet 4.5 
-#   special thanks to hans for all his hard work on hashview and creating APIs for us to use 
 
-# Load config before anything that needs hashview_url/hashview_api_key
 hate_path = os.path.dirname(os.path.realpath(__file__))
 if not os.path.isfile(hate_path + '/config.json'):
     print('Initializing config.json from config.json.example')
@@ -103,6 +105,7 @@ from hate_crack.api import (
     download_hashes_from_hashview,
     download_hashmob_wordlists,
     download_weakpass_torrent,
+    extract_with_7z,
 )
 from hate_crack.cli import (
     add_common_args,
@@ -215,6 +218,38 @@ def verify_wordlist_dir(directory, wordlist):
         else:
             print('Exiting. Please check configuration and try again.')
             return None
+
+def cleanup_wordlist_artifacts():
+    wordlists_dir = hcatWordlists or os.path.join(hate_path, "wordlists")
+    if not os.path.isabs(wordlists_dir):
+        wordlists_dir = os.path.join(hate_path, wordlists_dir)
+    targets = [hate_path, os.getcwd()]
+    if wordlists_dir not in targets:
+        targets.append(wordlists_dir)
+
+    for base in targets:
+        if not os.path.isdir(base):
+            continue
+        for name in os.listdir(base):
+            path = os.path.join(base, name)
+            if name.endswith(".out"):
+                try:
+                    os.remove(path)
+                except Exception as e:
+                    print(f"[!] Failed to remove output file {path}: {e}")
+            if base == wordlists_dir and name.endswith(".torrent"):
+                try:
+                    os.remove(path)
+                except Exception as e:
+                    print(f"[!] Failed to remove torrent file {path}: {e}")
+            if base == wordlists_dir and name.endswith(".7z"):
+                ok = extract_with_7z(path)
+                if not ok:
+                    try:
+                        os.remove(path)
+                        print(f"[!] Removed failed archive: {path}")
+                    except Exception as e:
+                        print(f"[!] Failed to remove archive {path}: {e}")
 
 if not SKIP_INIT:
     # hashcat biniary checks for systems that install hashcat binary in different location than the rest of the hashcat files
@@ -1169,15 +1204,28 @@ def check_potfile():
 def combine_ntlm_output():
     hashes = {}
     check_potfile()
+    if not os.path.isfile(hcatHashFile + ".out"):
+        print("No hashes found in POT file.")
+        return
     with open(hcatHashFile + ".out", "r") as hcatCrackedFile:
         for crackedLine in hcatCrackedFile:
-            hash, password = crackedLine.split(':')
+            parts = crackedLine.split(':', 1)
+            if len(parts) != 2:
+                continue
+            hash, password = parts
             hashes[hash] = password.rstrip()
+    if not hashes:
+        print("No hashes found in POT file.")
+        return
     with open(hcatHashFileOrig + ".out", "w+") as hcatCombinedHashes:
         with open(hcatHashFileOrig, "r") as hcatOrigFile:
             for origLine in hcatOrigFile:
-                if origLine.split(':')[3] in hashes:
-                    password = hashes[origLine.split(':')[3]]
+                orig_parts = origLine.split(':')
+                if len(orig_parts) < 4:
+                    continue
+                ntlm_hash = orig_parts[3]
+                if ntlm_hash in hashes:
+                    password = hashes[ntlm_hash]
                     hcatCombinedHashes.write(origLine.strip()+password+'\n')
 
 # Cleanup Temp Files
@@ -1650,6 +1698,12 @@ def pipal():
                 print('Killing PID {0}...'.format(str(pipalProcess.pid)))
                 pipalProcess.kill()
             print("Pipal file is at " + hcatHashFilePipal + ".pipal\n")
+            view_choice = input("Would you like to view (cat) the pipal output? (Y/n): ").strip().lower()
+            if view_choice in ('', 'y', 'yes'):
+                print("\n--- Pipal Output Start ---\n")
+                with open(hcatHashFilePipal + ".pipal") as pipalfile:
+                    print(pipalfile.read())
+                print("\n--- Pipal Output End ---\n")
             with open(hcatHashFilePipal + ".pipal") as pipalfile:
                 pipal_content = pipalfile.readlines()
                 raw_pipal = '\n'.join(pipal_content)
@@ -1764,6 +1818,7 @@ def main():
     parser.add_argument('--weakpass', action='store_true', help='Download wordlists from Weakpass')
     parser.add_argument('--rank', type=int, default=-1, help='Only show wordlists with this rank (use 0 to show all, default: >4)')
     parser.add_argument('--hashmob', action='store_true', help='Download wordlists from Hashmob.net')
+    parser.add_argument('--cleanup', action='store_true', help='Cleanup .out files, torrents, and extract or remove .7z archives')
     parser.add_argument('--debug', action='store_true', help='Enable debug mode')
     # Removed add_common_args(parser) since config items are now only set via config file
     args = parser.parse_args()
@@ -1803,6 +1858,10 @@ def main():
             filename=args.download_torrent,
             print_fn=print,
         )
+        sys.exit(0)
+
+    if args.cleanup:
+        cleanup_wordlist_artifacts()
         sys.exit(0)
 
     if args.download_all_torrents:
