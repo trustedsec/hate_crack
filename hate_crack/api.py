@@ -8,6 +8,8 @@ from typing import Callable, Tuple
 import requests
 from bs4 import BeautifulSoup
 
+_TORRENT_CLEANUP_REGISTERED = False
+
 def check_7z():
     import shutil
     if shutil.which('7z') or shutil.which('7za'):
@@ -27,6 +29,7 @@ def check_transmission_cli():
     print("To install on Ubuntu/Debian:  sudo apt-get install transmission-cli")
     print("Please install transmission-cli and try again.")
     return False
+
 
 def get_hcat_wordlists_dir():
     pkg_dir = os.path.dirname(os.path.abspath(__file__))
@@ -52,6 +55,29 @@ def get_hcat_wordlists_dir():
             continue
     os.makedirs(default, exist_ok=True)
     return default
+
+def cleanup_torrent_files(directory=None):
+    """Remove stray .torrent files from the wordlists directory on graceful exit."""
+    if directory is None:
+        directory = get_hcat_wordlists_dir()
+    try:
+        for name in os.listdir(directory):
+            if name.endswith(".torrent"):
+                path = os.path.join(directory, name)
+                try:
+                    os.remove(path)
+                except Exception as e:
+                    print(f"[!] Failed to remove torrent file {path}: {e}")
+    except Exception as e:
+        print(f"[!] Failed to cleanup torrent files in {directory}: {e}")
+
+def register_torrent_cleanup():
+    global _TORRENT_CLEANUP_REGISTERED
+    if _TORRENT_CLEANUP_REGISTERED:
+        return
+    import atexit
+    atexit.register(cleanup_torrent_files)
+    _TORRENT_CLEANUP_REGISTERED = True
 
 def fetch_all_weakpass_wordlists_multithreaded(total_pages=67, threads=10, output_file="weakpass_wordlists.json"):
     wordlists = []
@@ -82,6 +108,7 @@ def fetch_all_weakpass_wordlists_multithreaded(total_pages=67, threads=10, outpu
                 with lock:
                     for wl in wordlists_data:
                         wordlists.append({
+                            "id": wl.get("id", ""),
                             "name": wl.get("name", ""),
                             "size": wl.get("size", ""),
                             "rank": wl.get("rank", ""),
@@ -119,7 +146,8 @@ def fetch_all_weakpass_wordlists_multithreaded(total_pages=67, threads=10, outpu
         json.dump(unique_wordlists, f, indent=2)
     print(f"Saved {len(unique_wordlists)} wordlists to {output_file}")
 
-def download_torrent_file(torrent_url, save_dir=None):
+def download_torrent_file(torrent_url, save_dir=None, wordlist_id=None):
+    register_torrent_cleanup()
 
     if not save_dir:
         save_dir = get_hcat_wordlists_dir()
@@ -138,57 +166,61 @@ def download_torrent_file(torrent_url, save_dir=None):
     else:
         filename = torrent_url.split("/")[-1]
 
-    wordlist_base = filename.replace('.torrent', '').replace('.7z', '').replace('.txt', '')
-    wordlist_uri = f"https://weakpass.com/wordlists/{wordlist_base}"
-    print(f"[+] Fetching wordlist page: {wordlist_uri}")
-    r = requests.get(wordlist_uri, headers=headers)
-    if r.status_code != 200:
-        print(f"[!] Failed to fetch wordlist page: {wordlist_uri}")
-        return None
-
-    soup = BeautifulSoup(r.text, "html.parser")
-    app_div = soup.find("div", id="app")
-    if not app_div or not app_div.has_attr("data-page"):
-        print(f"[!] Could not find app data on {wordlist_uri}")
-        return None
-
-    data_page_val = app_div["data-page"]
-    if not isinstance(data_page_val, str):
-        data_page_val = str(data_page_val)
-    data_page_val = data_page_val.replace('&quot;', '"')
-    try:
-        data = json.loads(data_page_val)
-        wordlist = data.get('props', {}).get('wordlist')
-        wordlist_id = None
-        torrent_link_from_data = None
-        if wordlist:
-            wordlist_id = wordlist.get('id')
-            torrent_link_from_data = wordlist.get('torrent_link')
-        else:
-            wordlists = data.get('props', {}).get('wordlists')
-            if isinstance(wordlists, dict) and 'data' in wordlists:
-                wordlists = wordlists['data']
-            if isinstance(wordlists, list):
-                for wl in wordlists:
-                    if wl.get('torrent_link') == filename or wl.get('name') == filename:
-                        wordlist_id = wl.get('id')
-                        torrent_link_from_data = wl.get('torrent_link')
-                        break
-                    if wordlist_base in wl.get('name', ''):
-                        wordlist_id = wl.get('id')
-                        torrent_link_from_data = wl.get('torrent_link')
-                        break
-    except Exception as e:
-        print(f"[!] Failed to parse data-page JSON: {e}")
-        return None
-
-    if not (torrent_link_from_data and wordlist_id):
-        print(f"[!] No torrent link or id found in wordlist data for {filename}.")
-        return None
-    if not torrent_link_from_data.startswith('http'):
-        torrent_link = f"https://weakpass.com/download/{wordlist_id}/{torrent_link_from_data}"
+    torrent_link = None
+    if torrent_url.startswith("http"):
+        torrent_link = torrent_url
+    elif wordlist_id:
+        torrent_link = f"https://weakpass.com/download/{wordlist_id}/{torrent_url}"
     else:
-        torrent_link = torrent_link_from_data
+        wordlist_base = filename.replace('.torrent', '').replace('.7z', '').replace('.txt', '')
+        wordlist_uri = f"https://weakpass.com/wordlists/{wordlist_base}"
+        print(f"[+] Fetching wordlist page: {wordlist_uri}")
+        r = requests.get(wordlist_uri, headers=headers)
+        if r.status_code != 200:
+            print(f"[!] Failed to fetch wordlist page: {wordlist_uri}")
+            wordlist_uri = None
+        if r.status_code == 200:
+            soup = BeautifulSoup(r.text, "html.parser")
+            app_div = soup.find("div", id="app")
+            if not app_div or not app_div.has_attr("data-page"):
+                print(f"[!] Could not find app data on {wordlist_uri}")
+            else:
+                data_page_val = app_div["data-page"]
+                if not isinstance(data_page_val, str):
+                    data_page_val = str(data_page_val)
+                data_page_val = data_page_val.replace('&quot;', '"')
+                try:
+                    data = json.loads(data_page_val)
+                    wordlist = data.get('props', {}).get('wordlist')
+                    resolved_id = None
+                    torrent_link_from_data = None
+                    if wordlist:
+                        resolved_id = wordlist.get('id')
+                        torrent_link_from_data = wordlist.get('torrent_link')
+                    else:
+                        wordlists = data.get('props', {}).get('wordlists')
+                        if isinstance(wordlists, dict) and 'data' in wordlists:
+                            wordlists = wordlists['data']
+                        if isinstance(wordlists, list):
+                            for wl in wordlists:
+                                if wl.get('torrent_link') == filename or wl.get('name') == filename:
+                                    resolved_id = wl.get('id')
+                                    torrent_link_from_data = wl.get('torrent_link')
+                                    break
+                                if wordlist_base in wl.get('name', ''):
+                                    resolved_id = wl.get('id')
+                                    torrent_link_from_data = wl.get('torrent_link')
+                                    break
+                    if torrent_link_from_data and resolved_id:
+                        if not torrent_link_from_data.startswith('http'):
+                            torrent_link = f"https://weakpass.com/download/{resolved_id}/{torrent_link_from_data}"
+                        else:
+                            torrent_link = torrent_link_from_data
+                except Exception as e:
+                    print(f"[!] Failed to parse data-page JSON: {e}")
+
+    if not torrent_link:
+        torrent_link = f"https://weakpass.com/files/{filename}"
 
     print(f"[+] Downloading .torrent file from: {torrent_link}")
     r2 = requests.get(torrent_link, headers=headers, stream=True)
@@ -222,11 +254,20 @@ def download_torrent_file(torrent_url, save_dir=None):
         import glob
         print(f"Starting transmission-cli for {torrent_file}...")
         try:
-            proc = subprocess.Popen([
-                "transmission-cli",
-                "-w", output_dir,
-                torrent_file
-            ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, universal_newlines=True)
+            pkg_dir = os.path.dirname(os.path.abspath(__file__))
+            project_root = os.path.abspath(os.path.join(pkg_dir, os.pardir))
+            kill_script = os.path.join(project_root, "wordlists", "kill_transmission.sh")
+            cmd = ["transmission-cli", "-w", output_dir, torrent_file]
+            if os.path.isfile(kill_script):
+                cmd.extend(["-f", kill_script])
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                universal_newlines=True,
+            )
             if proc.stdout is not None:
                 for line in proc.stdout:
                     print(line, end='')
@@ -236,33 +277,10 @@ def download_torrent_file(torrent_url, save_dir=None):
                 return
             else:
                 print(f"Download complete for {torrent_file}")
-            sevenz_files = glob.glob(os.path.join(output_dir, '*.7z'))
-            if not sevenz_files:
-                print("[i] No .7z files found to extract.")
-                return
-            for zfile in sevenz_files:
-                print(f"[+] Extracting {zfile} ...")
-                sevenz_bin = shutil.which('7z') or shutil.which('7za')
-                if not sevenz_bin:
-                    print("[!] 7z or 7za not found in PATH. Please install p7zip-full or 7-zip to extract archives.")
-                    continue
-                try:
-                    extract_result = subprocess.run([
-                        sevenz_bin, 'x', '-y', zfile, f'-o{output_dir}'
-                    ], capture_output=True, text=True)
-                    print(extract_result.stdout)
-                    if extract_result.returncode == 0:
-                        print(f"[+] Extraction complete: {zfile}")
-                    else:
-                        print(f"[!] Extraction failed for {zfile}: {extract_result.stderr}")
-                except Exception as e:
-                    print(f"[!] Error extracting {zfile}: {e}")
         except Exception as e:
             print(f"Error running transmission-cli: {e}")
 
-    t = threading.Thread(target=run_transmission, args=(local_filename, save_dir))
-    t.start()
-    print(f"transmission-cli launched in background for {local_filename}")
+    run_transmission(local_filename, save_dir)
     return local_filename
 
 def weakpass_wordlist_menu(rank=-1):
@@ -295,35 +313,43 @@ def weakpass_wordlist_menu(rank=-1):
         lines[row] += entry.ljust(col_width)
     for line in lines:
         print(line)
+    def parse_indices(selection, max_index):
+        indices = set()
+        for part in selection.split(','):
+            part = part.strip()
+            if not part:
+                continue
+            if '-' in part:
+                try:
+                    start, end = map(int, part.split('-', 1))
+                    if start > end:
+                        start, end = end, start
+                    indices.update(range(start, end + 1))
+                except Exception:
+                    continue
+            else:
+                try:
+                    indices.add(int(part))
+                except Exception:
+                    continue
+        return sorted(i for i in indices if 1 <= i <= max_index)
+
     try:
         sel = input("\nEnter the number(s) to download (e.g. 1,3,5-7) or 'q' to cancel: ")
         if sel.lower() == 'q':
             print("Returning to menu...")
             return
-        # Parse comma- and dash-separated values
-        def parse_indices(selection):
-            indices = set()
-            for part in selection.split(','):
-                part = part.strip()
-                if '-' in part:
-                    try:
-                        start, end = map(int, part.split('-', 1))
-                        indices.update(range(start, end + 1))
-                    except Exception:
-                        continue
-                else:
-                    try:
-                        indices.add(int(part))
-                    except Exception:
-                        continue
-            return sorted(i for i in indices if 1 <= i <= len(filtered_wordlists))
-        indices = parse_indices(sel)
+        indices = parse_indices(sel, len(filtered_wordlists))
         if not indices:
             print("No valid selection.")
             return
         for idx in indices:
-            torrent_url = filtered_wordlists[idx - 1]['torrent_url']
-            download_torrent_file(torrent_url)
+            entry = filtered_wordlists[idx - 1]
+            torrent_url = entry.get('torrent_url')
+            if not torrent_url:
+                print(f"[!] Missing torrent URL for selection {idx}")
+                continue
+            download_torrent_file(torrent_url, wordlist_id=entry.get('id'))
     except KeyboardInterrupt:
         print("\nKeyboard interrupt: Returning to main menu...")
         return
@@ -332,17 +358,76 @@ def weakpass_wordlist_menu(rank=-1):
 
 # Hashview Integration - Real API implementation matching hate_crack.py
 class HashviewAPI:
+    def __init__(self, base_url, api_key, debug=False):
+        self.base_url = base_url.rstrip('/')
+        self.api_key = api_key
+        self.debug = debug
+        self.session = requests.Session()
+        self.session.cookies.set('uuid', api_key)
+        self.session.verify = False
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        
+
+    def get_customer_hashfile_types(self):
+        """
+        Returns a dictionary mapping customer_id -> {hashfile_id: hashtype}.
+        Example:
+            {
+                1: {123: '1000', 124: '1800'},
+                2: {125: '1000'}
+            }
+        """
+        result = {}
+        customers = self.list_customers().get('customers', [])
+        for customer in customers:
+            cid = int(customer.get('id', 0))
+            hashfiles = self.get_customer_hashfiles(cid)
+            hashfile_map = {}
+            for hf in hashfiles:
+                hfid = hf.get('id')
+                if hfid is None:
+                    continue
+                hfid = int(hfid)
+                # Try to get hashtype from hashfile dict, else fetch details
+                hashtype = hf.get('hash_type') or hf.get('hashtype')
+                if not hashtype:
+                    details = self.get_hashfile_details(hfid)
+                    hashtype = details.get('hashtype') or details.get('hash_type')
+                hashfile_map[hfid] = hashtype
+            result[cid] = hashfile_map
+        return result
+    
+    def get_hashfiles_by_type(self, hash_type="1000"):
+        """
+        Return all hashfiles of a given hash_type using the /v1/hashfiles/hash_type/<hash_type> endpoint.
+        """
+        url = f"{self.base_url}/v1/hashfiles/hash_type/{hash_type}"
+        resp = self.session.get(url)
+        resp.raise_for_status()
+        try:
+            data = resp.json()
+            # Expecting a list of hashfiles or a dict with a key containing them
+            if isinstance(data, list):
+                return data
+            elif isinstance(data, dict):
+                # Try common keys
+                for key in ("hashfiles", "files", "data"):
+                    if key in data and isinstance(data[key], list):
+                        return data[key]
+            return []
+        except Exception:
+            return []
+
     def get_hashfile_details(self, hashfile_id):
         """Get hashfile details and hashtype for a given hashfile_id."""
         url = f"{self.base_url}/v1/hashfiles/{hashfile_id}"
         resp = self.session.get(url)
         resp.raise_for_status()
-        # Try to parse JSON if available, else fallback to raw content
         try:
             data = resp.json()
         except Exception:
             data = None
-        # If JSON, look for hashtype
         hashtype = None
         if data:
             hashtype = data.get('hashtype') or data.get('hash_type')
@@ -356,16 +441,6 @@ class HashviewAPI:
         'user:hash': 4,
         'hash_only': 5,
     }
-
-    def __init__(self, base_url, api_key, debug=False):
-        self.base_url = base_url.rstrip('/')
-        self.api_key = api_key
-        self.debug = debug
-        self.session = requests.Session()
-        self.session.cookies.set('uuid', api_key)
-        self.session.verify = False
-        import urllib3
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
     def list_customers(self):
         url = f"{self.base_url}/v1/customers"
@@ -393,6 +468,63 @@ class HashviewAPI:
     def get_customer_hashfiles(self, customer_id):
         all_hashfiles = self.list_hashfiles()
         return [hf for hf in all_hashfiles if int(hf.get('customer_id', 0)) == customer_id]
+
+    def get_customer_hashfiles_with_hashtype(self, customer_id, target_hashtype="1000"):
+        """Return hashfiles for a customer that match the requested hashtype."""
+        customer_hashfiles = self.get_customer_hashfiles(customer_id)
+        if not customer_hashfiles:
+            return []
+        target_str = str(target_hashtype)
+        filtered = []
+        for hf in customer_hashfiles:
+            hashtype = hf.get('hashtype') or hf.get('hash_type')
+            if hashtype is None:
+                hf_id = hf.get('id')
+                if hf_id is not None:
+                    try:
+                        details = self.get_hashfile_details(hf_id)
+                        hashtype = details.get('hashtype')
+                    except Exception:
+                        hashtype = None
+            if hashtype is not None and str(hashtype) == target_str:
+                filtered.append(hf)
+        return filtered
+
+    def list_customers_with_hashfiles(self):
+        """Return customers that have at least one hashfile."""
+        customers_result = self.list_customers()
+        customers = customers_result.get('customers', []) if isinstance(customers_result, dict) else customers_result
+        if not customers:
+            return []
+
+        try:
+            all_hashfiles = self.list_hashfiles()
+        except Exception:
+            all_hashfiles = []
+
+        hashfiles_by_customer = {}
+        for hf in all_hashfiles or []:
+            try:
+                cust_id = int(hf.get('customer_id', 0))
+            except Exception:
+                continue
+            if cust_id <= 0:
+                continue
+            hashfiles_by_customer.setdefault(cust_id, []).append(hf)
+
+        filtered_customers = []
+        for customer in customers:
+            try:
+                cust_id = int(customer.get('id', 0))
+            except Exception:
+                continue
+            if cust_id <= 0:
+                continue
+            customer_hashfiles = hashfiles_by_customer.get(cust_id, [])
+            if not customer_hashfiles:
+                continue
+            filtered_customers.append(customer)
+        return filtered_customers
 
     def display_customers_multicolumn(self, customers):
         if not customers:
@@ -499,10 +631,26 @@ class HashviewAPI:
         resp.raise_for_status()
         return resp.json()
 
-
-
-
-
+    def get_hashfile_hash_type(self, hashtype_id):
+        """
+        Query /v1/hashfiles/hash_type/<int:hashtype_id> and return a list of file IDs.
+        """
+        url = f"{self.base_url}/v1/hashfiles/hash_type/{hashtype_id}"
+        resp = self.session.get(url)
+        resp.raise_for_status()
+        try:
+            data = resp.json()
+            # Expecting a list of file IDs or a dict with a key containing them
+            if isinstance(data, list):
+                return data
+            elif isinstance(data, dict):
+                # Try common keys
+                for key in ('file_ids', 'ids', 'hashfile_ids'):
+                    if key in data and isinstance(data[key], list):
+                        return data[key]
+            return []
+        except Exception:
+            return []
 def download_hashes_from_hashview(
     hashview_url: str,
     hashview_api_key: str,
@@ -512,9 +660,11 @@ def download_hashes_from_hashview(
 ) -> Tuple[str, str]:
     """Interactive Hashview download flow used by CLI."""
     api_harness = HashviewAPI(hashview_url, hashview_api_key, debug=debug_mode)
-    result = api_harness.list_customers()
-    if 'customers' in result and result['customers']:
-        api_harness.display_customers_multicolumn(result['customers'])
+    customers = api_harness.list_customers_with_hashfiles()
+    if customers:
+        api_harness.display_customers_multicolumn(customers)
+    else:
+        print_fn("\nNo customers found with hashfiles.")
     customer_id = int(input_fn("\nEnter customer ID: "))
     try:
         customer_hashfiles = api_harness.get_customer_hashfiles(customer_id)
@@ -683,7 +833,7 @@ def list_and_download_official_wordlists():
             file_name = entry.get('file_name', name)
             print(f"{idx+1}. {name} ({file_name})")
         print("a. Download ALL files")
-        sel = input("Enter the number of the wordlist to download, or 'a' for all, or 'q' to quit: ")
+        sel = input("Enter the number(s) to download (e.g. 1,3,5-7), or 'a' for all, or 'q' to quit: ")
         if sel.lower() == 'q':
             return
         if sel.lower() == 'a':
@@ -694,30 +844,45 @@ def list_and_download_official_wordlists():
                         print("No file_name found for an entry, skipping.")
                         continue
                     out_path = entry.get('file_name', file_name)
-                    if download_official_wordlist(file_name, out_path):
-                        dest_dir = get_hcat_wordlists_dir()
-                        archive_path = os.path.join(dest_dir, out_path) if not os.path.isabs(out_path) else out_path
-                        if archive_path.endswith('.7z'):
-                            extract_with_7z(archive_path)
+                    download_official_wordlist(file_name, out_path)
             except KeyboardInterrupt:
                 print("\nKeyboard interrupt: Returning to download menu...")
                 return
             return
+        def parse_indices(selection, max_index):
+            indices = set()
+            for part in selection.split(','):
+                part = part.strip()
+                if not part:
+                    continue
+                if '-' in part:
+                    try:
+                        start, end = map(int, part.split('-', 1))
+                        if start > end:
+                            start, end = end, start
+                        indices.update(range(start, end + 1))
+                    except Exception:
+                        continue
+                else:
+                    try:
+                        indices.add(int(part))
+                    except Exception:
+                        continue
+            return sorted(i for i in indices if 1 <= i <= max_index)
+
         try:
-            idx = int(sel) - 1
-            if idx < 0 or idx >= len(data):
-                print("Invalid selection.")
+            indices = parse_indices(sel, len(data))
+            if not indices:
+                print("No valid selection.")
                 return
-            file_name = data[idx].get('file_name')
-            if not file_name:
-                print("No file_name found for selection.")
-                return
-            out_path = data[idx].get('file_name', file_name)
-            if download_official_wordlist(file_name, out_path):
-                dest_dir = get_hcat_wordlists_dir()
-                archive_path = os.path.join(dest_dir, out_path) if not os.path.isabs(out_path) else out_path
-                if archive_path.endswith('.7z'):
-                    extract_with_7z(archive_path)
+            for idx in indices:
+                entry = data[idx - 1]
+                file_name = entry.get('file_name')
+                if not file_name:
+                    print("No file_name found for selection, skipping.")
+                    continue
+                out_path = entry.get('file_name', file_name)
+                download_official_wordlist(file_name, out_path)
         except Exception as e:
             print(f"Error: {e}")
     except Exception as e:
@@ -729,6 +894,7 @@ def download_official_wordlist(file_name, out_path):
     import sys
 
     url = f"https://hashmob.net/api/v2/downloads/research/official/{file_name}"
+    archive_path = None
     try:
         with requests.get(url, stream=True, timeout=120) as r:
             r.raise_for_status()
@@ -741,8 +907,9 @@ def download_official_wordlist(file_name, out_path):
             out_path = sanitize_filename(file_name)
             dest_dir = get_hcat_wordlists_dir()
             archive_path = os.path.join(dest_dir, out_path) if not os.path.isabs(out_path) else out_path
+            temp_path = archive_path + ".part"
             os.makedirs(os.path.dirname(archive_path), exist_ok=True)
-            with open(archive_path, 'wb') as f:
+            with open(temp_path, 'wb') as f:
                 for chunk in r.iter_content(chunk_size=chunk_size):
                     if chunk:
                         f.write(chunk)
@@ -759,22 +926,32 @@ def download_official_wordlist(file_name, out_path):
                             sys.stdout.write(f"\rDownloaded {downloaded // 1024} KB")
                             sys.stdout.flush()
             sys.stdout.write("\n")
+        os.replace(temp_path, archive_path)
         print(f"Downloaded {archive_path}")
         if archive_path.endswith('.7z'):
             extract_with_7z(archive_path)
         return True
+    except KeyboardInterrupt:
+        print("\nKeyboard interrupt: Cleaning up partial download...")
+        temp_path = f"{archive_path}.part" if archive_path else None
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+                print(f"Removed partial file: {temp_path}")
+            except Exception as e:
+                print(f"Failed to remove partial file: {e}")
+        return False
     except Exception as e:
         print(f"Error downloading official wordlist: {e}")
         return False
 
 
-def extract_with_7z(archive_path, output_dir=None):
+def extract_with_7z(archive_path, output_dir=None, remove_archive=True):
     """Extract a .7z archive using the 7z or 7za command."""
     import subprocess
 
     if output_dir is None:
-        output_dir = os.path.splitext(archive_path)[0]
-    os.makedirs(output_dir, exist_ok=True)
+        output_dir = os.path.dirname(archive_path) or "."
     sevenz_bin = shutil.which('7z') or shutil.which('7za')
     if not sevenz_bin:
         print("[!] 7z or 7za not found in PATH. Please install p7zip-full or 7-zip to extract archives.")
@@ -782,13 +959,20 @@ def extract_with_7z(archive_path, output_dir=None):
     try:
         print(f"Extracting {archive_path} to {output_dir} ...")
         result = subprocess.run(
-            [sevenz_bin, 'x', '-y', archive_path, f'-o{output_dir}'],
+            [sevenz_bin, 'e', '-y', archive_path],
             capture_output=True,
-            text=True
+            text=True,
+            cwd=output_dir
         )
         print(result.stdout)
         if result.returncode == 0:
             print(f"[+] Extraction complete: {archive_path}")
+            if remove_archive:
+                try:
+                    os.remove(archive_path)
+                    print(f"[i] Removed archive: {archive_path}")
+                except Exception as e:
+                    print(f"[!] Could not remove archive {archive_path}: {e}")
             return True
         print(f"[!] Extraction failed for {archive_path}: {result.stderr}")
         return False
@@ -824,9 +1008,14 @@ def download_all_weakpass_torrents(
     except Exception as exc:
         print_fn(f"Failed to load local wordlist cache: {exc}")
         raise
-    torrents = [wl['torrent_url'] for wl in all_wordlists if wl.get('torrent_url')]
+    if any('id' not in wl or wl.get('id') in ("", None) for wl in all_wordlists):
+        print_fn("[i] weakpass_wordlists.json missing wordlist IDs, refreshing cache...")
+        fetch_all_wordlists()
+        with open(cache_path, "r", encoding="utf-8") as f:
+            all_wordlists = json.load(f)
+    torrents = [(wl.get('torrent_url'), wl.get('id')) for wl in all_wordlists if wl.get('torrent_url')]
     print_fn(f"[i] Downloading {len(torrents)} torrents...")
-    for tfile in torrents:
+    for tfile, wordlist_id in torrents:
         print_fn(f"[i] Downloading: {tfile}")
-        download_torrent(tfile)
+        download_torrent(tfile, wordlist_id=wordlist_id)
     print_fn("[i] All torrents processed.")
