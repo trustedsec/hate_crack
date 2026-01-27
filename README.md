@@ -26,11 +26,10 @@ make install
 Core logic is now split into modules under `hate_crack/`:
 
 - `hate_crack/cli.py`: argparse helpers and config overrides.
-- `hate_crack/api.py`: Hashview + Weakpass + Hashmob flows.
+- `hate_crack/api.py`: Hashview, Weakpass, and Hashmob integrations (downloads/menus/helpers).
 - `hate_crack/attacks.py`: menu attack handlers.
-- `hate_crack/hashview.py`: Hashview API client.
-- `hate_crack/hashmob_wordlist.py`: Hashmob wordlist utilities.
-- `hate_crack/weakpass.py`: Weakpass wordlist utilities.
+- `hate_crack/hashmob_wordlist.py`: Hashmob wordlist utilities (thin wrapper; calls into api.py).
+- `hate_crack/hate_crack.py`: module shim that loads the top-level script.
 
 The top-level `hate_crack.py` remains the main entry point and orchestrates these modules.
 
