@@ -595,14 +595,32 @@ class HashviewAPI:
         return resp.json()
 
     def download_left_hashes(self, customer_id, hashfile_id, output_file=None):
+        import sys
         url = f"{self.base_url}/v1/hashfiles/{hashfile_id}"
-        resp = self.session.get(url)
+        resp = self.session.get(url, stream=True)
         resp.raise_for_status()
         if output_file is None:
             output_file = f"left_{customer_id}_{hashfile_id}.txt"
+        total = int(resp.headers.get('content-length', 0))
+        downloaded = 0
+        chunk_size = 8192
         with open(output_file, 'wb') as f:
-            f.write(resp.content)
-        return {'output_file': output_file, 'size': len(resp.content)}
+            for chunk in resp.iter_content(chunk_size=chunk_size):
+                if chunk:
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if total > 0:
+                        done = int(50 * downloaded / total)
+                        bar = '[' + '=' * done + ' ' * (50 - done) + ']'
+                        percent = 100 * downloaded / total
+                        sys.stdout.write(f"\rDownloading: {bar} {percent:5.1f}% ({downloaded}/{total} bytes)")
+                        sys.stdout.flush()
+            if total > 0:
+                sys.stdout.write("\n")
+        # If content-length is not provided, just print size at end
+        if total == 0:
+            print(f"Downloaded {downloaded} bytes.")
+        return {'output_file': output_file, 'size': downloaded}
 
     def upload_cracked_hashes(self, file_path, hash_type='1000'):
         valid_lines = []
