@@ -20,7 +20,9 @@ make install
 ```git clone --recurse-submodules https://github.com/trustedsec/hate_crack.git```
 * Customize binary and wordlist paths in "config.json"
 
-* The hashcat-utils repo is a submodule. If you didnt clone with --recurse-submodules then initialize with `cd hate_crack;git submodule update --init --recursive`
+* The hashcat-utils repo is a submodule. If you didnt clone with --recurse-submodules then initialize with
+```cd hate_crack;git submodule update --init --recursive```
+
 -------------------------------------------------------------------
 ## Project Structure
 Core logic is now split into modules under `hate_crack/`:
