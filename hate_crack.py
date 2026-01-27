@@ -104,6 +104,7 @@ from hate_crack.api import (
     download_all_weakpass_torrents,
     download_hashes_from_hashview,
     download_hashmob_wordlists,
+    download_hashmob_rules,
     download_weakpass_torrent,
     extract_with_7z,
 )
@@ -119,6 +120,17 @@ hcatTuning = config_parser['hcatTuning']
 hcatWordlists = config_parser['hcatWordlists']
 hcatOptimizedWordlists = config_parser['hcatOptimizedWordlists']
 hcatRules = []
+
+try:
+    rulesDirectory = config_parser['rules_directory']
+except KeyError as e:
+    print('{0} is not defined in config.json using defaults from config.json.example'.format(e))
+    rulesDirectory = default_config.get('rules_directory')
+if not rulesDirectory:
+    rulesDirectory = os.path.join(hcatPath, "rules") if hcatPath else os.path.join(hate_path, "rules")
+rulesDirectory = os.path.expanduser(rulesDirectory)
+if not os.path.isabs(rulesDirectory):
+    rulesDirectory = os.path.join(hate_path, rulesDirectory)
 
 try:
     maxruntime = config_parser['bandrelmaxruntime']
@@ -218,6 +230,38 @@ def verify_wordlist_dir(directory, wordlist):
         else:
             print('Exiting. Please check configuration and try again.')
             return None
+
+def get_rule_path(rule_name, fallback_dir=None):
+    candidates = []
+    if rulesDirectory:
+        candidates.append(os.path.join(rulesDirectory, rule_name))
+    if fallback_dir:
+        candidates.append(os.path.join(fallback_dir, rule_name))
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            return candidate
+    return candidates[0] if candidates else rule_name
+
+def ensure_toggle_rule():
+    """Ensure toggles-lm-ntlm.rule exists in the configured rules directory."""
+    if not rulesDirectory:
+        return None
+    target_path = os.path.join(rulesDirectory, "toggles-lm-ntlm.rule")
+    if os.path.isfile(target_path):
+        return target_path
+    source_path = os.path.join(hate_path, "rules", "toggles-lm-ntlm.rule")
+    try:
+        os.makedirs(rulesDirectory, exist_ok=True)
+        if os.path.isfile(source_path):
+            with open(source_path, "r") as src, open(target_path, "w") as dst:
+                dst.write(src.read())
+        else:
+            with open(target_path, "w") as dst:
+                dst.write("l\nu\n")
+        print(f"[i] Created rule file: {target_path}")
+    except Exception as e:
+        print(f"[!] Failed to create toggles-lm-ntlm.rule: {e}")
+    return target_path
 
 def cleanup_wordlist_artifacts():
     wordlists_dir = hcatWordlists or os.path.join(hate_path, "wordlists")
@@ -479,15 +523,16 @@ def hcatBruteForce(hcatHashType, hcatHashFile, hcatMinLen, hcatMaxLen):
 def hcatDictionary(hcatHashType, hcatHashFile):
     global hcatDictionaryCount
     global hcatProcess
+    rule_best66 = get_rule_path("best66.rule")
     hcatProcess = subprocess.Popen(
         "{hcatBin} -m {hcatHashType} {hash_file} --session {session_name} -o {hash_file}.out {optimized_wordlists}/* "
-        "-r {hcatPath}/rules/best66.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
-            hcatPath=hcatPath,
+        "-r {rule_best66} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
             hcatBin=hcatBin,
             hcatHashType=hcatHashType,
             hash_file=hcatHashFile,
             session_name=generate_session_id(),
             optimized_wordlists=hcatOptimizedWordlists,
+            rule_best66=rule_best66,
             tuning=hcatTuning,
             hate_path=hate_path), shell=True)
     try:
@@ -498,15 +543,16 @@ def hcatDictionary(hcatHashType, hcatHashFile):
 
 
     for wordlist in hcatDictionaryWordlist:
+        rule_d3ad0ne = get_rule_path("d3ad0ne.rule")
         hcatProcess = subprocess.Popen(
             "{hcatBin} -m {hcatHashType} {hash_file} --session {session_name} -o {hash_file}.out {hcatWordlist} "
-            "-r {hcatPath}/rules/d3ad0ne.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
-                hcatPath=hcatPath,
+            "-r {rule_d3ad0ne} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
                 hcatBin=hcatBin,
                 hcatHashType=hcatHashType,
                 hash_file=hcatHashFile,
                 session_name=generate_session_id(),
                 hcatWordlist=wordlist,
+                rule_d3ad0ne=rule_d3ad0ne,
                 tuning=hcatTuning,
                 hate_path=hate_path), shell=True)
         try:
@@ -515,16 +561,16 @@ def hcatDictionary(hcatHashType, hcatHashFile):
             print('Killing PID {0}...'.format(str(hcatProcess.pid)))
             hcatProcess.kill()
 
-
+        rule_toxic = get_rule_path("T0XlC.rule")
         hcatProcess = subprocess.Popen(
             "{hcatBin} -m {hcatHashType} {hash_file} --session {session_name} -o {hash_file}.out {hcatWordlist} "
-            "-r {hcatPath}/rules/T0XlC.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
-                hcatPath=hcatPath,
+            "-r {rule_toxic} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
                 hcatBin=hcatBin,
                 hcatHashType=hcatHashType,
                 hash_file=hcatHashFile,
                 session_name=generate_session_id(),
                 hcatWordlist=wordlist,
+                rule_toxic=rule_toxic,
                 tuning=hcatTuning,
                 hate_path=hate_path), shell=True)
         try:
@@ -1037,16 +1083,19 @@ def hcatPathwellBruteForce(hcatHashType, hcatHashFile):
 def hcatPrince(hcatHashType, hcatHashFile):
     global hcatProcess
     hcatHashCracked = lineCount(hcatHashFile + ".out")
+    prince_rules_dir = os.path.join(hate_path, "princeprocessor", "rules")
+    prince_rule = get_rule_path("prince_optimized.rule", fallback_dir=prince_rules_dir)
     hcatProcess = subprocess.Popen(
         "{hate_path}/princeprocessor/{prince_bin} --case-permute --elem-cnt-min=1 --elem-cnt-max=16 -c < "
         "{hcatPrinceBaseList} | {hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out "
-        "-r {hate_path}/princeprocessor/rules/prince_optimized.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+        "-r {prince_rule} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
             hcatBin=hcatBin,
             prince_bin=hcatPrinceBin,
             hash_type=hcatHashType,
             hash_file=hcatHashFile,
             session_name=generate_session_id(),
             hcatPrinceBaseList=hcatPrinceBaseList,
+            prince_rule=prince_rule,
             tuning=hcatTuning,
             hate_path=hate_path), shell=True)
     try:
@@ -1059,16 +1108,18 @@ def hcatPrince(hcatHashType, hcatHashFile):
 def hcatGoodMeasure(hcatHashType, hcatHashFile):
     global hcatExtraCount
     global hcatProcess
+    rule_combinator = get_rule_path("combinator.rule")
+    rule_insidepro = get_rule_path("InsidePro-PasswordsPro.rule")
     hcatProcess = subprocess.Popen(
-        "{hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out -r {hcatPath}/rules/combinator.rule "
-        "-r {hcatPath}/rules/InsidePro-PasswordsPro.rule {hcatGoodMeasureBaseList} {tuning} "
-        "--potfile-path={hate_path}/hashcat.pot".format(
-            hcatPath=hcatPath,
+        "{hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out -r {rule_combinator} "
+        "-r {rule_insidepro} {hcatGoodMeasureBaseList} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
             hcatBin=hcatBin,
             hash_type=hcatHashType,
             hash_file=hcatHashFile,
             hcatGoodMeasureBaseList=hcatGoodMeasureBaseList,
             session_name=generate_session_id(),
+            rule_combinator=rule_combinator,
+            rule_insidepro=rule_insidepro,
             tuning=hcatTuning,
             hate_path=hate_path), shell=True)
     try:
@@ -1136,10 +1187,11 @@ def hcatLMtoNT():
 
     hcatProcess = subprocess.Popen(
         "{hcatBin} -m 1000 {hash_file}.nt --session {session_name} -o {hash_file}.nt.out {hash_file}.combined "
-        "-r {hate_path}/rules/toggles-lm-ntlm.rule {tuning} --potfile-path={hate_path}/hashcat.pot".format(
+        "-r {toggle_rule} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
             hcatBin=hcatBin,
             hash_file=hcatHashFile,
             session_name=generate_session_id(),
+            toggle_rule=ensure_toggle_rule() or get_rule_path("toggles-lm-ntlm.rule", fallback_dir=os.path.join(hate_path, "rules")),
             tuning=hcatTuning,
             hate_path=hate_path), shell=True)
     try:
@@ -1170,15 +1222,15 @@ def hcatRecycle(hcatHashType, hcatHashFile, hcatNewPasswords):
         with open(working_file, 'w') as f:
             f.write("\n".join(converted))
         for rule in hcatRules:
+            rule_path = get_rule_path(rule)
             hcatProcess = subprocess.Popen(
                 "{hcatBin} -m {hash_type} {hash_file} --session {session_name} -o {hash_file}.out {hash_file}.working "
-                "-r {hcatPath}/rules/{rule} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
-                    rule=rule,
+                "-r {rule_path} {tuning} --potfile-path={hate_path}/hashcat.pot".format(
                     hcatBin=hcatBin,
                     hash_type=hcatHashType,
                     hash_file=hcatHashFile,
                     session_name=generate_session_id(),
-                    hcatPath=hcatPath,
+                    rule_path=rule_path,
                     tuning=hcatTuning,
                     hate_path=hate_path), shell=True)
             try:
@@ -1698,7 +1750,11 @@ def pipal():
                 print('Killing PID {0}...'.format(str(pipalProcess.pid)))
                 pipalProcess.kill()
             print("Pipal file is at " + hcatHashFilePipal + ".pipal\n")
-            view_choice = input("Would you like to view (cat) the pipal output? (Y/n): ").strip().lower()
+            import sys
+            if not sys.stdin.isatty():
+                view_choice = 'y'
+            else:
+                view_choice = input("Would you like to view (cat) the pipal output? (Y/n): ").strip().lower()
             if view_choice in ('', 'y', 'yes'):
                 print("\n--- Pipal Output Start ---\n")
                 with open(hcatHashFilePipal + ".pipal") as pipalfile:
@@ -1802,7 +1858,7 @@ def main():
     global lmHashesFound
     global debug_mode
     global hashview_url, hashview_api_key
-    global hcatPath, hcatBin, hcatWordlists, hcatOptimizedWordlists
+    global hcatPath, hcatBin, hcatWordlists, hcatOptimizedWordlists, rulesDirectory
     global pipalPath, maxruntime, bandrelbasewords
 
 
@@ -1818,6 +1874,7 @@ def main():
     parser.add_argument('--weakpass', action='store_true', help='Download wordlists from Weakpass')
     parser.add_argument('--rank', type=int, default=-1, help='Only show wordlists with this rank (use 0 to show all, default: >4)')
     parser.add_argument('--hashmob', action='store_true', help='Download wordlists from Hashmob.net')
+    parser.add_argument('--rules', action='store_true', help='Download rules from Hashmob.net')
     parser.add_argument('--cleanup', action='store_true', help='Cleanup .out files, torrents, and extract or remove .7z archives')
     parser.add_argument('--debug', action='store_true', help='Enable debug mode')
     # Removed add_common_args(parser) since config items are now only set via config file
@@ -1837,6 +1894,7 @@ def main():
         hcatBin=hcatBin,
         hcatWordlists=hcatWordlists,
         hcatOptimizedWordlists=hcatOptimizedWordlists,
+        rules_directory=rulesDirectory,
         pipalPath=pipalPath,
         maxruntime=maxruntime,
         bandrelbasewords=bandrelbasewords,
@@ -1848,6 +1906,7 @@ def main():
     hcatBin = config.hcatBin
     hcatWordlists = config.hcatWordlists
     hcatOptimizedWordlists = config.hcatOptimizedWordlists
+    rulesDirectory = config.rules_directory
     pipalPath = config.pipalPath
     maxruntime = config.maxruntime
     bandrelbasewords = config.bandrelbasewords
@@ -1905,6 +1964,9 @@ def main():
     if args.hashmob:
         download_hashmob_wordlists(print_fn=print)
         sys.exit(0)
+    if args.rules:
+        download_hashmob_rules(print_fn=print)
+        sys.exit(0)
 
     if args.hashfile and args.hashtype:
         hcatHashFile = resolve_path(args.hashfile)
@@ -1923,7 +1985,8 @@ def main():
         print("\t(1) Download hashes from Hashview")
         print("\t(2) Download wordlists from Weakpass")
         print("\t(3) Download wordlists from Hashmob.net")
-        print("\t(4) Exit")
+        print("\t(4) Download rules from Hashmob.net")
+        print("\t(5) Exit")
         choice = input("\nSelect an option: ")
         if choice == '1' or args.download_hashview:
             if not hashview_api_key:
@@ -1949,6 +2012,9 @@ def main():
             sys.exit(0)
         elif choice == '3' or args.hashmob:
             download_hashmob_wordlists(print_fn=print)
+            sys.exit(0)
+        elif choice == '4' or args.rules:
+            download_hashmob_rules(print_fn=print)
             sys.exit(0)
         else:
             sys.exit(0)
@@ -2031,6 +2097,7 @@ def main():
             "11": middle_combinator,
             "12": thorough_combinator,
             "13": bandrel_method,
+            "91": download_hashmob_rules,
             "92": weakpass_wordlist_menu,
             "93": download_hashmob_wordlists,
             "94": weakpass_wordlist_menu,
@@ -2055,6 +2122,7 @@ def main():
             print("\t(11) Middle Combinator Attack")
             print("\t(12) Thorough Combinator Attack")
             print("\t(13) Bandrel Methodology")
+            print("\n\t(91) Download rules from Hashmob.net")
             print("\n\t(92) Download wordlists from Weakpass")
             print("\t(93) Download wordlists from Hashmob.net")
             print("\t(94) Weakpass Wordlist Menu")
