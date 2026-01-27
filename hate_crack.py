@@ -1,3 +1,42 @@
+class HashviewAPI:
+    # ...existing code...
+    def upload_wordlist(self):
+        """Interactive method to upload a custom wordlist to Hashview."""
+        print("\n" + "="*60)
+        print("WORDLIST UPLOAD")
+        print("="*60)
+        print("Select a wordlist file to upload to Hashview.")
+        print("After upload, you'll need to:")
+        print("  1. Create a task in Hashview using this wordlist")
+        print("  2. Manually add the task to this job via web interface")
+        print("\nPress TAB to autocomplete file paths.")
+        print("="*60)
+
+        wordlist_path = select_file_with_autocomplete(
+            "Enter path to wordlist file"
+        )
+
+        uploaded_wordlist_id = None
+        wordlist_name = None
+        if wordlist_path and os.path.isfile(wordlist_path):
+            # Ask for wordlist name
+            default_name = os.path.basename(wordlist_path)
+            wordlist_name = input(f"\nEnter wordlist name (default: {default_name}): ").strip() or default_name
+            try:
+                # Upload the wordlist
+                upload_result = self.upload_wordlist(wordlist_path, wordlist_name)
+                print(f"\n✓ Success: {upload_result.get('msg', 'Wordlist uploaded')}")
+                if 'wordlist_id' in upload_result:
+                    uploaded_wordlist_id = upload_result['wordlist_id']
+                    print(f"  Wordlist ID: {uploaded_wordlist_id}")
+                    print(f"  Wordlist Name: {wordlist_name}")
+            except Exception as e:
+                print(f"\n✗ Error uploading wordlist: {str(e)}")
+                print("Continuing with job creation...")
+        else:
+            print("\n✗ No valid wordlist file selected.")
+            print("Continuing with job creation...")
+        return uploaded_wordlist_id, wordlist_name
 # Methodology provided by Martin Bos (pure_hate) - https://www.trustedsec.com/team/martin-bos/
 # Original script created by Larry Spohn (spoonman) - https://www.trustedsec.com/team/larry-spohn/
 # Python refactoring and general fixing, Justin Bollinger (bandrel) - https://www.trustedsec.com/team/justin-bollinger/
@@ -1425,118 +1464,118 @@ def hashview_api():
                     print("\nFull error details:")
                     traceback.print_exc()
             
-            # elif choice == '2':
-            #     # Upload hashfile and create job
-            #     hashfile_path = select_file_with_autocomplete(
-            #         "Enter path to hashfile (TAB to autocomplete)"
-            #     )
-            #     if not hashfile_path or not os.path.exists(hashfile_path):
-            #         print(f"Error: File not found: {hashfile_path}")
-            #         continue
+            elif choice == '2':
+                # Upload hashfile and create job
+                hashfile_path = select_file_with_autocomplete(
+                    "Enter path to hashfile (TAB to autocomplete)"
+                )
+                if not hashfile_path or not os.path.exists(hashfile_path):
+                    print(f"Error: File not found: {hashfile_path}")
+                    continue
                 
-            #     customer_id = int(input("Enter customer ID: "))
-            #     hash_type = int(input(f"Enter hash type (default: {hcatHashType}): ") or hcatHashType)
+                customer_id = int(input("Enter customer ID: "))
+                hash_type = int(input(f"Enter hash type (default: {hcatHashType}): ") or hcatHashType)
                 
-            #     print("\nFile formats:")
-            #     print("  0 = pwdump, 1 = NetNTLM, 2 = kerberos")
-            #     print("  3 = shadow, 4 = user:hash, 5 = hash_only")
-            #     file_format = int(input("Enter file format (default: 5): ") or 5)
+                print("\nFile formats:")
+                print("  0 = pwdump, 1 = NetNTLM, 2 = kerberos")
+                print("  3 = shadow, 4 = user:hash, 5 = hash_only")
+                file_format = int(input("Enter file format (default: 5): ") or 5)
                 
-            #     hashfile_name = input(f"Enter hashfile name (default: {os.path.basename(hashfile_path)}): ") or None
+                hashfile_name = input(f"Enter hashfile name (default: {os.path.basename(hashfile_path)}): ") or None
                 
-            #     try:
-            #         result = api_harness.upload_hashfile(
-            #             hashfile_path, customer_id, hash_type, file_format, hashfile_name
-            #         )
-            #         print(f"\n✓ Success: {result.get('msg', 'Hashfile uploaded')}")
-            #         if 'hashfile_id' in result:
-            #             print(f"  Hashfile ID: {result['hashfile_id']}")
-            #             # Hash count is not returned by the upload API, so we don't display it
-            #             if 'hash_count' in result:
-            #                 print(f"  Hash count: {result['hash_count']}")
-            #             if 'instacracked' in result:
-            #                 print(f"  Insta-cracked: {result['instacracked']}")
+                try:
+                    result = api_harness.upload_hashfile(
+                        hashfile_path, customer_id, hash_type, file_format, hashfile_name
+                    )
+                    print(f"\n✓ Success: {result.get('msg', 'Hashfile uploaded')}")
+                    if 'hashfile_id' in result:
+                        print(f"  Hashfile ID: {result['hashfile_id']}")
+                        # Hash count is not returned by the upload API, so we don't display it
+                        if 'hash_count' in result:
+                            print(f"  Hash count: {result['hash_count']}")
+                        if 'instacracked' in result:
+                            print(f"  Insta-cracked: {result['instacracked']}")
                         
-            #             # Offer to create a job
-            #             create_job = input("\nWould you like to create a job for this hashfile? (Y/n): ") or "Y"
-            #             if create_job.upper() == 'Y':
-            #                 job_name = input("Enter job name: ")
-            #                 limit_recovered = input("Limit to recovered hashes only? (y/N): ").upper() == 'Y'
-            #                 notify_email = input("Send email notifications? (Y/n): ").upper() != 'N'
+                        # Offer to create a job
+                        create_job = input("\nWould you like to create a job for this hashfile? (Y/n): ") or "Y"
+                        if create_job.upper() == 'Y':
+                            job_name = input("Enter job name: ")
+                            limit_recovered = input("Limit to recovered hashes only? (y/N): ").upper() == 'Y'
+                            notify_email = input("Send email notifications? (Y/n): ").upper() != 'N'
                             
-            #                 # Ask if user wants to upload a custom wordlist for this job
-            #                 upload_wordlist = input("\nUpload a custom wordlist to Hashview? (y/N): ").upper() == 'Y'
-            #                 uploaded_wordlist_id = None
+                            # Ask if user wants to upload a custom wordlist for this job
+                            upload_wordlist = input("\nUpload a custom wordlist to Hashview? (y/N): ").upper() == 'Y'
+                            uploaded_wordlist_id = None
                             
-            #                 if upload_wordlist:
-            #                     print("\n" + "="*60)
-            #                     print("WORDLIST UPLOAD")
-            #                     print("="*60)
-            #                     print("Select a wordlist file to upload to Hashview.")
-            #                     print("After upload, you'll need to:")
-            #                     print("  1. Create a task in Hashview using this wordlist")
-            #                     print("  2. Manually add the task to this job via web interface")
-            #                     print("\nPress TAB to autocomplete file paths.")
-            #                     print("="*60)
+                            if upload_wordlist:
+                                print("\n" + "="*60)
+                                print("WORDLIST UPLOAD")
+                                print("="*60)
+                                print("Select a wordlist file to upload to Hashview.")
+                                print("After upload, you'll need to:")
+                                print("  1. Create a task in Hashview using this wordlist")
+                                print("  2. Manually add the task to this job via web interface")
+                                print("\nPress TAB to autocomplete file paths.")
+                                print("="*60)
                                 
-            #                     wordlist_path = select_file_with_autocomplete(
-            #                         "Enter path to wordlist file"
-            #                     )
+                                wordlist_path = select_file_with_autocomplete(
+                                    "Enter path to wordlist file"
+                                )
                                 
-            #                     if wordlist_path and os.path.isfile(wordlist_path):
-            #                         # Ask for wordlist name
-            #                         default_name = os.path.basename(wordlist_path)
-            #                         wordlist_name = input(f"\nEnter wordlist name (default: {default_name}): ").strip() or default_name
+                                if wordlist_path and os.path.isfile(wordlist_path):
+                                    # Ask for wordlist name
+                                    default_name = os.path.basename(wordlist_path)
+                                    wordlist_name = input(f"\nEnter wordlist name (default: {default_name}): ").strip() or default_name
                                     
-            #                         try:
-            #                             # Upload the wordlist
-            #                             upload_result = api_harness.upload_wordlist(wordlist_path, wordlist_name)
-            #                             print(f"\n✓ Success: {upload_result.get('msg', 'Wordlist uploaded')}")
-            #                             if 'wordlist_id' in upload_result:
-            #                                 uploaded_wordlist_id = upload_result['wordlist_id']
-            #                                 print(f"  Wordlist ID: {uploaded_wordlist_id}")
-            #                                 print(f"  Wordlist Name: {wordlist_name}")
-            #                         except Exception as e:
-            #                             print(f"\n✗ Error uploading wordlist: {str(e)}")
-            #                             print("Continuing with job creation...")
-            #                     else:
-            #                         print("\n✗ No valid wordlist file selected.")
-            #                         print("Continuing with job creation...")
+                                    try:
+                                        # Upload the wordlist
+                                        upload_result = api_harness.upload_wordlist(wordlist_path, wordlist_name)
+                                        print(f"\n✓ Success: {upload_result.get('msg', 'Wordlist uploaded')}")
+                                        if 'wordlist_id' in upload_result:
+                                            uploaded_wordlist_id = upload_result['wordlist_id']
+                                            print(f"  Wordlist ID: {uploaded_wordlist_id}")
+                                            print(f"  Wordlist Name: {wordlist_name}")
+                                    except Exception as e:
+                                        print(f"\n✗ Error uploading wordlist: {str(e)}")
+                                        print("Continuing with job creation...")
+                                else:
+                                    print("\n✗ No valid wordlist file selected.")
+                                    print("Continuing with job creation...")
                             
-            #                 try:
-            #                     job_result = api_harness.create_job(
-            #                         job_name, result['hashfile_id'], customer_id,
-            #                         limit_recovered, notify_email
-            #                     )
-            #                     print(f"\n✓ Success: {job_result.get('msg', 'Job created')}")
-            #                     if 'job_id' in job_result:
-            #                         print(f"  Job ID: {job_result['job_id']}")
-            #                         print(f"\nNote: Job created with automatically assigned tasks based on")
-            #                         print(f"      historical effectiveness for hash type {hash_type}.")
+                            try:
+                                job_result = api_harness.create_job(
+                                    job_name, result['hashfile_id'], customer_id,
+                                    limit_recovered, notify_email
+                                )
+                                print(f"\n✓ Success: {job_result.get('msg', 'Job created')}")
+                                if 'job_id' in job_result:
+                                    print(f"  Job ID: {job_result['job_id']}")
+                                    print(f"\nNote: Job created with automatically assigned tasks based on")
+                                    print(f"      historical effectiveness for hash type {hash_type}.")
                                     
-            #                         if uploaded_wordlist_id:
-            #                             print(f"\n{'='*60}")
-            #                             print("NEXT STEPS - Configure Task in Hashview Web Interface:")
-            #                             print(f"{'='*60}")
-            #                             print(f"1. Go to: {hashview_url}")
-            #                             print(f"2. Navigate to Tasks → Create New Task")
-            #                             print(f"3. Configure task with:")
-            #                             print(f"   - Wordlist ID: {uploaded_wordlist_id} ({wordlist_name})")
-            #                             print(f"   - Rule: (select appropriate rule)")
-            #                             print(f"   - Attack mode: 0 (dictionary)")
-            #                             print(f"4. Go to Jobs → Job ID {job_result['job_id']}")
-            #                             print(f"5. Add the new task to this job")
-            #                             print(f"{'='*60}")
+                                    if uploaded_wordlist_id:
+                                        print(f"\n{'='*60}")
+                                        print("NEXT STEPS - Configure Task in Hashview Web Interface:")
+                                        print(f"{'='*60}")
+                                        print(f"1. Go to: {hashview_url}")
+                                        print(f"2. Navigate to Tasks → Create New Task")
+                                        print(f"3. Configure task with:")
+                                        print(f"   - Wordlist ID: {uploaded_wordlist_id} ({wordlist_name})")
+                                        print(f"   - Rule: (select appropriate rule)")
+                                        print(f"   - Attack mode: 0 (dictionary)")
+                                        print(f"4. Go to Jobs → Job ID {job_result['job_id']}")
+                                        print(f"5. Add the new task to this job")
+                                        print(f"{'='*60}")
                                     
-            #                         # Offer to start the job
-            #                         start_now = input("\nStart the job now? (Y/n): ") or "Y"
-            #                         if start_now.upper() == 'Y':
-            #                             start_result = api_harness.start_job(job_result['job_id'])
-            #                             print(f"\n✓ Success: {start_result.get('msg', 'Job started')}")
-            #                 except Exception as e:
-            #                     print(f"\n✗ Error creating job: {str(e)}")
-            #     except Exception as e:
-            #         print(f"\n✗ Error uploading hashfile: {str(e)}")
+                                    # Offer to start the job
+                                    start_now = input("\nStart the job now? (Y/n): ") or "Y"
+                                    if start_now.upper() == 'Y':
+                                        start_result = api_harness.start_job(job_result['job_id'])
+                                        print(f"\n✓ Success: {start_result.get('msg', 'Job started')}")
+                            except Exception as e:
+                                print(f"\n✗ Error creating job: {str(e)}")
+                except Exception as e:
+                    print(f"\n✗ Error uploading hashfile: {str(e)}")
             
             elif choice == '3':
                 # List customers
@@ -1612,6 +1651,7 @@ def hashview_api():
                     switch = input("\nSwitch to this hashfile for cracking? (Y/n): ").strip().lower()
                     if switch != 'n':
                         hcatHashFile = download_result['output_file']
+
                         print(f"✓ Switched to hashfile: {hcatHashFile}")
                         print("\nReturning to main menu to start cracking...")
                         return  # Exit hashview menu and return to main menu

@@ -410,6 +410,39 @@ def weakpass_wordlist_menu(rank=-1):
 
 # Hashview Integration - Real API implementation matching hate_crack.py
 class HashviewAPI:
+    def upload_wordlist_file(self, wordlist_path, wordlist_name=None):
+        """Directly upload a wordlist file to Hashview (non-interactive)."""
+        if wordlist_name is None:
+            wordlist_name = os.path.basename(wordlist_path)
+        with open(wordlist_path, 'rb') as f:
+            file_content = f.read()
+        url = f"{self.base_url}/v1/wordlists/add/{wordlist_name}"
+        headers = {'Content-Type': 'text/plain'}
+        resp = self.session.post(url, data=file_content, headers=headers)
+        resp.raise_for_status()
+        return resp.json()
+
+    def list_wordlists(self):
+        """List available wordlists from Hashview API."""
+        endpoint = f"{self.base_url}/v1/wordlists"
+        response = self.session.get(endpoint, headers=self._auth_headers())
+        response.raise_for_status()
+        try:
+            data = response.json()
+        except Exception:
+            raise Exception(f"Invalid API response: {response.text}")
+        # The API may return a list or a dict with a key
+        if isinstance(data, dict) and 'wordlists' in data:
+            wordlists = data['wordlists']
+            # If wordlists is a JSON string, decode it
+            if isinstance(wordlists, str):
+                import json
+                wordlists = json.loads(wordlists)
+            return wordlists
+        elif isinstance(data, list):
+            return data
+        else:
+            return []
     def __init__(self, base_url, api_key, debug=False):
         self.base_url = base_url.rstrip('/')
         self.api_key = api_key
@@ -639,7 +672,7 @@ class HashviewAPI:
 
     def download_left_hashes(self, customer_id, hashfile_id, output_file=None):
         import sys
-        url = f"{self.base_url}/v1/hashfiles/{hashfile_id}"
+        url = f"{self.base_url}/v1/hashfiles/{hashfile_id}/left"
         resp = self.session.get(url, stream=True)
         resp.raise_for_status()
         if output_file is None:
