@@ -34,6 +34,15 @@ Core logic is now split into modules under `hate_crack/`:
 The top-level `hate_crack.py` remains the main entry point and orchestrates these modules.
 
 -------------------------------------------------------------------
+## References and Thanks
+
+This project depends on and is inspired by a number of external projects and services. Thanks to:
+
+- Hashview (http://github.com/hashview/)
+- Weakpass (https://weakpass.com)
+- Hashmob (https://hashmob.net)
+
+-------------------------------------------------------------------
 ## Usage
 `$ ./hate_crack.py`
 
