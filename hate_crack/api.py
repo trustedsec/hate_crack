@@ -1,6 +1,7 @@
 import json
 import os
 import threading
+import time
 from queue import Queue
 import shutil
 from typing import Callable, Tuple
@@ -80,6 +81,14 @@ def register_torrent_cleanup():
     _TORRENT_CLEANUP_REGISTERED = True
 
 def fetch_all_weakpass_wordlists_multithreaded(total_pages=67, threads=10, output_file="weakpass_wordlists.json"):
+    if os.path.isfile(output_file):
+        try:
+            mtime = os.path.getmtime(output_file)
+            if (time.time() - mtime) < 24 * 60 * 60:
+                print(f"[i] Using cached wordlist file: {output_file}")
+                return
+        except Exception:
+            pass
     wordlists = []
     lock = threading.Lock()
     q = Queue()
