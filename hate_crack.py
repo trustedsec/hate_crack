@@ -1382,10 +1382,11 @@ def hashview_api():
             print("What would you like to do?")
             print("="*60)
             print("\t(1) Upload Cracked Hashes from current session")
-            # print("\t(2) Create Job")
+            print("\t(2) Upload Wordlist")
             print("\t(3) List Customers")
             print("\t(4) Create Customer")
             print("\t(5) Download Left Hashes")
+            print("\t(6) Upload Hashfile and Create Job")
             print("\t(99) Back to Main Menu")
             
             choice = input("\nSelect an option: ")
@@ -1465,6 +1466,30 @@ def hashview_api():
                     traceback.print_exc()
             
             elif choice == '2':
+                print("\n" + "-"*60)
+                print("Upload Wordlist")
+                print("-"*60)
+                wordlist_path = select_file_with_autocomplete(
+                    "Enter path to wordlist file (TAB to autocomplete)"
+                )
+                if isinstance(wordlist_path, list):
+                    wordlist_path = wordlist_path[0] if wordlist_path else None
+                if isinstance(wordlist_path, str):
+                    wordlist_path = wordlist_path.strip()
+                if not wordlist_path or not os.path.isfile(wordlist_path):
+                    print(f"✗ Error: File not found: {wordlist_path}")
+                    continue
+                default_name = os.path.basename(wordlist_path)
+                wordlist_name = input(f"Enter wordlist name (default: {default_name}): ").strip() or default_name
+                try:
+                    result = api_harness.upload_wordlist_file(wordlist_path, wordlist_name)
+                    print(f"\n✓ Success: {result.get('msg', 'Wordlist uploaded')}")
+                    if 'wordlist_id' in result:
+                        print(f"  Wordlist ID: {result['wordlist_id']}")
+                except Exception as e:
+                    print(f"\n✗ Error uploading wordlist: {str(e)}")
+            
+            elif choice == '6':
                 # Upload hashfile and create job
                 hashfile_path = select_file_with_autocomplete(
                     "Enter path to hashfile (TAB to autocomplete)"
@@ -1580,11 +1605,11 @@ def hashview_api():
             elif choice == '3':
                 # List customers
                 try:
-                    result = api_harness.list_customers()
-                    if 'customers' in result and result['customers']:
-                        api_harness.display_customers_multicolumn(result['customers'])
+                    customers = api_harness.list_customers_with_hashfiles()
+                    if customers:
+                        api_harness.display_customers_multicolumn(customers)
                     else:
-                        print("\nNo customers found.")
+                        print("\nNo customers found with hashfiles.")
                 except Exception as e:
                     print(f"\n✗ Error fetching customers: {str(e)}")
             
@@ -1603,9 +1628,9 @@ def hashview_api():
                 # Download left hashes
                 try:
                     # First, list customers to help user select
-                    result = api_harness.list_customers()
-                    if 'customers' in result and result['customers']:
-                        api_harness.display_customers_multicolumn(result['customers'])
+                    customers = api_harness.list_customers_with_hashfiles()
+                    if customers:
+                        api_harness.display_customers_multicolumn(customers)
                     
                     # Get customer ID and hashfile ID directly
                     customer_id = int(input("\nEnter customer ID: "))
