@@ -1919,6 +1919,35 @@ def quit_hc():
     cleanup()
     sys.exit(0)
 
+
+def get_main_menu_options():
+    """Return the mapping of main menu keys to their handler functions."""
+    return {
+        "1": quick_crack,
+        "2": extensive_crack,
+        "3": brute_force_crack,
+        "4": top_mask_crack,
+        "5": fingerprint_crack,
+        "6": combinator_crack,
+        "7": hybrid_crack,
+        "8": pathwell_crack,
+        "9": prince_attack,
+        "10": yolo_combination,
+        "11": middle_combinator,
+        "12": thorough_combinator,
+        "13": bandrel_method,
+        "91": download_hashmob_rules,
+        "92": weakpass_wordlist_menu,
+        "93": download_hashmob_wordlists,
+        "94": weakpass_wordlist_menu,
+        "95": hashview_api,
+        "96": pipal,
+        "97": export_excel,
+        "98": show_results,
+        "99": show_readme,
+        "100": quit_hc,
+    }
+
 # The Main Guts
 def main():
     global pwdump_format
@@ -2153,31 +2182,7 @@ def main():
 
     # Display Options
     try:
-        options = {
-            "1": quick_crack,
-            "2": extensive_crack,
-            "3": brute_force_crack,
-            "4": top_mask_crack,
-            "5": fingerprint_crack,
-            "6": combinator_crack,
-            "7": hybrid_crack,
-            "8": pathwell_crack,
-            "9": prince_attack,
-            "10": yolo_combination,
-            "11": middle_combinator,
-            "12": thorough_combinator,
-            "13": bandrel_method,
-            "91": download_hashmob_rules,
-            "92": weakpass_wordlist_menu,
-            "93": download_hashmob_wordlists,
-            "94": weakpass_wordlist_menu,
-            "95": hashview_api,
-            "96": pipal,
-            "97": export_excel,
-            "98": show_results,
-            "99": show_readme,
-            "100": quit_hc
-        }
+        options = get_main_menu_options()
         while 1:
             print("\n\t(1) Quick Crack")
             print("\t(2) Extensive Pure_Hate Methodology Crack")
