@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "hate-crack"
 version = "2.0"
@@ -10,3 +14,9 @@ dependencies = [
     "beautifulsoup4>=4.12.0",
     "ruff>=0.9.4",
 ]
+
+[project.scripts]
+hate_crack = "hate_crack.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["hate_crack*"]

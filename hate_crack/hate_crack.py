@@ -8,6 +8,11 @@ def _resolve_root():
 
 
 def _load_root_module():
+    try:
+        from . import _root  # type: ignore
+        return _root
+    except Exception:
+        pass
     root_path = _resolve_root()
     if not os.path.isfile(root_path):
         raise FileNotFoundError(f"Root hate_crack.py not found at {root_path}")

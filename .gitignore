@@ -5,3 +5,5 @@ __pycache__/
 hate_crack/__pycache__/
 tests/__pycache__/
 uv.lock
+build/
+hate_crack.egg-info/
