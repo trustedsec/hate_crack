@@ -16,6 +16,12 @@ cd hashcat/
 make
 make install
 ```
+
+### External Dependencies
+These are required for certain download/extraction flows:
+
+- `7z`/`7za` (p7zip) — used to extract `.7z` archives.
+- `transmission-cli` — used to download Weakpass torrents.
 ### Download hate_crack
 ```git clone --recurse-submodules https://github.com/trustedsec/hate_crack.git```
 * Customize binary and wordlist paths in "config.json"
