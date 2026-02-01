@@ -23,7 +23,9 @@ jobs:
         run: python -m pip install --upgrade pip uv pytest
 
       - name: Install project dependencies
-        run: uv pip install .
+        run: |
+          uv venv
+          uv pip install .
 
       - name: Run tests
         env:
