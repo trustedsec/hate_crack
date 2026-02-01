@@ -15,7 +15,7 @@ RUN apt-get update \
         transmission-cli \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python -m pip install -q uv
+RUN python -m pip install -q uv==0.9.28
 
 COPY . /workspace
 
