@@ -2,6 +2,18 @@ FROM python:3.13-slim
 
 WORKDIR /workspace
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        gzip \
+        hashcat \
+        ocl-icd-libopencl1 \
+        pocl-opencl-icd \
+        p7zip-full \
+        transmission-cli \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN python -m pip install -q uv
 
 COPY . /workspace
