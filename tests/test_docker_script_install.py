@@ -1,6 +1,7 @@
 import os
 import shutil
 import subprocess
+import sys
 import uuid
 from pathlib import Path
 
@@ -46,9 +47,9 @@ def docker_image():
             text=True,
             timeout=60,
         )
-    except Exception:
-        # Don't fail the test if cleanup fails
-        pass
+    except Exception as e:
+        # Don't fail the test if cleanup fails, but log the issue
+        print(f"Warning: Failed to remove Docker image {image_tag}: {e}", file=sys.stderr)
 
 
 def _run_container(image_tag, command, timeout=180):
