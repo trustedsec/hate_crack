@@ -32,7 +32,7 @@ Core logic is now split into modules under `hate_crack/`:
 - `hate_crack/api.py`: Hashview, Weakpass, and Hashmob integrations (downloads/menus/helpers).
 - `hate_crack/attacks.py`: menu attack handlers.
 - `hate_crack/hashmob_wordlist.py`: Hashmob wordlist utilities (thin wrapper; calls into api.py).
-- `hate_crack/hate_crack.py`: module shim that loads the top-level script.
+- `hate_crack/main.py`: main CLI implementation.
 
 The top-level `hate_crack.py` remains the main entry point and orchestrates these modules.
 
@@ -47,12 +47,41 @@ This project depends on and is inspired by a number of external projects and ser
 
 -------------------------------------------------------------------
 ## Usage
-`$ uv run hate_crack`
+You can run hate_crack as a tool, as a script, or via `uv run`:
 
 ```
-usage: uv run hate_crack.py 
+uv run hate_crack.py
 or 
-usage: uv run hate_crack.py <hash_file> <hash_type> [options]
+uv run hate_crack.py <hash_file> <hash_type> [options]
+```
+
+### Run as a tool (recommended)
+Install once from the repo root:
+
+```
+uv tool install .
+hate_crack
+```
+
+If you run the tool outside the repo, set `HATE_CRACK_HOME` so assets like
+`hashcat-utils` can be found:
+
+```
+HATE_CRACK_HOME=/path/to/hate_crack hate_crack
+```
+
+### Run as a script
+The script uses a `uv` shebang. Make it executable and run:
+
+```
+chmod +x hate_crack.py
+./hate_crack.py
+```
+
+You can also use Python directly:
+
+```
+python hate_crack.py
 ```
 
 Common options:
@@ -104,6 +133,29 @@ uv run pytest -v
 
 # Run specific test
 uv run pytest tests/test_hashview.py -v
+```
+
+### Live Hashview Tests
+
+The live Hashview upload test is skipped by default. To run it, set the
+environment variable and provide valid credentials in `config.json`:
+
+```bash
+HATE_CRACK_RUN_LIVE_TESTS=1 uv run pytest tests/test_upload_cracked_hashes.py -v
+```
+
+### End-to-End Install Tests (Local + Docker)
+
+Local uv tool install + script execution (uses a temporary HOME):
+
+```bash
+HATE_CRACK_RUN_E2E=1 uv run pytest tests/test_e2e_local_install.py -v
+```
+
+Docker-based end-to-end install/run (cached via `Dockerfile.test`):
+
+```bash
+HATE_CRACK_RUN_DOCKER_TESTS=1 uv run pytest tests/test_docker_script_install.py -v
 ```
 
 ### Test Structure

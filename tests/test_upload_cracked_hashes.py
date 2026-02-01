@@ -13,9 +13,11 @@ def get_hashview_config():
     return hashview_url, hashview_api_key
 
 
+RUN_LIVE = os.environ.get("HATE_CRACK_RUN_LIVE_TESTS") == "1"
+
 @pytest.mark.skipif(
-    not get_hashview_config()[0] or not get_hashview_config()[1],
-    reason="Requires hashview_url and hashview_api_key in config.json."
+    not RUN_LIVE or not get_hashview_config()[0] or not get_hashview_config()[1],
+    reason="Requires HATE_CRACK_RUN_LIVE_TESTS=1 and hashview_url/hashview_api_key in config.json."
 )
 def test_upload_cracked_hashes_from_file():
     hashview_url, hashview_api_key = get_hashview_config()

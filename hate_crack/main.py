@@ -66,14 +66,40 @@ if _root_dir not in sys.path:
     sys.path.insert(0, _root_dir)
 
 # Allow submodule imports (hate_crack.*) even when this file is imported as a module.
-_pkg_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "hate_crack")
+_pkg_dir = os.path.dirname(os.path.realpath(__file__))
 if os.path.isdir(_pkg_dir):
     __path__ = [_pkg_dir]
     if "__spec__" in globals() and __spec__ is not None:
         __spec__.submodule_search_locations = __path__
 
 
-hate_path = os.path.dirname(os.path.realpath(__file__))
+def _has_hate_crack_assets(path):
+    if not path:
+        return False
+    return (
+        os.path.isfile(os.path.join(path, "config.json.example"))
+        and os.path.isdir(os.path.join(path, "hashcat-utils"))
+    )
+
+
+def _resolve_hate_path(package_path):
+    env_override = os.environ.get("HATE_CRACK_HOME") or os.environ.get("HATE_CRACK_ASSETS")
+    candidates = []
+    if env_override:
+        candidates.append(env_override)
+
+    cwd = os.getcwd()
+    candidates.extend([cwd, os.path.abspath(os.path.join(cwd, os.pardir))])
+    candidates.append(package_path)
+
+    for candidate in candidates:
+        if _has_hate_crack_assets(candidate):
+            return candidate
+
+    return package_path
+
+
+hate_path = _resolve_hate_path(os.path.dirname(os.path.realpath(__file__)))
 if not os.path.isfile(hate_path + '/config.json'):
     print('Initializing config.json from config.json.example')
     shutil.copy(hate_path + '/config.json.example', hate_path + '/config.json')

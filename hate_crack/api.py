@@ -1,4 +1,5 @@
 import json
+import sys
 import os
 import threading
 import time
@@ -386,8 +387,19 @@ def weakpass_wordlist_menu(rank=-1):
                     continue
         return sorted(i for i in indices if 1 <= i <= max_index)
 
+    def _safe_input(prompt):
+        try:
+            if not sys.stdin or not sys.stdin.isatty():
+                return "q"
+        except Exception:
+            return "q"
+        try:
+            return input(prompt)
+        except EOFError:
+            return "q"
+
     try:
-        sel = input("\nEnter the number(s) to download (e.g. 1,3,5-7) or 'q' to cancel: ")
+        sel = _safe_input("\nEnter the number(s) to download (e.g. 1,3,5-7) or 'q' to cancel: ")
         if sel.lower() == 'q':
             print("Returning to menu...")
             return
@@ -762,13 +774,36 @@ def download_hashes_from_hashview(
     print_fn: Callable[..., None] = print,
 ) -> Tuple[str, str]:
     """Interactive Hashview download flow used by CLI."""
+    try:
+        if not sys.stdin or not sys.stdin.isatty():
+            print_fn("\nAvailable Customers:")
+            raise ValueError("non-interactive")
+    except ValueError:
+        raise
+    except Exception:
+        # If stdin status can't be determined, continue normally.
+        pass
     api_harness = HashviewAPI(hashview_url, hashview_api_key, debug=debug_mode)
     customers = api_harness.list_customers_with_hashfiles()
     if customers:
         api_harness.display_customers_multicolumn(customers)
     else:
         print_fn("\nNo customers found with hashfiles.")
-    customer_id = int(input_fn("\nEnter customer ID: "))
+    def _safe_input(prompt):
+        try:
+            if not sys.stdin or not sys.stdin.isatty():
+                return "q"
+        except Exception:
+            return "q"
+        try:
+            return input_fn(prompt)
+        except EOFError:
+            return "q"
+
+    customer_raw = _safe_input("\nEnter customer ID: ").strip()
+    if customer_raw.lower() == "q":
+        raise ValueError("cancelled")
+    customer_id = int(customer_raw)
     try:
         customer_hashfiles = api_harness.get_customer_hashfiles(customer_id)
         if customer_hashfiles:
@@ -790,7 +825,10 @@ def download_hashes_from_hashview(
     except Exception as exc:
         print_fn(f"\nWarning: Could not list hashfiles: {exc}")
         print_fn("You may need to manually find the hashfile ID in the web interface.")
-    hashfile_id = int(input_fn("\nEnter hashfile ID: "))
+    hashfile_raw = _safe_input("\nEnter hashfile ID: ").strip()
+    if hashfile_raw.lower() == "q":
+        raise ValueError("cancelled")
+    hashfile_id = int(hashfile_raw)
     hcat_hash_type = "1000"
     output_file = f"left_{customer_id}_{hashfile_id}.txt"
     download_result = api_harness.download_left_hashes(customer_id, hashfile_id, output_file)
@@ -1025,7 +1063,18 @@ def list_and_download_official_wordlists():
             file_name = entry.get('file_name', name)
             print(f"{idx+1}. {name} ({file_name})")
         print("a. Download ALL files")
-        sel = input("Enter the number(s) to download (e.g. 1,3,5-7), or 'a' for all, or 'q' to quit: ")
+        def _safe_input(prompt):
+            try:
+                if not sys.stdin or not sys.stdin.isatty():
+                    return "q"
+            except Exception:
+                return "q"
+            try:
+                return input(prompt)
+            except EOFError:
+                return "q"
+
+        sel = _safe_input("Enter the number(s) to download (e.g. 1,3,5-7), or 'a' for all, or 'q' to quit: ")
         if sel.lower() == 'q':
             return
         if sel.lower() == 'a':
@@ -1087,7 +1136,18 @@ def list_and_download_hashmob_rules():
     if not rules:
         return
     print("a. Download ALL files")
-    sel = input("Enter the number(s) to download (e.g. 1,3,5-7), or 'a' for all, or 'q' to quit: ")
+    def _safe_input(prompt):
+        try:
+            if not sys.stdin or not sys.stdin.isatty():
+                return "q"
+        except Exception:
+            return "q"
+        try:
+            return input(prompt)
+        except EOFError:
+            return "q"
+
+    sel = _safe_input("Enter the number(s) to download (e.g. 1,3,5-7), or 'a' for all, or 'q' to quit: ")
     if sel.lower() == 'q':
         return
     rules_dir = get_rules_dir()

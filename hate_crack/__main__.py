@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 import sys
 
-from .hate_crack import cli_main
+from .main import main as _main
 
 
 def main() -> int:
-    return cli_main() or 0
+    return _main() or 0
 
 
 if __name__ == "__main__":

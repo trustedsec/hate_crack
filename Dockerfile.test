@@ -1,0 +1,14 @@
+FROM python:3.13-slim
+
+WORKDIR /workspace
+
+RUN python -m pip install -q uv
+
+COPY . /workspace
+
+RUN uv tool install .
+
+ENV PATH="/root/.local/bin:${PATH}"
+ENV HATE_CRACK_SKIP_INIT=1
+
+CMD ["bash", "-lc", "/root/.local/bin/hate_crack --help >/tmp/hc_help.txt && ./hate_crack.py --help >/tmp/hc_script_help.txt"]
