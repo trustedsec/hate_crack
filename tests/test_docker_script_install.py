@@ -1,6 +1,7 @@
 import os
 import shutil
 import subprocess
+import uuid
 from pathlib import Path
 
 import pytest
@@ -17,7 +18,8 @@ def _require_docker():
 def docker_image():
     _require_docker()
     repo_root = Path(__file__).resolve().parents[1]
-    image_tag = "hate-crack-e2e"
+    # Use a unique tag per test run to avoid conflicts
+    image_tag = f"hate-crack-e2e-{uuid.uuid4().hex[:8]}"
 
     try:
         build = subprocess.run(
@@ -33,7 +35,20 @@ def docker_image():
         "Docker build failed. "
         f"stdout={build.stdout} stderr={build.stderr}"
     )
-    return image_tag
+    
+    yield image_tag
+    
+    # Cleanup: remove the Docker image after tests complete
+    try:
+        subprocess.run(
+            ["docker", "image", "rm", image_tag],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except Exception:
+        # Don't fail the test if cleanup fails
+        pass
 
 
 def _run_container(image_tag, command, timeout=180):
