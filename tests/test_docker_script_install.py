@@ -18,10 +18,11 @@ def docker_image():
     _require_docker()
     repo_root = Path(__file__).resolve().parents[1]
     image_tag = "hate-crack-e2e"
+    dockerfile_path = repo_root / "Dockerfile.test"
 
     try:
         build = subprocess.run(
-            ["docker", "build", "-f", "Dockerfile.test", "-t", image_tag, str(repo_root)],
+            ["docker", "build", "-f", str(dockerfile_path), "-t", image_tag, str(repo_root)],
             capture_output=True,
             text=True,
             timeout=600,
