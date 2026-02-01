@@ -62,16 +62,16 @@ def test_docker_script_install_and_run(docker_image):
 
 
 def test_docker_hashcat_cracks_simple_password(docker_image):
+    # Generate a minimal wordlist inline instead of downloading from external source
+    # Hash 5f4dcc3b5aa765d61d8327deb882cf99 is MD5("password")
     command = (
         "set -euo pipefail; "
-        "curl -fsSL -o /tmp/rockyou.txt.gz https://weakpass.com/download/90/rockyou.txt.gz; "
-        "gzip -d /tmp/rockyou.txt.gz; "
-        "head -n 5000 /tmp/rockyou.txt > /tmp/rockyou.small.txt; "
+        "printf 'admin\\nroot\\npassword\\n123456\\ntest\\n' > /tmp/wordlist.txt; "
         "echo 5f4dcc3b5aa765d61d8327deb882cf99 > /tmp/hash.txt; "
-        "hashcat -m 0 -a 0 --potfile-disable -o /tmp/out.txt /tmp/hash.txt /tmp/rockyou.small.txt --quiet; "
+        "hashcat -m 0 -a 0 --potfile-disable -o /tmp/out.txt /tmp/hash.txt /tmp/wordlist.txt --quiet; "
         "grep -q ':password' /tmp/out.txt"
     )
-    run = _run_container(docker_image, command, timeout=180)
+    run = _run_container(docker_image, command, timeout=60)
     assert run.returncode == 0, (
         "Docker hashcat crack failed. "
         f"stdout={run.stdout} stderr={run.stderr}"
