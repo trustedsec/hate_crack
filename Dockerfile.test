@@ -4,6 +4,7 @@ WORKDIR /workspace
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
+        build-essential \
         ca-certificates \
         curl \
         gzip \
@@ -18,7 +19,7 @@ RUN python -m pip install -q uv
 
 COPY . /workspace
 
-RUN uv tool install .
+RUN make install
 
 ENV PATH="/root/.local/bin:${PATH}"
 ENV HATE_CRACK_SKIP_INIT=1
