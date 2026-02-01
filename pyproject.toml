@@ -3,16 +3,14 @@ requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "hate-crack"
+name = "hate_crack"
 version = "2.0"
 description = "Menu driven Python wrapper for hashcat"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "pytest>=8.3.4",
     "requests>=2.31.0",
     "beautifulsoup4>=4.12.0",
-    "ruff>=0.9.4",
 ]
 
 [project.scripts]
@@ -20,3 +18,6 @@ hate_crack = "hate_crack.__main__:main"
 
 [tool.setuptools.packages.find]
 include = ["hate_crack*"]
+
+[tool.setuptools.package-data]
+hate_crack = ["config.json.example"]
