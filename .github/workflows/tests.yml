@@ -33,4 +33,5 @@ jobs:
           HATE_CRACK_RUN_E2E: "0"
           HATE_CRACK_RUN_DOCKER_TESTS: "0"
           HATE_CRACK_RUN_LIVE_TESTS: "0"
+          HATE_CRACK_SKIP_INIT: "1"
         run: .venv/bin/python -m pytest -v
