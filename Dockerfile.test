@@ -2,11 +2,24 @@ FROM python:3.13-slim
 
 WORKDIR /workspace
 
-RUN python -m pip install -q uv
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        curl \
+        gzip \
+        hashcat \
+        ocl-icd-libopencl1 \
+        pocl-opencl-icd \
+        p7zip-full \
+        transmission-cli \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m pip install -q uv==0.9.28
 
 COPY . /workspace
 
-RUN uv tool install .
+RUN make install
 
 ENV PATH="/root/.local/bin:${PATH}"
 ENV HATE_CRACK_SKIP_INIT=1

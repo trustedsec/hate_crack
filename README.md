@@ -16,6 +16,26 @@ cd hashcat/
 make
 make install
 ```
+
+### External Dependencies
+These are required for certain download/extraction flows:
+
+- `7z`/`7za` (p7zip) — used to extract `.7z` archives.
+- `transmission-cli` — used to download Weakpass torrents.
+
+Install commands:
+
+Ubuntu/Kali:
+```
+sudo apt-get update
+sudo apt-get install -y p7zip-full transmission-cli
+```
+
+macOS (Homebrew):
+```
+brew install p7zip transmission-cli
+```
+
 ### Download hate_crack
 ```git clone --recurse-submodules https://github.com/trustedsec/hate_crack.git```
 * Customize binary and wordlist paths in "config.json"
@@ -84,6 +104,31 @@ You can also use Python directly:
 python hate_crack.py
 ```
 
+### Makefile helpers
+Build hashcat-utils and install the tool:
+
+```
+make install
+```
+
+Build only hashcat-utils:
+
+```
+make
+```
+
+Clean build/test artifacts:
+
+```
+make clean
+```
+
+Run the test suite:
+
+```
+make test
+```
+
 Common options:
 - `--download-hashview`: Download hashes from Hashview before cracking.
 - `--weakpass`: Download wordlists from Weakpass.
@@ -135,6 +180,8 @@ uv run pytest -v
 uv run pytest tests/test_hashview.py -v
 ```
 
+You can also run the full suite with `make test`.
+
 ### Live Hashview Tests
 
 The live Hashview upload test is skipped by default. To run it, set the
@@ -158,6 +205,9 @@ Docker-based end-to-end install/run (cached via `Dockerfile.test`):
 HATE_CRACK_RUN_DOCKER_TESTS=1 uv run pytest tests/test_docker_script_install.py -v
 ```
 
+The Docker E2E test also downloads a small subset of rockyou and runs a basic
+hashcat crack to validate external tool integration.
+
 ### Test Structure
 
 - **tests/test_hashview.py**: Comprehensive test suite for HashviewAPI class with mocked API responses, including:
@@ -170,7 +220,7 @@ All tests use mocked API calls, so they can run without connectivity to a Hashvi
 
 ### Continuous Integration
 
-Tests automatically run on GitHub Actions for every push and pull request. The workflow tests against multiple Python versions (3.9, 3.10, 3.11, 3.12) to ensure compatibility.
+Tests automatically run on GitHub Actions for every push and pull request (Ubuntu, Python 3.13).
 
 -------------------------------------------------------------------
 
