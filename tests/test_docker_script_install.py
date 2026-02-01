@@ -41,15 +41,21 @@ def docker_image():
     
     # Cleanup: remove the Docker image after tests complete
     try:
-        subprocess.run(
+        result = subprocess.run(
             ["docker", "image", "rm", image_tag],
             capture_output=True,
             text=True,
             timeout=60,
         )
+        if result.returncode != 0:
+            print(
+                f"Warning: Failed to remove Docker image {image_tag}. "
+                f"stderr={result.stderr}",
+                file=sys.stderr
+            )
     except Exception as e:
         # Don't fail the test if cleanup fails, but log the issue
-        print(f"Warning: Failed to remove Docker image {image_tag}: {e}", file=sys.stderr)
+        print(f"Warning: Exception while removing Docker image {image_tag}: {e}", file=sys.stderr)
 
 
 def _run_container(image_tag, command, timeout=180):
