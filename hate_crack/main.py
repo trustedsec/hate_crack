@@ -2063,6 +2063,7 @@ def main():
 
     if args.hashview:
         if not hashview_api_key:
+            print("Available Customers:")
             print("\nError: Hashview API key not configured.")
             print("Please set 'hashview_api_key' in config.json")
             sys.exit(1)
