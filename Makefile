@@ -60,16 +60,15 @@ test:
 
 uninstall:
 	@echo "Detecting OS and uninstalling dependencies..."
+	@uv tool uninstall hate_crack || true
 	@if [ "$(shell uname)" = "Darwin" ]; then \
 		echo "Detected macOS"; \
 		command -v brew >/dev/null 2>&1 || { echo >&2 "Homebrew not found. Please uninstall Homebrew packages manually."; exit 1; }; \
 		brew uninstall --ignore-dependencies p7zip transmission-cli || true; \
-		uv tool uninstall hate_crack || true; \
 		rm -rf ~/.cache/uv; \
 	elif [ -f /etc/debian_version ]; then \
 		echo "Detected Debian/Ubuntu"; \
 		sudo apt-get remove -y p7zip-full transmission-cli || true; \
-		uv tool uninstall hate_crack || true; \
 		rm -rf ~/.cache/uv; \
 	else \
 		echo "Unsupported OS. Please uninstall dependencies manually."; \
