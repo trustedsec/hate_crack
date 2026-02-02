@@ -8,14 +8,41 @@
 ```
 
 ## Installation
+
+### 1. Install hashcat
 Get the latest hashcat binaries (https://hashcat.net/hashcat/)
 
-```
+```bash
 git clone https://github.com/hashcat/hashcat.git
 cd hashcat/
 make
 make install
 ```
+
+### 2. Download hate_crack
+```bash
+git clone --recurse-submodules https://github.com/trustedsec/hate_crack.git
+cd hate_crack
+```
+
+* Customize binary and wordlist paths in "config.json"
+* The hashcat-utils repo is a submodule. If you didn't clone with --recurse-submodules then initialize with:
+
+```bash
+git submodule update --init --recursive
+```
+
+### 3. Install dependencies and hate_crack
+
+The easiest way is to use `make install` which auto-detects your OS and installs:
+- External dependencies (p7zip, transmission-cli)
+- Python tool via uv
+
+```bash
+make install
+```
+
+**Or install dependencies manually:**
 
 ### External Dependencies
 These are required for certain download/extraction flows:
@@ -23,26 +50,25 @@ These are required for certain download/extraction flows:
 - `7z`/`7za` (p7zip) — used to extract `.7z` archives.
 - `transmission-cli` — used to download Weakpass torrents.
 
-Install commands:
+Manual install commands:
+
+Manual install commands:
 
 Ubuntu/Kali:
-```
+```bash
 sudo apt-get update
 sudo apt-get install -y p7zip-full transmission-cli
 ```
 
 macOS (Homebrew):
-```
+```bash
 brew install p7zip transmission-cli
 ```
 
-### Download hate_crack
-```git clone --recurse-submodules https://github.com/trustedsec/hate_crack.git```
-* Customize binary and wordlist paths in "config.json"
-
-* The hashcat-utils repo is a submodule. If you didnt clone with --recurse-submodules then initialize with
-
-```cd hate_crack;git submodule update --init --recursive```
+Then install the Python tool:
+```bash
+uv tool install .
+```
 
 -------------------------------------------------------------------
 ## Project Structure
@@ -69,16 +95,16 @@ This project depends on and is inspired by a number of external projects and ser
 ## Usage
 You can run hate_crack as a tool, as a script, or via `uv run`:
 
-```
+```bash
 uv run hate_crack.py
-or 
+# or 
 uv run hate_crack.py <hash_file> <hash_type> [options]
 ```
 
 ### Run as a tool (recommended)
 Install once from the repo root:
 
-```
+```bash
 uv tool install .
 hate_crack
 ```
@@ -86,46 +112,52 @@ hate_crack
 If you run the tool outside the repo, set `HATE_CRACK_HOME` so assets like
 `hashcat-utils` can be found:
 
-```
+```bash
 HATE_CRACK_HOME=/path/to/hate_crack hate_crack
 ```
 
 ### Run as a script
 The script uses a `uv` shebang. Make it executable and run:
 
-```
+```bash
 chmod +x hate_crack.py
 ./hate_crack.py
 ```
 
 You can also use Python directly:
 
-```
+```bash
 python hate_crack.py
 ```
 
 ### Makefile helpers
-Build hashcat-utils and install the tool:
+Install OS dependencies + tool (auto-detects macOS vs Debian/Ubuntu):
 
-```
+```bash
 make install
 ```
 
-Build only hashcat-utils:
+Uninstall OS dependencies + tool:
 
+```bash
+make uninstall
 ```
-make
+
+Build hashcat-utils only:
+
+```bash
+make hashcat-utils
 ```
 
 Clean build/test artifacts:
 
-```
+```bash
 make clean
 ```
 
 Run the test suite:
 
-```
+```bash
 make test
 ```
 
@@ -168,7 +200,8 @@ $ ./hate_crack.py <hash file> 1000
 
 ## Testing
 
-The project includes comprehensive test coverage for the Hashview integration.
+The test suite is mostly offline and uses mocks/fixtures. Live network checks and
+system dependency checks are opt-in via environment variables.
 
 ### Running Tests Locally
 
@@ -182,7 +215,16 @@ uv run pytest tests/test_hashview.py -v
 
 You can also run the full suite with `make test`.
 
-### Live Hashview Tests
+### Live Tests (Opt-In)
+
+Set any of the following to enable live checks:
+
+- `HASHMOB_TEST_REAL=1` — live Hashmob connectivity/CLI menu check
+- `HASHVIEW_TEST_REAL=1` — live Hashview CLI menu check
+- `WEAKPASS_TEST_REAL=1` — live Weakpass CLI menu check
+- `HATE_CRACK_REQUIRE_DEPS=1` — fail if `7z` or `transmission-cli` is missing
+
+### Live Hashview Upload Test
 
 The live Hashview upload test is skipped by default. To run it, set the
 environment variable and provide valid credentials in `config.json`:
