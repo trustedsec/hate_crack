@@ -311,35 +311,6 @@ hcatExpanderBin = "expander.bin"
 hcatCombinatorBin = "combinator.bin"
 hcatPrinceBin = "pp64.bin"
 
-def verify_wordlist_dir(directory, wordlist):
-    if os.path.isfile(wordlist):
-        return wordlist
-    elif os.path.isfile(directory + '/' + wordlist):
-        return directory + '/' + wordlist
-    else:
-        # If not running interactively (no TTY), just return the expected path
-        # This prevents EOFError during module import when running via subprocess
-        if not sys.stdin.isatty():
-            return os.path.join(directory, wordlist)
-        
-        print('Invalid path for {0}. Please check configuration and try again.'.format(wordlist))
-        response = input(f"Wordlist '{wordlist}' not found. Would you like to download rockyou.txt.gz automatically? (Y/n): ").strip().lower()
-        if response in ('', 'y', 'yes'):
-            try:
-                import urllib.request
-                rockyou_url = "https://weakpass.com/download/90/rockyou.txt.gz"
-                dest_path = os.path.join(directory, "rockyou.txt.gz")
-                print(f"Downloading rockyou.txt.gz to {dest_path} ...")
-                urllib.request.urlretrieve(rockyou_url, dest_path)
-                print("Download complete.")
-                return dest_path
-            except Exception as e:
-                print(f"Failed to download rockyou.txt.gz: {e}")
-            return None
-        else:
-            print('Exiting. Please check configuration and try again.')
-            return None
-
 def get_rule_path(rule_name, fallback_dir=None):
     candidates = []
     if rulesDirectory:
@@ -463,18 +434,6 @@ if not SKIP_INIT:
             print('Warning: Cannot find hashcat in PATH. Install it to use hate_crack.')
         # Allow module to load even if initialization fails
         pass
-
-    #verify and convert wordlists to fully qualified paths
-    hcatMiddleBaseList = verify_wordlist_dir(hcatWordlists, hcatMiddleBaseList)
-    hcatThoroughBaseList = verify_wordlist_dir(hcatWordlists, hcatThoroughBaseList)
-    hcatPrinceBaseList = verify_wordlist_dir(hcatWordlists, hcatPrinceBaseList)
-    hcatGoodMeasureBaseList = verify_wordlist_dir(hcatWordlists, hcatGoodMeasureBaseList)
-    for x in range(len(hcatDictionaryWordlist)):
-        hcatDictionaryWordlist[x] = verify_wordlist_dir(hcatWordlists, hcatDictionaryWordlist[x])
-    for x in range(len(hcatHybridlist)):
-        hcatHybridlist[x] = verify_wordlist_dir(hcatWordlists, hcatHybridlist[x])
-    hcatCombinationWordlist[0] = verify_wordlist_dir(hcatWordlists, hcatCombinationWordlist[0])
-    hcatCombinationWordlist[1] = verify_wordlist_dir(hcatWordlists, hcatCombinationWordlist[1])
 
 
 hcatHashCount = 0
