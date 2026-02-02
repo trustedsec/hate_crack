@@ -2014,16 +2014,16 @@ def get_main_menu_options():
         "11": middle_combinator,
         "12": thorough_combinator,
         "13": bandrel_method,
-        "91": download_hashmob_rules,
-        "92": weakpass_wordlist_menu,
-        "93": download_hashmob_wordlists,
-        "94": weakpass_wordlist_menu,
-        "95": hashview_api,
-        "96": pipal,
-        "97": export_excel,
-        "98": show_results,
-        "99": show_readme,
-        "100": quit_hc,
+        "90": download_hashmob_rules,
+        "91": weakpass_wordlist_menu,
+        "92": download_hashmob_wordlists,
+        "93": weakpass_wordlist_menu,
+        "94": hashview_api,
+        "95": pipal,
+        "96": export_excel,
+        "97": show_results,
+        "98": show_readme,
+        "99": quit_hc,
     }
 
 # The Main Guts
@@ -2276,16 +2276,16 @@ def main():
             print("\t(11) Middle Combinator Attack")
             print("\t(12) Thorough Combinator Attack")
             print("\t(13) Bandrel Methodology")
-            print("\n\t(91) Download rules from Hashmob.net")
-            print("\n\t(92) Download wordlists from Weakpass")
-            print("\t(93) Download wordlists from Hashmob.net")
-            print("\t(94) Weakpass Wordlist Menu")
-            print("\t(95) Hashview API")
-            print("\t(96) Analyze hashes with Pipal")
-            print("\t(97) Export Output to Excel Format")
-            print("\t(98) Display Cracked Hashes")
-            print("\t(99) Display README")
-            print("\t(100) Quit")
+            print("\n\t(90) Download rules from Hashmob.net")
+            print("\n\t(91) Download wordlists from Weakpass")
+            print("\t(92) Download wordlists from Hashmob.net")
+            print("\t(93) Weakpass Wordlist Menu")
+            print("\t(94) Hashview API")
+            print("\t(95) Analyze hashes with Pipal")
+            print("\t(96) Export Output to Excel Format")
+            print("\t(97) Display Cracked Hashes")
+            print("\t(98) Display README")
+            print("\t(99) Quit")
             try:
                 task = input("\nSelect a task: ")
                 options[task]()

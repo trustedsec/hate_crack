@@ -73,7 +73,8 @@ def quick_crack(ctx: Any) -> None:
     print('0. To run without any rules')
     for i, file in enumerate(rule_files, start=1):
         print(f"{i}. {file}")
-    print('99. YOLO...run all of the rules')
+    print('98. YOLO...run all of the rules')
+    print('99. Back to Main Menu')
 
     while rule_choice is None:
         raw_choice = input(
@@ -81,10 +82,14 @@ def quick_crack(ctx: Any) -> None:
             f'For example 1+1 will run {rule_files[0]} chained twice and 1,2 would run {rule_files[0]} and then {rule_files[1]} sequentially.\n'
             'Choose wisely: '
         )
+        if raw_choice.strip() == '99':
+            return
         if raw_choice != '':
             rule_choice = raw_choice.split(',')
 
     if '99' in rule_choice:
+        return
+    if '98' in rule_choice:
         for rule in rule_files:
             selected_hcatRules.append(f"-r {ctx.hcatPath}/rules/{rule}")
     elif '0' in rule_choice:
