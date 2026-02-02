@@ -182,17 +182,12 @@ def ensure_binary(binary_path, build_dir=None, name=None):
                 print('  export HATE_CRACK_HOME=/path/to/hate_crack')
                 quit(1)
             
-            print(f'Attempting to build {name or binary_path} via make in {build_dir}...')
-            try:
-                subprocess.run(['make'], cwd=build_dir, check=True)
-                print(f'Successfully ran make in {build_dir}.')
-            except Exception as e:
-                print(f'Error running make in {build_dir}: {e}')
-                print('Please ensure build tools are installed and try again.')
-                quit(1)
-            if not os.path.isfile(binary_path) or not os.access(binary_path, os.X_OK):
-                print(f'Error: {name or binary_path} still not found or not executable at {binary_path} after make.')
-                quit(1)
+            # Binary missing - need to build
+            print(f'Error: {name or "binary"} not found at {binary_path}.')
+            print(f'\nPlease build the utilities by running:')
+            print(f'  cd {build_dir} && make')
+            print('\nEnsure build tools (gcc, make) are installed on your system.')
+            quit(1)
         else:
             print(f'Error: {name or binary_path} not found or not executable at {binary_path}.')
             quit(1)
