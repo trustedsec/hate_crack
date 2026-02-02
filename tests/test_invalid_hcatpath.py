@@ -14,20 +14,21 @@ def test_ensure_binary_error_message(monkeypatch, capsys):
     
     # Test with non-existent build directory
     fake_binary = "/nonexistent/path/to/binary"
-    fake_build_dir = "/opt/hate_crack/hashcat-utils"  # Simulate missing assets
+    with tempfile.TemporaryDirectory() as tmpdir:
+        fake_build_dir = os.path.join(tmpdir, "hashcat-utils")
     
-    # Expect SystemExit when binary and build dir don't exist
-    try:
-        ensure_binary(fake_binary, build_dir=fake_build_dir, name="expander")
-        assert False, "Should have exited with error"
-    except SystemExit as e:
-        assert e.code == 1
+        # Expect SystemExit when binary and build dir don't exist
+        try:
+            ensure_binary(fake_binary, build_dir=fake_build_dir, name="expander")
+            assert False, "Should have exited with error"
+        except SystemExit as e:
+            assert e.code == 1
     
-    # Check that the error message mentions the correct issue
-    captured = capsys.readouterr()
-    assert "Build directory" in captured.out or "does not exist" in captured.out
-    assert "hate_crack" in captured.out.lower()  # Should mention hate_crack assets
-    assert "hcatPath" in captured.out or "repository" in captured.out
+        # Check that the error message mentions the correct issue
+        captured = capsys.readouterr()
+        assert "Build directory" in captured.out or "does not exist" in captured.out
+        assert "hate_crack" in captured.out.lower()  # Should mention hate_crack assets
+        assert "hcatPath" in captured.out or "repository" in captured.out
 
 
 def test_ensure_binary_with_existing_binary():
