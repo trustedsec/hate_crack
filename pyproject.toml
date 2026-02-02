@@ -20,4 +20,8 @@ hate_crack = "hate_crack.__main__:main"
 include = ["hate_crack*"]
 
 [tool.setuptools.package-data]
-hate_crack = ["config.json.example"]
+hate_crack = [
+    "config.json.example",
+    "hashcat-utils/**",
+    "princeprocessor/**",
+]
