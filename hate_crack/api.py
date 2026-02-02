@@ -13,6 +13,28 @@ from bs4 import BeautifulSoup
 from hate_crack.formatting import print_multicolumn_list
 _TORRENT_CLEANUP_REGISTERED = False
 
+
+def _candidate_roots():
+    cwd = os.getcwd()
+    home = os.path.expanduser("~")
+    candidates = [
+        cwd,
+        os.path.abspath(os.path.join(cwd, os.pardir)),
+        "/opt/hate_crack",
+        "/usr/local/share/hate_crack",
+    ]
+    for candidate_name in ['hate_crack', 'hate-crack', '.hate_crack']:
+        candidates.append(os.path.join(home, candidate_name))
+    return candidates
+
+
+def _resolve_config_path():
+    for candidate in _candidate_roots():
+        config_path = os.path.join(candidate, "config.json")
+        if os.path.isfile(config_path):
+            return config_path
+    return None
+
 def check_7z():
     import shutil
     if shutil.which('7z') or shutil.which('7za'):
@@ -35,52 +57,40 @@ def check_transmission_cli():
 
 
 def get_hcat_wordlists_dir():
-    pkg_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.abspath(os.path.join(pkg_dir, os.pardir))
-    candidates = [
-        os.path.join(pkg_dir, 'config.json'),
-        os.path.join(project_root, 'config.json')
-    ]
-    default = os.path.join(project_root, 'wordlists')
-    for config_path in candidates:
+    config_path = _resolve_config_path()
+    if config_path:
         try:
-            if os.path.isfile(config_path):
-                with open(config_path) as f:
-                    config = json.load(f)
-                    path = config.get('hcatWordlists')
-                    if path:
-                        path = os.path.expanduser(path)
-                        if not os.path.isabs(path):
-                            path = os.path.join(project_root, path)
-                        os.makedirs(path, exist_ok=True)
-                        return path
+            with open(config_path) as f:
+                config = json.load(f)
+            path = config.get('hcatWordlists')
+            if path:
+                path = os.path.expanduser(path)
+                if not os.path.isabs(path):
+                    path = os.path.join(os.path.dirname(config_path), path)
+                os.makedirs(path, exist_ok=True)
+                return path
         except Exception:
-            continue
+            pass
+    default = os.path.join(os.getcwd(), 'wordlists')
     os.makedirs(default, exist_ok=True)
     return default
 
 def get_rules_dir():
-    pkg_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.abspath(os.path.join(pkg_dir, os.pardir))
-    candidates = [
-        os.path.join(pkg_dir, 'config.json'),
-        os.path.join(project_root, 'config.json')
-    ]
-    default = os.path.join(project_root, 'rules')
-    for config_path in candidates:
+    config_path = _resolve_config_path()
+    if config_path:
         try:
-            if os.path.isfile(config_path):
-                with open(config_path) as f:
-                    config = json.load(f)
-                    path = config.get('rules_directory')
-                    if path:
-                        path = os.path.expanduser(path)
-                        if not os.path.isabs(path):
-                            path = os.path.join(project_root, path)
-                        os.makedirs(path, exist_ok=True)
-                        return path
+            with open(config_path) as f:
+                config = json.load(f)
+            path = config.get('rules_directory')
+            if path:
+                path = os.path.expanduser(path)
+                if not os.path.isabs(path):
+                    path = os.path.join(os.path.dirname(config_path), path)
+                os.makedirs(path, exist_ok=True)
+                return path
         except Exception:
-            continue
+            pass
+    default = os.path.join(os.getcwd(), 'rules')
     os.makedirs(default, exist_ok=True)
     return default
 
@@ -971,9 +981,10 @@ def download_hashmob_rule_list():
         resp.raise_for_status()
         data = resp.json()
         rules = [r for r in data if r.get('type') in ('rule', 'official_rule')]
-        print("Available Hashmob Rules:")
+        entries = []
         for idx, rule in enumerate(rules):
-            print(f"{idx+1}. {rule.get('name', rule.get('file_name', ''))}")
+            entries.append(f"{idx+1}. {rule.get('name', rule.get('file_name', ''))}")
+        print_multicolumn_list("Available Hashmob Rules", entries, min_col_width=30, max_col_width=80)
         return rules
     except Exception as e:
         print(f"Error fetching Hashmob rules: {e}")
