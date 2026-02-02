@@ -15,7 +15,7 @@ submodules:
 		done; \
 	fi
 
-install: submodules
+install:
 	@echo "Detecting OS and installing dependencies..."
 	@if [ ! -f princeprocessor/pp64.bin ] && [ ! -f princeprocessor/pp64.app ] && [ ! -f princeprocessor/pp64.exe ]; then \
 		echo "princeprocessor binaries are missing; please ensure the princeprocessor directory is present."; \
