@@ -197,17 +197,19 @@ def hybrid_crack(ctx: Any) -> None:
 
         valid_wordlists = []
         for wl in wordlists:
-            if os.path.isfile(wl):
-                valid_wordlists.append(wl)
-                print(f"✓ Found: {wl}")
+            resolved = ctx._resolve_wordlist_path(wl, ctx.hcatWordlists)
+            if os.path.isfile(resolved):
+                valid_wordlists.append(resolved)
+                print(f"✓ Found: {resolved}")
             else:
-                print(f"✗ Not found: {wl}")
+                print(f"✗ Not found: {resolved}")
 
         if not valid_wordlists:
             print("\nNo valid wordlists found. Aborting hybrid attack.")
             return
 
         wordlists = valid_wordlists
+    wordlists = [ctx._resolve_wordlist_path(wl, ctx.hcatWordlists) for wl in wordlists]
 
     print(f"\nStarting hybrid attack with {len(wordlists)} wordlist(s)...")
     print(f"Hash type: {ctx.hcatHashType}")
