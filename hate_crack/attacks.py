@@ -70,11 +70,11 @@ def quick_crack(ctx: Any) -> None:
 
     rule_files = sorted(os.listdir(ctx.hcatPath + '/rules'))
     print("\nWhich rule(s) would you like to run?")
-    print('0. To run without any rules')
-    for i, file in enumerate(rule_files, start=1):
-        print(f"{i}. {file}")
-    print('98. YOLO...run all of the rules')
-    print('99. Back to Main Menu')
+    rule_entries = ["0. To run without any rules"]
+    rule_entries.extend([f"{i}. {file}" for i, file in enumerate(rule_files, start=1)])
+    rule_entries.append("98. YOLO...run all of the rules")
+    rule_entries.append("99. Back to Main Menu")
+    print_multicolumn_list("Available Rules", rule_entries, min_col_width=26, max_col_width=60)
 
     while rule_choice is None:
         raw_choice = input(
