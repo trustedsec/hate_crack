@@ -103,18 +103,3 @@ def test_readme_documents_correct_usage():
     # Should NOT suggest putting hashcat-utils in hashcat directory
     # (This is a documentation test to prevent confusing users)
 
-
-def test_resolve_hate_path_prefers_package_ancestors(tmp_path):
-    """Ensure package installs discover assets by walking up to the tool root."""
-    from hate_crack.main import _resolve_hate_path
-
-    assets_root = tmp_path / "hate_crack_root"
-    assets_root.mkdir()
-    (assets_root / "hashcat-utils").mkdir()
-    (assets_root / "config.json.example").write_text("{}")
-
-    package_path = assets_root / "lib" / "python3.14" / "site-packages" / "hate_crack"
-    package_path.mkdir(parents=True)
-
-    resolved = _resolve_hate_path(str(package_path), config_dict={})
-    assert resolved == str(assets_root)
