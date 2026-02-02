@@ -1,4 +1,4 @@
-.DEFAULT_GOAL := hashcat-utils
+.DEFAULT_GOAL := submodules
 .PHONY: install clean hashcat-utils submodules test
 
 hashcat-utils: submodules
