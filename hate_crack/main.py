@@ -365,14 +365,24 @@ def _resolve_wordlist_path(wordlist, base_dir):
     if not wordlist:
         return wordlist
     expanded = os.path.expanduser(wordlist)
+    base_dirs = [base_dir]
+    default_dir = os.path.join(hate_path, "wordlists")
+    for candidate_dir in (default_dir, os.getcwd()):
+        if candidate_dir and candidate_dir not in base_dirs:
+            base_dirs.append(candidate_dir)
     if any(ch in expanded for ch in "*?[]"):
         if os.path.isabs(expanded):
             return expanded
-        return os.path.abspath(os.path.join(base_dir, expanded))
+        for base in base_dirs:
+            candidate = os.path.abspath(os.path.join(base, expanded))
+            return candidate
     if os.path.isabs(expanded):
         candidates = [expanded]
     else:
-        candidates = [os.path.join(base_dir, expanded), os.path.abspath(expanded)]
+        candidates = []
+        for base in base_dirs:
+            candidates.append(os.path.join(base, expanded))
+        candidates.append(os.path.abspath(expanded))
     for candidate in list(candidates):
         if candidate.endswith(".gz"):
             candidates.append(candidate[:-3])
