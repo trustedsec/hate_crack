@@ -17,10 +17,6 @@ submodules:
 
 install: submodules
 	@echo "Detecting OS and installing dependencies..."
-	@if [ ! -d hashcat-utils/bin ] || [ -z "$$(ls -A hashcat-utils/bin 2>/dev/null)" ]; then \
-		echo "hashcat-utils/bin is missing or empty; building hashcat-utils..."; \
-		$(MAKE) -C hashcat-utils; \
-	fi
 	@if [ ! -f princeprocessor/pp64.bin ] && [ ! -f princeprocessor/pp64.app ] && [ ! -f princeprocessor/pp64.exe ]; then \
 		echo "princeprocessor binaries are missing; please ensure the princeprocessor directory is present."; \
 		exit 1; \
