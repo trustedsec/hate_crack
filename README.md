@@ -109,12 +109,31 @@ uv tool install .
 hate_crack
 ```
 
-If you run the tool outside the repo, set `HATE_CRACK_HOME` so assets like
-`hashcat-utils` can be found:
+**Important:** The installed tool needs access to `hashcat-utils` and `princeprocessor` subdirectories. These are located in the original repository directory.
+
+When running from outside the repository, configure the asset location in your `config.json` by setting `hcatPath`:
+
+```json
+{
+  "hcatPath": "/opt/hate_crack",
+  ...
+}
+```
+
+Then run the tool:
 
 ```bash
-HATE_CRACK_HOME=/path/to/hate_crack hate_crack
+hate_crack <hash_file> <hash_type>
 ```
+
+Alternatively, run `hate_crack` from within the repository directory and it will automatically find the assets:
+
+```bash
+cd /path/to/hate_crack
+hate_crack <hash_file> <hash_type>
+```
+
+If `hcatPath` is empty in config.json, the tool will search the current directory and parent directory for assets.
 
 ### Run as a script
 The script uses a `uv` shebang. Make it executable and run:

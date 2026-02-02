@@ -82,33 +82,70 @@ def _has_hate_crack_assets(path):
     )
 
 
-def _resolve_hate_path(package_path):
+def _resolve_hate_path(package_path, config_dict=None):
+    # Try to use hcatPath from config.json if it's set and contains assets
+    if config_dict and config_dict.get('hcatPath'):
+        assets_path = config_dict.get('hcatPath')
+        if _has_hate_crack_assets(assets_path):
+            return assets_path
+
+    # Check environment variable as fallback
     env_override = os.environ.get("HATE_CRACK_HOME") or os.environ.get("HATE_CRACK_ASSETS")
-    candidates = []
     if env_override:
-        candidates.append(env_override)
+        if _has_hate_crack_assets(env_override):
+            return env_override
 
+    # Check current working directory and parent (look for repo directory)
     cwd = os.getcwd()
-    candidates.extend([cwd, os.path.abspath(os.path.join(cwd, os.pardir))])
-    candidates.append(package_path)
-
-    for candidate in candidates:
+    for candidate in [cwd, os.path.abspath(os.path.join(cwd, os.pardir))]:
         if _has_hate_crack_assets(candidate):
             return candidate
+
+    # Check common locations for the repo
+    home = os.path.expanduser("~")
+    for candidate_name in ['hate_crack', 'hate-crack', '.hate_crack']:
+        candidate = os.path.join(home, candidate_name)
+        if _has_hate_crack_assets(candidate):
+            return candidate
+
+    # When installed as a tool, assets should be defined in config.json hcatPath
+    # If not set, default to package path (which may not have assets)
+    if _has_hate_crack_assets(package_path):
+        return package_path
+
+    # Last resort: return package_path, but this likely means assets are missing
+    if not config_dict or not config_dict.get('hcatPath'):
+        print("\nWarning: Could not find hate_crack assets (hashcat-utils, princeprocessor).")
+        print("Set 'hcatPath' in config.json to the installation directory:")
+        print("  \"hcatPath\": \"/path/to/hate_crack\"")
+        print("Or run from the repository directory where these assets are located.\n")
 
     return package_path
 
 
-hate_path = _resolve_hate_path(os.path.dirname(os.path.realpath(__file__)))
-if not os.path.isfile(hate_path + '/config.json'):
+# First get a temporary path to load config
+_initial_package_path = os.path.dirname(os.path.realpath(__file__))
+if not os.path.isfile(_initial_package_path + '/config.json'):
     print('Initializing config.json from config.json.example')
-    shutil.copy(hate_path + '/config.json.example', hate_path + '/config.json')
+    shutil.copy(_initial_package_path + '/config.json.example', _initial_package_path + '/config.json')
 
-with open(hate_path + '/config.json') as config:
+with open(_initial_package_path + '/config.json') as config:
     config_parser = json.load(config)
 
-with open(hate_path + '/config.json.example') as defaults:
+with open(_initial_package_path + '/config.json.example') as defaults:
     default_config = json.load(defaults)
+
+# Now resolve hate_path using config
+hate_path = _resolve_hate_path(_initial_package_path, config_parser)
+
+# If hate_path differs from initial path, reload config from the new location
+if hate_path != _initial_package_path:
+    if os.path.isfile(hate_path + '/config.json'):
+        with open(hate_path + '/config.json') as config:
+            config_parser = json.load(config)
+    if os.path.isfile(hate_path + '/config.json.example'):
+        with open(hate_path + '/config.json.example') as defaults:
+            default_config = json.load(defaults)
 
 try:
     hashview_url = config_parser['hashview_url']
@@ -179,7 +216,7 @@ from hate_crack.cli import (
     setup_logging,
 )
 
-hcatPath = config_parser['hcatPath']
+hcatPath = config_parser.get('hcatPath', '') or hate_path
 hcatBin = config_parser['hcatBin']
 hcatTuning = config_parser['hcatTuning']
 hcatWordlists = config_parser['hcatWordlists']
@@ -278,6 +315,11 @@ def verify_wordlist_dir(directory, wordlist):
     elif os.path.isfile(directory + '/' + wordlist):
         return directory + '/' + wordlist
     else:
+        # If not running interactively (no TTY), just return the expected path
+        # This prevents EOFError during module import when running via subprocess
+        if not sys.stdin.isatty():
+            return os.path.join(directory, wordlist)
+        
         print('Invalid path for {0}. Please check configuration and try again.'.format(wordlist))
         response = input(f"Wordlist '{wordlist}' not found. Would you like to download rockyou.txt.gz automatically? (Y/n): ").strip().lower()
         if response in ('', 'y', 'yes'):
@@ -361,57 +403,62 @@ def cleanup_wordlist_artifacts():
                         print(f"[!] Failed to remove archive {path}: {e}")
 
 if not SKIP_INIT:
-    # hashcat biniary checks for systems that install hashcat binary in different location than the rest of the hashcat files
-    if hcatPath:
-        candidate = hcatPath.rstrip('/') + '/' + hcatBin
-        if os.path.isfile(candidate):
-            hcatBin = candidate
-        elif os.path.isfile(hcatBin):
-            pass
-        else:
-            print('Invalid path for hashcat binary. Please check configuration and try again.')
-            quit(1)
-    else:
-        # No hcatPath set, just use hcatBin (should be in PATH)
-        if shutil.which(hcatBin) is None:
-            print('Hashcat binary not found in PATH. Please check configuration and try again.')
-            quit(1)
-
-    # Verify hashcat-utils binaries exist and work
-    hashcat_utils_path = hate_path + '/hashcat-utils/bin'
-    required_binaries = [
-        (hcatExpanderBin, 'expander'),
-        (hcatCombinatorBin, 'combinator'),
-    ]
-
-    for binary, name in required_binaries:
-        binary_path = hashcat_utils_path + '/' + binary
-        ensure_binary(binary_path, build_dir=os.path.join(hate_path, 'hashcat-utils'), name=name)
-        # Test binary execution
-        try:
-            test_result = subprocess.run(
-                [binary_path], 
-                stdout=subprocess.PIPE, 
-                stderr=subprocess.PIPE, 
-                timeout=2
-            )
-            # Binary should show usage and exit with error code (that's expected)
-            # If we get here without exception, the binary is executable
-        except subprocess.TimeoutExpired:
-            # Timeout is fine - means binary is running
-            pass
-        except Exception as e:
-            print(f'Error: {name} binary at {binary_path} failed to execute: {e}')
-            print('The binary may be compiled for the wrong architecture.')
-            print('Try recompiling hashcat-utils for your system.')
-            quit(1)
-
-    # Verify princeprocessor binary
-    prince_path = hate_path + '/princeprocessor/' + hcatPrinceBin
+    # Verify hashcat binary is available
+    # hcatPath is for assets (hashcat-utils, princeprocessor), not hashcat binary location
+    # hcatBin should be in PATH or be an absolute path
     try:
-        ensure_binary(prince_path, build_dir=os.path.join(hate_path, 'princeprocessor'), name='PRINCE')
-    except SystemExit:
-        print('PRINCE attacks will not be available.')
+        if os.path.isabs(hcatBin):
+            if not os.path.isfile(hcatBin):
+                print(f'Hashcat binary not found at {hcatBin}. Please check configuration and try again.')
+                quit(1)
+        else:
+            # hcatBin should be in PATH
+            if shutil.which(hcatBin) is None:
+                print(f'Hashcat binary "{hcatBin}" not found in PATH. Please check configuration and try again.')
+                quit(1)
+
+        # Verify hashcat-utils binaries exist and work
+        hashcat_utils_path = hcatPath + '/hashcat-utils/bin'
+        required_binaries = [
+            (hcatExpanderBin, 'expander'),
+            (hcatCombinatorBin, 'combinator'),
+        ]
+
+        for binary, name in required_binaries:
+            binary_path = hashcat_utils_path + '/' + binary
+            ensure_binary(binary_path, build_dir=os.path.join(hcatPath, 'hashcat-utils'), name=name)
+            # Test binary execution
+            try:
+                test_result = subprocess.run(
+                    [binary_path], 
+                    stdout=subprocess.PIPE, 
+                    stderr=subprocess.PIPE, 
+                    timeout=2
+                )
+                # Binary should show usage and exit with error code (that's expected)
+                # If we get here without exception, the binary is executable
+            except subprocess.TimeoutExpired:
+                # Timeout is fine - means binary is running
+                pass
+            except Exception as e:
+                print(f'Error: {name} binary at {binary_path} failed to execute: {e}')
+                print('The binary may be compiled for the wrong architecture.')
+                print('Try recompiling hashcat-utils for your system.')
+                quit(1)
+
+        # Verify princeprocessor binary
+        prince_path = hcatPath + '/princeprocessor/' + hcatPrinceBin
+        try:
+            ensure_binary(prince_path, build_dir=os.path.join(hcatPath, 'princeprocessor'), name='PRINCE')
+        except SystemExit:
+            print('PRINCE attacks will not be available.')
+
+    except Exception as e:
+        print(f'Module initialization error: {e}')
+        if not shutil.which('hashcat') and not os.path.exists('/usr/bin/hashcat'):
+            print('Warning: Cannot find hashcat in PATH. Install it to use hate_crack.')
+        # Allow module to load even if initialization fails
+        pass
 
     #verify and convert wordlists to fully qualified paths
     hcatMiddleBaseList = verify_wordlist_dir(hcatWordlists, hcatMiddleBaseList)

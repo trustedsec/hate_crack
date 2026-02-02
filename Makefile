@@ -24,6 +24,7 @@ install:
 clean:
 	-$(MAKE) -C hashcat-utils clean
 	rm -rf .pytest_cache .ruff_cache build dist *.egg-info
+	rm -rf ~/.cache/uv
 	find . -name "__pycache__" -type d -prune -exec rm -rf {} +
 
 test:
@@ -37,10 +38,12 @@ uninstall:
 		command -v brew >/dev/null 2>&1 || { echo >&2 "Homebrew not found. Please uninstall Homebrew packages manually."; exit 1; }; \
 		brew uninstall --ignore-dependencies p7zip transmission-cli || true; \
 		uv tool uninstall hate_crack || true; \
+		rm -rf ~/.cache/uv; \
 	elif [ -f /etc/debian_version ]; then \
 		echo "Detected Debian/Ubuntu"; \
 		sudo apt-get remove -y p7zip-full transmission-cli || true; \
 		uv tool uninstall hate_crack || true; \
+		rm -rf ~/.cache/uv; \
 	else \
 		echo "Unsupported OS. Please uninstall dependencies manually."; \
 		exit 1; \
