@@ -81,31 +81,12 @@ def _has_hate_crack_assets(path):
     )
 
 
-def _find_assets_in_ancestors(start_path):
-    current = os.path.abspath(start_path)
-    seen = set()
-    while current not in seen:
-        if _has_hate_crack_assets(current):
-            return current
-        seen.add(current)
-        parent = os.path.abspath(os.path.join(current, os.pardir))
-        if parent == current:
-            break
-        current = parent
-    return None
-
-
 def _resolve_hate_path(package_path, config_dict=None):
     # Try to use hcatPath from config.json if it's set and contains assets
     if config_dict and config_dict.get('hcatPath'):
         assets_path = config_dict.get('hcatPath')
         if _has_hate_crack_assets(assets_path):
             return assets_path
-
-    # When installed via uv, the assets live above the package directory in the tool root.
-    ancestor_assets = _find_assets_in_ancestors(package_path)
-    if ancestor_assets:
-        return ancestor_assets
 
     # Check current working directory and parent (look for repo directory)
     cwd = os.getcwd()

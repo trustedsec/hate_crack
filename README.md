@@ -113,7 +113,6 @@ hate_crack
 
 The tool will automatically search for these assets in:
 - Directory specified by `hcatPath` in `config.json` when it points to the hate_crack checkout that contains the assets
-- Ancestors of the installed package directory (e.g., the uv tool root that still contains the original `hashcat-utils`/`princeprocessor` directories)
 - Current working directory and parent directory
 - `~/hate_crack`, `~/hate-crack`, or `~/.hate_crack`
 
@@ -123,7 +122,7 @@ cd /path/to/hate_crack
 hate_crack <hash_file> <hash_type>
 ```
 
-If assets live somewhere else, make sure `config.json` uses that directory for `"hcatPath"` before running.
+To keep `uv tool install .` happy, point `hcatPath` in `config.json` at the directory that contains `config.json`, `hashcat-utils/`, and `princeprocessor/` before running the installed command.
 
 **Note:** The `hcatPath` in `config.json` is for the hashcat binary location (optional if hashcat is in PATH), not for hate_crack assets.
 
