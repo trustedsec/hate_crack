@@ -80,6 +80,32 @@ def _has_hate_crack_assets(path):
         and os.path.isdir(os.path.join(path, "hashcat-utils"))
     )
 
+def _candidate_roots():
+    cwd = os.getcwd()
+    home = os.path.expanduser("~")
+    candidates = [
+        cwd,
+        os.path.abspath(os.path.join(cwd, os.pardir)),
+        "/opt/hate_crack",
+        "/usr/local/share/hate_crack",
+    ]
+    for candidate_name in ['hate_crack', 'hate-crack', '.hate_crack']:
+        candidates.append(os.path.join(home, candidate_name))
+    return candidates
+
+def _resolve_config_path():
+    for candidate in _candidate_roots():
+        config_path = os.path.join(candidate, "config.json")
+        if os.path.isfile(config_path):
+            return config_path
+    return None
+
+def _resolve_config_destination():
+    for candidate in _candidate_roots():
+        if _has_hate_crack_assets(candidate):
+            return candidate
+    return os.getcwd()
+
 
 def _resolve_hate_path(package_path, config_dict=None):
     # Try to use hcatPath from config.json if it's set and contains assets
@@ -88,16 +114,8 @@ def _resolve_hate_path(package_path, config_dict=None):
         if _has_hate_crack_assets(assets_path):
             return assets_path
 
-    # Check current working directory and parent (look for repo directory)
-    cwd = os.getcwd()
-    for candidate in [cwd, os.path.abspath(os.path.join(cwd, os.pardir))]:
-        if _has_hate_crack_assets(candidate):
-            return candidate
-
     # Check common locations for the repo
-    home = os.path.expanduser("~")
-    for candidate_name in ['hate_crack', 'hate-crack', '.hate_crack']:
-        candidate = os.path.join(home, candidate_name)
+    for candidate in _candidate_roots():
         if _has_hate_crack_assets(candidate):
             return candidate
 
@@ -118,18 +136,25 @@ def _resolve_hate_path(package_path, config_dict=None):
 
 # First get a temporary path to load config
 _initial_package_path = os.path.dirname(os.path.realpath(__file__))
-if not os.path.isfile(_initial_package_path + '/config.json'):
+_config_path = _resolve_config_path()
+if not _config_path:
     print('Initializing config.json from config.json.example')
     src_config = os.path.abspath(os.path.join(_initial_package_path, 'config.json.example'))
-    dst_config = os.path.abspath(os.path.join(_initial_package_path, 'config.json'))
+    config_dir = _resolve_config_destination()
+    dst_config = os.path.abspath(os.path.join(config_dir, 'config.json'))
     shutil.copy(src_config, dst_config)
     print(f'Config source: {src_config}')
     print(f'Config destination: {dst_config}')
+    _config_path = dst_config
 
-with open(_initial_package_path + '/config.json') as config:
+with open(_config_path) as config:
     config_parser = json.load(config)
 
-with open(_initial_package_path + '/config.json.example') as defaults:
+config_dir = os.path.dirname(_config_path)
+defaults_path = os.path.join(config_dir, 'config.json.example')
+if not os.path.isfile(defaults_path):
+    defaults_path = os.path.join(_initial_package_path, 'config.json.example')
+with open(defaults_path) as defaults:
     default_config = json.load(defaults)
 
 # Now resolve hate_path using config
