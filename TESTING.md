@@ -1,7 +1,7 @@
 # Testing Guide
 
 ## Overview
-The test suite uses mocked API responses and local fixtures so it can run without external services (Hashview, Hashmob, Weakpass). Most tests are fast and run entirely offline.
+The test suite uses mocked API responses and local fixtures so it can run without external services (Hashview, Hashmob, Weakpass). Most tests are fast and run entirely offline. Live network checks and system dependency checks are now opt-in via environment variables.
 
 ## Changes Made
 
@@ -18,22 +18,32 @@ The test suite uses mocked API responses and local fixtures so it can run withou
   - Hashfile upload
   - Complete job creation workflow
 
-**tests/test_hate_crack_utils.py**
-- Unit tests for utility helpers (session id generation, line counts, path resolution, hex conversion)
-- Uses `HATE_CRACK_SKIP_INIT=1` to avoid heavy dependency checks
+**tests/test_api.py**
+- Tests for download functionality, 7z extraction triggers, exception handling, and progress bars
+- Uses mocked requests and filesystem operations
 
-**tests/test_menu_snapshots.py**
-- Snapshot-based tests for menu output text
-- Uses fixtures in `tests/fixtures/menu_outputs/`
+**tests/test_cli_menus.py**
+- Tests CLI menu flags (--hashview, --weakpass, --hashmob)
+- Skips by default unless respective TEST_REAL env vars are set
 
 **tests/test_dependencies.py**
 - Checks local tool availability (7z, transmission-cli)
+- Skips missing dependency failures unless `HATE_CRACK_REQUIRE_DEPS=1` (or true/yes)
 
-**tests/test_module_imports.py**
-- Ensures core modules import cleanly (`hashview`, `hashmob_wordlist`, `weakpass`, `cli`, `api`, `attacks`)
+**tests/test_ui_menu_options.py**
+- Tests all menu option handlers (attacks 1-13, utilities 91-100)
+- Validates menu routing and function resolution
+
+**tests/test_pipal.py** and **tests/test_pipal_integration.py**
+- Tests pipal analysis functionality and executable integration
+- Validates baseword parsing and output handling
+
+**tests/test_submodule_hashcat_utils.py**
+- Verifies hashcat-utils submodule is initialized correctly
 
 **tests/test_hashmob_connectivity.py**
-- Mocked Hashmob API connectivity test
+- Mocked Hashmob API connectivity test by default
+- Set `HASHMOB_TEST_REAL=1` to run against live Hashmob
 
 ### 2. Key Mock Patterns
 
@@ -55,19 +65,38 @@ Updated `readme.md` with:
 - Testing section explaining how to run tests locally
 - Description of test structure
 
+## Environment Variables for Live Tests
+
+By default, external service checks are skipped. Enable them explicitly:
+
+- `HASHMOB_TEST_REAL=1` — run live Hashmob tests (including connectivity and CLI menu flag)
+- `HASHVIEW_TEST_REAL=1` — run live Hashview CLI menu test
+- `WEAKPASS_TEST_REAL=1` — run live Weakpass CLI menu test
+- `HATE_CRACK_REQUIRE_DEPS=1` — fail if required system tools are missing
+- `HATE_CRACK_RUN_LIVE_TESTS=1` — run live Hashview upload tests (requires config.json credentials)
+- `HATE_CRACK_RUN_LIVE_HASHVIEW_TESTS=1` — run live Hashview wordlist upload tests
+- `HATE_CRACK_RUN_E2E=1` — run end-to-end local installation tests
+- `HATE_CRACK_RUN_DOCKER_TESTS=1` — run Docker-based end-to-end tests
+
+When `HASHMOB_TEST_REAL` is enabled, tests will still skip if Hashmob returns errors like HTTP 523 (origin unreachable).
+
 ## Test Results
 
-✅ 25 tests passing  
-⚡ Tests run in <1 second on a typical dev machine
+✅ 56 tests passing (as of current version)
+⚡ Tests run in ~1 second on a typical dev machine
 
 ### Test Coverage
 
 Highlights:
 1. Hashview API workflows (list customers, upload hashfile, create jobs, download left hashes)
-2. Utility helpers (sanitize session ids, line count, path resolution, hex conversion)
-3. Menu output snapshots
-4. Hashmob connectivity (mocked)
-5. Module import sanity checks
+2. API download functionality (mocked downloads, 7z extraction, progress bars)
+3. CLI menu flags (--hashview, --weakpass, --hashmob)
+4. Dependency checks (7z, transmission-cli)
+5. Hashmob connectivity (mocked by default, opt-in live tests)
+6. Pipal integration and analysis
+7. UI menu options (all attack modes)
+8. Hashcat-utils submodule verification
+9. Docker and E2E installation tests (opt-in)
 
 ## Benefits
 
@@ -80,17 +109,29 @@ Highlights:
 ## Running Tests
 
 ```bash
-# Install dependencies
-pip install pytest pytest-mock requests
-
 # Run all tests
-pytest -v
+uv run pytest -v
+
+# Or via Makefile
+make test
 
 # Run specific test
-pytest tests/test_hashview.py -v
+uv run pytest tests/test_hashview.py -v
 
 # Run a specific test method
-pytest tests/test_hashview.py::TestHashviewAPI::test_create_job_workflow -v
+uv run pytest tests/test_hashview.py::TestHashviewAPI::test_create_job_workflow -v
+
+# Run live Hashmob checks
+HASHMOB_TEST_REAL=1 uv run pytest tests/test_hashmob_connectivity.py -v
+
+# Require system deps (7z, transmission-cli)
+HATE_CRACK_REQUIRE_DEPS=1 uv run pytest tests/test_dependencies.py -v
+
+# Run end-to-end tests
+HATE_CRACK_RUN_E2E=1 uv run pytest tests/test_e2e_local_install.py -v
+
+# Run Docker tests
+HATE_CRACK_RUN_DOCKER_TESTS=1 uv run pytest tests/test_docker_script_install.py -v
 ```
 
 ## Note on Real API Testing
