@@ -27,7 +27,7 @@ def test_ensure_binary_error_message(monkeypatch, capsys):
     captured = capsys.readouterr()
     assert "Build directory" in captured.out or "does not exist" in captured.out
     assert "hate_crack" in captured.out.lower()  # Should mention hate_crack assets
-    assert "HATE_CRACK_HOME" in captured.out or "repository" in captured.out
+    assert "hcatPath" in captured.out or "repository" in captured.out
 
 
 def test_ensure_binary_with_existing_binary():

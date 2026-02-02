@@ -81,6 +81,20 @@ def _has_hate_crack_assets(path):
     )
 
 
+def _find_assets_in_ancestors(start_path):
+    current = os.path.abspath(start_path)
+    seen = set()
+    while current not in seen:
+        if _has_hate_crack_assets(current):
+            return current
+        seen.add(current)
+        parent = os.path.abspath(os.path.join(current, os.pardir))
+        if parent == current:
+            break
+        current = parent
+    return None
+
+
 def _resolve_hate_path(package_path, config_dict=None):
     # Try to use hcatPath from config.json if it's set and contains assets
     if config_dict and config_dict.get('hcatPath'):
@@ -88,11 +102,10 @@ def _resolve_hate_path(package_path, config_dict=None):
         if _has_hate_crack_assets(assets_path):
             return assets_path
 
-    # Check environment variable as fallback
-    env_override = os.environ.get("HATE_CRACK_HOME") or os.environ.get("HATE_CRACK_ASSETS")
-    if env_override:
-        if _has_hate_crack_assets(env_override):
-            return env_override
+    # When installed via uv, the assets live above the package directory in the tool root.
+    ancestor_assets = _find_assets_in_ancestors(package_path)
+    if ancestor_assets:
+        return ancestor_assets
 
     # Check current working directory and parent (look for repo directory)
     cwd = os.getcwd()
@@ -177,8 +190,8 @@ def ensure_binary(binary_path, build_dir=None, name=None):
                 print('These are part of the hate_crack repository, not hashcat installation.')
                 print('\nPlease run hate_crack from the repository directory:')
                 print('  cd /path/to/hate_crack && hate_crack <hash_file> <hash_type>')
-                print('\nOr set the HATE_CRACK_HOME environment variable:')
-                print('  export HATE_CRACK_HOME=/path/to/hate_crack')
+                print('\nOr set "hcatPath" in config.json to the hate_crack directory that contains hashcat-utils and princeprocessor:')
+                print('  "hcatPath": "/path/to/hate_crack"')
                 quit(1)
             
             # Binary missing - need to build

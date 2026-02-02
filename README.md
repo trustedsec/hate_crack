@@ -112,7 +112,8 @@ hate_crack
 **Important:** The tool needs access to `hashcat-utils` and `princeprocessor` subdirectories from the hate_crack repository.
 
 The tool will automatically search for these assets in:
-- Environment variables: `HATE_CRACK_HOME` or `HATE_CRACK_ASSETS`
+- Directory specified by `hcatPath` in `config.json` when it points to the hate_crack checkout that contains the assets
+- Ancestors of the installed package directory (e.g., the uv tool root that still contains the original `hashcat-utils`/`princeprocessor` directories)
 - Current working directory and parent directory
 - `~/hate_crack`, `~/hate-crack`, or `~/.hate_crack`
 
@@ -122,13 +123,9 @@ cd /path/to/hate_crack
 hate_crack <hash_file> <hash_type>
 ```
 
-**Option 2 - Set environment variable:**
-```bash
-export HATE_CRACK_HOME=/path/to/hate_crack
-hate_crack <hash_file> <hash_type>
-```
+If assets live somewhere else, make sure `config.json` uses that directory for `"hcatPath"` before running.
 
-**Note:** The `hcatPath` in config.json is for the hashcat binary location (optional if hashcat is in PATH), not for hate_crack assets.
+**Note:** The `hcatPath` in `config.json` is for the hashcat binary location (optional if hashcat is in PATH), not for hate_crack assets.
 
 ### Run as a script
 The script uses a `uv` shebang. Make it executable and run:
@@ -162,7 +159,7 @@ This means the tool cannot find the hate_crack repository assets. The `hashcat-u
 - `hashcat-utils/` and `princeprocessor/` → located in the **hate_crack repository directory**
 
 The tool automatically searches for hate_crack assets in these locations:
-1. Directory specified by `HATE_CRACK_HOME` or `HATE_CRACK_ASSETS` environment variables
+1. Directory specified by `hcatPath` in `config.json` when it points to the hate_crack checkout that contains the assets
 2. Current working directory and parent directory
 3. `~/hate_crack`, `~/hate-crack`, or `~/.hate_crack`
 
@@ -173,11 +170,7 @@ cd /opt/hate_crack  # or wherever you cloned the repository
 hate_crack <hash_file> <hash_type>
 ```
 
-Or set an environment variable:
-```bash
-export HATE_CRACK_HOME=/opt/hate_crack
-hate_crack <hash_file> <hash_type>
-```
+If the assets live elsewhere, update `"hcatPath"` in `config.json` to point to the directory that contains `hashcat-utils` and `princeprocessor`.
 
 **Example config.json:**
 ```json

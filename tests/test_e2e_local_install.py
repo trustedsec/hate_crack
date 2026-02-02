@@ -24,7 +24,6 @@ def test_local_uv_tool_install_and_help(tmp_path):
             "HOME": str(home_dir),
             "PATH": f"{home_dir / '.local' / 'bin'}:{env.get('PATH', '')}",
             "HATE_CRACK_SKIP_INIT": "1",
-            "HATE_CRACK_HOME": str(repo_root),
             "XDG_CACHE_HOME": str(tmp_path / "cache"),
             "XDG_CONFIG_HOME": str(tmp_path / "config"),
             "XDG_DATA_HOME": str(tmp_path / "data"),
