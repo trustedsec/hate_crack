@@ -1,5 +1,5 @@
 {
-  "hcatPath": "",
+  "hcatPath": "/path/to/hate_crack",
   "hcatBin": "hashcat",
   "hcatTuning": "--force --remove",
   "hcatWordlists": "/Passwords/wordlists",
