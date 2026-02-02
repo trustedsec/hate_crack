@@ -1,5 +1,39 @@
+# Methodology provided by Martin Bos (pure_hate) - https://www.trustedsec.com/team/martin-bos/
+# Original script created by Larry Spohn (spoonman) - https://www.trustedsec.com/team/larry-spohn/
+# Python refactoring and general fixing, Justin Bollinger (bandrel) - https://www.trustedsec.com/team/justin-bollinger/
+# Hashview integration by Justin Bollinger (bandrel) and Claude Sonnet 4.5 
+#   special thanks to hans for all his hard work on hashview and creating APIs for us to use 
+
+# Load config before anything that needs hashview_url/hashview_api_key
+
+import sys
+import os
+import json
+import shutil
+import logging
+
+#!/usr/bin/env python3
+
+try:
+    import requests
+    REQUESTS_AVAILABLE = True
+except Exception:
+    requests = None
+    REQUESTS_AVAILABLE = False
+
+# Ensure project root is on sys.path so package imports work when loaded via spec.
+_root_dir = os.path.dirname(os.path.realpath(__file__))
+if _root_dir not in sys.path:
+    sys.path.insert(0, _root_dir)
+
+# Allow submodule imports (hate_crack.*) even when this file is imported as a module.
+_pkg_dir = os.path.dirname(os.path.realpath(__file__))
+if os.path.isdir(_pkg_dir):
+    __path__ = [_pkg_dir]
+    if "__spec__" in globals() and __spec__ is not None:
+        __spec__.submodule_search_locations = __path__
+
 class HashviewAPI:
-    # ...existing code...
     def upload_wordlist(self):
         """Interactive method to upload a custom wordlist to Hashview."""
         print("\n" + "="*60)
@@ -37,41 +71,6 @@ class HashviewAPI:
             print("\n✗ No valid wordlist file selected.")
             print("Continuing with job creation...")
         return uploaded_wordlist_id, wordlist_name
-# Methodology provided by Martin Bos (pure_hate) - https://www.trustedsec.com/team/martin-bos/
-# Original script created by Larry Spohn (spoonman) - https://www.trustedsec.com/team/larry-spohn/
-# Python refactoring and general fixing, Justin Bollinger (bandrel) - https://www.trustedsec.com/team/justin-bollinger/
-# Hashview integration by Justin Bollinger (bandrel) and Claude Sonnet 4.5 
-#   special thanks to hans for all his hard work on hashview and creating APIs for us to use 
-
-# Load config before anything that needs hashview_url/hashview_api_key
-
-import sys
-import os
-import json
-import shutil
-import logging
-
-#!/usr/bin/env python3
-
-try:
-    import requests
-    REQUESTS_AVAILABLE = True
-except Exception:
-    requests = None
-    REQUESTS_AVAILABLE = False
-
-# Ensure project root is on sys.path so package imports work when loaded via spec.
-_root_dir = os.path.dirname(os.path.realpath(__file__))
-if _root_dir not in sys.path:
-    sys.path.insert(0, _root_dir)
-
-# Allow submodule imports (hate_crack.*) even when this file is imported as a module.
-_pkg_dir = os.path.dirname(os.path.realpath(__file__))
-if os.path.isdir(_pkg_dir):
-    __path__ = [_pkg_dir]
-    if "__spec__" in globals() and __spec__ is not None:
-        __spec__.submodule_search_locations = __path__
-
 
 def _has_hate_crack_assets(path):
     if not path:
