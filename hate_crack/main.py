@@ -340,6 +340,13 @@ hcatExpanderBin = "expander.bin"
 hcatCombinatorBin = "combinator.bin"
 hcatPrinceBin = "pp64.bin"
 
+def _make_abs_wordlist(base_dir, wordlist):
+    if not wordlist:
+        return wordlist
+    if os.path.isabs(wordlist):
+        return wordlist
+    return os.path.abspath(os.path.join(base_dir, wordlist))
+
 def get_rule_path(rule_name, fallback_dir=None):
     candidates = []
     if rulesDirectory:
@@ -463,6 +470,12 @@ if not SKIP_INIT:
             print('Warning: Cannot find hashcat in PATH. Install it to use hate_crack.')
         # Allow module to load even if initialization fails
         pass
+
+    # Normalize prince wordlist to an absolute path
+    wordlists_dir = hcatWordlists or os.path.join(hate_path, "wordlists")
+    if not os.path.isabs(wordlists_dir):
+        wordlists_dir = os.path.join(hate_path, wordlists_dir)
+    hcatPrinceBaseList = _make_abs_wordlist(wordlists_dir, hcatPrinceBaseList)
 
 
 hcatHashCount = 0
