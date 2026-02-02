@@ -10,6 +10,7 @@ from typing import Callable, Tuple
 import requests
 from bs4 import BeautifulSoup
 
+from hate_crack.formatting import print_multicolumn_list
 _TORRENT_CLEANUP_REGISTERED = False
 
 def check_7z():
@@ -351,21 +352,15 @@ def weakpass_wordlist_menu(rank=-1):
     else:
         # Default: show all with rank > 4
         filtered_wordlists = [wl for wl in all_wordlists if str(wl.get('rank', '')) > '4']
-    col_width = 45
-    cols = 3
     print("\nEach entry shows: [number]. [wordlist name] [effectiveness score] [rank]")
-    print(f"Available Wordlists:")
-    rows = (len(filtered_wordlists) + cols - 1) // cols
-    lines = [''] * rows
+    entries = []
     for idx, wl in enumerate(filtered_wordlists):
-        col = idx // rows
-        row = idx % rows
         effectiveness = wl.get('effectiveness', wl.get('downloads', ''))
         rank = wl.get('rank', '')
-        entry = f"{idx+1:3d}. {wl['name'][:25]:<25} {effectiveness:<8} {rank:<2}"
-        lines[row] += entry.ljust(col_width)
-    for line in lines:
-        print(line)
+        name = str(wl.get('name', ''))[:30]
+        entry = f"{idx+1:3d}. {name:<30} {effectiveness:<8} {rank:<2}"
+        entries.append(entry)
+    print_multicolumn_list("Available Wordlists", entries, min_col_width=36, max_col_width=70)
     def parse_indices(selection, max_index):
         indices = set()
         for part in selection.split(','):
@@ -877,9 +872,16 @@ def download_hashmob_wordlist_list():
         resp.raise_for_status()
         data = resp.json()
         wordlists = [r for r in data if r.get('type') == 'wordlist']
-        print("Available Hashmob Wordlists:")
+        entries = []
         for idx, wl in enumerate(wordlists):
-            print(f"{idx+1}. {wl.get('name', wl.get('file_name', ''))} - {wl.get('information', '')}")
+            name = wl.get('name', wl.get('file_name', ''))
+            info = wl.get('information', '')
+            if info:
+                entry = f"{idx+1}. {name} - {info}"
+            else:
+                entry = f"{idx+1}. {name}"
+            entries.append(entry)
+        print_multicolumn_list("Available Hashmob Wordlists", entries, min_col_width=30, max_col_width=80)
         return wordlists
     except Exception as e:
         print(f"Error fetching Hashmob wordlists: {e}")
@@ -1033,9 +1035,8 @@ def list_official_wordlists():
         resp.raise_for_status()
         try:
             data = resp.json()
-            print("Official Hashmob Wordlists (JSON):")
-            for idx, entry in enumerate(data):
-                print(f"{idx+1}. {entry}")
+            entries = [f"{idx+1}. {entry}" for idx, entry in enumerate(data)]
+            print_multicolumn_list("Official Hashmob Wordlists (JSON)", entries, min_col_width=30, max_col_width=80)
             return data
         except Exception:
             print("Official Hashmob Wordlists (raw text):")
@@ -1057,11 +1058,12 @@ def list_and_download_official_wordlists():
             print("Unexpected response format. Raw output:")
             print(data)
             return
-        print("Official Hashmob Wordlists:")
+        entries = []
         for idx, entry in enumerate(data):
             name = entry.get('name', entry.get('file_name', str(entry)))
             file_name = entry.get('file_name', name)
-            print(f"{idx+1}. {name} ({file_name})")
+            entries.append(f"{idx+1}. {name} ({file_name})")
+        print_multicolumn_list("Official Hashmob Wordlists", entries, min_col_width=30, max_col_width=80)
         print("a. Download ALL files")
         def _safe_input(prompt):
             try:

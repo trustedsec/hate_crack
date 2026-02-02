@@ -3,6 +3,7 @@ import os
 import readline
 from typing import Any
 
+from hate_crack.formatting import print_multicolumn_list
 
 def _configure_readline(completer):
     readline.set_completer_delims(' \t\n;')
@@ -27,9 +28,8 @@ def quick_crack(ctx: Any) -> None:
     selected_hcatRules = []
 
     wordlist_files = sorted(os.listdir(ctx.hcatWordlists))
-    print("\nWordlists:")
-    for i, file in enumerate(wordlist_files, start=1):
-        print(f"{i}. {file}")
+    wordlist_entries = [f"{i}. {file}" for i, file in enumerate(wordlist_files, start=1)]
+    print_multicolumn_list("Wordlists", wordlist_entries, min_col_width=24, max_col_width=60)
 
     def path_completer(text, state):
         if not text:
