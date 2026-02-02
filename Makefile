@@ -61,6 +61,10 @@ test:
 uninstall:
 	@echo "Detecting OS and uninstalling dependencies..."
 	@uv tool uninstall hate_crack || true
+	@data_home="$${XDG_DATA_HOME:-$$HOME/.local/share}"; \
+		rm -rf "$$data_home/uv/tools/hate-crack" "$$data_home/uv/tools/hate_crack"
+	@bin_home="$${XDG_BIN_HOME:-$$HOME/.local/bin}"; \
+		rm -f "$$bin_home/hate_crack"
 	@if [ "$(shell uname)" = "Darwin" ]; then \
 		echo "Detected macOS"; \
 		command -v brew >/dev/null 2>&1 || { echo >&2 "Homebrew not found. Please uninstall Homebrew packages manually."; exit 1; }; \
