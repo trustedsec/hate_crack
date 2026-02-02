@@ -109,31 +109,26 @@ uv tool install .
 hate_crack
 ```
 
-**Important:** The installed tool needs access to `hashcat-utils` and `princeprocessor` subdirectories. These are located in the original repository directory.
+**Important:** The tool needs access to `hashcat-utils` and `princeprocessor` subdirectories from the hate_crack repository.
 
-When running from outside the repository, configure the asset location in your `config.json` by setting `hcatPath`:
+The tool will automatically search for these assets in:
+- Environment variables: `HATE_CRACK_HOME` or `HATE_CRACK_ASSETS`
+- Current working directory and parent directory
+- `~/hate_crack`, `~/hate-crack`, or `~/.hate_crack`
 
-```json
-{
-  "hcatPath": "/opt/hate_crack",
-  ...
-}
-```
-
-Then run the tool:
-
-```bash
-hate_crack <hash_file> <hash_type>
-```
-
-Alternatively, run `hate_crack` from within the repository directory and it will automatically find the assets:
-
+**Option 1 - Run from repository directory:**
 ```bash
 cd /path/to/hate_crack
 hate_crack <hash_file> <hash_type>
 ```
 
-If `hcatPath` is empty in config.json, the tool will search the current directory and parent directory for assets.
+**Option 2 - Set environment variable:**
+```bash
+export HATE_CRACK_HOME=/path/to/hate_crack
+hate_crack <hash_file> <hash_type>
+```
+
+**Note:** The `hcatPath` in config.json is for the hashcat binary location (optional if hashcat is in PATH), not for hate_crack assets.
 
 ### Run as a script
 The script uses a `uv` shebang. Make it executable and run:
@@ -160,37 +155,38 @@ Error: Build directory /opt/hashcat/hashcat-utils does not exist.
 Expected to find expander at /opt/hashcat/hashcat-utils/bin/expander.
 ```
 
-This means your `hcatPath` in `config.json` is pointing to the wrong directory. The `hcatPath` should point to the **hate_crack repository directory** (which contains `hashcat-utils/` and `princeprocessor/` subdirectories), not the hashcat installation directory.
+This means the tool cannot find the hate_crack repository assets. The `hashcat-utils` and `princeprocessor` directories are part of the **hate_crack repository**, not the hashcat installation.
 
-**Incorrect config.json:**
+**Understanding the paths:**
+- `hcatPath` in config.json → points to **hashcat binary location** (optional, can be in PATH)
+- `hashcat-utils/` and `princeprocessor/` → located in the **hate_crack repository directory**
+
+The tool automatically searches for hate_crack assets in these locations:
+1. Directory specified by `HATE_CRACK_HOME` or `HATE_CRACK_ASSETS` environment variables
+2. Current working directory and parent directory
+3. `~/hate_crack`, `~/hate-crack`, or `~/.hate_crack`
+
+**Solution:**
+Run `hate_crack` from within the repository directory:
+```bash
+cd /opt/hate_crack  # or wherever you cloned the repository
+hate_crack <hash_file> <hash_type>
+```
+
+Or set an environment variable:
+```bash
+export HATE_CRACK_HOME=/opt/hate_crack
+hate_crack <hash_file> <hash_type>
+```
+
+**Example config.json:**
 ```json
 {
-  "hcatPath": "/opt/hashcat",  ❌ Wrong - this is hashcat, not hate_crack
+  "hcatPath": "/usr/local/bin",     # Location of hashcat binary (or omit if in PATH)
+  "hcatBin": "hashcat",             # Hashcat binary name
   ...
 }
 ```
-
-**Correct config.json:**
-```json
-{
-  "hcatPath": "/opt/hate_crack",  ✓ Correct - points to hate_crack repo
-  ...
-}
-```
-
-Or use the home directory path:
-```json
-{
-  "hcatPath": "~/hate_crack",  ✓ Also correct
-  ...
-}
-```
-
-The tool will automatically search for assets in:
-1. The `hcatPath` specified in config.json
-2. Environment variables `HATE_CRACK_HOME` or `HATE_CRACK_ASSETS`
-3. Current working directory and parent directory
-4. `~/hate_crack`, `~/hate-crack`, or `~/.hate_crack`
 
 -------------------------------------------------------------------
 ### Makefile helpers

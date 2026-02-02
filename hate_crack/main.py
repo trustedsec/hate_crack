@@ -174,11 +174,12 @@ def ensure_binary(binary_path, build_dir=None, name=None):
             if not os.path.isdir(build_dir):
                 print(f'Error: Build directory {build_dir} does not exist.')
                 print(f'Expected to find {name or "binary"} at {binary_path}.')
-                print('\nThe hcatPath in your config.json may be incorrect.')
-                print('Please ensure hcatPath points to the hate_crack repository directory')
-                print('that contains hashcat-utils/ and princeprocessor/ subdirectories.')
-                print('\nExample config.json:')
-                print('  "hcatPath": "/opt/hate_crack"  (or ~/hate_crack)')
+                print('\nThe hate_crack assets (hashcat-utils, princeprocessor) could not be found.')
+                print('These are part of the hate_crack repository, not hashcat installation.')
+                print('\nPlease run hate_crack from the repository directory:')
+                print('  cd /path/to/hate_crack && hate_crack <hash_file> <hash_type>')
+                print('\nOr set the HATE_CRACK_HOME environment variable:')
+                print('  export HATE_CRACK_HOME=/path/to/hate_crack')
                 quit(1)
             
             print(f'Attempting to build {name or binary_path} via make in {build_dir}...')
@@ -428,7 +429,8 @@ if not SKIP_INIT:
                 quit(1)
 
         # Verify hashcat-utils binaries exist and work
-        hashcat_utils_path = hcatPath + '/hashcat-utils/bin'
+        # Note: hashcat-utils is part of hate_crack repo, not hashcat installation
+        hashcat_utils_path = hate_path + '/hashcat-utils/bin'
         required_binaries = [
             (hcatExpanderBin, 'expander'),
             (hcatCombinatorBin, 'combinator'),
@@ -436,7 +438,7 @@ if not SKIP_INIT:
 
         for binary, name in required_binaries:
             binary_path = hashcat_utils_path + '/' + binary
-            ensure_binary(binary_path, build_dir=os.path.join(hcatPath, 'hashcat-utils'), name=name)
+            ensure_binary(binary_path, build_dir=os.path.join(hate_path, 'hashcat-utils'), name=name)
             # Test binary execution
             try:
                 test_result = subprocess.run(
@@ -457,9 +459,10 @@ if not SKIP_INIT:
                 quit(1)
 
         # Verify princeprocessor binary
-        prince_path = hcatPath + '/princeprocessor/' + hcatPrinceBin
+        # Note: princeprocessor is part of hate_crack repo, not hashcat installation
+        prince_path = hate_path + '/princeprocessor/' + hcatPrinceBin
         try:
-            ensure_binary(prince_path, build_dir=os.path.join(hcatPath, 'princeprocessor'), name='PRINCE')
+            ensure_binary(prince_path, build_dir=os.path.join(hate_path, 'princeprocessor'), name='PRINCE')
         except SystemExit:
             print('PRINCE attacks will not be available.')
 
