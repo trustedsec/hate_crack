@@ -227,6 +227,9 @@ from hate_crack.cli import (
     setup_logging,
 )
 
+# NOTE: hcatPath is for hashcat binary location, NOT for hate_crack assets
+# If empty in config, we fall back to hate_path as a convenience
+# But hashcat-utils and princeprocessor should ALWAYS use hate_path
 hcatPath = config_parser.get('hcatPath', '') or hate_path
 hcatBin = config_parser['hcatBin']
 hcatTuning = config_parser['hcatTuning']
