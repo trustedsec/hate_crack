@@ -149,6 +149,50 @@ You can also use Python directly:
 python hate_crack.py
 ```
 
+-------------------------------------------------------------------
+## Troubleshooting
+
+### Error: Build directory does not exist
+
+If you see an error like:
+```
+Error: Build directory /opt/hashcat/hashcat-utils does not exist.
+Expected to find expander at /opt/hashcat/hashcat-utils/bin/expander.
+```
+
+This means your `hcatPath` in `config.json` is pointing to the wrong directory. The `hcatPath` should point to the **hate_crack repository directory** (which contains `hashcat-utils/` and `princeprocessor/` subdirectories), not the hashcat installation directory.
+
+**Incorrect config.json:**
+```json
+{
+  "hcatPath": "/opt/hashcat",  ❌ Wrong - this is hashcat, not hate_crack
+  ...
+}
+```
+
+**Correct config.json:**
+```json
+{
+  "hcatPath": "/opt/hate_crack",  ✓ Correct - points to hate_crack repo
+  ...
+}
+```
+
+Or use the home directory path:
+```json
+{
+  "hcatPath": "~/hate_crack",  ✓ Also correct
+  ...
+}
+```
+
+The tool will automatically search for assets in:
+1. The `hcatPath` specified in config.json
+2. Environment variables `HATE_CRACK_HOME` or `HATE_CRACK_ASSETS`
+3. Current working directory and parent directory
+4. `~/hate_crack`, `~/hate-crack`, or `~/.hate_crack`
+
+-------------------------------------------------------------------
 ### Makefile helpers
 Install OS dependencies + tool (auto-detects macOS vs Debian/Ubuntu):
 

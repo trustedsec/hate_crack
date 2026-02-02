@@ -171,6 +171,16 @@ if not logger.handlers:
 def ensure_binary(binary_path, build_dir=None, name=None):
     if not os.path.isfile(binary_path) or not os.access(binary_path, os.X_OK):
         if build_dir:
+            if not os.path.isdir(build_dir):
+                print(f'Error: Build directory {build_dir} does not exist.')
+                print(f'Expected to find {name or "binary"} at {binary_path}.')
+                print('\nThe hcatPath in your config.json may be incorrect.')
+                print('Please ensure hcatPath points to the hate_crack repository directory')
+                print('that contains hashcat-utils/ and princeprocessor/ subdirectories.')
+                print('\nExample config.json:')
+                print('  "hcatPath": "/opt/hate_crack"  (or ~/hate_crack)')
+                quit(1)
+            
             print(f'Attempting to build {name or binary_path} via make in {build_dir}...')
             try:
                 subprocess.run(['make'], cwd=build_dir, check=True)
