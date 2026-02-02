@@ -120,7 +120,11 @@ def _resolve_hate_path(package_path, config_dict=None):
 _initial_package_path = os.path.dirname(os.path.realpath(__file__))
 if not os.path.isfile(_initial_package_path + '/config.json'):
     print('Initializing config.json from config.json.example')
-    shutil.copy(_initial_package_path + '/config.json.example', _initial_package_path + '/config.json')
+    src_config = os.path.abspath(os.path.join(_initial_package_path, 'config.json.example'))
+    dst_config = os.path.abspath(os.path.join(_initial_package_path, 'config.json'))
+    shutil.copy(src_config, dst_config)
+    print(f'Config source: {src_config}')
+    print(f'Config destination: {dst_config}')
 
 with open(_initial_package_path + '/config.json') as config:
     config_parser = json.load(config)
