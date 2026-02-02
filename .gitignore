@@ -7,3 +7,5 @@ tests/__pycache__/
 uv.lock
 build/
 hate_crack.egg-info/
+hate_crack/hashcat-utils/
+hate_crack/princeprocessor/
