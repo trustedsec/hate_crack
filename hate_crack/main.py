@@ -2206,7 +2206,7 @@ def main():
     if hcatHashType == "1000":
         lmHashesFound = False
         pwdump_format = False
-        hcatHashFileLine = open(hcatHashFile, "r").readline()
+        hcatHashFileLine = open(hcatHashFile, "r").readline().strip().lstrip("\ufeff")
         if re.search(r"[a-f0-9A-F]{32}:[a-f0-9A-F]{32}:::", hcatHashFileLine):
             pwdump_format = True
             print("PWDUMP format detected...")
