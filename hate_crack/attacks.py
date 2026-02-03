@@ -32,7 +32,13 @@ def quick_crack(ctx: Any) -> None:
         f for f in os.listdir(ctx.hcatWordlists) if f != ".DS_Store"
     )
     wordlist_entries = [f"{i}. {file}" for i, file in enumerate(wordlist_files, start=1)]
-    print_multicolumn_list("Wordlists", wordlist_entries, min_col_width=24, max_col_width=60)
+    max_entry_len = max((len(e) for e in wordlist_entries), default=24)
+    print_multicolumn_list(
+        "Wordlists",
+        wordlist_entries,
+        min_col_width=max_entry_len,
+        max_col_width=max_entry_len,
+    )
 
     def path_completer(text, state):
         if not text:
