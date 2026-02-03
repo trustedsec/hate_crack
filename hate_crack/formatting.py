@@ -3,9 +3,18 @@ import os
 
 def _terminal_width(default: int = 120) -> int:
     try:
-        return os.get_terminal_size().columns
+        width = os.get_terminal_size().columns
+        if width:
+            return width
     except Exception:
-        return default
+        pass
+    try:
+        width = int(os.environ.get("COLUMNS", ""))
+        if width > 0:
+            return width
+    except Exception:
+        pass
+    return default
 
 
 def print_multicolumn_list(title, entries, min_col_width=20, max_col_width=None):
