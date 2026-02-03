@@ -3,6 +3,7 @@ import os
 import readline
 from typing import Any
 
+from hate_crack.api import download_hashmob_rules
 from hate_crack.formatting import print_multicolumn_list
 
 def _configure_readline(completer):
@@ -27,7 +28,9 @@ def quick_crack(ctx: Any) -> None:
     rule_choice = None
     selected_hcatRules = []
 
-    wordlist_files = sorted(os.listdir(ctx.hcatWordlists))
+    wordlist_files = sorted(
+        f for f in os.listdir(ctx.hcatWordlists) if f != ".DS_Store"
+    )
     wordlist_entries = [f"{i}. {file}" for i, file in enumerate(wordlist_files, start=1)]
     print_multicolumn_list("Wordlists", wordlist_entries, min_col_width=24, max_col_width=60)
 
@@ -54,32 +57,56 @@ def quick_crack(ctx: Any) -> None:
                 "\nEnter path of wordlist or wordlist directory (tab to autocomplete).\n"
                 f"Press Enter for default optimized wordlists [{ctx.hcatOptimizedWordlists}]: "
             )
+            raw_choice = raw_choice.strip()
             if raw_choice == '':
                 wordlist_choice = ctx.hcatOptimizedWordlists
+            elif raw_choice.isdigit() and 1 <= int(raw_choice) <= len(wordlist_files):
+                chosen = os.path.join(ctx.hcatWordlists, wordlist_files[int(raw_choice) - 1])
+                if os.path.exists(chosen):
+                    wordlist_choice = chosen
+                    print(wordlist_choice)
             elif os.path.exists(raw_choice):
                 wordlist_choice = raw_choice
-            elif 1 <= int(raw_choice) <= len(wordlist_files):
-                if os.path.exists(ctx.hcatWordlists + '/' + wordlist_files[int(raw_choice) - 1]):
-                    wordlist_choice = ctx.hcatWordlists + '/' + wordlist_files[int(raw_choice) - 1]
-                    print(wordlist_choice)
             else:
                 wordlist_choice = None
                 print('Please enter a valid wordlist or wordlist directory.')
         except ValueError:
             print("Please enter a valid number.")
 
-    rule_files = sorted(os.listdir(ctx.hcatPath + '/rules'))
-    print("\nWhich rule(s) would you like to run?")
-    rule_entries = ["0. To run without any rules"]
-    rule_entries.extend([f"{i}. {file}" for i, file in enumerate(rule_files, start=1)])
-    rule_entries.append("98. YOLO...run all of the rules")
-    rule_entries.append("99. Back to Main Menu")
-    print_multicolumn_list("Available Rules", rule_entries, min_col_width=26, max_col_width=60)
+    rule_files = sorted(
+        f for f in os.listdir(ctx.hcatPath + '/rules') if f != ".DS_Store"
+    )
+    if not rule_files:
+        download_rules = input(
+            "\nNo rules found. Download rules from Hashmob now? (Y/n): "
+        ).strip().lower()
+        if download_rules in ("", "y", "yes"):
+            download_hashmob_rules(print_fn=print)
+            rule_files = sorted(os.listdir(ctx.hcatPath + '/rules'))
+
+    if not rule_files:
+        print("No rules available. Proceeding without rules.")
+        rule_choice = ['0']
+    else:
+        print("\nWhich rule(s) would you like to run?")
+        rule_entries = ["0. To run without any rules"]
+        rule_entries.extend([f"{i}. {file}" for i, file in enumerate(rule_files, start=1)])
+        rule_entries.append("98. YOLO...run all of the rules")
+        rule_entries.append("99. Back to Main Menu")
+        print_multicolumn_list("Available Rules", rule_entries, min_col_width=26, max_col_width=60)
+
+        example_line = ""
+        if len(rule_files) >= 2:
+            example_line = (
+                f'For example 1+1 will run {rule_files[0]} chained twice and 1,2 would run {rule_files[0]} and then {rule_files[1]} sequentially.\n'
+            )
+        elif len(rule_files) == 1:
+            example_line = f'For example 1+1 will run {rule_files[0]} chained twice.\n'
 
     while rule_choice is None:
         raw_choice = input(
             'Enter Comma separated list of rules you would like to run. To run rules chained use the + symbol.\n'
-            f'For example 1+1 will run {rule_files[0]} chained twice and 1,2 would run {rule_files[0]} and then {rule_files[1]} sequentially.\n'
+            f'{example_line}'
             'Choose wisely: '
         )
         if raw_choice.strip() == '99':
