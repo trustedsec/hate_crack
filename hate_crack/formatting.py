@@ -42,7 +42,7 @@ def print_multicolumn_list(title, entries, min_col_width=20, max_col_width=None)
             idx = row + col * rows
             if idx < len(entries):
                 entry = entries[idx]
-                max_entry_len = max(1, col_width - 2)
+                max_entry_len = max(1, col_width)
                 if len(entry) > max_entry_len:
                     if max_entry_len > 3:
                         entry = entry[: max_entry_len - 3] + "..."
