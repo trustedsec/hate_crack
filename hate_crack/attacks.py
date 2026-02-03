@@ -99,7 +99,13 @@ def quick_crack(ctx: Any) -> None:
         rule_entries.extend([f"{i}. {file}" for i, file in enumerate(rule_files, start=1)])
         rule_entries.append("98. YOLO...run all of the rules")
         rule_entries.append("99. Back to Main Menu")
-        print_multicolumn_list("Available Rules", rule_entries, min_col_width=26, max_col_width=60)
+        max_rule_len = max((len(e) for e in rule_entries), default=26)
+        print_multicolumn_list(
+            "Available Rules",
+            rule_entries,
+            min_col_width=max_rule_len,
+            max_col_width=max_rule_len,
+        )
 
         example_line = ""
         if len(rule_files) >= 2:

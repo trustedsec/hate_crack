@@ -370,7 +370,13 @@ def weakpass_wordlist_menu(rank=-1):
         name = str(wl.get('name', ''))[:30]
         entry = f"{idx+1:3d}. {name:<30} {effectiveness:<8} {rank:<2}"
         entries.append(entry)
-    print_multicolumn_list("Available Wordlists", entries, min_col_width=36, max_col_width=70)
+    max_entry_len = max((len(e) for e in entries), default=36)
+    print_multicolumn_list(
+        "Available Wordlists",
+        entries,
+        min_col_width=max_entry_len,
+        max_col_width=max_entry_len,
+    )
     def parse_indices(selection, max_index):
         indices = set()
         for part in selection.split(','):
@@ -891,7 +897,13 @@ def download_hashmob_wordlist_list():
             else:
                 entry = f"{idx+1}. {name}"
             entries.append(entry)
-        print_multicolumn_list("Available Hashmob Wordlists", entries, min_col_width=30, max_col_width=80)
+        max_entry_len = max((len(e) for e in entries), default=30)
+        print_multicolumn_list(
+            "Available Hashmob Wordlists",
+            entries,
+            min_col_width=max_entry_len,
+            max_col_width=max_entry_len,
+        )
         return wordlists
     except Exception as e:
         print(f"Error fetching Hashmob wordlists: {e}")
@@ -984,7 +996,13 @@ def download_hashmob_rule_list():
         entries = []
         for idx, rule in enumerate(rules):
             entries.append(f"{idx+1}. {rule.get('name', rule.get('file_name', ''))}")
-        print_multicolumn_list("Available Hashmob Rules", entries, min_col_width=30, max_col_width=80)
+        max_entry_len = max((len(e) for e in entries), default=30)
+        print_multicolumn_list(
+            "Available Hashmob Rules",
+            entries,
+            min_col_width=max_entry_len,
+            max_col_width=max_entry_len,
+        )
         return rules
     except Exception as e:
         print(f"Error fetching Hashmob rules: {e}")
@@ -1047,7 +1065,13 @@ def list_official_wordlists():
         try:
             data = resp.json()
             entries = [f"{idx+1}. {entry}" for idx, entry in enumerate(data)]
-            print_multicolumn_list("Official Hashmob Wordlists (JSON)", entries, min_col_width=30, max_col_width=80)
+            max_entry_len = max((len(e) for e in entries), default=30)
+            print_multicolumn_list(
+                "Official Hashmob Wordlists (JSON)",
+                entries,
+                min_col_width=max_entry_len,
+                max_col_width=max_entry_len,
+            )
             return data
         except Exception:
             print("Official Hashmob Wordlists (raw text):")
@@ -1074,7 +1098,13 @@ def list_and_download_official_wordlists():
             name = entry.get('name', entry.get('file_name', str(entry)))
             file_name = entry.get('file_name', name)
             entries.append(f"{idx+1}. {name} ({file_name})")
-        print_multicolumn_list("Official Hashmob Wordlists", entries, min_col_width=30, max_col_width=80)
+        max_entry_len = max((len(e) for e in entries), default=30)
+        print_multicolumn_list(
+            "Official Hashmob Wordlists",
+            entries,
+            min_col_width=max_entry_len,
+            max_col_width=max_entry_len,
+        )
         print("a. Download ALL files")
         def _safe_input(prompt):
             try:
