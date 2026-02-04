@@ -117,15 +117,7 @@ def register_torrent_cleanup():
     atexit.register(cleanup_torrent_files)
     _TORRENT_CLEANUP_REGISTERED = True
 
-def fetch_all_weakpass_wordlists_multithreaded(total_pages=67, threads=10, output_file="weakpass_wordlists.json"):
-    if os.path.isfile(output_file):
-        try:
-            mtime = os.path.getmtime(output_file)
-            if (time.time() - mtime) < 24 * 60 * 60:
-                print(f"[i] Using cached wordlist file: {output_file}")
-                return
-        except Exception:
-            pass
+def fetch_all_weakpass_wordlists_multithreaded(total_pages=67, threads=10):
     wordlists = []
     lock = threading.Lock()
     q = Queue()
@@ -188,9 +180,7 @@ def fetch_all_weakpass_wordlists_multithreaded(total_pages=67, threads=10, outpu
             unique_wordlists.append(wl)
             seen.add(wl['name'])
 
-    with open(output_file, "w", encoding="utf-8") as f:
-        json.dump(unique_wordlists, f, indent=2)
-    print(f"Saved {len(unique_wordlists)} wordlists to {output_file}")
+    return unique_wordlists
 
 def download_torrent_file(torrent_url, save_dir=None, wordlist_id=None):
     register_torrent_cleanup()
@@ -348,12 +338,10 @@ def download_torrent_file(torrent_url, save_dir=None, wordlist_id=None):
     return local_filename
 
 def weakpass_wordlist_menu(rank=-1):
-    fetch_all_weakpass_wordlists_multithreaded()
     try:
-        with open("weakpass_wordlists.json", "r", encoding="utf-8") as f:
-            all_wordlists = json.load(f)
+        all_wordlists = fetch_all_weakpass_wordlists_multithreaded()
     except Exception as e:
-        print(f"Failed to load local wordlist cache: {e}")
+        print(f"Failed to fetch wordlists: {e}")
         return
     if rank == 0:
         filtered_wordlists = all_wordlists
@@ -707,6 +695,30 @@ class HashviewAPI:
             resp.raise_for_status()
             return resp.json()
         return payload
+
+    def stop_job(self, job_id):
+        url = f"{self.base_url}/v1/jobs/stop/{job_id}"
+        resp = self.session.get(url)
+        resp.raise_for_status()
+        return resp.json()
+
+    def delete_job(self, job_id):
+        url = f"{self.base_url}/v1/jobs/delete/{job_id}"
+        resp = self.session.get(url)
+        resp.raise_for_status()
+        return resp.json()
+
+    def start_job(self, job_id, priority=3, limit_recovered=False):
+        url = f"{self.base_url}/v1/jobs/start/{job_id}"
+        params = {}
+        priority = int(priority)
+        if priority < 1 or priority > 5:
+            raise ValueError("priority must be an int between 1 and 5")
+        params["priority"] = priority
+        params["limit_recovered"] = bool(limit_recovered)
+        resp = self.session.get(url, params=params)
+        resp.raise_for_status()
+        return resp.json()
 
     def download_left_hashes(self, customer_id, hashfile_id, output_file=None):
         import sys
