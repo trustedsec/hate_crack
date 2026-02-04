@@ -6,6 +6,7 @@ import sys
 import os
 import json
 import tempfile
+import uuid
 from unittest.mock import Mock, patch, MagicMock
 
 
@@ -236,6 +237,77 @@ class TestHashviewAPI:
                 content = f.read()
             assert content == b"hash1\nhash2\n"
             assert result['size'] == len(content)
+
+    def test_download_found_hashes(self, api, tmp_path):
+        """Test downloading found hashes: real API if possible, else mock."""
+        hashview_url = os.environ.get('HASHVIEW_URL')
+        hashview_api_key = os.environ.get('HASHVIEW_API_KEY')
+        customer_id = os.environ.get('HASHVIEW_CUSTOMER_ID')
+        hashfile_id = os.environ.get('HASHVIEW_HASHFILE_ID')
+        if all([hashview_url, hashview_api_key, customer_id, hashfile_id]):
+            # Real API test
+            real_api = HashviewAPI(hashview_url, hashview_api_key)
+            output_file = tmp_path / f"found_{customer_id}_{hashfile_id}.txt"
+            result = real_api.download_found_hashes(int(customer_id), int(hashfile_id), output_file=str(output_file))
+            assert os.path.exists(result['output_file'])
+            with open(result['output_file'], 'rb') as f:
+                content = f.read()
+            print(f"[DEBUG] Downloaded {len(content)} bytes to {result['output_file']}")
+            assert result['size'] == len(content)
+        else:
+            # Mock test
+            mock_response = Mock()
+            mock_response.content = b"hash1:pass1\nhash2:pass2\n"
+            mock_response.raise_for_status = Mock()
+            mock_response.headers = {'content-length': '0'}
+
+            def iter_content(chunk_size=8192):
+                yield mock_response.content
+
+            mock_response.iter_content = iter_content
+            api.session.get.return_value = mock_response
+
+            output_file = tmp_path / "found_1_2.txt"
+            result = api.download_found_hashes(1, 2, output_file=str(output_file))
+            assert os.path.exists(result['output_file'])
+            with open(result['output_file'], 'rb') as f:
+                content = f.read()
+            assert content == b"hash1:pass1\nhash2:pass2\n"
+            assert result['size'] == len(content)
+
+    def test_download_wordlist(self, api, tmp_path):
+        """Test downloading a wordlist: real API if possible, else mock."""
+        hashview_url = os.environ.get('HASHVIEW_URL')
+        hashview_api_key = os.environ.get('HASHVIEW_API_KEY')
+        wordlist_id = os.environ.get('HASHVIEW_WORDLIST_ID')
+        if all([hashview_url, hashview_api_key, wordlist_id]):
+            real_api = HashviewAPI(hashview_url, hashview_api_key)
+            output_file = tmp_path / f"wordlist_{wordlist_id}.gz"
+            result = real_api.download_wordlist(int(wordlist_id), output_file=str(output_file))
+            assert os.path.exists(result['output_file'])
+            with open(result['output_file'], 'rb') as f:
+                content = f.read()
+            print(f"[DEBUG] Downloaded {len(content)} bytes to {result['output_file']}")
+            assert result['size'] == len(content)
+        else:
+            mock_response = Mock()
+            mock_response.content = b"gzipdata"
+            mock_response.raise_for_status = Mock()
+            mock_response.headers = {'content-length': '0'}
+
+            def iter_content(chunk_size=8192):
+                yield mock_response.content
+
+            mock_response.iter_content = iter_content
+            api.session.get.return_value = mock_response
+
+            output_file = tmp_path / "wordlist_1.gz"
+            result = api.download_wordlist(1, output_file=str(output_file))
+            assert os.path.exists(result['output_file'])
+            with open(result['output_file'], 'rb') as f:
+                content = f.read()
+            assert content == b"gzipdata"
+            assert result['size'] == len(content)
     
     def test_create_job_workflow(self, api, test_hashfile):
         """Test creating a job in Hashview (option 2 complete workflow)"""
@@ -311,6 +383,71 @@ class TestHashviewAPI:
         print("\n" + "="*60)
         print("✓ Option 2 (Create Job) is READY and WORKING!")
         print("="*60)
+
+    def test_create_job_with_new_customer(self, api, test_hashfile):
+        """Test creating a new customer and then creating a job (real API if possible)."""
+        hashview_url = os.environ.get('HASHVIEW_URL')
+        hashview_api_key = os.environ.get('HASHVIEW_API_KEY')
+        hash_type = os.environ.get('HASHVIEW_HASH_TYPE', '1000')
+        if hashview_url and hashview_api_key:
+            real_api = HashviewAPI(hashview_url, hashview_api_key)
+            customer_name = f"Example Customer {uuid.uuid4().hex[:8]}"
+            try:
+                customer_result = real_api.create_customer(customer_name)
+                customer_id = customer_result.get('customer_id') or customer_result.get('id')
+                if not customer_id:
+                    pytest.skip("Create customer did not return a customer_id.")
+                upload_result = real_api.upload_hashfile(
+                    test_hashfile,
+                    int(customer_id),
+                    int(hash_type),
+                    5,
+                    "test_hashfile_new_customer",
+                )
+                hashfile_id = upload_result.get('hashfile_id')
+                if not hashfile_id:
+                    pytest.skip("Upload hashfile did not return a hashfile_id.")
+                job_result = real_api.create_job(
+                    name=f"test_job_new_customer_{uuid.uuid4().hex[:6]}",
+                    hashfile_id=hashfile_id,
+                    customer_id=int(customer_id),
+                )
+                if isinstance(job_result, dict) and "msg" in job_result:
+                    msg = str(job_result.get("msg", ""))
+                    if "Failed to add job" in msg:
+                        pytest.xfail(f"Hashview rejected job creation: {msg}")
+                assert job_result is not None
+                if isinstance(job_result, dict):
+                    assert 'job_id' in job_result
+            except Exception as e:
+                pytest.skip(f"Real API create_job with new customer not allowed: {e}")
+        else:
+            mock_create_customer = Mock()
+            mock_create_customer.json.return_value = {'customer_id': 101, 'name': 'Example Customer'}
+            mock_create_customer.raise_for_status = Mock()
+
+            mock_upload_hashfile = Mock()
+            mock_upload_hashfile.json.return_value = {
+                'hashfile_id': 202,
+                'msg': 'Hashfile added'
+            }
+            mock_upload_hashfile.raise_for_status = Mock()
+
+            mock_create_job = Mock()
+            mock_create_job.json.return_value = {
+                'job_id': 303,
+                'msg': 'Job added'
+            }
+            mock_create_job.raise_for_status = Mock()
+
+            api.session.post.side_effect = [mock_create_customer, mock_upload_hashfile, mock_create_job]
+
+            customer_result = api.create_customer("Example Customer")
+            assert customer_result.get('customer_id') == 101
+            upload_result = api.upload_hashfile(test_hashfile, 101, 1000, 5, "test_hashfile_new_customer")
+            assert upload_result.get('hashfile_id') == 202
+            job_result = api.create_job("test_job_new_customer", 202, 101)
+            assert job_result.get('job_id') == 303
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

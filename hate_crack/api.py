@@ -721,6 +721,34 @@ class HashviewAPI:
             print(f"Downloaded {downloaded} bytes.")
         return {'output_file': output_file, 'size': downloaded}
 
+    def download_found_hashes(self, customer_id, hashfile_id, output_file=None):
+        import sys
+        url = f"{self.base_url}/v1/hashfiles/{hashfile_id}/found"
+        resp = self.session.get(url, stream=True)
+        resp.raise_for_status()
+        if output_file is None:
+            output_file = f"found_{customer_id}_{hashfile_id}.txt"
+        total = int(resp.headers.get('content-length', 0))
+        downloaded = 0
+        chunk_size = 8192
+        with open(output_file, 'wb') as f:
+            for chunk in resp.iter_content(chunk_size=chunk_size):
+                if chunk:
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if total > 0:
+                        done = int(50 * downloaded / total)
+                        bar = '[' + '=' * done + ' ' * (50 - done) + ']'
+                        percent = 100 * downloaded / total
+                        sys.stdout.write(f"\rDownloading: {bar} {percent:5.1f}% ({downloaded}/{total} bytes)")
+                        sys.stdout.flush()
+            if total > 0:
+                sys.stdout.write("\n")
+        # If content-length is not provided, just print size at end
+        if total == 0:
+            print(f"Downloaded {downloaded} bytes.")
+        return {'output_file': output_file, 'size': downloaded}
+
     def upload_cracked_hashes(self, file_path, hash_type='1000'):
         valid_lines = []
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -748,6 +776,33 @@ class HashviewAPI:
             return json_response
         except (json.JSONDecodeError, ValueError):
             raise Exception(f"Invalid API response: {resp.text[:200]}")
+
+    def download_wordlist(self, wordlist_id, output_file=None):
+        import sys
+        url = f"{self.base_url}/v1/wordlists/{wordlist_id}"
+        resp = self.session.get(url, stream=True)
+        resp.raise_for_status()
+        if output_file is None:
+            output_file = f"wordlist_{wordlist_id}.gz"
+        total = int(resp.headers.get('content-length', 0))
+        downloaded = 0
+        chunk_size = 8192
+        with open(output_file, 'wb') as f:
+            for chunk in resp.iter_content(chunk_size=chunk_size):
+                if chunk:
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if total > 0:
+                        done = int(50 * downloaded / total)
+                        bar = '[' + '=' * done + ' ' * (50 - done) + ']'
+                        percent = 100 * downloaded / total
+                        sys.stdout.write(f"\rDownloading: {bar} {percent:5.1f}% ({downloaded}/{total} bytes)")
+                        sys.stdout.flush()
+            if total > 0:
+                sys.stdout.write("\n")
+        if total == 0:
+            print(f"Downloaded {downloaded} bytes.")
+        return {'output_file': output_file, 'size': downloaded}
 
     def create_customer(self, name):
         url = f"{self.base_url}/v1/customers/add"
