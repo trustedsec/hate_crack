@@ -1134,11 +1134,9 @@ def download_hashmob_rule(file_name, out_path):
     }
     url = hashmob_rule_urls.get(file_name)
     if not url:
-        print(f"[i] Hashmob rule not in pinned URL list, using prefix fallback: {file_name}")
-        if str(file_name).startswith("HashMob"):
-            url = f"https://hashmob.net/api/v2/downloads/research/official/hashmob_rules/{file_name}"
-        else:
-            url = f"https://www.hashmob.net/api/v2/downloads/research/rules/{file_name}"
+        print(f"[i] Hashmob rule not in pinned URL list, using public prefix: {file_name}")
+        url = f"https://www.hashmob.net/api/v2/downloads/research/rules/{file_name}"
+    alt_url = f"https://hashmob.net/api/v2/downloads/research/official/hashmob_rules/{file_name}"
     api_key = get_hashmob_api_key()
     headers = {"api-key": api_key} if api_key else {}
     import time
@@ -1162,6 +1160,22 @@ def download_hashmob_rule(file_name, out_path):
                     penalty = min(penalty + penalty_add, max_backoff)
                     penalty_add *= 2
                     continue
+                if r.status_code == 404 and alt_url:
+                    print(f"[i] Hashmob rule not found at primary URL, trying fallback: {alt_url}")
+                    with requests.get(alt_url, headers=headers, stream=True, timeout=60, allow_redirects=True) as r_alt:
+                        if r_alt.status_code == 429:
+                            print(f"[!] Rate limit hit (429). Backing off for {penalty} seconds...")
+                            time.sleep(penalty)
+                            penalty = min(penalty + penalty_add, max_backoff)
+                            penalty_add *= 2
+                            continue
+                        r_alt.raise_for_status()
+                        with open(out_path, 'wb') as f:
+                            for chunk in r_alt.iter_content(chunk_size=8192):
+                                if chunk:
+                                    f.write(chunk)
+                    print(f"Downloaded {out_path}")
+                    return True
                 r.raise_for_status()
                 with open(out_path, 'wb') as f:
                     for chunk in r.iter_content(chunk_size=8192):
