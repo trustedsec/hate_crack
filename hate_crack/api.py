@@ -1066,7 +1066,79 @@ def download_hashmob_rule_list():
 
 def download_hashmob_rule(file_name, out_path):
     """Download a rule file from Hashmob by file name."""
-    url = f"https://hashmob.net/api/v2/downloads/research/official/hashmob_rules/{file_name}"
+    hashmob_rule_urls = {
+        "nsa64.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/nsa64.rule",
+        "OneRuleToRuleThemAll.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/OneRuleToRuleThemAll.rule",
+        "pantagrule.hashorg.v6.one.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/pantagrule.hashorg.v6.one.rule",
+        "_NSAKEY.v2.dive.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/_NSAKEY.v2.dive.rule",
+        "append_digits_and_special.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/append_digits_and_special.rule",
+        "best64.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/best64.rule",
+        "blandyuk.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/blandyuk.rule",
+        "blandyuk_basic.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/blandyuk_basic.rule",
+        "combinator.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/combinator.rule",
+        "dive.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/dive.rule",
+        "fordy10k.txt": "https://www.hashmob.net/api/v2/downloads/research/rules/fordy10k.txt",
+        "fordy50k.txt": "https://www.hashmob.net/api/v2/downloads/research/rules/fordy50k.txt",
+        "FordyBigBoy.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/FordyBigBoy.rule",
+        "fordyv1.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/fordyv1.rule",
+        "Incisive-leetspeak.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/Incisive-leetspeak.rule",
+        "InsidePro-HashManager.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/InsidePro-HashManager.rule",
+        "InsidePro-PasswordsPro.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/InsidePro-PasswordsPro.rule",
+        "Robot-Best10.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/Robot-Best10.rule",
+        "Robot_CurrentBestRules.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/Robot_CurrentBestRules.rule",
+        "Robot_MyFavorite.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/Robot_MyFavorite.rule",
+        "Robot_ReverseRules.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/Robot_ReverseRules.rule",
+        "Robot_Top1268Rules.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/Robot_Top1268Rules.rule",
+        "Robot_toporder.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/Robot_toporder.rule",
+        "Top1268.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/Top1268.rule",
+        "top_1500.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/top_1500.rule",
+        "top_250.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/top_250.rule",
+        "top_3000.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/top_3000.rule",
+        "top_500.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/top_500.rule",
+        "top_5000.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/top_5000.rule",
+        "top_750.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/top_750.rule",
+        "Fordyv2.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/Fordyv2.rule",
+        "combinator_ngram.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/combinator_ngram.rule",
+        "d3ad0ne.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/d3ad0ne.rule",
+        "generated.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/generated.rule",
+        "generated2.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/generated2.rule",
+        "leetspeak.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/leetspeak.rule",
+        "oscommerce.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/oscommerce.rule",
+        "specific.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/specific.rule",
+        "T0XlC-insert_00-99_1950-2050_toprules_0_F.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/T0XlC-insert_00-99_1950-2050_toprules_0_F.rule",
+        "T0XlC-insert_space_and_special_0_F.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/T0XlC-insert_space_and_special_0_F.rule",
+        "T0XlC-insert_top_100_passwords_1_G.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/T0XlC-insert_top_100_passwords_1_G.rule",
+        "T0XlC.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/T0XlC.rule",
+        "T0XlCv1.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/T0XlCv1.rule",
+        "toggles1.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/toggles1.rule",
+        "toggles2.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/toggles2.rule",
+        "toggles3.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/toggles3.rule",
+        "toggles4.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/toggles4.rule",
+        "toggles5.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/toggles5.rule",
+        "unix-ninja-leetspeak.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/unix-ninja-leetspeak.rule",
+        "OneRuleToRuleThemStill.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/OneRuleToRuleThemStill.rule",
+        "Pantacorn.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/Pantacorn.rule",
+        "SuperUnicorn.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/SuperUnicorn.rule",
+        "buka_400k.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/buka_400k.rule",
+        "rockyou-30000.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/rockyou-30000.rule",
+        "HashMob.100k.rule": "https://hashmob.net/api/v2/downloads/research/official/hashmob_rules/HashMob.100k.rule",
+        "HashMob.10k.rule": "https://hashmob.net/api/v2/downloads/research/official/hashmob_rules/HashMob.10k.rule",
+        "HashMob.150k.rule": "https://hashmob.net/api/v2/downloads/research/official/hashmob_rules/HashMob.150k.rule",
+        "HashMob.1k.rule": "https://hashmob.net/api/v2/downloads/research/official/hashmob_rules/HashMob.1k.rule",
+        "HashMob.20k.rule": "https://hashmob.net/api/v2/downloads/research/official/hashmob_rules/HashMob.20k.rule",
+        "HashMob.50k.rule": "https://hashmob.net/api/v2/downloads/research/official/hashmob_rules/HashMob.50k.rule",
+        "HashMob.5k.rule": "https://hashmob.net/api/v2/downloads/research/official/hashmob_rules/HashMob.5k.rule",
+        "HashMob.75k.rule": "https://hashmob.net/api/v2/downloads/research/official/hashmob_rules/HashMob.75k.rule",
+        "HashMob._100.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/HashMob._100.rule",
+        "HashMob._66.rule": "https://www.hashmob.net/api/v2/downloads/research/rules/HashMob._66.rule",
+    }
+    url = hashmob_rule_urls.get(file_name)
+    if not url:
+        print(f"[i] Hashmob rule not in pinned URL list, using prefix fallback: {file_name}")
+        if str(file_name).startswith("HashMob"):
+            url = f"https://hashmob.net/api/v2/downloads/research/official/hashmob_rules/{file_name}"
+        else:
+            url = f"https://www.hashmob.net/api/v2/downloads/research/rules/{file_name}"
     api_key = get_hashmob_api_key()
     headers = {"api-key": api_key} if api_key else {}
     import time
