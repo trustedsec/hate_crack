@@ -2350,7 +2350,7 @@ def main():
 
     import argparse
 
-    def _build_parser(include_positional):
+    def _build_parser(include_positional, include_subcommands):
         parser = argparse.ArgumentParser(description="hate_crack - Hashcat automation and wordlist management tool")
         if include_positional:
             parser.add_argument('hashfile', nargs='?', default=None, help='Path to hash file to crack (positional, optional)')
@@ -2365,6 +2365,10 @@ def main():
         parser.add_argument('--rules', action='store_true', help='Download rules from Hashmob.net')
         parser.add_argument('--cleanup', action='store_true', help='Cleanup .out files, torrents, and extract or remove .7z archives')
         parser.add_argument('--debug', action='store_true', help='Enable debug mode')
+        hashview_parser = None
+        if not include_subcommands:
+            return parser, hashview_parser
+
         subparsers = parser.add_subparsers(dest='command')
 
         hashview_parser = subparsers.add_parser('hashview', help='Hashview menu actions')
@@ -2424,8 +2428,11 @@ def main():
 
     # Removed add_common_args(parser) since config items are now only set via config file
     argv = sys.argv[1:]
-    use_subcommand_parser = len(argv) > 0 and argv[0] == 'hashview'
-    parser, hashview_parser = _build_parser(include_positional=not use_subcommand_parser)
+    use_subcommand_parser = 'hashview' in argv
+    parser, hashview_parser = _build_parser(
+        include_positional=not use_subcommand_parser,
+        include_subcommands=use_subcommand_parser,
+    )
     args = parser.parse_args(argv)
 
     global debug_mode
@@ -2467,7 +2474,7 @@ def main():
         )
         sys.exit(0)
 
-    if args.command == 'hashview':
+    if getattr(args, 'command', None) == 'hashview':
         if not hashview_api_key:
             print("\nError: Hashview API key not configured.")
             print("Please set 'hashview_api_key' in config.json")
