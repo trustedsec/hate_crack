@@ -188,6 +188,12 @@ Install OS dependencies + tool (auto-detects macOS vs Debian/Ubuntu):
 make install
 ```
 
+Reinstall the Python tool in-place (keeps OS deps as-is):
+
+```bash
+make reinstall
+```
+
 Uninstall OS dependencies + tool:
 
 ```bash

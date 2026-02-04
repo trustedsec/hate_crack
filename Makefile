@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := submodules
-.PHONY: install clean hashcat-utils submodules test
+.PHONY: install reinstall clean hashcat-utils submodules test
 
 hashcat-utils: submodules
 	$(MAKE) -C hashcat-utils
@@ -45,6 +45,9 @@ install:
 		echo "Unsupported OS. Please install dependencies manually."; \
 		exit 1; \
 	fi
+
+reinstall:
+	@uv tool install . --force
 
 
 clean:

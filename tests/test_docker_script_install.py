@@ -75,7 +75,7 @@ def _run_container(image_tag, command, timeout=180):
 def test_docker_script_install_and_run(docker_image):
     run = _run_container(
         docker_image,
-        "/root/.local/bin/hate_crack --help >/tmp/hc_help.txt && ./hate_crack.py --help >/tmp/hc_script_help.txt",
+        "$HOME/.local/bin/hate_crack --help >/tmp/hc_help.txt && ./hate_crack.py --help >/tmp/hc_script_help.txt",
         timeout=120,
     )
     assert run.returncode == 0, (
