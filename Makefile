@@ -46,8 +46,7 @@ install:
 		exit 1; \
 	fi
 
-reinstall:
-	@uv tool install . --force
+reinstall: uninstall install
 
 
 clean:
