@@ -135,6 +135,33 @@ def _resolve_hate_path(package_path, config_dict=None):
     return package_path
 
 
+def _ensure_hashfile_in_cwd(hashfile_path):
+    """Ensure hashfile path points to cwd to keep output files in execution dir."""
+    if not hashfile_path:
+        return hashfile_path
+    try:
+        cwd = os.getcwd()
+    except Exception:
+        return hashfile_path
+    if not os.path.isabs(hashfile_path):
+        return hashfile_path
+    if os.path.dirname(hashfile_path) == cwd:
+        return hashfile_path
+    basename = os.path.basename(hashfile_path)
+    local_path = os.path.join(cwd, basename)
+    if os.path.exists(local_path):
+        return local_path
+    try:
+        os.symlink(hashfile_path, local_path)
+        return local_path
+    except Exception:
+        try:
+            shutil.copy2(hashfile_path, local_path)
+            return local_path
+        except Exception:
+            return hashfile_path
+
+
 # First get a temporary path to load config
 _initial_package_path = os.path.dirname(os.path.realpath(__file__))
 _config_path = _resolve_config_path()
@@ -1884,29 +1911,40 @@ def hashview_api():
                 except Exception as e:
                     print(f"\n✗ Error fetching customers: {str(e)}")
 
-                # Offer to create a customer before proceeding
-                create_customer = input("\nCreate a new customer? (y/N): ").strip().lower()
-                if create_customer == 'y':
+                # Select or create customer
+                customer_input = input("\nEnter customer ID or N to create new: ").strip()
+                if customer_input.lower() == 'n':
                     customer_name = input("Enter customer name: ").strip()
                     if customer_name:
                         try:
                             result = api_harness.create_customer(customer_name)
                             print(f"\n✓ Success: {result.get('msg', 'Customer created')}")
-                            if 'customer_id' in result:
-                                print(f"  Customer ID: {result['customer_id']}")
+                            customer_id = result.get('customer_id') or result.get('id')
+                            if not customer_id:
+                                print("\n✗ Error: Customer ID not returned.")
+                                continue
+                            print(f"  Customer ID: {customer_id}")
                         except Exception as e:
                             print(f"\n✗ Error creating customer: {str(e)}")
+                            continue
                     else:
                         print("\n✗ Error: Customer name cannot be empty.")
+                        continue
+                else:
+                    try:
+                        customer_id = int(customer_input)
+                    except ValueError:
+                        print("\n✗ Error: Invalid ID entered. Please enter a numeric ID or N.")
+                        continue
 
-                hashfile_path = select_file_with_autocomplete(
-                    "Enter path to hashfile (TAB to autocomplete)"
-                )
+                hashfile_path = hcatHashFile
+                if not hashfile_path or not os.path.exists(hashfile_path):
+                    hashfile_path = select_file_with_autocomplete(
+                        "Enter path to hashfile (TAB to autocomplete)"
+                    )
                 if not hashfile_path or not os.path.exists(hashfile_path):
                     print(f"Error: File not found: {hashfile_path}")
                     continue
-                
-                customer_id = int(input("Enter customer ID: "))
                 hash_type = int(input(f"Enter hash type (default: {hcatHashType}): ") or hcatHashType)
                 
                 print("\nFile formats:")
@@ -1914,7 +1952,18 @@ def hashview_api():
                 print("  3 = shadow, 4 = user:hash, 5 = hash_only")
                 file_format = int(input("Enter file format (default: 5): ") or 5)
                 
-                hashfile_name = input(f"Enter hashfile name (default: {os.path.basename(hashfile_path)}): ") or None
+                hashfile_name = select_file_with_autocomplete(
+                    f"Enter hashfile name (default: {hashfile_path}) (TAB to autocomplete)"
+                )
+                if isinstance(hashfile_name, list):
+                    hashfile_name = hashfile_name[0] if hashfile_name else None
+                if isinstance(hashfile_name, str):
+                    hashfile_name = hashfile_name.strip()
+                if isinstance(hashfile_name, str) and hashfile_name:
+                    # Hashview expects a name, not a path.
+                    hashfile_name = os.path.basename(hashfile_name)
+                if not hashfile_name:
+                    hashfile_name = None
                 
                 try:
                     result = api_harness.upload_hashfile(
@@ -1933,48 +1982,9 @@ def hashview_api():
                         create_job = input("\nWould you like to create a job for this hashfile? (Y/n): ") or "Y"
                         if create_job.upper() == 'Y':
                             job_name = input("Enter job name: ")
-                            limit_recovered = input("Limit to recovered hashes only? (y/N): ").upper() == 'Y'
-                            notify_email = input("Send email notifications? (Y/n): ").upper() != 'N'
-                            
-                            # Ask if user wants to upload a custom wordlist for this job
-                            upload_wordlist = input("\nUpload a custom wordlist to Hashview? (y/N): ").upper() == 'Y'
+                            limit_recovered = False
+                            notify_email = True
                             uploaded_wordlist_id = None
-                            
-                            if upload_wordlist:
-                                print("\n" + "="*60)
-                                print("WORDLIST UPLOAD")
-                                print("="*60)
-                                print("Select a wordlist file to upload to Hashview.")
-                                print("After upload, you'll need to:")
-                                print("  1. Create a task in Hashview using this wordlist")
-                                print("  2. Manually add the task to this job via web interface")
-                                print("\nPress TAB to autocomplete file paths.")
-                                print("="*60)
-                                
-                                wordlist_path = select_file_with_autocomplete(
-                                    "Enter path to wordlist file",
-                                    base_dir=hcatWordlists,
-                                )
-                                
-                                if wordlist_path and os.path.isfile(wordlist_path):
-                                    # Ask for wordlist name
-                                    default_name = os.path.basename(wordlist_path)
-                                    wordlist_name = input(f"\nEnter wordlist name (default: {default_name}): ").strip() or default_name
-                                    
-                                    try:
-                                        # Upload the wordlist
-                                        upload_result = api_harness.upload_wordlist(wordlist_path, wordlist_name)
-                                        print(f"\n✓ Success: {upload_result.get('msg', 'Wordlist uploaded')}")
-                                        if 'wordlist_id' in upload_result:
-                                            uploaded_wordlist_id = upload_result['wordlist_id']
-                                            print(f"  Wordlist ID: {uploaded_wordlist_id}")
-                                            print(f"  Wordlist Name: {wordlist_name}")
-                                    except Exception as e:
-                                        print(f"\n✗ Error uploading wordlist: {str(e)}")
-                                        print("Continuing with job creation...")
-                                else:
-                                    print("\n✗ No valid wordlist file selected.")
-                                    print("Continuing with job creation...")
                             
                             try:
                                 job_result = api_harness.create_job(
@@ -1986,20 +1996,6 @@ def hashview_api():
                                     print(f"  Job ID: {job_result['job_id']}")
                                     print(f"\nNote: Job created with automatically assigned tasks based on")
                                     print(f"      historical effectiveness for hash type {hash_type}.")
-                                    
-                                    if uploaded_wordlist_id:
-                                        print(f"\n{'='*60}")
-                                        print("NEXT STEPS - Configure Task in Hashview Web Interface:")
-                                        print(f"{'='*60}")
-                                        print(f"1. Go to: {hashview_url}")
-                                        print(f"2. Navigate to Tasks → Create New Task")
-                                        print(f"3. Configure task with:")
-                                        print(f"   - Wordlist ID: {uploaded_wordlist_id} ({wordlist_name})")
-                                        print(f"   - Rule: (select appropriate rule)")
-                                        print(f"   - Attack mode: 0 (dictionary)")
-                                        print(f"4. Go to Jobs → Job ID {job_result['job_id']}")
-                                        print(f"5. Add the new task to this job")
-                                        print(f"{'='*60}")
                                     
                                     # Offer to start the job
                                     start_now = input("\nStart the job now? (Y/n): ") or "Y"
@@ -2608,6 +2604,7 @@ def main():
 
     if args.hashfile and args.hashtype:
         hcatHashFile = resolve_path(args.hashfile)
+        hcatHashFile = _ensure_hashfile_in_cwd(hcatHashFile)
         hcatHashType = args.hashtype
         if not hcatHashFile or not os.path.isfile(hcatHashFile):
             print(f"Error: hashfile not found: {args.hashfile}")
