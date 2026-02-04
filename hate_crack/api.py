@@ -688,10 +688,25 @@ class HashviewAPI:
             "name": name,
             "hashfile_id": hashfile_id,
             "customer_id": customer_id,
+            "limit_recovered": bool(limit_recovered),
         }
+        if notify_email is not None:
+            data["notify_email"] = bool(notify_email)
         resp = self.session.post(url, json=data, headers=headers)
         resp.raise_for_status()
-        return resp.json()
+        try:
+            payload = resp.json()
+        except Exception:
+            return resp.json()
+
+        msg = str(payload.get("msg", ""))
+        if "invalid keyword argument for JobNotifications" in msg:
+            # Retry without notify_email for older Hashview servers.
+            data.pop("notify_email", None)
+            resp = self.session.post(url, json=data, headers=headers)
+            resp.raise_for_status()
+            return resp.json()
+        return payload
 
     def download_left_hashes(self, customer_id, hashfile_id, output_file=None):
         import sys
@@ -810,7 +825,18 @@ class HashviewAPI:
         data = {"name": name}
         resp = self.session.post(url, json=data, headers=headers)
         resp.raise_for_status()
-        return resp.json()
+        try:
+            payload = resp.json()
+        except Exception:
+            return resp.json()
+
+        msg = str(payload.get("msg", ""))
+        if "invalid keyword argument for Customers" in msg:
+            # Fallback for older Hashview servers that choke on JSON body parsing.
+            resp = self.session.post(url, data={"name": name})
+            resp.raise_for_status()
+            return resp.json()
+        return payload
 
     def get_hashfile_hash_type(self, hashtype_id):
         """
