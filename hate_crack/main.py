@@ -2000,7 +2000,11 @@ def hashview_api():
                                     # Offer to start the job
                                     start_now = input("\nStart the job now? (Y/n): ") or "Y"
                                     if start_now.upper() == 'Y':
-                                        start_result = api_harness.start_job(job_result['job_id'])
+                                        stop_after_one = input("Stop after a single result? (y/N): ").strip().upper() == 'Y'
+                                        start_result = api_harness.start_job(
+                                            job_result['job_id'],
+                                            limit_recovered=stop_after_one,
+                                        )
                                         print(f"\n✓ Success: {start_result.get('msg', 'Job started')}")
                             except Exception as e:
                                 print(f"\n✗ Error creating job: {str(e)}")

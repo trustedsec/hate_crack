@@ -24,8 +24,29 @@ def _config_has_hashview_key():
         return False
 
 
+def _get_hashview_config():
+    env_url = os.environ.get("HASHVIEW_URL")
+    env_key = os.environ.get("HASHVIEW_API_KEY")
+    if env_url and env_key:
+        return env_url, env_key
+    config_path = os.path.join(REPO_ROOT, "config.json")
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        url = data.get("hashview_url")
+        key = data.get("hashview_api_key")
+        if url and key:
+            return url, key
+    except Exception:
+        pass
+    return env_url, env_key
+
+
 def _ensure_customer_one():
-    api = HashviewAPI(os.environ["HASHVIEW_URL"], os.environ["HASHVIEW_API_KEY"])
+    url, key = _get_hashview_config()
+    if not url or not key:
+        pytest.skip("Missing hashview_url/hashview_api_key in config.json or env.")
+    api = HashviewAPI(url, key)
     try:
         customers_result = api.list_customers()
     except Exception as exc:
@@ -87,12 +108,15 @@ def test_hashview_subcommands_require_api_key(tmp_path, args):
     reason="Set HASHVIEW_TEST_REAL=1 to run live Hashview subprocess tests.",
 )
 def test_hashview_subcommands_live_downloads():
-    required = ["HASHVIEW_URL", "HASHVIEW_API_KEY", "HASHVIEW_HASHFILE_ID"]
+    required = ["HASHVIEW_HASHFILE_ID"]
     missing = [key for key in required if not os.environ.get(key)]
     if missing:
         pytest.skip(f"Missing required env vars: {', '.join(missing)}")
 
-    env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+    url, key = _get_hashview_config()
+    if not url or not key:
+        pytest.skip("Missing hashview_url/hashview_api_key in config.json or env.")
+    env = {**os.environ, "PYTHONUNBUFFERED": "1", "HASHVIEW_URL": url, "HASHVIEW_API_KEY": key}
     base_cmd = [sys.executable, HATE_CRACK_SCRIPT, "hashview"]
     customer_id = _ensure_customer_one()
 
@@ -142,12 +166,15 @@ def test_hashview_subcommands_live_downloads():
     reason="Set HASHVIEW_TEST_REAL=1 to run live Hashview subprocess tests.",
 )
 def test_hashview_subcommands_live_upload_hashfile_job(tmp_path):
-    required = ["HASHVIEW_URL", "HASHVIEW_API_KEY", "HASHVIEW_HASH_TYPE"]
+    required = ["HASHVIEW_HASH_TYPE"]
     missing = [key for key in required if not os.environ.get(key)]
     if missing:
         pytest.skip(f"Missing required env vars: {', '.join(missing)}")
 
-    env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+    url, key = _get_hashview_config()
+    if not url or not key:
+        pytest.skip("Missing hashview_url/hashview_api_key in config.json or env.")
+    env = {**os.environ, "PYTHONUNBUFFERED": "1", "HASHVIEW_URL": url, "HASHVIEW_API_KEY": key}
     base_cmd = [sys.executable, HATE_CRACK_SCRIPT, "hashview"]
     customer_id = _ensure_customer_one()
 
@@ -179,6 +206,36 @@ def test_hashview_subcommands_live_upload_hashfile_job(tmp_path):
     assert run.returncode == 0, output
     assert ("Hashfile uploaded" in output) or ("Hashfile added" in output)
     assert ("Job created" in output) or ("Failed to add job" in output)
+    if "Job ID:" in output:
+        job_id = None
+        for line in output.splitlines():
+            if line.strip().startswith("Job ID:"):
+                try:
+                    job_id = int(line.split("Job ID:")[1].strip())
+                except Exception:
+                    job_id = None
+                break
+        if job_id:
+            try:
+                from hate_crack.api import HashviewAPI
+                url, key = _get_hashview_config()
+                if not url or not key:
+                    return
+                api = HashviewAPI(url, key)
+                try:
+                    api.start_job(job_id)
+                except Exception:
+                    pass
+                try:
+                    api.stop_job(job_id)
+                except Exception:
+                    pass
+                try:
+                    api.delete_job(job_id)
+                except Exception:
+                    pass
+            except Exception:
+                pass
 
 
 @pytest.mark.skipif(
@@ -186,12 +243,15 @@ def test_hashview_subcommands_live_upload_hashfile_job(tmp_path):
     reason="Set HASHVIEW_TEST_REAL=1 to run live Hashview subprocess tests.",
 )
 def test_hashview_subcommands_live_upload_hashfile_job_pwdump(tmp_path):
-    required = ["HASHVIEW_URL", "HASHVIEW_API_KEY"]
+    required = []
     missing = [key for key in required if not os.environ.get(key)]
     if missing:
         pytest.skip(f"Missing required env vars: {', '.join(missing)}")
 
-    env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+    url, key = _get_hashview_config()
+    if not url or not key:
+        pytest.skip("Missing hashview_url/hashview_api_key in config.json or env.")
+    env = {**os.environ, "PYTHONUNBUFFERED": "1", "HASHVIEW_URL": url, "HASHVIEW_API_KEY": key}
     base_cmd = [sys.executable, HATE_CRACK_SCRIPT, "hashview"]
     customer_id = _ensure_customer_one()
 
@@ -226,6 +286,36 @@ def test_hashview_subcommands_live_upload_hashfile_job_pwdump(tmp_path):
     assert run.returncode == 0, output
     assert ("Hashfile uploaded" in output) or ("Hashfile added" in output)
     assert ("Job created" in output) or ("Failed to add job" in output)
+    if "Job ID:" in output:
+        job_id = None
+        for line in output.splitlines():
+            if line.strip().startswith("Job ID:"):
+                try:
+                    job_id = int(line.split("Job ID:")[1].strip())
+                except Exception:
+                    job_id = None
+                break
+        if job_id:
+            try:
+                from hate_crack.api import HashviewAPI
+                url, key = _get_hashview_config()
+                if not url or not key:
+                    return
+                api = HashviewAPI(url, key)
+                try:
+                    api.start_job(job_id)
+                except Exception:
+                    pass
+                try:
+                    api.stop_job(job_id)
+                except Exception:
+                    pass
+                try:
+                    api.delete_job(job_id)
+                except Exception:
+                    pass
+            except Exception:
+                pass
 
 
 @pytest.mark.skipif(
@@ -233,12 +323,15 @@ def test_hashview_subcommands_live_upload_hashfile_job_pwdump(tmp_path):
     reason="Set HASHVIEW_TEST_REAL=1 to run live Hashview subprocess tests.",
 )
 def test_hashview_subcommands_live_upload_hashfile_job_hashonly(tmp_path):
-    required = ["HASHVIEW_URL", "HASHVIEW_API_KEY", "HASHVIEW_HASH_TYPE"]
+    required = ["HASHVIEW_HASH_TYPE"]
     missing = [key for key in required if not os.environ.get(key)]
     if missing:
         pytest.skip(f"Missing required env vars: {', '.join(missing)}")
 
-    env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+    url, key = _get_hashview_config()
+    if not url or not key:
+        pytest.skip("Missing hashview_url/hashview_api_key in config.json or env.")
+    env = {**os.environ, "PYTHONUNBUFFERED": "1", "HASHVIEW_URL": url, "HASHVIEW_API_KEY": key}
     base_cmd = [sys.executable, HATE_CRACK_SCRIPT, "hashview"]
     customer_id = _ensure_customer_one()
 
@@ -271,3 +364,33 @@ def test_hashview_subcommands_live_upload_hashfile_job_hashonly(tmp_path):
     assert run.returncode == 0, output
     assert ("Hashfile uploaded" in output) or ("Hashfile added" in output)
     assert ("Job created" in output) or ("Failed to add job" in output)
+    if "Job ID:" in output:
+        job_id = None
+        for line in output.splitlines():
+            if line.strip().startswith("Job ID:"):
+                try:
+                    job_id = int(line.split("Job ID:")[1].strip())
+                except Exception:
+                    job_id = None
+                break
+        if job_id:
+            try:
+                from hate_crack.api import HashviewAPI
+                url, key = _get_hashview_config()
+                if not url or not key:
+                    return
+                api = HashviewAPI(url, key)
+                try:
+                    api.start_job(job_id)
+                except Exception:
+                    pass
+                try:
+                    api.stop_job(job_id)
+                except Exception:
+                    pass
+                try:
+                    api.delete_job(job_id)
+                except Exception:
+                    pass
+            except Exception:
+                pass

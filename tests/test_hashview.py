@@ -22,6 +22,23 @@ HASHVIEW_API_KEY = 'test-api-key-123'
 
 class TestHashviewAPI:
     """Test suite for HashviewAPI class with mocked API calls"""
+
+    def _get_hashview_config(self):
+        env_url = os.environ.get('HASHVIEW_URL')
+        env_key = os.environ.get('HASHVIEW_API_KEY')
+        if env_url and env_key:
+            return env_url, env_key
+        config_path = os.path.join(os.path.dirname(__file__), '..', 'config.json')
+        try:
+            with open(config_path) as f:
+                config = json.load(f)
+            url = config.get('hashview_url')
+            key = config.get('hashview_api_key')
+            if url and key:
+                return url, key
+        except Exception:
+            pass
+        return env_url, env_key
     
     @pytest.fixture
     def api(self):
@@ -55,8 +72,7 @@ class TestHashviewAPI:
 
     def test_list_hashfiles_success(self, api):
         """Test successful hashfile listing with real API if possible, else mock."""
-        hashview_url = os.environ.get('HASHVIEW_URL')
-        hashview_api_key = os.environ.get('HASHVIEW_API_KEY')
+        hashview_url, hashview_api_key = self._get_hashview_config()
         if hashview_url and hashview_api_key:
             real_api = HashviewAPI(hashview_url, hashview_api_key)
             result = real_api.list_hashfiles()
@@ -81,8 +97,7 @@ class TestHashviewAPI:
 
     def test_list_hashfiles_empty(self, api):
         """Test hashfile listing returns empty list if no hashfiles (real API if possible)."""
-        hashview_url = os.environ.get('HASHVIEW_URL')
-        hashview_api_key = os.environ.get('HASHVIEW_API_KEY')
+        hashview_url, hashview_api_key = self._get_hashview_config()
         if hashview_url and hashview_api_key:
             real_api = HashviewAPI(hashview_url, hashview_api_key)
             result = real_api.list_hashfiles()
@@ -101,8 +116,7 @@ class TestHashviewAPI:
 
     def test_get_customer_hashfiles(self, api):
         """Test filtering hashfiles by customer_id (real API if possible)."""
-        hashview_url = os.environ.get('HASHVIEW_URL')
-        hashview_api_key = os.environ.get('HASHVIEW_API_KEY')
+        hashview_url, hashview_api_key = self._get_hashview_config()
         customer_id = os.environ.get('HASHVIEW_CUSTOMER_ID')
         if hashview_url and hashview_api_key and customer_id:
             real_api = HashviewAPI(hashview_url, hashview_api_key)
@@ -129,8 +143,7 @@ class TestHashviewAPI:
 
     def test_upload_cracked_hashes_success(self, api, tmp_path):
         """Test uploading cracked hashes with valid lines (real API if possible)."""
-        hashview_url = os.environ.get('HASHVIEW_URL')
-        hashview_api_key = os.environ.get('HASHVIEW_API_KEY')
+        hashview_url, hashview_api_key = self._get_hashview_config()
         hash_type = os.environ.get('HASHVIEW_HASH_TYPE', '1000')
         if hashview_url and hashview_api_key:
             real_api = HashviewAPI(hashview_url, hashview_api_key)
@@ -184,8 +197,7 @@ class TestHashviewAPI:
 
     def test_create_customer_success(self, api):
         """Test creating a customer (real API if possible)."""
-        hashview_url = os.environ.get('HASHVIEW_URL')
-        hashview_api_key = os.environ.get('HASHVIEW_API_KEY')
+        hashview_url, hashview_api_key = self._get_hashview_config()
         if hashview_url and hashview_api_key:
             real_api = HashviewAPI(hashview_url, hashview_api_key)
             try:
@@ -205,8 +217,7 @@ class TestHashviewAPI:
 
     def test_download_left_hashes(self, api, tmp_path):
         """Test downloading left hashes: real API if possible, else mock."""
-        hashview_url = os.environ.get('HASHVIEW_URL')
-        hashview_api_key = os.environ.get('HASHVIEW_API_KEY')
+        hashview_url, hashview_api_key = self._get_hashview_config()
         customer_id = os.environ.get('HASHVIEW_CUSTOMER_ID')
         hashfile_id = os.environ.get('HASHVIEW_HASHFILE_ID')
         if all([hashview_url, hashview_api_key, customer_id, hashfile_id]):
@@ -240,8 +251,7 @@ class TestHashviewAPI:
 
     def test_download_found_hashes(self, api, tmp_path):
         """Test downloading found hashes: real API if possible, else mock."""
-        hashview_url = os.environ.get('HASHVIEW_URL')
-        hashview_api_key = os.environ.get('HASHVIEW_API_KEY')
+        hashview_url, hashview_api_key = self._get_hashview_config()
         customer_id = os.environ.get('HASHVIEW_CUSTOMER_ID')
         hashfile_id = os.environ.get('HASHVIEW_HASHFILE_ID')
         if all([hashview_url, hashview_api_key, customer_id, hashfile_id]):
@@ -277,8 +287,7 @@ class TestHashviewAPI:
 
     def test_download_wordlist(self, api, tmp_path):
         """Test downloading a wordlist: real API if possible, else mock."""
-        hashview_url = os.environ.get('HASHVIEW_URL')
-        hashview_api_key = os.environ.get('HASHVIEW_API_KEY')
+        hashview_url, hashview_api_key = self._get_hashview_config()
         wordlist_id = os.environ.get('HASHVIEW_WORDLIST_ID')
         if all([hashview_url, hashview_api_key, wordlist_id]):
             real_api = HashviewAPI(hashview_url, hashview_api_key)
@@ -386,8 +395,7 @@ class TestHashviewAPI:
 
     def test_create_job_with_new_customer(self, api, test_hashfile):
         """Test creating a new customer and then creating a job (real API if possible)."""
-        hashview_url = os.environ.get('HASHVIEW_URL')
-        hashview_api_key = os.environ.get('HASHVIEW_API_KEY')
+        hashview_url, hashview_api_key = self._get_hashview_config()
         hash_type = os.environ.get('HASHVIEW_HASH_TYPE', '1000')
         if hashview_url and hashview_api_key:
             real_api = HashviewAPI(hashview_url, hashview_api_key)
@@ -419,6 +427,19 @@ class TestHashviewAPI:
                 assert job_result is not None
                 if isinstance(job_result, dict):
                     assert 'job_id' in job_result
+                    job_id = job_result.get('job_id')
+                    try:
+                        real_api.start_job(job_id)
+                    except Exception:
+                        pass
+                    try:
+                        real_api.stop_job(job_id)
+                    except Exception:
+                        pass
+                    try:
+                        real_api.delete_job(job_id)
+                    except Exception:
+                        pass
             except Exception as e:
                 pytest.skip(f"Real API create_job with new customer not allowed: {e}")
         else:
