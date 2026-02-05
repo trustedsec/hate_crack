@@ -479,6 +479,9 @@ def weakpass_wordlist_menu(rank=-1):
 
 # Hashview Integration - Real API implementation matching hate_crack.py
 class HashviewAPI:
+    def _auth_headers(self):
+        return {"Cookie": f"uuid={self.api_key}"}
+
     def upload_wordlist_file(self, wordlist_path, wordlist_name=None):
         """Directly upload a wordlist file to Hashview (non-interactive)."""
         if wordlist_name is None:
@@ -1240,19 +1243,28 @@ def download_hashes_from_hashview(
     try:
         customer_hashfiles = api_harness.get_customer_hashfiles(customer_id)
         if customer_hashfiles:
-            print_fn("\n" + "=" * 100)
+            print_fn("\n" + "=" * 120)
             print_fn(f"Hashfiles for Customer ID {customer_id}:")
-            print_fn("=" * 100)
-            print_fn(f"{'ID':<10} {'Name':<88}")
-            print_fn("-" * 100)
+            print_fn("=" * 120)
+            print_fn(f"{'ID':<10} {'Hash Type':<10} {'Name':<96}")
+            print_fn("-" * 120)
+            hashfile_map = {}
             for hf in customer_hashfiles:
-                hf_id = hf.get("id", "N/A")
+                hf_id = hf.get("id")
                 hf_name = hf.get("name", "N/A")
-                if len(str(hf_name)) > 88:
-                    hf_name = str(hf_name)[:85] + "..."
-                print_fn(f"{hf_id:<10} {hf_name:<88}")
-            print_fn("=" * 100)
-            print_fn(f"Total: {len(customer_hashfiles)} hashfile(s)")
+                hf_type = hf.get("hash_type") or hf.get("hashtype") or "N/A"
+                if hf_id is None:
+                    continue
+                if len(str(hf_name)) > 96:
+                    hf_name = str(hf_name)[:93] + "..."
+                if debug_mode:
+                    print_fn(
+                        f"[DEBUG] Hashfile {hf_id}: hash_type={hf.get('hash_type')}, hashtype={hf.get('hashtype')}, combined={hf_type}"
+                    )
+                print_fn(f"{hf_id:<10} {hf_type:<10} {hf_name:<96}")
+                hashfile_map[int(hf_id)] = hf_type
+            print_fn("=" * 120)
+            print_fn(f"Total: {len(hashfile_map)} hashfile(s)")
         else:
             print_fn(f"\nNo hashfiles found for customer ID {customer_id}")
             print_fn("This customer needs to have hashfiles uploaded before downloading left hashes.")
@@ -1263,14 +1275,45 @@ def download_hashes_from_hashview(
     except Exception as exc:
         print_fn(f"\nWarning: Could not list hashfiles: {exc}")
         print_fn("You may need to manually find the hashfile ID in the web interface.")
-    hashfile_raw = _safe_input("\nEnter hashfile ID: ").strip()
-    if hashfile_raw.lower() == "q":
-        raise ValueError("cancelled")
-    hashfile_id = int(hashfile_raw)
-    hcat_hash_type = "1000"
+        hashfile_map = {}
+
+    while True:
+        hashfile_raw = _safe_input("\nEnter hashfile ID: ").strip()
+        if hashfile_raw.lower() == "q":
+            raise ValueError("cancelled")
+        try:
+            hashfile_id = int(hashfile_raw)
+        except ValueError:
+            print_fn("\n✗ Error: Invalid ID entered. Please enter a numeric ID.")
+            continue
+        if hashfile_map and hashfile_id not in hashfile_map:
+            print_fn("\n✗ Error: Hashfile ID not in the list. Please try again.")
+            continue
+        break
+
+    selected_hash_type = hashfile_map.get(hashfile_id) if hashfile_map else None
+    if debug_mode:
+        print_fn(f"[DEBUG] selected_hash_type from map: {selected_hash_type}")
+    if not selected_hash_type or selected_hash_type == "N/A":
+        try:
+            details = api_harness.get_hashfile_details(hashfile_id)
+            selected_hash_type = details.get("hashtype")
+            if debug_mode:
+                print_fn(
+                    f"[DEBUG] selected_hash_type from get_hashfile_details: {selected_hash_type}"
+                )
+        except Exception as exc:
+            if debug_mode:
+                print_fn(f"[DEBUG] Error fetching hashfile details: {exc}")
+            selected_hash_type = None
+
+    hcat_hash_type = str(selected_hash_type) if selected_hash_type else "1000"
     output_file = f"left_{customer_id}_{hashfile_id}.txt"
     download_result = api_harness.download_left_hashes(
-        customer_id, hashfile_id, output_file
+        customer_id,
+        hashfile_id,
+        output_file,
+        hash_type=selected_hash_type,
     )
     print_fn(f"\n✓ Success: Downloaded {download_result['size']} bytes")
     print_fn(f"  File: {download_result['output_file']}")

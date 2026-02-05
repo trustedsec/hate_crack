@@ -334,6 +334,19 @@ class TestHashviewAPI:
             assert content == b"gzipdata"
             assert result["size"] == len(content)
 
+    @pytest.mark.skipif(
+        os.environ.get("HASHVIEW_TEST_REAL", "").lower() not in ("1", "true", "yes"),
+        reason="Set HASHVIEW_TEST_REAL=1 to run live Hashview list_wordlists test.",
+    )
+    def test_list_wordlists_live(self):
+        """Live test for Hashview wordlist listing with auth headers."""
+        hashview_url, hashview_api_key = self._get_hashview_config()
+        if not hashview_url or not hashview_api_key:
+            pytest.skip("Missing hashview_url/hashview_api_key in config.json or env.")
+        real_api = HashviewAPI(hashview_url, hashview_api_key)
+        wordlists = real_api.list_wordlists()
+        assert isinstance(wordlists, list)
+
     def test_create_job_workflow(self, api, test_hashfile):
         """Test creating a job in Hashview (option 2 complete workflow)"""
         print("\n" + "=" * 60)
