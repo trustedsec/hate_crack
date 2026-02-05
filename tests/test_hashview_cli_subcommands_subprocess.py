@@ -47,6 +47,10 @@ def _ensure_customer_one():
     if not url or not key:
         pytest.skip("Missing hashview_url/hashview_api_key in config.json or env.")
     api = HashviewAPI(url, key)
+    
+    # Get customer ID from environment or default to 1
+    customer_id = int(os.environ.get("HASHVIEW_CUSTOMER_ID", "1"))
+    
     try:
         customers_result = api.list_customers()
     except Exception as exc:
@@ -56,9 +60,9 @@ def _ensure_customer_one():
         if isinstance(customers_result, dict)
         else customers_result
     )
-    if not any(int(cust.get("id", 0)) == 1 for cust in customers or []):
-        api.create_customer("Example Customer")
-    return 1
+    if not any(int(cust.get("id", 0)) == customer_id for cust in customers or []):
+        api.create_customer(f"Example Customer {customer_id}")
+    return customer_id
 
 
 @pytest.mark.parametrize(
@@ -226,6 +230,10 @@ def test_hashview_subcommands_live_upload_hashfile_job(tmp_path):
         env=env,
     )
     output = run.stdout + run.stderr
+    if "Invalid customer ID" in output:
+        pytest.skip(
+            "HASHVIEW_CUSTOMER_ID does not exist for this API key. Update the env or create the customer."
+        )
     assert run.returncode == 0, output
     assert ("Hashfile uploaded" in output) or ("Hashfile added" in output)
     assert ("Job created" in output) or ("Failed to add job" in output)
@@ -312,6 +320,10 @@ def test_hashview_subcommands_live_upload_hashfile_job_pwdump(tmp_path):
         env=env,
     )
     output = run.stdout + run.stderr
+    if "Invalid customer ID" in output:
+        pytest.skip(
+            "HASHVIEW_CUSTOMER_ID does not exist for this API key. Update the env or create the customer."
+        )
     assert run.returncode == 0, output
     assert ("Hashfile uploaded" in output) or ("Hashfile added" in output)
     assert ("Job created" in output) or ("Failed to add job" in output)

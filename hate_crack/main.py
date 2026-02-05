@@ -1815,18 +1815,47 @@ def hashview_api():
             print("\n" + "=" * 60)
             print("What would you like to do?")
             print("=" * 60)
-            print("\t(1) Upload Cracked Hashes from current session")
-            print("\t(2) Upload Wordlist")
-            print("\t(3) Download Wordlist")
-            print("\t(4) Download Left Hashes (with automatic merge if found)")
+            
+            # Build dynamic menu based on state
+            menu_options = []
             if hcatHashFile:
-                print("\t(5) Upload Hashfile and Create Job")
-            print("\t(99) Back to Main Menu")
+                menu_options.append(("upload_cracked", "Upload Cracked Hashes from current session"))
+            menu_options.append(("upload_wordlist", "Upload Wordlist"))
+            menu_options.append(("download_wordlist", "Download Wordlist"))
+            menu_options.append(("download_left", "Download Left Hashes (with automatic merge if found)"))
+            if hcatHashFile:
+                menu_options.append(("upload_hashfile_job", "Upload Hashfile and Create Job"))
+            menu_options.append(("back", "Back to Main Menu"))
+            
+            # Display menu with dynamic numbering
+            for i, (option_key, option_text) in enumerate(menu_options, 1):
+                if option_key == "back":
+                    print(f"\t(99) {option_text}")
+                else:
+                    print(f"\t({i}) {option_text}")
+            
+            # Create mapping of display numbers to option keys
+            option_map = {}
+            display_num = 1
+            for option_key, _ in menu_options[:-1]:  # All except "back"
+                option_map[str(display_num)] = option_key
+                display_num += 1
+            option_map["99"] = "back"
 
             choice = input("\nSelect an option: ")
+            
+            if choice not in option_map:
+                print("Invalid option. Please try again.")
+                continue
+            
+            option_key = option_map[choice]
 
-            if choice == "1":
+            if option_key == "upload_cracked":
                 # Upload cracked hashes
+                if not hcatHashFile:
+                    print("\n✗ Error: No hashfile is currently set. This option is not available.")
+                    continue
+                
                 print("\n" + "-" * 60)
                 print("Upload Cracked Hashes")
                 print("-" * 60)
@@ -1906,7 +1935,7 @@ def hashview_api():
                     print("\nFull error details:")
                     traceback.print_exc()
 
-            elif choice == "2":
+            elif option_key == "upload_wordlist":
                 print("\n" + "-" * 60)
                 print("Upload Wordlist")
                 print("-" * 60)
@@ -1936,7 +1965,7 @@ def hashview_api():
                 except Exception as e:
                     print(f"\n✗ Error uploading wordlist: {str(e)}")
 
-            elif choice == "3":
+            elif option_key == "download_wordlist":
                 # Download wordlist
                 try:
                     wordlists = api_harness.list_wordlists()
@@ -1982,7 +2011,7 @@ def hashview_api():
                 except Exception as e:
                     print(f"\n✗ Error downloading wordlist: {str(e)}")
 
-            elif choice == "5":
+            elif option_key == "upload_hashfile_job":
                 # Upload hashfile and create job
                 if not hcatHashFile:
                     print("\n✗ Error: No hashfile is currently set.")
@@ -2154,7 +2183,7 @@ def hashview_api():
                 except Exception as e:
                     print(f"\n✗ Error uploading hashfile: {str(e)}")
 
-            elif choice == "4":
+            elif option_key == "download_left":
                 # Download left hashes
                 try:
                     while True:
@@ -2300,13 +2329,11 @@ def hashview_api():
                 except Exception as e:
                     print(f"\n✗ Error downloading hashes: {str(e)}")
 
-            elif choice == "99":
+            elif option_key == "back":
                 break
-            else:
-                print("Invalid option. Please try again.")
 
     except KeyboardInterrupt:
-        print("\n\nHashview upload canceled.")
+        quit_hc()
     except Exception as e:
         print(f"\nError connecting to Hashview: {str(e)}")
 
@@ -2698,6 +2725,17 @@ def main():
             "--hash-type", default=None, help="Hash type for hashcat (e.g., 1000 for NTLM)"
         )
 
+        hv_download_found = hashview_subparsers.add_parser(
+            "download-found",
+            help="Download found hashes for a hashfile",
+        )
+        hv_download_found.add_argument(
+            "--customer-id", required=True, type=int, help="Customer ID"
+        )
+        hv_download_found.add_argument(
+            "--hashfile-id", required=True, type=int, help="Hashfile ID"
+        )
+
         hv_upload_hashfile_job = hashview_subparsers.add_parser(
             "upload-hashfile-job",
             help="Upload a hashfile and create a job",
@@ -2735,7 +2773,13 @@ def main():
     # Removed add_common_args(parser) since config items are now only set via config file
     argv = sys.argv[1:]
     
-    hashview_subcommands = ["upload-cracked", "upload-wordlist", "download-left", "upload-hashfile-job"]
+    hashview_subcommands = [
+        "upload-cracked",
+        "upload-wordlist",
+        "download-left",
+        "download-found",
+        "upload-hashfile-job",
+    ]
     has_hashview_flag = "--hashview" in argv
     has_hashview_subcommand = any(cmd in argv for cmd in hashview_subcommands)
     
@@ -2845,6 +2889,15 @@ def main():
                 args.customer_id,
                 args.hashfile_id,
                 hash_type=args.hash_type,
+            )
+            print(f"\n✓ Success: Downloaded {download_result['size']} bytes")
+            print(f"  File: {download_result['output_file']}")
+            sys.exit(0)
+
+        if args.hashview_command == "download-found":
+            download_result = api_harness.download_found_hashes(
+                args.customer_id,
+                args.hashfile_id,
             )
             print(f"\n✓ Success: Downloaded {download_result['size']} bytes")
             print(f"  File: {download_result['output_file']}")
