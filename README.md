@@ -220,6 +220,8 @@ make test
 
 Common options:
 - `--download-hashview`: Download hashes from Hashview before cracking.
+- `--hashview`: Interactive Hashview menu for managing hashes, wordlists, and jobs.
+- `--hashview --help`: Show Hashview command-line options.
 - `--weakpass`: Download wordlists from Weakpass.
 - `--hashmob`: Download wordlists from Hashmob.net.
 - `--download-torrent <FILENAME>`: Download a specific Weakpass torrent file.
@@ -229,6 +231,70 @@ Common options:
 - `--maxruntime <SECONDS>`: Override max runtime.
 - `--bandrel-basewords <PATH>`: Override bandrel basewords file.
 - `--debug`: Enable debug logging (writes `hate_crack.log` in repo root).
+
+### Hashview Integration
+
+hate_crack integrates with Hashview for centralized hash management and distributed cracking.
+
+#### Interactive Menu
+
+Access the interactive Hashview menu:
+```bash
+hate_crack.py --hashview
+```
+
+Menu options:
+- **(1) Upload Cracked Hashes** - Upload cracked results from current session to Hashview
+- **(2) Upload Wordlist** - Upload a wordlist file to Hashview
+- **(3) Download Wordlist** - Download a wordlist from Hashview
+- **(4) Download Left Hashes** - Download remaining uncracked hashes (automatically merges with found hashes if available)
+- **(5) Upload Hashfile and Create Job** - Upload new hashfile and create a cracking job
+- **(99) Back to Main Menu** - Return to main menu
+
+#### Command-Line Interface
+
+Hashview operations can also be performed via command-line:
+
+Upload cracked hashes:
+```bash
+hate_crack.py --hashview upload-cracked --file <output_file>.out --hash-type 1000
+```
+
+Upload a wordlist:
+```bash
+hate_crack.py --hashview upload-wordlist --file <wordlist>.txt --name "My Wordlist"
+```
+
+Download left hashes (automatically merges with found hashes):
+```bash
+hate_crack.py --hashview download-left --customer-id 1 --hashfile-id 123
+```
+
+Upload hashfile and create job:
+```bash
+hate_crack.py --hashview upload-hashfile-job --file hashes.txt --customer-id 1 \
+  --hash-type 1000 --job-name "NTLM Crack Job" --hashfile-name "Domain Hashes"
+```
+
+#### Configuration
+
+Set Hashview credentials in `config.json`:
+```json
+{
+  "hashview_url": "https://hashview.example.com",
+  "hashview_api_key": "your-api-key-here"
+}
+```
+
+#### Automatic Found Hash Merging
+
+When downloading left hashes, hate_crack automatically:
+1. Attempts to download any found (cracked) hashes from Hashview
+2. Merges found hashes with local `.out` files (e.g., `left_1_123.txt.out` or `left_1_123.nt.txt.out` for pwdump format)
+3. Removes duplicate entries
+4. Deletes the temporary found file after merging
+
+This ensures your local cracking results stay synchronized with Hashview's centralized database.
 
 The <hash_type> is attained by running `hashcat --help`
 

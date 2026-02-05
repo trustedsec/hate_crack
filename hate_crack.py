@@ -5,7 +5,14 @@ from hate_crack import main as _main
 
 # Re-export symbols for tests and legacy imports.
 for _name, _value in _main.__dict__.items():
-    if _name.startswith("__") and _name not in {"__all__", "__doc__", "__name__", "__package__", "__loader__", "__spec__"}:
+    if _name.startswith("__") and _name not in {
+        "__all__",
+        "__doc__",
+        "__name__",
+        "__package__",
+        "__loader__",
+        "__spec__",
+    }:
         continue
     globals().setdefault(_name, _value)
 

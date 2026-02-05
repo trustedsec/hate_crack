@@ -13,10 +13,7 @@ def test_pipal_runs_and_parses_basewords(hc_module, tmp_path, capsys):
     hc.hcatHashFile = str(tmp_path / "hashes")
 
     out_path = tmp_path / "hashes.out"
-    out_path.write_text(
-        "hash1:password123\n"
-        "hash2:$HEX[70617373313233]\n"
-    )
+    out_path.write_text("hash1:password123\nhash2:$HEX[70617373313233]\n")
 
     pipal_stub = tmp_path / "pipal_stub.py"
     _write_executable(
@@ -32,7 +29,7 @@ def test_pipal_runs_and_parses_basewords(hc_module, tmp_path, capsys):
         "    f.write('Top 3 base words\\n')\n"
         "    f.write('pass123 10\\n')\n"
         "    f.write('letmein 5\\n')\n"
-        "    f.write('welcome 3\\n')\n"
+        "    f.write('welcome 3\\n')\n",
     )
     hc.pipalPath = str(pipal_stub)
 
@@ -69,7 +66,7 @@ def test_pipal_missing_out_returns_empty(hc_module, tmp_path, capsys):
         "    f.write('Top 3 base words\\n')\n"
         "    f.write('pass123 10\\n')\n"
         "    f.write('letmein 5\\n')\n"
-        "    f.write('welcome 3\\n')\n"
+        "    f.write('welcome 3\\n')\n",
     )
     hc.pipalPath = str(pipal_stub)
 

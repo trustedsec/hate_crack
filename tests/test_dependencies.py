@@ -8,7 +8,11 @@ import pytest
 def _require_executable(name):
     if shutil.which(name) is None:
         warnings.warn(f"Missing required dependency: {name}", RuntimeWarning)
-        if os.environ.get("HATE_CRACK_REQUIRE_DEPS", "").lower() in ("1", "true", "yes"):
+        if os.environ.get("HATE_CRACK_REQUIRE_DEPS", "").lower() in (
+            "1",
+            "true",
+            "yes",
+        ):
             pytest.fail(f"Required dependency not installed: {name}")
         pytest.skip(f"Missing required dependency: {name}")
 

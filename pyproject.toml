@@ -25,3 +25,18 @@ hate_crack = [
     "hashcat-utils/**",
     "princeprocessor/**",
 ]
+
+[tool.ruff]
+exclude = [
+    "build",
+    "dist",
+    "PACK",
+    "hashcat-utils",
+    "princeprocessor",
+    "wordlists",
+]
+
+[tool.pytest.ini_options]
+testpaths = [
+    "tests",
+]

@@ -34,12 +34,11 @@ def docker_image():
         pytest.fail(f"Docker build timed out after {exc.timeout}s")
 
     assert build.returncode == 0, (
-        "Docker build failed. "
-        f"stdout={build.stdout} stderr={build.stderr}"
+        f"Docker build failed. stdout={build.stdout} stderr={build.stderr}"
     )
-    
+
     yield image_tag
-    
+
     # Cleanup: remove the Docker image after tests complete
     try:
         result = subprocess.run(
@@ -52,11 +51,14 @@ def docker_image():
             print(
                 f"Warning: Failed to remove Docker image {image_tag}. "
                 f"stderr={result.stderr}",
-                file=sys.stderr
+                file=sys.stderr,
             )
     except Exception as e:
         # Don't fail the test if cleanup fails, but log the issue
-        print(f"Warning: Exception while removing Docker image {image_tag}: {e}", file=sys.stderr)
+        print(
+            f"Warning: Exception while removing Docker image {image_tag}: {e}",
+            file=sys.stderr,
+        )
 
 
 def _run_container(image_tag, command, timeout=180):
@@ -79,8 +81,7 @@ def test_docker_script_install_and_run(docker_image):
         timeout=120,
     )
     assert run.returncode == 0, (
-        "Docker script install/run failed. "
-        f"stdout={run.stdout} stderr={run.stderr}"
+        f"Docker script install/run failed. stdout={run.stdout} stderr={run.stderr}"
     )
 
 
@@ -94,6 +95,5 @@ def test_docker_hashcat_cracks_simple_password(docker_image):
     )
     run = _run_container(docker_image, command, timeout=180)
     assert run.returncode == 0, (
-        "Docker hashcat crack failed. "
-        f"stdout={run.stdout} stderr={run.stderr}"
+        f"Docker hashcat crack failed. stdout={run.stdout} stderr={run.stderr}"
     )

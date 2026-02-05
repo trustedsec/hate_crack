@@ -21,5 +21,7 @@ def setup_logging(logger: logging.Logger, hate_path: str, debug_mode: bool) -> N
     if not any(isinstance(h, logging.FileHandler) for h in logger.handlers):
         log_path = os.path.join(hate_path, "hate_crack.log")
         file_handler = logging.FileHandler(log_path)
-        file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+        file_handler.setFormatter(
+            logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+        )
         logger.addHandler(file_handler)
