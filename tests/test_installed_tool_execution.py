@@ -2,6 +2,7 @@
 Tests for hate_crack execution when installed as a uv tool.
 Verifies that the tool can find assets from any working directory.
 """
+
 import subprocess
 import os
 import tempfile
@@ -11,7 +12,7 @@ import pytest
 
 @pytest.mark.skipif(
     not shutil.which("hate_crack"),
-    reason="hate_crack not installed as a tool (run 'make install' first)"
+    reason="hate_crack not installed as a tool (run 'make install' first)",
 )
 class TestInstalledToolExecution:
     """Test suite for execution of installed hate_crack tool."""
@@ -24,7 +25,7 @@ class TestInstalledToolExecution:
             cwd=home_dir,
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
         )
         assert result.returncode == 0
         assert "usage: hate_crack" in result.stdout
@@ -37,7 +38,7 @@ class TestInstalledToolExecution:
             cwd="/tmp",
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
         )
         assert result.returncode == 0
         assert "usage: hate_crack" in result.stdout
@@ -50,7 +51,7 @@ class TestInstalledToolExecution:
                 cwd=tmpdir,
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=5,
             )
             assert result.returncode == 0
             assert "usage: hate_crack" in result.stdout
@@ -58,11 +59,7 @@ class TestInstalledToolExecution:
     def test_help_from_root_directory(self):
         """Test that --help works when run from root directory."""
         result = subprocess.run(
-            ["hate_crack", "--help"],
-            cwd="/",
-            capture_output=True,
-            text=True,
-            timeout=5
+            ["hate_crack", "--help"], cwd="/", capture_output=True, text=True, timeout=5
         )
         assert result.returncode == 0
         assert "usage: hate_crack" in result.stdout
@@ -75,7 +72,7 @@ class TestInstalledToolExecution:
             cwd=home_dir,
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
         )
         assert result.returncode == 0
         assert "usage: hate_crack" in result.stdout
@@ -88,12 +85,14 @@ class TestInstalledToolExecution:
             cwd=home_dir,
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
         )
         assert result.returncode == 0
         # Check that there are no error-related messages
         assert "Error" not in result.stderr
-        assert "error" not in result.stdout.lower() or "error" in "usage"  # "usage" might contain substring
+        assert (
+            "error" not in result.stdout.lower() or "error" in "usage"
+        )  # "usage" might contain substring
         assert "not found" not in result.stderr.lower()
         assert "No such file" not in result.stderr
 
@@ -106,7 +105,7 @@ class TestInstalledToolExecution:
                 cwd=tmpdir,
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=5,
             )
             assert result.returncode == 0
             # Should successfully show help without errors
@@ -119,14 +118,14 @@ class TestInstalledToolExecution:
             "/tmp",
             "/",
         ]
-        
+
         for directory in directories:
             result = subprocess.run(
                 ["hate_crack", "--help"],
                 cwd=directory,
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=5,
             )
             assert result.returncode == 0, f"Failed when running from {directory}"
             assert "usage: hate_crack" in result.stdout
@@ -135,20 +134,22 @@ class TestInstalledToolExecution:
         """Test that assets are correctly resolved from various working directories."""
         directories = [
             os.path.expanduser("~"),
-            os.path.expanduser("~/Desktop") if os.path.exists(os.path.expanduser("~/Desktop")) else "/tmp",
+            os.path.expanduser("~/Desktop")
+            if os.path.exists(os.path.expanduser("~/Desktop"))
+            else "/tmp",
             "/tmp",
         ]
-        
+
         for directory in directories:
             if not os.path.exists(directory):
                 continue
-                
+
             result = subprocess.run(
                 ["hate_crack", "--help"],
                 cwd=directory,
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=5,
             )
             # Should succeed from any directory
             assert result.returncode == 0, (

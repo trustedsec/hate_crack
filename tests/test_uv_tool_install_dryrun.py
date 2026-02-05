@@ -14,7 +14,9 @@ def test_uv_tool_install_dryrun_metadata():
     scripts = project.get("scripts", {})
     assert scripts.get("hate_crack") == "hate_crack.__main__:main"
 
-    setuptools_find = data.get("tool", {}).get("setuptools", {}).get("packages", {}).get("find", {})
+    setuptools_find = (
+        data.get("tool", {}).get("setuptools", {}).get("packages", {}).get("find", {})
+    )
     assert "hate_crack*" in setuptools_find.get("include", [])
 
     entrypoint = repo_root / "hate_crack" / "__main__.py"

@@ -32,6 +32,5 @@ def test_hashcat_utils_submodule_initialized():
         )
 
     assert not _is_hashcat_utils_empty(submodule_path), (
-        "hashcat-utils submodule is empty. "
-        "Run: git submodule update --init --recursive"
+        "hashcat-utils submodule is empty. Run: git submodule update --init --recursive"
     )

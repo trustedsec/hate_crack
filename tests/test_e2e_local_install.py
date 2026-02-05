@@ -38,8 +38,7 @@ def test_local_uv_tool_install_and_help(tmp_path):
         text=True,
     )
     assert install.returncode == 0, (
-        "uv tool install failed. "
-        f"stdout={install.stdout} stderr={install.stderr}"
+        f"uv tool install failed. stdout={install.stdout} stderr={install.stderr}"
     )
 
     tool_help = subprocess.run(
@@ -50,8 +49,7 @@ def test_local_uv_tool_install_and_help(tmp_path):
         text=True,
     )
     assert tool_help.returncode == 0, (
-        "hate_crack --help failed. "
-        f"stdout={tool_help.stdout} stderr={tool_help.stderr}"
+        f"hate_crack --help failed. stdout={tool_help.stdout} stderr={tool_help.stderr}"
     )
 
     script_help = subprocess.run(

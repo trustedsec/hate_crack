@@ -51,7 +51,11 @@ def _ensure_customer_one():
         customers_result = api.list_customers()
     except Exception as exc:
         pytest.skip(f"Unable to list customers from HASHVIEW_URL: {exc}")
-    customers = customers_result.get("customers", []) if isinstance(customers_result, dict) else customers_result
+    customers = (
+        customers_result.get("customers", [])
+        if isinstance(customers_result, dict)
+        else customers_result
+    )
     if not any(int(cust.get("id", 0)) == 1 for cust in customers or []):
         api.create_customer("Example Customer")
     return 1
@@ -61,7 +65,14 @@ def _ensure_customer_one():
     "args",
     [
         ["hashview", "upload-cracked", "--file", "dummy.out", "--hash-type", "1000"],
-        ["hashview", "upload-wordlist", "--file", "dummy.txt", "--name", "TestWordlist"],
+        [
+            "hashview",
+            "upload-wordlist",
+            "--file",
+            "dummy.txt",
+            "--name",
+            "TestWordlist",
+        ],
         ["hashview", "download-left", "--customer-id", "1", "--hashfile-id", "2"],
         ["hashview", "download-found", "--customer-id", "1", "--hashfile-id", "2"],
         [
@@ -80,7 +91,9 @@ def _ensure_customer_one():
 )
 def test_hashview_subcommands_require_api_key(tmp_path, args):
     if _config_has_hashview_key():
-        pytest.skip("config.json has hashview_api_key set; skip API-key missing checks.")
+        pytest.skip(
+            "config.json has hashview_api_key set; skip API-key missing checks."
+        )
 
     # Ensure any dummy files referenced exist to avoid confusion if the code path changes.
     for idx, arg in enumerate(args):
@@ -116,7 +129,12 @@ def test_hashview_subcommands_live_downloads():
     url, key = _get_hashview_config()
     if not url or not key:
         pytest.skip("Missing hashview_url/hashview_api_key in config.json or env.")
-    env = {**os.environ, "PYTHONUNBUFFERED": "1", "HASHVIEW_URL": url, "HASHVIEW_API_KEY": key}
+    env = {
+        **os.environ,
+        "PYTHONUNBUFFERED": "1",
+        "HASHVIEW_URL": url,
+        "HASHVIEW_API_KEY": key,
+    }
     base_cmd = [sys.executable, HATE_CRACK_SCRIPT, "hashview"]
     customer_id = _ensure_customer_one()
 
@@ -174,7 +192,12 @@ def test_hashview_subcommands_live_upload_hashfile_job(tmp_path):
     url, key = _get_hashview_config()
     if not url or not key:
         pytest.skip("Missing hashview_url/hashview_api_key in config.json or env.")
-    env = {**os.environ, "PYTHONUNBUFFERED": "1", "HASHVIEW_URL": url, "HASHVIEW_API_KEY": key}
+    env = {
+        **os.environ,
+        "PYTHONUNBUFFERED": "1",
+        "HASHVIEW_URL": url,
+        "HASHVIEW_API_KEY": key,
+    }
     base_cmd = [sys.executable, HATE_CRACK_SCRIPT, "hashview"]
     customer_id = _ensure_customer_one()
 
@@ -218,6 +241,7 @@ def test_hashview_subcommands_live_upload_hashfile_job(tmp_path):
         if job_id:
             try:
                 from hate_crack.api import HashviewAPI
+
                 url, key = _get_hashview_config()
                 if not url or not key:
                     return
@@ -251,7 +275,12 @@ def test_hashview_subcommands_live_upload_hashfile_job_pwdump(tmp_path):
     url, key = _get_hashview_config()
     if not url or not key:
         pytest.skip("Missing hashview_url/hashview_api_key in config.json or env.")
-    env = {**os.environ, "PYTHONUNBUFFERED": "1", "HASHVIEW_URL": url, "HASHVIEW_API_KEY": key}
+    env = {
+        **os.environ,
+        "PYTHONUNBUFFERED": "1",
+        "HASHVIEW_URL": url,
+        "HASHVIEW_API_KEY": key,
+    }
     base_cmd = [sys.executable, HATE_CRACK_SCRIPT, "hashview"]
     customer_id = _ensure_customer_one()
 
@@ -298,6 +327,7 @@ def test_hashview_subcommands_live_upload_hashfile_job_pwdump(tmp_path):
         if job_id:
             try:
                 from hate_crack.api import HashviewAPI
+
                 url, key = _get_hashview_config()
                 if not url or not key:
                     return
@@ -331,7 +361,12 @@ def test_hashview_subcommands_live_upload_hashfile_job_hashonly(tmp_path):
     url, key = _get_hashview_config()
     if not url or not key:
         pytest.skip("Missing hashview_url/hashview_api_key in config.json or env.")
-    env = {**os.environ, "PYTHONUNBUFFERED": "1", "HASHVIEW_URL": url, "HASHVIEW_API_KEY": key}
+    env = {
+        **os.environ,
+        "PYTHONUNBUFFERED": "1",
+        "HASHVIEW_URL": url,
+        "HASHVIEW_API_KEY": key,
+    }
     base_cmd = [sys.executable, HATE_CRACK_SCRIPT, "hashview"]
     customer_id = _ensure_customer_one()
 
@@ -376,6 +411,7 @@ def test_hashview_subcommands_live_upload_hashfile_job_hashonly(tmp_path):
         if job_id:
             try:
                 from hate_crack.api import HashviewAPI
+
                 url, key = _get_hashview_config()
                 if not url or not key:
                     return

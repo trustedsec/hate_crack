@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := submodules
-.PHONY: install reinstall clean hashcat-utils submodules test
+.PHONY: install reinstall clean hashcat-utils submodules test coverage
 
 hashcat-utils: submodules
 	$(MAKE) -C hashcat-utils
@@ -58,6 +58,9 @@ clean:
 
 test:
 	uv run pytest -v
+
+coverage:
+	uv run pytest --cov=hate_crack --cov-report=term-missing
 
 
 uninstall:

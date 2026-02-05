@@ -136,6 +136,12 @@ uv run pytest -v
 # Or via Makefile
 make test
 
+# Run tests with coverage
+uv run pytest --cov=hate_crack --cov-report=term-missing
+
+# Or via Makefile
+make coverage
+
 # Run specific test
 uv run pytest tests/test_hashview.py -v
 

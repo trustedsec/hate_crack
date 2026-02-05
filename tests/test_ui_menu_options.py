@@ -4,7 +4,9 @@ from pathlib import Path
 import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-CLI_SPEC = importlib.util.spec_from_file_location("hate_crack_cli", PROJECT_ROOT / "hate_crack.py")
+CLI_SPEC = importlib.util.spec_from_file_location(
+    "hate_crack_cli", PROJECT_ROOT / "hate_crack.py"
+)
 CLI_MODULE = importlib.util.module_from_spec(CLI_SPEC)
 CLI_SPEC.loader.exec_module(CLI_MODULE)
 
@@ -39,7 +41,9 @@ MENU_OPTION_TEST_CASES = [
     ("option_key", "target_module", "target_attr", "expected_prefix"),
     MENU_OPTION_TEST_CASES,
 )
-def test_main_menu_option_returns_expected(monkeypatch, option_key, target_module, target_attr, expected_prefix):
+def test_main_menu_option_returns_expected(
+    monkeypatch, option_key, target_module, target_attr, expected_prefix
+):
     sentinel = f"{expected_prefix}-{option_key}"
     monkeypatch.setattr(
         target_module,

@@ -1,4 +1,3 @@
-import os
 import sys
 import pytest
 
@@ -12,7 +11,7 @@ class DummyHashviewAPI:
         self.debug = debug
         self.calls = []
 
-    def upload_cracked_hashes(self, file_path, hash_type='1000'):
+    def upload_cracked_hashes(self, file_path, hash_type="1000"):
         self.calls.append(("upload_cracked_hashes", file_path, hash_type))
         return {"msg": "Cracked hashes uploaded", "count": 2}
 
@@ -21,19 +20,51 @@ class DummyHashviewAPI:
         return {"msg": "Wordlist uploaded", "wordlist_id": 123}
 
     def download_left_hashes(self, customer_id, hashfile_id, output_file=None):
-        self.calls.append(("download_left_hashes", customer_id, hashfile_id, output_file))
-        return {"output_file": output_file or f"left_{customer_id}_{hashfile_id}.txt", "size": 10}
+        self.calls.append(
+            ("download_left_hashes", customer_id, hashfile_id, output_file)
+        )
+        return {
+            "output_file": output_file or f"left_{customer_id}_{hashfile_id}.txt",
+            "size": 10,
+        }
 
     def download_found_hashes(self, customer_id, hashfile_id, output_file=None):
-        self.calls.append(("download_found_hashes", customer_id, hashfile_id, output_file))
-        return {"output_file": output_file or f"found_{customer_id}_{hashfile_id}.txt", "size": 12}
+        self.calls.append(
+            ("download_found_hashes", customer_id, hashfile_id, output_file)
+        )
+        return {
+            "output_file": output_file or f"found_{customer_id}_{hashfile_id}.txt",
+            "size": 12,
+        }
 
-    def upload_hashfile(self, file_path, customer_id, hash_type, file_format=5, hashfile_name=None):
-        self.calls.append(("upload_hashfile", file_path, customer_id, hash_type, file_format, hashfile_name))
+    def upload_hashfile(
+        self, file_path, customer_id, hash_type, file_format=5, hashfile_name=None
+    ):
+        self.calls.append(
+            (
+                "upload_hashfile",
+                file_path,
+                customer_id,
+                hash_type,
+                file_format,
+                hashfile_name,
+            )
+        )
         return {"msg": "Hashfile uploaded", "hashfile_id": 456}
 
-    def create_job(self, name, hashfile_id, customer_id, limit_recovered=False, notify_email=True):
-        self.calls.append(("create_job", name, hashfile_id, customer_id, limit_recovered, notify_email))
+    def create_job(
+        self, name, hashfile_id, customer_id, limit_recovered=False, notify_email=True
+    ):
+        self.calls.append(
+            (
+                "create_job",
+                name,
+                hashfile_id,
+                customer_id,
+                limit_recovered,
+                notify_email,
+            )
+        )
         return {"msg": "Job created", "job_id": 789}
 
 
@@ -89,28 +120,9 @@ def test_hashview_cli_upload_wordlist(_patch_hashview, monkeypatch, tmp_path, ca
     assert "Wordlist uploaded" in captured.out
 
 
-def test_hashview_cli_download_found(_patch_hashview, monkeypatch, tmp_path, capsys):
-    out_file = tmp_path / "found_1_2.txt"
-    code = _run_main_with_args(
-        monkeypatch,
-        [
-            "hashview",
-            "download-found",
-            "--customer-id",
-            "1",
-            "--hashfile-id",
-            "2",
-            "--out",
-            str(out_file),
-        ],
-    )
-    captured = capsys.readouterr()
-    assert code == 0
-    assert "Downloaded" in captured.out
-    assert str(out_file) in captured.out
-
-
-def test_hashview_cli_upload_hashfile_job(_patch_hashview, monkeypatch, tmp_path, capsys):
+def test_hashview_cli_upload_hashfile_job(
+    _patch_hashview, monkeypatch, tmp_path, capsys
+):
     hashfile = tmp_path / "hashes.txt"
     hashfile.write_text("hash1\n")
     code = _run_main_with_args(

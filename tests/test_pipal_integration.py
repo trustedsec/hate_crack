@@ -4,14 +4,16 @@ import subprocess
 
 import json
 
+
 def test_pipal_executable_and_runs(tmp_path):
     # Read pipalPath from config.json
-    config_path = os.path.join(os.path.dirname(__file__), '..', 'config.json')
-    with open(config_path, 'r') as f:
+    config_path = os.path.join(os.path.dirname(__file__), "..", "config.json")
+    with open(config_path, "r") as f:
         config = json.load(f)
-    pipal_path = config.get('pipalPath')
+    pipal_path = config.get("pipalPath")
     if not pipal_path or not os.path.isfile(pipal_path):
         import pytest
+
         pytest.skip("pipalPath not configured or file missing")
 
     if not os.access(pipal_path, os.X_OK):
@@ -37,7 +39,9 @@ def test_pipal_executable_and_runs(tmp_path):
         )
 
     if not output_file.exists():
-        raise AssertionError("pipal did not produce an output file; it may need to be compiled.")
+        raise AssertionError(
+            "pipal did not produce an output file; it may need to be compiled."
+        )
 
     content = output_file.read_text()
     assert "Top 3 base words" in content

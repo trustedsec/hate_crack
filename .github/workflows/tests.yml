@@ -25,8 +25,14 @@ jobs:
       - name: Install project dependencies
         run: |
           uv venv .venv
-          uv pip install --python .venv/bin/python pytest
+          uv pip install --python .venv/bin/python pytest pytest-cov ruff mypy
           uv pip install --python .venv/bin/python .
+
+      - name: Run ruff
+        run: .venv/bin/ruff check hate_crack
+
+      - name: Run mypy
+        run: .venv/bin/mypy --ignore-missing-imports hate_crack
 
       - name: Run tests
         env:
@@ -34,4 +40,4 @@ jobs:
           HATE_CRACK_RUN_DOCKER_TESTS: "0"
           HATE_CRACK_RUN_LIVE_TESTS: "0"
           HATE_CRACK_SKIP_INIT: "1"
-        run: .venv/bin/python -m pytest -v
+        run: .venv/bin/python -m pytest
