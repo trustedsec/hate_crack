@@ -528,16 +528,12 @@ class TestHashviewAPI:
         assert detect_format(hexhash_file) == 5, "hex:hash should default to hash_only"
 
     def test_download_left_with_auto_merge(self, api, tmp_path, monkeypatch):
-        """Test that download_left automatically downloads and merges found hashes"""
+        """Test that download_left automatically downloads and splits found hashes for hashcat"""
         # Use a different CWD than the output directory to ensure merging uses
         # output_file's directory (not os.getcwd()).
         other_cwd = tmp_path / "other_cwd"
         other_cwd.mkdir()
         monkeypatch.chdir(other_cwd)
-
-        # Create existing .out file
-        out_file = tmp_path / "left_1_2.txt.out"
-        out_file.write_text("previously_cracked_hash1:password1\npreviously_cracked_hash2:password2\n")
         
         # Mock left hashes download
         mock_left_response = Mock()
@@ -564,26 +560,23 @@ class TestHashviewAPI:
         # Set up session.get to return different responses
         api.session.get.side_effect = [mock_left_response, mock_found_response]
         
-        # Download left hashes (should auto-download and merge found)
+        # Download left hashes (should auto-download and split found for hashcat)
         left_file = tmp_path / "left_1_2.txt"
         result = api.download_left_hashes(1, 2, output_file=str(left_file))
         
         # Verify left file was created
         assert os.path.exists(result["output_file"])
         
-        # Verify found file was downloaded, merged, and deleted
+        # Verify found file was downloaded and deleted
         found_file = tmp_path / "found_1_2.txt"
-        assert not os.path.exists(found_file), "Found file should be deleted after merge"
+        assert not os.path.exists(found_file), "Found file should be deleted after split"
         assert not (other_cwd / "found_1_2.txt").exists()
         
-        # Verify merged content in .out file
-        if os.path.exists(str(out_file)):
-            with open(str(out_file), 'r') as f:
-                merged_content = f.read()
-            # Should contain both previous and new found hashes
-            assert "previously_cracked_hash1:password1" in merged_content
-            assert "found_hash1:found_password1" in merged_content or "found_password1" in merged_content
-
+        # Verify split files were created and deleted
+        found_hashes_file = tmp_path / "found_hashes_1_2.txt"
+        found_clears_file = tmp_path / "found_clears_1_2.txt"
+        assert not os.path.exists(str(found_hashes_file)), "Split hashes file should be deleted"
+        assert not os.path.exists(str(found_clears_file)), "Split clears file should be deleted"
     def test_download_left_id_matching(self, api, tmp_path):
         """Test that found hashes only merge when customer_id and hashfile_id match"""
         # Create .out file with specific IDs

@@ -2157,90 +2157,127 @@ def hashview_api():
             elif choice == "4":
                 # Download left hashes
                 try:
-                    # First, list customers to help user select
-                    customers_result = api_harness.list_customers()
-                    customers = (
-                        customers_result.get("customers", [])
-                        if isinstance(customers_result, dict)
-                        else customers_result
-                    )
-                    if customers:
-                        api_harness.display_customers_multicolumn(customers)
-                    else:
-                        print("\nNo customers found.")
+                    while True:
+                        # First, list customers to help user select
+                        customers_result = api_harness.list_customers()
+                        customers = (
+                            customers_result.get("customers", [])
+                            if isinstance(customers_result, dict)
+                            else customers_result
+                        )
+                        if customers:
+                            api_harness.display_customers_multicolumn(customers)
+                        else:
+                            print("\nNo customers found.")
 
-                    # Select or create customer
-                    customer_input = input(
-                        "\nEnter customer ID or N to create new: "
-                    ).strip()
-                    if customer_input.lower() == "n":
-                        customer_name = input("Enter customer name: ").strip()
-                        if customer_name:
-                            try:
-                                result = api_harness.create_customer(customer_name)
-                                print(
-                                    f"\n✓ Success: {result.get('msg', 'Customer created')}"
-                                )
-                                customer_id = result.get("customer_id") or result.get("id")
-                                if not customer_id:
-                                    print("\n✗ Error: Customer ID not returned.")
+                        # Select or create customer
+                        customer_input = input(
+                            "\nEnter customer ID or N to create new: "
+                        ).strip()
+                        if customer_input.lower() == "n":
+                            customer_name = input("Enter customer name: ").strip()
+                            if customer_name:
+                                try:
+                                    result = api_harness.create_customer(customer_name)
+                                    print(
+                                        f"\n✓ Success: {result.get('msg', 'Customer created')}"
+                                    )
+                                    customer_id = result.get("customer_id") or result.get("id")
+                                    if not customer_id:
+                                        print("\n✗ Error: Customer ID not returned.")
+                                        continue
+                                    print(f"  Customer ID: {customer_id}")
+                                except Exception as e:
+                                    print(f"\n✗ Error creating customer: {str(e)}")
                                     continue
-                                print(f"  Customer ID: {customer_id}")
-                            except Exception as e:
-                                print(f"\n✗ Error creating customer: {str(e)}")
+                            else:
+                                print("\n✗ Error: Customer name cannot be empty.")
                                 continue
                         else:
-                            print("\n✗ Error: Customer name cannot be empty.")
-                            continue
-                    else:
+                            try:
+                                customer_id = int(customer_input)
+                            except ValueError:
+                                print(
+                                    "\n✗ Error: Invalid ID entered. Please enter a numeric ID or N."
+                                )
+                                continue
+
+                        # List hashfiles for the customer
                         try:
-                            customer_id = int(customer_input)
-                        except ValueError:
-                            print(
-                                "\n✗ Error: Invalid ID entered. Please enter a numeric ID or N."
+                            customer_hashfiles = api_harness.get_customer_hashfiles(
+                                customer_id
                             )
+
+                            if not customer_hashfiles:
+                                print(f"\nNo hashfiles found for customer ID {customer_id}")
+                                continue
+
+                            print("\n" + "=" * 120)
+                            print(f"Hashfiles for Customer ID {customer_id}:")
+                            print("=" * 120)
+                            print(f"{'ID':<10} {'Hash Type':<10} {'Name':<96}")
+                            print("-" * 120)
+                            hashfile_map = {}
+                            for hf in customer_hashfiles:
+                                hf_id = hf.get("id")
+                                hf_name = hf.get("name", "N/A")
+                                hf_type = hf.get("hash_type") or hf.get("hashtype") or "N/A"
+                                if hf_id is None:
+                                    continue
+                                # Truncate long names to fit within 120 columns
+                                if len(str(hf_name)) > 96:
+                                    hf_name = str(hf_name)[:93] + "..."
+                                if debug_mode:
+                                    print(f"[DEBUG] Hashfile {hf_id}: hash_type={hf.get('hash_type')}, hashtype={hf.get('hashtype')}, combined={hf_type}")
+                                print(f"{hf_id:<10} {hf_type:<10} {hf_name:<96}")
+                                hashfile_map[int(hf_id)] = hf_type
+                            print("=" * 120)
+                            print(f"Total: {len(hashfile_map)} hashfile(s)")
+                        except Exception as e:
+                            print(f"\nWarning: Could not list hashfiles: {e}")
                             continue
 
-                    # List hashfiles for the customer
-                    try:
-                        customer_hashfiles = api_harness.get_customer_hashfiles(
-                            customer_id
-                        )
-
-                        if customer_hashfiles:
-                            print("\n" + "=" * 100)
-                            print(f"Hashfiles for Customer ID {customer_id}:")
-                            print("=" * 100)
-                            print(f"{'ID':<10} {'Name':<88}")
-                            print("-" * 100)
-                            for hf in customer_hashfiles:
-                                hf_id = hf.get("id", "N/A")
-                                hf_name = hf.get("name", "N/A")
-                                # Truncate long names to fit within 100 columns
-                                if len(str(hf_name)) > 88:
-                                    hf_name = str(hf_name)[:85] + "..."
-                                print(f"{hf_id:<10} {hf_name:<88}")
-                            print("=" * 100)
-                            print(f"Total: {len(customer_hashfiles)} hashfile(s)")
-                        else:
-                            print(f"\nNo hashfiles found for customer ID {customer_id}")
-                    except Exception as e:
-                        print(f"\nWarning: Could not list hashfiles: {e}")
-                        print(
-                            "You may need to manually find the hashfile ID in the web interface."
-                        )
-
-                    hashfile_id = int(input("\nEnter hashfile ID: "))
+                        while True:
+                            try:
+                                hashfile_id_input = input("\nEnter hashfile ID: ").strip()
+                                hashfile_id = int(hashfile_id_input)
+                            except ValueError:
+                                print("\n✗ Error: Invalid ID entered. Please enter a numeric ID.")
+                                continue
+                            if hashfile_id not in hashfile_map:
+                                print("\n✗ Error: Hashfile ID not in the list. Please try again.")
+                                continue
+                            break
+                        break
 
                     # Set output filename automatically
                     output_file = f"left_{customer_id}_{hashfile_id}.txt"
 
+                    # Get hash type for hashcat from the hashfile map
+                    selected_hash_type = hashfile_map.get(hashfile_id)
+                    if debug_mode:
+                        print(f"[DEBUG] selected_hash_type from map: {selected_hash_type}")
+                    if not selected_hash_type or selected_hash_type == "N/A":
+                        try:
+                            details = api_harness.get_hashfile_details(hashfile_id)
+                            selected_hash_type = details.get("hashtype")
+                            if debug_mode:
+                                print(f"[DEBUG] selected_hash_type from get_hashfile_details: {selected_hash_type}")
+                        except Exception as e:
+                            if debug_mode:
+                                print(f"[DEBUG] Error fetching hashfile details: {e}")
+                            selected_hash_type = None
+
                     # Download the left hashes
+                    if debug_mode:
+                        print(f"[DEBUG] Calling download_left_hashes with hash_type={selected_hash_type}")
                     download_result = api_harness.download_left_hashes(
-                        customer_id, hashfile_id, output_file
+                        customer_id, hashfile_id, output_file, hash_type=selected_hash_type
                     )
                     print(f"\n✓ Success: Downloaded {download_result['size']} bytes")
                     print(f"  File: {download_result['output_file']}")
+                    if selected_hash_type:
+                        print(f"  Hash mode: {selected_hash_type}")
 
                     # Ask if user wants to switch to this hashfile
                     switch = (
@@ -2250,7 +2287,10 @@ def hashview_api():
                     )
                     if switch != "n":
                         hcatHashFile = download_result["output_file"]
-                        hcatHashType = "1000"  # Default to NTLM for Hashview downloads
+                        if selected_hash_type:
+                            hcatHashType = str(selected_hash_type)
+                        else:
+                            hcatHashType = "1000"  # Default to NTLM if unavailable
                         print(f"✓ Switched to hashfile: {hcatHashFile}")
                         print("\nReturning to main menu to start cracking...")
                         return  # Exit hashview menu and return to main menu
@@ -2654,6 +2694,9 @@ def main():
         hv_download_left.add_argument(
             "--hashfile-id", required=True, type=int, help="Hashfile ID"
         )
+        hv_download_left.add_argument(
+            "--hash-type", default=None, help="Hash type for hashcat (e.g., 1000 for NTLM)"
+        )
 
         hv_upload_hashfile_job = hashview_subparsers.add_parser(
             "upload-hashfile-job",
@@ -2801,6 +2844,7 @@ def main():
             download_result = api_harness.download_left_hashes(
                 args.customer_id,
                 args.hashfile_id,
+                hash_type=args.hash_type,
             )
             print(f"\n✓ Success: Downloaded {download_result['size']} bytes")
             print(f"  File: {download_result['output_file']}")
@@ -2993,6 +3037,17 @@ def main():
             _write_field_sorted_unique(hcatHashFile, f"{hcatHashFile}.nt", 2)
             hcatHashFileOrig = hcatHashFile
             hcatHashFile = hcatHashFile + ".nt"
+        elif re.search(r"^.+::.+:.+:[a-f0-9A-F]{64}:", hcatHashFileLine):
+            # NetNTLMv2 format: username::domain:server_challenge:ntproofstr:blob
+            # NetNTLMv2-ESS format is similar, with Enhanced Session Security
+            pwdump_format = False
+            # Try to detect if it's NetNTLMv2-ESS (has specific markers)
+            if re.search(r"^.+::.+:.+:[a-f0-9A-F]{16}:[a-f0-9A-F]{32}:[a-f0-9A-F]+$", hcatHashFileLine):
+                print("NetNTLMv2-ESS format detected")
+                print("Note: Hash type should be 5600 for NetNTLMv2-ESS hashes")
+            else:
+                print("NetNTLMv2 format detected")
+                print("Note: Hash type should be 5500 for NetNTLMv2 hashes")
         else:
             print("unknown format....does it have usernames?")
             exit(1)

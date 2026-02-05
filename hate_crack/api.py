@@ -101,6 +101,22 @@ def get_rules_dir():
     return default
 
 
+def get_hcat_tuning_args():
+    config_path = _resolve_config_path()
+    if config_path:
+        try:
+            with open(config_path) as f:
+                config = json.load(f)
+            tuning = config.get("hcatTuning")
+            if tuning:
+                import shlex
+
+                return shlex.split(tuning)
+        except Exception:
+            pass
+    return []
+
+
 def cleanup_torrent_files(directory=None):
     """Remove stray .torrent files from the wordlists directory on graceful exit."""
     if directory is None:
@@ -566,11 +582,17 @@ class HashviewAPI:
         resp.raise_for_status()
         try:
             data = resp.json()
-        except Exception:
+        except Exception as e:
+            if self.debug:
+                print(f"[DEBUG] Failed to parse JSON from {url}: {e}")
             data = None
         hashtype = None
         if data:
-            hashtype = data.get("hashtype") or data.get("hash_type")
+            hashtype = data.get("hashtype") or data.get("hash_type") or data.get("type")
+            if self.debug:
+                print(f"[DEBUG] get_hashfile_details({hashfile_id}): raw data={data}, hashtype={hashtype}")
+        elif self.debug:
+            print(f"[DEBUG] get_hashfile_details({hashfile_id}): no data returned. raw response: {resp.text}")
         return {
             "hashfile_id": hashfile_id,
             "hashtype": hashtype,
@@ -612,9 +634,34 @@ class HashviewAPI:
 
     def get_customer_hashfiles(self, customer_id):
         all_hashfiles = self.list_hashfiles()
-        return [
+        customer_hfs = [
             hf for hf in all_hashfiles if int(hf.get("customer_id", 0)) == customer_id
         ]
+        
+        if self.debug:
+            print(f"[DEBUG] get_customer_hashfiles({customer_id}): found {len(customer_hfs)} hashfiles")
+        
+        # Fetch hash types for any hashfiles missing them
+        for hf in customer_hfs:
+            if not (hf.get("hashtype") or hf.get("hash_type")):
+                hf_id = hf.get("id")
+                if hf_id is not None:
+                    if self.debug:
+                        print(f"[DEBUG] Fetching hash_type for hashfile {hf_id}")
+                    try:
+                        details = self.get_hashfile_details(hf_id)
+                        hashtype = details.get("hashtype")
+                        if hashtype:
+                            hf["hash_type"] = hashtype
+                            if self.debug:
+                                print(f"[DEBUG] Updated hashfile {hf_id} with hash_type={hashtype}")
+                        elif self.debug:
+                            print(f"[DEBUG] No hashtype found in details for {hf_id}: {details}")
+                    except Exception as e:
+                        if self.debug:
+                            print(f"[DEBUG] Exception fetching hash_type for {hf_id}: {e}")
+        
+        return customer_hfs
 
     def get_customer_hashfiles_with_hashtype(self, customer_id, target_hashtype="1000"):
         """Return hashfiles for a customer that match the requested hashtype."""
@@ -739,9 +786,10 @@ class HashviewAPI:
         resp.raise_for_status()
         return resp.json()
 
-    def download_left_hashes(self, customer_id, hashfile_id, output_file=None):
+    def download_left_hashes(self, customer_id, hashfile_id, output_file=None, hash_type=None):
         import sys
         import re
+        import subprocess
 
         url = f"{self.base_url}/v1/hashfiles/{hashfile_id}/left"
         resp = self.session.get(url, stream=True)
@@ -772,7 +820,7 @@ class HashviewAPI:
         if total == 0:
             print(f"Downloaded {downloaded} bytes.")
         
-        # Try to download found file and merge with corresponding .out file if it exists
+        # Try to download found file and process with hashcat
         combined_count = 0
         combined_file = None
         out_dir = os.path.dirname(output_abs) or os.getcwd()
@@ -796,59 +844,114 @@ class HashviewAPI:
                         if chunk:
                             f.write(chunk)
                 
-                # Determine the .out file (either .txt.out for regular or .nt.txt.out for pwdump)
-                out_file = output_abs + ".out"
-                if not os.path.exists(out_file):
-                    # Check for pwdump format .nt.txt.out file if caller used the .txt name.
-                    if out_file.endswith(".txt.out") and not out_file.endswith(".nt.txt.out"):
-                        out_file = out_file.replace(".txt.out", ".nt.txt.out")
+                # Split found file into hashes and clears
+                found_hashes_file = os.path.join(out_dir, f"found_hashes_{customer_id}_{hashfile_id}.txt")
+                found_clears_file = os.path.join(out_dir, f"found_clears_{customer_id}_{hashfile_id}.txt")
                 
-                # Only merge if the .out file exists
-                if os.path.exists(out_file):
-                    # Read existing hashes from .out file into a set
-                    out_hashes = set()
-                    with open(out_file, "r", encoding="utf-8", errors="ignore") as f:
-                        for line in f:
-                            line = line.strip()
-                            if line:
-                                out_hashes.add(line)
-                    
-                    original_count = len(out_hashes)
-                    
-                    # Read and add hashes from the found file
+                hashes_count = 0
+                clears_count = 0
+                
+                with open(found_hashes_file, "w", encoding="utf-8") as hf, \
+                     open(found_clears_file, "w", encoding="utf-8") as cf:
                     with open(found_file, "r", encoding="utf-8", errors="ignore") as f:
                         for line in f:
                             line = line.strip()
                             if line:
-                                out_hashes.add(line)
-                    
-                    combined_count = len(out_hashes) - original_count
-                    
-                    # Write combined results back to the .out file
-                    combined_file = out_file
-                    with open(combined_file, "w", encoding="utf-8") as f:
-                        for line in sorted(out_hashes):
-                            f.write(line + "\n")
-                    
-                    print(f"Merged {combined_count} new hashes from {found_file}")
-                    print(f"Total unique hashes in {combined_file}: {len(out_hashes)}")
+                                parts = line.rsplit(":", 1)  # Split on last colon
+                                if len(parts) == 2:
+                                    hash_part, clear_part = parts
+                                    hf.write(hash_part + "\n")
+                                    cf.write(clear_part + "\n")
+                                    hashes_count += 1
+                                    clears_count += 1
                 
-                # Delete the found file after successful merge
+                print(f"Split found file into {hashes_count} hashes and {clears_count} clears")
+                
+                # Run hashcat to combine them
+                combined_file = output_abs + ".out"
                 try:
-                    os.remove(found_file)
-                    print(f"Deleted {found_file}")
+                    # Execute hashcat: hashcat <tuning> -m hash_type found_hashes found_clears --outfile output.out --outfile-format=1,2
+                    tuning_args = get_hcat_tuning_args()
+                    
+                    # Create temporary outfile for hashcat
+                    temp_outfile = output_abs + ".tmp"
+                    
+                    if self.debug:
+                        print(f"[DEBUG] download_left_hashes: hash_type={hash_type}, type={type(hash_type)}")
+                    
+                    # Build command with hash type if provided
+                    cmd = ["hashcat", *tuning_args]
+                    if hash_type:
+                        cmd.extend(["-m", str(hash_type)])
+                    cmd.extend([
+                        found_hashes_file,
+                        found_clears_file,
+                        "--outfile",
+                        temp_outfile,
+                        "--outfile-format=1,2",
+                    ])
+                    
+                    if self.debug:
+                        print(f"[DEBUG] Running command: {' '.join(cmd)}")
+                    
+                    print(f"Running: {' '.join(cmd)}")
+                    
+                    result = subprocess.run(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, text=True, timeout=300)
+                    
+                    if result.returncode != 0:
+                        print(f"Warning: hashcat exited with code {result.returncode}")
+                        if result.stderr:
+                            print(f"  stderr: {result.stderr}")
+                    
+                    # Append the output to the combined file
+                    if os.path.exists(temp_outfile):
+                        with open(temp_outfile, "r", encoding="utf-8", errors="ignore") as tmp_f:
+                            with open(combined_file, "a", encoding="utf-8") as out_f:
+                                out_f.write(tmp_f.read())
+                        
+                        # Count lines appended
+                        with open(combined_file, "r", encoding="utf-8", errors="ignore") as f:
+                            combined_count = len(f.readlines())
+                        print(f"✓ Appended cracked hashes to {combined_file} (total lines: {combined_count})")
+                        
+                        # Clean up temp file
+                        try:
+                            os.remove(temp_outfile)
+                        except Exception:
+                            pass
+                    else:
+                        print(f"Note: No cracked hashes found")
+                    
+                except FileNotFoundError:
+                    print("✗ Error: hashcat not found in PATH")
+                except subprocess.TimeoutExpired:
+                    print("✗ Error: hashcat execution timed out")
                 except Exception as e:
-                    print(f"Warning: Could not delete {found_file}: {e}")
+                    print(f"✗ Error running hashcat: {e}")
+                
+                # Clean up temporary files (keep when debug is enabled)
+                if not self.debug:
+                    files_to_delete = [found_file, found_hashes_file, found_clears_file]
+                    for temp_file in files_to_delete:
+                        try:
+                            if os.path.exists(temp_file):
+                                os.remove(temp_file)
+                                print(f"Deleted {temp_file}")
+                        except Exception as e:
+                            print(f"Warning: Could not delete {temp_file}: {e}")
+                else:
+                    print("Debug enabled: keeping found and split files")
                     
         except Exception as e:
             # If there's any error downloading found file, just skip it
             print(f"Note: Could not download found hashes: {e}")
             # Clean up found file if it was partially written
-            try:
-                if os.path.exists(found_file):
-                    os.remove(found_file)
-            except Exception:
-                pass
+            if not self.debug:
+                try:
+                    if os.path.exists(found_file):
+                        os.remove(found_file)
+                except Exception:
+                    pass
         
         return {
             "output_file": output_file,
