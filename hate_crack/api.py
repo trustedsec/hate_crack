@@ -562,7 +562,7 @@ class HashviewAPI:
         Return all hashfiles of a given hash_type using the /v1/hashfiles/hash_type/<hash_type> endpoint.
         """
         url = f"{self.base_url}/v1/hashfiles/hash_type/{hash_type}"
-        resp = self.session.get(url)
+        resp = self.session.get(url, headers=self._auth_headers())
         resp.raise_for_status()
         try:
             data = resp.json()
@@ -581,7 +581,7 @@ class HashviewAPI:
     def get_hashfile_details(self, hashfile_id):
         """Get hashfile details and hashtype for a given hashfile_id."""
         url = f"{self.base_url}/v1/hashfiles/{hashfile_id}/hash_type"
-        resp = self.session.get(url)
+        resp = self.session.get(url, headers=self._auth_headers())
         resp.raise_for_status()
         try:
             data = resp.json()
@@ -624,7 +624,7 @@ class HashviewAPI:
 
     def list_hashfiles(self):
         url = f"{self.base_url}/v1/hashfiles"
-        resp = self.session.get(url)
+        resp = self.session.get(url, headers=self._auth_headers())
         resp.raise_for_status()
         data = resp.json()
         if "hashfiles" in data:
@@ -795,7 +795,7 @@ class HashviewAPI:
         import subprocess
 
         url = f"{self.base_url}/v1/hashfiles/{hashfile_id}/left"
-        resp = self.session.get(url, stream=True)
+        resp = self.session.get(url, headers=self._auth_headers(), stream=True)
         resp.raise_for_status()
         if output_file is None:
             output_file = f"left_{customer_id}_{hashfile_id}.txt"
@@ -832,7 +832,7 @@ class HashviewAPI:
         try:
             # Try to download the found file
             found_url = f"{self.base_url}/v1/hashfiles/{hashfile_id}/found"
-            found_resp = self.session.get(found_url, stream=True, timeout=30)
+            found_resp = self.session.get(found_url, headers=self._auth_headers(), stream=True, timeout=30)
             
             # Only proceed if we successfully downloaded the found file (ignore 404s)
             if found_resp.status_code == 404:
@@ -967,7 +967,7 @@ class HashviewAPI:
         import sys
 
         url = f"{self.base_url}/v1/hashfiles/{hashfile_id}/found"
-        resp = self.session.get(url, stream=True)
+        resp = self.session.get(url, headers=self._auth_headers(), stream=True)
         resp.raise_for_status()
         if output_file is None:
             output_file = f"found_{customer_id}_{hashfile_id}.txt"
@@ -1107,12 +1107,32 @@ class HashviewAPI:
 
     def download_wordlist(self, wordlist_id, output_file=None):
         import sys
+        import re
+        import gzip
+        import shutil
+
+        if int(wordlist_id) == 1:
+            update_url = f"{self.base_url}/v1/updateWordlist/{wordlist_id}"
+            try:
+                update_resp = self.session.get(update_url, headers=self._auth_headers(), timeout=30)
+                update_resp.raise_for_status()
+            except Exception as exc:
+                if self.debug:
+                    print(f"Warning: failed to update dynamic wordlist {wordlist_id}: {exc}")
 
         url = f"{self.base_url}/v1/wordlists/{wordlist_id}"
-        resp = self.session.get(url, stream=True)
+        resp = self.session.get(url, headers=self._auth_headers(), stream=True)
         resp.raise_for_status()
         if output_file is None:
-            output_file = f"wordlist_{wordlist_id}.gz"
+            if int(wordlist_id) == 1:
+                output_file = "dynamic-all.txt.gz"
+            else:
+                content_disp = resp.headers.get("content-disposition", "")
+                match = re.search(r"filename=\"?([^\";]+)\"?", content_disp, re.IGNORECASE)
+                if match:
+                    output_file = os.path.basename(match.group(1))
+                else:
+                    output_file = f"wordlist_{wordlist_id}.gz"
         total = int(resp.headers.get("content-length", 0))
         downloaded = 0
         chunk_size = 8192
@@ -1133,6 +1153,7 @@ class HashviewAPI:
                 sys.stdout.write("\n")
         if total == 0:
             print(f"Downloaded {downloaded} bytes.")
+
         return {"output_file": output_file, "size": downloaded}
 
     def create_customer(self, name):
