@@ -1969,6 +1969,7 @@ def hashview_api():
                 # Download wordlist
                 try:
                     wordlists = api_harness.list_wordlists()
+                    wordlist_map = {}
                     if wordlists:
                         print("\n" + "=" * 100)
                         print("Available Wordlists:")
@@ -1983,6 +1984,11 @@ def hashview_api():
                             if len(name) > 60:
                                 name = name[:57] + "..."
                             print(f"{wl_id:<10} {name:<60} {wl_size:>12}")
+                            if wl_id != "N/A":
+                                try:
+                                    wordlist_map[int(wl_id)] = str(wl_name)
+                                except ValueError:
+                                    pass
                         print("=" * 100)
                     else:
                         print("\nNo wordlists found.")
@@ -1996,12 +2002,18 @@ def hashview_api():
                     print("\n✗ Error: Invalid ID entered. Please enter a numeric ID.")
                     continue
 
+                api_name = wordlist_map.get(wordlist_id) if "wordlist_map" in locals() else None
+                api_filename = "dynamic-all.txt.gz" if wordlist_id == 1 else api_name
+                prompt_suffix = f" (API filename: {api_filename})" if api_filename else " (API filename)"
                 output_file = (
                     input(
-                        "Enter output file name (default: wordlist_<id>.gz): "
-                    ).strip()
+                        f"Enter output file name{prompt_suffix} or press Enter to use API filename: "
+                    )
+                    .strip()
                     or None
                 )
+                if output_file is None and wordlist_id == 1:
+                    output_file = "dynamic-all.txt.gz"
                 try:
                     download_result = api_harness.download_wordlist(
                         wordlist_id, output_file
@@ -2956,20 +2968,7 @@ def main():
             print("\nError: Hashview API key not configured.")
             print("Please set 'hashview_api_key' in config.json")
             sys.exit(1)
-        try:
-            hcatHashFile, hcatHashType = download_hashes_from_hashview(
-                hashview_url,
-                hashview_api_key,
-                debug_mode,
-                input_fn=input,
-                print_fn=print,
-            )
-        except ValueError:
-            print("\n✗ Error: Invalid ID entered. Please enter a numeric ID.")
-            sys.exit(1)
-        except Exception as e:
-            print(f"\n✗ Error downloading hashes: {str(e)}")
-            sys.exit(1)
+        hashview_api()
         sys.exit(0)
 
     if args.weakpass:

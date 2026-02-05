@@ -10,3 +10,4 @@ hate_crack.egg-info/
 hate_crack/hashcat-utils/
 hate_crack/princeprocessor/
 *.txt.expanded
+*.hcmask

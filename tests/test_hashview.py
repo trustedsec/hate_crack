@@ -246,6 +246,7 @@ class TestHashviewAPI:
             mock_response.content = b"hash1\nhash2\n"
             mock_response.raise_for_status = Mock()
             mock_response.headers = {"content-length": "0"}
+            mock_response.status_code = 404  # For the found file lookup
 
             def iter_content(chunk_size=8192):
                 yield mock_response.content
@@ -260,6 +261,14 @@ class TestHashviewAPI:
                 content = f.read()
             assert content == b"hash1\nhash2\n"
             assert result["size"] == len(content)
+            
+            # Verify auth headers were passed in the left hashes download call
+            call_args_list = api.session.get.call_args_list
+            left_call = [c for c in call_args_list if "left" in str(c)][0]
+            assert left_call.kwargs.get("headers") is not None
+            auth_headers = left_call.kwargs.get("headers")
+            assert "Cookie" in auth_headers or "uuid" in str(auth_headers)
+            assert HASHVIEW_API_KEY in str(auth_headers)
 
     def test_download_found_hashes(self, api, tmp_path):
         """Test downloading found hashes: real API if possible, else mock."""
@@ -298,6 +307,14 @@ class TestHashviewAPI:
                 content = f.read()
             assert content == b"hash1:pass1\nhash2:pass2\n"
             assert result["size"] == len(content)
+            
+            # Verify auth headers were passed in the found hashes download call
+            call_args_list = api.session.get.call_args_list
+            found_call = [c for c in call_args_list if "found" in str(c)][0]
+            assert found_call.kwargs.get("headers") is not None
+            auth_headers = found_call.kwargs.get("headers")
+            assert "Cookie" in auth_headers or "uuid" in str(auth_headers)
+            assert HASHVIEW_API_KEY in str(auth_headers)
 
     def test_download_wordlist(self, api, tmp_path):
         """Test downloading a wordlist: real API if possible, else mock."""
@@ -333,6 +350,16 @@ class TestHashviewAPI:
                 content = f.read()
             assert content == b"gzipdata"
             assert result["size"] == len(content)
+            
+            # Verify auth headers were passed in the download call
+            # session.get should be called with headers containing the auth cookie
+            call_args_list = api.session.get.call_args_list
+            # Last call should be the download (not the update call for id 1)
+            download_call = [c for c in call_args_list if "wordlists/1" in str(c)][0]
+            assert download_call.kwargs.get("headers") is not None
+            auth_headers = download_call.kwargs.get("headers")
+            assert "Cookie" in auth_headers or "uuid" in str(auth_headers)
+            assert HASHVIEW_API_KEY in str(auth_headers)
 
     @pytest.mark.skipif(
         os.environ.get("HASHVIEW_TEST_REAL", "").lower() not in ("1", "true", "yes"),
