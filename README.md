@@ -218,6 +218,81 @@ Run the test suite:
 make test
 ```
 
+-------------------------------------------------------------------
+## Development
+
+### Setting Up the Development Environment
+
+Install the project with optional dev dependencies (includes type stubs, linters, and testing tools):
+
+```bash
+pip install -e ".[dev]"
+```
+
+### Running Linters and Type Checks
+
+Before pushing changes, run these checks locally to catch issues early:
+
+**Ruff (linting and formatting):**
+```bash
+.venv/bin/ruff check hate_crack
+```
+
+Auto-fix issues:
+```bash
+.venv/bin/ruff check --fix hate_crack
+```
+
+**Mypy (type checking):**
+```bash
+.venv/bin/mypy hate_crack
+```
+
+**Run all checks together:**
+```bash
+.venv/bin/ruff check hate_crack && .venv/bin/mypy hate_crack && echo "✓ All checks passed"
+```
+
+### Running Tests
+
+```bash
+.venv/bin/pytest
+```
+
+With coverage:
+```bash
+.venv/bin/pytest --cov=hate_crack
+```
+
+### Pre-commit Hook (Optional)
+
+Create `.git/hooks/pre-push` to automatically run checks before pushing:
+
+```bash
+#!/bin/bash
+set -e
+.venv/bin/ruff check hate_crack
+.venv/bin/mypy hate_crack
+echo "✓ Local checks passed!"
+```
+
+Make it executable:
+```bash
+chmod +x .git/hooks/pre-push
+```
+
+### Dev Dependencies
+
+The optional `[dev]` group includes:
+- **mypy** - Static type checker
+- **ruff** - Fast Python linter and formatter
+- **pytest** - Testing framework
+- **pytest-cov** - Coverage reporting
+- **types-requests** - Type stubs for requests library
+- **types-beautifulsoup4** - Type stubs for BeautifulSoup
+- **types-openpyxl** - Type stubs for openpyxl library
+
+-------------------------------------------------------------------
 Common options:
 - `--download-hashview`: Download hashes from Hashview before cracking.
 - `--hashview`: Interactive Hashview menu for managing hashes, wordlists, and jobs.
