@@ -170,6 +170,103 @@ def quick_crack(ctx: Any) -> None:
         )
 
 
+def loopback_attack(ctx: Any) -> None:
+    empty_wordlist = os.path.join(ctx.hcatWordlists, "empty.txt")
+    os.makedirs(ctx.hcatWordlists, exist_ok=True)
+    if not os.path.exists(empty_wordlist):
+        with open(empty_wordlist, "w"):
+            pass
+
+    print(f"\nUsing loopback attack with wordlist: {empty_wordlist}")
+
+    rule_choice = None
+    selected_hcatRules = []
+
+    rule_files = sorted(
+        f for f in os.listdir(ctx.rulesDirectory) if f != ".DS_Store"
+    )
+    if not rule_files:
+        download_rules = (
+            input("\nNo rules found. Download rules from Hashmob now? (Y/n): ")
+            .strip()
+            .lower()
+        )
+        if download_rules in ("", "y", "yes"):
+            download_hashmob_rules(print_fn=print)
+            rule_files = sorted(os.listdir(ctx.rulesDirectory))
+
+    if not rule_files:
+        print("No rules available. Proceeding without rules.")
+        rule_choice = ["0"]
+    else:
+        print("\nWhich rule(s) would you like to run?")
+        rule_entries = ["0. To run without any rules"]
+        rule_entries.extend(
+            [f"{i}. {file}" for i, file in enumerate(rule_files, start=1)]
+        )
+        rule_entries.append("98. YOLO...run all of the rules")
+        rule_entries.append("99. Back to Main Menu")
+        max_rule_len = max((len(e) for e in rule_entries), default=26)
+        print_multicolumn_list(
+            "Available Rules",
+            rule_entries,
+            min_col_width=max_rule_len,
+            max_col_width=max_rule_len,
+        )
+
+        example_line = ""
+        if len(rule_files) >= 2:
+            example_line = f"For example 1+1 will run {rule_files[0]} chained twice and 1,2 would run {rule_files[0]} and then {rule_files[1]} sequentially.\n"
+        elif len(rule_files) == 1:
+            example_line = f"For example 1+1 will run {rule_files[0]} chained twice.\n"
+
+    while rule_choice is None:
+        raw_choice = input(
+            "Enter Comma separated list of rules you would like to run. To run rules chained use the + symbol.\n"
+            f"{example_line}"
+            "Choose wisely: "
+        )
+        if raw_choice.strip() == "99":
+            return
+        if raw_choice != "":
+            rule_choice = raw_choice.split(",")
+
+    if "99" in rule_choice:
+        return
+    if "98" in rule_choice:
+        for rule in rule_files:
+            selected_hcatRules.append(f"-r {ctx.rulesDirectory}/{rule}")
+    elif "0" in rule_choice:
+        selected_hcatRules = [""]
+    else:
+        for choice in rule_choice:
+            if "+" in choice:
+                combined_choice = ""
+                choices = choice.split("+")
+                for rule in choices:
+                    try:
+                        combined_choice = f"{combined_choice} -r {ctx.rulesDirectory}/{rule_files[int(rule) - 1]}"
+                    except Exception:
+                        continue
+                selected_hcatRules.append(combined_choice)
+            else:
+                try:
+                    selected_hcatRules.append(
+                        f"-r {ctx.rulesDirectory}/{rule_files[int(choice) - 1]}"
+                    )
+                except IndexError:
+                    continue
+
+    for chain in selected_hcatRules:
+        ctx.hcatQuickDictionary(
+            ctx.hcatHashType,
+            ctx.hcatHashFile,
+            chain,
+            empty_wordlist,
+            loopback=True,
+        )
+
+
 def extensive_crack(ctx: Any) -> None:
     ctx.hcatBruteForce(ctx.hcatHashType, ctx.hcatHashFile, "1", "7")
     ctx.hcatRecycle(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatBruteCount)
