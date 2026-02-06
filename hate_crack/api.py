@@ -791,7 +791,6 @@ class HashviewAPI:
 
     def download_left_hashes(self, customer_id, hashfile_id, output_file=None, hash_type=None):
         import sys
-        import re
         import subprocess
 
         url = f"{self.base_url}/v1/hashfiles/{hashfile_id}/left"
@@ -923,7 +922,7 @@ class HashviewAPI:
                         except Exception:
                             pass
                     else:
-                        print(f"Note: No cracked hashes found")
+                        print("Note: No cracked hashes found")
                     
                 except FileNotFoundError:
                     print("✗ Error: hashcat not found in PATH")
@@ -1108,8 +1107,6 @@ class HashviewAPI:
     def download_wordlist(self, wordlist_id, output_file=None):
         import sys
         import re
-        import gzip
-        import shutil
 
         if int(wordlist_id) == 1:
             update_url = f"{self.base_url}/v1/updateWordlist/{wordlist_id}"

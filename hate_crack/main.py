@@ -51,7 +51,6 @@ from hate_crack.api import (
 from hate_crack.api import HashviewAPI  # noqa: E402
 from hate_crack.api import (  # noqa: E402
     download_all_weakpass_torrents,
-    download_hashes_from_hashview,
     download_hashmob_wordlists,
     download_hashmob_rules,
     download_weakpass_torrent,
