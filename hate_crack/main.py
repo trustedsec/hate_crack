@@ -1097,15 +1097,33 @@ def hcatTopMask(hcatHashType, hcatHashFile, hcatTargetTime):
 
 
 # Fingerprint Attack
-def hcatFingerprint(hcatHashType, hcatHashFile):
+def hcatFingerprint(
+    hcatHashType, hcatHashFile, expander_len: int = 7, run_hybrid_on_expanded: bool = False
+):
     global hcatFingerprintCount
     global hcatProcess
+
+    try:
+        expander_len = int(expander_len)
+    except Exception:
+        expander_len = 7
+    if expander_len < 7 or expander_len > 24:
+        raise ValueError("expander_len must be an integer between 7 and 24")
+
     crackedBefore = lineCount(hcatHashFile + ".out")
     crackedAfter = 0
     while crackedBefore != crackedAfter:
         crackedBefore = lineCount(hcatHashFile + ".out")
         _write_delimited_field(f"{hcatHashFile}.out", f"{hcatHashFile}.working", 2)
-        expander_path = os.path.join(hate_path, "hashcat-utils", "bin", hcatExpanderBin)
+        expander_bin = (
+            hcatExpanderBin if expander_len == 7 else f"expander{expander_len}.bin"
+        )
+        expander_path = os.path.join(hate_path, "hashcat-utils", "bin", expander_bin)
+        ensure_binary(
+            expander_path,
+            build_dir=os.path.join(hate_path, "hashcat-utils"),
+            name=expander_bin.replace(".bin", ""),
+        )
         with (
             open(f"{hcatHashFile}.working", "rb") as src,
             open(f"{hcatHashFile}.expanded", "wb") as dst,
@@ -1147,6 +1165,12 @@ def hcatFingerprint(hcatHashType, hcatHashFile):
         except KeyboardInterrupt:
             print("Killing PID {0}...".format(str(hcatProcess.pid)))
             hcatProcess.kill()
+
+        # Secondary attack: run hybrid on the expanded candidates (mode 6/7 variants).
+        # This is intentionally optional to avoid changing the "extensive" pipeline ordering.
+        if run_hybrid_on_expanded:
+            hcatHybrid(hcatHashType, hcatHashFile, [f"{hcatHashFile}.expanded"])
+
         crackedAfter = lineCount(hcatHashFile + ".out")
     hcatFingerprintCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 

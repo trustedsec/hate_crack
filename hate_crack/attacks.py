@@ -275,7 +275,7 @@ def extensive_crack(ctx: Any) -> None:
     hcatTargetTime = 4 * 60 * 60
     ctx.hcatTopMask(ctx.hcatHashType, ctx.hcatHashFile, hcatTargetTime)
     ctx.hcatRecycle(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatMaskCount)
-    ctx.hcatFingerprint(ctx.hcatHashType, ctx.hcatHashFile)
+    ctx.hcatFingerprint(ctx.hcatHashType, ctx.hcatHashFile, 7, run_hybrid_on_expanded=False)
     ctx.hcatRecycle(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatFingerprintCount)
     ctx.hcatCombination(ctx.hcatHashType, ctx.hcatHashFile)
     ctx.hcatRecycle(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatCombinationCount)
@@ -304,7 +304,26 @@ def top_mask_crack(ctx: Any) -> None:
 
 
 def fingerprint_crack(ctx: Any) -> None:
-    ctx.hcatFingerprint(ctx.hcatHashType, ctx.hcatHashFile)
+    while True:
+        raw = input("\nEnter expander max length (7-24) (7): ").strip()
+        if raw == "":
+            expander_len = 7
+            break
+        try:
+            expander_len = int(raw)
+        except ValueError:
+            print("Please enter an integer between 7 and 24.")
+            continue
+        if 7 <= expander_len <= 24:
+            break
+        print("Please enter an integer between 7 and 24.")
+
+    ctx.hcatFingerprint(
+        ctx.hcatHashType,
+        ctx.hcatHashFile,
+        expander_len,
+        run_hybrid_on_expanded=True,
+    )
 
 
 def combinator_crack(ctx: Any) -> None:
