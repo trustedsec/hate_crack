@@ -139,21 +139,21 @@ def test_toggle_rule_parses_with_and_without_loopback(tmp_path: Path, capsys):
         *tuning_args,
         "-m",
         "1000",
+        _TEST_HASH,
         "empty.txt",
         "--loopback",
         "-r",
         "rules/toggles-lm-ntlm.rule",
-        _TEST_HASH,
     ]
     cmd_without_loopback = [
         "hashcat",
         *tuning_args,
         "-m",
         "1000",
+        _TEST_HASH,
         "empty.txt",
         "-r",
         "rules/toggles-lm-ntlm.rule",
-        _TEST_HASH,
     ]
 
     _run_hashcat(
