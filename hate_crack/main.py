@@ -23,13 +23,17 @@ from types import SimpleNamespace
 
 #!/usr/bin/env python3
 
+from typing import Any
+
+requests: Any = None
+REQUESTS_AVAILABLE = False
+
 try:
-    import requests
+    import requests as requests  # noqa: F401
 
     REQUESTS_AVAILABLE = True
 except Exception:
-    requests = None
-    REQUESTS_AVAILABLE = False
+    pass
 
 # Ensure project root is on sys.path so package imports work when loaded via spec.
 _root_dir = os.path.dirname(os.path.realpath(__file__))
@@ -43,11 +47,11 @@ if os.path.isdir(_pkg_dir):
     if "__spec__" in globals() and __spec__ is not None:
         __spec__.submodule_search_locations = __path__
 
-from hate_crack.api import (
+from hate_crack.api import (  # noqa: E402
     fetch_all_weakpass_wordlists_multithreaded,
     download_torrent_file,
     weakpass_wordlist_menu,
-)  # noqa: E402
+)
 from hate_crack.api import HashviewAPI  # noqa: E402
 from hate_crack.api import (  # noqa: E402
     download_all_weakpass_torrents,
@@ -262,7 +266,7 @@ hcatBin = config_parser["hcatBin"]
 hcatTuning = config_parser["hcatTuning"]
 hcatWordlists = config_parser["hcatWordlists"]
 hcatOptimizedWordlists = config_parser["hcatOptimizedWordlists"]
-hcatRules = []
+hcatRules: list[str] = []
 
 try:
     rulesDirectory = config_parser["rules_directory"]
