@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := submodules
-.PHONY: install reinstall clean hashcat-utils submodules test coverage
+.PHONY: install reinstall dev-install dev-reinstall clean hashcat-utils submodules test coverage lint check ruff mypy
 
 hashcat-utils: submodules
 	$(MAKE) -C hashcat-utils
@@ -48,6 +48,12 @@ install:
 
 reinstall: uninstall install
 
+dev-install:
+	@echo "Installing project with development dependencies..."
+	uv pip install -e ".[dev]"
+
+dev-reinstall: uninstall dev-install
+
 
 clean:
 	-$(MAKE) -C hashcat-utils clean
@@ -62,6 +68,17 @@ test:
 coverage:
 	uv run pytest --cov=hate_crack --cov-report=term-missing
 
+ruff:
+	uv run ruff check hate_crack
+
+mypy:
+	uv run mypy hate_crack
+
+lint: ruff mypy
+	@echo "✓ All linting checks passed"
+
+check: lint
+	@echo "✓ Code quality checks passed"
 
 uninstall:
 	@echo "Detecting OS and uninstalling dependencies..."
