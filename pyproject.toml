@@ -16,6 +16,17 @@ dependencies = [
 [project.scripts]
 hate_crack = "hate_crack.__main__:main"
 
+[project.optional-dependencies]
+dev = [
+    "mypy>=1.8.0",
+    "ruff>=0.3.0",
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "types-requests>=2.31.0",
+    "types-beautifulsoup4>=4.12.0",
+    "types-openpyxl>=3.0.0",
+]
+
 [tool.setuptools.packages.find]
 include = ["hate_crack*"]
 
@@ -35,6 +46,17 @@ exclude = [
     "princeprocessor",
     "wordlists",
 ]
+
+[tool.mypy]
+exclude = [
+    "^build/",
+    "^dist/",
+    "^PACK/",
+    "^wordlists/",
+    "^hate_crack/hashcat-utils/",
+    "^hate_crack/princeprocessor/",
+]
+ignore_missing_imports = false
 
 [tool.pytest.ini_options]
 testpaths = [
