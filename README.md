@@ -7,6 +7,15 @@
        \/      \/          \/_____/      \/            \/     \/     \/
 ```
 
+## Status
+
+[![tests](https://github.com/trustedsec/hate_crack/actions/workflows/tests.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/tests.yml)
+
+**CI/CD Checks:**
+- **Linting (Ruff)** - Code quality and formatting validation
+- **Type Checking (Mypy)** - Static type analysis
+- **Testing** - Python 3.9, 3.10, 3.11, 3.12, 3.13, 3.14
+
 ## Installation
 
 ### 1. Install hashcat
@@ -228,6 +237,33 @@ Install the project with optional dev dependencies (includes type stubs, linters
 ```bash
 pip install -e ".[dev]"
 ```
+
+### Continuous Integration
+
+The project uses GitHub Actions to automatically run quality checks on every push and pull request.
+
+**Checks that run on each commit:**
+
+1. **Linting (Ruff)** - Code style and quality validation
+   - ✅ **PASS**: Code follows style rules and best practices
+   - ❌ **FAIL**: Code has style violations or quality issues
+   - Run locally: `make ruff`
+
+2. **Type Checking (Mypy)** - Static type analysis
+   - ✅ **PASS**: No type errors detected
+   - ❌ **FAIL**: Type mismatches or missing annotations found
+   - Run locally: `make mypy`
+
+3. **Testing (Multi-Version)** - Tests across Python 3.9 through 3.14
+   - ✅ **PASS**: All tests pass on all supported Python versions
+   - ⚠️  **PARTIAL**: Tests pass on some versions but fail on others
+   - ❌ **FAIL**: Tests fail on one or more Python versions
+   - Run locally: `make test`
+
+**View CI/CD Status:**
+- Click the badge above to see the full test results
+- Each workflow shows which Python version(s) failed or passed
+- Details are available in the Actions tab
 
 ### Running Linters and Type Checks
 
