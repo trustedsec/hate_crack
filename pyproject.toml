@@ -45,6 +45,7 @@ exclude = [
     "hashcat-utils",
     "princeprocessor",
     "wordlists",
+    "rules",
 ]
 
 [tool.mypy]
