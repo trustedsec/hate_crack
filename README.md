@@ -24,24 +24,6 @@
 [![py313](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py313.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py313.yml)
 [![py314](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py314.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py314.yml)
 
-**What Each Badge Represents:**
-
-- **Ruff** - 🔍 Code quality and style validation
-  - ✅ **PASS**: Code follows linting rules and best practices
-  - ❌ **FAIL**: Code has style violations or quality issues
-
-- **Mypy** - 🔬 Static type checking
-  - ✅ **PASS**: No type errors detected
-  - ❌ **FAIL**: Type mismatches or missing annotations found
-
-- **Pytest** - ✔️ Testing across Python 3.9-3.14
-  - ✅ **PASS**: All tests pass on all supported Python versions
-  - ❌ **FAIL**: Tests fail on one or more Python versions
-
-- **Python Version Badges** - 🐍 Individual Python version test results
-  - ✅ **PASS**: Tests pass on that specific Python version
-  - ❌ **FAIL**: Tests fail on that specific Python version
-
 ## Installation
 
 ### 1. Install hashcat
