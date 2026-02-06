@@ -29,7 +29,7 @@ requests: Any = None
 REQUESTS_AVAILABLE = False
 
 try:
-    import requests as requests  # type: ignore[import-untyped] # noqa: F401
+    import requests as requests  # type: ignore[import-untyped, no-redef] # noqa: F401
 
     REQUESTS_AVAILABLE = True
 except Exception:
