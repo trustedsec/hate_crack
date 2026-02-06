@@ -270,12 +270,18 @@ hcatRules: list[str] = []
 
 
 # Optional: override hashcat's default potfile location.
-# If unset/empty, we use hashcat's built-in default potfile behavior.
-hcatPotfilePath = (config_parser.get("hcatPotfilePath") or "").strip()
-if hcatPotfilePath:
-    hcatPotfilePath = os.path.expanduser(hcatPotfilePath)
-    if not os.path.isabs(hcatPotfilePath):
-        hcatPotfilePath = os.path.join(hate_path, hcatPotfilePath)
+# Default: use ~/.hashcat/hashcat.potfile (explicitly passed to hashcat).
+# Disable override with config `hcatPotfilePath: ""` or CLI `--no-potfile-path`.
+if "hcatPotfilePath" not in config_parser:
+    hcatPotfilePath = os.path.expanduser("~/.hashcat/hashcat.potfile")
+else:
+    _raw_pot = (config_parser.get("hcatPotfilePath") or "").strip()
+    if _raw_pot == "":
+        hcatPotfilePath = ""
+    else:
+        hcatPotfilePath = os.path.expanduser(_raw_pot)
+        if not os.path.isabs(hcatPotfilePath):
+            hcatPotfilePath = os.path.join(hate_path, hcatPotfilePath)
 
 
 def _append_potfile_arg(cmd, *, use_potfile_path=True, potfile_path=None):
@@ -673,6 +679,16 @@ hcatProcess = 0
 debug_mode = False
 
 
+def _format_cmd(cmd):
+    # Shell-style quoting to mirror what a user could run in a terminal.
+    return " ".join(shlex.quote(str(part)) for part in cmd)
+
+
+def _debug_cmd(cmd):
+    if debug_mode:
+        print(f"[DEBUG] hashcat cmd: {_format_cmd(cmd)}")
+
+
 # Sanitize filename for use as hashcat session name
 def generate_session_id():
     """Sanitize the hashfile name for use as a hashcat session name
@@ -980,7 +996,7 @@ def hcatQuickDictionary(
     hcatChains,
     wordlists,
     loopback=False,
-    use_potfile_path=False,
+    use_potfile_path=True,
     potfile_path=None,
 ):
     global hcatProcess
@@ -1004,6 +1020,7 @@ def hcatQuickDictionary(
         cmd.extend(shlex.split(hcatChains))
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd, use_potfile_path=use_potfile_path, potfile_path=potfile_path)
+    _debug_cmd(cmd)
     hcatProcess = subprocess.Popen(cmd)
     try:
         hcatProcess.wait()
@@ -2662,6 +2679,7 @@ def main():
     global hashview_url, hashview_api_key
     global hcatPath, hcatBin, hcatWordlists, hcatOptimizedWordlists, rulesDirectory
     global pipalPath, maxruntime, bandrelbasewords
+    global hcatPotfilePath
 
     # Initialize global variables
     hcatHashFile = None
@@ -2726,6 +2744,21 @@ def main():
             help="Cleanup .out files, torrents, and extract or remove .7z archives",
         )
         parser.add_argument("--debug", action="store_true", help="Enable debug mode")
+        parser.add_argument(
+            "--potfile-path",
+            dest="potfile_path",
+            default=None,
+            help=(
+                "Override hashcat potfile path (equivalent to hashcat --potfile-path). "
+                "Use empty string to disable overriding and use hashcat's built-in default."
+            ),
+        )
+        parser.add_argument(
+            "--no-potfile-path",
+            dest="no_potfile_path",
+            action="store_true",
+            help="Do not pass --potfile-path to hashcat (use hashcat's built-in default).",
+        )
         hashview_parser = None
         if not include_subcommands:
             return parser, hashview_parser
@@ -2863,6 +2896,19 @@ def main():
 
     global debug_mode
     debug_mode = args.debug
+
+    # CLI flags override config file.
+    if getattr(args, "no_potfile_path", False):
+        hcatPotfilePath = ""
+    if getattr(args, "potfile_path", None) is not None:
+        # Empty string means: revert to hashcat's default behavior.
+        if args.potfile_path.strip() == "":
+            hcatPotfilePath = ""
+        else:
+            p = os.path.expanduser(args.potfile_path.strip())
+            if not os.path.isabs(p):
+                p = os.path.join(hate_path, p)
+            hcatPotfilePath = p
 
     setup_logging(logger, hate_path, debug_mode)
 
