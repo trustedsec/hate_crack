@@ -268,6 +268,23 @@ hcatWordlists = config_parser["hcatWordlists"]
 hcatOptimizedWordlists = config_parser["hcatOptimizedWordlists"]
 hcatRules: list[str] = []
 
+
+# Optional: override hashcat's default potfile location.
+# If unset/empty, we use hashcat's built-in default potfile behavior.
+hcatPotfilePath = (config_parser.get("hcatPotfilePath") or "").strip()
+if hcatPotfilePath:
+    hcatPotfilePath = os.path.expanduser(hcatPotfilePath)
+    if not os.path.isabs(hcatPotfilePath):
+        hcatPotfilePath = os.path.join(hate_path, hcatPotfilePath)
+
+
+def _append_potfile_arg(cmd, *, use_potfile_path=True, potfile_path=None):
+    if not use_potfile_path:
+        return
+    pot = potfile_path or hcatPotfilePath
+    if pot:
+        cmd.append(f"--potfile-path={pot}")
+
 try:
     rulesDirectory = config_parser["rules_directory"]
 except KeyError as e:
@@ -834,7 +851,8 @@ def _run_hashcat_show(hash_type, hash_file, output_path):
             [
                 hcatBin,
                 "--show",
-                f"--potfile-path={hate_path}/hashcat.pot",
+                # Use hashcat's built-in potfile unless configured otherwise.
+                *([f"--potfile-path={hcatPotfilePath}"] if hcatPotfilePath else []),
                 "-m",
                 str(hash_type),
                 hash_file,
@@ -865,7 +883,7 @@ def hcatBruteForce(hcatHashType, hcatHashFile, hcatMinLen, hcatMaxLen):
         "?a?a?a?a?a?a?a?a?a?a?a?a?a?a",
     ]
     cmd.extend(shlex.split(hcatTuning))
-    cmd.append(f"--potfile-path={hate_path}/hashcat.pot")
+    _append_potfile_arg(cmd)
     hcatProcess = subprocess.Popen(cmd)
     try:
         hcatProcess.wait()
@@ -897,7 +915,7 @@ def hcatDictionary(hcatHashType, hcatHashFile):
     cmd.extend(optimized_lists)
     cmd.extend(["-r", rule_best66])
     cmd.extend(shlex.split(hcatTuning))
-    cmd.append(f"--potfile-path={hate_path}/hashcat.pot")
+    _append_potfile_arg(cmd)
     hcatProcess = subprocess.Popen(cmd)
     try:
         hcatProcess.wait()
@@ -921,7 +939,7 @@ def hcatDictionary(hcatHashType, hcatHashFile):
             rule_d3ad0ne,
         ]
         cmd.extend(shlex.split(hcatTuning))
-        cmd.append(f"--potfile-path={hate_path}/hashcat.pot")
+        _append_potfile_arg(cmd)
         hcatProcess = subprocess.Popen(cmd)
         try:
             hcatProcess.wait()
@@ -944,7 +962,7 @@ def hcatDictionary(hcatHashType, hcatHashFile):
             rule_toxic,
         ]
         cmd.extend(shlex.split(hcatTuning))
-        cmd.append(f"--potfile-path={hate_path}/hashcat.pot")
+        _append_potfile_arg(cmd)
         hcatProcess = subprocess.Popen(cmd)
         try:
             hcatProcess.wait()
@@ -956,7 +974,15 @@ def hcatDictionary(hcatHashType, hcatHashFile):
 
 
 # Quick Dictionary Attack (Optional Chained Rules)
-def hcatQuickDictionary(hcatHashType, hcatHashFile, hcatChains, wordlists):
+def hcatQuickDictionary(
+    hcatHashType,
+    hcatHashFile,
+    hcatChains,
+    wordlists,
+    loopback=False,
+    use_potfile_path=False,
+    potfile_path=None,
+):
     global hcatProcess
     cmd = [
         hcatBin,
@@ -972,10 +998,12 @@ def hcatQuickDictionary(hcatHashType, hcatHashFile, hcatChains, wordlists):
         cmd.extend(wordlists)
     else:
         cmd.append(wordlists)
+    if loopback:
+        cmd.append("--loopback")
     if hcatChains:
         cmd.extend(shlex.split(hcatChains))
     cmd.extend(shlex.split(hcatTuning))
-    cmd.append(f"--potfile-path={hate_path}/hashcat.pot")
+    _append_potfile_arg(cmd, use_potfile_path=use_potfile_path, potfile_path=potfile_path)
     hcatProcess = subprocess.Popen(cmd)
     try:
         hcatProcess.wait()
@@ -1040,7 +1068,7 @@ def hcatTopMask(hcatHashType, hcatHashFile, hcatTargetTime):
         f"{hcatHashFile}.hcmask",
     ]
     cmd.extend(shlex.split(hcatTuning))
-    cmd.append(f"--potfile-path={hate_path}/hashcat.pot")
+    _append_potfile_arg(cmd)
     hcatProcess = subprocess.Popen(cmd)
     try:
         hcatProcess.wait()
@@ -1094,7 +1122,7 @@ def hcatFingerprint(hcatHashType, hcatHashFile):
                 f"{hcatHashFile}.expanded",
                 f"{hcatHashFile}.expanded",
                 *shlex.split(hcatTuning),
-                f"--potfile-path={hate_path}/hashcat.pot",
+                *([f"--potfile-path={hcatPotfilePath}"] if hcatPotfilePath else []),
             ]
         )
         try:
@@ -1125,7 +1153,7 @@ def hcatCombination(hcatHashType, hcatHashFile):
         hcatCombinationWordlist[1],
     ]
     cmd.extend(shlex.split(hcatTuning))
-    cmd.append(f"--potfile-path={hate_path}/hashcat.pot")
+    _append_potfile_arg(cmd)
     hcatProcess = subprocess.Popen(cmd)
     try:
         hcatProcess.wait()
@@ -1182,7 +1210,7 @@ def hcatHybrid(hcatHashType, hcatHashFile, wordlists=None):
                 *args,
             ]
             cmd.extend(shlex.split(hcatTuning))
-            cmd.append(f"--potfile-path={hate_path}/hashcat.pot")
+            _append_potfile_arg(cmd)
             hcatProcess = subprocess.Popen(cmd)
             try:
                 hcatProcess.wait()
@@ -1217,7 +1245,7 @@ def hcatYoloCombination(hcatHashType, hcatHashFile):
                 right_path,
             ]
             cmd.extend(shlex.split(hcatTuning))
-            cmd.append(f"--potfile-path={hate_path}/hashcat.pot")
+            _append_potfile_arg(cmd)
             hcatProcess = subprocess.Popen(cmd)
             try:
                 hcatProcess.wait()
@@ -1266,7 +1294,7 @@ def hcatBandrel(hcatHashType, hcatHashFile):
             mask2.strip(),
         ]
         cmd.extend(shlex.split(hcatTuning))
-        cmd.append(f"--potfile-path={hate_path}/hashcat.pot")
+        _append_potfile_arg(cmd)
         hcatProcess = subprocess.Popen(cmd)
         try:
             hcatProcess.wait()
@@ -1309,7 +1337,7 @@ def hcatBandrel(hcatHashType, hcatHashFile):
             mask2.strip(),
         ]
         cmd.extend(shlex.split(hcatTuning))
-        cmd.append(f"--potfile-path={hate_path}/hashcat.pot")
+        _append_potfile_arg(cmd)
         hcatProcess = subprocess.Popen(cmd)
         try:
             hcatProcess.wait()
@@ -1351,7 +1379,7 @@ def hcatMiddleCombinator(hcatHashType, hcatHashFile):
                 masks[x],
                 hcatMiddleBaseList,
                 hcatMiddleBaseList,
-                f"--potfile-path={hate_path}/hashcat.pot",
+                *([f"--potfile-path={hcatPotfilePath}"] if hcatPotfilePath else []),
             ]
             hcatProcess = subprocess.Popen(cmd)
             try:
@@ -1395,7 +1423,7 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
         hcatThoroughBaseList,
     ]
     cmd.extend(shlex.split(hcatTuning))
-    cmd.append(f"--potfile-path={hate_path}/hashcat.pot")
+    _append_potfile_arg(cmd)
     hcatProcess = subprocess.Popen(cmd)
     try:
         hcatProcess.wait()
@@ -1420,7 +1448,7 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
                 masks[x],
                 hcatThoroughBaseList,
                 hcatThoroughBaseList,
-                f"--potfile-path={hate_path}/hashcat.pot",
+                *([f"--potfile-path={hcatPotfilePath}"] if hcatPotfilePath else []),
             ]
             hcatProcess = subprocess.Popen(cmd)
             try:
@@ -1450,7 +1478,7 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
                 hcatThoroughBaseList,
             ]
             cmd.extend(shlex.split(hcatTuning))
-            cmd.append(f"--potfile-path={hate_path}/hashcat.pot")
+            _append_potfile_arg(cmd)
             hcatProcess = subprocess.Popen(cmd)
             try:
                 hcatProcess.wait()
@@ -1481,7 +1509,7 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
                 hcatThoroughBaseList,
             ]
             cmd.extend(shlex.split(hcatTuning))
-            cmd.append(f"--potfile-path={hate_path}/hashcat.pot")
+            _append_potfile_arg(cmd)
             hcatProcess = subprocess.Popen(cmd)
             hcatProcess.wait()
     except KeyboardInterrupt:
@@ -1506,7 +1534,7 @@ def hcatPathwellBruteForce(hcatHashType, hcatHashFile):
         os.path.join(hate_path, "masks", "pathwell.hcmask"),
     ]
     cmd.extend(shlex.split(hcatTuning))
-    cmd.append(f"--potfile-path={hate_path}/hashcat.pot")
+    _append_potfile_arg(cmd)
     hcatProcess = subprocess.Popen(cmd)
     try:
         hcatProcess.wait()
@@ -1548,7 +1576,7 @@ def hcatPrince(hcatHashType, hcatHashFile):
         prince_rule,
     ]
     hashcat_cmd.extend(shlex.split(hcatTuning))
-    hashcat_cmd.append(f"--potfile-path={hate_path}/hashcat.pot")
+    _append_potfile_arg(hashcat_cmd)
     with open(prince_base, "rb") as base:
         prince_proc = subprocess.Popen(prince_cmd, stdin=base, stdout=subprocess.PIPE)
         hcatProcess = subprocess.Popen(hashcat_cmd, stdin=prince_proc.stdout)
@@ -1584,7 +1612,7 @@ def hcatGoodMeasure(hcatHashType, hcatHashFile):
         hcatGoodMeasureBaseList,
     ]
     cmd.extend(shlex.split(hcatTuning))
-    cmd.append(f"--potfile-path={hate_path}/hashcat.pot")
+    _append_potfile_arg(cmd)
     hcatProcess = subprocess.Popen(cmd)
     try:
         hcatProcess.wait()
@@ -1617,7 +1645,7 @@ def hcatLMtoNT():
         "?1?1?1?1?1?1?1",
     ]
     cmd.extend(shlex.split(hcatTuning))
-    cmd.append(f"--potfile-path={hate_path}/hashcat.pot")
+    _append_potfile_arg(cmd)
     hcatProcess = subprocess.Popen(cmd)
     try:
         hcatProcess.wait()
@@ -1667,7 +1695,7 @@ def hcatLMtoNT():
         ),
     ]
     cmd.extend(shlex.split(hcatTuning))
-    cmd.append(f"--potfile-path={hate_path}/hashcat.pot")
+    _append_potfile_arg(cmd)
     hcatProcess = subprocess.Popen(cmd)
     try:
         hcatProcess.wait()
@@ -1706,7 +1734,7 @@ def hcatRecycle(hcatHashType, hcatHashFile, hcatNewPasswords):
                 rule_path,
             ]
             cmd.extend(shlex.split(hcatTuning))
-            cmd.append(f"--potfile-path={hate_path}/hashcat.pot")
+            _append_potfile_arg(cmd)
             hcatProcess = subprocess.Popen(cmd)
             try:
                 hcatProcess.wait()
@@ -2412,6 +2440,10 @@ def bandrel_method():
     return _attacks.bandrel_method(_attack_ctx())
 
 
+def loopback_attack():
+    return _attacks.loopback_attack(_attack_ctx())
+
+
 # convert hex words for recycling
 def convert_hex(working_file):
     processed_words = []
@@ -2605,6 +2637,7 @@ def get_main_menu_options():
         "11": middle_combinator,
         "12": thorough_combinator,
         "13": bandrel_method,
+        "14": loopback_attack,
         "90": download_hashmob_rules,
         "91": weakpass_wordlist_menu,
         "92": download_hashmob_wordlists,
@@ -3138,6 +3171,7 @@ def main():
             print("\t(11) Middle Combinator Attack")
             print("\t(12) Thorough Combinator Attack")
             print("\t(13) Bandrel Methodology")
+            print("\t(14) Loopback Attack")
             print("\n\t(90) Download rules from Hashmob.net")
             print("\n\t(91) Download wordlists from Weakpass")
             print("\t(92) Download wordlists from Hashmob.net")
