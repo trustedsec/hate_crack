@@ -1,0 +1,26 @@
+name: ruff
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  ruff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        run: python -m pip install --upgrade pip uv==0.9.28
+
+      - name: Install dev dependencies
+        run: |
+          uv venv .venv
+          uv pip install --python .venv/bin/python ".[dev]"
+
+      - name: Run ruff
+        run: .venv/bin/ruff check hate_crack

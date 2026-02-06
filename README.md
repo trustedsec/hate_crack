@@ -9,12 +9,26 @@
 
 ## Status
 
-[![tests](https://github.com/trustedsec/hate_crack/actions/workflows/tests.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/tests.yml)
+**Code Quality & Testing:**
 
-**CI/CD Checks:**
-- **Linting (Ruff)** - Code quality and formatting validation
-- **Type Checking (Mypy)** - Static type analysis
-- **Testing** - Python 3.9, 3.10, 3.11, 3.12, 3.13, 3.14
+[![ruff](https://github.com/trustedsec/hate_crack/actions/workflows/ruff.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/ruff.yml)
+[![mypy](https://github.com/trustedsec/hate_crack/actions/workflows/mypy.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/mypy.yml)
+[![pytest](https://github.com/trustedsec/hate_crack/actions/workflows/pytest.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/pytest.yml)
+
+**What Each Badge Represents:**
+
+- **Ruff** - 🔍 Code quality and style validation
+  - ✅ **PASS**: Code follows linting rules and best practices
+  - ❌ **FAIL**: Code has style violations or quality issues
+
+- **Mypy** - 🔬 Static type checking
+  - ✅ **PASS**: No type errors detected
+  - ❌ **FAIL**: Type mismatches or missing annotations found
+
+- **Pytest** - ✔️ Testing across Python 3.9-3.14
+  - ✅ **PASS**: All tests pass on all supported Python versions
+  - ⚠️  **PARTIAL**: Tests pass on some versions but fail on others
+  - ❌ **FAIL**: Tests fail on one or more Python versions
 
 ## Installation
 
