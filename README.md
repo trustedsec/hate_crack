@@ -15,6 +15,15 @@
 [![mypy](https://github.com/trustedsec/hate_crack/actions/workflows/mypy.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/mypy.yml)
 [![pytest](https://github.com/trustedsec/hate_crack/actions/workflows/pytest.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/pytest.yml)
 
+**Python Version Testing:**
+
+[![py39](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py39.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py39.yml)
+[![py310](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py310.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py310.yml)
+[![py311](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py311.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py311.yml)
+[![py312](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py312.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py312.yml)
+[![py313](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py313.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py313.yml)
+[![py314](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py314.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py314.yml)
+
 **What Each Badge Represents:**
 
 - **Ruff** - 🔍 Code quality and style validation
@@ -27,8 +36,11 @@
 
 - **Pytest** - ✔️ Testing across Python 3.9-3.14
   - ✅ **PASS**: All tests pass on all supported Python versions
-  - ⚠️  **PARTIAL**: Tests pass on some versions but fail on others
   - ❌ **FAIL**: Tests fail on one or more Python versions
+
+- **Python Version Badges** - 🐍 Individual Python version test results
+  - ✅ **PASS**: Tests pass on that specific Python version
+  - ❌ **FAIL**: Tests fail on that specific Python version
 
 ## Installation
 
