@@ -7,7 +7,7 @@ from queue import Queue
 import shutil
 from typing import Callable, Tuple
 
-import requests
+import requests  # type: ignore[import-untyped]
 from bs4 import BeautifulSoup
 
 from hate_crack.formatting import print_multicolumn_list
