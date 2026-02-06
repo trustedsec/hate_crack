@@ -9,7 +9,7 @@ HATE_CRACK_SCRIPT = os.path.join(os.path.dirname(__file__), "..", "hate_crack.py
 @pytest.mark.parametrize(
     "flag,menu_text,alt_text",
     [
-        ("--hashview", "Available Customers", None),
+        ("--hashview", "What would you like to do?", None),
         ("--weakpass", "Available Wordlists", None),
         ("--hashmob", "Official Hashmob Wordlists", None),
     ],
