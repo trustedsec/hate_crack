@@ -2,6 +2,7 @@
   "hcatPath": "/path/to/hate_crack",
   "hcatBin": "hashcat",
   "hcatTuning": "--force --remove",
+  "hcatPotfilePath": "~/.hashcat/hashcat.potfile",
   "hcatWordlists": "/Passwords/wordlists",
   "hcatOptimizedWordlists": "/Passwords/optimized_wordlists",
   "rules_directory": "/path/to/hashcat/rules",

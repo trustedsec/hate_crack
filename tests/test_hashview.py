@@ -44,7 +44,7 @@ class TestHashviewAPI:
     @pytest.fixture
     def api(self):
         """Create a HashviewAPI instance with mocked session"""
-        with patch("requests.Session") as mock_session_class:
+        with patch("requests.Session"):
             api = HashviewAPI(base_url=HASHVIEW_URL, api_key=HASHVIEW_API_KEY)
             # Replace the session with a mock
             api.session = MagicMock()
@@ -651,7 +651,7 @@ class TestHashviewAPI:
         
         # Download left hashes with different IDs (3_4 instead of 1_2)
         left_file = tmp_path / "left_3_4.txt"
-        result = api.download_left_hashes(3, 4, output_file=str(left_file))
+        api.download_left_hashes(3, 4, output_file=str(left_file))
         
         # Verify the different IDs' .out file wasn't affected
         with open(str(out_file), 'r') as f:

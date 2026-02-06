@@ -349,7 +349,7 @@ Common options:
 - `--pipal-path <PATH>`: Override pipal path.
 - `--maxruntime <SECONDS>`: Override max runtime.
 - `--bandrel-basewords <PATH>`: Override bandrel basewords file.
-- `--debug`: Enable debug logging (writes `hate_crack.log` in repo root).
+- `--debug`: Enable debug logging (writes to stderr).
 
 ### Hashview Integration
 

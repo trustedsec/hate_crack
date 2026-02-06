@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 from typing import Optional
 
 
@@ -18,10 +19,14 @@ def setup_logging(logger: logging.Logger, hate_path: str, debug_mode: bool) -> N
     if not debug_mode:
         return
     logger.setLevel(logging.DEBUG)
-    if not any(isinstance(h, logging.FileHandler) for h in logger.handlers):
-        log_path = os.path.join(hate_path, "hate_crack.log")
-        file_handler = logging.FileHandler(log_path)
-        file_handler.setFormatter(
+    # Debug logs go to stderr by default (no log file side effects).
+    has_stream = any(
+        isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler)
+        for h in logger.handlers
+    )
+    if not has_stream:
+        stream_handler = logging.StreamHandler(sys.stderr)
+        stream_handler.setFormatter(
             logging.Formatter("%(asctime)s %(levelname)s %(message)s")
         )
-        logger.addHandler(file_handler)
+        logger.addHandler(stream_handler)

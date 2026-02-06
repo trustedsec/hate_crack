@@ -15,15 +15,20 @@ def test_resolve_path_none_and_expand():
     assert os.path.isabs(resolved)
 
 
-def test_setup_logging_adds_single_filehandler(tmp_path):
+def test_setup_logging_adds_single_streamhandler(tmp_path):
     logger = logging.getLogger("hate_crack_test")
     logger.handlers.clear()
     cli.setup_logging(logger, str(tmp_path), debug_mode=True)
     cli.setup_logging(logger, str(tmp_path), debug_mode=True)
 
+    stream_handlers = [
+        h
+        for h in logger.handlers
+        if isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler)
+    ]
+    assert len(stream_handlers) == 1
     file_handlers = [h for h in logger.handlers if isinstance(h, logging.FileHandler)]
-    assert len(file_handlers) == 1
-    assert os.path.basename(file_handlers[0].baseFilename) == "hate_crack.log"
+    assert file_handlers == []
 
     logger.handlers.clear()
 
