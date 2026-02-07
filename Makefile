@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := submodules
-.PHONY: install reinstall dev-install dev-reinstall clean hashcat-utils submodules test coverage lint check ruff mypy
+.PHONY: install reinstall dev-install dev-reinstall clean hashcat-utils submodules submodules-pre test coverage lint check ruff mypy
 
 hashcat-utils: submodules
 	$(MAKE) -C hashcat-utils
@@ -8,12 +8,25 @@ submodules:
 	@# Initialize submodules when present
 	@if [ -f .gitmodules ] && command -v git >/dev/null 2>&1; then \
 		git submodule update --init --recursive; \
+	fi; \
+	$(MAKE) submodules-pre; \
+	if [ -f .gitmodules ] && command -v git >/dev/null 2>&1; then \
 		for path in $$(git config --file .gitmodules --get-regexp path | awk '{print $$2}'); do \
 			if [ -f "$$path/Makefile" ]; then \
 				$(MAKE) -C "$$path"; \
 			fi; \
 		done; \
 	fi
+		
+
+submodules-pre:
+	@# Pre-step: basic sanity checks and file generation before building submodules.
+	@# Ensure required directories exist (whether as submodules or vendored copies).
+	@test -d hashcat-utils || { echo "Error: missing required directory: hashcat-utils"; exit 1; }
+	@test -d princeprocessor || { echo "Error: missing required directory: princeprocessor"; exit 1; }
+	@# Keep per-length expander sources in sync (expander8.c..expander24.c).
+	@# Patch hashcat-utils/src/Makefile so these new expanders are compiled by default.
+	@bases="hashcat-utils hate_crack/hashcat-utils"; for base in $$bases; do src="$$base/src/expander.c"; test -f "$$src" || continue; for i in $$(seq 8 36); do dst="$$base/src/expander$$i.c"; if [ ! -f "$$dst" ]; then cp "$$src" "$$dst"; perl -pi -e "s/#define LEN_MAX 7/#define LEN_MAX $$i/g" "$$dst"; fi; done; mk="$$base/src/Makefile"; test -f "$$mk" || continue; exp_bins=""; exp_exes=""; for i in $$(seq 8 36); do exp_bins="$$exp_bins expander$$i.bin"; exp_exes="$$exp_exes expander$$i.exe"; done; EXP_BINS="$$exp_bins" perl -pi -e 'if(/^native:/ && index($$_, "expander8.bin") < 0){chomp; $$_ .= "$$ENV{EXP_BINS}"; $$_ .= "\n";}' "$$mk"; EXP_EXES="$$exp_exes" perl -pi -e 'if(/^windows:/ && index($$_, "expander8.exe") < 0){chomp; $$_ .= "$$ENV{EXP_EXES}"; $$_ .= "\n";}' "$$mk"; perl -0777 -pi -e 's/\n# Auto-added by hate_crack \\(submodules-pre\\)\n.*\z/\n/s' "$$mk"; printf '%s\n' '' '# Auto-added by hate_crack (submodules-pre)' 'expander%.bin: src/expander%.c' >> "$$mk"; printf '\t%s\n' '$${CC_NATIVE} $${CFLAGS_NATIVE} $${LDFLAGS_NATIVE} -o bin/$$@ $$<' >> "$$mk"; printf '%s\n' '' 'expander%.exe: src/expander%.c' >> "$$mk"; printf '\t%s\n' '$${CC_WINDOWS} $${CFLAGS_WINDOWS} -o bin/$$@ $$<' >> "$$mk"; done
 
 install:
 	@echo "Detecting OS and installing dependencies..."
@@ -31,6 +44,8 @@ install:
 		cp -R princeprocessor hate_crack/; \
 		rm -rf hate_crack/hashcat-utils/.git hate_crack/princeprocessor/.git; \
 		uv tool install .; \
+		echo "Cleaning up vendored assets from working tree..."; \
+		rm -rf hate_crack/hashcat-utils hate_crack/princeprocessor; \
 	elif [ -f /etc/debian_version ]; then \
 		echo "Detected Debian/Ubuntu"; \
 		sudo apt-get update; \
@@ -41,6 +56,8 @@ install:
 		cp -R princeprocessor hate_crack/; \
 		rm -rf hate_crack/hashcat-utils/.git hate_crack/princeprocessor/.git; \
 		uv tool install .; \
+		echo "Cleaning up vendored assets from working tree..."; \
+		rm -rf hate_crack/hashcat-utils hate_crack/princeprocessor; \
 	else \
 		echo "Unsupported OS. Please install dependencies manually."; \
 		exit 1; \

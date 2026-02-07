@@ -305,18 +305,18 @@ def top_mask_crack(ctx: Any) -> None:
 
 def fingerprint_crack(ctx: Any) -> None:
     while True:
-        raw = input("\nEnter expander max length (7-24) (7): ").strip()
+        raw = input("\nEnter expander max length (7-36) (7): ").strip()
         if raw == "":
             expander_len = 7
             break
         try:
             expander_len = int(raw)
         except ValueError:
-            print("Please enter an integer between 7 and 24.")
+            print("Please enter an integer between 7 and 36.")
             continue
-        if 7 <= expander_len <= 24:
+        if 7 <= expander_len <= 36:
             break
-        print("Please enter an integer between 7 and 24.")
+        print("Please enter an integer between 7 and 36.")
 
     ctx.hcatFingerprint(
         ctx.hcatHashType,

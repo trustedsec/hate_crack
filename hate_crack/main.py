@@ -675,7 +675,7 @@ hcatCombinationCount = 0
 hcatHybridCount = 0
 hcatExtraCount = 0
 hcatRecycleCount = 0
-hcatProcess = 0
+hcatProcess: subprocess.Popen[Any] | None = None
 debug_mode = False
 
 
@@ -1107,8 +1107,8 @@ def hcatFingerprint(
         expander_len = int(expander_len)
     except Exception:
         expander_len = 7
-    if expander_len < 7 or expander_len > 24:
-        raise ValueError("expander_len must be an integer between 7 and 24")
+    if expander_len < 7 or expander_len > 36:
+        raise ValueError("expander_len must be an integer between 7 and 36")
 
     crackedBefore = lineCount(hcatHashFile + ".out")
     crackedAfter = 0
@@ -1131,16 +1131,18 @@ def hcatFingerprint(
             expander_proc = subprocess.Popen(
                 [expander_path], stdin=src, stdout=subprocess.PIPE
             )
-            hcatProcess = subprocess.Popen(
-                ["sort", "-u"], stdin=expander_proc.stdout, stdout=dst
-            )
-            expander_proc.stdout.close()
+            expander_stdout = expander_proc.stdout
+            if expander_stdout is None:
+                raise RuntimeError("expander stdout pipe was not created")
+            sort_proc = subprocess.Popen(["sort", "-u"], stdin=expander_stdout, stdout=dst)
+            hcatProcess = sort_proc
+            expander_stdout.close()
             try:
-                hcatProcess.wait()
+                sort_proc.wait()
                 expander_proc.wait()
             except KeyboardInterrupt:
-                print("Killing PID {0}...".format(str(hcatProcess.pid)))
-                hcatProcess.kill()
+                print("Killing PID {0}...".format(str(sort_proc.pid)))
+                sort_proc.kill()
                 expander_proc.kill()
         hcatProcess = subprocess.Popen(
             [
@@ -2664,7 +2666,7 @@ def quit_hc():
 
 def get_main_menu_options():
     """Return the mapping of main menu keys to their handler functions."""
-    return {
+    options = {
         "1": quick_crack,
         "2": extensive_crack,
         "3": brute_force_crack,
@@ -2683,13 +2685,16 @@ def get_main_menu_options():
         "91": weakpass_wordlist_menu,
         "92": download_hashmob_wordlists,
         "93": weakpass_wordlist_menu,
-        "94": hashview_api,
         "95": pipal,
         "96": export_excel,
         "97": show_results,
         "98": show_readme,
         "99": quit_hc,
     }
+    # Only show this when Hashview API is configured (requested behavior).
+    if hashview_api_key:
+        options["94"] = hashview_api
+    return options
 
 
 # The Main Guts
@@ -3246,7 +3251,8 @@ def main():
             print("\n\t(91) Download wordlists from Weakpass")
             print("\t(92) Download wordlists from Hashmob.net")
             print("\t(93) Weakpass Wordlist Menu")
-            print("\t(94) Hashview API")
+            if hashview_api_key:
+                print("\t(94) Hashview API")
             print("\t(95) Analyze hashes with Pipal")
             print("\t(96) Export Output to Excel Format")
             print("\t(97) Display Cracked Hashes")
