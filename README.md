@@ -521,6 +521,7 @@ Tests automatically run on GitHub Actions for every push and pull request (Ubunt
   (11) Middle Combinator Attack
   (12) Thorough Combinator Attack
   (13) Bandrel Methodology
+  (14) Loopback Attack
 
   (93) Download Wordlists
   (94) Hashview Integration
@@ -636,6 +637,15 @@ https://jeffh.net/2018/04/26/combinator_methods/
 and adding up to six additional characters at the end. Each word is limited to a total of five minutes.
   - Built in additional common words including seasons, months has been included as a customizable config.json entry
   - The default five minute time limit is customizable via the config.json
+
+#### Loopback Attack
+https://hashcat.net/wiki/doku.php?id=loopback_attack
+
+Uses hashcat's loopback mode to feed cracked passwords from the current session back into the attack pipeline with rules applied. This generates new password candidates based on variations of already-cracked passwords, which is particularly effective for finding related passwords that follow similar patterns.
+
+* Prompts for rule selection to apply to the loopback candidates
+* Uses an empty wordlist with the --loopback flag to process previously cracked passwords
+* Automatically downloads Hashmob rules if no rules are available locally
   
 -------------------------------------------------------------------
 ### Version History
