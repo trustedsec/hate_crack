@@ -1104,11 +1104,11 @@ class HashviewAPI:
         except (json.JSONDecodeError, ValueError):
             raise Exception(f"Invalid API response: {resp.text[:200]}")
 
-    def download_wordlist(self, wordlist_id, output_file=None):
+    def download_wordlist(self, wordlist_id, output_file=None, *, update_dynamic: bool = False):
         import sys
         import re
 
-        if int(wordlist_id) == 1:
+        if int(wordlist_id) == 1 and update_dynamic:
             update_url = f"{self.base_url}/v1/updateWordlist/{wordlist_id}"
             try:
                 update_resp = self.session.get(update_url, headers=self._auth_headers(), timeout=30)

@@ -29,7 +29,6 @@ MENU_OPTION_TEST_CASES = [
     ("91", CLI_MODULE, "weakpass_wordlist_menu", "weakpass-menu"),
     ("92", CLI_MODULE, "download_hashmob_wordlists", "hashmob-wordlists"),
     ("93", CLI_MODULE, "weakpass_wordlist_menu", "weakpass-menu-secondary"),
-    ("94", CLI_MODULE, "hashview_api", "hashview"),
     ("95", CLI_MODULE, "pipal", "pipal"),
     ("96", CLI_MODULE, "export_excel", "export-excel"),
     ("97", CLI_MODULE, "show_results", "show-results"),
@@ -56,3 +55,18 @@ def test_main_menu_option_returns_expected(
     assert option_key in options, f"Menu option {option_key} must exist"
     handler = options[option_key]
     assert handler() == sentinel
+
+
+def test_main_menu_option_94_hashview_hidden_without_hashview_api_key(monkeypatch):
+    monkeypatch.setattr(CLI_MODULE, "hashview_api_key", "")
+    options = CLI_MODULE.get_main_menu_options()
+    assert "94" not in options
+
+
+def test_main_menu_option_94_hashview_visible_with_hashview_api_key(monkeypatch):
+    monkeypatch.setattr(CLI_MODULE, "hashview_api_key", "test-key")
+    sentinel = "hashview-94"
+    monkeypatch.setattr(CLI_MODULE, "hashview_api", lambda *a, **k: sentinel)
+    options = CLI_MODULE.get_main_menu_options()
+    assert "94" in options
+    assert options["94"]() == sentinel

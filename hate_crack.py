@@ -68,7 +68,7 @@ def pipal():
 
 
 def get_main_menu_options():
-    return {
+    options = {
         "1": _attacks.quick_crack,
         "2": _attacks.extensive_crack,
         "3": _attacks.brute_force_crack,
@@ -87,13 +87,16 @@ def get_main_menu_options():
         "91": weakpass_wordlist_menu,
         "92": download_hashmob_wordlists,
         "93": weakpass_wordlist_menu,
-        "94": hashview_api,
         "95": pipal,
         "96": export_excel,
         "97": show_results,
         "98": show_readme,
         "99": quit_hc,
     }
+    # Only show Hashview API when configured.
+    if globals().get("hashview_api_key"):
+        options["94"] = hashview_api
+    return options
 
 
 if __name__ == "__main__":

@@ -366,15 +366,26 @@ class TestHashviewAPI:
         # Only run this test if explicitly enabled
         if os.environ.get("HASHVIEW_TEST_REAL", "").lower() not in ("1", "true", "yes"):
             pytest.skip("Set HASHVIEW_TEST_REAL=1 to run live Hashview list_wordlists test.")
-        
-        hashview_url, hashview_api_key = self._get_hashview_config()
+
+        # For live tests, prefer explicit env vars so developers don't accidentally
+        # hit a config.json default/localhost target.
+        hashview_url = os.environ.get("HASHVIEW_URL")
+        hashview_api_key = os.environ.get("HASHVIEW_API_KEY")
         if not hashview_url or not hashview_api_key:
-            pytest.skip("Missing hashview_url/hashview_api_key in config.json or env.")
+            pytest.skip("Missing HASHVIEW_URL/HASHVIEW_API_KEY env vars.")
         
         # Only proceed if the server is actually reachable
         try:
             import socket
-            host, port = "127.0.0.1", 5000
+            from urllib.parse import urlparse
+
+            parsed = urlparse(hashview_url)
+            host = parsed.hostname
+            port = parsed.port
+            if not host:
+                pytest.skip(f"Could not parse hostname from hashview_url: {hashview_url!r}")
+            if port is None:
+                port = 443 if parsed.scheme == "https" else 80
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(2)
             result = sock.connect_ex((host, port))
