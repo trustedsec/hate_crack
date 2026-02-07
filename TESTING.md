@@ -103,8 +103,8 @@ When `HASHMOB_TEST_REAL` is enabled, tests will still skip if Hashmob returns er
 
 ## Test Results
 
-✅ 56 tests passing (as of current version)
-⚡ Tests run in ~1 second on a typical dev machine
+✅ 94 tests passing (as of current version, 15 typically skipped)
+⚡ Tests run in ~50 seconds on a typical dev machine
 
 ### Test Coverage
 
