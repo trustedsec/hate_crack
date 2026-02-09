@@ -454,6 +454,18 @@ except KeyError as e:
     )
     hcatGoodMeasureBaseList = default_config[e.args[0]]
 
+try:
+    hcatDebugLogPath = config_parser.get("hcatDebugLogPath", "./hashcat_debug")
+    # Expand user home directory if present
+    hcatDebugLogPath = os.path.expanduser(hcatDebugLogPath)
+except KeyError as e:
+    print(
+        "{0} is not defined in config.json using defaults from config.json.example".format(
+            e
+        )
+    )
+    hcatDebugLogPath = os.path.expanduser(default_config.get("hcatDebugLogPath", "./hashcat_debug"))
+
 hcatExpanderBin = "expander.bin"
 hcatCombinatorBin = "combinator.bin"
 hcatPrinceBin = "pp64.bin"
@@ -687,6 +699,28 @@ def _format_cmd(cmd):
 def _debug_cmd(cmd):
     if debug_mode:
         print(f"[DEBUG] hashcat cmd: {_format_cmd(cmd)}")
+
+
+def _add_debug_mode_for_rules(cmd):
+    """Add debug mode arguments to hashcat command if rules are being used.
+    
+    This function detects if rules are present in the command (by looking for -r flags)
+    and adds --debug-mode=1 and --debug-file=<path> if rules are found.
+    Debug log path is configurable via hcatDebugLogPath in config.json
+    """
+    if "-r" in cmd:
+        # Create debug output directory if it doesn't exist
+        os.makedirs(hcatDebugLogPath, exist_ok=True)
+        
+        # Create a debug output filename based on the session ID or hash file
+        debug_filename = os.path.join(hcatDebugLogPath, "hashcat_debug.log")
+        if "--session" in cmd:
+            session_idx = cmd.index("--session") + 1
+            if session_idx < len(cmd):
+                debug_filename = os.path.join(hcatDebugLogPath, f"hashcat_debug_{cmd[session_idx]}.log")
+        
+        cmd.extend(["--debug-mode", "4", "--debug-file", debug_filename])
+    return cmd
 
 
 # Sanitize filename for use as hashcat session name
@@ -932,6 +966,7 @@ def hcatDictionary(hcatHashType, hcatHashFile):
     cmd.extend(["-r", rule_best66])
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
+    cmd = _add_debug_mode_for_rules(cmd)
     hcatProcess = subprocess.Popen(cmd)
     try:
         hcatProcess.wait()
@@ -956,6 +991,7 @@ def hcatDictionary(hcatHashType, hcatHashFile):
         ]
         cmd.extend(shlex.split(hcatTuning))
         _append_potfile_arg(cmd)
+        cmd = _add_debug_mode_for_rules(cmd)
         hcatProcess = subprocess.Popen(cmd)
         try:
             hcatProcess.wait()
@@ -979,6 +1015,7 @@ def hcatDictionary(hcatHashType, hcatHashFile):
         ]
         cmd.extend(shlex.split(hcatTuning))
         _append_potfile_arg(cmd)
+        cmd = _add_debug_mode_for_rules(cmd)
         hcatProcess = subprocess.Popen(cmd)
         try:
             hcatProcess.wait()
@@ -1020,6 +1057,7 @@ def hcatQuickDictionary(
         cmd.extend(shlex.split(hcatChains))
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd, use_potfile_path=use_potfile_path, potfile_path=potfile_path)
+    cmd = _add_debug_mode_for_rules(cmd)
     _debug_cmd(cmd)
     hcatProcess = subprocess.Popen(cmd)
     try:
@@ -1178,9 +1216,35 @@ def hcatFingerprint(
 
 
 # Combinator Attack
-def hcatCombination(hcatHashType, hcatHashFile):
+def hcatCombination(hcatHashType, hcatHashFile, wordlists=None):
     global hcatCombinationCount
     global hcatProcess
+
+    # Use provided wordlists or fall back to config default
+    if wordlists is None:
+        wordlists = hcatCombinationWordlist
+
+    # Ensure wordlists is a list with at least 2 items
+    if not isinstance(wordlists, list):
+        wordlists = [wordlists]
+    
+    if len(wordlists) < 2:
+        print("[!] Combinator attack requires at least 2 wordlists.")
+        return
+
+    # Resolve wordlist paths
+    resolved_wordlists = []
+    for wordlist in wordlists[:2]:  # Only use first 2 wordlists
+        resolved = _resolve_wordlist_path(wordlist, hcatWordlists)
+        if os.path.isfile(resolved):
+            resolved_wordlists.append(resolved)
+        else:
+            print(f"[!] Wordlist not found: {resolved}")
+    
+    if len(resolved_wordlists) < 2:
+        print("[!] Could not find 2 valid wordlists. Aborting combinator attack.")
+        return
+
     cmd = [
         hcatBin,
         "-m",
@@ -1192,8 +1256,8 @@ def hcatCombination(hcatHashType, hcatHashFile):
         f"{hcatHashFile}.out",
         "-a",
         "1",
-        hcatCombinationWordlist[0],
-        hcatCombinationWordlist[1],
+        resolved_wordlists[0],
+        resolved_wordlists[1],
     ]
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
@@ -1620,6 +1684,7 @@ def hcatPrince(hcatHashType, hcatHashFile):
     ]
     hashcat_cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(hashcat_cmd)
+    hashcat_cmd = _add_debug_mode_for_rules(hashcat_cmd)
     with open(prince_base, "rb") as base:
         prince_proc = subprocess.Popen(prince_cmd, stdin=base, stdout=subprocess.PIPE)
         hcatProcess = subprocess.Popen(hashcat_cmd, stdin=prince_proc.stdout)
@@ -1656,6 +1721,7 @@ def hcatGoodMeasure(hcatHashType, hcatHashFile):
     ]
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
+    cmd = _add_debug_mode_for_rules(cmd)
     hcatProcess = subprocess.Popen(cmd)
     try:
         hcatProcess.wait()
@@ -1739,6 +1805,7 @@ def hcatLMtoNT():
     ]
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
+    cmd = _add_debug_mode_for_rules(cmd)
     hcatProcess = subprocess.Popen(cmd)
     try:
         hcatProcess.wait()
@@ -1778,6 +1845,7 @@ def hcatRecycle(hcatHashType, hcatHashFile, hcatNewPasswords):
             ]
             cmd.extend(shlex.split(hcatTuning))
             _append_potfile_arg(cmd)
+            cmd = _add_debug_mode_for_rules(cmd)
             hcatProcess = subprocess.Popen(cmd)
             try:
                 hcatProcess.wait()
@@ -1897,6 +1965,7 @@ def hashview_api():
             menu_options.append(("upload_wordlist", "Upload Wordlist"))
             menu_options.append(("download_wordlist", "Download Wordlist"))
             menu_options.append(("download_left", "Download Left Hashes (with automatic merge if found)"))
+            menu_options.append(("download_found", "Download Found Hashes (with automatic split)"))
             if hcatHashFile:
                 menu_options.append(("upload_hashfile_job", "Upload Hashfile and Create Job"))
             menu_options.append(("back", "Back to Main Menu"))
@@ -2414,6 +2483,152 @@ def hashview_api():
                     print("\n✗ Error: Invalid ID entered. Please enter a numeric ID.")
                 except Exception as e:
                     print(f"\n✗ Error downloading hashes: {str(e)}")
+
+            elif option_key == "download_found":
+                # Download found hashes
+                try:
+                    while True:
+                        # First, list customers to help user select
+                        customers_result = api_harness.list_customers()
+                        customers = (
+                            customers_result.get("customers", [])
+                            if isinstance(customers_result, dict)
+                            else customers_result
+                        )
+                        if customers:
+                            api_harness.display_customers_multicolumn(customers)
+                        else:
+                            print("\nNo customers found.")
+
+                        # Select or create customer
+                        customer_input = input(
+                            "\nEnter customer ID or N to create new: "
+                        ).strip()
+                        if customer_input.lower() == "n":
+                            customer_name = input("Enter customer name: ").strip()
+                            if customer_name:
+                                try:
+                                    result = api_harness.create_customer(customer_name)
+                                    print(
+                                        f"\n✓ Success: {result.get('msg', 'Customer created')}"
+                                    )
+                                    customer_id = result.get("customer_id") or result.get("id")
+                                    if not customer_id:
+                                        print("\n✗ Error: Customer ID not returned.")
+                                        continue
+                                    print(f"  Customer ID: {customer_id}")
+                                except Exception as e:
+                                    print(f"\n✗ Error creating customer: {str(e)}")
+                                    continue
+                            else:
+                                print("\n✗ Error: Customer name cannot be empty.")
+                                continue
+                        else:
+                            try:
+                                customer_id = int(customer_input)
+                            except ValueError:
+                                print(
+                                    "\n✗ Error: Invalid ID entered. Please enter a numeric ID or N."
+                                )
+                                continue
+
+                        # List hashfiles for the customer
+                        try:
+                            customer_hashfiles = api_harness.get_customer_hashfiles(
+                                customer_id
+                            )
+
+                            if not customer_hashfiles:
+                                print(f"\nNo hashfiles found for customer ID {customer_id}")
+                                continue
+
+                            print("\n" + "=" * 120)
+                            print(f"Hashfiles for Customer ID {customer_id}:")
+                            print("=" * 120)
+                            print(f"{'ID':<10} {'Hash Type':<10} {'Name':<96}")
+                            print("-" * 120)
+                            hashfile_map = {}
+                            for hf in customer_hashfiles:
+                                hf_id = hf.get("id")
+                                hf_name = hf.get("name", "N/A")
+                                hf_type = hf.get("hash_type") or hf.get("hashtype") or "N/A"
+                                if hf_id is None:
+                                    continue
+                                # Truncate long names to fit within 120 columns
+                                if len(str(hf_name)) > 96:
+                                    hf_name = str(hf_name)[:93] + "..."
+                                if debug_mode:
+                                    print(f"[DEBUG] Hashfile {hf_id}: hash_type={hf.get('hash_type')}, hashtype={hf.get('hashtype')}, combined={hf_type}")
+                                print(f"{hf_id:<10} {hf_type:<10} {hf_name:<96}")
+                                hashfile_map[int(hf_id)] = hf_type
+                            print("=" * 120)
+                            print(f"Total: {len(hashfile_map)} hashfile(s)")
+                        except Exception as e:
+                            print(f"\nWarning: Could not list hashfiles: {e}")
+                            continue
+
+                        while True:
+                            try:
+                                hashfile_id_input = input("\nEnter hashfile ID: ").strip()
+                                hashfile_id = int(hashfile_id_input)
+                            except ValueError:
+                                print("\n✗ Error: Invalid ID entered. Please enter a numeric ID.")
+                                continue
+                            if hashfile_id not in hashfile_map:
+                                print("\n✗ Error: Hashfile ID not in the list. Please try again.")
+                                continue
+                            break
+                        break
+
+                    # Set output filename automatically
+                    output_file = f"found_{customer_id}_{hashfile_id}.txt"
+
+                    # Get hash type for hashcat from the hashfile map
+                    selected_hash_type = hashfile_map.get(hashfile_id)
+                    if debug_mode:
+                        print(f"[DEBUG] selected_hash_type from map: {selected_hash_type}")
+                    if not selected_hash_type or selected_hash_type == "N/A":
+                        try:
+                            details = api_harness.get_hashfile_details(hashfile_id)
+                            selected_hash_type = details.get("hashtype")
+                            if debug_mode:
+                                print(f"[DEBUG] selected_hash_type from get_hashfile_details: {selected_hash_type}")
+                        except Exception as e:
+                            if debug_mode:
+                                print(f"[DEBUG] Error fetching hashfile details: {e}")
+                            selected_hash_type = None
+
+                    # Download the found hashes
+                    if debug_mode:
+                        print(f"[DEBUG] Calling download_found_hashes with hash_type={selected_hash_type}")
+                    download_result = api_harness.download_found_hashes(
+                        customer_id, hashfile_id, output_file
+                    )
+                    print(f"\n✓ Success: Downloaded {download_result['size']} bytes")
+                    print(f"  File: {download_result['output_file']}")
+                    if selected_hash_type:
+                        print(f"  Hash mode: {selected_hash_type}")
+
+                    # Ask if user wants to switch to this hashfile
+                    switch = (
+                        input("\nSwitch to this hashfile for cracking? (Y/n): ")
+                        .strip()
+                        .lower()
+                    )
+                    if switch != "n":
+                        hcatHashFile = download_result["output_file"]
+                        if selected_hash_type:
+                            hcatHashType = str(selected_hash_type)
+                        else:
+                            hcatHashType = "1000"  # Default to NTLM if unavailable
+                        print(f"✓ Switched to hashfile: {hcatHashFile}")
+                        print("\nReturning to main menu to start cracking...")
+                        return  # Exit hashview menu and return to main menu
+
+                except ValueError:
+                    print("\n✗ Error: Invalid ID entered. Please enter a numeric ID.")
+                except Exception as e:
+                    print(f"\n✗ Error downloading found hashes: {str(e)}")
 
             elif option_key == "back":
                 break
