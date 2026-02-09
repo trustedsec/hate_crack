@@ -3,6 +3,7 @@
   "hcatBin": "hashcat",
   "hcatTuning": "--force --remove",
   "hcatPotfilePath": "~/.hashcat/hashcat.potfile",
+  "hcatDebugLogPath": "./hashcat_debug",
   "hcatWordlists": "/Passwords/wordlists",
   "hcatOptimizedWordlists": "/Passwords/optimized_wordlists",
   "rules_directory": "/path/to/hashcat/rules",

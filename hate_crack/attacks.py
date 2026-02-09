@@ -327,7 +327,75 @@ def fingerprint_crack(ctx: Any) -> None:
 
 
 def combinator_crack(ctx: Any) -> None:
-    ctx.hcatCombination(ctx.hcatHashType, ctx.hcatHashFile)
+    print("\n" + "=" * 60)
+    print("COMBINATOR ATTACK")
+    print("=" * 60)
+    print("This attack combines two wordlists to generate candidates.")
+    print("Example: wordlist1='password' + wordlist2='123' = 'password123'")
+    print("=" * 60)
+
+    use_default = (
+        input("\nUse default combinator wordlists from config? (Y/n): ").strip().lower()
+    )
+
+    if use_default != "n":
+        print("\nUsing default wordlist(s) from config:")
+        if isinstance(ctx.hcatCombinationWordlist, list):
+            for wl in ctx.hcatCombinationWordlist:
+                print(f"  - {wl}")
+            wordlists = ctx.hcatCombinationWordlist
+        else:
+            print(f"  - {ctx.hcatCombinationWordlist}")
+            wordlists = [ctx.hcatCombinationWordlist]
+    else:
+        print("\nSelect wordlists for combinator attack.")
+        print("You need to provide exactly 2 wordlists.")
+        print("You can enter:")
+        print("  - Two file paths separated by commas")
+        print("  - Press TAB to autocomplete file paths")
+
+        selection = ctx.select_file_with_autocomplete(
+            "Enter 2 wordlist files (comma-separated)", allow_multiple=True
+        )
+
+        if not selection:
+            print("No wordlists selected. Aborting combinator attack.")
+            return
+
+        if isinstance(selection, str):
+            wordlists = [selection]
+        else:
+            wordlists = selection
+
+        if len(wordlists) < 2:
+            print("\n[!] Combinator attack requires at least 2 wordlists.")
+            print("Aborting combinator attack.")
+            return
+
+        valid_wordlists = []
+        for wl in wordlists[:2]:  # Only use first 2
+            resolved = ctx._resolve_wordlist_path(wl, ctx.hcatWordlists)
+            if os.path.isfile(resolved):
+                valid_wordlists.append(resolved)
+                print(f"✓ Found: {resolved}")
+            else:
+                print(f"✗ Not found: {resolved}")
+
+        if len(valid_wordlists) < 2:
+            print("\nCould not find 2 valid wordlists. Aborting combinator attack.")
+            return
+
+        wordlists = valid_wordlists
+    
+    wordlists = [ctx._resolve_wordlist_path(wl, ctx.hcatWordlists) for wl in wordlists[:2]]
+
+    print(f"\nStarting combinator attack with 2 wordlists:")
+    print(f"  Wordlist 1: {wordlists[0]}")
+    print(f"  Wordlist 2: {wordlists[1]}")
+    print(f"Hash type: {ctx.hcatHashType}")
+    print(f"Hash file: {ctx.hcatHashFile}")
+
+    ctx.hcatCombination(ctx.hcatHashType, ctx.hcatHashFile, wordlists)
 
 
 def hybrid_crack(ctx: Any) -> None:
