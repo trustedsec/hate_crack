@@ -812,8 +812,9 @@ class HashviewAPI:
         resp.raise_for_status()
         if output_file is None:
             output_file = f"left_{customer_id}_{hashfile_id}.txt"
-        output_file = os.fspath(output_file)
-        output_abs = os.path.abspath(output_file)
+        # Convert to absolute path to ensure file is preserved if CWD changes
+        output_file = os.path.abspath(output_file)
+        output_abs = output_file
         total = int(resp.headers.get("content-length", 0))
         downloaded = 0
         chunk_size = 8192
@@ -1013,6 +1014,9 @@ class HashviewAPI:
         resp.raise_for_status()
         if output_file is None:
             output_file = f"found_{customer_id}_{hashfile_id}.txt"
+        
+        # Convert to absolute path to ensure file is preserved if CWD changes
+        output_file = os.path.abspath(output_file)
 
         total = int(resp.headers.get("content-length", 0))
         downloaded = 0

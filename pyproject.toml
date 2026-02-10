@@ -54,10 +54,12 @@ exclude = [
     "^dist/",
     "^PACK/",
     "^wordlists/",
+    "^HashcatRosetta/",
+    "^hashcat-utils/",
     "^hate_crack/hashcat-utils/",
     "^hate_crack/princeprocessor/",
 ]
-ignore_missing_imports = false
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = [
