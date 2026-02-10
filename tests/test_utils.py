@@ -24,7 +24,8 @@ def test_setup_logging_adds_single_streamhandler(tmp_path):
     stream_handlers = [
         h
         for h in logger.handlers
-        if isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler)
+        if isinstance(h, logging.StreamHandler)
+        and not isinstance(h, logging.FileHandler)
     ]
     assert len(stream_handlers) == 1
     file_handlers = [h for h in logger.handlers if isinstance(h, logging.FileHandler)]

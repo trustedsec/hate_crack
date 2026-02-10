@@ -68,7 +68,7 @@ from hate_crack import attacks as _attacks  # noqa: E402
 
 # Import HashcatRosetta for rule analysis functionality
 try:
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'HashcatRosetta'))
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "HashcatRosetta"))
     from hashcat_rosetta.formatting import display_rule_opcodes_summary
 except ImportError:
     display_rule_opcodes_summary = None
@@ -298,6 +298,7 @@ def _append_potfile_arg(cmd, *, use_potfile_path=True, potfile_path=None):
     if pot:
         cmd.append(f"--potfile-path={pot}")
 
+
 try:
     rulesDirectory = config_parser["rules_directory"]
 except KeyError as e:
@@ -471,7 +472,9 @@ except KeyError as e:
             e
         )
     )
-    hcatDebugLogPath = os.path.expanduser(default_config.get("hcatDebugLogPath", "./hashcat_debug"))
+    hcatDebugLogPath = os.path.expanduser(
+        default_config.get("hcatDebugLogPath", "./hashcat_debug")
+    )
 
 hcatExpanderBin = "expander.bin"
 hcatCombinatorBin = "combinator.bin"
@@ -710,7 +713,7 @@ def _debug_cmd(cmd):
 
 def _add_debug_mode_for_rules(cmd):
     """Add debug mode arguments to hashcat command if rules are being used.
-    
+
     This function detects if rules are present in the command (by looking for -r flags)
     and adds --debug-mode=1 and --debug-file=<path> if rules are found.
     Debug log path is configurable via hcatDebugLogPath in config.json
@@ -718,14 +721,16 @@ def _add_debug_mode_for_rules(cmd):
     if "-r" in cmd:
         # Create debug output directory if it doesn't exist
         os.makedirs(hcatDebugLogPath, exist_ok=True)
-        
+
         # Create a debug output filename based on the session ID or hash file
         debug_filename = os.path.join(hcatDebugLogPath, "hashcat_debug.log")
         if "--session" in cmd:
             session_idx = cmd.index("--session") + 1
             if session_idx < len(cmd):
-                debug_filename = os.path.join(hcatDebugLogPath, f"hashcat_debug_{cmd[session_idx]}.log")
-        
+                debug_filename = os.path.join(
+                    hcatDebugLogPath, f"hashcat_debug_{cmd[session_idx]}.log"
+                )
+
         cmd.extend(["--debug-mode", "4", "--debug-file", debug_filename])
     return cmd
 
@@ -1063,7 +1068,9 @@ def hcatQuickDictionary(
     if hcatChains:
         cmd.extend(shlex.split(hcatChains))
     cmd.extend(shlex.split(hcatTuning))
-    _append_potfile_arg(cmd, use_potfile_path=use_potfile_path, potfile_path=potfile_path)
+    _append_potfile_arg(
+        cmd, use_potfile_path=use_potfile_path, potfile_path=potfile_path
+    )
     cmd = _add_debug_mode_for_rules(cmd)
     _debug_cmd(cmd)
     hcatProcess = subprocess.Popen(cmd)
@@ -1143,7 +1150,10 @@ def hcatTopMask(hcatHashType, hcatHashFile, hcatTargetTime):
 
 # Fingerprint Attack
 def hcatFingerprint(
-    hcatHashType, hcatHashFile, expander_len: int = 7, run_hybrid_on_expanded: bool = False
+    hcatHashType,
+    hcatHashFile,
+    expander_len: int = 7,
+    run_hybrid_on_expanded: bool = False,
 ):
     global hcatFingerprintCount
     global hcatProcess
@@ -1179,7 +1189,9 @@ def hcatFingerprint(
             expander_stdout = expander_proc.stdout
             if expander_stdout is None:
                 raise RuntimeError("expander stdout pipe was not created")
-            sort_proc = subprocess.Popen(["sort", "-u"], stdin=expander_stdout, stdout=dst)
+            sort_proc = subprocess.Popen(
+                ["sort", "-u"], stdin=expander_stdout, stdout=dst
+            )
             hcatProcess = sort_proc
             expander_stdout.close()
             try:
@@ -1234,7 +1246,7 @@ def hcatCombination(hcatHashType, hcatHashFile, wordlists=None):
     # Ensure wordlists is a list with at least 2 items
     if not isinstance(wordlists, list):
         wordlists = [wordlists]
-    
+
     if len(wordlists) < 2:
         print("[!] Combinator attack requires at least 2 wordlists.")
         return
@@ -1247,7 +1259,7 @@ def hcatCombination(hcatHashType, hcatHashFile, wordlists=None):
             resolved_wordlists.append(resolved)
         else:
             print(f"[!] Wordlist not found: {resolved}")
-    
+
     if len(resolved_wordlists) < 2:
         print("[!] Could not find 2 valid wordlists. Aborting combinator attack.")
         return
@@ -1964,26 +1976,37 @@ def hashview_api():
             print("\n" + "=" * 60)
             print("What would you like to do?")
             print("=" * 60)
-            
+
             # Build dynamic menu based on state
             menu_options = []
             if hcatHashFile:
-                menu_options.append(("upload_cracked", "Upload Cracked Hashes from current session"))
+                menu_options.append(
+                    ("upload_cracked", "Upload Cracked Hashes from current session")
+                )
             menu_options.append(("upload_wordlist", "Upload Wordlist"))
             menu_options.append(("download_wordlist", "Download Wordlist"))
-            menu_options.append(("download_left", "Download Left Hashes (with automatic merge if found)"))
-            menu_options.append(("download_found", "Download Found Hashes (with automatic split)"))
+            menu_options.append(
+                (
+                    "download_left",
+                    "Download Left Hashes (with automatic merge if found)",
+                )
+            )
+            menu_options.append(
+                ("download_found", "Download Found Hashes (with automatic split)")
+            )
             if hcatHashFile:
-                menu_options.append(("upload_hashfile_job", "Upload Hashfile and Create Job"))
+                menu_options.append(
+                    ("upload_hashfile_job", "Upload Hashfile and Create Job")
+                )
             menu_options.append(("back", "Back to Main Menu"))
-            
+
             # Display menu with dynamic numbering
             for i, (option_key, option_text) in enumerate(menu_options, 1):
                 if option_key == "back":
                     print(f"\t(99) {option_text}")
                 else:
                     print(f"\t({i}) {option_text}")
-            
+
             # Create mapping of display numbers to option keys
             option_map = {}
             display_num = 1
@@ -1993,19 +2016,21 @@ def hashview_api():
             option_map["99"] = "back"
 
             choice = input("\nSelect an option: ")
-            
+
             if choice not in option_map:
                 print("Invalid option. Please try again.")
                 continue
-            
+
             option_key = option_map[choice]
 
             if option_key == "upload_cracked":
                 # Upload cracked hashes
                 if not hcatHashFile:
-                    print("\n✗ Error: No hashfile is currently set. This option is not available.")
+                    print(
+                        "\n✗ Error: No hashfile is currently set. This option is not available."
+                    )
                     continue
-                
+
                 print("\n" + "-" * 60)
                 print("Upload Cracked Hashes")
                 print("-" * 60)
@@ -2152,14 +2177,21 @@ def hashview_api():
                     print("\n✗ Error: Invalid ID entered. Please enter a numeric ID.")
                     continue
 
-                api_name = wordlist_map.get(wordlist_id) if "wordlist_map" in locals() else None
+                api_name = (
+                    wordlist_map.get(wordlist_id)
+                    if "wordlist_map" in locals()
+                    else None
+                )
                 api_filename = "dynamic-all.txt.gz" if wordlist_id == 1 else api_name
-                prompt_suffix = f" (API filename: {api_filename})" if api_filename else " (API filename)"
+                prompt_suffix = (
+                    f" (API filename: {api_filename})"
+                    if api_filename
+                    else " (API filename)"
+                )
                 output_file = (
                     input(
                         f"Enter output file name{prompt_suffix} or press Enter to use API filename: "
-                    )
-                    .strip()
+                    ).strip()
                     or None
                 )
                 if output_file is None and wordlist_id == 1:
@@ -2226,7 +2258,9 @@ def hashview_api():
                         continue
 
                 # Use hashfile from original command if available
-                hashfile_path = hcatHashFileOrig  # Use original path, not the modified one
+                hashfile_path = (
+                    hcatHashFileOrig  # Use original path, not the modified one
+                )
                 if not hashfile_path or not os.path.exists(hashfile_path):
                     hashfile_path = select_file_with_autocomplete(
                         "Enter path to hashfile (TAB to autocomplete)"
@@ -2236,11 +2270,11 @@ def hashview_api():
                         hashfile_path = hashfile_path[0] if hashfile_path else None
                     if isinstance(hashfile_path, str):
                         hashfile_path = hashfile_path.strip()
-                
+
                 if not hashfile_path or not os.path.exists(hashfile_path):
                     print(f"Error: File not found: {hashfile_path}")
                     continue
-                
+
                 # Use hash type from original command if available, otherwise prompt
                 if hcatHashType and str(hcatHashType).isdigit():
                     hash_type = int(hcatHashType)
@@ -2251,23 +2285,34 @@ def hashview_api():
                 # Auto-detect file format based on content
                 file_format = 5  # Default to hash_only
                 try:
-                    with open(hashfile_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    with open(
+                        hashfile_path, "r", encoding="utf-8", errors="ignore"
+                    ) as f:
                         first_line = f.readline().strip()
                         if first_line:
                             # Check for pwdump format (username:hash or username:rid:lmhash:nthash)
-                            parts = first_line.split(':')
+                            parts = first_line.split(":")
                             if len(parts) >= 4:
                                 # Likely pwdump format (username:rid:lmhash:nthash)
                                 file_format = 0
-                            elif len(parts) == 2 and not all(c in '0123456789abcdefABCDEF' for c in parts[0]):
+                            elif len(parts) == 2 and not all(
+                                c in "0123456789abcdefABCDEF" for c in parts[0]
+                            ):
                                 # Likely user:hash format (first part is not all hex)
                                 file_format = 4
                             # Otherwise default to 5 (hash_only)
                 except Exception:
                     file_format = 5  # Default if detection fails
-                
+
                 print(f"\nAuto-detected file format: {file_format} ", end="")
-                format_names = {0: "pwdump", 1: "NetNTLM", 2: "kerberos", 3: "shadow", 4: "user:hash", 5: "hash_only"}
+                format_names = {
+                    0: "pwdump",
+                    1: "NetNTLM",
+                    2: "kerberos",
+                    3: "shadow",
+                    4: "user:hash",
+                    5: "hash_only",
+                }
                 print(f"({format_names.get(file_format, 'unknown')})")
 
                 # Default hashfile name to the basename of the file
@@ -2373,7 +2418,9 @@ def hashview_api():
                                     print(
                                         f"\n✓ Success: {result.get('msg', 'Customer created')}"
                                     )
-                                    customer_id = result.get("customer_id") or result.get("id")
+                                    customer_id = result.get(
+                                        "customer_id"
+                                    ) or result.get("id")
                                     if not customer_id:
                                         print("\n✗ Error: Customer ID not returned.")
                                         continue
@@ -2400,7 +2447,9 @@ def hashview_api():
                             )
 
                             if not customer_hashfiles:
-                                print(f"\nNo hashfiles found for customer ID {customer_id}")
+                                print(
+                                    f"\nNo hashfiles found for customer ID {customer_id}"
+                                )
                                 continue
 
                             print("\n" + "=" * 120)
@@ -2412,14 +2461,18 @@ def hashview_api():
                             for hf in customer_hashfiles:
                                 hf_id = hf.get("id")
                                 hf_name = hf.get("name", "N/A")
-                                hf_type = hf.get("hash_type") or hf.get("hashtype") or "N/A"
+                                hf_type = (
+                                    hf.get("hash_type") or hf.get("hashtype") or "N/A"
+                                )
                                 if hf_id is None:
                                     continue
                                 # Truncate long names to fit within 120 columns
                                 if len(str(hf_name)) > 96:
                                     hf_name = str(hf_name)[:93] + "..."
                                 if debug_mode:
-                                    print(f"[DEBUG] Hashfile {hf_id}: hash_type={hf.get('hash_type')}, hashtype={hf.get('hashtype')}, combined={hf_type}")
+                                    print(
+                                        f"[DEBUG] Hashfile {hf_id}: hash_type={hf.get('hash_type')}, hashtype={hf.get('hashtype')}, combined={hf_type}"
+                                    )
                                 print(f"{hf_id:<10} {hf_type:<10} {hf_name:<96}")
                                 hashfile_map[int(hf_id)] = hf_type
                             print("=" * 120)
@@ -2430,13 +2483,19 @@ def hashview_api():
 
                         while True:
                             try:
-                                hashfile_id_input = input("\nEnter hashfile ID: ").strip()
+                                hashfile_id_input = input(
+                                    "\nEnter hashfile ID: "
+                                ).strip()
                                 hashfile_id = int(hashfile_id_input)
                             except ValueError:
-                                print("\n✗ Error: Invalid ID entered. Please enter a numeric ID.")
+                                print(
+                                    "\n✗ Error: Invalid ID entered. Please enter a numeric ID."
+                                )
                                 continue
                             if hashfile_id not in hashfile_map:
-                                print("\n✗ Error: Hashfile ID not in the list. Please try again.")
+                                print(
+                                    "\n✗ Error: Hashfile ID not in the list. Please try again."
+                                )
                                 continue
                             break
                         break
@@ -2447,13 +2506,17 @@ def hashview_api():
                     # Get hash type for hashcat from the hashfile map
                     selected_hash_type = hashfile_map.get(hashfile_id)
                     if debug_mode:
-                        print(f"[DEBUG] selected_hash_type from map: {selected_hash_type}")
+                        print(
+                            f"[DEBUG] selected_hash_type from map: {selected_hash_type}"
+                        )
                     if not selected_hash_type or selected_hash_type == "N/A":
                         try:
                             details = api_harness.get_hashfile_details(hashfile_id)
                             selected_hash_type = details.get("hashtype")
                             if debug_mode:
-                                print(f"[DEBUG] selected_hash_type from get_hashfile_details: {selected_hash_type}")
+                                print(
+                                    f"[DEBUG] selected_hash_type from get_hashfile_details: {selected_hash_type}"
+                                )
                         except Exception as e:
                             if debug_mode:
                                 print(f"[DEBUG] Error fetching hashfile details: {e}")
@@ -2461,9 +2524,14 @@ def hashview_api():
 
                     # Download the left hashes
                     if debug_mode:
-                        print(f"[DEBUG] Calling download_left_hashes with hash_type={selected_hash_type}")
+                        print(
+                            f"[DEBUG] Calling download_left_hashes with hash_type={selected_hash_type}"
+                        )
                     download_result = api_harness.download_left_hashes(
-                        customer_id, hashfile_id, output_file, hash_type=selected_hash_type
+                        customer_id,
+                        hashfile_id,
+                        output_file,
+                        hash_type=selected_hash_type,
                     )
                     print(f"\n✓ Success: Downloaded {download_result['size']} bytes")
                     print(f"  File: {download_result['output_file']}")
@@ -2519,7 +2587,9 @@ def hashview_api():
                                     print(
                                         f"\n✓ Success: {result.get('msg', 'Customer created')}"
                                     )
-                                    customer_id = result.get("customer_id") or result.get("id")
+                                    customer_id = result.get(
+                                        "customer_id"
+                                    ) or result.get("id")
                                     if not customer_id:
                                         print("\n✗ Error: Customer ID not returned.")
                                         continue
@@ -2546,7 +2616,9 @@ def hashview_api():
                             )
 
                             if not customer_hashfiles:
-                                print(f"\nNo hashfiles found for customer ID {customer_id}")
+                                print(
+                                    f"\nNo hashfiles found for customer ID {customer_id}"
+                                )
                                 continue
 
                             print("\n" + "=" * 120)
@@ -2558,14 +2630,18 @@ def hashview_api():
                             for hf in customer_hashfiles:
                                 hf_id = hf.get("id")
                                 hf_name = hf.get("name", "N/A")
-                                hf_type = hf.get("hash_type") or hf.get("hashtype") or "N/A"
+                                hf_type = (
+                                    hf.get("hash_type") or hf.get("hashtype") or "N/A"
+                                )
                                 if hf_id is None:
                                     continue
                                 # Truncate long names to fit within 120 columns
                                 if len(str(hf_name)) > 96:
                                     hf_name = str(hf_name)[:93] + "..."
                                 if debug_mode:
-                                    print(f"[DEBUG] Hashfile {hf_id}: hash_type={hf.get('hash_type')}, hashtype={hf.get('hashtype')}, combined={hf_type}")
+                                    print(
+                                        f"[DEBUG] Hashfile {hf_id}: hash_type={hf.get('hash_type')}, hashtype={hf.get('hashtype')}, combined={hf_type}"
+                                    )
                                 print(f"{hf_id:<10} {hf_type:<10} {hf_name:<96}")
                                 hashfile_map[int(hf_id)] = hf_type
                             print("=" * 120)
@@ -2576,13 +2652,19 @@ def hashview_api():
 
                         while True:
                             try:
-                                hashfile_id_input = input("\nEnter hashfile ID: ").strip()
+                                hashfile_id_input = input(
+                                    "\nEnter hashfile ID: "
+                                ).strip()
                                 hashfile_id = int(hashfile_id_input)
                             except ValueError:
-                                print("\n✗ Error: Invalid ID entered. Please enter a numeric ID.")
+                                print(
+                                    "\n✗ Error: Invalid ID entered. Please enter a numeric ID."
+                                )
                                 continue
                             if hashfile_id not in hashfile_map:
-                                print("\n✗ Error: Hashfile ID not in the list. Please try again.")
+                                print(
+                                    "\n✗ Error: Hashfile ID not in the list. Please try again."
+                                )
                                 continue
                             break
                         break
@@ -2593,13 +2675,17 @@ def hashview_api():
                     # Get hash type for hashcat from the hashfile map
                     selected_hash_type = hashfile_map.get(hashfile_id)
                     if debug_mode:
-                        print(f"[DEBUG] selected_hash_type from map: {selected_hash_type}")
+                        print(
+                            f"[DEBUG] selected_hash_type from map: {selected_hash_type}"
+                        )
                     if not selected_hash_type or selected_hash_type == "N/A":
                         try:
                             details = api_harness.get_hashfile_details(hashfile_id)
                             selected_hash_type = details.get("hashtype")
                             if debug_mode:
-                                print(f"[DEBUG] selected_hash_type from get_hashfile_details: {selected_hash_type}")
+                                print(
+                                    f"[DEBUG] selected_hash_type from get_hashfile_details: {selected_hash_type}"
+                                )
                         except Exception as e:
                             if debug_mode:
                                 print(f"[DEBUG] Error fetching hashfile details: {e}")
@@ -2607,7 +2693,9 @@ def hashview_api():
 
                     # Download the found hashes
                     if debug_mode:
-                        print(f"[DEBUG] Calling download_found_hashes with hash_type={selected_hash_type}")
+                        print(
+                            f"[DEBUG] Calling download_found_hashes with hash_type={selected_hash_type}"
+                        )
                     download_result = api_harness.download_found_hashes(
                         customer_id, hashfile_id, output_file
                     )
@@ -2887,25 +2975,25 @@ def analyze_rules():
         print("\nError: HashcatRosetta formatting module not found.")
         print("Make sure HashcatRosetta submodule is properly initialized.")
         return
-    
-    print("\n" + "="*60)
+
+    print("\n" + "=" * 60)
     print("Rule Opcode Analyzer")
-    print("="*60)
-    
+    print("=" * 60)
+
     # Get rule file path from user
     rule_file = input("\nEnter path to rule file: ").strip()
-    
+
     if not rule_file:
         print("No rule file specified.")
         return
-    
+
     # Expand user path
     rule_file = os.path.expanduser(rule_file)
-    
+
     if not os.path.isfile(rule_file):
         print(f"Error: Rule file not found: {rule_file}")
         return
-    
+
     try:
         display_rule_opcodes_summary(rule_file)
         print()
@@ -3087,7 +3175,9 @@ def main():
             "--hashfile-id", required=True, type=int, help="Hashfile ID"
         )
         hv_download_left.add_argument(
-            "--hash-type", default=None, help="Hash type for hashcat (e.g., 1000 for NTLM)"
+            "--hash-type",
+            default=None,
+            help="Hash type for hashcat (e.g., 1000 for NTLM)",
         )
 
         hv_download_found = hashview_subparsers.add_parser(
@@ -3137,7 +3227,7 @@ def main():
 
     # Removed add_common_args(parser) since config items are now only set via config file
     argv = sys.argv[1:]
-    
+
     hashview_subcommands = [
         "upload-cracked",
         "upload-wordlist",
@@ -3147,9 +3237,13 @@ def main():
     ]
     has_hashview_flag = "--hashview" in argv
     has_hashview_subcommand = any(cmd in argv for cmd in hashview_subcommands)
-    
+
     # Handle custom help for --hashview (without subcommand)
-    if has_hashview_flag and not has_hashview_subcommand and ("--help" in argv or "-h" in argv):
+    if (
+        has_hashview_flag
+        and not has_hashview_subcommand
+        and ("--help" in argv or "-h" in argv)
+    ):
         # Build the full parser to get hashview help
         temp_parser, hashview_parser = _build_parser(
             include_positional=False,
@@ -3158,7 +3252,7 @@ def main():
         if hashview_parser:
             hashview_parser.print_help()
         sys.exit(0)
-    
+
     # If --hashview flag is used with a subcommand, convert to subcommand format for parser
     if has_hashview_flag and has_hashview_subcommand:
         # Remove --hashview flag and insert "hashview" as subcommand
@@ -3170,7 +3264,7 @@ def main():
                 break
         else:
             argv = argv_temp  # Fallback if subcommand not found
-    
+
     use_subcommand_parser = "hashview" in argv
     parser, hashview_parser = _build_parser(
         include_positional=not use_subcommand_parser,
@@ -3400,7 +3494,12 @@ def main():
             elif choice == "5":
                 sys.exit(0)
             else:
-                if args.download_hashview or args.weakpass or args.hashmob or args.rules:
+                if (
+                    args.download_hashview
+                    or args.weakpass
+                    or args.hashmob
+                    or args.rules
+                ):
                     sys.exit(0)
 
     # At this point, a hashfile must be loaded
@@ -3460,7 +3559,10 @@ def main():
             # NetNTLMv2-ESS format is similar, with Enhanced Session Security
             pwdump_format = False
             # Try to detect if it's NetNTLMv2-ESS (has specific markers)
-            if re.search(r"^.+::.+:.+:[a-f0-9A-F]{16}:[a-f0-9A-F]{32}:[a-f0-9A-F]+$", hcatHashFileLine):
+            if re.search(
+                r"^.+::.+:.+:[a-f0-9A-F]{16}:[a-f0-9A-F]{32}:[a-f0-9A-F]+$",
+                hcatHashFileLine,
+            ):
                 print("NetNTLMv2-ESS format detected")
                 print("Note: Hash type should be 5600 for NetNTLMv2-ESS hashes")
             else:
