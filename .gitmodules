@@ -1,3 +1,6 @@
 [submodule "hashcat-utils"]
 	path = hashcat-utils
 	url = https://github.com/hashcat/hashcat-utils.git
+[submodule "HashcatRosetta"]
+	path = HashcatRosetta
+	url = https://github.com/bandrel/HashcatRosetta.git
