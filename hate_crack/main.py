@@ -3605,7 +3605,7 @@ def main():
             print("\t(13) Bandrel Methodology")
             print("\t(14) Loopback Attack")
             print("\n\t(90) Download rules from Hashmob.net")
-            print("\n\t(91) Download wordlists from Weakpass")
+            print("\n\t(91) Analyze Hashcat Rules")
             print("\t(92) Download wordlists from Hashmob.net")
             print("\t(93) Weakpass Wordlist Menu")
             if hashview_api_key:
