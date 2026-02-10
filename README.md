@@ -366,9 +366,14 @@ Menu options:
 - **(1) Upload Cracked Hashes** - Upload cracked results from current session to Hashview
 - **(2) Upload Wordlist** - Upload a wordlist file to Hashview
 - **(3) Download Wordlist** - Download a wordlist from Hashview
-- **(4) Download Left Hashes** - Download remaining uncracked hashes (automatically merges with found hashes if available)
-- **(5) Upload Hashfile and Create Job** - Upload new hashfile and create a cracking job
+- **(4) Download Left Hashes** - Download remaining uncracked hashes (prompts to switch for cracking)
+- **(5) Download Found Hashes** - Download already-cracked hashes with cleartext passwords (for reference/analysis)
+- **(6) Upload Hashfile and Create Job** - Upload new hashfile and create a cracking job
 - **(99) Back to Main Menu** - Return to main menu
+
+**Important: Download Found vs Download Left**
+- **Download Left Hashes (4)**: Downloads uncracked hashes that need cracking. Automatically merges with any found hashes if available, and prompts to switch to this hashfile for cracking.
+- **Download Found Hashes (5)**: Downloads already-cracked hashes in hash:cleartext format. These are for reference and cannot be cracked further. No switch prompt is shown.
 
 #### Command-Line Interface
 
@@ -384,9 +389,14 @@ Upload a wordlist:
 hate_crack.py --hashview upload-wordlist --file <wordlist>.txt --name "My Wordlist"
 ```
 
-Download left hashes (automatically merges with found hashes):
+Download left hashes (uncracked hashes for cracking):
 ```bash
 hate_crack.py --hashview download-left --customer-id 1 --hashfile-id 123
+```
+
+Download found hashes (already-cracked hashes with cleartext):
+```bash
+hate_crack.py --hashview download-found --customer-id 1 --hashfile-id 123
 ```
 
 Upload hashfile and create job:
@@ -405,15 +415,17 @@ Set Hashview credentials in `config.json`:
 }
 ```
 
-#### Automatic Found Hash Merging
+#### Automatic Found Hash Merging (Download Left Only)
 
-When downloading left hashes, hate_crack automatically:
-1. Attempts to download any found (cracked) hashes from Hashview
+When downloading left hashes (uncracked hashes), hate_crack automatically:
+1. Attempts to download any found (cracked) hashes from Hashview as an auxiliary operation
 2. Merges found hashes with local `.out` files (e.g., `left_1_123.txt.out` or `left_1_123.nt.txt.out` for pwdump format)
 3. Removes duplicate entries
-4. Deletes the temporary found file after merging
+4. Cleans up temporary split files after merging
 
-This ensures your local cracking results stay synchronized with Hashview's centralized database.
+This ensures your local cracking results stay synchronized with Hashview's centralized database when working with uncracked hashes.
+
+**Note:** The download-found option downloads already-cracked hashes separately for reference purposes and does not perform any merging or prompt for cracking.
 
 The <hash_type> is attained by running `hashcat --help`
 
@@ -523,8 +535,11 @@ Tests automatically run on GitHub Actions for every push and pull request (Ubunt
   (13) Bandrel Methodology
   (14) Loopback Attack
 
-  (93) Download Wordlists
-  (94) Hashview Integration
+  (90) Download rules from Hashmob.net
+  (91) Analyze Hashcat Rules
+  (92) Download wordlists from Hashmob.net
+  (93) Weakpass Wordlist Menu
+  (94) Hashview API
   (95) Analyze hashes with Pipal
   (96) Export Output to Excel Format
   (97) Display Cracked Hashes
@@ -646,6 +661,36 @@ Uses hashcat's loopback mode to feed cracked passwords from the current session 
 * Prompts for rule selection to apply to the loopback candidates
 * Uses an empty wordlist with the --loopback flag to process previously cracked passwords
 * Automatically downloads Hashmob rules if no rules are available locally
+
+#### Download Rules from Hashmob.net
+Downloads the latest rule files from Hashmob.net's rule repository. These rules are curated and optimized for password cracking and can be used with the Quick Crack and Loopback Attack modes.
+
+* Automatically downloads popular rule sets
+* Stores rules in the configured rules directory
+* Provides progress feedback during download
+
+#### Analyze Hashcat Rules
+Powered by HashcatRosetta (https://github.com/bandrel/HashcatRosetta), this feature analyzes hashcat rule files to provide detailed insights into rule composition and complexity.
+
+* Prompts for a rule file path
+* Displays frequency analysis of rule opcodes (operations)
+* Helps understand what transformations a rule set performs
+* Useful for rule debugging and optimization
+
+#### Download Wordlists from Hashmob.net
+Downloads wordlists from Hashmob.net's collection of cracked passwords and commonly used wordlists.
+
+* Interactive menu for browsing available wordlists
+* Progress tracking for large downloads
+* Stores wordlists in configured wordlist directory
+
+#### Weakpass Wordlist Menu
+Interactive menu for downloading and managing wordlists from Weakpass.com via BitTorrent.
+
+* Browse available Weakpass wordlist torrents
+* Download specific wordlists or entire collections
+* Automatic extraction of compressed archives
+* Progress tracking for torrent downloads
   
 -------------------------------------------------------------------
 ### Version History
