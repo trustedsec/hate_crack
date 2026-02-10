@@ -66,6 +66,13 @@ from hate_crack.cli import (  # noqa: E402
 )
 from hate_crack import attacks as _attacks  # noqa: E402
 
+# Import HashcatRosetta for rule analysis functionality
+try:
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'HashcatRosetta'))
+    from hashcat_rosetta.formatting import display_rule_opcodes_summary
+except ImportError:
+    display_rule_opcodes_summary = None
+
 
 def _has_hate_crack_assets(path):
     if not path:
@@ -2873,6 +2880,39 @@ def show_readme():
         print(hcatReadme.read())
 
 
+# Analyze Hashcat Rules
+def analyze_rules():
+    """Analyze hashcat rule file and display opcode statistics."""
+    if display_rule_opcodes_summary is None:
+        print("\nError: HashcatRosetta formatting module not found.")
+        print("Make sure HashcatRosetta submodule is properly initialized.")
+        return
+    
+    print("\n" + "="*60)
+    print("Rule Opcode Analyzer")
+    print("="*60)
+    
+    # Get rule file path from user
+    rule_file = input("\nEnter path to rule file: ").strip()
+    
+    if not rule_file:
+        print("No rule file specified.")
+        return
+    
+    # Expand user path
+    rule_file = os.path.expanduser(rule_file)
+    
+    if not os.path.isfile(rule_file):
+        print(f"Error: Rule file not found: {rule_file}")
+        return
+    
+    try:
+        display_rule_opcodes_summary(rule_file)
+        print()
+    except Exception as e:
+        print(f"Error analyzing rule file: {e}")
+
+
 # Exit Program
 def quit_hc():
     cleanup()
@@ -2897,7 +2937,7 @@ def get_main_menu_options():
         "13": bandrel_method,
         "14": loopback_attack,
         "90": download_hashmob_rules,
-        "91": weakpass_wordlist_menu,
+        "91": analyze_rules,
         "92": download_hashmob_wordlists,
         "93": weakpass_wordlist_menu,
         "95": pipal,
