@@ -9,7 +9,9 @@ def test_fingerprint_crack_prompts_for_expander_len_and_enables_hybrid(monkeypat
 
     seen = {}
 
-    def fake_hcatFingerprint(hash_type, hash_file, expander_len, run_hybrid_on_expanded=False):
+    def fake_hcatFingerprint(
+        hash_type, hash_file, expander_len, run_hybrid_on_expanded=False
+    ):
         seen["hash_type"] = hash_type
         seen["hash_file"] = hash_file
         seen["expander_len"] = expander_len
@@ -87,7 +89,9 @@ def test_hcatFingerprint_uses_selected_expander_and_calls_hybrid(monkeypatch, tm
 
     # Run with expander24 and ensure secondary hybrid gets the expanded file.
     monkeypatch.setattr(hc_main, "hcatHashFile", str(hashfile), raising=False)
-    hc_main.hcatFingerprint("1000", str(hashfile), expander_len=24, run_hybrid_on_expanded=True)
+    hc_main.hcatFingerprint(
+        "1000", str(hashfile), expander_len=24, run_hybrid_on_expanded=True
+    )
 
     assert any(
         isinstance(args[0], str) and args[0].endswith("expander24.bin")

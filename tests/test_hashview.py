@@ -261,7 +261,7 @@ class TestHashviewAPI:
                 content = f.read()
             assert content == b"hash1\nhash2\n"
             assert result["size"] == len(content)
-            
+
             # Verify auth headers were passed in the left hashes download call
             call_args_list = api.session.get.call_args_list
             left_call = [c for c in call_args_list if "left" in str(c)][0]
@@ -307,7 +307,7 @@ class TestHashviewAPI:
                 content = f.read()
             assert content == b"hash1:pass1\nhash2:pass2\n"
             assert result["size"] == len(content)
-            
+
             # Verify auth headers were passed in the found hashes download call
             call_args_list = api.session.get.call_args_list
             found_call = [c for c in call_args_list if "found" in str(c)][0]
@@ -350,7 +350,7 @@ class TestHashviewAPI:
                 content = f.read()
             assert content == b"gzipdata"
             assert result["size"] == len(content)
-            
+
             # Verify auth headers were passed in the download call
             # session.get should be called with headers containing the auth cookie
             call_args_list = api.session.get.call_args_list
@@ -365,7 +365,9 @@ class TestHashviewAPI:
         """Live test for Hashview wordlist listing with auth headers."""
         # Only run this test if explicitly enabled
         if os.environ.get("HASHVIEW_TEST_REAL", "").lower() not in ("1", "true", "yes"):
-            pytest.skip("Set HASHVIEW_TEST_REAL=1 to run live Hashview list_wordlists test.")
+            pytest.skip(
+                "Set HASHVIEW_TEST_REAL=1 to run live Hashview list_wordlists test."
+            )
 
         # For live tests, prefer explicit env vars so developers don't accidentally
         # hit a config.json default/localhost target.
@@ -373,7 +375,7 @@ class TestHashviewAPI:
         hashview_api_key = os.environ.get("HASHVIEW_API_KEY")
         if not hashview_url or not hashview_api_key:
             pytest.skip("Missing HASHVIEW_URL/HASHVIEW_API_KEY env vars.")
-        
+
         # Only proceed if the server is actually reachable
         try:
             import socket
@@ -383,7 +385,9 @@ class TestHashviewAPI:
             host = parsed.hostname
             port = parsed.port
             if not host:
-                pytest.skip(f"Could not parse hostname from hashview_url: {hashview_url!r}")
+                pytest.skip(
+                    f"Could not parse hostname from hashview_url: {hashview_url!r}"
+                )
             if port is None:
                 port = 443 if parsed.scheme == "https" else 80
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -394,7 +398,7 @@ class TestHashviewAPI:
                 pytest.skip(f"Hashview server not reachable at {host}:{port}")
         except Exception as e:
             pytest.skip(f"Could not check Hashview server availability: {e}")
-        
+
         real_api = HashviewAPI(hashview_url, hashview_api_key)
         wordlists = real_api.list_wordlists()
         assert isinstance(wordlists, list)
@@ -557,35 +561,37 @@ class TestHashviewAPI:
         pwdump_file.write_text(
             "Administrator:500:aad3b435b51404eeaad3b435b51404ee:31d6cfe0d16ae931b73c59d7e0c089c0:::\n"
         )
-        
+
         # Test user:hash format (2 parts, non-hex username)
         userhash_file = tmp_path / "userhash.txt"
         userhash_file.write_text("user123:5f4dcc3b5aa765d61d8327deb882cf99\n")
-        
+
         # Test hash_only format (default)
         hashonly_file = tmp_path / "hashonly.txt"
         hashonly_file.write_text("5f4dcc3b5aa765d61d8327deb882cf99\n")
-        
+
         # Test hex:hash format (should be hash_only since first part is all hex)
         hexhash_file = tmp_path / "hexhash.txt"
         hexhash_file.write_text("abcdef123456:5f4dcc3b5aa765d61d8327deb882cf99\n")
-        
+
         # Detection logic (same as in main.py)
         def detect_format(filepath):
             file_format = 5  # Default to hash_only
             try:
-                with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
                     first_line = f.readline().strip()
                     if first_line:
-                        parts = first_line.split(':')
+                        parts = first_line.split(":")
                         if len(parts) >= 4:
                             file_format = 0  # pwdump
-                        elif len(parts) == 2 and not all(c in '0123456789abcdefABCDEF' for c in parts[0]):
+                        elif len(parts) == 2 and not all(
+                            c in "0123456789abcdefABCDEF" for c in parts[0]
+                        ):
                             file_format = 4  # user:hash
             except Exception:
                 file_format = 5
             return file_format
-        
+
         # Verify detection
         assert detect_format(pwdump_file) == 0, "Should detect pwdump format"
         assert detect_format(userhash_file) == 4, "Should detect user:hash format"
@@ -599,75 +605,86 @@ class TestHashviewAPI:
         other_cwd = tmp_path / "other_cwd"
         other_cwd.mkdir()
         monkeypatch.chdir(other_cwd)
-        
+
         # Mock left hashes download
         mock_left_response = Mock()
         mock_left_response.content = b"uncracked_hash1\nuncracked_hash2\n"
         mock_left_response.raise_for_status = Mock()
         mock_left_response.headers = {"content-length": "0"}
-        
+
         def iter_content_left(chunk_size=8192):
             yield mock_left_response.content
-        
+
         mock_left_response.iter_content = iter_content_left
-        
+
         # Mock found hashes download
         mock_found_response = Mock()
-        mock_found_response.content = b"found_hash1:found_password1\nfound_hash2:found_password2\n"
+        mock_found_response.content = (
+            b"found_hash1:found_password1\nfound_hash2:found_password2\n"
+        )
         mock_found_response.raise_for_status = Mock()
         mock_found_response.headers = {"content-length": "0"}
-        
+
         def iter_content_found(chunk_size=8192):
             yield mock_found_response.content
-        
+
         mock_found_response.iter_content = iter_content_found
-        
+
         # Set up session.get to return different responses
         api.session.get.side_effect = [mock_left_response, mock_found_response]
-        
+
         # Download left hashes (should auto-download and split found for hashcat)
         left_file = tmp_path / "left_1_2.txt"
         result = api.download_left_hashes(1, 2, output_file=str(left_file))
-        
+
         # Verify left file was created
         assert os.path.exists(result["output_file"])
-        
+
         # Verify found file was downloaded and deleted
         found_file = tmp_path / "found_1_2.txt"
-        assert not os.path.exists(found_file), "Found file should be deleted after split"
+        assert not os.path.exists(found_file), (
+            "Found file should be deleted after split"
+        )
         assert not (other_cwd / "found_1_2.txt").exists()
-        
+
         # Verify split files were created and deleted
         found_hashes_file = tmp_path / "found_hashes_1_2.txt"
         found_clears_file = tmp_path / "found_clears_1_2.txt"
-        assert not os.path.exists(str(found_hashes_file)), "Split hashes file should be deleted"
-        assert not os.path.exists(str(found_clears_file)), "Split clears file should be deleted"
+        assert not os.path.exists(str(found_hashes_file)), (
+            "Split hashes file should be deleted"
+        )
+        assert not os.path.exists(str(found_clears_file)), (
+            "Split clears file should be deleted"
+        )
+
     def test_download_left_id_matching(self, api, tmp_path):
         """Test that found hashes only merge when customer_id and hashfile_id match"""
         # Create .out file with specific IDs
         out_file = tmp_path / "left_1_2.txt.out"
         out_file.write_text("existing_hash:password\n")
-        
+
         # Mock left hashes download for different IDs
         mock_response = Mock()
         mock_response.content = b"hash1\nhash2\n"
         mock_response.raise_for_status = Mock()
         mock_response.headers = {"content-length": "0"}
-        
+
         def iter_content(chunk_size=8192):
             yield mock_response.content
-        
+
         mock_response.iter_content = iter_content
         api.session.get.return_value = mock_response
-        
+
         # Download left hashes with different IDs (3_4 instead of 1_2)
         left_file = tmp_path / "left_3_4.txt"
         api.download_left_hashes(3, 4, output_file=str(left_file))
-        
+
         # Verify the different IDs' .out file wasn't affected
-        with open(str(out_file), 'r') as f:
+        with open(str(out_file), "r") as f:
             content = f.read()
-        assert content == "existing_hash:password\n", "Different ID's .out file should be unchanged"
+        assert content == "existing_hash:password\n", (
+            "Different ID's .out file should be unchanged"
+        )
 
     def test_download_left_tolerates_missing_found(self, api, tmp_path):
         """Test that 404 on found hash download doesn't fail the workflow"""
@@ -676,34 +693,35 @@ class TestHashviewAPI:
         mock_left_response.content = b"hash1\nhash2\n"
         mock_left_response.raise_for_status = Mock()
         mock_left_response.headers = {"content-length": "0"}
-        
+
         def iter_content(chunk_size=8192):
             yield mock_left_response.content
-        
+
         mock_left_response.iter_content = iter_content
-        
+
         # Mock 404 response for found download
         from requests.exceptions import HTTPError
+
         mock_found_response = Mock()
         mock_found_response.status_code = 404
-        
+
         def raise_404():
             response = Mock()
             response.status_code = 404
             raise HTTPError("404 Not Found", response=response)
-        
+
         mock_found_response.raise_for_status = raise_404
-        
+
         # Set up session.get to return different responses
         api.session.get.side_effect = [mock_left_response, mock_found_response]
-        
+
         # Download left hashes (should complete despite 404 on found)
         left_file = tmp_path / "left_1_2.txt"
         result = api.download_left_hashes(1, 2, output_file=str(left_file))
-        
+
         # Verify left file was created successfully
         assert os.path.exists(result["output_file"])
-        with open(result["output_file"], 'rb') as f:
+        with open(result["output_file"], "rb") as f:
             content = f.read()
         assert content == b"hash1\nhash2\n"
 
@@ -711,34 +729,39 @@ class TestHashviewAPI:
         """Test that original hashfile path is preserved before _ensure_hashfile_in_cwd"""
         import sys
         import os
-        sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+        sys.path.insert(
+            0, os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        )
         from hate_crack.main import _ensure_hashfile_in_cwd
-        
+
         # Create a test hashfile in a different directory
         test_dir = tmp_path / "subdir"
         test_dir.mkdir()
         test_file = test_dir / "test.txt"
         test_file.write_text("hash1\nhash2\n")
-        
+
         original_path = str(test_file)
-        
+
         # Save current directory
         orig_cwd = os.getcwd()
         try:
             # Change to tmp_path
             os.chdir(str(tmp_path))
-            
+
             # Call _ensure_hashfile_in_cwd
             result_path = _ensure_hashfile_in_cwd(original_path)
-            
+
             # The result should be different from original (in cwd now)
             # But original_path should still exist and be unchanged
             assert os.path.exists(original_path), "Original file should still exist"
             assert os.path.exists(result_path), "Result file should exist"
-            
+
             # If they're different, result should be in cwd
             if result_path != original_path:
-                assert os.path.dirname(result_path) == str(tmp_path), "Result should be in cwd"
+                assert os.path.dirname(result_path) == str(tmp_path), (
+                    "Result should be in cwd"
+                )
         finally:
             os.chdir(orig_cwd)
 

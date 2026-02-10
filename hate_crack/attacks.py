@@ -89,9 +89,7 @@ def quick_crack(ctx: Any) -> None:
         except ValueError:
             print("Please enter a valid number.")
 
-    rule_files = sorted(
-        f for f in os.listdir(ctx.rulesDirectory) if f != ".DS_Store"
-    )
+    rule_files = sorted(f for f in os.listdir(ctx.rulesDirectory) if f != ".DS_Store")
     if not rule_files:
         download_rules = (
             input("\nNo rules found. Download rules from Hashmob now? (Y/n): ")
@@ -182,9 +180,7 @@ def loopback_attack(ctx: Any) -> None:
     rule_choice = None
     selected_hcatRules = []
 
-    rule_files = sorted(
-        f for f in os.listdir(ctx.rulesDirectory) if f != ".DS_Store"
-    )
+    rule_files = sorted(f for f in os.listdir(ctx.rulesDirectory) if f != ".DS_Store")
     if not rule_files:
         download_rules = (
             input("\nNo rules found. Download rules from Hashmob now? (Y/n): ")
@@ -275,7 +271,9 @@ def extensive_crack(ctx: Any) -> None:
     hcatTargetTime = 4 * 60 * 60
     ctx.hcatTopMask(ctx.hcatHashType, ctx.hcatHashFile, hcatTargetTime)
     ctx.hcatRecycle(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatMaskCount)
-    ctx.hcatFingerprint(ctx.hcatHashType, ctx.hcatHashFile, 7, run_hybrid_on_expanded=False)
+    ctx.hcatFingerprint(
+        ctx.hcatHashType, ctx.hcatHashFile, 7, run_hybrid_on_expanded=False
+    )
     ctx.hcatRecycle(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatFingerprintCount)
     ctx.hcatCombination(ctx.hcatHashType, ctx.hcatHashFile)
     ctx.hcatRecycle(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatCombinationCount)
@@ -386,10 +384,12 @@ def combinator_crack(ctx: Any) -> None:
             return
 
         wordlists = valid_wordlists
-    
-    wordlists = [ctx._resolve_wordlist_path(wl, ctx.hcatWordlists) for wl in wordlists[:2]]
 
-    print(f"\nStarting combinator attack with 2 wordlists:")
+    wordlists = [
+        ctx._resolve_wordlist_path(wl, ctx.hcatWordlists) for wl in wordlists[:2]
+    ]
+
+    print("\nStarting combinator attack with 2 wordlists:")
     print(f"  Wordlist 1: {wordlists[0]}")
     print(f"  Wordlist 2: {wordlists[1]}")
     print(f"Hash type: {ctx.hcatHashType}")

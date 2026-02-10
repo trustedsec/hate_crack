@@ -47,10 +47,10 @@ def _ensure_customer_one():
     if not url or not key:
         pytest.skip("Missing hashview_url/hashview_api_key in config.json or env.")
     api = HashviewAPI(url, key)
-    
+
     # Get customer ID from environment or default to 1
     customer_id = int(os.environ.get("HASHVIEW_CUSTOMER_ID", "1"))
-    
+
     try:
         customers_result = api.list_customers()
     except Exception as exc:
