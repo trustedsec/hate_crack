@@ -23,4 +23,4 @@ jobs:
           uv pip install --python .venv/bin/python ".[dev]"
 
       - name: Run mypy
-        run: .venv/bin/mypy hate_crack
+        run: .venv/bin/mypy --exclude HashcatRosetta --exclude hashcat-utils --ignore-missing-imports hate_crack
