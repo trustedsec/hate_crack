@@ -2703,22 +2703,7 @@ def hashview_api():
                     print(f"  File: {download_result['output_file']}")
                     if selected_hash_type:
                         print(f"  Hash mode: {selected_hash_type}")
-
-                    # Ask if user wants to switch to this hashfile
-                    switch = (
-                        input("\nSwitch to this hashfile for cracking? (Y/n): ")
-                        .strip()
-                        .lower()
-                    )
-                    if switch != "n":
-                        hcatHashFile = download_result["output_file"]
-                        if selected_hash_type:
-                            hcatHashType = str(selected_hash_type)
-                        else:
-                            hcatHashType = "1000"  # Default to NTLM if unavailable
-                        print(f"✓ Switched to hashfile: {hcatHashFile}")
-                        print("\nReturning to main menu to start cracking...")
-                        return  # Exit hashview menu and return to main menu
+                    print("\nFound hashes downloaded successfully. These are already cracked hashes.")
 
                 except ValueError:
                     print("\n✗ Error: Invalid ID entered. Please enter a numeric ID.")
