@@ -270,6 +270,11 @@ def ensure_binary(binary_path, build_dir=None, name=None):
 # But hashcat-utils and princeprocessor should ALWAYS use hate_path
 hcatPath = config_parser.get("hcatPath", "") or hate_path
 hcatBin = config_parser["hcatBin"]
+# If hcatBin is not absolute and hcatPath is set, construct full path from hcatPath + hcatBin
+if not os.path.isabs(hcatBin) and hcatPath:
+    _candidate = os.path.join(hcatPath, hcatBin)
+    if os.path.isfile(_candidate):
+        hcatBin = _candidate
 hcatTuning = config_parser["hcatTuning"]
 hcatWordlists = config_parser["hcatWordlists"]
 hcatOptimizedWordlists = config_parser["hcatOptimizedWordlists"]
