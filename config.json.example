@@ -1,5 +1,5 @@
 {
-  "hcatPath": "/path/to/hate_crack",
+  "hcatPath": "/path/to/hashcat",
   "hcatBin": "hashcat",
   "hcatTuning": "--force --remove",
   "hcatPotfilePath": "~/.hashcat/hashcat.potfile",
