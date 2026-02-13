@@ -9,6 +9,7 @@
 import sys
 import os
 import json
+import lzma
 import shutil
 import logging
 import binascii
@@ -19,6 +20,8 @@ import readline
 import subprocess
 import shlex
 import argparse
+import urllib.request
+import urllib.error
 from types import SimpleNamespace
 
 #!/usr/bin/env python3
@@ -451,9 +454,47 @@ except KeyError as e:
         default_config.get("hcatDebugLogPath", "./hashcat_debug")
     )
 
+try:
+    ollamaUrl = config_parser["ollamaUrl"]
+except KeyError as e:
+    print(
+        "{0} is not defined in config.json using defaults from config.json.example".format(
+            e
+        )
+    )
+    ollamaUrl = default_config.get("ollamaUrl", "http://localhost:11434")
+try:
+    ollamaModel = config_parser["ollamaModel"]
+except KeyError as e:
+    print(
+        "{0} is not defined in config.json using defaults from config.json.example".format(
+            e
+        )
+    )
+    ollamaModel = default_config.get("ollamaModel", "llama3.2")
+try:
+    markovCandidateCount = int(config_parser["markovCandidateCount"])
+except KeyError as e:
+    print(
+        "{0} is not defined in config.json using defaults from config.json.example".format(
+            e
+        )
+    )
+    markovCandidateCount = int(default_config.get("markovCandidateCount", 5000))
+try:
+    markovWordlist = config_parser["markovWordlist"]
+except KeyError as e:
+    print(
+        "{0} is not defined in config.json using defaults from config.json.example".format(
+            e
+        )
+    )
+    markovWordlist = default_config.get("markovWordlist", "rockyou.txt")
+
 hcatExpanderBin = "expander.bin"
 hcatCombinatorBin = "combinator.bin"
 hcatPrinceBin = "pp64.bin"
+hcatHcstat2genBin = "hcstat2gen.bin"
 
 
 def _resolve_wordlist_path(wordlist, base_dir):
@@ -588,6 +629,7 @@ hcatGoodMeasureBaseList = _normalize_wordlist_setting(
     hcatGoodMeasureBaseList, wordlists_dir
 )
 hcatPrinceBaseList = _normalize_wordlist_setting(hcatPrinceBaseList, wordlists_dir)
+markovWordlist = _normalize_wordlist_setting(markovWordlist, wordlists_dir)
 
 if not SKIP_INIT:
     # Verify hashcat binary is available
@@ -652,6 +694,20 @@ if not SKIP_INIT:
             )
         except SystemExit:
             print("PRINCE attacks will not be available.")
+
+        # Verify hcstat2gen binary (optional, for Markov attacks)
+        # Note: hcstat2gen is part of hashcat-utils, already in hate_crack repo
+        hcstat2gen_path = (
+            hate_path + "/hashcat-utils/bin/" + hcatHcstat2genBin
+        )
+        try:
+            ensure_binary(
+                hcstat2gen_path,
+                build_dir=os.path.join(hate_path, "hashcat-utils"),
+                name="hcstat2gen",
+            )
+        except SystemExit:
+            print("LLM Markov attacks will not be available.")
 
     except Exception as e:
         print(f"Module initialization error: {e}")
@@ -1444,6 +1500,200 @@ def hcatBandrel(hcatHashType, hcatHashFile):
         except KeyboardInterrupt:
             print("Killing PID {0}...".format(str(hcatProcess.pid)))
             hcatProcess.kill()
+
+
+# LLM Markov Attack
+def hcatMarkov(hcatHashType, hcatHashFile, mode, context_data, candidate_count):
+    global hcatProcess
+    candidates_path = f"{hcatHashFile}.markov_candidates"
+    hcstat2_raw_path = f"{hcatHashFile}.hcstat2_raw"
+    hcstat2_path = f"{hcatHashFile}.hcstat2"
+    hcstat2gen_path = os.path.join(
+        hate_path, "hashcat-utils", "bin", hcatHcstat2genBin
+    )
+
+    if not os.path.isfile(hcstat2gen_path):
+        print(
+            f"Error: hcstat2gen not found at {hcstat2gen_path}. "
+            "LLM Markov attacks are not available."
+        )
+        return
+
+    # Step A: Build LLM prompt based on mode
+    if mode == "wordlist":
+        wordlist_path = context_data
+        if not os.path.isfile(wordlist_path):
+            print(f"Error: Wordlist not found: {wordlist_path}")
+            return
+        sample_lines = []
+        try:
+            with open(wordlist_path, "r", errors="ignore") as f:
+                for i, line in enumerate(f):
+                    if i >= 500:
+                        break
+                    stripped = line.strip()
+                    if stripped:
+                        sample_lines.append(stripped)
+        except Exception as e:
+            print(f"Error reading wordlist: {e}")
+            return
+        wordlist_sample = "\n".join(sample_lines)
+        prompt = (
+            "You are a password generation expert. Below is a sample of real passwords. "
+            "Study the patterns, character choices, and structures. Generate exactly "
+            f"{candidate_count} new unique passwords that follow similar patterns but "
+            "are NOT copies of the input. Output ONLY passwords, one per line, no "
+            "numbering or explanation.\n\n"
+            f"Sample passwords:\n{wordlist_sample}"
+        )
+    elif mode == "target":
+        company = context_data.get("company", "")
+        industry = context_data.get("industry", "")
+        location = context_data.get("location", "")
+        prompt = (
+            f"Generate exactly {candidate_count} realistic passwords that employees at "
+            f"{company} in the {industry} industry located in {location} might use. "
+            "Include variations with:\n"
+            "- Company name variations and abbreviations\n"
+            "- Common password patterns (Season+Year, Name+Numbers)\n"
+            "- Keyboard walks and common substitutions (@ for a, 3 for e, etc.)\n"
+            "- Location-based words and local references\n"
+            "- Industry-specific terminology\n"
+            "Output ONLY the passwords, one per line, no numbering or explanation."
+        )
+    else:
+        print(f"Error: Unknown Markov generation mode: {mode}")
+        return
+
+    # Step B: Call Ollama API to generate candidates
+    print(f"Generating {candidate_count} password candidates via Ollama ({ollamaModel})...")
+    api_url = f"{ollamaUrl}/api/generate"
+    payload = json.dumps({
+        "model": ollamaModel,
+        "prompt": prompt,
+        "stream": False,
+    }).encode("utf-8")
+
+    try:
+        req = urllib.request.Request(
+            api_url,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=600) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.URLError as e:
+        print(f"Error: Could not connect to Ollama at {ollamaUrl}: {e}")
+        print("Ensure Ollama is running (ollama serve) and try again.")
+        return
+    except Exception as e:
+        print(f"Error calling Ollama API: {e}")
+        return
+
+    response_text = result.get("response", "")
+    raw_lines = response_text.strip().split("\n")
+    # Filter out blank lines and lines that look like numbering/explanation
+    candidates = []
+    for line in raw_lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        # Strip leading numbering like "1. " or "1) " or "- "
+        cleaned = re.sub(r"^\d+[.)]\s*", "", stripped)
+        cleaned = re.sub(r"^[-*]\s*", "", cleaned)
+        cleaned = cleaned.strip()
+        if cleaned and len(cleaned) <= 128:
+            candidates.append(cleaned)
+
+    if not candidates:
+        print("Error: Ollama returned no usable password candidates.")
+        return
+
+    try:
+        with open(candidates_path, "w") as f:
+            for candidate in candidates:
+                f.write(candidate + "\n")
+    except Exception as e:
+        print(f"Error writing candidates file: {e}")
+        return
+
+    print(f"Generated {len(candidates)} password candidates -> {candidates_path}")
+
+    # Step C: Run hcstat2gen to build Markov stats
+    print("Building Markov statistics with hcstat2gen...")
+    try:
+        with open(candidates_path, "rb") as candidates_file:
+            hcatProcess = subprocess.Popen(
+                [hcstat2gen_path, hcstat2_raw_path],
+                stdin=candidates_file,
+            )
+            try:
+                hcatProcess.wait()
+            except KeyboardInterrupt:
+                print("Killing PID {0}...".format(str(hcatProcess.pid)))
+                hcatProcess.kill()
+                return
+    except Exception as e:
+        print(f"Error running hcstat2gen: {e}")
+        return
+
+    if not os.path.isfile(hcstat2_raw_path):
+        print("Error: hcstat2gen did not produce output file.")
+        return
+
+    # Step D: LZMA compress the raw hcstat2 file
+    print("Compressing hcstat2 file with LZMA...")
+    try:
+        with open(hcstat2_raw_path, "rb") as raw_file:
+            raw_data = raw_file.read()
+        compressed = lzma.compress(
+            raw_data,
+            format=lzma.FORMAT_RAW,
+            filters=[{"id": lzma.FILTER_LZMA1}],
+        )
+        with open(hcstat2_path, "wb") as out_file:
+            out_file.write(compressed)
+    except Exception as e:
+        print(f"Error compressing hcstat2 file: {e}")
+        return
+
+    print(f"Markov statistics file created -> {hcstat2_path}")
+
+    # Step E: Run hashcat mask attack with custom Markov stats
+    print("Running Markov-enhanced mask attack...")
+    cmd = [
+        hcatBin,
+        "-m",
+        hcatHashType,
+        hcatHashFile,
+        "--session",
+        generate_session_id(),
+        "-o",
+        f"{hcatHashFile}.out",
+        "-a",
+        "3",
+        f"--markov-hcstat2={hcstat2_path}",
+        "--increment",
+        "--increment-min=1",
+        "--increment-max=14",
+        "?a?a?a?a?a?a?a?a?a?a?a?a?a?a",
+    ]
+    cmd.extend(shlex.split(hcatTuning))
+    _append_potfile_arg(cmd)
+    hcatProcess = subprocess.Popen(cmd)
+    try:
+        hcatProcess.wait()
+    except KeyboardInterrupt:
+        print("Killing PID {0}...".format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+
+    # Step F: Cleanup temp files
+    for temp_file in [candidates_path, hcstat2_raw_path]:
+        try:
+            if os.path.isfile(temp_file):
+                os.remove(temp_file)
+        except Exception:
+            pass
 
 
 # Middle fast Combinator Attack
@@ -2756,6 +3006,10 @@ def loopback_attack():
     return _attacks.loopback_attack(_attack_ctx())
 
 
+def markov_attack():
+    return _attacks.markov_attack(_attack_ctx())
+
+
 # convert hex words for recycling
 def convert_hex(working_file):
     processed_words = []
@@ -2983,6 +3237,7 @@ def get_main_menu_options():
         "12": thorough_combinator,
         "13": bandrel_method,
         "14": loopback_attack,
+        "15": markov_attack,
         "90": download_hashmob_rules,
         "91": analyze_rules,
         "92": download_hashmob_wordlists,
@@ -3563,6 +3818,7 @@ def main():
             print("\t(12) Thorough Combinator Attack")
             print("\t(13) Bandrel Methodology")
             print("\t(14) Loopback Attack")
+            print("\t(15) LLM Markov Attack")
             print("\n\t(90) Download rules from Hashmob.net")
             print("\n\t(91) Analyze Hashcat Rules")
             print("\t(92) Download wordlists from Hashmob.net")
