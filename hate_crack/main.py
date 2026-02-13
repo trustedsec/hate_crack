@@ -111,34 +111,6 @@ def _resolve_config_destination():
     return os.getcwd()
 
 
-def _resolve_hate_path(package_path, config_dict=None):
-    # Try to use hcatPath from config.json if it's set and contains assets
-    if config_dict and config_dict.get("hcatPath"):
-        assets_path = config_dict.get("hcatPath")
-        if _has_hate_crack_assets(assets_path):
-            return assets_path
-
-    # Check common locations for the repo
-    for candidate in _candidate_roots():
-        if _has_hate_crack_assets(candidate):
-            return candidate
-
-    # When installed as a tool, assets should be defined in config.json hcatPath
-    # If not set, default to package path (which may not have assets)
-    if _has_hate_crack_assets(package_path):
-        return package_path
-
-    # Last resort: return package_path, but this likely means assets are missing
-    if not config_dict or not config_dict.get("hcatPath"):
-        print(
-            "\nWarning: Could not find hate_crack assets (hashcat-utils, princeprocessor)."
-        )
-        print("Set 'hcatPath' in config.json to the installation directory:")
-        print('  "hcatPath": "/path/to/hate_crack"')
-        print("Or run from the repository directory where these assets are located.\n")
-
-    return package_path
-
 
 def _ensure_hashfile_in_cwd(hashfile_path):
     """Ensure hashfile path points to cwd to keep output files in execution dir."""
@@ -167,13 +139,22 @@ def _ensure_hashfile_in_cwd(hashfile_path):
             return hashfile_path
 
 
-# First get a temporary path to load config
-_initial_package_path = os.path.dirname(os.path.realpath(__file__))
+# hate_path is where hate_crack assets live (hashcat-utils, princeprocessor, etc.)
+# When installed via `make install`, assets are vendored into the package directory.
+# During development, assets live in the repo root (parent of the package directory).
+_package_path = os.path.dirname(os.path.realpath(__file__))
+_repo_root = os.path.dirname(_package_path)
+if os.path.isdir(os.path.join(_package_path, "hashcat-utils")):
+    hate_path = _package_path
+elif os.path.isdir(os.path.join(_repo_root, "hashcat-utils")):
+    hate_path = _repo_root
+else:
+    hate_path = _package_path
 _config_path = _resolve_config_path()
 if not _config_path:
     print("Initializing config.json from config.json.example")
     src_config = os.path.abspath(
-        os.path.join(_initial_package_path, "config.json.example")
+        os.path.join(_package_path, "config.json.example")
     )
     config_dir = _resolve_config_destination()
     dst_config = os.path.abspath(os.path.join(config_dir, "config.json"))
@@ -188,21 +169,9 @@ with open(_config_path) as config:
 config_dir = os.path.dirname(_config_path)
 defaults_path = os.path.join(config_dir, "config.json.example")
 if not os.path.isfile(defaults_path):
-    defaults_path = os.path.join(_initial_package_path, "config.json.example")
+    defaults_path = os.path.join(_package_path, "config.json.example")
 with open(defaults_path) as defaults:
     default_config = json.load(defaults)
-
-# Now resolve hate_path using config
-hate_path = _resolve_hate_path(_initial_package_path, config_parser)
-
-# If hate_path differs from initial path, reload config from the new location
-if hate_path != _initial_package_path:
-    if os.path.isfile(hate_path + "/config.json"):
-        with open(hate_path + "/config.json") as config:
-            config_parser = json.load(config)
-    if os.path.isfile(hate_path + "/config.json.example"):
-        with open(hate_path + "/config.json.example") as defaults:
-            default_config = json.load(defaults)
 
 try:
     hashview_url = config_parser["hashview_url"]
@@ -241,14 +210,11 @@ def ensure_binary(binary_path, build_dir=None, name=None):
                     "\nThe hate_crack assets (hashcat-utils, princeprocessor) could not be found."
                 )
                 print(
-                    "These are part of the hate_crack repository, not hashcat installation."
+                    "\nRun 'make install' from the repository directory to install with assets:"
                 )
-                print("\nPlease run hate_crack from the repository directory:")
-                print("  cd /path/to/hate_crack && hate_crack <hash_file> <hash_type>")
                 print(
-                    '\nOr set "hcatPath" in config.json to the hate_crack directory that contains hashcat-utils and princeprocessor:'
+                    "  cd /path/to/hate_crack && make install"
                 )
-                print('  "hcatPath": "/path/to/hate_crack"')
                 quit(1)
 
             # Binary missing - need to build
@@ -265,16 +231,20 @@ def ensure_binary(binary_path, build_dir=None, name=None):
     return binary_path
 
 
-# NOTE: hcatPath is for hashcat binary location, NOT for hate_crack assets
-# If empty in config, we fall back to hate_path as a convenience
-# But hashcat-utils and princeprocessor should ALWAYS use hate_path
-hcatPath = config_parser.get("hcatPath", "") or hate_path
+# NOTE: hcatPath is the hashcat install directory, NOT for hate_crack assets.
+# hashcat-utils and princeprocessor should ALWAYS use hate_path.
+hcatPath = config_parser.get("hcatPath", "")
 hcatBin = config_parser["hcatBin"]
 # If hcatBin is not absolute and hcatPath is set, construct full path from hcatPath + hcatBin
 if not os.path.isabs(hcatBin) and hcatPath:
     _candidate = os.path.join(hcatPath, hcatBin)
     if os.path.isfile(_candidate):
         hcatBin = _candidate
+# When hcatPath is not configured, discover it from the hashcat binary in PATH
+if not hcatPath:
+    _which = shutil.which(hcatBin)
+    if _which:
+        hcatPath = os.path.dirname(os.path.realpath(_which))
 hcatTuning = config_parser["hcatTuning"]
 hcatWordlists = config_parser["hcatWordlists"]
 hcatOptimizedWordlists = config_parser["hcatOptimizedWordlists"]
@@ -621,8 +591,7 @@ hcatPrinceBaseList = _normalize_wordlist_setting(hcatPrinceBaseList, wordlists_d
 
 if not SKIP_INIT:
     # Verify hashcat binary is available
-    # hcatPath is for assets (hashcat-utils, princeprocessor), not hashcat binary location
-    # hcatBin should be in PATH or be an absolute path
+    # hcatBin should be in PATH or be an absolute path (resolved from hcatPath + hcatBin if configured)
     try:
         if os.path.isabs(hcatBin):
             if not os.path.isfile(hcatBin):

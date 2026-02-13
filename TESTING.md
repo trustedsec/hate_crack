@@ -3,26 +3,18 @@
 ## Overview
 The test suite uses mocked API responses and local fixtures so it can run without external services (Hashview, Hashmob, Weakpass). Most tests are fast and run entirely offline. Live network checks and system dependency checks are now opt-in via environment variables.
 
-## Important: Asset Location (hcatPath)
+## Important: Asset Location
 
-The application requires access to `hashcat-utils` and `princeprocessor` as subdirectories. When running tests or the tool outside the repository directory, configure the asset location in `config.json` by setting `hcatPath`:
+The application requires `hashcat-utils` and `princeprocessor` as subdirectories of the package. When installed via `make install`, these are vendored into the package automatically.
 
-```json
-{
-  "hcatPath": "/path/to/hate_crack",
-  ...
-}
-```
-
-Then run tests or the tool normally:
+For development, run tests from the repository directory:
 
 ```bash
+cd /path/to/hate_crack
 uv run pytest -v
-# or
-hate_crack <hash_file> <hash_type>
 ```
 
-If `hcatPath` is not set (empty string), the application will search the current directory and parent directory for these assets.
+**Note:** `hcatPath` in `config.json` is for the **hashcat binary location** (optional if hashcat is in PATH), not for hate_crack assets.
 
 ## Changes Made
 

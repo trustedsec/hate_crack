@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := submodules
-.PHONY: install reinstall dev-install dev-reinstall clean hashcat-utils submodules submodules-pre test coverage lint check ruff mypy
+.PHONY: install reinstall dev-install dev-reinstall clean hashcat-utils submodules submodules-pre vendor-assets clean-vendor test coverage lint check ruff mypy
 
 hashcat-utils: submodules
 	$(MAKE) -C hashcat-utils
@@ -28,40 +28,38 @@ submodules-pre:
 	@# Patch hashcat-utils/src/Makefile so these new expanders are compiled by default.
 	@bases="hashcat-utils hate_crack/hashcat-utils"; for base in $$bases; do src="$$base/src/expander.c"; test -f "$$src" || continue; for i in $$(seq 8 36); do dst="$$base/src/expander$$i.c"; if [ ! -f "$$dst" ]; then cp "$$src" "$$dst"; perl -pi -e "s/#define LEN_MAX 7/#define LEN_MAX $$i/g" "$$dst"; fi; done; mk="$$base/src/Makefile"; test -f "$$mk" || continue; exp_bins=""; exp_exes=""; for i in $$(seq 8 36); do exp_bins="$$exp_bins expander$$i.bin"; exp_exes="$$exp_exes expander$$i.exe"; done; EXP_BINS="$$exp_bins" perl -pi -e 'if(/^native:/ && index($$_, "expander8.bin") < 0){chomp; $$_ .= "$$ENV{EXP_BINS}"; $$_ .= "\n";}' "$$mk"; EXP_EXES="$$exp_exes" perl -pi -e 'if(/^windows:/ && index($$_, "expander8.exe") < 0){chomp; $$_ .= "$$ENV{EXP_EXES}"; $$_ .= "\n";}' "$$mk"; perl -0777 -pi -e 's/\n# Auto-added by hate_crack \\(submodules-pre\\)\n.*\z/\n/s' "$$mk"; printf '%s\n' '' '# Auto-added by hate_crack (submodules-pre)' 'expander%.bin: src/expander%.c' >> "$$mk"; printf '\t%s\n' '$${CC_NATIVE} $${CFLAGS_NATIVE} $${LDFLAGS_NATIVE} -o bin/$$@ $$<' >> "$$mk"; printf '%s\n' '' 'expander%.exe: src/expander%.c' >> "$$mk"; printf '\t%s\n' '$${CC_WINDOWS} $${CFLAGS_WINDOWS} -o bin/$$@ $$<' >> "$$mk"; done
 
-install:
-	@echo "Detecting OS and installing dependencies..."
+vendor-assets:
 	@if [ ! -f princeprocessor/pp64.bin ] && [ ! -f princeprocessor/pp64.app ] && [ ! -f princeprocessor/pp64.exe ]; then \
 		echo "princeprocessor binaries are missing; please ensure the princeprocessor directory is present."; \
 		exit 1; \
 	fi
+	@echo "Syncing assets into package for uv tool install..."
+	@rm -rf hate_crack/hashcat-utils hate_crack/princeprocessor
+	@cp -R hashcat-utils hate_crack/
+	@cp -R princeprocessor hate_crack/
+	@rm -rf hate_crack/hashcat-utils/.git hate_crack/princeprocessor/.git
+
+clean-vendor:
+	@echo "Cleaning up vendored assets from working tree..."
+	@rm -rf hate_crack/hashcat-utils hate_crack/princeprocessor
+
+install: submodules vendor-assets
+	@echo "Detecting OS and installing dependencies..."
 	@if [ "$(shell uname)" = "Darwin" ]; then \
 		echo "Detected macOS"; \
 		command -v brew >/dev/null 2>&1 || { echo >&2 "Homebrew not found. Please install Homebrew first: https://brew.sh/"; exit 1; }; \
 		brew install p7zip transmission-cli; \
-		echo "Syncing assets into package for uv tool install..."; \
-		rm -rf hate_crack/hashcat-utils hate_crack/princeprocessor; \
-		cp -R hashcat-utils hate_crack/; \
-		cp -R princeprocessor hate_crack/; \
-		rm -rf hate_crack/hashcat-utils/.git hate_crack/princeprocessor/.git; \
-		uv tool install .; \
-		echo "Cleaning up vendored assets from working tree..."; \
-		rm -rf hate_crack/hashcat-utils hate_crack/princeprocessor; \
 	elif [ -f /etc/debian_version ]; then \
 		echo "Detected Debian/Ubuntu"; \
 		sudo apt-get update; \
 		sudo apt-get install -y p7zip-full transmission-cli; \
-		echo "Syncing assets into package for uv tool install..."; \
-		rm -rf hate_crack/hashcat-utils hate_crack/princeprocessor; \
-		cp -R hashcat-utils hate_crack/; \
-		cp -R princeprocessor hate_crack/; \
-		rm -rf hate_crack/hashcat-utils/.git hate_crack/princeprocessor/.git; \
-		uv tool install .; \
-		echo "Cleaning up vendored assets from working tree..."; \
-		rm -rf hate_crack/hashcat-utils hate_crack/princeprocessor; \
 	else \
 		echo "Unsupported OS. Please install dependencies manually."; \
+		$(MAKE) clean-vendor; \
 		exit 1; \
 	fi
+	@uv tool install .
+	@$(MAKE) clean-vendor
 
 reinstall: uninstall install
 
