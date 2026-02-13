@@ -139,7 +139,7 @@ cd /path/to/hate_crack
 hate_crack <hash_file> <hash_type>
 ```
 
-To keep `uv tool install .` happy, run the tool from the hate_crack checkout directory or one of the auto-discovered locations below.
+Run `make install` to install the tool with all assets bundled into the package.
 
 **Note:** The `hcatPath` in `config.json` is for the hashcat binary location (optional if hashcat is in PATH), not for hate_crack assets.
 
@@ -168,25 +168,18 @@ Error: Build directory /opt/hashcat/hashcat-utils does not exist.
 Expected to find expander at /opt/hashcat/hashcat-utils/bin/expander.
 ```
 
-This means the tool cannot find the hate_crack repository assets. The `hashcat-utils` and `princeprocessor` directories are part of the **hate_crack repository**, not the hashcat installation.
+This means the hate_crack assets were not bundled into the installed package.
 
 **Understanding the paths:**
 - `hcatPath` in config.json → points to **hashcat binary location** (optional, can be in PATH)
-- `hashcat-utils/` and `princeprocessor/` → located in the **hate_crack repository directory**
-
-The tool automatically searches for hate_crack assets in these locations:
-1. The directory that contains the hate_crack checkout (and includes `config.json`, `hashcat-utils/`, and `princeprocessor/`)
-2. Current working directory and parent directory
-3. `~/hate_crack`, `~/hate-crack`, or `~/.hate_crack`
+- `hashcat-utils/` and `princeprocessor/` → bundled into the package by `make install`
 
 **Solution:**
-Run `hate_crack` from within the repository directory:
+Reinstall using the Makefile, which vendors the assets into the package:
 ```bash
-cd /opt/hate_crack  # or wherever you cloned the repository
-hate_crack <hash_file> <hash_type>
+cd /path/to/hate_crack  # the repository checkout
+make install
 ```
-
-If the assets live elsewhere, update `"hcatPath"` in `config.json` to point to the directory that contains `hashcat-utils` and `princeprocessor`.
 
 **Example config.json:**
 ```json

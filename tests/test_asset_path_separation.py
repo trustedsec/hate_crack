@@ -28,8 +28,7 @@ def test_hashcat_utils_uses_hate_path_not_hcat_path(tmp_path, monkeypatch):
     assert os.path.isdir(main.hate_path)
     assert os.path.isdir(os.path.join(main.hate_path, "hashcat-utils"))
 
-    # The hcatPath might be different (fallback to hate_path if empty)
-    # But utilities should ALWAYS use hate_path
+    # hcatPath is the hashcat install directory, not the hate_crack package directory
     assert main.hcatPath is not None
 
     # Key assertion: even if hcatPath != hate_path,
