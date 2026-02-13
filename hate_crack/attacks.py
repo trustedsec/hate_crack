@@ -495,9 +495,13 @@ def markov_attack(ctx: Any) -> None:
     choice = input("\nSelect generation mode: ").strip()
 
     if choice == "1":
-        default_wl = ctx.markovWordlist
-        if isinstance(default_wl, list):
-            default_wl = default_wl[0] if default_wl else ""
+        cracked_output = ctx.hcatHashFile + ".out"
+        if os.path.isfile(cracked_output):
+            default_wl = cracked_output
+        else:
+            default_wl = ctx.markovWordlist
+            if isinstance(default_wl, list):
+                default_wl = default_wl[0] if default_wl else ""
         print(f"\nDefault wordlist: {default_wl}")
         override = input("Use a different wordlist? [y/N]: ").strip().lower()
         if override == "y":
