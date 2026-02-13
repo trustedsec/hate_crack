@@ -1502,6 +1502,43 @@ def hcatBandrel(hcatHashType, hcatHashFile):
             hcatProcess.kill()
 
 
+# Pull an Ollama model via the /api/pull streaming endpoint
+def _pull_ollama_model(url, model):
+    """Pull an Ollama model. Returns True on success, False on failure."""
+    print(f"Model '{model}' not found locally. Pulling from Ollama...")
+    pull_url = f"{url}/api/pull"
+    payload = json.dumps({"name": model, "stream": True}).encode("utf-8")
+    req = urllib.request.Request(
+        pull_url,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req) as resp:
+            for raw_line in resp:
+                line = raw_line.decode("utf-8", errors="replace").strip()
+                if not line:
+                    continue
+                try:
+                    data = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                status = data.get("status")
+                if status:
+                    print(f"  {status}")
+    except urllib.error.HTTPError as e:
+        print(f"Error pulling model: HTTP {e.code}")
+        return False
+    except urllib.error.URLError as e:
+        print(f"Error: Could not connect to Ollama: {e}")
+        return False
+    except Exception as e:
+        print(f"Error pulling model: {e}")
+        return False
+    print(f"Successfully pulled model '{model}'.")
+    return True
+
+
 # LLM Markov Attack
 def hcatMarkov(hcatHashType, hcatHashFile, mode, context_data, candidate_count):
     global hcatProcess
@@ -1574,6 +1611,10 @@ def hcatMarkov(hcatHashType, hcatHashFile, mode, context_data, candidate_count):
         "stream": False,
     }).encode("utf-8")
 
+    if debug_mode:
+        print(f"[DEBUG] Ollama API URL: {api_url}")
+        print(f"[DEBUG] Ollama request payload: {payload.decode('utf-8')}")
+
     try:
         req = urllib.request.Request(
             api_url,
@@ -1582,6 +1623,31 @@ def hcatMarkov(hcatHashType, hcatHashFile, mode, context_data, candidate_count):
         )
         with urllib.request.urlopen(req, timeout=600) as resp:
             result = json.loads(resp.read().decode("utf-8"))
+        if debug_mode:
+            print(f"[DEBUG] Ollama response: {json.dumps(result, indent=2)}")
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            if _pull_ollama_model(ollamaUrl, ollamaModel):
+                try:
+                    req = urllib.request.Request(
+                        api_url,
+                        data=payload,
+                        headers={"Content-Type": "application/json"},
+                    )
+                    with urllib.request.urlopen(req, timeout=600) as resp:
+                        result = json.loads(resp.read().decode("utf-8"))
+                    if debug_mode:
+                        print(f"[DEBUG] Ollama response (after pull): {json.dumps(result, indent=2)}")
+                except Exception as retry_err:
+                    print(f"Error calling Ollama API after pull: {retry_err}")
+                    return
+            else:
+                print(f"Could not pull model '{ollamaModel}'. Aborting Markov attack.")
+                return
+        else:
+            print(f"Error: Could not connect to Ollama at {ollamaUrl}: {e}")
+            print("Ensure Ollama is running (ollama serve) and try again.")
+            return
     except urllib.error.URLError as e:
         print(f"Error: Could not connect to Ollama at {ollamaUrl}: {e}")
         print("Ensure Ollama is running (ollama serve) and try again.")
@@ -1618,6 +1684,9 @@ def hcatMarkov(hcatHashType, hcatHashFile, mode, context_data, candidate_count):
         return
 
     print(f"Generated {len(candidates)} password candidates -> {candidates_path}")
+    if debug_mode:
+        filtered_count = len(raw_lines) - len(candidates)
+        print(f"[DEBUG] Filtered out {filtered_count} lines from Ollama response ({len(raw_lines)} raw -> {len(candidates)} candidates)")
 
     # Step C: Run hcstat2gen to build Markov stats
     print("Building Markov statistics with hcstat2gen...")
