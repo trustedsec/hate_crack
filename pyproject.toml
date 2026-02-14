@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=69"]
+requires = ["setuptools>=69", "setuptools-scm>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "hate_crack"
-version = "2.0"
+dynamic = ["version"]
 description = "Menu driven Python wrapper for hashcat"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -36,6 +36,9 @@ hate_crack = [
     "hashcat-utils/**",
     "princeprocessor/**",
 ]
+
+[tool.setuptools_scm]
+version_file = "hate_crack/_version.py"
 
 [tool.ruff]
 exclude = [
