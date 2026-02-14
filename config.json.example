@@ -23,6 +23,6 @@
   "hashview_url": "http://localhost:8443",
   "hashview_api_key": "",
   "hashmob_api_key": "",
-  "ollamaModel": "qwen2.5",
-  "ollamaNumCtx": 8192
+  "ollamaModel": "mistral",
+  "ollamaNumCtx": 2048
 }
