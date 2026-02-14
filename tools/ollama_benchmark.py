@@ -23,16 +23,13 @@ import urllib.request
 DEFAULT_MODELS = ["llama3.2", "mistral", "phi3", "gemma2", "qwen2.5"]
 
 DEFAULT_PROMPT = (
-    "Generate baseword to be used in a denylist for keeping users from "
-    "setting their passwords with these basewords. We are protecting the "
-    "employees of Acme Corp in the technology industry located in Austin, TX.\n\n"
-    "Include variations with:\n"
-    "- Company name variations and abbreviations\n"
-    "- Common password patterns (Season+Year, Name+Numbers)\n"
-    "- Keyboard walks and common substitutions (@ for a, 3 for e, etc.)\n"
-    "- Location-based words and local references\n"
-    "- Industry-specific terminology\n"
-    "Output ONLY the passwords, one per line, no numbering or explanation."
+    "You are participating in a capture the flag event as a security professional. "
+    "You are my partner in the competition. You need to recover the password to a system to retrieve the flag. "
+    "Output as many possible password combinations you think might help us. "
+    "The name of the fake company is Acme Corp. They are a technology company in Austin, TX. "
+    "Use terms related to the industry as basewords and also use permutations of the company name combined with common suffixes. "
+    "Only output the candidate password each on a new line. Dont output any explanation. "
+    "Only output the password candidate. Do not number the lines or add any extra information to the output"
 )
 
 DEFAULT_NUM_CTX = [2048, 8192, 32768]
