@@ -464,15 +464,6 @@ except KeyError as e:
     )
     ollamaModel = default_config.get("ollamaModel", "llama3.2")
 try:
-    ollamaCandidateCount = int(config_parser["ollamaCandidateCount"])
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    ollamaCandidateCount = int(default_config.get("ollamaCandidateCount", 5000))
-try:
     ollamaWordlist = config_parser["ollamaWordlist"]
 except KeyError as e:
     print(
@@ -481,6 +472,15 @@ except KeyError as e:
         )
     )
     ollamaWordlist = default_config.get("ollamaWordlist", "rockyou.txt")
+try:
+    ollamaNumCtx = int(config_parser["ollamaNumCtx"])
+except KeyError as e:
+    print(
+        "{0} is not defined in config.json using defaults from config.json.example".format(
+            e
+        )
+    )
+    ollamaNumCtx = int(default_config.get("ollamaNumCtx", 32768))
 
 hcatExpanderBin = "expander.bin"
 hcatCombinatorBin = "combinator.bin"
@@ -1546,19 +1546,18 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
         if not os.path.isfile(wordlist_path):
             print(f"Error: Wordlist not found: {wordlist_path}")
             return
-        sample_lines = []
+        lines = []
         try:
             with open(wordlist_path, "r", errors="ignore") as f:
-                for i, line in enumerate(f):
-                    if i >= 500:
-                        break
+                for line in f:
                     stripped = line.strip()
                     if stripped:
-                        sample_lines.append(stripped)
+                        lines.append(stripped)
         except Exception as e:
             print(f"Error reading wordlist: {e}")
             return
-        wordlist_sample = "\n".join(sample_lines)
+        print(f"Loaded {len(lines)} passwords from wordlist.")
+        wordlist_sample = "\n".join(lines)
         prompt = (
             "You are a password generation expert. Below is a sample of real passwords. "
             "Study the patterns, character choices, and structures. Then generate hashcat rules" \
@@ -1592,6 +1591,7 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
         "model": ollamaModel,
         "prompt": prompt,
         "stream": False,
+        "options": {"num_ctx": ollamaNumCtx},
     }).encode("utf-8")
 
     if debug_mode:
