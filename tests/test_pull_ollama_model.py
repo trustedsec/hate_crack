@@ -231,11 +231,15 @@ class TestHcatOllama404Retry:
         ]
         mock_pull.return_value = True
 
+        rules_dir = str(tmp_path / "rules")
+        os.makedirs(rules_dir, exist_ok=True)
         with mock.patch.object(hc_main, "ollamaUrl", self.OLLAMA_URL), \
              mock.patch.object(hc_main, "ollamaModel", self.MODEL), \
              mock.patch.object(hc_main, "hcatBin", "/usr/bin/hashcat"), \
              mock.patch.object(hc_main, "hcatTuning", ""), \
+             mock.patch.object(hc_main, "hcatPotfilePath", ""), \
              mock.patch.object(hc_main, "hate_path", str(tmp_path)), \
+             mock.patch.object(hc_main, "rulesDirectory", rules_dir), \
              mock.patch("hate_crack.main.generate_session_id", return_value="test_session"), \
              mock.patch("subprocess.Popen") as mock_popen:
 
