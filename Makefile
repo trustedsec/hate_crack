@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := submodules
-.PHONY: install reinstall dev-install dev-reinstall clean hashcat-utils submodules submodules-pre vendor-assets clean-vendor test coverage lint check ruff mypy
+.PHONY: install reinstall update dev-install dev-reinstall clean hashcat-utils submodules submodules-pre vendor-assets clean-vendor test coverage lint check ruff mypy
 
 hashcat-utils: submodules
 	$(MAKE) -C hashcat-utils
@@ -58,7 +58,11 @@ install: submodules vendor-assets
 		$(MAKE) clean-vendor; \
 		exit 1; \
 	fi
-	@uv tool install .
+	@uv tool install . --force --reinstall
+	@$(MAKE) clean-vendor
+
+update: submodules vendor-assets
+	@uv tool install . --force --reinstall
 	@$(MAKE) clean-vendor
 
 reinstall: uninstall install
