@@ -226,6 +226,11 @@ def main():
         metavar="FILE",
         help="Write raw results to a JSON file",
     )
+    parser.add_argument(
+        "--stdout",
+        action="store_true",
+        help="Print model responses to stdout",
+    )
     args = parser.parse_args()
 
     url = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
@@ -248,6 +253,10 @@ def main():
                 print(f"  {r['response_time_s']}s, {r['tokens_per_sec']} tok/s, "
                       f"{r['candidate_count']} candidates ({r['unique_candidates']} unique)"
                       f"{', REFUSED' if r['refusal'] else ''}")
+                if args.stdout:
+                    print(f"\n--- Response from {model} (num_ctx={num_ctx}) ---")
+                    print(r["response"])
+                    print("--- End of response ---\n")
             results.append(r)
 
     print_table(results)
