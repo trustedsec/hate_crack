@@ -19,7 +19,7 @@ RUN python -m pip install -q uv==0.9.28
 
 COPY . /workspace
 
-RUN make install
+RUN make submodules vendor-assets && uv tool install . && make clean-vendor
 
 ENV PATH="${HOME}/.local/bin:${PATH}"
 ENV HATE_CRACK_SKIP_INIT=1

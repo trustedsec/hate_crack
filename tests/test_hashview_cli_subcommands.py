@@ -28,15 +28,6 @@ class DummyHashviewAPI:
             "size": 10,
         }
 
-    def download_found_hashes(self, customer_id, hashfile_id, output_file=None):
-        self.calls.append(
-            ("download_found_hashes", customer_id, hashfile_id, output_file)
-        )
-        return {
-            "output_file": output_file or f"found_{customer_id}_{hashfile_id}.txt",
-            "size": 12,
-        }
-
     def upload_hashfile(
         self, file_path, customer_id, hash_type, file_format=5, hashfile_name=None
     ):
