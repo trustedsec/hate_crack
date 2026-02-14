@@ -20,7 +20,7 @@ import time
 import urllib.error
 import urllib.request
 
-DEFAULT_MODELS = ["mistral"]
+DEFAULT_MODELS = ["llama3.2", "mistral", "phi3", "gemma2", "qwen2.5"]
 
 DEFAULT_PROMPT = (
     "You are participating in a capture the flag event as a security professional. "
