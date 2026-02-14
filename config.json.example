@@ -22,5 +22,7 @@
   "bandrel_common_basedwords": "welcome,password,p@ssword,p@$$word,changeme,letmein,summer,winter,spring,springtime,fall,autumn,monday,tuesday,wednesday,thursday,friday,saturday,sunday,january,february,march,april,may,june,july,august,september,october,november,december,christmas,easter,covid19",
   "hashview_url": "http://localhost:8443",
   "hashview_api_key": "",
-  "hashmob_api_key": ""
+  "hashmob_api_key": "",
+  "ollamaModel": "qwen2.5",
+  "ollamaNumCtx": 8192
 }

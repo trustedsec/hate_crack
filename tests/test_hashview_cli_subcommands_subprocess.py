@@ -77,8 +77,7 @@ def _ensure_customer_one():
             "--name",
             "TestWordlist",
         ],
-        ["hashview", "download-left", "--customer-id", "1", "--hashfile-id", "2"],
-        ["hashview", "download-found", "--customer-id", "1", "--hashfile-id", "2"],
+        ["hashview", "download-hashes", "--customer-id", "1", "--hashfile-id", "2"],
         [
             "hashview",
             "upload-hashfile-job",
@@ -142,45 +141,25 @@ def test_hashview_subcommands_live_downloads():
     base_cmd = [sys.executable, HATE_CRACK_SCRIPT, "hashview"]
     customer_id = _ensure_customer_one()
 
-    left_cmd = base_cmd + [
-        "download-left",
+    dl_cmd = base_cmd + [
+        "download-hashes",
         "--customer-id",
         str(customer_id),
         "--hashfile-id",
         os.environ["HASHVIEW_HASHFILE_ID"],
     ]
-    left = subprocess.run(
-        left_cmd,
+    dl = subprocess.run(
+        dl_cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
         cwd=REPO_ROOT,
         env=env,
     )
-    left_out = left.stdout + left.stderr
-    assert left.returncode == 0, left_out
-    assert "Downloaded" in left_out
-    assert "left_" in left_out
-
-    found_cmd = base_cmd + [
-        "download-found",
-        "--customer-id",
-        str(customer_id),
-        "--hashfile-id",
-        os.environ["HASHVIEW_HASHFILE_ID"],
-    ]
-    found = subprocess.run(
-        found_cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        cwd=REPO_ROOT,
-        env=env,
-    )
-    found_out = found.stdout + found.stderr
-    assert found.returncode == 0, found_out
-    assert "Downloaded" in found_out
-    assert "found_" in found_out
+    dl_out = dl.stdout + dl.stderr
+    assert dl.returncode == 0, dl_out
+    assert "Downloaded" in dl_out
+    assert "left_" in dl_out
 
 
 @pytest.mark.skipif(

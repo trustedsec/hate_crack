@@ -486,3 +486,18 @@ def middle_combinator(ctx: Any) -> None:
 
 def bandrel_method(ctx: Any) -> None:
     ctx.hcatBandrel(ctx.hcatHashType, ctx.hcatHashFile)
+
+
+def ollama_attack(ctx: Any) -> None:
+    print("\n\tLLM Attack")
+    company = input("Company name: ").strip()
+    industry = input("Industry: ").strip()
+    location = input("Location: ").strip()
+    target_info = {
+        "company": company,
+        "industry": industry,
+        "location": location,
+    }
+    ctx.hcatOllama(
+        ctx.hcatHashType, ctx.hcatHashFile, "target", target_info
+    )

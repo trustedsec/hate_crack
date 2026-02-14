@@ -270,52 +270,6 @@ class TestHashviewAPI:
             assert "Cookie" in auth_headers or "uuid" in str(auth_headers)
             assert HASHVIEW_API_KEY in str(auth_headers)
 
-    def test_download_found_hashes(self, api, tmp_path):
-        """Test downloading found hashes: real API if possible, else mock."""
-        hashview_url, hashview_api_key = self._get_hashview_config()
-        customer_id = os.environ.get("HASHVIEW_CUSTOMER_ID")
-        hashfile_id = os.environ.get("HASHVIEW_HASHFILE_ID")
-        if all([hashview_url, hashview_api_key, customer_id, hashfile_id]):
-            # Real API test
-            real_api = HashviewAPI(hashview_url, hashview_api_key)
-            output_file = tmp_path / f"found_{customer_id}_{hashfile_id}.txt"
-            result = real_api.download_found_hashes(
-                int(customer_id), int(hashfile_id), output_file=str(output_file)
-            )
-            assert os.path.exists(result["output_file"])
-            with open(result["output_file"], "rb") as f:
-                content = f.read()
-            print(f"[DEBUG] Downloaded {len(content)} bytes to {result['output_file']}")
-            assert result["size"] == len(content)
-        else:
-            # Mock test
-            mock_response = Mock()
-            mock_response.content = b"hash1:pass1\nhash2:pass2\n"
-            mock_response.raise_for_status = Mock()
-            mock_response.headers = {"content-length": "0"}
-
-            def iter_content(chunk_size=8192):
-                yield mock_response.content
-
-            mock_response.iter_content = iter_content
-            api.session.get.return_value = mock_response
-
-            output_file = tmp_path / "found_1_2.txt"
-            result = api.download_found_hashes(1, 2, output_file=str(output_file))
-            assert os.path.exists(result["output_file"])
-            with open(result["output_file"], "rb") as f:
-                content = f.read()
-            assert content == b"hash1:pass1\nhash2:pass2\n"
-            assert result["size"] == len(content)
-
-            # Verify auth headers were passed in the found hashes download call
-            call_args_list = api.session.get.call_args_list
-            found_call = [c for c in call_args_list if "found" in str(c)][0]
-            assert found_call.kwargs.get("headers") is not None
-            auth_headers = found_call.kwargs.get("headers")
-            assert "Cookie" in auth_headers or "uuid" in str(auth_headers)
-            assert HASHVIEW_API_KEY in str(auth_headers)
-
     def test_download_wordlist(self, api, tmp_path):
         """Test downloading a wordlist: real API if possible, else mock."""
         hashview_url, hashview_api_key = self._get_hashview_config()
@@ -633,6 +587,10 @@ class TestHashviewAPI:
         # Set up session.get to return different responses
         api.session.get.side_effect = [mock_left_response, mock_found_response]
 
+        # Mock potfile path so cleanup isn't blocked by missing ~/.hashcat dir
+        potfile = str(tmp_path / "hashcat.potfile")
+        monkeypatch.setattr("hate_crack.api.get_hcat_potfile_path", lambda: potfile)
+
         # Download left hashes (should auto-download and split found for hashcat)
         left_file = tmp_path / "left_1_2.txt"
         result = api.download_left_hashes(1, 2, output_file=str(left_file))
@@ -640,21 +598,17 @@ class TestHashviewAPI:
         # Verify left file was created
         assert os.path.exists(result["output_file"])
 
-        # Verify found file was downloaded and deleted
+        # Verify found files are cleaned up after merge
         found_file = tmp_path / "found_1_2.txt"
-        assert not os.path.exists(found_file), (
-            "Found file should be deleted after split"
-        )
-        assert not (other_cwd / "found_1_2.txt").exists()
+        assert not os.path.exists(found_file), "Found file should be deleted after merge"
 
-        # Verify split files were created and deleted
         found_hashes_file = tmp_path / "found_hashes_1_2.txt"
         found_clears_file = tmp_path / "found_clears_1_2.txt"
         assert not os.path.exists(str(found_hashes_file)), (
-            "Split hashes file should be deleted"
+            "Split hashes file should be deleted after merge"
         )
         assert not os.path.exists(str(found_clears_file)), (
-            "Split clears file should be deleted"
+            "Split clears file should be deleted after merge"
         )
 
     def test_download_left_id_matching(self, api, tmp_path):

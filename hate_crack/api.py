@@ -117,6 +117,29 @@ def get_hcat_tuning_args():
     return []
 
 
+def get_hcat_potfile_path():
+    """Return the resolved potfile path from config, or the default."""
+    config_path = _resolve_config_path()
+    if config_path:
+        try:
+            with open(config_path) as f:
+                config = json.load(f)
+            raw = (config.get("hcatPotfilePath") or "").strip()
+            if raw:
+                return os.path.expanduser(raw)
+        except Exception:
+            pass
+    return os.path.expanduser("~/.hashcat/hashcat.potfile")
+
+
+def get_hcat_potfile_args():
+    """Return potfile args list for hashcat, e.g. ['--potfile-path=/path']."""
+    pot = get_hcat_potfile_path()
+    if pot:
+        return [f"--potfile-path={pot}"]
+    return []
+
+
 def cleanup_torrent_files(directory=None):
     """Remove stray .torrent files from the wordlists directory on graceful exit."""
     if directory is None:
@@ -805,7 +828,6 @@ class HashviewAPI:
         self, customer_id, hashfile_id, output_file=None, hash_type=None
     ):
         import sys
-        import subprocess
 
         url = f"{self.base_url}/v1/hashfiles/{hashfile_id}/left"
         resp = self.session.get(url, headers=self._auth_headers(), stream=True)
@@ -882,7 +904,7 @@ class HashviewAPI:
                         for line in f:
                             line = line.strip()
                             if line:
-                                parts = line.rsplit(":", 1)  # Split on last colon
+                                parts = line.split(":", 1)  # Split on first colon
                                 if len(parts) == 2:
                                     hash_part, clear_part = parts
                                     hf.write(hash_part + "\n")
@@ -894,277 +916,41 @@ class HashviewAPI:
                     f"Split found file into {hashes_count} hashes and {clears_count} clears"
                 )
 
-                # Run hashcat to combine them
-                combined_file = output_abs + ".out"
-                try:
-                    # Execute hashcat: hashcat <tuning> -m hash_type found_hashes found_clears --outfile output.out --outfile-format=1,2
-                    tuning_args = get_hcat_tuning_args()
+                # Append found hashes to the left file
+                with open(output_abs, "a", encoding="utf-8") as lf:
+                    with open(found_hashes_file, "r", encoding="utf-8", errors="ignore") as fhf:
+                        for line in fhf:
+                            line = line.strip()
+                            if line:
+                                lf.write(line + "\n")
+                print(f"✓ Appended {hashes_count} found hashes to {output_abs}")
 
-                    # Create temporary outfile for hashcat
-                    temp_outfile = output_abs + ".tmp"
-
-                    if self.debug:
-                        print(
-                            f"[DEBUG] download_left_hashes: hash_type={hash_type}, type={type(hash_type)}"
-                        )
-
-                    # Build command with hash type if provided
-                    cmd = ["hashcat", *tuning_args]
-                    if hash_type:
-                        cmd.extend(["-m", str(hash_type)])
-                    cmd.extend(
-                        [
-                            found_hashes_file,
-                            found_clears_file,
-                            "--outfile",
-                            temp_outfile,
-                            "--outfile-format=1,2",
-                        ]
-                    )
-
-                    if self.debug:
-                        print(f"[DEBUG] Running command: {' '.join(cmd)}")
-
-                    print(f"Running: {' '.join(cmd)}")
-
-                    result = subprocess.run(
-                        cmd,
-                        stderr=subprocess.PIPE,
-                        stdout=subprocess.PIPE,
-                        text=True,
-                        timeout=300,
-                    )
-
-                    if result.returncode != 0:
-                        print(f"Warning: hashcat exited with code {result.returncode}")
-                        if result.stderr:
-                            print(f"  stderr: {result.stderr}")
-
-                    # Append the output to the combined file
-                    if os.path.exists(temp_outfile):
-                        with open(
-                            temp_outfile, "r", encoding="utf-8", errors="ignore"
-                        ) as tmp_f:
-                            with open(combined_file, "a", encoding="utf-8") as out_f:
-                                out_f.write(tmp_f.read())
-
-                        # Count lines appended
-                        with open(
-                            combined_file, "r", encoding="utf-8", errors="ignore"
-                        ) as f:
-                            combined_count = len(f.readlines())
-                        print(
-                            f"✓ Appended cracked hashes to {combined_file} (total lines: {combined_count})"
-                        )
-
-                        # Clean up temp file
-                        try:
-                            os.remove(temp_outfile)
-                        except Exception:
-                            pass
-                    else:
-                        print("Note: No cracked hashes found")
-
-                except FileNotFoundError:
-                    print("✗ Error: hashcat not found in PATH")
-                except subprocess.TimeoutExpired:
-                    print("✗ Error: hashcat execution timed out")
-                except Exception as e:
-                    print(f"✗ Error running hashcat: {e}")
-
-                # Clean up temporary files (keep when debug is enabled)
-                if not self.debug:
-                    files_to_delete = [found_file, found_hashes_file, found_clears_file]
-                    for temp_file in files_to_delete:
-                        try:
-                            if os.path.exists(temp_file):
-                                os.remove(temp_file)
-                                print(f"Deleted {temp_file}")
-                        except Exception as e:
-                            print(f"Warning: Could not delete {temp_file}: {e}")
+                # Append found hash:clear pairs to the potfile
+                potfile_path = get_hcat_potfile_path()
+                if potfile_path:
+                    appended = 0
+                    with open(potfile_path, "a", encoding="utf-8") as pf:
+                        with open(found_file, "r", encoding="utf-8", errors="ignore") as ff:
+                            for line in ff:
+                                line = line.strip()
+                                if line and ":" in line:
+                                    pf.write(line + "\n")
+                                    appended += 1
+                    combined_count = appended
+                    print(f"✓ Appended {appended} found hashes to potfile: {potfile_path}")
                 else:
-                    print("Debug enabled: keeping found and split files")
+                    print("Warning: No potfile path configured, skipping potfile update")
+
+                # Clean up the two found_ files
+                for f_path in (found_file, found_hashes_file, found_clears_file):
+                    try:
+                        os.remove(f_path)
+                    except OSError:
+                        pass
 
         except Exception as e:
             # If there's any error downloading found file, just skip it
             print(f"Note: Could not download found hashes: {e}")
-            # Clean up found file if it was partially written
-            if not self.debug:
-                try:
-                    if os.path.exists(found_file):
-                        os.remove(found_file)
-                except Exception:
-                    pass
-
-        return {
-            "output_file": output_file,
-            "size": downloaded,
-            "combined_count": combined_count,
-            "combined_file": combined_file,
-        }
-
-    def download_found_hashes(
-        self, customer_id, hashfile_id, output_file=None, hash_type=None
-    ):
-        import sys
-        import subprocess
-
-        url = f"{self.base_url}/v1/hashfiles/{hashfile_id}/found"
-        resp = self.session.get(url, headers=self._auth_headers(), stream=True)
-        resp.raise_for_status()
-        if output_file is None:
-            output_file = f"found_{customer_id}_{hashfile_id}.txt"
-        
-        # Convert to absolute path to ensure file is preserved if CWD changes
-        output_file = os.path.abspath(output_file)
-
-        total = int(resp.headers.get("content-length", 0))
-        downloaded = 0
-        chunk_size = 8192
-        with open(output_file, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=chunk_size):
-                if chunk:
-                    f.write(chunk)
-                    downloaded += len(chunk)
-                    if total > 0:
-                        done = int(50 * downloaded / total)
-                        bar = "[" + "=" * done + " " * (50 - done) + "]"
-                        percent = 100 * downloaded / total
-                        sys.stdout.write(
-                            f"\rDownloading: {bar} {percent:5.1f}% ({downloaded}/{total} bytes)"
-                        )
-                        sys.stdout.flush()
-            if total > 0:
-                sys.stdout.write("\n")
-        # If content-length is not provided, just print size at end
-        if total == 0:
-            print(f"Downloaded {downloaded} bytes.")
-
-        # Split found file into hashes and clears
-        output_dir = os.path.dirname(os.path.abspath(output_file)) or os.getcwd()
-        found_hashes_file = os.path.join(
-            output_dir, f"found_hashes_{customer_id}_{hashfile_id}.txt"
-        )
-        found_clears_file = os.path.join(
-            output_dir, f"found_clears_{customer_id}_{hashfile_id}.txt"
-        )
-
-        hashes_count = 0
-        clears_count = 0
-        combined_count = 0
-        combined_file = None
-
-        try:
-            with (
-                open(found_hashes_file, "w", encoding="utf-8") as hf,
-                open(found_clears_file, "w", encoding="utf-8") as cf,
-            ):
-                with open(output_file, "r", encoding="utf-8", errors="ignore") as f:
-                    for line in f:
-                        line = line.strip()
-                        if line:
-                            parts = line.rsplit(":", 1)  # Split on last colon
-                            if len(parts) == 2:
-                                hash_part, clear_part = parts
-                                hf.write(hash_part + "\n")
-                                cf.write(clear_part + "\n")
-                                hashes_count += 1
-                                clears_count += 1
-
-            print(
-                f"✓ Split found file into {hashes_count} hashes and {clears_count} clears"
-            )
-
-            # Run hashcat to combine them into an output file
-            combined_file = output_file + ".out"
-            try:
-                tuning_args = get_hcat_tuning_args()
-
-                # Create temporary outfile for hashcat
-                temp_outfile = output_file + ".tmp"
-
-                if self.debug:
-                    print(
-                        f"[DEBUG] download_found_hashes: hash_type={hash_type}, type={type(hash_type)}"
-                    )
-
-                # Build command with hash type if provided
-                cmd = ["hashcat", *tuning_args]
-                if hash_type:
-                    cmd.extend(["-m", str(hash_type)])
-                cmd.extend(
-                    [
-                        found_hashes_file,
-                        found_clears_file,
-                        "--outfile",
-                        temp_outfile,
-                        "--outfile-format=1,2",
-                    ]
-                )
-
-                if self.debug:
-                    print(f"[DEBUG] Running command: {' '.join(cmd)}")
-
-                print(f"Running: {' '.join(cmd)}")
-
-                result = subprocess.run(
-                    cmd,
-                    stderr=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    text=True,
-                    timeout=300,
-                )
-
-                if result.returncode != 0:
-                    print(f"Warning: hashcat exited with code {result.returncode}")
-                    if result.stderr:
-                        print(f"  stderr: {result.stderr}")
-
-                # Write the output file
-                if os.path.exists(temp_outfile):
-                    with open(
-                        temp_outfile, "r", encoding="utf-8", errors="ignore"
-                    ) as tmp_f:
-                        with open(combined_file, "w", encoding="utf-8") as out_f:
-                            out_f.write(tmp_f.read())
-
-                    # Count lines in output
-                    with open(
-                        combined_file, "r", encoding="utf-8", errors="ignore"
-                    ) as f:
-                        combined_count = len(f.readlines())
-                    print(f"✓ Created {combined_file} (total lines: {combined_count})")
-
-                    # Clean up temp file
-                    try:
-                        os.remove(temp_outfile)
-                    except Exception:
-                        pass
-                else:
-                    print("Note: No cracked hashes generated")
-
-            except FileNotFoundError:
-                print("✗ Error: hashcat not found in PATH")
-            except subprocess.TimeoutExpired:
-                print("✗ Error: hashcat execution timed out")
-            except Exception as e:
-                print(f"✗ Error running hashcat: {e}")
-
-            # Clean up temporary files (keep when debug is enabled)
-            if not self.debug:
-                files_to_delete = [found_hashes_file, found_clears_file]
-                for temp_file in files_to_delete:
-                    try:
-                        if os.path.exists(temp_file):
-                            os.remove(temp_file)
-                    except Exception as e:
-                        if self.debug:
-                            print(f"Warning: Could not delete {temp_file}: {e}")
-            else:
-                print("Debug enabled: keeping split files")
-
-        except Exception as e:
-            print(f"✗ Error splitting found file: {e}")
 
         return {
             "output_file": output_file,

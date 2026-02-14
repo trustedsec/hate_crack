@@ -83,6 +83,7 @@ def get_main_menu_options():
         "12": _attacks.thorough_combinator,
         "13": _attacks.bandrel_method,
         "14": _attacks.loopback_attack,
+        "15": _attacks.ollama_attack,
         "90": download_hashmob_rules,
         "91": weakpass_wordlist_menu,
         "92": download_hashmob_wordlists,

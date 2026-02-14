@@ -19,6 +19,8 @@ import readline
 import subprocess
 import shlex
 import argparse
+import urllib.request
+import urllib.error
 from types import SimpleNamespace
 
 #!/usr/bin/env python3
@@ -451,9 +453,30 @@ except KeyError as e:
         default_config.get("hcatDebugLogPath", "./hashcat_debug")
     )
 
+ollamaUrl = "http://" + os.environ.get("OLLAMA_HOST", "localhost:11434")
+try:
+    ollamaModel = config_parser["ollamaModel"]
+except KeyError as e:
+    print(
+        "{0} is not defined in config.json using defaults from config.json.example".format(
+            e
+        )
+    )
+    ollamaModel = default_config.get("ollamaModel", "qwen2.5")
+try:
+    ollamaNumCtx = int(config_parser["ollamaNumCtx"])
+except KeyError as e:
+    print(
+        "{0} is not defined in config.json using defaults from config.json.example".format(
+            e
+        )
+    )
+    ollamaNumCtx = int(default_config.get("ollamaNumCtx", 8192))
+
 hcatExpanderBin = "expander.bin"
 hcatCombinatorBin = "combinator.bin"
 hcatPrinceBin = "pp64.bin"
+hcatHcstat2genBin = "hcstat2gen.bin"
 
 
 def _resolve_wordlist_path(wordlist, base_dir):
@@ -588,7 +611,6 @@ hcatGoodMeasureBaseList = _normalize_wordlist_setting(
     hcatGoodMeasureBaseList, wordlists_dir
 )
 hcatPrinceBaseList = _normalize_wordlist_setting(hcatPrinceBaseList, wordlists_dir)
-
 if not SKIP_INIT:
     # Verify hashcat binary is available
     # hcatBin should be in PATH or be an absolute path (resolved from hcatPath + hcatBin if configured)
@@ -652,6 +674,20 @@ if not SKIP_INIT:
             )
         except SystemExit:
             print("PRINCE attacks will not be available.")
+
+        # Verify hcstat2gen binary (optional, for LLM attacks)
+        # Note: hcstat2gen is part of hashcat-utils, already in hate_crack repo
+        hcstat2gen_path = (
+            hate_path + "/hashcat-utils/bin/" + hcatHcstat2genBin
+        )
+        try:
+            ensure_binary(
+                hcstat2gen_path,
+                build_dir=os.path.join(hate_path, "hashcat-utils"),
+                name="hcstat2gen",
+            )
+        except SystemExit:
+            print("LLM attacks will not be available.")
 
     except Exception as e:
         print(f"Module initialization error: {e}")
@@ -737,15 +773,17 @@ def usage():
 
 
 def ascii_art():
+    from hate_crack import __version__
+
     print(r"""
 
-  ___ ___         __             _________                       __    
+  ___ ___         __             _________                       __
  /   |   \_____ _/  |_  ____     \_   ___ \____________    ____ |  | __
 /    ~    \__  \\   __\/ __ \    /    \  \/\_  __ \__  \ _/ ___\|  |/ /
-\    Y    // __ \|  | \  ___/    \     \____|  | \// __ \\  \___|    < 
+\    Y    // __ \|  | \  ___/    \     \____|  | \// __ \\  \___|    <
  \___|_  /(____  /__|  \___  >____\______  /|__|  (____  /\___  >__|_ \
        \/      \/          \/_____/      \/            \/     \/     \/
-                          Version 2.0
+                          Version """ + __version__ + """
   """)
 
 
@@ -882,20 +920,25 @@ def _write_field_sorted_unique(input_path, output_path, field_index, delimiter="
 
 
 def _run_hashcat_show(hash_type, hash_file, output_path):
+    result = subprocess.run(
+        [
+            hcatBin,
+            "--show",
+            # Use hashcat's built-in potfile unless configured otherwise.
+            *([f"--potfile-path={hcatPotfilePath}"] if hcatPotfilePath else []),
+            "-m",
+            str(hash_type),
+            hash_file,
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
     with open(output_path, "w") as out:
-        subprocess.run(
-            [
-                hcatBin,
-                "--show",
-                # Use hashcat's built-in potfile unless configured otherwise.
-                *([f"--potfile-path={hcatPotfilePath}"] if hcatPotfilePath else []),
-                "-m",
-                str(hash_type),
-                hash_file,
-            ],
-            stdout=out,
-            check=False,
-        )
+        for line in result.stdout.decode("utf-8", errors="ignore").splitlines():
+            # hashcat --show prints parse errors to stdout; skip non-result lines
+            if ":" in line and not line.startswith(("Hash parsing error", "* ")):
+                out.write(line + "\n")
 
 
 # Brute Force Attack
@@ -1446,6 +1489,245 @@ def hcatBandrel(hcatHashType, hcatHashFile):
             hcatProcess.kill()
 
 
+# Pull an Ollama model via the /api/pull streaming endpoint
+def _pull_ollama_model(url, model):
+    """Pull an Ollama model. Returns True on success, False on failure."""
+    print(f"Model '{model}' not found locally. Pulling from Ollama...")
+    pull_url = f"{url}/api/pull"
+    payload = json.dumps({"name": model, "stream": True}).encode("utf-8")
+    req = urllib.request.Request(
+        pull_url,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req) as resp:
+            for raw_line in resp:
+                line = raw_line.decode("utf-8", errors="replace").strip()
+                if not line:
+                    continue
+                try:
+                    data = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                status = data.get("status")
+                if status:
+                    print(f"  {status}")
+    except urllib.error.HTTPError as e:
+        print(f"Error pulling model: HTTP {e.code}")
+        return False
+    except urllib.error.URLError as e:
+        print(f"Error: Could not connect to Ollama: {e}")
+        return False
+    except Exception as e:
+        print(f"Error pulling model: {e}")
+        return False
+    print(f"Successfully pulled model '{model}'.")
+    return True
+
+
+# LLM Ollama Attack
+def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
+    global hcatProcess
+    candidates_path = f"{hcatHashFile}.ollama_candidates"
+
+    # Step A: Build LLM prompt based on mode
+    if mode == "wordlist":
+        wordlist_path = context_data
+        if not os.path.isfile(wordlist_path):
+            print(f"Error: Wordlist not found: {wordlist_path}")
+            return
+        lines = []
+        try:
+            with open(wordlist_path, "r", errors="ignore") as f:
+                for line in f:
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+                    # Use only content after the first colon (e.g. hash:password -> password)
+                    if ":" in stripped:
+                        stripped = stripped.split(":", 1)[1]
+                    if stripped:
+                        lines.append(stripped)
+        except Exception as e:
+            print(f"Error reading wordlist: {e}")
+            return
+        print(f"Loaded {len(lines)} passwords from wordlist.")
+        wordlist_sample = "\n".join(lines)
+        prompt = (
+            "Generate baseword to be used in a denylist for keeping users from setting their passwords with these basewords."
+            "Study the patterns, character choices, and structures. Focus on patterns like capitalization, leetspeak, suffixes, and common substitutions. Here are the sample passwords:\n" 
+            f"{wordlist_sample}"
+        )
+    elif mode == "target":
+        company = context_data.get("company", "")
+        industry = context_data.get("industry", "")
+        location = context_data.get("location", "")
+        prompt = (
+            "Generate baseword to be used in a denylist for keeping users from setting their passwords with these basewords. We are protecting the employees of "
+            f"{company} in the {industry} industry located in {location}.\n\n"
+            "Include variations with:\n"
+            "- Company name variations and abbreviations\n"
+            "- Common password patterns (Season+Year, Name+Numbers)\n"
+            "- Keyboard walks and common substitutions (@ for a, 3 for e, etc.)\n"
+            "- Location-based words and local references\n"
+            "- Industry-specific terminology\n"
+            "Output ONLY the passwords, one per line, no numbering or explanation."
+        )
+    else:
+        print(f"Error: Unknown LLM generation mode: {mode}")
+        return
+
+    # Step B: Call Ollama API to generate candidates
+    print(f"Generating password candidates via Ollama ({ollamaModel})...")
+    api_url = f"{ollamaUrl}/api/generate"
+    payload = json.dumps({
+        "model": ollamaModel,
+        "prompt": prompt,
+        "stream": False,
+        "options": {"num_ctx": ollamaNumCtx},
+    }).encode("utf-8")
+
+    if debug_mode:
+        print(f"[DEBUG] Ollama API URL: {api_url}")
+        print(f"[DEBUG] Ollama request payload: {payload.decode('utf-8')}")
+
+    try:
+        req = urllib.request.Request(
+            api_url,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=600) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+        if debug_mode:
+            print(f"[DEBUG] Ollama response: {json.dumps(result, indent=2)}")
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            if _pull_ollama_model(ollamaUrl, ollamaModel):
+                try:
+                    req = urllib.request.Request(
+                        api_url,
+                        data=payload,
+                        headers={"Content-Type": "application/json"},
+                    )
+                    with urllib.request.urlopen(req, timeout=600) as resp:
+                        result = json.loads(resp.read().decode("utf-8"))
+                    if debug_mode:
+                        print(f"[DEBUG] Ollama response (after pull): {json.dumps(result, indent=2)}")
+                except Exception as retry_err:
+                    print(f"Error calling Ollama API after pull: {retry_err}")
+                    return
+            else:
+                print(f"Could not pull model '{ollamaModel}'. Aborting LLM attack.")
+                return
+        else:
+            print(f"Error: Could not connect to Ollama at {ollamaUrl}: {e}")
+            print("Ensure Ollama is running (ollama serve) and try again.")
+            return
+    except urllib.error.URLError as e:
+        print(f"Error: Could not connect to Ollama at {ollamaUrl}: {e}")
+        print("Ensure Ollama is running (ollama serve) and try again.")
+        return
+    except Exception as e:
+        print(f"Error calling Ollama API: {e}")
+        return
+
+    response_text = result.get("response", "")
+    if "I'm sorry, but I can't help with that" in response_text:
+        print("Error: Ollama refused the request. Try a different model or adjust your prompt.")
+        return
+    raw_lines = response_text.strip().split("\n")
+    # Filter out blank lines and lines that look like numbering/explanation
+    candidates = []
+    for line in raw_lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        # Strip leading numbering like "1. " or "1) " or "- "
+        cleaned = re.sub(r"^\d+[.)]\s*", "", stripped)
+        cleaned = re.sub(r"^[-*]\s*", "", cleaned)
+        cleaned = cleaned.strip()
+        if cleaned and len(cleaned) <= 128:
+            candidates.append(cleaned)
+
+    if not candidates:
+        print("Error: Ollama returned no usable password candidates.")
+        return
+
+    try:
+        with open(candidates_path, "w") as f:
+            for candidate in candidates:
+                f.write(candidate + "\n")
+    except Exception as e:
+        print(f"Error writing candidates file: {e}")
+        return
+
+    print(f"Generated {len(candidates)} password candidates -> {candidates_path}")
+    if debug_mode:
+        filtered_count = len(raw_lines) - len(candidates)
+        print(f"[DEBUG] Filtered out {filtered_count} lines from Ollama response ({len(raw_lines)} raw -> {len(candidates)} candidates)")
+
+    # Step C: Run hashcat wordlist attack with LLM-generated candidates (no rules)
+    print("Running wordlist attack with LLM-generated candidates...")
+    cmd = [
+        hcatBin,
+        "-m",
+        hcatHashType,
+        hcatHashFile,
+        "--session",
+        generate_session_id(),
+        "-o",
+        f"{hcatHashFile}.out",
+        candidates_path,
+    ]
+    cmd.extend(shlex.split(hcatTuning))
+    _append_potfile_arg(cmd)
+    hcatProcess = subprocess.Popen(cmd)
+    try:
+        hcatProcess.wait()
+    except KeyboardInterrupt:
+        print("Killing PID {0}...".format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+        return
+
+    # Step D: Run hashcat with LLM candidates against every rule in the rules directory
+    rule_files = sorted(
+        f for f in os.listdir(rulesDirectory) if f != ".DS_Store"
+    )
+    if not rule_files:
+        print("No rule files found in rules directory. Skipping rule-based attacks.")
+        return
+
+    print(f"\nRunning LLM candidates with {len(rule_files)} rule file(s) from {rulesDirectory}...")
+    for rule in rule_files:
+        rule_path = os.path.join(rulesDirectory, rule)
+        print(f"\n\tRunning with rule: {rule}")
+        cmd = [
+            hcatBin,
+            "-m",
+            hcatHashType,
+            hcatHashFile,
+            "--session",
+            generate_session_id(),
+            "-o",
+            f"{hcatHashFile}.out",
+            "-r",
+            rule_path,
+            candidates_path,
+        ]
+        cmd.extend(shlex.split(hcatTuning))
+        _append_potfile_arg(cmd)
+        hcatProcess = subprocess.Popen(cmd)
+        try:
+            hcatProcess.wait()
+        except KeyboardInterrupt:
+            print("Killing PID {0}...".format(str(hcatProcess.pid)))
+            hcatProcess.kill()
+            return
+
+
+
 # Middle fast Combinator Attack
 def hcatMiddleCombinator(hcatHashType, hcatHashFile):
     global hcatProcess
@@ -1961,12 +2243,9 @@ def hashview_api():
             menu_options.append(("download_wordlist", "Download Wordlist"))
             menu_options.append(
                 (
-                    "download_left",
-                    "Download Left Hashes (with automatic merge if found)",
+                    "download_hashes",
+                    "Download Hashes (left + found to potfile)",
                 )
-            )
-            menu_options.append(
-                ("download_found", "Download Found Hashes (with automatic split)")
             )
             if hcatHashFile:
                 menu_options.append(
@@ -2364,7 +2643,7 @@ def hashview_api():
                 except Exception as e:
                     print(f"\n✗ Error uploading hashfile: {str(e)}")
 
-            elif option_key == "download_left":
+            elif option_key == "download_hashes":
                 # Download left hashes
                 try:
                     while True:
@@ -2533,157 +2812,6 @@ def hashview_api():
                 except Exception as e:
                     print(f"\n✗ Error downloading hashes: {str(e)}")
 
-            elif option_key == "download_found":
-                # Download found hashes
-                try:
-                    while True:
-                        # First, list customers to help user select
-                        customers_result = api_harness.list_customers()
-                        customers = (
-                            customers_result.get("customers", [])
-                            if isinstance(customers_result, dict)
-                            else customers_result
-                        )
-                        if customers:
-                            api_harness.display_customers_multicolumn(customers)
-                        else:
-                            print("\nNo customers found.")
-
-                        # Select or create customer
-                        customer_input = input(
-                            "\nEnter customer ID or N to create new: "
-                        ).strip()
-                        if customer_input.lower() == "n":
-                            customer_name = input("Enter customer name: ").strip()
-                            if customer_name:
-                                try:
-                                    result = api_harness.create_customer(customer_name)
-                                    print(
-                                        f"\n✓ Success: {result.get('msg', 'Customer created')}"
-                                    )
-                                    customer_id = result.get(
-                                        "customer_id"
-                                    ) or result.get("id")
-                                    if not customer_id:
-                                        print("\n✗ Error: Customer ID not returned.")
-                                        continue
-                                    print(f"  Customer ID: {customer_id}")
-                                except Exception as e:
-                                    print(f"\n✗ Error creating customer: {str(e)}")
-                                    continue
-                            else:
-                                print("\n✗ Error: Customer name cannot be empty.")
-                                continue
-                        else:
-                            try:
-                                customer_id = int(customer_input)
-                            except ValueError:
-                                print(
-                                    "\n✗ Error: Invalid ID entered. Please enter a numeric ID or N."
-                                )
-                                continue
-
-                        # List hashfiles for the customer
-                        try:
-                            customer_hashfiles = api_harness.get_customer_hashfiles(
-                                customer_id
-                            )
-
-                            if not customer_hashfiles:
-                                print(
-                                    f"\nNo hashfiles found for customer ID {customer_id}"
-                                )
-                                continue
-
-                            print("\n" + "=" * 120)
-                            print(f"Hashfiles for Customer ID {customer_id}:")
-                            print("=" * 120)
-                            print(f"{'ID':<10} {'Hash Type':<10} {'Name':<96}")
-                            print("-" * 120)
-                            hashfile_map = {}
-                            for hf in customer_hashfiles:
-                                hf_id = hf.get("id")
-                                hf_name = hf.get("name", "N/A")
-                                hf_type = (
-                                    hf.get("hash_type") or hf.get("hashtype") or "N/A"
-                                )
-                                if hf_id is None:
-                                    continue
-                                # Truncate long names to fit within 120 columns
-                                if len(str(hf_name)) > 96:
-                                    hf_name = str(hf_name)[:93] + "..."
-                                if debug_mode:
-                                    print(
-                                        f"[DEBUG] Hashfile {hf_id}: hash_type={hf.get('hash_type')}, hashtype={hf.get('hashtype')}, combined={hf_type}"
-                                    )
-                                print(f"{hf_id:<10} {hf_type:<10} {hf_name:<96}")
-                                hashfile_map[int(hf_id)] = hf_type
-                            print("=" * 120)
-                            print(f"Total: {len(hashfile_map)} hashfile(s)")
-                        except Exception as e:
-                            print(f"\nWarning: Could not list hashfiles: {e}")
-                            continue
-
-                        while True:
-                            try:
-                                hashfile_id_input = input(
-                                    "\nEnter hashfile ID: "
-                                ).strip()
-                                hashfile_id = int(hashfile_id_input)
-                            except ValueError:
-                                print(
-                                    "\n✗ Error: Invalid ID entered. Please enter a numeric ID."
-                                )
-                                continue
-                            if hashfile_id not in hashfile_map:
-                                print(
-                                    "\n✗ Error: Hashfile ID not in the list. Please try again."
-                                )
-                                continue
-                            break
-                        break
-
-                    # Set output filename automatically
-                    output_file = f"found_{customer_id}_{hashfile_id}.txt"
-
-                    # Get hash type for hashcat from the hashfile map
-                    selected_hash_type = hashfile_map.get(hashfile_id)
-                    if debug_mode:
-                        print(
-                            f"[DEBUG] selected_hash_type from map: {selected_hash_type}"
-                        )
-                    if not selected_hash_type or selected_hash_type == "N/A":
-                        try:
-                            details = api_harness.get_hashfile_details(hashfile_id)
-                            selected_hash_type = details.get("hashtype")
-                            if debug_mode:
-                                print(
-                                    f"[DEBUG] selected_hash_type from get_hashfile_details: {selected_hash_type}"
-                                )
-                        except Exception as e:
-                            if debug_mode:
-                                print(f"[DEBUG] Error fetching hashfile details: {e}")
-                            selected_hash_type = None
-
-                    # Download the found hashes
-                    if debug_mode:
-                        print(
-                            f"[DEBUG] Calling download_found_hashes with hash_type={selected_hash_type}"
-                        )
-                    download_result = api_harness.download_found_hashes(
-                        customer_id, hashfile_id, output_file
-                    )
-                    print(f"\n✓ Success: Downloaded {download_result['size']} bytes")
-                    print(f"  File: {download_result['output_file']}")
-                    if selected_hash_type:
-                        print(f"  Hash mode: {selected_hash_type}")
-                    print("\nFound hashes downloaded successfully. These are already cracked hashes.")
-
-                except ValueError:
-                    print("\n✗ Error: Invalid ID entered. Please enter a numeric ID.")
-                except Exception as e:
-                    print(f"\n✗ Error downloading found hashes: {str(e)}")
-
             elif option_key == "back":
                 break
 
@@ -2754,6 +2882,10 @@ def bandrel_method():
 
 def loopback_attack():
     return _attacks.loopback_attack(_attack_ctx())
+
+
+def ollama_attack():
+    return _attacks.ollama_attack(_attack_ctx())
 
 
 # convert hex words for recycling
@@ -2983,6 +3115,7 @@ def get_main_menu_options():
         "12": thorough_combinator,
         "13": bandrel_method,
         "14": loopback_attack,
+        "15": ollama_attack,
         "90": download_hashmob_rules,
         "91": analyze_rules,
         "92": download_hashmob_wordlists,
@@ -3124,8 +3257,8 @@ def main():
         )
 
         hv_download_left = hashview_subparsers.add_parser(
-            "download-left",
-            help="Download left hashes for a hashfile",
+            "download-hashes",
+            help="Download left hashes and append found hashes to potfile",
         )
         hv_download_left.add_argument(
             "--customer-id", required=True, type=int, help="Customer ID"
@@ -3137,17 +3270,6 @@ def main():
             "--hash-type",
             default=None,
             help="Hash type for hashcat (e.g., 1000 for NTLM)",
-        )
-
-        hv_download_found = hashview_subparsers.add_parser(
-            "download-found",
-            help="Download found hashes for a hashfile",
-        )
-        hv_download_found.add_argument(
-            "--customer-id", required=True, type=int, help="Customer ID"
-        )
-        hv_download_found.add_argument(
-            "--hashfile-id", required=True, type=int, help="Hashfile ID"
         )
 
         hv_upload_hashfile_job = hashview_subparsers.add_parser(
@@ -3190,8 +3312,7 @@ def main():
     hashview_subcommands = [
         "upload-cracked",
         "upload-wordlist",
-        "download-left",
-        "download-found",
+        "download-hashes",
         "upload-hashfile-job",
     ]
     has_hashview_flag = "--hashview" in argv
@@ -3315,20 +3436,11 @@ def main():
                 print(f"  Wordlist ID: {result['wordlist_id']}")
             sys.exit(0)
 
-        if args.hashview_command == "download-left":
+        if args.hashview_command == "download-hashes":
             download_result = api_harness.download_left_hashes(
                 args.customer_id,
                 args.hashfile_id,
                 hash_type=args.hash_type,
-            )
-            print(f"\n✓ Success: Downloaded {download_result['size']} bytes")
-            print(f"  File: {download_result['output_file']}")
-            sys.exit(0)
-
-        if args.hashview_command == "download-found":
-            download_result = api_harness.download_found_hashes(
-                args.customer_id,
-                args.hashfile_id,
             )
             print(f"\n✓ Success: Downloaded {download_result['size']} bytes")
             print(f"  File: {download_result['output_file']}")
@@ -3563,6 +3675,7 @@ def main():
             print("\t(12) Thorough Combinator Attack")
             print("\t(13) Bandrel Methodology")
             print("\t(14) Loopback Attack")
+            print("\t(15) LLM Attack")
             print("\n\t(90) Download rules from Hashmob.net")
             print("\n\t(91) Analyze Hashcat Rules")
             print("\t(92) Download wordlists from Hashmob.net")

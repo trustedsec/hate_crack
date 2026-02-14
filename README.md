@@ -69,8 +69,6 @@ These are required for certain download/extraction flows:
 
 Manual install commands:
 
-Manual install commands:
-
 Ubuntu/Kali:
 ```bash
 sudo apt-get update
@@ -198,6 +196,12 @@ Install OS dependencies + tool (auto-detects macOS vs Debian/Ubuntu):
 make install
 ```
 
+Rebuild submodules and reinstall the tool (quick update after pulling changes):
+
+```bash
+make update
+```
+
 Reinstall the Python tool in-place (keeps OS deps as-is):
 
 ```bash
@@ -236,7 +240,7 @@ make test
 Install the project with optional dev dependencies (includes type stubs, linters, and testing tools):
 
 ```bash
-pip install -e ".[dev]"
+make dev-install
 ```
 
 ### Continuous Integration
@@ -309,7 +313,8 @@ Create `.git/hooks/pre-push` to automatically run checks before pushing:
 #!/bin/bash
 set -e
 .venv/bin/ruff check hate_crack
-.venv/bin/mypy hate_crack
+.venv/bin/mypy --exclude HashcatRosetta --exclude hashcat-utils --ignore-missing-imports hate_crack
+HATE_CRACK_SKIP_INIT=1 HATE_CRACK_RUN_E2E=0 HATE_CRACK_RUN_DOCKER_TESTS=0 HATE_CRACK_RUN_LIVE_TESTS=0 .venv/bin/python -m pytest
 echo "✓ Local checks passed!"
 ```
 
@@ -408,6 +413,21 @@ Set Hashview credentials in `config.json`:
 }
 ```
 
+#### Ollama Configuration
+
+The LLM Attack (option 15) uses Ollama to generate password candidates. Configure the model and context window in `config.json`:
+
+```json
+{
+  "ollamaModel": "qwen2.5",
+  "ollamaNumCtx": 8192
+}
+```
+
+- **`ollamaModel`** — The Ollama model to use for candidate generation (default: `qwen2.5`).
+- **`ollamaNumCtx`** — Context window size for the model (default: `8192`).
+- The Ollama URL defaults to `http://localhost:11434`. Ensure Ollama is running before using the LLM Attack.
+
 #### Automatic Found Hash Merging (Download Left Only)
 
 When downloading left hashes (uncracked hashes), hate_crack automatically:
@@ -443,8 +463,9 @@ $ ./hate_crack.py <hash file> 1000
  \___|_  /(____  /__|  \___  >____\______  /|__|  (____  /\___  >__|_ \
        \/      \/          \/_____/      \/            \/     \/     \/
                           Version 2.0
-  
+```
 
+-------------------------------------------------------------------
 ## Testing
 
 The test suite is mostly offline and uses mocks/fixtures. Live network checks and
@@ -509,7 +530,7 @@ All tests use mocked API calls, so they can run without connectivity to a Hashvi
 
 ### Continuous Integration
 
-Tests automatically run on GitHub Actions for every push and pull request (Ubuntu, Python 3.13).
+Tests automatically run on GitHub Actions for every push and pull request (Ubuntu, Python 3.9 through 3.14).
 
 -------------------------------------------------------------------
 
@@ -527,6 +548,7 @@ Tests automatically run on GitHub Actions for every push and pull request (Ubunt
   (12) Thorough Combinator Attack
   (13) Bandrel Methodology
   (14) Loopback Attack
+  (15) LLM Attack
 
   (90) Download rules from Hashmob.net
   (91) Analyze Hashcat Rules
@@ -655,6 +677,13 @@ Uses hashcat's loopback mode to feed cracked passwords from the current session 
 * Uses an empty wordlist with the --loopback flag to process previously cracked passwords
 * Automatically downloads Hashmob rules if no rules are available locally
 
+#### LLM Attack
+Uses a local Ollama instance to generate password candidates based on target company information. Prompts for company name, industry, and location, then sends these details to the configured LLM model to produce likely password guesses. The generated candidates are fed into a hashcat wordlist+rules attack.
+
+* Requires a running Ollama instance (default: `http://localhost:11434`)
+* Configurable model and context window via `config.json` (see Ollama Configuration below)
+* Prompts for target company name, industry, and location
+
 #### Download Rules from Hashmob.net
 Downloads the latest rule files from Hashmob.net's rule repository. These rules are curated and optimized for password cracking and can be used with the Quick Crack and Loopback Attack modes.
 
@@ -687,6 +716,12 @@ Interactive menu for downloading and managing wordlists from Weakpass.com via Bi
   
 -------------------------------------------------------------------
 ### Version History
+Version 2.0+
+  Added LLM Attack (option 15) using Ollama for AI-generated password candidates
+  Added Ollama configuration keys (ollamaModel, ollamaNumCtx)
+  Auto-versioning via setuptools-scm from git tags
+  CI test fixes across Python 3.9–3.14
+
 Version 2.0
   Modularized codebase into CLI/API/attacks modules
   Unified CLI options with config overrides (hashview, hashcat, wordlists, pipal)
