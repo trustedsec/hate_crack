@@ -462,7 +462,7 @@ except KeyError as e:
             e
         )
     )
-    ollamaModel = default_config.get("ollamaModel", "llama3.2")
+    ollamaModel = default_config.get("ollamaModel", "qwen2.5")
 try:
     ollamaNumCtx = int(config_parser["ollamaNumCtx"])
 except KeyError as e:
@@ -471,7 +471,7 @@ except KeyError as e:
             e
         )
     )
-    ollamaNumCtx = int(default_config.get("ollamaNumCtx", 32768))
+    ollamaNumCtx = int(default_config.get("ollamaNumCtx", 8192))
 
 hcatExpanderBin = "expander.bin"
 hcatCombinatorBin = "combinator.bin"
