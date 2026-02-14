@@ -678,7 +678,7 @@ Uses hashcat's loopback mode to feed cracked passwords from the current session 
 * Automatically downloads Hashmob rules if no rules are available locally
 
 #### LLM Attack
-Uses a local Ollama instance to generate password candidates based on target company information. Prompts for company name, industry, and location, then sends these details to the configured LLM model to produce likely password guesses. The generated candidates are fed into a hashcat wordlist+rules attack.
+Uses a local Ollama instance to generate password candidates for a capture-the-flag scenario. Prompts for the fake company name, industry, and location, then sends these details to the configured LLM model to produce likely password candidates using industry terms and company name permutations. The generated candidates are fed into a hashcat wordlist+rules attack.
 
 * Requires a running Ollama instance (default: `http://localhost:11434`)
 * Configurable model and context window via `config.json` (see Ollama Configuration below)
