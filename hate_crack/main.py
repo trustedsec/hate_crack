@@ -9,7 +9,6 @@
 import sys
 import os
 import json
-import lzma
 import shutil
 import logging
 import binascii
@@ -454,15 +453,7 @@ except KeyError as e:
         default_config.get("hcatDebugLogPath", "./hashcat_debug")
     )
 
-try:
-    ollamaUrl = config_parser["ollamaUrl"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    ollamaUrl = default_config.get("ollamaUrl", "http://localhost:11434")
+ollamaUrl = "http://" + os.environ.get("OLLAMA_HOST", "localhost:11434")
 try:
     ollamaModel = config_parser["ollamaModel"]
 except KeyError as e:
@@ -473,23 +464,23 @@ except KeyError as e:
     )
     ollamaModel = default_config.get("ollamaModel", "llama3.2")
 try:
-    markovCandidateCount = int(config_parser["markovCandidateCount"])
+    ollamaCandidateCount = int(config_parser["ollamaCandidateCount"])
 except KeyError as e:
     print(
         "{0} is not defined in config.json using defaults from config.json.example".format(
             e
         )
     )
-    markovCandidateCount = int(default_config.get("markovCandidateCount", 5000))
+    ollamaCandidateCount = int(default_config.get("ollamaCandidateCount", 5000))
 try:
-    markovWordlist = config_parser["markovWordlist"]
+    ollamaWordlist = config_parser["ollamaWordlist"]
 except KeyError as e:
     print(
         "{0} is not defined in config.json using defaults from config.json.example".format(
             e
         )
     )
-    markovWordlist = default_config.get("markovWordlist", "rockyou.txt")
+    ollamaWordlist = default_config.get("ollamaWordlist", "rockyou.txt")
 
 hcatExpanderBin = "expander.bin"
 hcatCombinatorBin = "combinator.bin"
@@ -629,7 +620,7 @@ hcatGoodMeasureBaseList = _normalize_wordlist_setting(
     hcatGoodMeasureBaseList, wordlists_dir
 )
 hcatPrinceBaseList = _normalize_wordlist_setting(hcatPrinceBaseList, wordlists_dir)
-markovWordlist = _normalize_wordlist_setting(markovWordlist, wordlists_dir)
+ollamaWordlist = _normalize_wordlist_setting(ollamaWordlist, wordlists_dir)
 
 if not SKIP_INIT:
     # Verify hashcat binary is available
@@ -695,7 +686,7 @@ if not SKIP_INIT:
         except SystemExit:
             print("PRINCE attacks will not be available.")
 
-        # Verify hcstat2gen binary (optional, for Markov attacks)
+        # Verify hcstat2gen binary (optional, for LLM attacks)
         # Note: hcstat2gen is part of hashcat-utils, already in hate_crack repo
         hcstat2gen_path = (
             hate_path + "/hashcat-utils/bin/" + hcatHcstat2genBin
@@ -707,7 +698,7 @@ if not SKIP_INIT:
                 name="hcstat2gen",
             )
         except SystemExit:
-            print("LLM Markov attacks will not be available.")
+            print("LLM attacks will not be available.")
 
     except Exception as e:
         print(f"Module initialization error: {e}")
@@ -938,20 +929,25 @@ def _write_field_sorted_unique(input_path, output_path, field_index, delimiter="
 
 
 def _run_hashcat_show(hash_type, hash_file, output_path):
+    result = subprocess.run(
+        [
+            hcatBin,
+            "--show",
+            # Use hashcat's built-in potfile unless configured otherwise.
+            *([f"--potfile-path={hcatPotfilePath}"] if hcatPotfilePath else []),
+            "-m",
+            str(hash_type),
+            hash_file,
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
     with open(output_path, "w") as out:
-        subprocess.run(
-            [
-                hcatBin,
-                "--show",
-                # Use hashcat's built-in potfile unless configured otherwise.
-                *([f"--potfile-path={hcatPotfilePath}"] if hcatPotfilePath else []),
-                "-m",
-                str(hash_type),
-                hash_file,
-            ],
-            stdout=out,
-            check=False,
-        )
+        for line in result.stdout.decode("utf-8", errors="ignore").splitlines():
+            # hashcat --show prints parse errors to stdout; skip non-result lines
+            if ":" in line and not line.startswith(("Hash parsing error", "* ")):
+                out.write(line + "\n")
 
 
 # Brute Force Attack
@@ -1539,22 +1535,10 @@ def _pull_ollama_model(url, model):
     return True
 
 
-# LLM Markov Attack
-def hcatMarkov(hcatHashType, hcatHashFile, mode, context_data, candidate_count):
+# LLM Ollama Attack
+def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
     global hcatProcess
-    candidates_path = f"{hcatHashFile}.markov_candidates"
-    hcstat2_raw_path = f"{hcatHashFile}.hcstat2_raw"
-    hcstat2_path = f"{hcatHashFile}.hcstat2"
-    hcstat2gen_path = os.path.join(
-        hate_path, "hashcat-utils", "bin", hcatHcstat2genBin
-    )
-
-    if not os.path.isfile(hcstat2gen_path):
-        print(
-            f"Error: hcstat2gen not found at {hcstat2gen_path}. "
-            "LLM Markov attacks are not available."
-        )
-        return
+    candidates_path = f"{hcatHashFile}.ollama_candidates"
 
     # Step A: Build LLM prompt based on mode
     if mode == "wordlist":
@@ -1577,19 +1561,18 @@ def hcatMarkov(hcatHashType, hcatHashFile, mode, context_data, candidate_count):
         wordlist_sample = "\n".join(sample_lines)
         prompt = (
             "You are a password generation expert. Below is a sample of real passwords. "
-            "Study the patterns, character choices, and structures. Generate exactly "
-            f"{candidate_count} new unique passwords that follow similar patterns but "
-            "are NOT copies of the input. Output ONLY passwords, one per line, no "
-            "numbering or explanation.\n\n"
-            f"Sample passwords:\n{wordlist_sample}"
+            "Study the patterns, character choices, and structures. Then generate hashcat rules" \
+            " that could transform common base words into similar passwords. Focus on patterns like " \
+            "capitalization, leetspeak, suffixes, and common substitutions. Here are the sample passwords:\n" \
+            f"{wordlist_sample}"
         )
     elif mode == "target":
         company = context_data.get("company", "")
         industry = context_data.get("industry", "")
         location = context_data.get("location", "")
         prompt = (
-            f"Generate exactly {candidate_count} realistic passwords that employees at "
-            f"{company} in the {industry} industry located in {location} might use. "
+            "Generate baseword to be used in a denylist for keeping users from setting their passwords with these basewords. We are protecting the employees of "
+            f"{company} in the {industry} industry located in {location}.\n\n"
             "Include variations with:\n"
             "- Company name variations and abbreviations\n"
             "- Common password patterns (Season+Year, Name+Numbers)\n"
@@ -1599,11 +1582,11 @@ def hcatMarkov(hcatHashType, hcatHashFile, mode, context_data, candidate_count):
             "Output ONLY the passwords, one per line, no numbering or explanation."
         )
     else:
-        print(f"Error: Unknown Markov generation mode: {mode}")
+        print(f"Error: Unknown LLM generation mode: {mode}")
         return
 
     # Step B: Call Ollama API to generate candidates
-    print(f"Generating {candidate_count} password candidates via Ollama ({ollamaModel})...")
+    print(f"Generating password candidates via Ollama ({ollamaModel})...")
     api_url = f"{ollamaUrl}/api/generate"
     payload = json.dumps({
         "model": ollamaModel,
@@ -1642,7 +1625,7 @@ def hcatMarkov(hcatHashType, hcatHashFile, mode, context_data, candidate_count):
                     print(f"Error calling Ollama API after pull: {retry_err}")
                     return
             else:
-                print(f"Could not pull model '{ollamaModel}'. Aborting Markov attack.")
+                print(f"Could not pull model '{ollamaModel}'. Aborting LLM attack.")
                 return
         else:
             print(f"Error: Could not connect to Ollama at {ollamaUrl}: {e}")
@@ -1688,48 +1671,8 @@ def hcatMarkov(hcatHashType, hcatHashFile, mode, context_data, candidate_count):
         filtered_count = len(raw_lines) - len(candidates)
         print(f"[DEBUG] Filtered out {filtered_count} lines from Ollama response ({len(raw_lines)} raw -> {len(candidates)} candidates)")
 
-    # Step C: Run hcstat2gen to build Markov stats
-    print("Building Markov statistics with hcstat2gen...")
-    try:
-        with open(candidates_path, "rb") as candidates_file:
-            hcatProcess = subprocess.Popen(
-                [hcstat2gen_path, hcstat2_raw_path],
-                stdin=candidates_file,
-            )
-            try:
-                hcatProcess.wait()
-            except KeyboardInterrupt:
-                print("Killing PID {0}...".format(str(hcatProcess.pid)))
-                hcatProcess.kill()
-                return
-    except Exception as e:
-        print(f"Error running hcstat2gen: {e}")
-        return
-
-    if not os.path.isfile(hcstat2_raw_path):
-        print("Error: hcstat2gen did not produce output file.")
-        return
-
-    # Step D: LZMA compress the raw hcstat2 file
-    print("Compressing hcstat2 file with LZMA...")
-    try:
-        with open(hcstat2_raw_path, "rb") as raw_file:
-            raw_data = raw_file.read()
-        compressed = lzma.compress(
-            raw_data,
-            format=lzma.FORMAT_RAW,
-            filters=[{"id": lzma.FILTER_LZMA1}],
-        )
-        with open(hcstat2_path, "wb") as out_file:
-            out_file.write(compressed)
-    except Exception as e:
-        print(f"Error compressing hcstat2 file: {e}")
-        return
-
-    print(f"Markov statistics file created -> {hcstat2_path}")
-
-    # Step E: Run hashcat mask attack with custom Markov stats
-    print("Running Markov-enhanced mask attack...")
+    # Step C: Run hashcat wordlist attack with LLM-generated candidates (no rules)
+    print("Running wordlist attack with LLM-generated candidates...")
     cmd = [
         hcatBin,
         "-m",
@@ -1739,13 +1682,7 @@ def hcatMarkov(hcatHashType, hcatHashFile, mode, context_data, candidate_count):
         generate_session_id(),
         "-o",
         f"{hcatHashFile}.out",
-        "-a",
-        "3",
-        f"--markov-hcstat2={hcstat2_path}",
-        "--increment",
-        "--increment-min=1",
-        "--increment-max=14",
-        "?a?a?a?a?a?a?a?a?a?a?a?a?a?a",
+        candidates_path,
     ]
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
@@ -1755,14 +1692,43 @@ def hcatMarkov(hcatHashType, hcatHashFile, mode, context_data, candidate_count):
     except KeyboardInterrupt:
         print("Killing PID {0}...".format(str(hcatProcess.pid)))
         hcatProcess.kill()
+        return
 
-    # Step F: Cleanup temp files
-    for temp_file in [candidates_path, hcstat2_raw_path]:
+    # Step D: Run hashcat with LLM candidates against every rule in the rules directory
+    rule_files = sorted(
+        f for f in os.listdir(rulesDirectory) if f != ".DS_Store"
+    )
+    if not rule_files:
+        print("No rule files found in rules directory. Skipping rule-based attacks.")
+        return
+
+    print(f"\nRunning LLM candidates with {len(rule_files)} rule file(s) from {rulesDirectory}...")
+    for rule in rule_files:
+        rule_path = os.path.join(rulesDirectory, rule)
+        print(f"\n\tRunning with rule: {rule}")
+        cmd = [
+            hcatBin,
+            "-m",
+            hcatHashType,
+            hcatHashFile,
+            "--session",
+            generate_session_id(),
+            "-o",
+            f"{hcatHashFile}.out",
+            "-r",
+            rule_path,
+            candidates_path,
+        ]
+        cmd.extend(shlex.split(hcatTuning))
+        _append_potfile_arg(cmd)
+        hcatProcess = subprocess.Popen(cmd)
         try:
-            if os.path.isfile(temp_file):
-                os.remove(temp_file)
-        except Exception:
-            pass
+            hcatProcess.wait()
+        except KeyboardInterrupt:
+            print("Killing PID {0}...".format(str(hcatProcess.pid)))
+            hcatProcess.kill()
+            return
+
 
 
 # Middle fast Combinator Attack
@@ -2280,12 +2246,9 @@ def hashview_api():
             menu_options.append(("download_wordlist", "Download Wordlist"))
             menu_options.append(
                 (
-                    "download_left",
-                    "Download Left Hashes (with automatic merge if found)",
+                    "download_hashes",
+                    "Download Hashes (left + found to potfile)",
                 )
-            )
-            menu_options.append(
-                ("download_found", "Download Found Hashes (with automatic split)")
             )
             if hcatHashFile:
                 menu_options.append(
@@ -2683,7 +2646,7 @@ def hashview_api():
                 except Exception as e:
                     print(f"\n✗ Error uploading hashfile: {str(e)}")
 
-            elif option_key == "download_left":
+            elif option_key == "download_hashes":
                 # Download left hashes
                 try:
                     while True:
@@ -2852,157 +2815,6 @@ def hashview_api():
                 except Exception as e:
                     print(f"\n✗ Error downloading hashes: {str(e)}")
 
-            elif option_key == "download_found":
-                # Download found hashes
-                try:
-                    while True:
-                        # First, list customers to help user select
-                        customers_result = api_harness.list_customers()
-                        customers = (
-                            customers_result.get("customers", [])
-                            if isinstance(customers_result, dict)
-                            else customers_result
-                        )
-                        if customers:
-                            api_harness.display_customers_multicolumn(customers)
-                        else:
-                            print("\nNo customers found.")
-
-                        # Select or create customer
-                        customer_input = input(
-                            "\nEnter customer ID or N to create new: "
-                        ).strip()
-                        if customer_input.lower() == "n":
-                            customer_name = input("Enter customer name: ").strip()
-                            if customer_name:
-                                try:
-                                    result = api_harness.create_customer(customer_name)
-                                    print(
-                                        f"\n✓ Success: {result.get('msg', 'Customer created')}"
-                                    )
-                                    customer_id = result.get(
-                                        "customer_id"
-                                    ) or result.get("id")
-                                    if not customer_id:
-                                        print("\n✗ Error: Customer ID not returned.")
-                                        continue
-                                    print(f"  Customer ID: {customer_id}")
-                                except Exception as e:
-                                    print(f"\n✗ Error creating customer: {str(e)}")
-                                    continue
-                            else:
-                                print("\n✗ Error: Customer name cannot be empty.")
-                                continue
-                        else:
-                            try:
-                                customer_id = int(customer_input)
-                            except ValueError:
-                                print(
-                                    "\n✗ Error: Invalid ID entered. Please enter a numeric ID or N."
-                                )
-                                continue
-
-                        # List hashfiles for the customer
-                        try:
-                            customer_hashfiles = api_harness.get_customer_hashfiles(
-                                customer_id
-                            )
-
-                            if not customer_hashfiles:
-                                print(
-                                    f"\nNo hashfiles found for customer ID {customer_id}"
-                                )
-                                continue
-
-                            print("\n" + "=" * 120)
-                            print(f"Hashfiles for Customer ID {customer_id}:")
-                            print("=" * 120)
-                            print(f"{'ID':<10} {'Hash Type':<10} {'Name':<96}")
-                            print("-" * 120)
-                            hashfile_map = {}
-                            for hf in customer_hashfiles:
-                                hf_id = hf.get("id")
-                                hf_name = hf.get("name", "N/A")
-                                hf_type = (
-                                    hf.get("hash_type") or hf.get("hashtype") or "N/A"
-                                )
-                                if hf_id is None:
-                                    continue
-                                # Truncate long names to fit within 120 columns
-                                if len(str(hf_name)) > 96:
-                                    hf_name = str(hf_name)[:93] + "..."
-                                if debug_mode:
-                                    print(
-                                        f"[DEBUG] Hashfile {hf_id}: hash_type={hf.get('hash_type')}, hashtype={hf.get('hashtype')}, combined={hf_type}"
-                                    )
-                                print(f"{hf_id:<10} {hf_type:<10} {hf_name:<96}")
-                                hashfile_map[int(hf_id)] = hf_type
-                            print("=" * 120)
-                            print(f"Total: {len(hashfile_map)} hashfile(s)")
-                        except Exception as e:
-                            print(f"\nWarning: Could not list hashfiles: {e}")
-                            continue
-
-                        while True:
-                            try:
-                                hashfile_id_input = input(
-                                    "\nEnter hashfile ID: "
-                                ).strip()
-                                hashfile_id = int(hashfile_id_input)
-                            except ValueError:
-                                print(
-                                    "\n✗ Error: Invalid ID entered. Please enter a numeric ID."
-                                )
-                                continue
-                            if hashfile_id not in hashfile_map:
-                                print(
-                                    "\n✗ Error: Hashfile ID not in the list. Please try again."
-                                )
-                                continue
-                            break
-                        break
-
-                    # Set output filename automatically
-                    output_file = f"found_{customer_id}_{hashfile_id}.txt"
-
-                    # Get hash type for hashcat from the hashfile map
-                    selected_hash_type = hashfile_map.get(hashfile_id)
-                    if debug_mode:
-                        print(
-                            f"[DEBUG] selected_hash_type from map: {selected_hash_type}"
-                        )
-                    if not selected_hash_type or selected_hash_type == "N/A":
-                        try:
-                            details = api_harness.get_hashfile_details(hashfile_id)
-                            selected_hash_type = details.get("hashtype")
-                            if debug_mode:
-                                print(
-                                    f"[DEBUG] selected_hash_type from get_hashfile_details: {selected_hash_type}"
-                                )
-                        except Exception as e:
-                            if debug_mode:
-                                print(f"[DEBUG] Error fetching hashfile details: {e}")
-                            selected_hash_type = None
-
-                    # Download the found hashes
-                    if debug_mode:
-                        print(
-                            f"[DEBUG] Calling download_found_hashes with hash_type={selected_hash_type}"
-                        )
-                    download_result = api_harness.download_found_hashes(
-                        customer_id, hashfile_id, output_file
-                    )
-                    print(f"\n✓ Success: Downloaded {download_result['size']} bytes")
-                    print(f"  File: {download_result['output_file']}")
-                    if selected_hash_type:
-                        print(f"  Hash mode: {selected_hash_type}")
-                    print("\nFound hashes downloaded successfully. These are already cracked hashes.")
-
-                except ValueError:
-                    print("\n✗ Error: Invalid ID entered. Please enter a numeric ID.")
-                except Exception as e:
-                    print(f"\n✗ Error downloading found hashes: {str(e)}")
-
             elif option_key == "back":
                 break
 
@@ -3075,8 +2887,8 @@ def loopback_attack():
     return _attacks.loopback_attack(_attack_ctx())
 
 
-def markov_attack():
-    return _attacks.markov_attack(_attack_ctx())
+def ollama_attack():
+    return _attacks.ollama_attack(_attack_ctx())
 
 
 # convert hex words for recycling
@@ -3306,7 +3118,7 @@ def get_main_menu_options():
         "12": thorough_combinator,
         "13": bandrel_method,
         "14": loopback_attack,
-        "15": markov_attack,
+        "15": ollama_attack,
         "90": download_hashmob_rules,
         "91": analyze_rules,
         "92": download_hashmob_wordlists,
@@ -3448,8 +3260,8 @@ def main():
         )
 
         hv_download_left = hashview_subparsers.add_parser(
-            "download-left",
-            help="Download left hashes for a hashfile",
+            "download-hashes",
+            help="Download left hashes and append found hashes to potfile",
         )
         hv_download_left.add_argument(
             "--customer-id", required=True, type=int, help="Customer ID"
@@ -3461,17 +3273,6 @@ def main():
             "--hash-type",
             default=None,
             help="Hash type for hashcat (e.g., 1000 for NTLM)",
-        )
-
-        hv_download_found = hashview_subparsers.add_parser(
-            "download-found",
-            help="Download found hashes for a hashfile",
-        )
-        hv_download_found.add_argument(
-            "--customer-id", required=True, type=int, help="Customer ID"
-        )
-        hv_download_found.add_argument(
-            "--hashfile-id", required=True, type=int, help="Hashfile ID"
         )
 
         hv_upload_hashfile_job = hashview_subparsers.add_parser(
@@ -3514,8 +3315,7 @@ def main():
     hashview_subcommands = [
         "upload-cracked",
         "upload-wordlist",
-        "download-left",
-        "download-found",
+        "download-hashes",
         "upload-hashfile-job",
     ]
     has_hashview_flag = "--hashview" in argv
@@ -3639,20 +3439,11 @@ def main():
                 print(f"  Wordlist ID: {result['wordlist_id']}")
             sys.exit(0)
 
-        if args.hashview_command == "download-left":
+        if args.hashview_command == "download-hashes":
             download_result = api_harness.download_left_hashes(
                 args.customer_id,
                 args.hashfile_id,
                 hash_type=args.hash_type,
-            )
-            print(f"\n✓ Success: Downloaded {download_result['size']} bytes")
-            print(f"  File: {download_result['output_file']}")
-            sys.exit(0)
-
-        if args.hashview_command == "download-found":
-            download_result = api_harness.download_found_hashes(
-                args.customer_id,
-                args.hashfile_id,
             )
             print(f"\n✓ Success: Downloaded {download_result['size']} bytes")
             print(f"  File: {download_result['output_file']}")
@@ -3887,7 +3678,7 @@ def main():
             print("\t(12) Thorough Combinator Attack")
             print("\t(13) Bandrel Methodology")
             print("\t(14) Loopback Attack")
-            print("\t(15) LLM Markov Attack")
+            print("\t(15) LLM Attack")
             print("\n\t(90) Download rules from Hashmob.net")
             print("\n\t(91) Analyze Hashcat Rules")
             print("\t(92) Download wordlists from Hashmob.net")
