@@ -325,8 +325,8 @@ class TestHcatOllamaModeRouting:
         assert "Wordlist not found" in captured.out
         mock_url.assert_not_called()
 
-    def test_wordlist_mode_reads_up_to_500_lines(self, ollama_env, capsys):
-        """Only the first 500 non-blank lines should appear in the prompt payload."""
+    def test_wordlist_mode_reads_all_lines(self, ollama_env, capsys):
+        """All non-blank lines from the wordlist should appear in the prompt."""
         # Write 600 lines to the wordlist
         big_wordlist = ollama_env.tmp_path / "big.txt"
         big_wordlist.write_text("\n".join(f"pass{i}" for i in range(600)) + "\n")
@@ -347,9 +347,10 @@ class TestHcatOllamaModeRouting:
             )
 
         prompt_text = captured_payload["data"]["prompt"]
-        # Should contain pass0 through pass499 but NOT pass500+
+        # All lines should be included in the prompt
+        assert "pass0" in prompt_text
         assert "pass499" in prompt_text
-        assert "pass500" not in prompt_text
+        assert "pass599" in prompt_text
 
     def test_target_mode_includes_context_in_prompt(self, ollama_env, capsys):
         """Company, industry, and location should appear in the prompt."""
@@ -658,41 +659,12 @@ class TestOllamaAttackHandler:
             setattr(ctx, k, v)
         return ctx
 
-    def test_wordlist_mode_uses_cracked_output(self, tmp_path):
-        """Wordlist mode uses the cracked hashes .out file."""
-        from hate_crack.attacks import ollama_attack
-
-        hash_file = str(tmp_path / "hashes.txt")
-        cracked_out = hash_file + ".out"
-        with open(cracked_out, "w") as f:
-            f.write("Password1\nSummer2024\n")
-
-        ctx = self._make_ctx(hcatHashFile=hash_file)
-        with mock.patch("builtins.input", side_effect=["1"]):
-            ollama_attack(ctx)
-
-        ctx.hcatOllama.assert_called_once_with(
-            "0", hash_file, "wordlist", cracked_out,
-        )
-
-    def test_wordlist_mode_errors_without_cracked_output(self, capsys):
-        """When cracked output does not exist, error out."""
-        from hate_crack.attacks import ollama_attack
-
-        ctx = self._make_ctx(hcatHashFile="/tmp/nonexistent_hashes.txt")
-        with mock.patch("builtins.input", side_effect=["1"]):
-            ollama_attack(ctx)
-
-        captured = capsys.readouterr()
-        assert "No cracked hashes output file found" in captured.out
-        ctx.hcatOllama.assert_not_called()
-
     def test_target_mode(self):
-        """Selection '2' → hcatOllama('target', {company, industry, location})."""
+        """ollama_attack prompts for company/industry/location and calls hcatOllama."""
         from hate_crack.attacks import ollama_attack
 
         ctx = self._make_ctx()
-        with mock.patch("builtins.input", side_effect=["2", "AcmeCorp", "Finance", "NYC", ""]):
+        with mock.patch("builtins.input", side_effect=["AcmeCorp", "Finance", "NYC"]):
             ollama_attack(ctx)
 
         ctx.hcatOllama.assert_called_once()
@@ -702,16 +674,4 @@ class TestOllamaAttackHandler:
         assert target_info["company"] == "AcmeCorp"
         assert target_info["industry"] == "Finance"
         assert target_info["location"] == "NYC"
-
-    def test_invalid_selection(self, capsys):
-        """Selection '3' → 'Invalid selection.', no hcatOllama call."""
-        from hate_crack.attacks import ollama_attack
-
-        ctx = self._make_ctx()
-        with mock.patch("builtins.input", side_effect=["3"]):
-            ollama_attack(ctx)
-
-        captured = capsys.readouterr()
-        assert "Invalid selection" in captured.out
-        ctx.hcatOllama.assert_not_called()
 
