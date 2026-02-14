@@ -490,31 +490,14 @@ def bandrel_method(ctx: Any) -> None:
 
 def ollama_attack(ctx: Any) -> None:
     print("\n\tLLM Attack")
-    print("\t(1) Wordlist-based generation")
-    print("\t(2) Target-based generation")
-    choice = input("\nSelect generation mode: ").strip()
-
-    if choice == "1":
-        wordlist = ctx.hcatHashFile + ".out"
-        if not os.path.isfile(wordlist):
-            print("Error: No cracked hashes output file found.")
-            return
-        print(f"\nUsing wordlist: {wordlist}")
-        ctx.hcatOllama(
-            ctx.hcatHashType, ctx.hcatHashFile, "wordlist", wordlist
-        )
-
-    elif choice == "2":
-        company = input("Company name: ").strip()
-        industry = input("Industry: ").strip()
-        location = input("Location: ").strip()
-        target_info = {
-            "company": company,
-            "industry": industry,
-            "location": location,
-        }
-        ctx.hcatOllama(
-            ctx.hcatHashType, ctx.hcatHashFile, "target", target_info
-        )
-    else:
-        print("Invalid selection.")
+    company = input("Company name: ").strip()
+    industry = input("Industry: ").strip()
+    location = input("Location: ").strip()
+    target_info = {
+        "company": company,
+        "industry": industry,
+        "location": location,
+    }
+    ctx.hcatOllama(
+        ctx.hcatHashType, ctx.hcatHashFile, "target", target_info
+    )
