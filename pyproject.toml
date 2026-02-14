@@ -39,6 +39,7 @@ hate_crack = [
 
 [tool.setuptools_scm]
 version_file = "hate_crack/_version.py"
+version_scheme = "no-guess-dev"
 
 [tool.ruff]
 exclude = [
