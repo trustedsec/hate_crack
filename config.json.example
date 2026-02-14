@@ -23,8 +23,7 @@
   "hashview_url": "http://localhost:8443",
   "hashview_api_key": "",
   "hashmob_api_key": "",
-  "ollamaUrl": "http://localhost:11434",
   "ollamaModel": "llama3.2",
-  "markovCandidateCount": 5000,
-  "markovWordlist": "rockyou.txt"
+  "ollamaCandidateCount": 5000,
+  "ollamaWordlist": "rockyou.txt"
 }
