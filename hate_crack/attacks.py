@@ -488,20 +488,16 @@ def bandrel_method(ctx: Any) -> None:
     ctx.hcatBandrel(ctx.hcatHashType, ctx.hcatHashFile)
 
 
-def markov_attack(ctx: Any) -> None:
-    print("\n\tLLM Markov Attack")
+def ollama_attack(ctx: Any) -> None:
+    print("\n\tLLM Attack")
     print("\t(1) Wordlist-based generation")
     print("\t(2) Target-based generation")
     choice = input("\nSelect generation mode: ").strip()
 
     if choice == "1":
-        cracked_output = ctx.hcatHashFile + ".out"
-        if os.path.isfile(cracked_output):
-            default_wl = cracked_output
-        else:
-            default_wl = ctx.markovWordlist
-            if isinstance(default_wl, list):
-                default_wl = default_wl[0] if default_wl else ""
+        default_wl = ctx.ollamaWordlist
+        if isinstance(default_wl, list):
+            default_wl = default_wl[0] if default_wl else ""
         print(f"\nDefault wordlist: {default_wl}")
         override = input("Use a different wordlist? [y/N]: ").strip().lower()
         if override == "y":
@@ -509,29 +505,21 @@ def markov_attack(ctx: Any) -> None:
             wordlist = ctx._resolve_wordlist_path(wordlist, ctx.hcatWordlists)
         else:
             wordlist = default_wl
-        count_input = input(
-            f"Number of candidates to generate [{ctx.markovCandidateCount}]: "
-        ).strip()
-        count = int(count_input) if count_input else ctx.markovCandidateCount
-        ctx.hcatMarkov(
-            ctx.hcatHashType, ctx.hcatHashFile, "wordlist", wordlist, count
+        ctx.hcatOllama(
+            ctx.hcatHashType, ctx.hcatHashFile, "wordlist", wordlist
         )
 
     elif choice == "2":
         company = input("Company name: ").strip()
         industry = input("Industry: ").strip()
         location = input("Location: ").strip()
-        count_input = input(
-            f"Number of candidates to generate [{ctx.markovCandidateCount}]: "
-        ).strip()
-        count = int(count_input) if count_input else ctx.markovCandidateCount
         target_info = {
             "company": company,
             "industry": industry,
             "location": location,
         }
-        ctx.hcatMarkov(
-            ctx.hcatHashType, ctx.hcatHashFile, "target", target_info, count
+        ctx.hcatOllama(
+            ctx.hcatHashType, ctx.hcatHashFile, "target", target_info
         )
     else:
         print("Invalid selection.")
