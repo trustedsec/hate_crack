@@ -653,14 +653,13 @@ class TestOllamaAttackHandler:
         ctx = mock.MagicMock()
         ctx.hcatHashType = "0"
         ctx.hcatHashFile = "/tmp/hashes.txt"
-        ctx.ollamaWordlist = "/tmp/wordlist.txt"
         ctx.hcatWordlists = "/tmp/wordlists"
         for k, v in overrides.items():
             setattr(ctx, k, v)
         return ctx
 
-    def test_wordlist_mode_default(self, tmp_path):
-        """Default wordlist is always ollamaWordlist from config."""
+    def test_wordlist_mode_uses_cracked_output(self, tmp_path):
+        """Wordlist mode uses the cracked hashes .out file."""
         from hate_crack.attacks import ollama_attack
 
         hash_file = str(tmp_path / "hashes.txt")
@@ -669,41 +668,24 @@ class TestOllamaAttackHandler:
             f.write("Password1\nSummer2024\n")
 
         ctx = self._make_ctx(hcatHashFile=hash_file)
-        with mock.patch("builtins.input", side_effect=["1", "n", ""]):
+        with mock.patch("builtins.input", side_effect=["1"]):
             ollama_attack(ctx)
 
         ctx.hcatOllama.assert_called_once_with(
-            "0", hash_file, "wordlist", "/tmp/wordlist.txt",
+            "0", hash_file, "wordlist", cracked_out,
         )
 
-    def test_wordlist_mode_falls_back_to_config(self):
-        """When cracked output does not exist, fall back to ollamaWordlist."""
+    def test_wordlist_mode_errors_without_cracked_output(self, capsys):
+        """When cracked output does not exist, error out."""
         from hate_crack.attacks import ollama_attack
 
         ctx = self._make_ctx(hcatHashFile="/tmp/nonexistent_hashes.txt")
-        with mock.patch("builtins.input", side_effect=["1", "n", ""]):
+        with mock.patch("builtins.input", side_effect=["1"]):
             ollama_attack(ctx)
 
-        ctx.hcatOllama.assert_called_once_with(
-            "0", "/tmp/nonexistent_hashes.txt", "wordlist", "/tmp/wordlist.txt",
-        )
-
-    def test_wordlist_mode_custom_path(self):
-        """Selection '1', override wordlist → resolved path passed to hcatOllama."""
-        from hate_crack.attacks import ollama_attack
-
-        ctx = self._make_ctx()
-        ctx.select_file_with_autocomplete.return_value = "custom.txt"
-        ctx._resolve_wordlist_path.return_value = "/resolved/custom.txt"
-
-        with mock.patch("builtins.input", side_effect=["1", "y", ""]):
-            ollama_attack(ctx)
-
-        ctx.select_file_with_autocomplete.assert_called_once()
-        ctx._resolve_wordlist_path.assert_called_once_with("custom.txt", "/tmp/wordlists")
-        ctx.hcatOllama.assert_called_once_with(
-            "0", "/tmp/hashes.txt", "wordlist", "/resolved/custom.txt",
-        )
+        captured = capsys.readouterr()
+        assert "No cracked hashes output file found" in captured.out
+        ctx.hcatOllama.assert_not_called()
 
     def test_target_mode(self):
         """Selection '2' → hcatOllama('target', {company, industry, location})."""
@@ -733,17 +715,3 @@ class TestOllamaAttackHandler:
         assert "Invalid selection" in captured.out
         ctx.hcatOllama.assert_not_called()
 
-    def test_wordlist_list_uses_first(self):
-        """When ollamaWordlist is a list and no cracked output exists, the first element is used."""
-        from hate_crack.attacks import ollama_attack
-
-        ctx = self._make_ctx(
-            hcatHashFile="/tmp/nonexistent_hashes.txt",
-            ollamaWordlist=["/tmp/first.txt", "/tmp/second.txt"],
-        )
-        with mock.patch("builtins.input", side_effect=["1", "n", ""]):
-            ollama_attack(ctx)
-
-        ctx.hcatOllama.assert_called_once()
-        call_args = ctx.hcatOllama.call_args
-        assert call_args[0][3] == "/tmp/first.txt"

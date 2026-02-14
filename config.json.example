@@ -24,6 +24,5 @@
   "hashview_api_key": "",
   "hashmob_api_key": "",
   "ollamaModel": "llama3.2",
-  "ollamaWordlist": "rockyou.txt",
   "ollamaNumCtx": 32768
 }
