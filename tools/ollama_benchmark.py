@@ -159,6 +159,8 @@ def benchmark_model(url, model, prompt, num_ctx):
     candidates = filter_candidates(response_text)
     result["candidate_count"] = len(candidates)
     result["unique_candidates"] = len(set(candidates))
+    result["candidates"] = candidates
+    result["response"] = response_text
 
     return result
 
