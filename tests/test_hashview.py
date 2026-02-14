@@ -587,6 +587,10 @@ class TestHashviewAPI:
         # Set up session.get to return different responses
         api.session.get.side_effect = [mock_left_response, mock_found_response]
 
+        # Mock potfile path so cleanup isn't blocked by missing ~/.hashcat dir
+        potfile = str(tmp_path / "hashcat.potfile")
+        monkeypatch.setattr("hate_crack.api.get_hcat_potfile_path", lambda: potfile)
+
         # Download left hashes (should auto-download and split found for hashcat)
         left_file = tmp_path / "left_1_2.txt"
         result = api.download_left_hashes(1, 2, output_file=str(left_file))

@@ -42,12 +42,15 @@ def ollama_env(tmp_path):
 @contextmanager
 def ollama_globals(tmp_path, tuning="", potfile=""):
     """Patch the hc_main globals that hcatOllama reads."""
+    rules_dir = str(tmp_path / "rules")
+    os.makedirs(rules_dir, exist_ok=True)
     with mock.patch.object(hc_main, "ollamaUrl", OLLAMA_URL), \
          mock.patch.object(hc_main, "ollamaModel", MODEL), \
          mock.patch.object(hc_main, "hcatBin", "/usr/bin/hashcat"), \
          mock.patch.object(hc_main, "hcatTuning", tuning), \
          mock.patch.object(hc_main, "hcatPotfilePath", potfile), \
          mock.patch.object(hc_main, "hate_path", str(tmp_path)), \
+         mock.patch.object(hc_main, "rulesDirectory", rules_dir), \
          mock.patch("hate_crack.main.generate_session_id", return_value="test_session"):
         yield
 
