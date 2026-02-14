@@ -499,8 +499,8 @@ def ollama_attack(ctx: Any) -> None:
         if isinstance(default_wl, list):
             default_wl = default_wl[0] if default_wl else ""
         print(f"\nDefault wordlist: {default_wl}")
-        override = input("Use a different wordlist? [y/N]: ").strip().lower()
-        if override == "y":
+        use_default = input("Use the default wordlist? [Y/n]: ").strip().lower()
+        if use_default == "n":
             wordlist = ctx.select_file_with_autocomplete("Enter wordlist path")
             wordlist = ctx._resolve_wordlist_path(wordlist, ctx.hcatWordlists)
         else:

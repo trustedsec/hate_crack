@@ -654,7 +654,6 @@ class TestOllamaAttackHandler:
         ctx.hcatHashType = "0"
         ctx.hcatHashFile = "/tmp/hashes.txt"
         ctx.ollamaWordlist = "/tmp/wordlist.txt"
-        ctx.ollamaCandidateCount = 5000
         ctx.hcatWordlists = "/tmp/wordlists"
         for k, v in overrides.items():
             setattr(ctx, k, v)
