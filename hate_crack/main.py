@@ -773,10 +773,8 @@ def usage():
 
 
 def ascii_art():
-    import re
     from hate_crack import __version__
 
-    version = re.sub(r"\.d\d{8}$", "", __version__)
     print(r"""
 
   ___ ___         __             _________                       __
@@ -785,7 +783,7 @@ def ascii_art():
 \    Y    // __ \|  | \  ___/    \     \____|  | \// __ \\  \___|    <
  \___|_  /(____  /__|  \___  >____\______  /|__|  (____  /\___  >__|_ \
        \/      \/          \/_____/      \/            \/     \/     \/
-                          Version """ + version + """
+                          Version """ + __version__ + """
   """)
 
 
