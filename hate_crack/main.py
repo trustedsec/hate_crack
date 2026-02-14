@@ -464,15 +464,6 @@ except KeyError as e:
     )
     ollamaModel = default_config.get("ollamaModel", "llama3.2")
 try:
-    ollamaWordlist = config_parser["ollamaWordlist"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    ollamaWordlist = default_config.get("ollamaWordlist", "rockyou.txt")
-try:
     ollamaNumCtx = int(config_parser["ollamaNumCtx"])
 except KeyError as e:
     print(
@@ -620,8 +611,6 @@ hcatGoodMeasureBaseList = _normalize_wordlist_setting(
     hcatGoodMeasureBaseList, wordlists_dir
 )
 hcatPrinceBaseList = _normalize_wordlist_setting(hcatPrinceBaseList, wordlists_dir)
-ollamaWordlist = _normalize_wordlist_setting(ollamaWordlist, wordlists_dir)
-
 if not SKIP_INIT:
     # Verify hashcat binary is available
     # hcatBin should be in PATH or be an absolute path (resolved from hcatPath + hcatBin if configured)
@@ -1551,6 +1540,11 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
             with open(wordlist_path, "r", errors="ignore") as f:
                 for line in f:
                     stripped = line.strip()
+                    if not stripped:
+                        continue
+                    # Use only content after the first colon (e.g. hash:password -> password)
+                    if ":" in stripped:
+                        stripped = stripped.split(":", 1)[1]
                     if stripped:
                         lines.append(stripped)
         except Exception as e:
@@ -1559,10 +1553,8 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
         print(f"Loaded {len(lines)} passwords from wordlist.")
         wordlist_sample = "\n".join(lines)
         prompt = (
-            "You are a password generation expert. Below is a sample of real passwords. "
-            "Study the patterns, character choices, and structures. Then generate hashcat rules" \
-            " that could transform common base words into similar passwords. Focus on patterns like " \
-            "capitalization, leetspeak, suffixes, and common substitutions. Here are the sample passwords:\n" \
+            "Generate baseword to be used in a denylist for keeping users from setting their passwords with these basewords."
+            "Study the patterns, character choices, and structures. Focus on patterns like capitalization, leetspeak, suffixes, and common substitutions. Here are the sample passwords:\n" 
             f"{wordlist_sample}"
         )
     elif mode == "target":
@@ -1640,6 +1632,9 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
         return
 
     response_text = result.get("response", "")
+    if "I'm sorry, but I can't help with that" in response_text:
+        print("Error: Ollama refused the request. Try a different model or adjust your prompt.")
+        return
     raw_lines = response_text.strip().split("\n")
     # Filter out blank lines and lines that look like numbering/explanation
     candidates = []
