@@ -315,6 +315,52 @@ class TestHashviewAPI:
             assert "Cookie" in auth_headers or "uuid" in str(auth_headers)
             assert HASHVIEW_API_KEY in str(auth_headers)
 
+    def test_download_wordlist_saves_to_wordlists_dir(self, api, tmp_path):
+        """When output_file is relative, it should resolve to get_hcat_wordlists_dir()."""
+        wordlists_dir = tmp_path / "wordlists"
+        wordlists_dir.mkdir()
+
+        mock_response = Mock()
+        mock_response.content = b"gzipdata"
+        mock_response.raise_for_status = Mock()
+        mock_response.headers = {
+            "content-length": "8",
+            "content-disposition": 'attachment; filename="mylist.txt.gz"',
+        }
+        mock_response.iter_content = lambda chunk_size=8192: iter(
+            [mock_response.content]
+        )
+        api.session.get.return_value = mock_response
+
+        with patch(
+            "hate_crack.api.get_hcat_wordlists_dir", return_value=str(wordlists_dir)
+        ):
+            result = api.download_wordlist(99)
+
+        expected_path = str(wordlists_dir / "mylist.txt.gz")
+        assert result["output_file"] == expected_path
+        assert os.path.exists(expected_path)
+        with open(expected_path, "rb") as f:
+            assert f.read() == b"gzipdata"
+
+    def test_download_wordlist_absolute_path_unchanged(self, api, tmp_path):
+        """When output_file is absolute, it should not be redirected."""
+        abs_output = str(tmp_path / "direct_output.gz")
+
+        mock_response = Mock()
+        mock_response.content = b"data"
+        mock_response.raise_for_status = Mock()
+        mock_response.headers = {"content-length": "4"}
+        mock_response.iter_content = lambda chunk_size=8192: iter(
+            [mock_response.content]
+        )
+        api.session.get.return_value = mock_response
+
+        result = api.download_wordlist(99, output_file=abs_output)
+
+        assert result["output_file"] == abs_output
+        assert os.path.exists(abs_output)
+
     def test_list_wordlists_live(self):
         """Live test for Hashview wordlist listing with auth headers."""
         # Only run this test if explicitly enabled
@@ -600,7 +646,9 @@ class TestHashviewAPI:
 
         # Verify found files are cleaned up after merge
         found_file = tmp_path / "found_1_2.txt"
-        assert not os.path.exists(found_file), "Found file should be deleted after merge"
+        assert not os.path.exists(found_file), (
+            "Found file should be deleted after merge"
+        )
 
         found_hashes_file = tmp_path / "found_hashes_1_2.txt"
         found_clears_file = tmp_path / "found_clears_1_2.txt"
