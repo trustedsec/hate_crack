@@ -20,6 +20,36 @@ def main_module(monkeypatch):
     return mod
 
 
+class TestCountComputerAccounts:
+    """Issue #27 - count computer accounts (helper for detection)."""
+
+    def test_counts_computer_accounts(self, tmp_path, main_module):
+        hash_file = tmp_path / "hashes.txt"
+        hash_file.write_text(
+            "user1:1001:aad3b435b51404ee:hash1:::\n"
+            "COMPUTER1$:1002:aad3b435b51404ee:hash2:::\n"
+            "user2:1003:aad3b435b51404ee:hash3:::\n"
+            "WORKSTATION$:1004:aad3b435b51404ee:hash4:::\n"
+        )
+        assert main_module._count_computer_accounts(str(hash_file)) == 2
+
+    def test_no_computer_accounts(self, tmp_path, main_module):
+        hash_file = tmp_path / "hashes.txt"
+        hash_file.write_text(
+            "user1:1001:aad3b435b51404ee:hash1:::\n"
+            "user2:1002:aad3b435b51404ee:hash2:::\n"
+        )
+        assert main_module._count_computer_accounts(str(hash_file)) == 0
+
+    def test_missing_file(self, tmp_path, main_module):
+        assert main_module._count_computer_accounts(str(tmp_path / "nope.txt")) == 0
+
+    def test_empty_file(self, tmp_path, main_module):
+        hash_file = tmp_path / "hashes.txt"
+        hash_file.write_text("")
+        assert main_module._count_computer_accounts(str(hash_file)) == 0
+
+
 class TestFilterComputerAccounts:
     """Issue #27 - filter accounts ending with $."""
 
@@ -84,6 +114,21 @@ class TestFilterComputerAccounts:
         )
         assert removed == 0
 
+    def test_malformed_lines(self, tmp_path, main_module):
+        hash_file = tmp_path / "hashes.txt"
+        hash_file.write_text(
+            "user1:1001:aad3b435b51404ee:hash1:::\n"
+            "malformed_line_without_dollar\n"
+            "COMP$:1002:aad3b435b51404ee:hash2:::\n"
+        )
+        output_file = tmp_path / "filtered.txt"
+        removed = main_module._filter_computer_accounts(
+            str(hash_file), str(output_file)
+        )
+        assert removed == 1
+        lines = output_file.read_text().strip().split("\n")
+        assert len(lines) == 2
+
 
 class TestDedupNetntlmByUsername:
     """Issue #28 - deduplicate NetNTLM hashes by username."""
@@ -138,6 +183,8 @@ class TestDedupNetntlmByUsername:
         )
         assert total == 2
         assert duplicates == 0
+        # Output file should NOT be created when no duplicates exist
+        assert not output_file.exists()
 
     def test_missing_file(self, tmp_path, main_module):
         total, duplicates = main_module._dedup_netntlm_by_username(
@@ -156,3 +203,19 @@ class TestDedupNetntlmByUsername:
         )
         assert total == 0
         assert duplicates == 0
+        assert not output_file.exists()
+
+    def test_malformed_lines(self, tmp_path, main_module):
+        hash_file = tmp_path / "netntlm.txt"
+        hash_file.write_text(
+            "user1::DOMAIN:challenge1:response1:blob1\n"
+            "malformed_line_without_colons\n"
+            "user2::DOMAIN:challenge2:response2:blob2\n"
+        )
+        output_file = tmp_path / "dedup.txt"
+        total, duplicates = main_module._dedup_netntlm_by_username(
+            str(hash_file), str(output_file)
+        )
+        assert total == 3
+        assert duplicates == 0
+        assert not output_file.exists()
