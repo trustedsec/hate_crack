@@ -498,6 +498,4 @@ def ollama_attack(ctx: Any) -> None:
         "industry": industry,
         "location": location,
     }
-    ctx.hcatOllama(
-        ctx.hcatHashType, ctx.hcatHashFile, "target", target_info
-    )
+    ctx.hcatOllama(ctx.hcatHashType, ctx.hcatHashFile, "target", target_info)
