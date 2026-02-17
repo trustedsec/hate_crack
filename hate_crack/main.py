@@ -113,7 +113,6 @@ def _resolve_config_destination():
     return os.getcwd()
 
 
-
 def _ensure_hashfile_in_cwd(hashfile_path):
     """Ensure hashfile path points to cwd to keep output files in execution dir."""
     if not hashfile_path:
@@ -155,9 +154,7 @@ else:
 _config_path = _resolve_config_path()
 if not _config_path:
     print("Initializing config.json from config.json.example")
-    src_config = os.path.abspath(
-        os.path.join(_package_path, "config.json.example")
-    )
+    src_config = os.path.abspath(os.path.join(_package_path, "config.json.example"))
     config_dir = _resolve_config_destination()
     dst_config = os.path.abspath(os.path.join(config_dir, "config.json"))
     shutil.copy(src_config, dst_config)
@@ -214,9 +211,7 @@ def ensure_binary(binary_path, build_dir=None, name=None):
                 print(
                     "\nRun 'make install' from the repository directory to install with assets:"
                 )
-                print(
-                    "  cd /path/to/hate_crack && make install"
-                )
+                print("  cd /path/to/hate_crack && make install")
                 quit(1)
 
             # Binary missing - need to build
@@ -677,9 +672,7 @@ if not SKIP_INIT:
 
         # Verify hcstat2gen binary (optional, for LLM attacks)
         # Note: hcstat2gen is part of hashcat-utils, already in hate_crack repo
-        hcstat2gen_path = (
-            hate_path + "/hashcat-utils/bin/" + hcatHcstat2genBin
-        )
+        hcstat2gen_path = hate_path + "/hashcat-utils/bin/" + hcatHcstat2genBin
         try:
             ensure_binary(
                 hcstat2gen_path,
@@ -775,7 +768,8 @@ def usage():
 def ascii_art():
     from hate_crack import __version__
 
-    print(r"""
+    print(
+        r"""
 
   ___ ___         __             _________                       __
  /   |   \_____ _/  |_  ____     \_   ___ \____________    ____ |  | __
@@ -783,8 +777,11 @@ def ascii_art():
 \    Y    // __ \|  | \  ___/    \     \____|  | \// __ \\  \___|    <
  \___|_  /(____  /__|  \___  >____\______  /|__|  (____  /\___  >__|_ \
        \/      \/          \/_____/      \/            \/     \/     \/
-                          Version """ + __version__ + """
-  """)
+                          Version """
+        + __version__
+        + """
+  """
+    )
 
 
 # File selector with tab autocomplete
@@ -917,6 +914,66 @@ def _write_field_sorted_unique(input_path, output_path, field_index, delimiter="
         return True
     except FileNotFoundError:
         return False
+
+
+def _filter_computer_accounts(input_path, output_path, delimiter=":"):
+    """Filter out computer accounts (usernames ending with $) from a hash file.
+
+    Reads the input file, removes lines where the first field (username)
+    ends with '$', and writes the remaining lines to output_path.
+    Returns the number of computer accounts removed.
+    """
+    removed = 0
+    kept_lines = []
+    try:
+        with open(input_path, "r", errors="replace") as src:
+            for line in src:
+                stripped = line.rstrip("\n")
+                if not stripped:
+                    continue
+                username = stripped.split(delimiter, 1)[0]
+                if username.endswith("$"):
+                    removed += 1
+                else:
+                    kept_lines.append(stripped)
+        with open(output_path, "w") as dst:
+            for line in kept_lines:
+                dst.write(line + "\n")
+    except FileNotFoundError:
+        pass
+    return removed
+
+
+def _dedup_netntlm_by_username(input_path, output_path, delimiter=":"):
+    """Deduplicate NetNTLM hashes by username, keeping the first occurrence.
+
+    NetNTLM format: username::domain:challenge:response:blob
+    The username is the first field before the delimiter.
+    Returns a tuple of (total_lines, duplicates_removed).
+    """
+    seen_usernames = set()
+    kept_lines = []
+    duplicates = 0
+    total = 0
+    try:
+        with open(input_path, "r", errors="replace") as src:
+            for line in src:
+                stripped = line.rstrip("\n")
+                if not stripped:
+                    continue
+                total += 1
+                username = stripped.split(delimiter, 1)[0].lower()
+                if username in seen_usernames:
+                    duplicates += 1
+                else:
+                    seen_usernames.add(username)
+                    kept_lines.append(stripped)
+        with open(output_path, "w") as dst:
+            for line in kept_lines:
+                dst.write(line + "\n")
+    except FileNotFoundError:
+        pass
+    return total, duplicates
 
 
 def _run_hashcat_show(hash_type, hash_file, output_path):
@@ -1556,7 +1613,7 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
         wordlist_sample = "\n".join(lines)
         prompt = (
             "Generate baseword to be used in a denylist for keeping users from setting their passwords with these basewords."
-            "Study the patterns, character choices, and structures. Focus on patterns like capitalization, leetspeak, suffixes, and common substitutions. Here are the sample passwords:\n" 
+            "Study the patterns, character choices, and structures. Focus on patterns like capitalization, leetspeak, suffixes, and common substitutions. Here are the sample passwords:\n"
             f"{wordlist_sample}"
         )
     elif mode == "target":
@@ -1579,12 +1636,14 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
     # Step B: Call Ollama API to generate candidates
     print(f"Generating password candidates via Ollama ({ollamaModel})...")
     api_url = f"{ollamaUrl}/api/generate"
-    payload = json.dumps({
-        "model": ollamaModel,
-        "prompt": prompt,
-        "stream": False,
-        "options": {"num_ctx": ollamaNumCtx},
-    }).encode("utf-8")
+    payload = json.dumps(
+        {
+            "model": ollamaModel,
+            "prompt": prompt,
+            "stream": False,
+            "options": {"num_ctx": ollamaNumCtx},
+        }
+    ).encode("utf-8")
 
     if debug_mode:
         print(f"[DEBUG] Ollama API URL: {api_url}")
@@ -1612,7 +1671,9 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
                     with urllib.request.urlopen(req, timeout=600) as resp:
                         result = json.loads(resp.read().decode("utf-8"))
                     if debug_mode:
-                        print(f"[DEBUG] Ollama response (after pull): {json.dumps(result, indent=2)}")
+                        print(
+                            f"[DEBUG] Ollama response (after pull): {json.dumps(result, indent=2)}"
+                        )
                 except Exception as retry_err:
                     print(f"Error calling Ollama API after pull: {retry_err}")
                     return
@@ -1633,7 +1694,9 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
 
     response_text = result.get("response", "")
     if "I'm sorry, but I can't help with that" in response_text:
-        print("Error: Ollama refused the request. Try a different model or adjust your prompt.")
+        print(
+            "Error: Ollama refused the request. Try a different model or adjust your prompt."
+        )
         return
     raw_lines = response_text.strip().split("\n")
     # Filter out blank lines and lines that look like numbering/explanation
@@ -1664,7 +1727,9 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
     print(f"Generated {len(candidates)} password candidates -> {candidates_path}")
     if debug_mode:
         filtered_count = len(raw_lines) - len(candidates)
-        print(f"[DEBUG] Filtered out {filtered_count} lines from Ollama response ({len(raw_lines)} raw -> {len(candidates)} candidates)")
+        print(
+            f"[DEBUG] Filtered out {filtered_count} lines from Ollama response ({len(raw_lines)} raw -> {len(candidates)} candidates)"
+        )
 
     # Step C: Run hashcat wordlist attack with LLM-generated candidates (no rules)
     print("Running wordlist attack with LLM-generated candidates...")
@@ -1690,14 +1755,14 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
         return
 
     # Step D: Run hashcat with LLM candidates against every rule in the rules directory
-    rule_files = sorted(
-        f for f in os.listdir(rulesDirectory) if f != ".DS_Store"
-    )
+    rule_files = sorted(f for f in os.listdir(rulesDirectory) if f != ".DS_Store")
     if not rule_files:
         print("No rule files found in rules directory. Skipping rule-based attacks.")
         return
 
-    print(f"\nRunning LLM candidates with {len(rule_files)} rule file(s) from {rulesDirectory}...")
+    print(
+        f"\nRunning LLM candidates with {len(rule_files)} rule file(s) from {rulesDirectory}..."
+    )
     for rule in rule_files:
         rule_path = os.path.join(rulesDirectory, rule)
         print(f"\n\tRunning with rule: {rule}")
@@ -1723,7 +1788,6 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
             print("Killing PID {0}...".format(str(hcatProcess.pid)))
             hcatProcess.kill()
             return
-
 
 
 # Middle fast Combinator Attack
@@ -3590,6 +3654,25 @@ def main():
         if re.search(r"[a-f0-9A-F]{32}:[a-f0-9A-F]{32}:::", hcatHashFileLine):
             pwdump_format = True
             print("PWDUMP format detected...")
+            # Detect computer accounts (usernames ending with $)
+            computer_count = sum(
+                1
+                for line in open(hcatHashFile, "r", errors="replace")
+                if line.strip() and line.split(":", 1)[0].endswith("$")
+            )
+            if computer_count > 0:
+                print(
+                    f"Detected {computer_count} computer account(s)"
+                    " (usernames ending with $)."
+                )
+                filter_choice = (
+                    input("Would you like to ignore computer accounts? (Y) ") or "Y"
+                )
+                if filter_choice.upper() == "Y":
+                    filtered_path = f"{hcatHashFile}.filtered"
+                    removed = _filter_computer_accounts(hcatHashFile, filtered_path)
+                    print(f"Removed {removed} computer account(s).")
+                    hcatHashFile = filtered_path
             print("Parsing NT hashes...")
             _write_field_sorted_unique(hcatHashFile, f"{hcatHashFile}.nt", 4)
             print("Parsing LM hashes...")
@@ -3640,6 +3723,43 @@ def main():
         else:
             print("unknown format....does it have usernames?")
             exit(1)
+    # Detect and optionally deduplicate NetNTLM hashes by username
+    if hcatHashType in ("5500", "5600"):
+        total, duplicates = _dedup_netntlm_by_username(
+            hcatHashFile, hcatHashFile + ".dedup"
+        )
+        if duplicates > 0:
+            print(
+                f"Detected {duplicates} duplicate account(s) out of"
+                f" {total} total NetNTLM hashes."
+            )
+            dedup_choice = (
+                input(
+                    "Would you like to ignore duplicate accounts"
+                    " (keep first occurrence only)? (Y) "
+                )
+                or "Y"
+            )
+            if dedup_choice.upper() == "Y":
+                hcatHashFileOrig = hcatHashFile
+                hcatHashFile = hcatHashFile + ".dedup"
+                print(
+                    f"Using deduplicated hash file with"
+                    f" {total - duplicates} unique accounts."
+                )
+            else:
+                # Remove the dedup file if user chose not to use it
+                try:
+                    os.remove(hcatHashFile + ".dedup")
+                except OSError:
+                    pass
+        else:
+            # No duplicates found, clean up
+            try:
+                os.remove(hcatHashFile + ".dedup")
+            except OSError:
+                pass
+
     # Check POT File for Already Cracked Hashes
     if not os.path.isfile(hcatHashFile + ".out"):
         hcatOutput = open(hcatHashFile + ".out", "w+")
