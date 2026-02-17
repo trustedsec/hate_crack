@@ -805,3 +805,192 @@ class TestE2EPreprocessingFlow:
         for line in filtered_lines:
             username = line.split(":")[0]
             assert not username.endswith("$")
+
+
+class TestE2ENetNTLMPreprocessingFlow:
+    """End-to-end tests that simulate the NetNTLM preprocessing flow.
+
+    These tests replicate the exact logic from main.py for hash types 5500/5600:
+    computer account filtering -> deduplication by username.
+    """
+
+    @staticmethod
+    def _run_netntlm_preprocessing(main_module, hash_file_path, input_responses):
+        """Simulate the main() preprocessing block for NetNTLM hash types.
+
+        Replicates the flow from main.py:
+        1. Count computer accounts, prompt to filter
+        2. Count duplicates by username, prompt to dedup
+        3. Return the final hcatHashFile path and metadata
+
+        Args:
+            main_module: The hate_crack.main module
+            hash_file_path: Path to the NetNTLM hash file
+            input_responses: List of responses for input() calls
+
+        Returns:
+            dict with keys: hcatHashFile, filtered, deduped, filtered_path,
+                dedup_path
+        """
+        input_iter = iter(input_responses)
+
+        hcatHashFile = str(hash_file_path)
+        filtered = False
+        deduped = False
+        filtered_path = None
+        dedup_path = None
+
+        # Step 1: Computer account filtering
+        computer_count = main_module._count_computer_accounts(hcatHashFile)
+        if computer_count > 0:
+            filter_choice = next(input_iter, "Y")
+            if filter_choice.upper() == "Y":
+                filtered_path = f"{hcatHashFile}.filtered"
+                main_module._filter_computer_accounts(hcatHashFile, filtered_path)
+                hcatHashFile = filtered_path
+                filtered = True
+
+        # Step 2: Deduplication by username
+        dedup_path_candidate = hcatHashFile + ".dedup"
+        total, duplicates = main_module._dedup_netntlm_by_username(
+            hcatHashFile, dedup_path_candidate
+        )
+        if duplicates > 0:
+            dedup_choice = next(input_iter, "Y")
+            if dedup_choice.upper() == "Y":
+                hcatHashFile = dedup_path_candidate
+                dedup_path = dedup_path_candidate
+                deduped = True
+
+        return {
+            "hcatHashFile": hcatHashFile,
+            "filtered": filtered,
+            "deduped": deduped,
+            "filtered_path": filtered_path,
+            "dedup_path": dedup_path,
+        }
+
+    def test_filter_and_dedup(self, tmp_path, main_module):
+        """Accept both filtering and dedup - mixed users + computers with duplicates."""
+        hash_file = tmp_path / "netntlm.txt"
+        hash_file.write_text(
+            "user1::DOMAIN:chal1:resp1:blob1\n"
+            "DC01$::DOMAIN:chal2:resp2:blob2\n"
+            "user2::DOMAIN:chal3:resp3:blob3\n"
+            "user1::DOMAIN:chal4:resp4:blob4\n"
+            "FILESERV01$::DOMAIN:chal5:resp5:blob5\n"
+            "user3::DOMAIN:chal6:resp6:blob6\n"
+        )
+
+        result = self._run_netntlm_preprocessing(main_module, hash_file, ["Y", "Y"])
+
+        assert result["filtered"] is True
+        assert result["deduped"] is True
+
+        # Final file should have 3 unique non-computer users
+        lines = open(result["hcatHashFile"]).read().strip().split("\n")
+        assert len(lines) == 3
+        usernames = [line.split(":")[0] for line in lines]
+        assert "DC01$" not in usernames
+        assert "FILESERV01$" not in usernames
+        # user1 should appear only once (deduped)
+        assert usernames.count("user1") == 1
+
+    def test_filter_only_decline_dedup(self, tmp_path, main_module):
+        """Accept filtering, decline dedup - computers removed but duplicates kept."""
+        hash_file = tmp_path / "netntlm.txt"
+        hash_file.write_text(
+            "user1::DOMAIN:chal1:resp1:blob1\n"
+            "DC01$::DOMAIN:chal2:resp2:blob2\n"
+            "user1::DOMAIN:chal3:resp3:blob3\n"
+        )
+
+        result = self._run_netntlm_preprocessing(main_module, hash_file, ["Y", "N"])
+
+        assert result["filtered"] is True
+        assert result["deduped"] is False
+
+        # Should have 2 lines (both user1 entries, computer removed)
+        lines = open(result["hcatHashFile"]).read().strip().split("\n")
+        assert len(lines) == 2
+        for line in lines:
+            assert not line.split(":")[0].endswith("$")
+
+    def test_decline_filter_accept_dedup(self, tmp_path, main_module):
+        """Decline filtering, accept dedup - computers kept but duplicates removed."""
+        hash_file = tmp_path / "netntlm.txt"
+        hash_file.write_text(
+            "user1::DOMAIN:chal1:resp1:blob1\n"
+            "DC01$::DOMAIN:chal2:resp2:blob2\n"
+            "user1::DOMAIN:chal3:resp3:blob3\n"
+            "DC01$::DOMAIN:chal4:resp4:blob4\n"
+        )
+
+        result = self._run_netntlm_preprocessing(main_module, hash_file, ["N", "Y"])
+
+        assert result["filtered"] is False
+        assert result["deduped"] is True
+
+        # Should have 2 unique usernames (user1 and DC01$)
+        lines = open(result["hcatHashFile"]).read().strip().split("\n")
+        assert len(lines) == 2
+        usernames = [line.split(":")[0] for line in lines]
+        assert "user1" in usernames
+        assert "DC01$" in usernames
+
+    def test_no_computers(self, tmp_path, main_module):
+        """No computer accounts - no filter prompt, only dedup prompt."""
+        hash_file = tmp_path / "netntlm.txt"
+        hash_file.write_text(
+            "user1::DOMAIN:chal1:resp1:blob1\n"
+            "user2::DOMAIN:chal2:resp2:blob2\n"
+            "user1::DOMAIN:chal3:resp3:blob3\n"
+        )
+
+        # Only one input needed (for dedup), no filter prompt
+        result = self._run_netntlm_preprocessing(main_module, hash_file, ["Y"])
+
+        assert result["filtered"] is False
+        assert result["deduped"] is True
+
+        lines = open(result["hcatHashFile"]).read().strip().split("\n")
+        assert len(lines) == 2
+
+    def test_all_computers(self, tmp_path, main_module):
+        """All accounts are computers - everything filtered, dedup gets empty file."""
+        hash_file = tmp_path / "netntlm.txt"
+        hash_file.write_text(
+            "DC01$::DOMAIN:chal1:resp1:blob1\n"
+            "FILESERV01$::DOMAIN:chal2:resp2:blob2\n"
+            "WORKSTATION01$::DOMAIN:chal3:resp3:blob3\n"
+        )
+
+        result = self._run_netntlm_preprocessing(main_module, hash_file, ["Y"])
+
+        assert result["filtered"] is True
+        # Dedup should find 0 duplicates on empty file, so no dedup prompt
+        assert result["deduped"] is False
+
+        content = open(result["hcatHashFile"]).read().strip()
+        assert content == ""
+
+    def test_domain_prefix(self, tmp_path, main_module):
+        """CORP\\DC01$::DOMAIN:... format - domain prefix with computer account."""
+        hash_file = tmp_path / "netntlm.txt"
+        hash_file.write_text(
+            "CORP\\user1::DOMAIN:chal1:resp1:blob1\n"
+            "CORP\\DC01$::DOMAIN:chal2:resp2:blob2\n"
+            "CORP\\user2::DOMAIN:chal3:resp3:blob3\n"
+        )
+
+        result = self._run_netntlm_preprocessing(main_module, hash_file, ["Y"])
+
+        assert result["filtered"] is True
+        # No duplicates, so no dedup prompt
+        assert result["deduped"] is False
+
+        lines = open(result["hcatHashFile"]).read().strip().split("\n")
+        assert len(lines) == 2
+        for line in lines:
+            username = line.split(":")[0]
+            assert not username.endswith("$")
