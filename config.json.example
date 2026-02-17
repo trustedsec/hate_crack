@@ -24,5 +24,7 @@
   "hashview_api_key": "",
   "hashmob_api_key": "",
   "ollamaModel": "mistral",
-  "ollamaNumCtx": 2048
+  "ollamaNumCtx": 2048,
+  "omenTrainingList": "rockyou.txt",
+  "omenMaxCandidates": 1000000
 }

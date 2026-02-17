@@ -12,3 +12,6 @@ hate_crack/hashcat-utils/
 hate_crack/princeprocessor/
 *.txt.expanded
 *.hcmask
+*.ollama_candidates
+*.filtered
+research/
