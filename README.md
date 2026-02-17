@@ -549,6 +549,7 @@ Tests automatically run on GitHub Actions for every push and pull request (Ubunt
   (13) Bandrel Methodology
   (14) Loopback Attack
   (15) LLM Attack
+  (16) OMEN Attack
 
   (90) Download rules from Hashmob.net
   (91) Analyze Hashcat Rules
@@ -684,6 +685,15 @@ Uses a local Ollama instance to generate password candidates for a capture-the-f
 * Configurable model and context window via `config.json` (see Ollama Configuration below)
 * Prompts for target company name, industry, and location
 
+#### OMEN Attack
+Uses the Ordered Markov ENumerator (OMEN) to train a statistical password model from a wordlist and generate password candidates. This attack learns patterns from known passwords and generates new candidates based on those patterns.
+
+* Requires OMEN binaries (createNG and enumNG) to be built from the omen submodule
+* Trains a model from a wordlist (configurable via config.json or prompted)
+* Generates up to a specified number of password candidates
+* Pipes generated candidates directly into hashcat for cracking
+* Model files are stored in `~/.hate_crack/omen/` for persistence across sessions
+
 #### Download Rules from Hashmob.net
 Downloads the latest rule files from Hashmob.net's rule repository. These rules are curated and optimized for password cracking and can be used with the Quick Crack and Loopback Attack modes.
 
@@ -717,6 +727,8 @@ Interactive menu for downloading and managing wordlists from Weakpass.com via Bi
 -------------------------------------------------------------------
 ### Version History
 Version 2.0+
+  Added OMEN Attack (option 16) using statistical model-based password generation
+  Added OMEN configuration keys (omenTrainingList, omenMaxCandidates)
   Added LLM Attack (option 15) using Ollama for AI-generated password candidates
   Added Ollama configuration keys (ollamaModel, ollamaNumCtx)
   Auto-versioning via setuptools-scm from git tags
