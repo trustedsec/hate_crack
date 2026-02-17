@@ -128,6 +128,25 @@ class TestFilterComputerAccounts:
         lines = output_file.read_text().strip().split("\n")
         assert len(lines) == 2
 
+    def test_crlf_line_endings(self, tmp_path, main_module):
+        """Test that CRLF (Windows) line endings are handled correctly."""
+        hash_file = tmp_path / "hashes.txt"
+        hash_file.write_bytes(
+            b"user1:1001:aad3b435b51404ee:hash1:::\r\n"
+            b"COMPUTER1$:1002:aad3b435b51404ee:hash2:::\r\n"
+            b"user2:1003:aad3b435b51404ee:hash3:::\r\n"
+        )
+        output_file = tmp_path / "filtered.txt"
+        removed = main_module._filter_computer_accounts(
+            str(hash_file), str(output_file)
+        )
+        assert removed == 1
+        lines = output_file.read_text().strip().split("\n")
+        assert len(lines) == 2
+        # Verify no stray \r in output
+        for line in lines:
+            assert "\r" not in line
+
 
 class TestDedupNetntlmByUsername:
     """Issue #28 - deduplicate NetNTLM hashes by username."""
@@ -218,6 +237,26 @@ class TestDedupNetntlmByUsername:
         assert total == 3
         assert duplicates == 0
         assert not output_file.exists()
+
+    def test_crlf_line_endings(self, tmp_path, main_module):
+        """Test that CRLF (Windows) line endings are handled correctly."""
+        hash_file = tmp_path / "netntlm.txt"
+        hash_file.write_bytes(
+            b"user1::DOMAIN:challenge1:response1:blob1\r\n"
+            b"user2::DOMAIN:challenge2:response2:blob2\r\n"
+            b"user1::DOMAIN:challenge3:response3:blob3\r\n"
+        )
+        output_file = tmp_path / "dedup.txt"
+        total, duplicates = main_module._dedup_netntlm_by_username(
+            str(hash_file), str(output_file)
+        )
+        assert total == 3
+        assert duplicates == 1
+        lines = output_file.read_text().strip().split("\n")
+        assert len(lines) == 2
+        # Verify no stray \r in output
+        for line in lines:
+            assert "\r" not in line
 
 
 class TestWriteFieldSortedUnique:

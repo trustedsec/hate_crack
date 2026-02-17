@@ -925,8 +925,9 @@ def _count_computer_accounts(input_path: str, delimiter: str = ":") -> int:
                 stripped = line.strip()
                 if stripped and stripped.split(delimiter, 1)[0].endswith("$"):
                     count += 1
-    except FileNotFoundError:
-        pass
+    except (FileNotFoundError, PermissionError, OSError) as e:
+        if not isinstance(e, FileNotFoundError):
+            print(f"Warning: Could not process {input_path}: {e}")
     return count
 
 
@@ -941,11 +942,12 @@ def _filter_computer_accounts(
     """
     removed = 0
     try:
-        with open(input_path, "r", errors="replace") as src, open(
-            output_path, "w"
-        ) as dst:
+        with (
+            open(input_path, "r", errors="replace") as src,
+            open(output_path, "w") as dst,
+        ):
             for line in src:
-                stripped = line.rstrip("\n")
+                stripped = line.rstrip("\r\n")
                 if not stripped:
                     continue
                 username = stripped.split(delimiter, 1)[0]
@@ -953,8 +955,9 @@ def _filter_computer_accounts(
                     removed += 1
                 else:
                     dst.write(stripped + "\n")
-    except FileNotFoundError:
-        pass
+    except (FileNotFoundError, PermissionError, OSError) as e:
+        if not isinstance(e, FileNotFoundError):
+            print(f"Warning: Could not process {input_path}: {e}")
     return removed
 
 
@@ -967,15 +970,19 @@ def _dedup_netntlm_by_username(
     The username is the first field before the delimiter.
     Only writes output_path when duplicates are found.
     Returns a tuple of (total_lines, duplicates_removed).
+
+    Uses a two-pass approach to avoid holding all lines in memory:
+    - Pass 1: scan to collect seen usernames and count duplicates
+    - Pass 2: stream non-duplicate lines directly to the output file
     """
     seen_usernames: set[str] = set()
-    kept_lines: list[str] = []
     duplicates = 0
     total = 0
     try:
+        # Pass 1: count totals and identify unique usernames
         with open(input_path, "r", errors="replace") as src:
             for line in src:
-                stripped = line.rstrip("\n")
+                stripped = line.rstrip("\r\n")
                 if not stripped:
                     continue
                 total += 1
@@ -984,13 +991,25 @@ def _dedup_netntlm_by_username(
                     duplicates += 1
                 else:
                     seen_usernames.add(username)
-                    kept_lines.append(stripped)
+
+        # Pass 2: write non-duplicate lines directly to output (only if needed)
         if duplicates > 0:
-            with open(output_path, "w") as dst:
-                for line in kept_lines:
-                    dst.write(line + "\n")
-    except FileNotFoundError:
-        pass
+            first_seen: set[str] = set()
+            with (
+                open(input_path, "r", errors="replace") as src,
+                open(output_path, "w") as dst,
+            ):
+                for line in src:
+                    stripped = line.rstrip("\r\n")
+                    if not stripped:
+                        continue
+                    username = stripped.split(delimiter, 1)[0].lower()
+                    if username not in first_seen:
+                        first_seen.add(username)
+                        dst.write(stripped + "\n")
+    except (FileNotFoundError, PermissionError, OSError) as e:
+        if not isinstance(e, FileNotFoundError):
+            print(f"Warning: Could not process {input_path}: {e}")
     return total, duplicates
 
 
@@ -3665,109 +3684,135 @@ def main():
     # Get Initial Input Hash Count
 
     # If LM or NT Mode Selected and pwdump Format Detected, Prompt For LM to NT Attack
-    if hcatHashType == "1000":
-        lmHashesFound = False
-        pwdump_format = False
-        with open(hcatHashFile, "r") as f:
-            hcatHashFileLine = f.readline().strip().lstrip("\ufeff")
-        if re.search(r"[a-f0-9A-F]{32}:[a-f0-9A-F]{32}:::", hcatHashFileLine):
-            pwdump_format = True
-            print("PWDUMP format detected...")
-            # Detect computer accounts (usernames ending with $)
-            computer_count = _count_computer_accounts(hcatHashFile)
-            if computer_count > 0:
+    # Track temp files created during preprocessing for cleanup on interruption
+    _preprocessing_temp_files: list[str] = []
+
+    def _cleanup_preprocessing_temps() -> None:
+        """Remove any temp files created during preprocessing."""
+        for path in _preprocessing_temp_files:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+    try:
+        if hcatHashType == "1000":
+            lmHashesFound = False
+            pwdump_format = False
+            with open(hcatHashFile, "r") as f:
+                hcatHashFileLine = f.readline().strip().lstrip("\ufeff")
+            if re.search(r"[a-f0-9A-F]{32}:[a-f0-9A-F]{32}:::", hcatHashFileLine):
+                pwdump_format = True
+                print("PWDUMP format detected...")
+                # Detect computer accounts (usernames ending with $)
+                computer_count = _count_computer_accounts(hcatHashFile)
+                if computer_count > 0:
+                    print(
+                        f"Detected {computer_count} computer account(s)"
+                        " (usernames ending with $)."
+                    )
+                    filter_choice = (
+                        input("Would you like to ignore computer accounts? (Y) ") or "Y"
+                    )
+                    if filter_choice.upper() == "Y":
+                        filtered_path = f"{hcatHashFile}.filtered"
+                        _preprocessing_temp_files.append(filtered_path)
+                        removed = _filter_computer_accounts(hcatHashFile, filtered_path)
+                        print(f"Removed {removed} computer account(s).")
+                        hcatHashFile = filtered_path
+                        # Keep this file - remove from cleanup list
+                        _preprocessing_temp_files.remove(filtered_path)
+                print("Parsing NT hashes...")
+                _write_field_sorted_unique(hcatHashFile, f"{hcatHashFile}.nt", 4)
+                print("Parsing LM hashes...")
+                _write_field_sorted_unique(hcatHashFile, f"{hcatHashFile}.lm", 3)
+                if (
+                    (lineCount(hcatHashFile + ".lm") == 1)
+                    and (
+                        hcatHashFileLine.split(":")[2].lower()
+                        != "aad3b435b51404eeaad3b435b51404ee"
+                    )
+                ) or (lineCount(hcatHashFile + ".lm") > 1):
+                    lmHashesFound = True
+                    lmChoice = (
+                        input(
+                            "LM hashes identified. Would you like to brute force"
+                            " the LM hashes first? (Y) "
+                        )
+                        or "Y"
+                    )
+                    if lmChoice.upper() == "Y":
+                        hcatLMtoNT()
+                hcatHashFileOrig = hcatHashFile
+                hcatHashFile = hcatHashFile + ".nt"
+            elif re.search(r"^[a-f0-9A-F]{32}$", hcatHashFileLine):
+                pwdump_format = False
+                print("PWDUMP format was not detected...")
+                print("Hash only detected")
+            elif re.search(r"^.+:[a-f0-9A-F]{32}$", hcatHashFileLine):
+                pwdump_format = False
+                print("PWDUMP format was not detected...")
+                print("username with Hash detected")
+                _write_field_sorted_unique(hcatHashFile, f"{hcatHashFile}.nt", 2)
+                hcatHashFileOrig = hcatHashFile
+                hcatHashFile = hcatHashFile + ".nt"
+            elif re.search(r"^.+::.+:.+:[a-f0-9A-F]{64}:", hcatHashFileLine):
+                # NetNTLMv2 format: username::domain:server_challenge:ntproofstr:blob
+                # NetNTLMv2-ESS format is similar, with Enhanced Session Security
+                pwdump_format = False
+                # Try to detect if it's NetNTLMv2-ESS (has specific markers)
+                if re.search(
+                    r"^.+::.+:.+:[a-f0-9A-F]{16}:[a-f0-9A-F]{32}:[a-f0-9A-F]+$",
+                    hcatHashFileLine,
+                ):
+                    print("NetNTLMv2-ESS format detected")
+                    print("Note: Hash type should be 5600 for NetNTLMv2-ESS hashes")
+                else:
+                    print("NetNTLMv2 format detected")
+                    print("Note: Hash type should be 5500 for NetNTLMv2 hashes")
+            else:
+                print("unknown format....does it have usernames?")
+                exit(1)
+        # Detect and optionally deduplicate NetNTLM hashes by username
+        if hcatHashType in ("5500", "5600"):
+            dedup_path = hcatHashFile + ".dedup"
+            _preprocessing_temp_files.append(dedup_path)
+            total, duplicates = _dedup_netntlm_by_username(hcatHashFile, dedup_path)
+            if duplicates == 0:
+                # No dedup file was created, remove from cleanup list
+                _preprocessing_temp_files.remove(dedup_path)
+            else:
                 print(
-                    f"Detected {computer_count} computer account(s)"
-                    " (usernames ending with $)."
+                    f"Detected {duplicates} duplicate account(s) out of"
+                    f" {total} total NetNTLM hashes."
                 )
-                filter_choice = (
-                    input("Would you like to ignore computer accounts? (Y) ") or "Y"
-                )
-                if filter_choice.upper() == "Y":
-                    filtered_path = f"{hcatHashFile}.filtered"
-                    removed = _filter_computer_accounts(hcatHashFile, filtered_path)
-                    print(f"Removed {removed} computer account(s).")
-                    hcatHashFile = filtered_path
-            print("Parsing NT hashes...")
-            _write_field_sorted_unique(hcatHashFile, f"{hcatHashFile}.nt", 4)
-            print("Parsing LM hashes...")
-            _write_field_sorted_unique(hcatHashFile, f"{hcatHashFile}.lm", 3)
-            if (
-                (lineCount(hcatHashFile + ".lm") == 1)
-                and (
-                    hcatHashFileLine.split(":")[2].lower()
-                    != "aad3b435b51404eeaad3b435b51404ee"
-                )
-            ) or (lineCount(hcatHashFile + ".lm") > 1):
-                lmHashesFound = True
-                lmChoice = (
+                dedup_choice = (
                     input(
-                        "LM hashes identified. Would you like to brute force the LM hashes first? (Y) "
+                        "Would you like to ignore duplicate accounts"
+                        " (keep first occurrence only)? (Y) "
                     )
                     or "Y"
                 )
-                if lmChoice.upper() == "Y":
-                    hcatLMtoNT()
-            hcatHashFileOrig = hcatHashFile
-            hcatHashFile = hcatHashFile + ".nt"
-        elif re.search(r"^[a-f0-9A-F]{32}$", hcatHashFileLine):
-            pwdump_format = False
-            print("PWDUMP format was not detected...")
-            print("Hash only detected")
-        elif re.search(r"^.+:[a-f0-9A-F]{32}$", hcatHashFileLine):
-            pwdump_format = False
-            print("PWDUMP format was not detected...")
-            print("username with Hash detected")
-            _write_field_sorted_unique(hcatHashFile, f"{hcatHashFile}.nt", 2)
-            hcatHashFileOrig = hcatHashFile
-            hcatHashFile = hcatHashFile + ".nt"
-        elif re.search(r"^.+::.+:.+:[a-f0-9A-F]{64}:", hcatHashFileLine):
-            # NetNTLMv2 format: username::domain:server_challenge:ntproofstr:blob
-            # NetNTLMv2-ESS format is similar, with Enhanced Session Security
-            pwdump_format = False
-            # Try to detect if it's NetNTLMv2-ESS (has specific markers)
-            if re.search(
-                r"^.+::.+:.+:[a-f0-9A-F]{16}:[a-f0-9A-F]{32}:[a-f0-9A-F]+$",
-                hcatHashFileLine,
-            ):
-                print("NetNTLMv2-ESS format detected")
-                print("Note: Hash type should be 5600 for NetNTLMv2-ESS hashes")
-            else:
-                print("NetNTLMv2 format detected")
-                print("Note: Hash type should be 5500 for NetNTLMv2 hashes")
-        else:
-            print("unknown format....does it have usernames?")
-            exit(1)
-    # Detect and optionally deduplicate NetNTLM hashes by username
-    if hcatHashType in ("5500", "5600"):
-        total, duplicates = _dedup_netntlm_by_username(
-            hcatHashFile, hcatHashFile + ".dedup"
-        )
-        if duplicates > 0:
-            print(
-                f"Detected {duplicates} duplicate account(s) out of"
-                f" {total} total NetNTLM hashes."
-            )
-            dedup_choice = (
-                input(
-                    "Would you like to ignore duplicate accounts"
-                    " (keep first occurrence only)? (Y) "
-                )
-                or "Y"
-            )
-            if dedup_choice.upper() == "Y":
-                hcatHashFileOrig = hcatHashFile
-                hcatHashFile = hcatHashFile + ".dedup"
-                print(
-                    f"Using deduplicated hash file with"
-                    f" {total - duplicates} unique accounts."
-                )
-            else:
-                # Remove the dedup file if user chose not to use it
-                try:
-                    os.remove(hcatHashFile + ".dedup")
-                except OSError:
-                    pass
+                if dedup_choice.upper() == "Y":
+                    hcatHashFileOrig = hcatHashFile
+                    hcatHashFile = dedup_path
+                    # Keep this file - remove from cleanup list
+                    _preprocessing_temp_files.remove(dedup_path)
+                    print(
+                        f"Using deduplicated hash file with"
+                        f" {total - duplicates} unique accounts."
+                    )
+                else:
+                    # Remove the dedup file if user chose not to use it
+                    try:
+                        os.remove(dedup_path)
+                    except OSError:
+                        pass
+                    _preprocessing_temp_files.remove(dedup_path)
+    except KeyboardInterrupt:
+        print("\nPreprocessing interrupted. Cleaning up temp files...")
+        _cleanup_preprocessing_temps()
+        sys.exit(1)
 
     # Check POT File for Already Cracked Hashes
     if not os.path.isfile(hcatHashFile + ".out"):
