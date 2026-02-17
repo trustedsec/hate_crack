@@ -419,13 +419,13 @@ The LLM Attack (option 15) uses Ollama to generate password candidates. Configur
 
 ```json
 {
-  "ollamaModel": "qwen2.5",
-  "ollamaNumCtx": 8192
+  "ollamaModel": "mistral",
+  "ollamaNumCtx": 2048
 }
 ```
 
-- **`ollamaModel`** — The Ollama model to use for candidate generation (default: `qwen2.5`).
-- **`ollamaNumCtx`** — Context window size for the model (default: `8192`).
+- **`ollamaModel`** — The Ollama model to use for candidate generation (default: `mistral`).
+- **`ollamaNumCtx`** — Context window size for the model (default: `2048`).
 - The Ollama URL defaults to `http://localhost:11434`. Ensure Ollama is running before using the LLM Attack.
 
 #### Automatic Found Hash Merging (Download Left Only)
