@@ -916,7 +916,23 @@ def _write_field_sorted_unique(input_path, output_path, field_index, delimiter="
         return False
 
 
-def _filter_computer_accounts(input_path, output_path, delimiter=":"):
+def _count_computer_accounts(input_path: str, delimiter: str = ":") -> int:
+    """Count computer accounts (usernames ending with $) in a hash file."""
+    count = 0
+    try:
+        with open(input_path, "r", errors="replace") as src:
+            for line in src:
+                stripped = line.strip()
+                if stripped and stripped.split(delimiter, 1)[0].endswith("$"):
+                    count += 1
+    except FileNotFoundError:
+        pass
+    return count
+
+
+def _filter_computer_accounts(
+    input_path: str, output_path: str, delimiter: str = ":"
+) -> int:
     """Filter out computer accounts (usernames ending with $) from a hash file.
 
     Reads the input file, removes lines where the first field (username)
@@ -924,9 +940,10 @@ def _filter_computer_accounts(input_path, output_path, delimiter=":"):
     Returns the number of computer accounts removed.
     """
     removed = 0
-    kept_lines = []
     try:
-        with open(input_path, "r", errors="replace") as src:
+        with open(input_path, "r", errors="replace") as src, open(
+            output_path, "w"
+        ) as dst:
             for line in src:
                 stripped = line.rstrip("\n")
                 if not stripped:
@@ -935,24 +952,24 @@ def _filter_computer_accounts(input_path, output_path, delimiter=":"):
                 if username.endswith("$"):
                     removed += 1
                 else:
-                    kept_lines.append(stripped)
-        with open(output_path, "w") as dst:
-            for line in kept_lines:
-                dst.write(line + "\n")
+                    dst.write(stripped + "\n")
     except FileNotFoundError:
         pass
     return removed
 
 
-def _dedup_netntlm_by_username(input_path, output_path, delimiter=":"):
+def _dedup_netntlm_by_username(
+    input_path: str, output_path: str, delimiter: str = ":"
+) -> tuple[int, int]:
     """Deduplicate NetNTLM hashes by username, keeping the first occurrence.
 
     NetNTLM format: username::domain:challenge:response:blob
     The username is the first field before the delimiter.
+    Only writes output_path when duplicates are found.
     Returns a tuple of (total_lines, duplicates_removed).
     """
-    seen_usernames = set()
-    kept_lines = []
+    seen_usernames: set[str] = set()
+    kept_lines: list[str] = []
     duplicates = 0
     total = 0
     try:
@@ -968,9 +985,10 @@ def _dedup_netntlm_by_username(input_path, output_path, delimiter=":"):
                 else:
                     seen_usernames.add(username)
                     kept_lines.append(stripped)
-        with open(output_path, "w") as dst:
-            for line in kept_lines:
-                dst.write(line + "\n")
+        if duplicates > 0:
+            with open(output_path, "w") as dst:
+                for line in kept_lines:
+                    dst.write(line + "\n")
     except FileNotFoundError:
         pass
     return total, duplicates
@@ -3650,16 +3668,13 @@ def main():
     if hcatHashType == "1000":
         lmHashesFound = False
         pwdump_format = False
-        hcatHashFileLine = open(hcatHashFile, "r").readline().strip().lstrip("\ufeff")
+        with open(hcatHashFile, "r") as f:
+            hcatHashFileLine = f.readline().strip().lstrip("\ufeff")
         if re.search(r"[a-f0-9A-F]{32}:[a-f0-9A-F]{32}:::", hcatHashFileLine):
             pwdump_format = True
             print("PWDUMP format detected...")
             # Detect computer accounts (usernames ending with $)
-            computer_count = sum(
-                1
-                for line in open(hcatHashFile, "r", errors="replace")
-                if line.strip() and line.split(":", 1)[0].endswith("$")
-            )
+            computer_count = _count_computer_accounts(hcatHashFile)
             if computer_count > 0:
                 print(
                     f"Detected {computer_count} computer account(s)"
@@ -3753,12 +3768,6 @@ def main():
                     os.remove(hcatHashFile + ".dedup")
                 except OSError:
                     pass
-        else:
-            # No duplicates found, clean up
-            try:
-                os.remove(hcatHashFile + ".dedup")
-            except OSError:
-                pass
 
     # Check POT File for Already Cracked Hashes
     if not os.path.isfile(hcatHashFile + ".out"):
