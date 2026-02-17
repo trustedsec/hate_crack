@@ -918,7 +918,9 @@ class HashviewAPI:
 
                 # Append found hashes to the left file
                 with open(output_abs, "a", encoding="utf-8") as lf:
-                    with open(found_hashes_file, "r", encoding="utf-8", errors="ignore") as fhf:
+                    with open(
+                        found_hashes_file, "r", encoding="utf-8", errors="ignore"
+                    ) as fhf:
                         for line in fhf:
                             line = line.strip()
                             if line:
@@ -930,16 +932,22 @@ class HashviewAPI:
                 if potfile_path:
                     appended = 0
                     with open(potfile_path, "a", encoding="utf-8") as pf:
-                        with open(found_file, "r", encoding="utf-8", errors="ignore") as ff:
+                        with open(
+                            found_file, "r", encoding="utf-8", errors="ignore"
+                        ) as ff:
                             for line in ff:
                                 line = line.strip()
                                 if line and ":" in line:
                                     pf.write(line + "\n")
                                     appended += 1
                     combined_count = appended
-                    print(f"✓ Appended {appended} found hashes to potfile: {potfile_path}")
+                    print(
+                        f"✓ Appended {appended} found hashes to potfile: {potfile_path}"
+                    )
                 else:
-                    print("Warning: No potfile path configured, skipping potfile update")
+                    print(
+                        "Warning: No potfile path configured, skipping potfile update"
+                    )
 
                 # Clean up the two found_ files
                 for f_path in (found_file, found_hashes_file, found_clears_file):
@@ -1023,6 +1031,11 @@ class HashviewAPI:
                     output_file = os.path.basename(match.group(1))
                 else:
                     output_file = f"wordlist_{wordlist_id}.gz"
+        if not os.path.isabs(output_file):
+            dest_dir = get_hcat_wordlists_dir()
+            output_file = os.path.join(dest_dir, output_file)
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+
         total = int(resp.headers.get("content-length", 0))
         downloaded = 0
         chunk_size = 8192
