@@ -499,3 +499,23 @@ def ollama_attack(ctx: Any) -> None:
         "location": location,
     }
     ctx.hcatOllama(ctx.hcatHashType, ctx.hcatHashFile, "target", target_info)
+
+
+def omen_attack(ctx: Any) -> None:
+    print("\n\tOMEN Attack (Ordered Markov ENumerator)")
+    omen_dir = os.path.join(ctx.hate_path, "omen")
+    model_exists = os.path.isfile(os.path.join(omen_dir, "IP.level"))
+    if not model_exists:
+        print("\n\tNo OMEN model found. Training is required before generation.")
+        training_source = input(
+            "\n\tTraining source (path to password list, or press Enter for default): "
+        ).strip()
+        if not training_source:
+            training_source = ctx.omenTrainingList
+        ctx.hcatOmenTrain(training_source)
+    max_candidates = input(
+        f"\n\tMax candidates to generate ({ctx.omenMaxCandidates}): "
+    ).strip()
+    if not max_candidates:
+        max_candidates = str(ctx.omenMaxCandidates)
+    ctx.hcatOmen(ctx.hcatHashType, ctx.hcatHashFile, int(max_candidates))

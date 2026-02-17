@@ -4,3 +4,6 @@
 [submodule "HashcatRosetta"]
 	path = HashcatRosetta
 	url = https://github.com/bandrel/HashcatRosetta.git
+[submodule "omen"]
+	path = omen
+	url = https://github.com/RUB-SysSec/OMEN.git

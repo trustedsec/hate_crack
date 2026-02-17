@@ -212,19 +212,19 @@ def ensure_binary(binary_path, build_dir=None, name=None):
                     "\nRun 'make install' from the repository directory to install with assets:"
                 )
                 print("  cd /path/to/hate_crack && make install")
-                quit(1)
+                sys.exit(1)
 
             # Binary missing - need to build
             print(f"Error: {name or 'binary'} not found at {binary_path}.")
             print("\nPlease build the utilities by running:")
             print(f"  cd {build_dir} && make")
             print("\nEnsure build tools (gcc, make) are installed on your system.")
-            quit(1)
+            sys.exit(1)
         else:
             print(
                 f"Error: {name or binary_path} not found or not executable at {binary_path}."
             )
-            quit(1)
+            sys.exit(1)
     return binary_path
 
 
@@ -468,10 +468,31 @@ except KeyError as e:
     )
     ollamaNumCtx = int(default_config.get("ollamaNumCtx", 2048))
 
+try:
+    omenTrainingList = config_parser["omenTrainingList"]
+except KeyError as e:
+    print(
+        "{0} is not defined in config.json using defaults from config.json.example".format(
+            e
+        )
+    )
+    omenTrainingList = default_config.get("omenTrainingList", "rockyou.txt")
+try:
+    omenMaxCandidates = int(config_parser["omenMaxCandidates"])
+except KeyError as e:
+    print(
+        "{0} is not defined in config.json using defaults from config.json.example".format(
+            e
+        )
+    )
+    omenMaxCandidates = int(default_config.get("omenMaxCandidates", 1000000))
+
 hcatExpanderBin = "expander.bin"
 hcatCombinatorBin = "combinator.bin"
 hcatPrinceBin = "pp64.bin"
 hcatHcstat2genBin = "hcstat2gen.bin"
+hcatOmenCreateBin = "createNG"
+hcatOmenEnumBin = "enumNG"
 
 
 def _resolve_wordlist_path(wordlist, base_dir):
@@ -606,6 +627,7 @@ hcatGoodMeasureBaseList = _normalize_wordlist_setting(
     hcatGoodMeasureBaseList, wordlists_dir
 )
 hcatPrinceBaseList = _normalize_wordlist_setting(hcatPrinceBaseList, wordlists_dir)
+omenTrainingList = _normalize_wordlist_setting(omenTrainingList, wordlists_dir)
 if not SKIP_INIT:
     # Verify hashcat binary is available
     # hcatBin should be in PATH or be an absolute path (resolved from hcatPath + hcatBin if configured)
@@ -615,14 +637,14 @@ if not SKIP_INIT:
                 print(
                     f"Hashcat binary not found at {hcatBin}. Please check configuration and try again."
                 )
-                quit(1)
+                sys.exit(1)
         else:
             # hcatBin should be in PATH
             if shutil.which(hcatBin) is None:
                 print(
                     f'Hashcat binary "{hcatBin}" not found in PATH. Please check configuration and try again.'
                 )
-                quit(1)
+                sys.exit(1)
 
         # Verify hashcat-utils binaries exist and work
         # Note: hashcat-utils is part of hate_crack repo, not hashcat installation
@@ -656,7 +678,7 @@ if not SKIP_INIT:
                 print(f"Error: {name} binary at {binary_path} failed to execute: {e}")
                 print("The binary may be compiled for the wrong architecture.")
                 print("Try recompiling hashcat-utils for your system.")
-                quit(1)
+                sys.exit(1)
 
         # Verify princeprocessor binary
         # Note: princeprocessor is part of hate_crack repo, not hashcat installation
@@ -681,6 +703,23 @@ if not SKIP_INIT:
             )
         except SystemExit:
             print("LLM attacks will not be available.")
+
+        # Verify OMEN binaries (optional, for OMEN attack)
+        omen_create_path = os.path.join(hate_path, "omen", hcatOmenCreateBin)
+        omen_enum_path = os.path.join(hate_path, "omen", hcatOmenEnumBin)
+        try:
+            ensure_binary(
+                omen_create_path,
+                build_dir=os.path.join(hate_path, "omen"),
+                name="OMEN createNG",
+            )
+            ensure_binary(
+                omen_enum_path,
+                build_dir=os.path.join(hate_path, "omen"),
+                name="OMEN enumNG",
+            )
+        except SystemExit:
+            print("OMEN attacks will not be available.")
 
     except Exception as e:
         print(f"Module initialization error: {e}")
@@ -2072,6 +2111,67 @@ def hcatPrince(hcatHashType, hcatHashFile):
             prince_proc.kill()
 
 
+# OMEN Attack - Train model
+def hcatOmenTrain(training_file):
+    omen_dir = os.path.join(hate_path, "omen")
+    create_bin = os.path.join(omen_dir, hcatOmenCreateBin)
+    if not os.path.isfile(create_bin):
+        print(f"Error: OMEN createNG binary not found: {create_bin}")
+        return
+    if not os.path.isfile(training_file):
+        print(f"Error: Training file not found: {training_file}")
+        return
+    print(f"Training OMEN model with: {training_file}")
+    cmd = [create_bin, "--iPwdList", training_file]
+    print(f"[*] Running: {_format_cmd(cmd)}")
+    proc = subprocess.Popen(cmd, cwd=omen_dir)
+    try:
+        proc.wait()
+    except KeyboardInterrupt:
+        print("Killing PID {0}...".format(str(proc.pid)))
+        proc.kill()
+        return
+    if proc.returncode == 0:
+        print("OMEN model training complete.")
+    else:
+        print(f"OMEN training failed with exit code {proc.returncode}")
+
+
+# OMEN Attack - Generate candidates and pipe to hashcat
+def hcatOmen(hcatHashType, hcatHashFile, max_candidates):
+    global hcatProcess
+    omen_dir = os.path.join(hate_path, "omen")
+    enum_bin = os.path.join(omen_dir, hcatOmenEnumBin)
+    if not os.path.isfile(enum_bin):
+        print(f"Error: OMEN enumNG binary not found: {enum_bin}")
+        return
+    enum_cmd = [enum_bin, "-p", "-m", str(max_candidates)]
+    hashcat_cmd = [
+        hcatBin,
+        "-m",
+        hcatHashType,
+        hcatHashFile,
+        "--session",
+        generate_session_id(),
+        "-o",
+        f"{hcatHashFile}.out",
+    ]
+    hashcat_cmd.extend(shlex.split(hcatTuning))
+    _append_potfile_arg(hashcat_cmd)
+    print(f"[*] Running: {_format_cmd(enum_cmd)} | {_format_cmd(hashcat_cmd)}")
+    _debug_cmd(hashcat_cmd)
+    enum_proc = subprocess.Popen(enum_cmd, cwd=omen_dir, stdout=subprocess.PIPE)
+    hcatProcess = subprocess.Popen(hashcat_cmd, stdin=enum_proc.stdout)
+    enum_proc.stdout.close()
+    try:
+        hcatProcess.wait()
+        enum_proc.wait()
+    except KeyboardInterrupt:
+        print("Killing PID {0}...".format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+        enum_proc.kill()
+
+
 # Extra - Good Measure
 def hcatGoodMeasure(hcatHashType, hcatHashFile):
     global hcatExtraCount
@@ -2987,6 +3087,10 @@ def ollama_attack():
     return _attacks.ollama_attack(_attack_ctx())
 
 
+def omen_attack():
+    return _attacks.omen_attack(_attack_ctx())
+
+
 # convert hex words for recycling
 def convert_hex(working_file):
     processed_words = []
@@ -3215,6 +3319,7 @@ def get_main_menu_options():
         "13": bandrel_method,
         "14": loopback_attack,
         "15": ollama_attack,
+        "16": omen_attack,
         "90": download_hashmob_rules,
         "91": analyze_rules,
         "92": download_hashmob_wordlists,
@@ -3867,6 +3972,7 @@ def main():
             print("\t(13) Bandrel Methodology")
             print("\t(14) Loopback Attack")
             print("\t(15) LLM Attack")
+            print("\t(16) OMEN Attack")
             print("\n\t(90) Download rules from Hashmob.net")
             print("\n\t(91) Analyze Hashcat Rules")
             print("\t(92) Download wordlists from Hashmob.net")
