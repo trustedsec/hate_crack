@@ -26,6 +26,7 @@ MENU_OPTION_TEST_CASES = [
     ("13", CLI_MODULE._attacks, "bandrel_method", "bandrel"),
     ("14", CLI_MODULE._attacks, "loopback_attack", "loopback"),
     ("15", CLI_MODULE._attacks, "ollama_attack", "ollama"),
+    ("16", CLI_MODULE._attacks, "omen_attack", "omen"),
     ("90", CLI_MODULE, "download_hashmob_rules", "hashmob-rules"),
     ("91", CLI_MODULE, "weakpass_wordlist_menu", "weakpass-menu"),
     ("92", CLI_MODULE, "download_hashmob_wordlists", "hashmob-wordlists"),
