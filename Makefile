@@ -12,7 +12,7 @@ submodules:
 	$(MAKE) submodules-pre; \
 	if [ -f .gitmodules ] && command -v git >/dev/null 2>&1; then \
 		for path in $$(git config --file .gitmodules --get-regexp path | awk '{print $$2}'); do \
-			if [ -f "$$path/Makefile" ]; then \
+			if [ -f "$$path/Makefile" ] || [ -f "$$path/makefile" ]; then \
 				$(MAKE) -C "$$path"; \
 			fi; \
 		done; \
