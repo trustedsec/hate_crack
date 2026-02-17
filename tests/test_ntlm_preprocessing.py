@@ -573,3 +573,235 @@ class TestPwdumpFilterPipeline:
         assert len(lm_hashes) == 2
         assert "aad3b435b51404eeaad3b435b51404ee" in lm_hashes
         assert "e52cac67419a9a224a3b108f3fa6cb6d" in lm_hashes
+
+
+class TestE2EPreprocessingFlow:
+    """End-to-end tests that simulate the actual main() preprocessing flow.
+
+    These tests replicate the exact logic from main.py lines 3698-3747,
+    exercising the full chain: format detection -> computer account filtering
+    -> NT/LM hash extraction -> final hcatHashFile assignment.
+    """
+
+    @staticmethod
+    def _run_preprocessing(main_module, hash_file_path, input_responses):
+        """Simulate the main() preprocessing block for hash type 1000.
+
+        Replicates the exact flow from main.py:
+        1. Read first line, detect pwdump format
+        2. Count computer accounts, prompt to filter
+        3. Extract NT and LM hashes via _write_field_sorted_unique
+        4. Return the final hcatHashFile path and metadata
+
+        Args:
+            main_module: The hate_crack.main module
+            hash_file_path: Path to the pwdump hash file
+            input_responses: List of responses for input() calls
+                (e.g., ["Y"] to accept filtering, ["N"] to decline)
+
+        Returns:
+            dict with keys: hcatHashFile, hcatHashFileOrig, pwdump_format,
+                lmHashesFound, filtered_path, nt_file, lm_file
+        """
+        import re
+
+        input_iter = iter(input_responses)
+
+        hcatHashFile = str(hash_file_path)
+        hcatHashFileOrig = None
+        pwdump_format = False
+        lmHashesFound = False
+        filtered_path = None
+
+        # Read first line (same as main.py line 3702-3703)
+        with open(hcatHashFile, "r") as f:
+            hcatHashFileLine = f.readline().strip().lstrip("\ufeff")
+
+        # Detect pwdump format (same regex as main.py line 3704)
+        if re.search(r"[a-f0-9A-F]{32}:[a-f0-9A-F]{32}:::", hcatHashFileLine):
+            pwdump_format = True
+
+            # Count and optionally filter computer accounts
+            computer_count = main_module._count_computer_accounts(hcatHashFile)
+            if computer_count > 0:
+                filter_choice = next(input_iter, "Y")
+                if filter_choice.upper() == "Y":
+                    filtered_path = f"{hcatHashFile}.filtered"
+                    main_module._filter_computer_accounts(hcatHashFile, filtered_path)
+                    hcatHashFile = filtered_path
+
+            # Extract NT hashes (field 4) - same as main.py line 3726
+            main_module._write_field_sorted_unique(
+                hcatHashFile, f"{hcatHashFile}.nt", 4
+            )
+            # Extract LM hashes (field 3) - same as main.py line 3728
+            main_module._write_field_sorted_unique(
+                hcatHashFile, f"{hcatHashFile}.lm", 3
+            )
+
+            # Check for LM hashes (same logic as main.py lines 3729-3735)
+            lm_count = main_module.lineCount(hcatHashFile + ".lm")
+            if (
+                lm_count == 1
+                and hcatHashFileLine.split(":")[2].lower()
+                != "aad3b435b51404eeaad3b435b51404ee"
+            ) or lm_count > 1:
+                lmHashesFound = True
+                # Decline LM brute force to keep test simple
+                next(input_iter, "N")
+
+            hcatHashFileOrig = hcatHashFile
+            hcatHashFile = hcatHashFile + ".nt"
+
+        return {
+            "hcatHashFile": hcatHashFile,
+            "hcatHashFileOrig": hcatHashFileOrig,
+            "pwdump_format": pwdump_format,
+            "lmHashesFound": lmHashesFound,
+            "filtered_path": filtered_path,
+        }
+
+    def test_e2e_filter_computers_and_extract_nt(self, tmp_path, main_module):
+        """Full flow: secretsdump.py output -> filter computers -> extract NT hashes."""
+        pwdump = tmp_path / "secretsdump.txt"
+        pwdump.write_text(
+            "Administrator:500:aad3b435b51404eeaad3b435b51404ee:31d6cfe0d16ae931b73c59d7e0c089c0:::\n"
+            "Guest:501:aad3b435b51404eeaad3b435b51404ee:31d6cfe0d16ae931b73c59d7e0c089c0:::\n"
+            "CORP-DC01$:1001:aad3b435b51404eeaad3b435b51404ee:8846f7eaee8fb117ad06bdd830b7586c:::\n"
+            "john.doe:1002:e52cac67419a9a224a3b108f3fa6cb6d:5f4dcc3b5aa765d61d8327deb882cf99:::\n"
+            "CORP-WKS01$:1003:aad3b435b51404eeaad3b435b51404ee:deadbeefcafebabe1234567890abcdef:::\n"
+            "jane.smith:1004:aad3b435b51404eeaad3b435b51404ee:6cb75f652a9b52798eb6cf2201057c73:::\n"
+            "CORP-SRV01$:1005:aad3b435b51404eeaad3b435b51404ee:1234567890abcdef1234567890abcdef:::\n"
+        )
+
+        result = self._run_preprocessing(main_module, pwdump, ["Y", "N"])
+
+        # Verify pwdump detected
+        assert result["pwdump_format"] is True
+
+        # Verify filtering happened
+        assert result["filtered_path"] is not None
+        filtered = open(result["filtered_path"]).read()
+        filtered_lines = filtered.strip().split("\n")
+        assert len(filtered_lines) == 4, (
+            f"Expected 4 non-computer lines, got {len(filtered_lines)}"
+        )
+        for line in filtered_lines:
+            username = line.split(":")[0]
+            assert not username.endswith("$"), (
+                f"Computer account leaked through: {username}"
+            )
+
+        # Verify final hcatHashFile points to .nt file
+        assert result["hcatHashFile"].endswith(".nt")
+
+        # Verify NT hashes are correct (no computer account hashes)
+        nt_content = open(result["hcatHashFile"]).read()
+        nt_hashes = nt_content.strip().split("\n")
+        assert "31d6cfe0d16ae931b73c59d7e0c089c0" in nt_hashes  # Admin/Guest
+        assert "5f4dcc3b5aa765d61d8327deb882cf99" in nt_hashes  # john.doe
+        assert "6cb75f652a9b52798eb6cf2201057c73" in nt_hashes  # jane.smith
+        # Computer hashes must NOT be present
+        assert "8846f7eaee8fb117ad06bdd830b7586c" not in nt_hashes
+        assert "deadbeefcafebabe1234567890abcdef" not in nt_hashes
+        assert "1234567890abcdef1234567890abcdef" not in nt_hashes
+
+    def test_e2e_decline_filter(self, tmp_path, main_module):
+        """Full flow when user declines filtering - all hashes including computers."""
+        pwdump = tmp_path / "dump.txt"
+        pwdump.write_text(
+            "admin:500:aad3b435b51404eeaad3b435b51404ee:31d6cfe0d16ae931b73c59d7e0c089c0:::\n"
+            "COMP$:1001:aad3b435b51404eeaad3b435b51404ee:8846f7eaee8fb117ad06bdd830b7586c:::\n"
+        )
+
+        result = self._run_preprocessing(main_module, pwdump, ["N", "N"])
+
+        assert result["pwdump_format"] is True
+        assert result["filtered_path"] is None  # No filtering
+
+        # NT file should contain BOTH hashes (computer included)
+        nt_hashes = open(result["hcatHashFile"]).read().strip().split("\n")
+        assert "31d6cfe0d16ae931b73c59d7e0c089c0" in nt_hashes
+        assert "8846f7eaee8fb117ad06bdd830b7586c" in nt_hashes
+
+    def test_e2e_no_computers_in_dump(self, tmp_path, main_module):
+        """Full flow with no computer accounts - no prompt shown."""
+        pwdump = tmp_path / "clean.txt"
+        pwdump.write_text(
+            "admin:500:aad3b435b51404eeaad3b435b51404ee:31d6cfe0d16ae931b73c59d7e0c089c0:::\n"
+            "john:501:e52cac67419a9a224a3b108f3fa6cb6d:5f4dcc3b5aa765d61d8327deb882cf99:::\n"
+        )
+
+        # No input responses needed since no computer accounts -> no prompt
+        result = self._run_preprocessing(main_module, pwdump, ["N"])
+
+        assert result["pwdump_format"] is True
+        assert result["filtered_path"] is None
+        nt_hashes = open(result["hcatHashFile"]).read().strip().split("\n")
+        assert len(nt_hashes) == 2
+
+    def test_e2e_all_computers(self, tmp_path, main_module):
+        """Full flow where ALL accounts are computer accounts."""
+        pwdump = tmp_path / "computers_only.txt"
+        pwdump.write_text(
+            "DC01$:500:aad3b435b51404eeaad3b435b51404ee:31d6cfe0d16ae931b73c59d7e0c089c0:::\n"
+            "WKS01$:501:aad3b435b51404eeaad3b435b51404ee:8846f7eaee8fb117ad06bdd830b7586c:::\n"
+        )
+
+        result = self._run_preprocessing(main_module, pwdump, ["Y", "N"])
+
+        assert result["filtered_path"] is not None
+        filtered = open(result["filtered_path"]).read()
+        assert filtered.strip() == ""  # All lines removed
+
+        # NT file should be empty too
+        nt_content = open(result["hcatHashFile"]).read()
+        assert nt_content.strip() == ""
+
+    def test_e2e_lm_hashes_detected(self, tmp_path, main_module):
+        """Full flow with non-empty LM hashes triggers LM detection."""
+        pwdump = tmp_path / "lm_hashes.txt"
+        pwdump.write_text(
+            "admin:500:e52cac67419a9a224a3b108f3fa6cb6d:31d6cfe0d16ae931b73c59d7e0c089c0:::\n"
+            "COMP$:501:aad3b435b51404eeaad3b435b51404ee:8846f7eaee8fb117ad06bdd830b7586c:::\n"
+            "john:502:a4f49c406510bdca00000000000000000:5f4dcc3b5aa765d61d8327deb882cf99:::\n"
+        )
+
+        result = self._run_preprocessing(main_module, pwdump, ["Y", "N"])
+
+        assert result["lmHashesFound"] is True
+
+        # LM file should only have non-computer LM hashes
+        lm_path = result["hcatHashFileOrig"] + ".lm"
+        lm_hashes = open(lm_path).read().strip().split("\n")
+        # Computer LM hash should not be present
+        for lm in lm_hashes:
+            # These are from the filtered file (no COMP$)
+            assert lm in [
+                "a4f49c406510bdca00000000000000000",
+                "e52cac67419a9a224a3b108f3fa6cb6d",
+            ]
+
+    def test_e2e_domain_prefix_computers(self, tmp_path, main_module):
+        """Full flow with domain\\computer$ format from secretsdump."""
+        pwdump = tmp_path / "domain_dump.txt"
+        pwdump.write_text(
+            "CORP\\Administrator:500:aad3b435b51404eeaad3b435b51404ee:31d6cfe0d16ae931b73c59d7e0c089c0:::\n"
+            "CORP\\DESKTOP-PC$:1001:aad3b435b51404eeaad3b435b51404ee:8846f7eaee8fb117ad06bdd830b7586c:::\n"
+            "CORP\\john.doe:1002:aad3b435b51404eeaad3b435b51404ee:5f4dcc3b5aa765d61d8327deb882cf99:::\n"
+        )
+
+        result = self._run_preprocessing(main_module, pwdump, ["Y", "N"])
+
+        # Verify format detection still works (regex matches the LM:NT::: part)
+        assert result["pwdump_format"] is True
+
+        # The username field is "CORP\DESKTOP-PC$" - split on ":" gets that
+        # But wait: "CORP\DESKTOP-PC$" doesn't end with $ in the first :-delimited field?
+        # Actually it does: split(":", 1)[0] = "CORP\\DESKTOP-PC$" which ends with "$"
+        assert result["filtered_path"] is not None
+        filtered_lines = open(result["filtered_path"]).read().strip().split("\n")
+        assert len(filtered_lines) == 2
+        for line in filtered_lines:
+            username = line.split(":")[0]
+            assert not username.endswith("$")
