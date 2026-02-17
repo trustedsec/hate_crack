@@ -3773,6 +3773,25 @@ def main():
             else:
                 print("unknown format....does it have usernames?")
                 exit(1)
+        # Detect and optionally filter computer accounts from NetNTLM hashes
+        if hcatHashType in ("5500", "5600"):
+            computer_count = _count_computer_accounts(hcatHashFile)
+            if computer_count > 0:
+                print(
+                    f"Detected {computer_count} computer account(s)"
+                    " (usernames ending with $)."
+                )
+                filter_choice = (
+                    input("Would you like to ignore computer accounts? (Y) ") or "Y"
+                )
+                if filter_choice.upper() == "Y":
+                    filtered_path = f"{hcatHashFile}.filtered"
+                    _preprocessing_temp_files.append(filtered_path)
+                    removed = _filter_computer_accounts(hcatHashFile, filtered_path)
+                    print(f"Removed {removed} computer account(s).")
+                    hcatHashFile = filtered_path
+                    _preprocessing_temp_files.remove(filtered_path)
+
         # Detect and optionally deduplicate NetNTLM hashes by username
         if hcatHashType in ("5500", "5600"):
             dedup_path = hcatHashFile + ".dedup"
