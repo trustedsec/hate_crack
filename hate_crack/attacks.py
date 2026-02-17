@@ -504,6 +504,12 @@ def ollama_attack(ctx: Any) -> None:
 def omen_attack(ctx: Any) -> None:
     print("\n\tOMEN Attack (Ordered Markov ENumerator)")
     omen_dir = os.path.join(ctx.hate_path, "omen")
+    create_bin = os.path.join(omen_dir, ctx.hcatOmenCreateBin)
+    enum_bin = os.path.join(omen_dir, ctx.hcatOmenEnumBin)
+    if not os.path.isfile(create_bin) or not os.path.isfile(enum_bin):
+        print("\n\tOMEN binaries not found. Build them with:")
+        print(f"\t  cd {omen_dir} && make")
+        return
     model_exists = os.path.isfile(os.path.join(omen_dir, "IP.level"))
     if not model_exists:
         print("\n\tNo OMEN model found. Training is required before generation.")
