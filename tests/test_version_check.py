@@ -57,8 +57,10 @@ class TestCheckForUpdates:
         mock_resp.json.return_value = {"tag_name": "v0.0.1"}
         mock_resp.raise_for_status = MagicMock()
 
-        with patch.object(hc_module, "requests") as mock_requests, patch.object(
-            hc_module, "REQUESTS_AVAILABLE", True
+        with (
+            patch.object(hc_module, "requests") as mock_requests,
+            patch.object(hc_module, "REQUESTS_AVAILABLE", True),
+            patch("hate_crack.__version__", "2.0"),
         ):
             mock_requests.get.return_value = mock_resp
             hc_module.check_for_updates()

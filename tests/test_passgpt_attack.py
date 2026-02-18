@@ -1,8 +1,11 @@
+import importlib.util
 import os
 import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+_has_transformers = importlib.util.find_spec("transformers") is not None
 
 from hate_crack.passgpt_train import (
     _count_lines,
@@ -395,6 +398,7 @@ class TestMemoryPrecheck:
                 device="cpu",
             )
 
+    @pytest.mark.skipif(not _has_transformers, reason="transformers not installed")
     def test_skips_when_detection_fails(self, tmp_path):
         """When memory detection returns None, training proceeds past the pre-check."""
         f = tmp_path / "words.txt"
@@ -456,6 +460,7 @@ class TestMaxLines:
 
 
 class TestMemoryLimitAutoTune:
+    @pytest.mark.skipif(not _has_transformers, reason="transformers not installed")
     def test_auto_tunes_max_lines(self, tmp_path, capsys):
         f = tmp_path / "words.txt"
         f.write_text("password\n" * 100)
