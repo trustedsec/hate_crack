@@ -37,6 +37,9 @@ try:
 except Exception:
     pass
 
+# Disable HuggingFace telemetry before any HF-related imports
+os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
+
 HAS_ML_DEPS = False
 try:
     import torch  # noqa: F401
