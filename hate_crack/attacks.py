@@ -510,7 +510,8 @@ def omen_attack(ctx: Any) -> None:
         print("\n\tOMEN binaries not found. Build them with:")
         print(f"\t  cd {omen_dir} && make")
         return
-    model_exists = os.path.isfile(os.path.join(omen_dir, "IP.level"))
+    model_dir = os.path.join(os.path.expanduser("~"), ".hate_crack", "omen")
+    model_exists = os.path.isfile(os.path.join(model_dir, "createConfig"))
     if not model_exists:
         print("\n\tNo OMEN model found. Training is required before generation.")
         training_source = input(
@@ -525,3 +526,26 @@ def omen_attack(ctx: Any) -> None:
     if not max_candidates:
         max_candidates = str(ctx.omenMaxCandidates)
     ctx.hcatOmen(ctx.hcatHashType, ctx.hcatHashFile, int(max_candidates))
+
+
+def passgpt_attack(ctx: Any) -> None:
+    print("\n\tPassGPT Attack (ML Password Generator)")
+    if not ctx.HAS_ML_DEPS:
+        print("\n\tPassGPT requires ML dependencies. Install them with:")
+        print('\t  uv pip install -e ".[ml]"')
+        return
+    max_candidates = input(
+        f"\n\tMax candidates to generate ({ctx.passgptMaxCandidates}): "
+    ).strip()
+    if not max_candidates:
+        max_candidates = str(ctx.passgptMaxCandidates)
+    model_name = input(f"\n\tModel name ({ctx.passgptModel}): ").strip()
+    if not model_name:
+        model_name = ctx.passgptModel
+    ctx.hcatPassGPT(
+        ctx.hcatHashType,
+        ctx.hcatHashFile,
+        int(max_candidates),
+        model_name=model_name,
+        batch_size=ctx.passgptBatchSize,
+    )

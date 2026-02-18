@@ -550,6 +550,7 @@ Tests automatically run on GitHub Actions for every push and pull request (Ubunt
   (14) Loopback Attack
   (15) LLM Attack
   (16) OMEN Attack
+  (17) PassGPT Attack
 
   (90) Download rules from Hashmob.net
   (91) Analyze Hashcat Rules
@@ -694,6 +695,31 @@ Uses the Ordered Markov ENumerator (OMEN) to train a statistical password model 
 * Pipes generated candidates directly into hashcat for cracking
 * Model files are stored in `~/.hate_crack/omen/` for persistence across sessions
 
+#### PassGPT Attack
+Uses PassGPT, a GPT-2 based password generator trained on leaked password datasets, to generate candidate passwords. PassGPT produces higher-quality candidates than traditional Markov models by leveraging transformer-based language modeling.
+
+**Requirements:** ML dependencies must be installed separately:
+```bash
+uv pip install -e ".[ml]"
+```
+
+This installs PyTorch and HuggingFace Transformers. GPU acceleration (CUDA/MPS) is auto-detected but not required.
+
+**Configuration keys:**
+* `passgptModel` - HuggingFace model name (default: `javirandor/passgpt-10characters`)
+* `passgptMaxCandidates` - Maximum candidates to generate (default: 1000000)
+* `passgptBatchSize` - Generation batch size (default: 1024)
+
+**Supported models:**
+* `javirandor/passgpt-10characters` - Trained on passwords up to 10 characters (default)
+* `javirandor/passgpt-16characters` - Trained on passwords up to 16 characters
+* Any compatible GPT-2 model on HuggingFace
+
+**Standalone usage:**
+```bash
+python -m hate_crack.passgpt_generate --num 1000 --model javirandor/passgpt-10characters
+```
+
 #### Download Rules from Hashmob.net
 Downloads the latest rule files from Hashmob.net's rule repository. These rules are curated and optimized for password cracking and can be used with the Quick Crack and Loopback Attack modes.
 
@@ -727,6 +753,9 @@ Interactive menu for downloading and managing wordlists from Weakpass.com via Bi
 -------------------------------------------------------------------
 ### Version History
 Version 2.0+
+  Added PassGPT Attack (option 17) using GPT-2 based ML password generation
+  Added PassGPT configuration keys (passgptModel, passgptMaxCandidates, passgptBatchSize)
+  Added [ml] optional dependency group for PyTorch and Transformers
   Added OMEN Attack (option 16) using statistical model-based password generation
   Added OMEN configuration keys (omenTrainingList, omenMaxCandidates)
   Added LLM Attack (option 15) using Ollama for AI-generated password candidates
