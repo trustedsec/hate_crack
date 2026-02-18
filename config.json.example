@@ -30,5 +30,6 @@
   "passgptModel": "javirandor/passgpt-10characters",
   "passgptMaxCandidates": 1000000,
   "passgptBatchSize": 1024,
+  "passgptTrainingList": "rockyou.txt",
   "check_for_updates": true
 }
