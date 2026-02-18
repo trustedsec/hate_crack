@@ -42,10 +42,18 @@ def generate(
     batch_size: int,
     max_length: int,
     device: str | None,
+    debug: bool = False,
 ) -> None:
     # If MPS is requested (or will be auto-detected), set memory limit before importing torch
     if device == "mps" or device is None:
         _configure_mps()
+
+    if debug:
+        import logging
+
+        logging.basicConfig(level=logging.DEBUG, stream=sys.stderr)
+        logging.getLogger("urllib3").setLevel(logging.DEBUG)
+        logging.getLogger("huggingface_hub").setLevel(logging.DEBUG)
 
     import torch
     from transformers import GPT2LMHeadModel  # type: ignore[attr-defined]
@@ -142,6 +150,11 @@ def main() -> None:
         default=None,
         help="Device: cuda, mps, or cpu (default: auto-detect)",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug logging for HTTP requests",
+    )
     args = parser.parse_args()
     generate(
         num=args.num,
@@ -149,6 +162,7 @@ def main() -> None:
         batch_size=args.batch_size,
         max_length=args.max_length,
         device=args.device,
+        debug=args.debug,
     )
 
 
