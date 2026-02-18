@@ -329,6 +329,7 @@ The optional `[ml]` group includes ML/AI features required for the PassGPT attac
 - **torch** - PyTorch deep learning framework (for PassGPT attack and training)
 - **transformers** - HuggingFace transformers library (for GPT-2 models)
 - **datasets** - HuggingFace datasets library (for fine-tuning support)
+- **accelerate** - HuggingFace training acceleration library
 
 Install with:
 ```bash
@@ -838,6 +839,7 @@ Version 2.0+
   - Added LLM Attack (option 15) using Ollama for AI-generated password candidates
   - Added Ollama configuration keys (ollamaModel, ollamaNumCtx)
   - Auto-versioning via setuptools-scm from git tags
+  - Automatic patch version bump (v2.0.1, v2.0.2, ...) on PR merge to main
   - CI test fixes across Python 3.9-3.14
 
 Version 2.0
