@@ -60,15 +60,12 @@ install: submodules vendor-assets
 		sudo apt-get install -y p7zip-full transmission-cli; \
 	else \
 		echo "Unsupported OS. Please install dependencies manually."; \
-		$(MAKE) clean-vendor; \
 		exit 1; \
 	fi
-	@uv tool install . --force --reinstall
-	@$(MAKE) clean-vendor
+	@uv tool install -e . --force --reinstall
 
 update: submodules vendor-assets
-	@uv tool install . --force --reinstall
-	@$(MAKE) clean-vendor
+	@uv tool install -e . --force --reinstall
 
 reinstall: uninstall install
 
