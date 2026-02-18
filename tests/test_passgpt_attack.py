@@ -261,11 +261,14 @@ class TestPassGPTAttackHandler:
         ctx.select_file_with_autocomplete.return_value = "/tmp/wordlist.txt"
         ctx.hcatPassGPTTrain.return_value = "/home/user/.hate_crack/passgpt/wordlist"
 
-        # "T" for train, "" for default base model, "" for default device (cuda), "" for default max candidates
+        # "T" for train, "" for default base model, "" for default device (auto-detected), "" for default max candidates
         inputs = iter(["T", "", "", ""])
         with (
             patch("builtins.input", side_effect=inputs),
             patch("hate_crack.attacks.os.path.isdir", return_value=False),
+            patch(
+                "hate_crack.passgpt_train._detect_device", return_value="cuda"
+            ),
         ):
             from hate_crack.attacks import passgpt_attack
 
@@ -283,11 +286,14 @@ class TestPassGPTAttackHandler:
         ctx.select_file_with_autocomplete.return_value = "/tmp/wordlist.txt"
         ctx.hcatPassGPTTrain.return_value = None
 
-        # "T" for train, "" for default base model, "" for default device (cuda)
+        # "T" for train, "" for default base model, "" for default device (auto-detected)
         inputs = iter(["T", "", ""])
         with (
             patch("builtins.input", side_effect=inputs),
             patch("hate_crack.attacks.os.path.isdir", return_value=False),
+            patch(
+                "hate_crack.passgpt_train._detect_device", return_value="cuda"
+            ),
         ):
             from hate_crack.attacks import passgpt_attack
 

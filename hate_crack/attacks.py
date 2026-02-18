@@ -574,13 +574,20 @@ def passgpt_attack(ctx: Any) -> None:
         if not base:
             base = default_model
 
+        from hate_crack.passgpt_train import _detect_device
+
+        detected = _detect_device()
+        device_labels = {"cuda": "cuda", "mps": "mps (Apple Silicon)", "cpu": "cpu"}
+        device_options = ["cuda", "mps", "cpu"]
         print("\n\tSelect training device:")
-        print("\t  (1) cuda (Recommended)")
-        print("\t  (2) mps (Apple Silicon)")
-        print("\t  (3) cpu")
-        device_choice = input("\n\tDevice [1]: ").strip()
-        device_map = {"1": "cuda", "2": "mps", "3": "cpu", "": "cuda"}
-        device = device_map.get(device_choice, "cuda")
+        for i, dev in enumerate(device_options, 1):
+            label = device_labels[dev]
+            suffix = " (detected)" if dev == detected else ""
+            print(f"\t  ({i}) {label}{suffix}")
+        default_idx = device_options.index(detected) + 1
+        device_choice = input(f"\n\tDevice [{default_idx}]: ").strip()
+        device_map = {"1": "cuda", "2": "mps", "3": "cpu", "": detected}
+        device = device_map.get(device_choice, detected)
 
         result = ctx.hcatPassGPTTrain(training_file, base, device=device)
         if result is None:
