@@ -523,6 +523,15 @@ except KeyError as e:
     )
     passgptBatchSize = int(default_config.get("passgptBatchSize", 1024))
 try:
+    passgptTrainingList = config_parser["passgptTrainingList"]
+except KeyError as e:
+    print(
+        "{0} is not defined in config.json using defaults from config.json.example".format(
+            e
+        )
+    )
+    passgptTrainingList = default_config.get("passgptTrainingList", "rockyou.txt")
+try:
     check_for_updates_enabled = config_parser["check_for_updates"]
 except KeyError as e:
     print(
@@ -673,6 +682,7 @@ hcatGoodMeasureBaseList = _normalize_wordlist_setting(
 )
 hcatPrinceBaseList = _normalize_wordlist_setting(hcatPrinceBaseList, wordlists_dir)
 omenTrainingList = _normalize_wordlist_setting(omenTrainingList, wordlists_dir)
+passgptTrainingList = _normalize_wordlist_setting(passgptTrainingList, wordlists_dir)
 if not SKIP_INIT:
     # Verify hashcat binary is available
     # hcatBin should be in PATH or be an absolute path (resolved from hcatPath + hcatBin if configured)
@@ -2276,6 +2286,55 @@ def hcatOmen(hcatHashType, hcatHashFile, max_candidates):
         print("Killing PID {0}...".format(str(hcatProcess.pid)))
         hcatProcess.kill()
         enum_proc.kill()
+
+
+# PassGPT model directory - writable location for fine-tuned models.
+# Models are saved to ~/.hate_crack/passgpt/<model_name>/.
+def _passgpt_model_dir():
+    model_dir = os.path.join(os.path.expanduser("~"), ".hate_crack", "passgpt")
+    os.makedirs(model_dir, exist_ok=True)
+    return model_dir
+
+
+# PassGPT Attack - Fine-tune a model on a custom wordlist
+def hcatPassGPTTrain(training_file, base_model=None):
+    training_file = os.path.abspath(training_file)
+    if not os.path.isfile(training_file):
+        print(f"Error: Training file not found: {training_file}")
+        return None
+    if base_model is None:
+        base_model = passgptModel
+    # Derive output dir name from training file
+    basename = os.path.splitext(os.path.basename(training_file))[0]
+    # Sanitize: replace non-alphanumeric chars with underscores
+    sanitized = "".join(c if c.isalnum() or c in "-_" else "_" for c in basename)
+    output_dir = os.path.join(_passgpt_model_dir(), sanitized)
+    os.makedirs(output_dir, exist_ok=True)
+    cmd = [
+        sys.executable,
+        "-m",
+        "hate_crack.passgpt_train",
+        "--training-file",
+        training_file,
+        "--base-model",
+        base_model,
+        "--output-dir",
+        output_dir,
+    ]
+    print(f"[*] Running: {_format_cmd(cmd)}")
+    proc = subprocess.Popen(cmd)
+    try:
+        proc.wait()
+    except KeyboardInterrupt:
+        print("Killing PID {0}...".format(str(proc.pid)))
+        proc.kill()
+        return None
+    if proc.returncode == 0:
+        print(f"PassGPT model training complete. Model saved to: {output_dir}")
+        return output_dir
+    else:
+        print(f"PassGPT training failed with exit code {proc.returncode}")
+        return None
 
 
 # PassGPT Attack - Generate candidates with ML model and pipe to hashcat

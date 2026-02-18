@@ -534,14 +534,62 @@ def passgpt_attack(ctx: Any) -> None:
         print("\n\tPassGPT requires ML dependencies. Install them with:")
         print('\t  uv pip install -e ".[ml]"')
         return
+
+    # Build model choices: default HF model + any local fine-tuned models
+    default_model = ctx.passgptModel
+    models = [(default_model, f"{default_model} (default)")]
+
+    model_dir = ctx._passgpt_model_dir()
+    if os.path.isdir(model_dir):
+        for entry in sorted(os.listdir(model_dir)):
+            entry_path = os.path.join(model_dir, entry)
+            if os.path.isdir(entry_path) and os.path.isfile(
+                os.path.join(entry_path, "config.json")
+            ):
+                models.append((entry_path, f"{entry} (local)"))
+
+    print("\n\tSelect a model:")
+    for i, (_, label) in enumerate(models, 1):
+        print(f"\t  ({i}) {label}")
+    print("\t  (T) Train a new model")
+
+    choice = input("\n\tChoice: ").strip()
+
+    if choice.upper() == "T":
+        print("\n\tTrain a new PassGPT model")
+        training_file = ctx.select_file_with_autocomplete(
+            "Select training wordlist", base_dir=ctx.hcatWordlists
+        )
+        if not training_file:
+            print("\n\tNo training file selected. Aborting.")
+            return
+        if isinstance(training_file, list):
+            training_file = training_file[0]
+        base = input(f"\n\tBase model ({default_model}): ").strip()
+        if not base:
+            base = default_model
+        result = ctx.hcatPassGPTTrain(training_file, base)
+        if result is None:
+            print("\n\tTraining failed. Returning to menu.")
+            return
+        model_name = result
+    else:
+        try:
+            idx = int(choice) - 1
+            if 0 <= idx < len(models):
+                model_name = models[idx][0]
+            else:
+                print("\n\tInvalid selection.")
+                return
+        except ValueError:
+            print("\n\tInvalid selection.")
+            return
+
     max_candidates = input(
         f"\n\tMax candidates to generate ({ctx.passgptMaxCandidates}): "
     ).strip()
     if not max_candidates:
         max_candidates = str(ctx.passgptMaxCandidates)
-    model_name = input(f"\n\tModel name ({ctx.passgptModel}): ").strip()
-    if not model_name:
-        model_name = ctx.passgptModel
     ctx.hcatPassGPT(
         ctx.hcatHashType,
         ctx.hcatHashFile,

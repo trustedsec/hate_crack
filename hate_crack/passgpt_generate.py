@@ -8,7 +8,11 @@ hashcat.  Progress and diagnostic messages go to stderr.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
+
+# Disable HuggingFace telemetry before any HF imports
+os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
 
 
 _MPS_BATCH_SIZE_CAP = 64
