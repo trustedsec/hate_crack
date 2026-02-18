@@ -17,25 +17,52 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Bump patch version
+      - name: Determine version bump type
+        id: bump-type
+        run: |
+          BRANCH="${{ github.head_ref }}"
+          TITLE="${{ github.event.pull_request.title }}"
+          # Feature branches (feat/) bump minor, everything else bumps patch
+          if echo "$BRANCH" | grep -qiE '^feat/'; then
+            echo "type=minor" >> "$GITHUB_OUTPUT"
+          elif echo "$TITLE" | grep -qiE '^feat'; then
+            echo "type=minor" >> "$GITHUB_OUTPUT"
+          else
+            echo "type=patch" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Bump type: $(grep type "$GITHUB_OUTPUT" | cut -d= -f2) (branch: $BRANCH)"
+
+      - name: Bump version
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+          BUMP_TYPE="${{ steps.bump-type.outputs.type }}"
           latest=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+' | head -1)
           if [ -z "$latest" ]; then
             echo "No version tag found, starting at v0.0.1"
             next="v0.0.1"
           else
-            # Strip leading v
             version="${latest#v}"
             major=$(echo "$version" | cut -d. -f1)
             minor=$(echo "$version" | cut -d. -f2)
             patch=$(echo "$version" | cut -d. -f3)
             patch=${patch:-0}
-            next="v${major}.${minor}.$((patch + 1))"
+
+            if [ "$BUMP_TYPE" = "minor" ]; then
+              next="v${major}.$((minor + 1)).0"
+            else
+              next="v${major}.${minor}.$((patch + 1))"
+            fi
           fi
 
-          echo "Tagging $next (previous: ${latest:-none})"
+          echo "Tagging $next (previous: ${latest:-none}, bump: $BUMP_TYPE)"
           git tag -a "$next" -m "Release $next"
           git push origin "$next"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          latest=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+' | head -1)
+          gh release create "$latest" --title "$latest" --notes "Release $latest" --latest

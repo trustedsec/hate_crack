@@ -37,6 +37,9 @@ try:
 except Exception:
     pass
 
+# Disable HuggingFace telemetry before any HF-related imports
+os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
+
 HAS_ML_DEPS = False
 try:
     import torch  # noqa: F401
@@ -2323,6 +2326,8 @@ def hcatPassGPTTrain(training_file, base_model=None, device=None):
     ]
     if device:
         cmd.extend(["--device", device])
+    if debug_mode:
+        cmd.append("--debug")
     print(f"[*] Running: {_format_cmd(cmd)}")
     proc = subprocess.Popen(cmd)
     try:
@@ -2363,6 +2368,8 @@ def hcatPassGPT(
         "--batch-size",
         str(batch_size),
     ]
+    if debug_mode:
+        gen_cmd.append("--debug")
     hashcat_cmd = [
         hcatBin,
         "-m",

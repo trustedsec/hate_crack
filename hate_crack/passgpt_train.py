@@ -113,6 +113,7 @@ def train(
     device: str | None,
     max_lines: int = 0,
     memory_limit: int = 0,
+    debug: bool = False,
 ) -> None:
     # --- Memory pre-check ---
     if memory_limit > 0:
@@ -134,6 +135,13 @@ def train(
                 file=sys.stderr,
             )
             sys.exit(1)
+
+    if debug:
+        import logging
+
+        logging.basicConfig(level=logging.DEBUG, stream=sys.stderr)
+        logging.getLogger("urllib3").setLevel(logging.DEBUG)
+        logging.getLogger("huggingface_hub").setLevel(logging.DEBUG)
 
     estimated = _estimate_training_memory_mb(training_file, max_lines=max_lines)
     available = _get_available_memory_mb()
@@ -312,6 +320,11 @@ def main() -> None:
         default=0,
         help="Memory cap in MB; auto-tunes --max-lines to fit (default: 0, no limit)",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug logging for HTTP requests",
+    )
     args = parser.parse_args()
     train(
         training_file=args.training_file,
@@ -322,6 +335,7 @@ def main() -> None:
         device=args.device,
         max_lines=args.max_lines,
         memory_limit=args.memory_limit,
+        debug=args.debug,
     )
 
 
