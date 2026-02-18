@@ -4,6 +4,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from hate_crack.passgpt_train import (
+    _count_lines,
+    _estimate_training_memory_mb,
+    _get_available_memory_mb,
+)
+
 
 @pytest.fixture
 def main_module(hc_module):
@@ -13,15 +19,17 @@ def main_module(hc_module):
 
 class TestHcatPassGPT:
     def test_builds_correct_pipe_commands(self, main_module):
-        with patch.object(main_module, "hcatBin", "hashcat"), patch.object(
-            main_module, "hcatTuning", "--force"
-        ), patch.object(main_module, "hcatPotfilePath", ""), patch.object(
-            main_module, "hcatHashFile", "/tmp/hashes.txt", create=True
-        ), patch.object(
-            main_module, "passgptModel", "javirandor/passgpt-10characters"
-        ), patch.object(main_module, "passgptBatchSize", 1024), patch(
-            "hate_crack.main.subprocess.Popen"
-        ) as mock_popen:
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", "--force"),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "hcatHashFile", "/tmp/hashes.txt", create=True),
+            patch.object(
+                main_module, "passgptModel", "javirandor/passgpt-10characters"
+            ),
+            patch.object(main_module, "passgptBatchSize", 1024),
+            patch("hate_crack.main.subprocess.Popen") as mock_popen,
+        ):
             mock_gen_proc = MagicMock()
             mock_gen_proc.stdout = MagicMock()
             mock_hashcat_proc = MagicMock()
@@ -50,15 +58,17 @@ class TestHcatPassGPT:
             assert "/tmp/hashes.txt" in hashcat_cmd
 
     def test_custom_model_and_batch_size(self, main_module):
-        with patch.object(main_module, "hcatBin", "hashcat"), patch.object(
-            main_module, "hcatTuning", "--force"
-        ), patch.object(main_module, "hcatPotfilePath", ""), patch.object(
-            main_module, "hcatHashFile", "/tmp/hashes.txt", create=True
-        ), patch.object(
-            main_module, "passgptModel", "javirandor/passgpt-10characters"
-        ), patch.object(main_module, "passgptBatchSize", 1024), patch(
-            "hate_crack.main.subprocess.Popen"
-        ) as mock_popen:
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", "--force"),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "hcatHashFile", "/tmp/hashes.txt", create=True),
+            patch.object(
+                main_module, "passgptModel", "javirandor/passgpt-10characters"
+            ),
+            patch.object(main_module, "passgptBatchSize", 1024),
+            patch("hate_crack.main.subprocess.Popen") as mock_popen,
+        ):
             mock_gen_proc = MagicMock()
             mock_gen_proc.stdout = MagicMock()
             mock_hashcat_proc = MagicMock()
@@ -84,9 +94,12 @@ class TestHcatPassGPTTrain:
         training_file = tmp_path / "wordlist.txt"
         training_file.write_text("password123\nabc456\n")
 
-        with patch.object(
-            main_module, "passgptModel", "javirandor/passgpt-10characters"
-        ), patch("hate_crack.main.subprocess.Popen") as mock_popen:
+        with (
+            patch.object(
+                main_module, "passgptModel", "javirandor/passgpt-10characters"
+            ),
+            patch("hate_crack.main.subprocess.Popen") as mock_popen,
+        ):
             mock_proc = MagicMock()
             mock_proc.returncode = 0
             mock_proc.wait.return_value = None
@@ -143,9 +156,12 @@ class TestHcatPassGPTTrain:
         training_file = tmp_path / "wordlist.txt"
         training_file.write_text("test\n")
 
-        with patch.object(
-            main_module, "passgptModel", "javirandor/passgpt-10characters"
-        ), patch("hate_crack.main.subprocess.Popen") as mock_popen:
+        with (
+            patch.object(
+                main_module, "passgptModel", "javirandor/passgpt-10characters"
+            ),
+            patch("hate_crack.main.subprocess.Popen") as mock_popen,
+        ):
             mock_proc = MagicMock()
             mock_proc.returncode = 1
             mock_proc.wait.return_value = None
@@ -191,8 +207,9 @@ class TestPassGPTAttackHandler:
 
         # "1" selects default model, "" accepts default max candidates
         inputs = iter(["1", ""])
-        with patch("builtins.input", side_effect=inputs), patch(
-            "hate_crack.attacks.os.path.isdir", return_value=False
+        with (
+            patch("builtins.input", side_effect=inputs),
+            patch("hate_crack.attacks.os.path.isdir", return_value=False),
         ):
             from hate_crack.attacks import passgpt_attack
 
@@ -217,13 +234,15 @@ class TestPassGPTAttackHandler:
 
         # "2" selects the local model, "" accepts default max candidates
         inputs = iter(["2", ""])
-        with patch("builtins.input", side_effect=inputs), patch(
-            "hate_crack.attacks.os.path.isdir", return_value=True
-        ), patch("hate_crack.attacks.os.listdir", return_value=["my_model"]), patch(
-            "hate_crack.attacks.os.path.isfile", return_value=True
-        ), patch(
-            "hate_crack.attacks.os.path.isdir",
-            side_effect=lambda p: True,
+        with (
+            patch("builtins.input", side_effect=inputs),
+            patch("hate_crack.attacks.os.path.isdir", return_value=True),
+            patch("hate_crack.attacks.os.listdir", return_value=["my_model"]),
+            patch("hate_crack.attacks.os.path.isfile", return_value=True),
+            patch(
+                "hate_crack.attacks.os.path.isdir",
+                side_effect=lambda p: True,
+            ),
         ):
             from hate_crack.attacks import passgpt_attack
 
@@ -241,8 +260,9 @@ class TestPassGPTAttackHandler:
 
         # "T" for train, "" for default base model, "" for default max candidates
         inputs = iter(["T", "", ""])
-        with patch("builtins.input", side_effect=inputs), patch(
-            "hate_crack.attacks.os.path.isdir", return_value=False
+        with (
+            patch("builtins.input", side_effect=inputs),
+            patch("hate_crack.attacks.os.path.isdir", return_value=False),
         ):
             from hate_crack.attacks import passgpt_attack
 
@@ -261,8 +281,9 @@ class TestPassGPTAttackHandler:
         ctx.hcatPassGPTTrain.return_value = None
 
         inputs = iter(["T", ""])
-        with patch("builtins.input", side_effect=inputs), patch(
-            "hate_crack.attacks.os.path.isdir", return_value=False
+        with (
+            patch("builtins.input", side_effect=inputs),
+            patch("hate_crack.attacks.os.path.isdir", return_value=False),
         ):
             from hate_crack.attacks import passgpt_attack
 
@@ -289,8 +310,9 @@ class TestPassGPTAttackHandler:
 
         # "1" selects default model, "500000" for custom max candidates
         inputs = iter(["1", "500000"])
-        with patch("builtins.input", side_effect=inputs), patch(
-            "hate_crack.attacks.os.path.isdir", return_value=False
+        with (
+            patch("builtins.input", side_effect=inputs),
+            patch("hate_crack.attacks.os.path.isdir", return_value=False),
         ):
             from hate_crack.attacks import passgpt_attack
 
@@ -303,3 +325,189 @@ class TestPassGPTAttackHandler:
             model_name="javirandor/passgpt-10characters",
             batch_size=1024,
         )
+
+
+class TestGetAvailableMemoryMb:
+    def test_returns_int_or_none(self):
+        result = _get_available_memory_mb()
+        assert result is None or isinstance(result, int)
+
+    def test_never_crashes_on_any_platform(self):
+        # Should not raise regardless of platform
+        _get_available_memory_mb()
+
+    def test_returns_positive_when_detected(self):
+        result = _get_available_memory_mb()
+        if result is not None:
+            assert result > 0
+
+
+class TestCountLines:
+    def test_counts_non_empty_lines(self, tmp_path):
+        f = tmp_path / "test.txt"
+        f.write_text("line1\nline2\n\nline3\n")
+        assert _count_lines(str(f)) == 3
+
+    def test_empty_file(self, tmp_path):
+        f = tmp_path / "empty.txt"
+        f.write_text("")
+        assert _count_lines(str(f)) == 0
+
+
+class TestEstimateTrainingMemoryMb:
+    def test_returns_reasonable_estimate(self, tmp_path):
+        f = tmp_path / "words.txt"
+        f.write_text("password\n" * 1000)
+        estimate = _estimate_training_memory_mb(str(f))
+        # Should include at least model + optimizer overhead (~1700MB)
+        assert estimate >= 1700
+
+    def test_max_lines_reduces_estimate(self, tmp_path):
+        f = tmp_path / "words.txt"
+        f.write_text("password\n" * 100000)
+        full = _estimate_training_memory_mb(str(f))
+        limited = _estimate_training_memory_mb(str(f), max_lines=100)
+        assert limited <= full
+
+
+class TestMemoryPrecheck:
+    def test_aborts_when_insufficient(self, tmp_path):
+        f = tmp_path / "words.txt"
+        f.write_text("password\n" * 10)
+
+        with (
+            patch("hate_crack.passgpt_train._get_available_memory_mb", return_value=1),
+            patch(
+                "hate_crack.passgpt_train._estimate_training_memory_mb",
+                return_value=5000,
+            ),
+            pytest.raises(SystemExit),
+        ):
+            from hate_crack.passgpt_train import train
+
+            train(
+                training_file=str(f),
+                output_dir=str(tmp_path / "out"),
+                base_model="test",
+                epochs=1,
+                batch_size=1,
+                device="cpu",
+            )
+
+    def test_skips_when_detection_fails(self, tmp_path):
+        """When memory detection returns None, training proceeds past the pre-check."""
+        f = tmp_path / "words.txt"
+        f.write_text("password\n" * 10)
+
+        mock_tokenizer = MagicMock()
+        mock_model = MagicMock()
+        mock_model.config.n_positions = 16
+        mock_trainer = MagicMock()
+
+        with (
+            patch(
+                "hate_crack.passgpt_train._get_available_memory_mb", return_value=None
+            ),
+            patch(
+                "hate_crack.passgpt_train._estimate_training_memory_mb",
+                return_value=5000,
+            ),
+            patch("hate_crack.passgpt_train._configure_mps"),
+            patch(
+                "transformers.RobertaTokenizerFast.from_pretrained",
+                return_value=mock_tokenizer,
+            ),
+            patch(
+                "transformers.GPT2LMHeadModel.from_pretrained",
+                return_value=mock_model,
+            ),
+            patch("transformers.Trainer", return_value=mock_trainer),
+            patch("transformers.TrainingArguments"),
+        ):
+            from hate_crack.passgpt_train import train
+
+            train(
+                training_file=str(f),
+                output_dir=str(tmp_path / "out"),
+                base_model="test",
+                epochs=1,
+                batch_size=1,
+                device="cpu",
+            )
+
+        mock_trainer.train.assert_called_once()
+
+
+class TestMaxLines:
+    def test_count_lines_respects_limit(self, tmp_path):
+        f = tmp_path / "words.txt"
+        f.write_text("password\n" * 1000)
+        # _count_lines doesn't have a limit, but _estimate uses max_lines
+        total = _count_lines(str(f))
+        assert total == 1000
+
+    def test_estimate_uses_max_lines(self, tmp_path):
+        f = tmp_path / "words.txt"
+        f.write_text("password\n" * 10000)
+        est_full = _estimate_training_memory_mb(str(f))
+        est_limited = _estimate_training_memory_mb(str(f), max_lines=10)
+        assert est_limited <= est_full
+
+
+class TestMemoryLimitAutoTune:
+    def test_auto_tunes_max_lines(self, tmp_path, capsys):
+        f = tmp_path / "words.txt"
+        f.write_text("password\n" * 100)
+
+        mock_tokenizer = MagicMock()
+        mock_model = MagicMock()
+        mock_model.config.n_positions = 16
+        mock_trainer = MagicMock()
+
+        with (
+            patch(
+                "hate_crack.passgpt_train._get_available_memory_mb", return_value=None
+            ),
+            patch("hate_crack.passgpt_train._configure_mps"),
+            patch(
+                "transformers.RobertaTokenizerFast.from_pretrained",
+                return_value=mock_tokenizer,
+            ),
+            patch(
+                "transformers.GPT2LMHeadModel.from_pretrained",
+                return_value=mock_model,
+            ),
+            patch("transformers.Trainer", return_value=mock_trainer),
+            patch("transformers.TrainingArguments"),
+        ):
+            from hate_crack.passgpt_train import train
+
+            train(
+                training_file=str(f),
+                output_dir=str(tmp_path / "out"),
+                base_model="test",
+                epochs=1,
+                batch_size=1,
+                device="cpu",
+                memory_limit=2000,
+            )
+
+        captured = capsys.readouterr()
+        assert "--memory-limit 2000MB: auto-set --max-lines" in captured.err
+
+    def test_memory_limit_too_low_exits(self, tmp_path):
+        f = tmp_path / "words.txt"
+        f.write_text("password\n" * 10)
+
+        with pytest.raises(SystemExit):
+            from hate_crack.passgpt_train import train
+
+            train(
+                training_file=str(f),
+                output_dir=str(tmp_path / "out"),
+                base_model="test",
+                epochs=1,
+                batch_size=1,
+                device="cpu",
+                memory_limit=1,  # 1MB - way too low
+            )
