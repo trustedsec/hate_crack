@@ -30,3 +30,9 @@ def setup_logging(logger: logging.Logger, hate_path: str, debug_mode: bool) -> N
             logging.Formatter("%(asctime)s %(levelname)s %(message)s")
         )
         logger.addHandler(stream_handler)
+    # Show HTTP requests made by the requests/urllib3 library.
+    debug_handler = logging.StreamHandler(sys.stderr)
+    debug_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+    urllib3_logger = logging.getLogger("urllib3")
+    urllib3_logger.setLevel(logging.DEBUG)
+    urllib3_logger.addHandler(debug_handler)
