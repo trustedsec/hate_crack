@@ -1,0 +1,41 @@
+name: version-bump
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Bump patch version
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          latest=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+' | head -1)
+          if [ -z "$latest" ]; then
+            echo "No version tag found, starting at v0.0.1"
+            next="v0.0.1"
+          else
+            # Strip leading v
+            version="${latest#v}"
+            major=$(echo "$version" | cut -d. -f1)
+            minor=$(echo "$version" | cut -d. -f2)
+            patch=$(echo "$version" | cut -d. -f3)
+            patch=${patch:-0}
+            next="v${major}.${minor}.$((patch + 1))"
+          fi
+
+          echo "Tagging $next (previous: ${latest:-none})"
+          git tag -a "$next" -m "Release $next"
+          git push origin "$next"
