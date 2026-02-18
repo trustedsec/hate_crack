@@ -2297,7 +2297,7 @@ def _passgpt_model_dir():
 
 
 # PassGPT Attack - Fine-tune a model on a custom wordlist
-def hcatPassGPTTrain(training_file, base_model=None):
+def hcatPassGPTTrain(training_file, base_model=None, device=None):
     training_file = os.path.abspath(training_file)
     if not os.path.isfile(training_file):
         print(f"Error: Training file not found: {training_file}")
@@ -2321,6 +2321,8 @@ def hcatPassGPTTrain(training_file, base_model=None):
         "--output-dir",
         output_dir,
     ]
+    if device:
+        cmd.extend(["--device", device])
     print(f"[*] Running: {_format_cmd(cmd)}")
     proc = subprocess.Popen(cmd)
     try:
