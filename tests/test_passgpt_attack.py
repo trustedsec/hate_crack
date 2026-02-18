@@ -258,8 +258,8 @@ class TestPassGPTAttackHandler:
         ctx.select_file_with_autocomplete.return_value = "/tmp/wordlist.txt"
         ctx.hcatPassGPTTrain.return_value = "/home/user/.hate_crack/passgpt/wordlist"
 
-        # "T" for train, "" for default base model, "" for default max candidates
-        inputs = iter(["T", "", ""])
+        # "T" for train, "" for default base model, "" for default device (cuda), "" for default max candidates
+        inputs = iter(["T", "", "", ""])
         with (
             patch("builtins.input", side_effect=inputs),
             patch("hate_crack.attacks.os.path.isdir", return_value=False),
@@ -269,7 +269,7 @@ class TestPassGPTAttackHandler:
             passgpt_attack(ctx)
 
         ctx.hcatPassGPTTrain.assert_called_once_with(
-            "/tmp/wordlist.txt", "javirandor/passgpt-10characters"
+            "/tmp/wordlist.txt", "javirandor/passgpt-10characters", device="cuda"
         )
         ctx.hcatPassGPT.assert_called_once()
         call_kwargs = ctx.hcatPassGPT.call_args
@@ -280,7 +280,8 @@ class TestPassGPTAttackHandler:
         ctx.select_file_with_autocomplete.return_value = "/tmp/wordlist.txt"
         ctx.hcatPassGPTTrain.return_value = None
 
-        inputs = iter(["T", ""])
+        # "T" for train, "" for default base model, "" for default device (cuda)
+        inputs = iter(["T", "", ""])
         with (
             patch("builtins.input", side_effect=inputs),
             patch("hate_crack.attacks.os.path.isdir", return_value=False),

@@ -557,6 +557,11 @@ def passgpt_attack(ctx: Any) -> None:
 
     if choice.upper() == "T":
         print("\n\tTrain a new PassGPT model")
+        print("\n\t--- Estimated Training Times (14M passwords, 3 epochs) ---")
+        print("\t  CUDA (RTX 3090/4090):  1-3 hours")
+        print("\t  MPS (Apple Silicon):   6-12 hours")
+        print("\t  CPU:                   Very slow (not recommended)")
+        print("\t  Use --max-lines to reduce training data for faster runs.")
         training_file = ctx.select_file_with_autocomplete(
             "Select training wordlist", base_dir=ctx.hcatWordlists
         )
@@ -568,7 +573,16 @@ def passgpt_attack(ctx: Any) -> None:
         base = input(f"\n\tBase model ({default_model}): ").strip()
         if not base:
             base = default_model
-        result = ctx.hcatPassGPTTrain(training_file, base)
+
+        print("\n\tSelect training device:")
+        print("\t  (1) cuda (Recommended)")
+        print("\t  (2) mps (Apple Silicon)")
+        print("\t  (3) cpu")
+        device_choice = input("\n\tDevice [1]: ").strip()
+        device_map = {"1": "cuda", "2": "mps", "3": "cpu", "": "cuda"}
+        device = device_map.get(device_choice, "cuda")
+
+        result = ctx.hcatPassGPTTrain(training_file, base, device=device)
         if result is None:
             print("\n\tTraining failed. Returning to menu.")
             return
