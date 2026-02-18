@@ -3480,7 +3480,6 @@ def get_main_menu_options():
         "14": loopback_attack,
         "15": ollama_attack,
         "16": omen_attack,
-        "17": passgpt_attack,
         "90": download_hashmob_rules,
         "91": analyze_rules,
         "92": download_hashmob_wordlists,
@@ -3491,6 +3490,8 @@ def get_main_menu_options():
         "98": show_readme,
         "99": quit_hc,
     }
+    if HAS_ML_DEPS:
+        options["17"] = passgpt_attack
     # Only show this when Hashview API is configured (requested behavior).
     if hashview_api_key:
         options["94"] = hashview_api
@@ -4138,7 +4139,8 @@ def main():
             print("\t(14) Loopback Attack")
             print("\t(15) LLM Attack")
             print("\t(16) OMEN Attack")
-            print("\t(17) PassGPT Attack")
+            if HAS_ML_DEPS:
+                print("\t(17) PassGPT Attack")
             print("\n\t(90) Download rules from Hashmob.net")
             print("\n\t(91) Analyze Hashcat Rules")
             print("\t(92) Download wordlists from Hashmob.net")

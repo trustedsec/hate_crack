@@ -323,6 +323,17 @@ Make it executable:
 chmod +x .git/hooks/pre-push
 ```
 
+### Optional Dependencies
+
+The optional `[ml]` group includes ML/AI features:
+- **torch** - PyTorch deep learning framework (for PassGPT attack)
+- **transformers** - HuggingFace transformers library (for GPT-2 models)
+
+Install with:
+```bash
+uv pip install -e ".[ml]"
+```
+
 ### Dev Dependencies
 
 The optional `[dev]` group includes:
@@ -427,6 +438,20 @@ The LLM Attack (option 15) uses Ollama to generate password candidates. Configur
 - **`ollamaModel`** — The Ollama model to use for candidate generation (default: `mistral`).
 - **`ollamaNumCtx`** — Context window size for the model (default: `2048`).
 - The Ollama URL defaults to `http://localhost:11434`. Ensure Ollama is running before using the LLM Attack.
+
+#### Automatic Update Checks
+
+hate_crack can automatically check GitHub for newer releases on startup. This feature is controlled by the `check_for_updates` config option:
+
+```json
+{
+  "check_for_updates": true
+}
+```
+
+- **`check_for_updates`** — Enable automatic version checks on startup (default: `true`).
+- When enabled, hate_crack fetches the latest release info from GitHub and displays a notice if an update is available.
+- The check runs asynchronously and does not block startup. Network errors are silently ignored.
 
 #### Automatic Found Hash Merging (Download Left Only)
 
@@ -706,19 +731,26 @@ uv pip install -e ".[ml]"
 This installs PyTorch and HuggingFace Transformers. GPU acceleration (CUDA/MPS) is auto-detected but not required.
 
 **Configuration keys:**
-* `passgptModel` - HuggingFace model name (default: `javirandor/passgpt-10characters`)
-* `passgptMaxCandidates` - Maximum candidates to generate (default: 1000000)
-* `passgptBatchSize` - Generation batch size (default: 1024)
+- `passgptModel` - HuggingFace model name (default: `javirandor/passgpt-10characters`)
+- `passgptMaxCandidates` - Maximum candidates to generate (default: 1000000)
+- `passgptBatchSize` - Generation batch size (default: 1024)
 
 **Supported models:**
-* `javirandor/passgpt-10characters` - Trained on passwords up to 10 characters (default)
-* `javirandor/passgpt-16characters` - Trained on passwords up to 16 characters
-* Any compatible GPT-2 model on HuggingFace
+- `javirandor/passgpt-10characters` - Trained on passwords up to 10 characters (default)
+- `javirandor/passgpt-16characters` - Trained on passwords up to 16 characters
+- Any compatible GPT-2 model on HuggingFace
 
 **Standalone usage:**
 ```bash
 python -m hate_crack.passgpt_generate --num 1000 --model javirandor/passgpt-10characters
 ```
+
+Available command-line options:
+- `--num` - Number of candidates to generate (default: 1000000)
+- `--model` - HuggingFace model name (default: javirandor/passgpt-10characters)
+- `--batch-size` - Generation batch size (default: 1024)
+- `--max-length` - Max token length including special tokens (default: 12)
+- `--device` - Device: cuda, mps, or cpu (default: auto-detect)
 
 #### Download Rules from Hashmob.net
 Downloads the latest rule files from Hashmob.net's rule repository. These rules are curated and optimized for password cracking and can be used with the Quick Crack and Loopback Attack modes.
@@ -752,16 +784,19 @@ Interactive menu for downloading and managing wordlists from Weakpass.com via Bi
   
 -------------------------------------------------------------------
 ### Version History
+
 Version 2.0+
-  Added PassGPT Attack (option 17) using GPT-2 based ML password generation
-  Added PassGPT configuration keys (passgptModel, passgptMaxCandidates, passgptBatchSize)
-  Added [ml] optional dependency group for PyTorch and Transformers
-  Added OMEN Attack (option 16) using statistical model-based password generation
-  Added OMEN configuration keys (omenTrainingList, omenMaxCandidates)
-  Added LLM Attack (option 15) using Ollama for AI-generated password candidates
-  Added Ollama configuration keys (ollamaModel, ollamaNumCtx)
-  Auto-versioning via setuptools-scm from git tags
-  CI test fixes across Python 3.9–3.14
+  - Added automatic update checks on startup (check_for_updates config option)
+  - Added `packaging` dependency for version comparison
+  - Added PassGPT Attack (option 17) using GPT-2 based ML password generation
+  - Added PassGPT configuration keys (passgptModel, passgptMaxCandidates, passgptBatchSize)
+  - Added `[ml]` optional dependency group for PyTorch and Transformers
+  - Added OMEN Attack (option 16) using statistical model-based password generation
+  - Added OMEN configuration keys (omenTrainingList, omenMaxCandidates)
+  - Added LLM Attack (option 15) using Ollama for AI-generated password candidates
+  - Added Ollama configuration keys (ollamaModel, ollamaNumCtx)
+  - Auto-versioning via setuptools-scm from git tags
+  - CI test fixes across Python 3.9-3.14
 
 Version 2.0
   Modularized codebase into CLI/API/attacks modules

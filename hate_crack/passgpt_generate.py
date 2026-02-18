@@ -11,6 +11,9 @@ import argparse
 import sys
 
 
+_MPS_BATCH_SIZE_CAP = 64
+
+
 def _detect_device() -> str:
     import torch
 
@@ -21,6 +24,14 @@ def _detect_device() -> str:
     return "cpu"
 
 
+def _configure_mps() -> None:
+    """Set MPS memory limits before torch is imported."""
+    import os
+
+    os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.5")
+    os.environ.setdefault("PYTORCH_MPS_LOW_WATERMARK_RATIO", "0.3")
+
+
 def generate(
     num: int,
     model_name: str,
@@ -28,15 +39,27 @@ def generate(
     max_length: int,
     device: str | None,
 ) -> None:
+    # If MPS is requested (or will be auto-detected), set memory limit before importing torch
+    if device == "mps" or device is None:
+        _configure_mps()
+
     import torch
-    from transformers import GPT2LMHeadModel, RobertaTokenizerFast
+    from transformers import GPT2LMHeadModel  # type: ignore[attr-defined]
+    from transformers import RobertaTokenizerFast  # type: ignore[attr-defined]
 
     if device is None:
         device = _detect_device()
 
+    if device == "mps" and batch_size > _MPS_BATCH_SIZE_CAP:
+        print(
+            f"[*] Capping batch size from {batch_size} to {_MPS_BATCH_SIZE_CAP} for MPS",
+            file=sys.stderr,
+        )
+        batch_size = _MPS_BATCH_SIZE_CAP
+
     print(f"[*] Loading model {model_name} on {device}", file=sys.stderr)
     tokenizer = RobertaTokenizerFast.from_pretrained(model_name)
-    model = GPT2LMHeadModel.from_pretrained(model_name).to(device)
+    model = GPT2LMHeadModel.from_pretrained(model_name).to(device)  # type: ignore[arg-type]
     model.eval()
 
     generated = 0
@@ -64,8 +87,12 @@ def generate(
             # Strip BOS token
             output = output[:, 1:]
             for seq in output:
-                decoded = tokenizer.decode(seq, skip_special_tokens=False)
-                password = decoded.split("</s>")[0]
+                token_strs = [tokenizer.decode([t]) for t in seq]
+                password = ""
+                for t in token_strs:
+                    if t in (tokenizer.eos_token, tokenizer.pad_token):
+                        break
+                    password += t.replace(" ", "")
                 if password and password not in seen:
                     seen.add(password)
                     sys.stdout.write(password + "\n")
