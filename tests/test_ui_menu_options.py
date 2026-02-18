@@ -27,6 +27,16 @@ MENU_OPTION_TEST_CASES = [
     ("14", CLI_MODULE._attacks, "loopback_attack", "loopback"),
     ("15", CLI_MODULE._attacks, "ollama_attack", "ollama"),
     ("16", CLI_MODULE._attacks, "omen_attack", "omen"),
+    pytest.param(
+        "17",
+        CLI_MODULE._attacks,
+        "passgpt_attack",
+        "passgpt",
+        marks=pytest.mark.skipif(
+            not getattr(CLI_MODULE, "HAS_ML_DEPS", False),
+            reason="ML dependencies not installed",
+        ),
+    ),
     ("90", CLI_MODULE, "download_hashmob_rules", "hashmob-rules"),
     ("91", CLI_MODULE, "weakpass_wordlist_menu", "weakpass-menu"),
     ("92", CLI_MODULE, "download_hashmob_wordlists", "hashmob-wordlists"),

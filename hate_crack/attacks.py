@@ -510,7 +510,8 @@ def omen_attack(ctx: Any) -> None:
         print("\n\tOMEN binaries not found. Build them with:")
         print(f"\t  cd {omen_dir} && make")
         return
-    model_exists = os.path.isfile(os.path.join(omen_dir, "IP.level"))
+    model_dir = os.path.join(os.path.expanduser("~"), ".hate_crack", "omen")
+    model_exists = os.path.isfile(os.path.join(model_dir, "createConfig"))
     if not model_exists:
         print("\n\tNo OMEN model found. Training is required before generation.")
         training_source = input(
@@ -525,3 +526,88 @@ def omen_attack(ctx: Any) -> None:
     if not max_candidates:
         max_candidates = str(ctx.omenMaxCandidates)
     ctx.hcatOmen(ctx.hcatHashType, ctx.hcatHashFile, int(max_candidates))
+
+
+def passgpt_attack(ctx: Any) -> None:
+    print("\n\tPassGPT Attack (ML Password Generator)")
+    if not ctx.HAS_ML_DEPS:
+        print("\n\tPassGPT requires ML dependencies. Install them with:")
+        print('\t  uv pip install -e ".[ml]"')
+        return
+
+    # Build model choices: default HF model + any local fine-tuned models
+    default_model = ctx.passgptModel
+    models = [(default_model, f"{default_model} (default)")]
+
+    model_dir = ctx._passgpt_model_dir()
+    if os.path.isdir(model_dir):
+        for entry in sorted(os.listdir(model_dir)):
+            entry_path = os.path.join(model_dir, entry)
+            if os.path.isdir(entry_path) and os.path.isfile(
+                os.path.join(entry_path, "config.json")
+            ):
+                models.append((entry_path, f"{entry} (local)"))
+
+    print("\n\tSelect a model:")
+    for i, (_, label) in enumerate(models, 1):
+        print(f"\t  ({i}) {label}")
+    print("\t  (T) Train a new model")
+
+    choice = input("\n\tChoice: ").strip()
+
+    if choice.upper() == "T":
+        print("\n\tTrain a new PassGPT model")
+        print("\n\t--- Estimated Training Times (14M passwords, 3 epochs) ---")
+        print("\t  CUDA (RTX 3090/4090):  1-3 hours")
+        print("\t  MPS (Apple Silicon):   6-12 hours")
+        print("\t  CPU:                   Very slow (not recommended)")
+        print("\t  Use --max-lines to reduce training data for faster runs.")
+        training_file = ctx.select_file_with_autocomplete(
+            "Select training wordlist", base_dir=ctx.hcatWordlists
+        )
+        if not training_file:
+            print("\n\tNo training file selected. Aborting.")
+            return
+        if isinstance(training_file, list):
+            training_file = training_file[0]
+        base = input(f"\n\tBase model ({default_model}): ").strip()
+        if not base:
+            base = default_model
+
+        print("\n\tSelect training device:")
+        print("\t  (1) cuda (Recommended)")
+        print("\t  (2) mps (Apple Silicon)")
+        print("\t  (3) cpu")
+        device_choice = input("\n\tDevice [1]: ").strip()
+        device_map = {"1": "cuda", "2": "mps", "3": "cpu", "": "cuda"}
+        device = device_map.get(device_choice, "cuda")
+
+        result = ctx.hcatPassGPTTrain(training_file, base, device=device)
+        if result is None:
+            print("\n\tTraining failed. Returning to menu.")
+            return
+        model_name = result
+    else:
+        try:
+            idx = int(choice) - 1
+            if 0 <= idx < len(models):
+                model_name = models[idx][0]
+            else:
+                print("\n\tInvalid selection.")
+                return
+        except ValueError:
+            print("\n\tInvalid selection.")
+            return
+
+    max_candidates = input(
+        f"\n\tMax candidates to generate ({ctx.passgptMaxCandidates}): "
+    ).strip()
+    if not max_candidates:
+        max_candidates = str(ctx.passgptMaxCandidates)
+    ctx.hcatPassGPT(
+        ctx.hcatHashType,
+        ctx.hcatHashFile,
+        int(max_candidates),
+        model_name=model_name,
+        batch_size=ctx.passgptBatchSize,
+    )

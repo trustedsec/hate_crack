@@ -26,5 +26,10 @@
   "ollamaModel": "mistral",
   "ollamaNumCtx": 2048,
   "omenTrainingList": "rockyou.txt",
-  "omenMaxCandidates": 1000000
+  "omenMaxCandidates": 1000000,
+  "passgptModel": "javirandor/passgpt-10characters",
+  "passgptMaxCandidates": 1000000,
+  "passgptBatchSize": 1024,
+  "passgptTrainingList": "rockyou.txt",
+  "check_for_updates": true
 }

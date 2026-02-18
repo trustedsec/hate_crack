@@ -95,6 +95,8 @@ def get_main_menu_options():
         "98": show_readme,
         "99": quit_hc,
     }
+    if globals().get("HAS_ML_DEPS"):
+        options["17"] = _attacks.passgpt_attack
     # Only show Hashview API when configured.
     if globals().get("hashview_api_key"):
         options["94"] = hashview_api
