@@ -37,6 +37,15 @@ try:
 except Exception:
     pass
 
+HAS_ML_DEPS = False
+try:
+    import torch  # noqa: F401
+    import transformers  # noqa: F401
+
+    HAS_ML_DEPS = True
+except Exception:
+    pass
+
 # Ensure project root is on sys.path so package imports work when loaded via spec.
 _root_dir = os.path.dirname(os.path.realpath(__file__))
 if _root_dir not in sys.path:
@@ -486,6 +495,51 @@ except KeyError as e:
         )
     )
     omenMaxCandidates = int(default_config.get("omenMaxCandidates", 1000000))
+try:
+    passgptModel = config_parser["passgptModel"]
+except KeyError as e:
+    print(
+        "{0} is not defined in config.json using defaults from config.json.example".format(
+            e
+        )
+    )
+    passgptModel = default_config.get("passgptModel", "javirandor/passgpt-10characters")
+try:
+    passgptMaxCandidates = int(config_parser["passgptMaxCandidates"])
+except KeyError as e:
+    print(
+        "{0} is not defined in config.json using defaults from config.json.example".format(
+            e
+        )
+    )
+    passgptMaxCandidates = int(default_config.get("passgptMaxCandidates", 1000000))
+try:
+    passgptBatchSize = int(config_parser["passgptBatchSize"])
+except KeyError as e:
+    print(
+        "{0} is not defined in config.json using defaults from config.json.example".format(
+            e
+        )
+    )
+    passgptBatchSize = int(default_config.get("passgptBatchSize", 1024))
+try:
+    passgptTrainingList = config_parser["passgptTrainingList"]
+except KeyError as e:
+    print(
+        "{0} is not defined in config.json using defaults from config.json.example".format(
+            e
+        )
+    )
+    passgptTrainingList = default_config.get("passgptTrainingList", "rockyou.txt")
+try:
+    check_for_updates_enabled = config_parser["check_for_updates"]
+except KeyError as e:
+    print(
+        "{0} is not defined in config.json using defaults from config.json.example".format(
+            e
+        )
+    )
+    check_for_updates_enabled = default_config.get("check_for_updates", True)
 
 hcatExpanderBin = "expander.bin"
 hcatCombinatorBin = "combinator.bin"
@@ -628,6 +682,7 @@ hcatGoodMeasureBaseList = _normalize_wordlist_setting(
 )
 hcatPrinceBaseList = _normalize_wordlist_setting(hcatPrinceBaseList, wordlists_dir)
 omenTrainingList = _normalize_wordlist_setting(omenTrainingList, wordlists_dir)
+passgptTrainingList = _normalize_wordlist_setting(passgptTrainingList, wordlists_dir)
 if not SKIP_INIT:
     # Verify hashcat binary is available
     # hcatBin should be in PATH or be an absolute path (resolved from hcatPath + hcatBin if configured)
@@ -821,6 +876,35 @@ def ascii_art():
         + """
   """
     )
+
+
+def check_for_updates():
+    """Check GitHub for a newer release and print a notice if one exists."""
+    try:
+        from hate_crack import __version__
+
+        if not REQUESTS_AVAILABLE:
+            return
+        resp = requests.get(
+            "https://api.github.com/repos/trustedsec/hate_crack/releases/latest",
+            timeout=5,
+        )
+        resp.raise_for_status()
+        tag = resp.json().get("tag_name", "")
+        latest = tag.lstrip("v")
+        # Compare base version (before any +g... suffix) against remote tag
+        local_base = __version__.split("+")[0]
+        if not latest or not local_base:
+            return
+        from packaging.version import parse
+
+        if parse(latest) > parse(local_base):
+            print(
+                f"\n  Update available: {latest} (current: {local_base})."
+                f"\n  See https://github.com/trustedsec/hate_crack/releases\n"
+            )
+    except Exception:
+        pass
 
 
 # File selector with tab autocomplete
@@ -2111,6 +2195,15 @@ def hcatPrince(hcatHashType, hcatHashFile):
             prince_proc.kill()
 
 
+# OMEN model directory - writable location for trained model files.
+# The binaries live in {hate_path}/omen/ (possibly read-only after install),
+# but model output (createConfig, *.level) goes to ~/.hate_crack/omen/.
+def _omen_model_dir():
+    model_dir = os.path.join(os.path.expanduser("~"), ".hate_crack", "omen")
+    os.makedirs(model_dir, exist_ok=True)
+    return model_dir
+
+
 # OMEN Attack - Train model
 def hcatOmenTrain(training_file):
     omen_dir = os.path.join(hate_path, "omen")
@@ -2118,13 +2211,30 @@ def hcatOmenTrain(training_file):
     if not os.path.isfile(create_bin):
         print(f"Error: OMEN createNG binary not found: {create_bin}")
         return
+    training_file = os.path.abspath(training_file)
     if not os.path.isfile(training_file):
         print(f"Error: Training file not found: {training_file}")
         return
+    model_dir = _omen_model_dir()
     print(f"Training OMEN model with: {training_file}")
-    cmd = [create_bin, "--iPwdList", training_file]
+    print(f"Model output directory: {model_dir}")
+    cmd = [
+        create_bin,
+        "--iPwdList",
+        training_file,
+        "-C",
+        os.path.join(model_dir, "createConfig"),
+        "-c",
+        os.path.join(model_dir, "CP"),
+        "-i",
+        os.path.join(model_dir, "IP"),
+        "-e",
+        os.path.join(model_dir, "EP"),
+        "-l",
+        os.path.join(model_dir, "LN"),
+    ]
     print(f"[*] Running: {_format_cmd(cmd)}")
-    proc = subprocess.Popen(cmd, cwd=omen_dir)
+    proc = subprocess.Popen(cmd)
     try:
         proc.wait()
     except KeyboardInterrupt:
@@ -2145,7 +2255,13 @@ def hcatOmen(hcatHashType, hcatHashFile, max_candidates):
     if not os.path.isfile(enum_bin):
         print(f"Error: OMEN enumNG binary not found: {enum_bin}")
         return
-    enum_cmd = [enum_bin, "-p", "-m", str(max_candidates)]
+    model_dir = _omen_model_dir()
+    config_path = os.path.join(model_dir, "createConfig")
+    if not os.path.isfile(config_path):
+        print(f"Error: OMEN model not found at {config_path}")
+        print("Run training first (option 16).")
+        return
+    enum_cmd = [enum_bin, "-p", "-m", str(max_candidates), "-C", config_path]
     hashcat_cmd = [
         hcatBin,
         "-m",
@@ -2160,7 +2276,7 @@ def hcatOmen(hcatHashType, hcatHashFile, max_candidates):
     _append_potfile_arg(hashcat_cmd)
     print(f"[*] Running: {_format_cmd(enum_cmd)} | {_format_cmd(hashcat_cmd)}")
     _debug_cmd(hashcat_cmd)
-    enum_proc = subprocess.Popen(enum_cmd, cwd=omen_dir, stdout=subprocess.PIPE)
+    enum_proc = subprocess.Popen(enum_cmd, cwd=model_dir, stdout=subprocess.PIPE)
     hcatProcess = subprocess.Popen(hashcat_cmd, stdin=enum_proc.stdout)
     enum_proc.stdout.close()
     try:
@@ -2170,6 +2286,107 @@ def hcatOmen(hcatHashType, hcatHashFile, max_candidates):
         print("Killing PID {0}...".format(str(hcatProcess.pid)))
         hcatProcess.kill()
         enum_proc.kill()
+
+
+# PassGPT model directory - writable location for fine-tuned models.
+# Models are saved to ~/.hate_crack/passgpt/<model_name>/.
+def _passgpt_model_dir():
+    model_dir = os.path.join(os.path.expanduser("~"), ".hate_crack", "passgpt")
+    os.makedirs(model_dir, exist_ok=True)
+    return model_dir
+
+
+# PassGPT Attack - Fine-tune a model on a custom wordlist
+def hcatPassGPTTrain(training_file, base_model=None, device=None):
+    training_file = os.path.abspath(training_file)
+    if not os.path.isfile(training_file):
+        print(f"Error: Training file not found: {training_file}")
+        return None
+    if base_model is None:
+        base_model = passgptModel
+    # Derive output dir name from training file
+    basename = os.path.splitext(os.path.basename(training_file))[0]
+    # Sanitize: replace non-alphanumeric chars with underscores
+    sanitized = "".join(c if c.isalnum() or c in "-_" else "_" for c in basename)
+    output_dir = os.path.join(_passgpt_model_dir(), sanitized)
+    os.makedirs(output_dir, exist_ok=True)
+    cmd = [
+        sys.executable,
+        "-m",
+        "hate_crack.passgpt_train",
+        "--training-file",
+        training_file,
+        "--base-model",
+        base_model,
+        "--output-dir",
+        output_dir,
+    ]
+    if device:
+        cmd.extend(["--device", device])
+    print(f"[*] Running: {_format_cmd(cmd)}")
+    proc = subprocess.Popen(cmd)
+    try:
+        proc.wait()
+    except KeyboardInterrupt:
+        print("Killing PID {0}...".format(str(proc.pid)))
+        proc.kill()
+        return None
+    if proc.returncode == 0:
+        print(f"PassGPT model training complete. Model saved to: {output_dir}")
+        return output_dir
+    else:
+        print(f"PassGPT training failed with exit code {proc.returncode}")
+        return None
+
+
+# PassGPT Attack - Generate candidates with ML model and pipe to hashcat
+def hcatPassGPT(
+    hcatHashType,
+    hcatHashFile,
+    max_candidates,
+    model_name=None,
+    batch_size=None,
+):
+    global hcatProcess
+    if model_name is None:
+        model_name = passgptModel
+    if batch_size is None:
+        batch_size = passgptBatchSize
+    gen_cmd = [
+        sys.executable,
+        "-m",
+        "hate_crack.passgpt_generate",
+        "--num",
+        str(max_candidates),
+        "--model",
+        model_name,
+        "--batch-size",
+        str(batch_size),
+    ]
+    hashcat_cmd = [
+        hcatBin,
+        "-m",
+        hcatHashType,
+        hcatHashFile,
+        "--session",
+        generate_session_id(),
+        "-o",
+        f"{hcatHashFile}.out",
+    ]
+    hashcat_cmd.extend(shlex.split(hcatTuning))
+    _append_potfile_arg(hashcat_cmd)
+    print(f"[*] Running: {_format_cmd(gen_cmd)} | {_format_cmd(hashcat_cmd)}")
+    _debug_cmd(hashcat_cmd)
+    gen_proc = subprocess.Popen(gen_cmd, stdout=subprocess.PIPE)
+    hcatProcess = subprocess.Popen(hashcat_cmd, stdin=gen_proc.stdout)
+    gen_proc.stdout.close()
+    try:
+        hcatProcess.wait()
+        gen_proc.wait()
+    except KeyboardInterrupt:
+        print("Killing PID {0}...".format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+        gen_proc.kill()
 
 
 # Extra - Good Measure
@@ -3091,6 +3308,10 @@ def omen_attack():
     return _attacks.omen_attack(_attack_ctx())
 
 
+def passgpt_attack():
+    return _attacks.passgpt_attack(_attack_ctx())
+
+
 # convert hex words for recycling
 def convert_hex(working_file):
     processed_words = []
@@ -3330,6 +3551,8 @@ def get_main_menu_options():
         "98": show_readme,
         "99": quit_hc,
     }
+    if HAS_ML_DEPS:
+        options["17"] = passgpt_attack
     # Only show this when Hashview API is configured (requested behavior).
     if hashview_api_key:
         options["94"] = hashview_api
@@ -3730,6 +3953,8 @@ def main():
             sys.exit(1)
     else:
         ascii_art()
+        if not SKIP_INIT and check_for_updates_enabled:
+            check_for_updates()
         menu_loop = True
         while menu_loop:
             print("\n" + "=" * 60)
@@ -3786,6 +4011,8 @@ def main():
     if not hcatHashFileOrig:
         hcatHashFileOrig = hcatHashFile
     ascii_art()
+    if not SKIP_INIT and check_for_updates_enabled:
+        check_for_updates()
     # Get Initial Input Hash Count
 
     # If LM or NT Mode Selected and pwdump Format Detected, Prompt For LM to NT Attack
@@ -3973,6 +4200,8 @@ def main():
             print("\t(14) Loopback Attack")
             print("\t(15) LLM Attack")
             print("\t(16) OMEN Attack")
+            if HAS_ML_DEPS:
+                print("\t(17) PassGPT Attack")
             print("\n\t(90) Download rules from Hashmob.net")
             print("\n\t(91) Analyze Hashcat Rules")
             print("\t(92) Download wordlists from Hashmob.net")
