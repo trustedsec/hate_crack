@@ -26,13 +26,10 @@ ml = [
     "accelerate>=1.1.0",
 ]
 dev = [
-    "mypy>=1.8.0",
-    "ruff>=0.3.0",
-    "pytest>=7.0.0",
-    "pytest-cov>=4.0.0",
-    "types-requests>=2.31.0",
-    "types-beautifulsoup4>=4.12.0",
-    "types-openpyxl>=3.0.0",
+    "ty==0.0.17",
+    "ruff==0.15.1",
+    "pytest==9.0.2",
+    "pytest-cov==7.0.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -62,26 +59,29 @@ exclude = [
     "rules",
 ]
 
-[tool.mypy]
+[tool.ty.src]
 exclude = [
-    "^build/",
-    "^dist/",
-    "^PACK/",
-    "^wordlists/",
-    "^HashcatRosetta/",
-    "^hashcat-utils/",
-    "^hate_crack/hashcat-utils/",
-    "^hate_crack/omen/",
-    "^hate_crack/princeprocessor/",
+    "build/",
+    "dist/",
+    "PACK/",
+    "wordlists/",
+    "HashcatRosetta/",
+    "hashcat-utils/",
+    "hate_crack/hashcat-utils/",
+    "hate_crack/omen/",
+    "hate_crack/princeprocessor/",
 ]
-ignore_missing_imports = true
+
+[tool.ty.rules]
+# Module-level globals in main.py are assigned at runtime
+unresolved-reference = "warn"
+# Optional deps (torch, transformers, hashcat_rosetta) not always installed
+unresolved-import = "warn"
+# BeautifulSoup union types and module-level globals
+unresolved-attribute = "warn"
+invalid-argument-type = "warn"
 
 [tool.pytest.ini_options]
 testpaths = [
     "tests",
-]
-
-[dependency-groups]
-dev = [
-    "types-requests>=2.32.4.20260107",
 ]

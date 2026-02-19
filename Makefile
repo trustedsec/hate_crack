@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := submodules
-.PHONY: install reinstall update dev-install dev-reinstall clean hashcat-utils submodules submodules-pre vendor-assets clean-vendor test coverage lint check ruff mypy
+.PHONY: install reinstall update dev-install dev-reinstall clean hashcat-utils submodules submodules-pre vendor-assets clean-vendor test coverage lint check ruff ty
 
 hashcat-utils: submodules
 	$(MAKE) -C hashcat-utils
@@ -92,10 +92,10 @@ coverage:
 ruff:
 	uv run ruff check hate_crack
 
-mypy:
-	uv run mypy hate_crack
+ty:
+	uv run ty check hate_crack
 
-lint: ruff mypy
+lint: ruff ty
 	@echo "✓ All linting checks passed"
 
 check: lint
