@@ -1,9 +1,12 @@
 [submodule "hashcat-utils"]
 	path = hashcat-utils
 	url = https://github.com/hashcat/hashcat-utils.git
+	ignore = dirty
 [submodule "HashcatRosetta"]
 	path = HashcatRosetta
 	url = https://github.com/bandrel/HashcatRosetta.git
+	ignore = dirty
 [submodule "omen"]
 	path = omen
 	url = https://github.com/RUB-SysSec/OMEN.git
+	ignore = dirty
