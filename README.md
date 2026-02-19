@@ -12,17 +12,10 @@
 **Code Quality & Testing:**
 
 [![ruff](https://github.com/trustedsec/hate_crack/actions/workflows/ruff.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/ruff.yml)
-[![mypy](https://github.com/trustedsec/hate_crack/actions/workflows/mypy.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/mypy.yml)
+[![ty](https://github.com/trustedsec/hate_crack/actions/workflows/ty.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/ty.yml)
 [![pytest](https://github.com/trustedsec/hate_crack/actions/workflows/pytest.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/pytest.yml)
 
-**Python Version Testing:**
-
-[![py39](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py39.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py39.yml)
-[![py310](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py310.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py310.yml)
-[![py311](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py311.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py311.yml)
-[![py312](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py312.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py312.yml)
-[![py313](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py313.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py313.yml)
-[![py314](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py314.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py314.yml)
+The pytest workflow tests across Python 3.9-3.14 via a matrix build.
 
 ## Installation
 
@@ -237,7 +230,7 @@ make test
 
 ### Setting Up the Development Environment
 
-Install the project with optional dev dependencies (includes type stubs, linters, and testing tools):
+Install the project with optional dev dependencies (includes linters and testing tools):
 
 ```bash
 make dev-install
@@ -254,10 +247,10 @@ The project uses GitHub Actions to automatically run quality checks on every pus
    - ❌ **FAIL**: Code has style violations or quality issues
    - Run locally: `make ruff`
 
-2. **Type Checking (Mypy)** - Static type analysis
+2. **Type Checking (ty)** - Static type analysis
    - ✅ **PASS**: No type errors detected
    - ❌ **FAIL**: Type mismatches or missing annotations found
-   - Run locally: `make mypy`
+   - Run locally: `make ty`
 
 3. **Testing (Multi-Version)** - Tests across Python 3.9 through 3.14
    - ✅ **PASS**: All tests pass on all supported Python versions
@@ -284,14 +277,14 @@ Auto-fix issues:
 .venv/bin/ruff check --fix hate_crack
 ```
 
-**Mypy (type checking):**
+**ty (type checking):**
 ```bash
-.venv/bin/mypy hate_crack
+.venv/bin/ty check hate_crack
 ```
 
 **Run all checks together:**
 ```bash
-.venv/bin/ruff check hate_crack && .venv/bin/mypy hate_crack && echo "✓ All checks passed"
+.venv/bin/ruff check hate_crack && .venv/bin/ty check hate_crack && echo "✓ All checks passed"
 ```
 
 ### Running Tests
@@ -305,23 +298,17 @@ With coverage:
 .venv/bin/pytest --cov=hate_crack
 ```
 
-### Pre-commit Hook (Optional)
+### Git Hooks (prek)
 
-Create `.git/hooks/pre-push` to automatically run checks before pushing:
+Git hooks are managed by [prek](https://github.com/nicholasgasior/prek). Install hooks with:
 
 ```bash
-#!/bin/bash
-set -e
-.venv/bin/ruff check hate_crack
-.venv/bin/mypy --exclude HashcatRosetta --exclude hashcat-utils --ignore-missing-imports hate_crack
-HATE_CRACK_SKIP_INIT=1 HATE_CRACK_RUN_E2E=0 HATE_CRACK_RUN_DOCKER_TESTS=0 HATE_CRACK_RUN_LIVE_TESTS=0 .venv/bin/python -m pytest
-echo "✓ Local checks passed!"
+prek install
 ```
 
-Make it executable:
-```bash
-chmod +x .git/hooks/pre-push
-```
+This installs hooks defined in `prek.toml`:
+- **pre-push**: ruff check, ty check, pytest
+- **post-commit**: documentation audit
 
 ### Optional Dependencies
 
@@ -341,13 +328,10 @@ PassGPT (option 17) will be hidden from the menu if ML dependencies are not inst
 ### Dev Dependencies
 
 The optional `[dev]` group includes:
-- **mypy** - Static type checker
+- **ty** - Static type checker
 - **ruff** - Fast Python linter and formatter
 - **pytest** - Testing framework
 - **pytest-cov** - Coverage reporting
-- **types-requests** - Type stubs for requests library
-- **types-beautifulsoup4** - Type stubs for BeautifulSoup
-- **types-openpyxl** - Type stubs for openpyxl library
 
 -------------------------------------------------------------------
 Common options:
