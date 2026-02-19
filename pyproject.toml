@@ -71,6 +71,7 @@ exclude = [
     "^HashcatRosetta/",
     "^hashcat-utils/",
     "^hate_crack/hashcat-utils/",
+    "^hate_crack/omen/",
     "^hate_crack/princeprocessor/",
 ]
 ignore_missing_imports = true
