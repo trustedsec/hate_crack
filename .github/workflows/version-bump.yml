@@ -13,15 +13,17 @@ jobs:
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Determine version bump type
         id: bump-type
+        env:
+          BRANCH: ${{ github.head_ref }}
+          TITLE: ${{ github.event.pull_request.title }}
         run: |
-          BRANCH="${{ github.head_ref }}"
-          TITLE="${{ github.event.pull_request.title }}"
           # Feature branches (feat/) bump minor, everything else bumps patch
           if echo "$BRANCH" | grep -qiE '^feat/'; then
             echo "type=minor" >> "$GITHUB_OUTPUT"

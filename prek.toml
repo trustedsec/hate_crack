@@ -1,0 +1,11 @@
+[hooks.pre-push]
+commands = [
+    "uv run ruff check hate_crack",
+    "uv run ty check hate_crack",
+    "HATE_CRACK_SKIP_INIT=1 uv run pytest -q",
+]
+
+[hooks.post-commit]
+commands = [
+    "bash .claude/audit-docs.sh HEAD",
+]
