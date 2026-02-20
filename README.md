@@ -19,37 +19,44 @@ The pytest workflow tests across Python 3.9-3.14 via a matrix build.
 
 ## Installation
 
-### 1. Install hashcat
-Get the latest hashcat binaries (https://hashcat.net/hashcat/)
+### 1. Install hashcat (Optional)
 
-```bash
-git clone https://github.com/hashcat/hashcat.git
-cd hashcat/
-make
-make install
-```
+Hashcat is included as a git submodule and will be compiled automatically. If you already have hashcat installed and in your PATH, the build step will skip the submodule compilation.
+
+To manually install hashcat instead (e.g., system package or pre-built binary), ensure `hashcat` is available in your PATH or set `hcatPath` in `config.json`.
 
 ### 2. Download hate_crack
+
+Clone with submodules (required for hashcat-utils, princeprocessor, and optionally omen):
+
 ```bash
 git clone --recurse-submodules https://github.com/trustedsec/hate_crack.git
 cd hate_crack
 ```
 
-* Customize binary and wordlist paths in "config.json"
-* The hashcat-utils repo is a submodule. If you didn't clone with --recurse-submodules then initialize with:
+If you cloned without submodules, initialize them:
 
 ```bash
 git submodule update --init --recursive
 ```
 
+Then customize configuration in `config.json` if needed (wordlist paths, API keys, etc.). Most users can skip this step as default paths work out-of-the-box.
+
 ### 3. Install dependencies and hate_crack
 
-The easiest way is to use `make install` which auto-detects your OS and installs:
+The easiest way is to run `make` (or `make install`), which auto-detects your OS and installs:
 - External dependencies (p7zip, transmission-cli)
+- Builds submodules (hashcat-utils, princeprocessor, and optionally hashcat if not in PATH)
 - Python tool via uv
 
 ```bash
-make install
+make
+```
+
+This is idempotent - it skips tools already installed. To force a clean reinstall:
+
+```bash
+make reinstall
 ```
 
 **Or install dependencies manually:**
@@ -101,38 +108,37 @@ This project depends on and is inspired by a number of external projects and ser
 
 -------------------------------------------------------------------
 ## Usage
-You can run hate_crack as a tool, as a script, or via `uv run`:
+
+After installing with `make`, run hate_crack from anywhere:
 
 ```bash
-uv run hate_crack.py
-# or 
-uv run hate_crack.py <hash_file> <hash_type> [options]
+hate_crack
+# or with arguments:
+hate_crack <hash_file> <hash_type> [options]
+```
+
+Alternatively, run via `uv`:
+
+```bash
+uv run hate_crack.py <hash_file> <hash_type>
 ```
 
 ### Run as a tool (recommended)
-Install once from the repo root:
+
+Install using `make` from the repository root - this builds submodules and bundles assets:
 
 ```bash
-uv tool install .
+cd /path/to/hate_crack
+make
 hate_crack
 ```
 
-**Important:** The tool needs access to `hashcat-utils` and `princeprocessor` subdirectories from the hate_crack repository.
-
 The tool will automatically search for these assets in:
-- The directory that contains the hate_crack checkout (and includes `config.json`, `hashcat-utils/`, and `princeprocessor/`)
+- The installed package (bundled by `make install`)
 - Current working directory and parent directory
 - `~/hate_crack`, `~/hate-crack`, or `~/.hate_crack`
 
-**Option 1 - Run from repository directory:**
-```bash
-cd /path/to/hate_crack
-hate_crack <hash_file> <hash_type>
-```
-
-Run `make install` to install the tool with all assets bundled into the package.
-
-**Note:** The `hcatPath` in `config.json` is for the hashcat binary location (optional if hashcat is in PATH), not for hate_crack assets.
+**Note:** The `hcatPath` in `config.json` is for the hashcat binary location only (optional if hashcat is in PATH). Hate_crack assets (hashcat-utils, princeprocessor, omen) are loaded from the repository directory and bundled automatically by `make install`.
 
 ### Run as a script
 The script uses a `uv` shebang. Make it executable and run:
@@ -172,57 +178,82 @@ cd /path/to/hate_crack  # the repository checkout
 make install
 ```
 
-**Example config.json:**
+**Default configuration (config.json.example):**
+
+Most users can use defaults without customization:
+- `hcatWordlists`: `./wordlists` (relative to repo root or HOME/.hate_crack)
+- `rules_directory`: `./hashcat/rules` (includes submodule rules)
+- `hcatTuning`: `` (empty string - no default tuning flags)
+
+**Example config.json customizations:**
 ```json
 {
-  "hcatPath": "/usr/local/bin",     # Location of hashcat binary (or omit if in PATH)
-  "hcatBin": "hashcat",             # Hashcat binary name
+  "hcatPath": "/usr/local/bin",          # Location of hashcat binary (optional, auto-detected from PATH)
+  "hcatBin": "hashcat",                  # Hashcat binary name
+  "hcatWordlists": "./wordlists",        # Dictionary wordlist directory (relative or absolute)
+  "rules_directory": "./hashcat/rules",  # Rules directory (relative or absolute)
+  "hcatTuning": "",                      # Additional hashcat flags (empty by default)
   ...
 }
 ```
 
+**Configuration loading:**
+- Missing config keys are automatically backfilled from `config.json.example` on startup
+- Config is searched in multiple locations: repo root, current working directory, `~/.hate_crack`, `/opt/hate_crack`
+
 -------------------------------------------------------------------
-### Makefile helpers
-Install OS dependencies + tool (auto-detects macOS vs Debian/Ubuntu):
+### Makefile Targets
+
+**Default (full installation)** - builds submodules, vendors assets, installs dependencies and tool:
 
 ```bash
+make
+# or explicitly:
 make install
 ```
 
-Rebuild submodules and reinstall the tool (quick update after pulling changes):
+This is idempotent - it skips tools already installed.
 
-```bash
-make update
-```
-
-Reinstall the Python tool in-place (keeps OS deps as-is):
+**Force clean reinstall:**
 
 ```bash
 make reinstall
 ```
 
-Uninstall OS dependencies + tool:
+**Quick update** - rebuilds submodules and reinstalls tool (after pulling changes):
+
+```bash
+make update
+```
+
+**Uninstall** - removes OS dependencies and tool:
 
 ```bash
 make uninstall
 ```
 
-Build hashcat-utils only:
+**Build hashcat-utils only:**
 
 ```bash
 make hashcat-utils
 ```
 
-Clean build/test artifacts:
-
-```bash
-make clean
-```
-
-Run the test suite:
+**Run tests** - automatically handles HATE_CRACK_SKIP_INIT when needed:
 
 ```bash
 make test
+```
+
+**Coverage report:**
+
+```bash
+make coverage
+```
+
+**Clean build/test artifacts:**
+
+```bash
+make clean
 ```
 
 -------------------------------------------------------------------
@@ -265,37 +296,57 @@ The project uses GitHub Actions to automatically run quality checks on every pus
 
 ### Running Linters and Type Checks
 
-Before pushing changes, run these checks locally to catch issues early:
+Before pushing changes, run these checks locally. Use `make lint` for everything, or run individual checks:
 
 **Ruff (linting and formatting):**
 ```bash
-.venv/bin/ruff check hate_crack
+make ruff
+# or manually:
+uv run ruff check hate_crack
 ```
 
 Auto-fix issues:
 ```bash
-.venv/bin/ruff check --fix hate_crack
+uv run ruff format hate_crack
+uv run ruff check --fix hate_crack
 ```
 
 **ty (type checking):**
 ```bash
-.venv/bin/ty check hate_crack
+make ty
+# or manually:
+uv run ty check hate_crack
 ```
 
 **Run all checks together:**
 ```bash
-.venv/bin/ruff check hate_crack && .venv/bin/ty check hate_crack && echo "✓ All checks passed"
+make lint
 ```
 
 ### Running Tests
 
+Tests auto-detect when submodules are not built and set `HATE_CRACK_SKIP_INIT=1` automatically.
+
 ```bash
-.venv/bin/pytest
+make test
+```
+
+Or run pytest directly:
+
+```bash
+uv run pytest -v
 ```
 
 With coverage:
+
 ```bash
-.venv/bin/pytest --cov=hate_crack
+make coverage
+```
+
+Or with pytest:
+
+```bash
+uv run pytest --cov=hate_crack
 ```
 
 ### Git Hooks (prek)
@@ -580,9 +631,7 @@ Select a task:
 ```
 -------------------------------------------------------------------
 #### Quick Crack
-* Runs a dictionary attack using all wordlists configured in your "hcatOptimizedWordlists" path
-and optionally applies a rule that can be selected from a list by ID number. Multiple rules can be selected by using a
-comma separated list, and chains can be created by using the '+' symbol.
+Runs a dictionary attack using all wordlists configured in your `hcatWordlists` path and optionally applies rules. Multiple rules can be selected by comma-separated list, and chains can be created with the '+' symbol.
 
 ```
 Which rule(s) would you like to run?
@@ -600,18 +649,18 @@ Choose wisely:
 
 
 #### Extensive Pure_Hate Methodology Crack
-Runs several attack methods provided by Martin Bos (formerly known as pure_hate)
+Runs several attack methods provided by Martin Bos (formerly known as pure_hate):
   * Brute Force Attack (7 characters)
   * Dictionary Attack
-    * All wordlists in "hcatOptimizedWordlists" with "best64.rule"
-    * wordlists/rockyou.txt with "d3ad0ne.rule"
-    * wordlists/rockyou.txt with "T0XlC.rule"
+    * All wordlists in `hcatWordlists` with `best64.rule`
+    * `rockyou.txt` with `d3ad0ne.rule`
+    * `rockyou.txt` with `T0XlC.rule`
   * Top Mask Attack (Target Time = 4 Hours)
   * Fingerprint Attack
   * Combinator Attack
   * Hybrid Attack
   * Extra - Just For Good Measure
-    - Runs a dictionary attack using wordlists/rockyou.txt with chained "combinator.rule" and "InsidePro-PasswordsPro.rule" rules
+    - Runs a dictionary attack using `rockyou.txt` with chained `combinator.rule` and `InsidePro-PasswordsPro.rule` rules
     
 #### Brute Force Attack
 Brute forces all characters with the choice of a minimum and maximum password length.
@@ -651,8 +700,7 @@ https://hashcat.net/events/p14-trondheim/prince-attack.pdf
 Runs a PRINCE attack using wordlists/rockyou.txt
 
 #### YOLO Combinator Attack
-Runs a continuous combinator attack using random wordlists from the 
-optimized wordlists for the left and right sides.
+Runs a continuous combinator attack using random wordlists from the configured wordlists directory for the left and right sides.
 
 #### Middle Combinator Attack
 https://jeffh.net/2018/04/26/combinator_methods/
@@ -678,10 +726,10 @@ https://jeffh.net/2018/04/26/combinator_methods/
 
 #### Bandrel Methodology
 
-* Prompts for input of comma separated names and then creates a pseudo hybrid attack by capitalizing the first letter
-and adding up to six additional characters at the end. Each word is limited to a total of five minutes.
-  - Built in additional common words including seasons, months has been included as a customizable config.json entry
-  - The default five minute time limit is customizable via the config.json
+Prompts for comma-separated names and creates a pseudo hybrid attack by capitalizing the first letter and adding up to six additional characters at the end. Each word is limited to a total of five minutes.
+
+  - Built-in common words (seasons, months) included as a customizable `config.json` entry (`bandrel_common_basedwords`)
+  - The default five-minute time limit is customizable via `bandrelmaxruntime` in `config.json`
 
 #### Loopback Attack
 https://hashcat.net/wiki/doku.php?id=loopback_attack

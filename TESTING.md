@@ -90,6 +90,7 @@ By default, external service checks are skipped. Enable them explicitly:
 - `HATE_CRACK_RUN_LIVE_HASHVIEW_TESTS=1` — run live Hashview wordlist upload tests
 - `HATE_CRACK_RUN_E2E=1` — run end-to-end local installation tests
 - `HATE_CRACK_RUN_DOCKER_TESTS=1` — run Docker-based end-to-end tests
+- `HATE_CRACK_RUN_LIMA_TESTS=1` — run Lima VM-based end-to-end tests (requires Lima installed)
 
 When `HASHMOB_TEST_REAL` is enabled, tests will still skip if Hashmob returns errors like HTTP 523 (origin unreachable).
 
@@ -110,6 +111,7 @@ Highlights:
 7. UI menu options (all attack modes)
 8. Hashcat-utils submodule verification
 9. Docker and E2E installation tests (opt-in)
+10. Lima VM installation tests (opt-in)
 
 ## Benefits
 
@@ -151,7 +153,31 @@ HATE_CRACK_RUN_E2E=1 uv run pytest tests/test_e2e_local_install.py -v
 
 # Run Docker tests
 HATE_CRACK_RUN_DOCKER_TESTS=1 uv run pytest tests/test_docker_script_install.py -v
+
+# Run Lima VM tests
+# Prerequisite: brew install lima
+HATE_CRACK_RUN_LIMA_TESTS=1 uv run pytest tests/test_lima_vm_install.py -v
 ```
+
+## Lima VM Tests
+
+`tests/test_lima_vm_install.py` runs hate_crack inside a real Ubuntu 24.04 VM via [Lima](https://lima-vm.io/). Unlike the Docker tests, this exercises a real kernel and full Ubuntu userspace, giving higher confidence that installation works on the distros users actually run.
+
+**Prerequisites:**
+
+```bash
+brew install lima
+```
+
+**Run:**
+
+```bash
+HATE_CRACK_RUN_LIMA_TESTS=1 uv run pytest tests/test_lima_vm_install.py -v
+```
+
+**Note:** The first run takes several minutes - the VM provision script runs `apt-get install` for hashcat and all build dependencies. Subsequent runs on the same machine are faster if Lima caches the base image.
+
+The VM is created with a unique name per test session and deleted automatically in teardown. To verify cleanup: `limactl list`.
 
 ## Note on Real API Testing
 

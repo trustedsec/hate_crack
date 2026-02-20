@@ -50,7 +50,6 @@ def test_config_with_explicit_hashcat_path():
             "hcatBin": "hashcat",
             "hcatTuning": "--force",
             "hcatWordlists": "./wordlists",
-            "hcatOptimizedWordlists": "./optimized_wordlists",
             "rules_directory": "/opt/hashcat/rules",
             "hcatDictionaryWordlist": ["rockyou.txt"],
             "hcatCombinationWordlist": ["rockyou.txt"],

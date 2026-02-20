@@ -184,6 +184,16 @@ if not os.path.isfile(defaults_path):
 with open(defaults_path) as defaults:
     default_config = json.load(defaults)
 
+_config_updated = False
+for _key, _value in default_config.items():
+    if _key not in config_parser:
+        config_parser[_key] = _value
+        print(f"[config] Added missing key '{_key}' with default value")
+        _config_updated = True
+if _config_updated:
+    with open(_config_path, "w") as _cf:
+        json.dump(config_parser, _cf, indent=2)
+
 try:
     hashview_url = config_parser["hashview_url"]
 except KeyError as e:
@@ -243,7 +253,10 @@ def ensure_binary(binary_path, build_dir=None, name=None):
 # NOTE: hcatPath is the hashcat install directory, NOT for hate_crack assets.
 # hashcat-utils and princeprocessor should ALWAYS use hate_path.
 hcatPath = config_parser.get("hcatPath", "")
-hcatBin = config_parser["hcatBin"]
+try:
+    hcatBin = config_parser["hcatBin"]
+except KeyError:
+    hcatBin = default_config["hcatBin"]
 # If hcatBin is not absolute and hcatPath is set, construct full path from hcatPath + hcatBin
 if not os.path.isabs(hcatBin) and hcatPath:
     _candidate = os.path.join(hcatPath, hcatBin)
@@ -254,9 +267,20 @@ if not hcatPath:
     _which = shutil.which(hcatBin)
     if _which:
         hcatPath = os.path.dirname(os.path.realpath(_which))
-hcatTuning = config_parser["hcatTuning"]
-hcatWordlists = config_parser["hcatWordlists"]
-hcatOptimizedWordlists = config_parser["hcatOptimizedWordlists"]
+# Fall back to the vendored hashcat binary if not found via PATH or hcatPath
+if shutil.which(hcatBin) is None and not os.path.isfile(hcatBin):
+    _vendored_hcat = os.path.join(hate_path, "hashcat", "hashcat")
+    if os.path.isfile(_vendored_hcat) and os.access(_vendored_hcat, os.X_OK):
+        hcatBin = _vendored_hcat
+        hcatPath = os.path.join(hate_path, "hashcat")
+try:
+    hcatTuning = config_parser["hcatTuning"]
+except KeyError:
+    hcatTuning = default_config["hcatTuning"]
+try:
+    hcatWordlists = config_parser["hcatWordlists"]
+except KeyError:
+    hcatWordlists = "./wordlists"
 hcatRules: list[str] = []
 
 
@@ -302,27 +326,16 @@ rulesDirectory = os.path.expanduser(rulesDirectory)
 if not os.path.isabs(rulesDirectory):
     rulesDirectory = os.path.join(hate_path, rulesDirectory)
 
-# Normalize wordlist directories
+# Normalize wordlist directory
 hcatWordlists = os.path.expanduser(hcatWordlists)
 if not os.path.isabs(hcatWordlists):
     hcatWordlists = os.path.join(hate_path, hcatWordlists)
-hcatOptimizedWordlists = os.path.expanduser(hcatOptimizedWordlists)
-if not os.path.isabs(hcatOptimizedWordlists):
-    hcatOptimizedWordlists = os.path.join(hate_path, hcatOptimizedWordlists)
 if not os.path.isdir(hcatWordlists):
     fallback_wordlists = os.path.join(hate_path, "wordlists")
     if os.path.isdir(fallback_wordlists):
         print(f"[!] hcatWordlists directory not found: {hcatWordlists}")
         print(f"[!] Falling back to {fallback_wordlists}")
         hcatWordlists = fallback_wordlists
-if not os.path.isdir(hcatOptimizedWordlists):
-    fallback_optimized = os.path.join(hate_path, "optimized_wordlists")
-    if os.path.isdir(fallback_optimized):
-        print(
-            f"[!] hcatOptimizedWordlists directory not found: {hcatOptimizedWordlists}"
-        )
-        print(f"[!] Falling back to {fallback_optimized}")
-        hcatOptimizedWordlists = fallback_optimized
 
 try:
     maxruntime = config_parser["bandrelmaxruntime"]
@@ -1198,9 +1211,9 @@ def hcatDictionary(hcatHashType, hcatHashFile):
     global hcatDictionaryCount
     global hcatProcess
     rule_best66 = get_rule_path("best66.rule")
-    optimized_lists = sorted(glob.glob(os.path.join(hcatOptimizedWordlists, "*")))
+    optimized_lists = sorted(glob.glob(os.path.join(hcatWordlists, "*")))
     if not optimized_lists:
-        optimized_lists = [os.path.join(hcatOptimizedWordlists, "*")]
+        optimized_lists = [os.path.join(hcatWordlists, "*")]
     cmd = [
         hcatBin,
         "-m",
@@ -1589,10 +1602,10 @@ def hcatYoloCombination(hcatHashType, hcatHashFile):
     global hcatProcess
     try:
         while 1:
-            hcatLeft = random.choice(os.listdir(hcatOptimizedWordlists))
-            hcatRight = random.choice(os.listdir(hcatOptimizedWordlists))
-            left_path = os.path.join(hcatOptimizedWordlists, hcatLeft)
-            right_path = os.path.join(hcatOptimizedWordlists, hcatRight)
+            hcatLeft = random.choice(os.listdir(hcatWordlists))
+            hcatRight = random.choice(os.listdir(hcatWordlists))
+            left_path = os.path.join(hcatWordlists, hcatLeft)
+            right_path = os.path.join(hcatWordlists, hcatRight)
             cmd = [
                 hcatBin,
                 "-m",
@@ -3575,7 +3588,7 @@ def main():
     global lmHashesFound
     global debug_mode
     global hashview_url, hashview_api_key
-    global hcatPath, hcatBin, hcatWordlists, hcatOptimizedWordlists, rulesDirectory
+    global hcatPath, hcatBin, hcatWordlists, rulesDirectory
     global pipalPath, maxruntime, bandrelbasewords
     global hcatPotfilePath
 
@@ -3812,7 +3825,6 @@ def main():
         hcatPath=hcatPath,
         hcatBin=hcatBin,
         hcatWordlists=hcatWordlists,
-        hcatOptimizedWordlists=hcatOptimizedWordlists,
         rules_directory=rulesDirectory,
         pipalPath=pipalPath,
         maxruntime=maxruntime,
@@ -3824,7 +3836,6 @@ def main():
     hcatPath = config.hcatPath
     hcatBin = config.hcatBin
     hcatWordlists = config.hcatWordlists
-    hcatOptimizedWordlists = config.hcatOptimizedWordlists
     rulesDirectory = config.rules_directory
     pipalPath = config.pipalPath
     maxruntime = config.maxruntime
