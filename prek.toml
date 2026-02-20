@@ -3,6 +3,7 @@ commands = [
     "uv run ruff check hate_crack",
     "uv run ty check hate_crack",
     "HATE_CRACK_SKIP_INIT=1 uv run pytest -q",
+    "HATE_CRACK_RUN_LIMA_TESTS=1 uv run pytest tests/test_lima_vm_install.py -v",
 ]
 
 [hooks.post-commit]

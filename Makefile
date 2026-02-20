@@ -16,6 +16,12 @@ submodules:
 				echo "hashcat already installed in PATH, skipping submodule compilation"; \
 				continue; \
 			fi; \
+			if [ "$$path" = "princeprocessor" ]; then \
+				$(MAKE) -C "$$path/src" CFLAGS_LINUX64="-W -Wall -std=c99 -O2 -s -DLINUX"; \
+				if [ -f "$$path/src/pp64.bin" ]; then cp "$$path/src/pp64.bin" "$$path/"; \
+				elif [ -f "$$path/src/ppAppleArm64.bin" ]; then cp "$$path/src/ppAppleArm64.bin" "$$path/pp64.bin"; fi; \
+				continue; \
+			fi; \
 			if [ -f "$$path/Makefile" ] || [ -f "$$path/makefile" ]; then \
 				$(MAKE) -C "$$path"; \
 			fi; \
