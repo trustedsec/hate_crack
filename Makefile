@@ -125,10 +125,18 @@ clean:
 	find . -name "__pycache__" -type d -prune -exec rm -rf {} +
 
 test:
-	uv run pytest -v
+	@# Auto-set HATE_CRACK_SKIP_INIT when hashcat-utils binaries are not built
+	@if [ -z "$$HATE_CRACK_SKIP_INIT" ] && [ ! -f hate_crack/hashcat-utils/bin/expander.bin ] && [ ! -f hate_crack/hashcat-utils/bin/expander.app ]; then \
+		echo "[test] hashcat-utils not built, setting HATE_CRACK_SKIP_INIT=1"; \
+		export HATE_CRACK_SKIP_INIT=1; \
+	fi; \
+	HATE_CRACK_SKIP_INIT=$${HATE_CRACK_SKIP_INIT:-1} uv run pytest -v
 
 coverage:
-	uv run pytest --cov=hate_crack --cov-report=term-missing
+	@if [ -z "$$HATE_CRACK_SKIP_INIT" ] && [ ! -f hate_crack/hashcat-utils/bin/expander.bin ] && [ ! -f hate_crack/hashcat-utils/bin/expander.app ]; then \
+		echo "[coverage] hashcat-utils not built, setting HATE_CRACK_SKIP_INIT=1"; \
+	fi; \
+	HATE_CRACK_SKIP_INIT=$${HATE_CRACK_SKIP_INIT:-1} uv run pytest --cov=hate_crack --cov-report=term-missing
 
 ruff:
 	uv run ruff check hate_crack
