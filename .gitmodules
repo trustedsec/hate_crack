@@ -10,3 +10,11 @@
 	path = omen
 	url = https://github.com/RUB-SysSec/OMEN.git
 	ignore = dirty
+[submodule "hashcat"]
+	path = hashcat
+	url = https://github.com/hashcat/hashcat.git
+	ignore = dirty
+[submodule "princeprocessor"]
+	path = princeprocessor
+	url = https://github.com/hashcat/princeprocessor.git
+	ignore = dirty
