@@ -69,11 +69,11 @@ def quick_crack(ctx: Any) -> None:
         try:
             raw_choice = input(
                 "\nEnter path of wordlist or wordlist directory (tab to autocomplete).\n"
-                f"Press Enter for default optimized wordlists [{ctx.hcatOptimizedWordlists}]: "
+                f"Press Enter for default wordlist directory [{ctx.hcatWordlists}]: "
             )
             raw_choice = raw_choice.strip()
             if raw_choice == "":
-                wordlist_choice = ctx.hcatOptimizedWordlists
+                wordlist_choice = ctx.hcatWordlists
             elif raw_choice.isdigit() and 1 <= int(raw_choice) <= len(wordlist_files):
                 chosen = os.path.join(
                     ctx.hcatWordlists, wordlist_files[int(raw_choice) - 1]
