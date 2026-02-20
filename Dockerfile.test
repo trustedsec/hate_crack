@@ -7,6 +7,7 @@ RUN apt-get update \
         build-essential \
         ca-certificates \
         curl \
+        git \
         gzip \
         hashcat \
         ocl-icd-libopencl1 \
