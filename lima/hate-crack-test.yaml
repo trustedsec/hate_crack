@@ -1,0 +1,41 @@
+# Lima VM configuration for hate_crack E2E testing
+# Ubuntu 24.04 LTS with hashcat and build dependencies pre-installed.
+# Usage: limactl start --name hate-crack-e2e lima/hate-crack-test.yaml
+
+images:
+  - location: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img"
+    arch: "x86_64"
+  - location: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-arm64.img"
+    arch: "aarch64"
+
+cpus: 2
+memory: "4GiB"
+disk: "20GiB"
+
+# No host mounts - full isolation mirrors a real user install
+mounts: []
+
+provision:
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update -qq
+      apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        curl \
+        git \
+        gzip \
+        hashcat \
+        ocl-icd-libopencl1 \
+        pocl-opencl-icd \
+        p7zip-full \
+        transmission-cli
+
+  - mode: user
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      curl -LsSf https://astral.sh/uv/install.sh | sh
