@@ -5,8 +5,8 @@ hashcat-utils: submodules
 	$(MAKE) -C hashcat-utils
 
 submodules:
-	@# Initialize submodules when present
-	@if [ -f .gitmodules ] && command -v git >/dev/null 2>&1; then \
+	@# Initialize submodules only when inside a git repo (not in Docker/CI copies)
+	@if [ -d .git ] && [ -f .gitmodules ] && command -v git >/dev/null 2>&1; then \
 		git submodule update --init --recursive; \
 	fi; \
 	$(MAKE) submodules-pre; \
