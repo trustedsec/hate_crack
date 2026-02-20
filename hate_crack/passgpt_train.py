@@ -211,7 +211,7 @@ def train(
         def __len__(self) -> int:
             return len(self.offsets)
 
-        def __getitem__(self, idx: int) -> dict[str, object]:
+        def __getitem__(self, idx: int) -> dict[str, object]:  # type: ignore[override]
             with open(self.filepath, "rb") as f:
                 f.seek(self.offsets[idx])
                 line = f.readline().decode("utf-8", errors="replace").strip()
