@@ -1,12 +1,47 @@
-[hooks.pre-push]
-commands = [
-    "uv run ruff check hate_crack",
-    "uv run ty check hate_crack",
-    "HATE_CRACK_SKIP_INIT=1 uv run pytest -q",
-    "HATE_CRACK_RUN_LIMA_TESTS=1 uv run pytest tests/test_lima_vm_install.py -v",
-]
+[[repos]]
+repo = "local"
 
-[hooks.post-commit]
-commands = [
-    "bash .claude/audit-docs.sh HEAD",
-]
+[[repos.hooks]]
+id = "ruff"
+name = "ruff"
+entry = "uv run ruff check hate_crack"
+language = "system"
+stages = ["pre-push"]
+pass_filenames = false
+always_run = true
+
+[[repos.hooks]]
+id = "ty"
+name = "ty"
+entry = "uv run ty check hate_crack"
+language = "system"
+stages = ["pre-push"]
+pass_filenames = false
+always_run = true
+
+[[repos.hooks]]
+id = "pytest"
+name = "pytest"
+entry = "env HATE_CRACK_SKIP_INIT=1 uv run pytest -q"
+language = "system"
+stages = ["pre-push"]
+pass_filenames = false
+always_run = true
+
+[[repos.hooks]]
+id = "pytest-lima"
+name = "pytest-lima"
+entry = "env HATE_CRACK_RUN_LIMA_TESTS=1 uv run pytest tests/test_lima_vm_install.py -v"
+language = "system"
+stages = ["pre-push"]
+pass_filenames = false
+always_run = true
+
+[[repos.hooks]]
+id = "audit-docs"
+name = "audit-docs"
+entry = "bash .claude/audit-docs.sh HEAD"
+language = "system"
+stages = ["post-commit"]
+pass_filenames = false
+always_run = true
