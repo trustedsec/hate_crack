@@ -39,15 +39,32 @@ make coverage
 
 ## Git Hooks
 
-Git hooks are managed by [prek](https://github.com/nicholasgasior/prek). Install with:
+Git hooks are managed by [prek](https://github.com/j178/prek) (v0.3.3+). Install with:
 
 ```bash
-prek install
+prek install --hook-type pre-push --hook-type post-commit
 ```
 
-Hooks defined in `prek.toml`:
-- **pre-push**: ruff check, ty check, pytest
-- **post-commit**: documentation audit
+Hooks are defined in `prek.toml` using the pre-commit local-repo schema (TOML, not YAML):
+
+```toml
+[[repos]]
+repo = "local"
+
+[[repos.hooks]]
+id = "ruff"
+entry = "uv run ruff check hate_crack"
+language = "system"
+stages = ["pre-push"]
+pass_filenames = false
+always_run = true
+```
+
+Active hooks:
+- **pre-push**: ruff, ty, pytest, pytest-lima
+- **post-commit**: audit-docs
+
+**Note**: prek 0.3.3 expects `repos = [...]` at the top level. The old `[hooks.<stage>] commands = [...]` format is not supported and will fail with `missing field 'repos'`.
 
 ## Documentation Auditing
 
