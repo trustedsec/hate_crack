@@ -2611,6 +2611,8 @@ def cleanup():
     global pwdump_format
     global hcatHashFileOrig
     try:
+        if not hcatHashFileOrig:
+            return
         if hcatHashType == "1000" and pwdump_format:
             print("\nComparing cracked hashes to original file...")
             combine_ntlm_output()
@@ -3252,7 +3254,8 @@ def hashview_api():
                 break
 
     except KeyboardInterrupt:
-        quit_hc()
+        print("\nKeyboard interrupt: Returning to main menu...")
+        return
     except Exception as e:
         print(f"\nError connecting to Hashview: {str(e)}")
 
