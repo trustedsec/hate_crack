@@ -351,15 +351,17 @@ uv run pytest --cov=hate_crack
 
 ### Git Hooks (prek)
 
-Git hooks are managed by [prek](https://github.com/nicholasgasior/prek). Install hooks with:
+Git hooks are managed by [prek](https://github.com/j178/prek) (v0.3.3+). Install hooks with:
 
 ```bash
-prek install
+prek install --hook-type pre-push --hook-type post-commit
 ```
 
-This installs hooks defined in `prek.toml`:
-- **pre-push**: ruff check, ty check, pytest
-- **post-commit**: documentation audit
+This installs hooks defined in `prek.toml` using the pre-commit local-repo TOML schema:
+- **pre-push**: ruff, ty, pytest, pytest-lima
+- **post-commit**: audit-docs
+
+Note: prek 0.3.3 expects `repos = [...]` at the top level. The old `[hooks.<stage>] commands = [...]` format is not supported.
 
 ### Optional Dependencies
 
@@ -581,6 +583,14 @@ HATE_CRACK_RUN_DOCKER_TESTS=1 uv run pytest tests/test_docker_script_install.py 
 
 The Docker E2E test also downloads a small subset of rockyou and runs a basic
 hashcat crack to validate external tool integration.
+
+Lima VM end-to-end test (macOS only, requires Lima):
+
+```bash
+uv run pytest tests/test_lima_vm_install.py -v
+```
+
+This test validates installation and execution within a lightweight Linux VM on macOS.
 
 ### Test Structure
 
