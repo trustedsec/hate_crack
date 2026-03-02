@@ -31,7 +31,7 @@ always_run = true
 [[repos.hooks]]
 id = "pytest-lima"
 name = "pytest-lima"
-entry = "env HATE_CRACK_RUN_LIMA_TESTS=1 uv run pytest tests/test_lima_vm_install.py -v"
+entry = "uv run pytest tests/test_lima_vm_install.py -v"
 language = "system"
 stages = ["pre-push"]
 pass_filenames = false
