@@ -389,6 +389,12 @@ def combinator_crack(ctx: Any) -> None:
         ctx._resolve_wordlist_path(wl, ctx.hcatWordlists) for wl in wordlists[:2]
     ]
 
+    if len(wordlists) < 2:
+        print("\n[!] Combinator attack requires 2 wordlists but only 1 is configured.")
+        print("Set hcatCombinationWordlist to a list of 2 paths in config.json.")
+        print("Aborting combinator attack.")
+        return
+
     print("\nStarting combinator attack with 2 wordlists:")
     print(f"  Wordlist 1: {wordlists[0]}")
     print(f"  Wordlist 2: {wordlists[1]}")
