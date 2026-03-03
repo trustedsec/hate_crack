@@ -19,12 +19,6 @@ dependencies = [
 hate_crack = "hate_crack.__main__:main"
 
 [project.optional-dependencies]
-ml = [
-    "torch>=2.0.0",
-    "transformers>=4.30.0",
-    "datasets>=2.14.0",
-    "accelerate>=1.1.0",
-]
 dev = [
     "ty==0.0.17",
     "ruff==0.15.1",
@@ -75,7 +69,7 @@ exclude = [
 [tool.ty.rules]
 # Module-level globals in main.py are assigned at runtime
 unresolved-reference = "warn"
-# Optional deps (torch, transformers, hashcat_rosetta) not always installed
+# Optional deps (hashcat_rosetta) not always installed
 unresolved-import = "warn"
 # BeautifulSoup union types and module-level globals
 unresolved-attribute = "warn"

@@ -363,21 +363,6 @@ This installs hooks defined in `prek.toml` using the pre-commit local-repo TOML 
 
 Note: prek 0.3.3 expects `repos = [...]` at the top level. The old `[hooks.<stage>] commands = [...]` format is not supported.
 
-### Optional Dependencies
-
-The optional `[ml]` group includes ML/AI features required for the PassGPT attack:
-- **torch** - PyTorch deep learning framework (for PassGPT attack and training)
-- **transformers** - HuggingFace transformers library (for GPT-2 models)
-- **datasets** - HuggingFace datasets library (for fine-tuning support)
-- **accelerate** - HuggingFace training acceleration library
-
-Install with:
-```bash
-uv pip install -e ".[ml]"
-```
-
-PassGPT (option 17) will be hidden from the menu if ML dependencies are not installed.
-
 ### Dev Dependencies
 
 The optional `[dev]` group includes:
@@ -624,7 +609,6 @@ Tests automatically run on GitHub Actions for every push and pull request (Ubunt
   (14) Loopback Attack
   (15) LLM Attack
   (16) OMEN Attack
-  (17) PassGPT Attack
 
   (90) Download rules from Hashmob.net
   (91) Analyze Hashcat Rules
@@ -766,76 +750,6 @@ Uses the Ordered Markov ENumerator (OMEN) to train a statistical password model 
 * Pipes generated candidates directly into hashcat for cracking
 * Model files are stored in `~/.hate_crack/omen/` for persistence across sessions
 
-#### PassGPT Attack
-Uses PassGPT, a GPT-2 based password generator trained on leaked password datasets, to generate candidate passwords. PassGPT produces higher-quality candidates than traditional Markov models by leveraging transformer-based language modeling. You can use the default HuggingFace model or fine-tune a custom model on your own password wordlist.
-
-**Note:** This menu item is hidden unless ML dependencies are installed.
-
-**Requirements:** ML dependencies must be installed separately:
-```bash
-uv pip install -e ".[ml]"
-```
-
-This installs PyTorch and HuggingFace Transformers. GPU acceleration (CUDA/MPS) is auto-detected but not required.
-
-**Configuration keys:**
-- `passgptModel` - HuggingFace model name (default: `javirandor/passgpt-10characters`)
-- `passgptMaxCandidates` - Maximum candidates to generate (default: 1000000)
-- `passgptBatchSize` - Generation batch size (default: 1024)
-- `passgptTrainingList` - Default wordlist for fine-tuning (default: `rockyou.txt`)
-
-**Supported models:**
-- `javirandor/passgpt-10characters` - Trained on passwords up to 10 characters (default)
-- `javirandor/passgpt-16characters` - Trained on passwords up to 16 characters
-- Any compatible GPT-2 model on HuggingFace
-- Locally fine-tuned models (stored in `~/.hate_crack/passgpt/`)
-
-**Training a Custom Model:**
-When you select the PassGPT Attack (option 17), the menu presents:
-- List of available models (default HF model + any locally fine-tuned models)
-- Option (T) to train a new model on a custom wordlist
-- Fine-tuned models are automatically saved to `~/.hate_crack/passgpt/<name>/` for reuse
-
-To train a new model:
-1. Select option (T) from the model selection menu
-2. Choose a training wordlist (supports tab-complete file selection)
-3. Optionally specify a base model (defaults to configured `passgptModel`)
-4. Training will fine-tune the model on your wordlist and save it locally
-
-Fine-tuned models can be reused in future cracking sessions and appear in the model selection menu alongside the default models.
-
-**Apple Silicon (MPS) Performance Notes:**
-- Batch size is automatically capped at 64 to prevent memory errors on MPS devices
-- GPU memory watermark ratios are configured for stability (50% high, 30% low)
-- Specify `--device cpu` to force CPU generation if MPS has issues
-
-**Standalone usage:**
-
-Generate candidates:
-```bash
-python -m hate_crack.passgpt_generate --num 1000 --model javirandor/passgpt-10characters
-```
-
-Fine-tune a custom model:
-```bash
-python -m hate_crack.passgpt_train --training-file wordlist.txt --output-dir ~/.hate_crack/passgpt/my_model
-```
-
-**Generator command-line options:**
-- `--num` - Number of candidates to generate (default: 1000000)
-- `--model` - HuggingFace model name or local path (default: javirandor/passgpt-10characters)
-- `--batch-size` - Generation batch size (default: 1024)
-- `--max-length` - Max token length including special tokens (default: 12)
-- `--device` - Device: cuda, mps, or cpu (default: auto-detect)
-
-**Training command-line options:**
-- `--training-file` - Path to password wordlist for fine-tuning (required)
-- `--output-dir` - Directory to save the fine-tuned model (required)
-- `--base-model` - Base HuggingFace model to fine-tune (default: javirandor/passgpt-10characters)
-- `--epochs` - Number of training epochs (default: 3)
-- `--batch-size` - Training batch size (default: 8)
-- `--device` - Device: cuda, mps, or cpu (default: auto-detect)
-
 #### Download Rules from Hashmob.net
 Downloads the latest rule files from Hashmob.net's rule repository. These rules are curated and optimized for password cracking and can be used with the Quick Crack and Loopback Attack modes.
 
@@ -872,10 +786,6 @@ Interactive menu for downloading and managing wordlists from Weakpass.com via Bi
 Version 2.0+
   - Added automatic update checks on startup (check_for_updates config option)
   - Added `packaging` dependency for version comparison
-  - Added PassGPT Attack (option 17) using GPT-2 based ML password generation
-  - Added PassGPT fine-tuning capability for custom password models
-  - Added PassGPT configuration keys (passgptModel, passgptMaxCandidates, passgptBatchSize, passgptTrainingList)
-  - Added `[ml]` optional dependency group for PyTorch, Transformers, and Datasets
   - Added OMEN Attack (option 16) using statistical model-based password generation
   - Added OMEN configuration keys (omenTrainingList, omenMaxCandidates)
   - Added LLM Attack (option 15) using Ollama for AI-generated password candidates
