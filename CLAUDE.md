@@ -35,7 +35,7 @@ uv run ruff format hate_crack
 make coverage
 ```
 
-**Test environment variables**: `HATE_CRACK_SKIP_INIT=1` skips binary/config validation (essential for CI and worktrees). `HASHMOB_TEST_REAL=1`, `HASHVIEW_TEST_REAL=1`, `WEAKPASS_TEST_REAL=1` enable live API tests.
+**Test environment variables**: `HATE_CRACK_SKIP_INIT=1` skips binary/config validation (essential for worktrees without hashcat-utils). `HASHMOB_TEST_REAL=1`, `HASHVIEW_TEST_REAL=1`, `WEAKPASS_TEST_REAL=1` enable live API tests.
 
 ## Git Hooks
 
@@ -165,5 +165,4 @@ Binaries are verified at startup via `ensure_binary(path, build_dir, name)`. Non
 - Menu option tests in `test_ui_menu_options.py` use monkeypatching against `CLI_MODULE` (loaded from `hate_crack.py`)
 - API tests mock `requests` responses; most are offline-first
 - conftest.py provides `hc_module` fixture via `load_hate_crack_module()` which dynamically imports root `hate_crack.py` with SKIP_INIT enabled
-- Python 3.9-3.14 supported in CI (requires-python >=3.13 in pyproject.toml but CI tests older versions)
 - E2E tests (`test_e2e_local_install.py`, `test_docker_script_install.py`) are opt-in via `HATE_CRACK_RUN_E2E=1` and `HATE_CRACK_RUN_DOCKER_TESTS=1`

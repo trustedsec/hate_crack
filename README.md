@@ -7,16 +7,6 @@
        \/      \/          \/_____/      \/            \/     \/     \/
 ```
 
-## Status
-
-**Code Quality & Testing:**
-
-[![ruff](https://github.com/trustedsec/hate_crack/actions/workflows/ruff.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/ruff.yml)
-[![ty](https://github.com/trustedsec/hate_crack/actions/workflows/ty.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/ty.yml)
-[![pytest](https://github.com/trustedsec/hate_crack/actions/workflows/pytest.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/pytest.yml)
-
-The pytest workflow tests across Python 3.9-3.14 via a matrix build.
-
 ## Installation
 
 ### 1. Install hashcat (Optional)
@@ -266,33 +256,6 @@ Install the project with optional dev dependencies (includes linters and testing
 ```bash
 make dev-install
 ```
-
-### Continuous Integration
-
-The project uses GitHub Actions to automatically run quality checks on every push and pull request.
-
-**Checks that run on each commit:**
-
-1. **Linting (Ruff)** - Code style and quality validation
-   - ✅ **PASS**: Code follows style rules and best practices
-   - ❌ **FAIL**: Code has style violations or quality issues
-   - Run locally: `make ruff`
-
-2. **Type Checking (ty)** - Static type analysis
-   - ✅ **PASS**: No type errors detected
-   - ❌ **FAIL**: Type mismatches or missing annotations found
-   - Run locally: `make ty`
-
-3. **Testing (Multi-Version)** - Tests across Python 3.9 through 3.14
-   - ✅ **PASS**: All tests pass on all supported Python versions
-   - ⚠️  **PARTIAL**: Tests pass on some versions but fail on others
-   - ❌ **FAIL**: Tests fail on one or more Python versions
-   - Run locally: `make test`
-
-**View CI/CD Status:**
-- Click the badge above to see the full test results
-- Each workflow shows which Python version(s) failed or passed
-- Details are available in the Actions tab
 
 ### Running Linters and Type Checks
 
@@ -585,11 +548,7 @@ This test validates installation and execution within a lightweight Linux VM on 
   - Hashfile upload functionality
   - Complete job creation workflow
 
-All tests use mocked API calls, so they can run without connectivity to a Hashview server. This allows tests to run in CI/CD environments (like GitHub Actions) without requiring actual API credentials.
-
-### Continuous Integration
-
-Tests automatically run on GitHub Actions for every push and pull request (Ubuntu, Python 3.9 through 3.14).
+All tests use mocked API calls, so they can run without connectivity to a Hashview server.
 
 -------------------------------------------------------------------
 
@@ -791,8 +750,6 @@ Version 2.0+
   - Added LLM Attack (option 15) using Ollama for AI-generated password candidates
   - Added Ollama configuration keys (ollamaModel, ollamaNumCtx)
   - Auto-versioning via setuptools-scm from git tags
-  - Automatic patch version bump (v2.0.1, v2.0.2, ...) on PR merge to main
-  - CI test fixes across Python 3.9-3.14
 
 Version 2.0
   Modularized codebase into CLI/API/attacks modules
