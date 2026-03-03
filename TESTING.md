@@ -128,10 +128,6 @@ The Lima test provisions a real Ubuntu 24.04 VM via [Lima](https://lima-vm.io/).
 - **HTTP mocking** - API tests mock `requests` at the boundary. No real network calls in offline tests.
 - **Subprocess mocking** - Hashcat wrapper tests mock `subprocess.Popen`; no hashcat binary required.
 
-## CI
-
-GitHub Actions runs the offline test suite against Python 3.9-3.14 on every push and pull request. Opt-in tests are not run in CI.
-
 Pre-push hooks (via [prek](https://github.com/j178/prek)) run `ruff`, `ty`, and `pytest` locally before each push:
 
 ```bash
