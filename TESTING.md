@@ -70,7 +70,6 @@ No external services, binaries, or network access required.
 | `test_invalid_hcatpath.py` | Startup error on invalid hashcat path |
 | `test_version_check.py` | Update check logic |
 | `test_omen_attack.py` | OMEN attack handler |
-| `test_passgpt_attack.py` | PassGPT attack handler |
 | `test_pipal.py` | Pipal integration helpers |
 | `test_pipal_integration.py` | Pipal menu and output parsing |
 | `test_dependencies.py` | External dependency detection |
