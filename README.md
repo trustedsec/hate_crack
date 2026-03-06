@@ -9,11 +9,21 @@
 
 ## Installation
 
-### 1. Install hashcat (Optional)
+### 1. Install hashcat
 
-Hashcat is included as a git submodule and will be compiled automatically. If you already have hashcat installed and in your PATH, the build step will skip the submodule compilation.
+Hashcat must be installed and available in your PATH:
 
-To manually install hashcat instead (e.g., system package or pre-built binary), ensure `hashcat` is available in your PATH or set `hcatPath` in `config.json`.
+Ubuntu/Kali:
+```bash
+sudo apt-get install -y hashcat
+```
+
+macOS (Homebrew):
+```bash
+brew install hashcat
+```
+
+Or download a pre-built binary from https://hashcat.net/hashcat/ and set `hcatPath` in `config.json` to its location.
 
 ### 2. Download hate_crack
 
@@ -36,7 +46,7 @@ Then customize configuration in `config.json` if needed (wordlist paths, API key
 
 The easiest way is to run `make` (or `make install`), which auto-detects your OS and installs:
 - External dependencies (p7zip, transmission-cli)
-- Builds submodules (hashcat-utils, princeprocessor, and optionally hashcat if not in PATH)
+- Builds submodules (hashcat-utils, princeprocessor, and optionally omen)
 - Python tool via uv
 
 ```bash
@@ -532,10 +542,18 @@ HATE_CRACK_RUN_DOCKER_TESTS=1 uv run pytest tests/test_docker_script_install.py 
 The Docker E2E test also downloads a small subset of rockyou and runs a basic
 hashcat crack to validate external tool integration.
 
-Lima VM end-to-end test (macOS only, requires Lima):
+Lima VM end-to-end test (macOS only):
+
+Prerequisites: [Lima](https://lima-vm.io/) and `rsync` must be installed.
 
 ```bash
-uv run pytest tests/test_lima_vm_install.py -v
+brew install lima
+```
+
+The test VM provisions automatically with all Linux dependencies (hashcat, build-essential, curl, git, gzip, p7zip-full, transmission-cli, ocl-icd-libopencl1, pocl-opencl-icd, uv).
+
+```bash
+HATE_CRACK_RUN_LIMA_TESTS=1 uv run pytest tests/test_lima_vm_install.py -v
 ```
 
 This test validates installation and execution within a lightweight Linux VM on macOS.

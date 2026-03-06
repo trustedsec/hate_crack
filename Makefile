@@ -12,10 +12,6 @@ submodules:
 	$(MAKE) submodules-pre; \
 	if [ -f .gitmodules ] && command -v git >/dev/null 2>&1; then \
 		for path in $$(git config --file .gitmodules --get-regexp path | awk '{print $$2}'); do \
-			if [ "$$path" = "hashcat" ] && command -v hashcat >/dev/null 2>&1; then \
-				echo "hashcat already installed in PATH, skipping submodule compilation"; \
-				continue; \
-			fi; \
 			if [ "$$path" = "princeprocessor" ]; then \
 				$(MAKE) -C "$$path/src" CFLAGS_LINUX64="-W -Wall -std=c99 -O2 -s -DLINUX"; \
 				if [ -f "$$path/src/pp64.bin" ]; then cp "$$path/src/pp64.bin" "$$path/"; \
@@ -32,9 +28,8 @@ submodules:
 submodules-pre:
 	@# Pre-step: basic sanity checks and file generation before building submodules.
 	@# Ensure required directories exist (whether as submodules or vendored copies).
-	@# hashcat is optional here: submodule is compiled if present, else PATH hashcat is used.
-	@test -d hashcat || command -v hashcat >/dev/null 2>&1 || { \
-		echo "Error: hashcat not found. Either initialize the hashcat submodule or install hashcat."; exit 1; }
+	@command -v hashcat >/dev/null 2>&1 || { \
+		echo "Error: hashcat not found. Install hashcat (e.g. apt install hashcat or brew install hashcat)."; exit 1; }
 	@test -d hashcat-utils || { echo "Error: missing required directory: hashcat-utils"; exit 1; }
 	@test -d princeprocessor || { echo "Error: missing required directory: princeprocessor"; exit 1; }
 	@test -d omen || { echo "Warning: missing directory: omen (OMEN attacks will not be available)"; }
@@ -51,7 +46,7 @@ vendor-assets:
 	@rm -rf hate_crack/hashcat hate_crack/hashcat-utils hate_crack/princeprocessor hate_crack/omen
 	@mkdir -p hate_crack/hashcat
 	@if [ -f hashcat/hashcat ]; then \
-		echo "Vendoring compiled hashcat submodule binary..."; \
+		echo "Vendoring compiled hashcat binary from submodule..."; \
 		cp hashcat/hashcat hate_crack/hashcat/hashcat; \
 		[ -d hashcat/rules ] && cp -R hashcat/rules hate_crack/hashcat/rules || true; \
 		[ -d hashcat/OpenCL ] && cp -R hashcat/OpenCL hate_crack/hashcat/OpenCL || true; \
@@ -71,7 +66,7 @@ vendor-assets:
 		[ -d "$$HASHCAT_DIR/OpenCL" ] && cp -R "$$HASHCAT_DIR/OpenCL" hate_crack/hashcat/OpenCL || true; \
 		[ -d "$$HASHCAT_DIR/modules" ] && cp -R "$$HASHCAT_DIR/modules" hate_crack/hashcat/modules || true; \
 	else \
-		echo "Error: hashcat not found. Either compile the hashcat submodule or install hashcat."; \
+		echo "Error: hashcat not found. Install hashcat (e.g. apt install hashcat or brew install hashcat)."; \
 		exit 1; \
 	fi
 	@cp -R hashcat-utils hate_crack/
@@ -124,7 +119,6 @@ dev-reinstall: uninstall dev-install
 
 clean:
 	-$(MAKE) -C hashcat-utils clean
-	-$(MAKE) -C hashcat clean
 	-@if [ -f .gitmodules ]; then git submodule deinit -f --all; fi
 	rm -rf .pytest_cache .ruff_cache build dist *.egg-info
 	rm -rf ~/.cache/uv
