@@ -8,11 +8,22 @@ from pathlib import Path
 import pytest
 
 
+def _truncate_output(text: str, lines: int = 100) -> str:
+    """Return the last `lines` lines of text to keep failure messages readable."""
+    all_lines = text.splitlines()
+    if len(all_lines) <= lines:
+        return text
+    kept = all_lines[-lines:]
+    return f"... ({len(all_lines) - lines} lines omitted) ...\n" + "\n".join(kept)
+
+
 def _require_lima():
     if os.environ.get("HATE_CRACK_RUN_LIMA_TESTS") != "1":
         pytest.skip("Set HATE_CRACK_RUN_LIMA_TESTS=1 to run Lima VM tests.")
     if shutil.which("limactl") is None:
         pytest.skip("limactl not available")
+    if shutil.which("rsync") is None:
+        pytest.skip("rsync not available")
 
 
 @pytest.fixture(scope="session")
@@ -27,7 +38,7 @@ def lima_vm():
             ["limactl", "start", "--name", vm_name, yaml_path],
             capture_output=True,
             text=True,
-            timeout=300,
+            timeout=600,  # Ubuntu image download can take >5min on slow networks
         )
     except subprocess.TimeoutExpired as exc:
         pytest.fail(f"limactl start timed out after {exc.timeout}s")
@@ -70,7 +81,7 @@ def lima_vm():
         pytest.fail(f"rsync copy timed out after {exc.timeout}s")
 
     assert copy.returncode == 0, (
-        f"rsync copy failed. stdout={copy.stdout} stderr={copy.stderr}"
+        f"rsync copy failed.\nstdout={_truncate_output(copy.stdout)}\nstderr={_truncate_output(copy.stderr)}"
     )
 
     install_cmd = (
@@ -94,10 +105,21 @@ def lima_vm():
         pytest.fail(f"Installation timed out after {exc.timeout}s")
 
     assert install.returncode == 0, (
-        f"Installation failed. stdout={install.stdout} stderr={install.stderr}"
+        f"Installation failed.\nstdout={_truncate_output(install.stdout)}\nstderr={_truncate_output(install.stderr)}"
     )
 
     yield vm_name
+
+    # Cleanup: stop then delete the Lima VM
+    try:
+        subprocess.run(
+            ["limactl", "stop", "--force", vm_name],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except Exception:
+        pass  # Best-effort stop; proceed to delete regardless
 
     try:
         result = subprocess.run(
@@ -138,8 +160,23 @@ def test_lima_vm_install_and_run(lima_vm):
         timeout=120,
     )
     assert run.returncode == 0, (
-        f"Lima VM install/run failed. stdout={run.stdout} stderr={run.stderr}"
+        f"Lima VM install/run failed.\nstdout={_truncate_output(run.stdout)}\nstderr={_truncate_output(run.stderr)}"
     )
+    output = run.stdout + run.stderr
+    expected_flags = [
+        "--download-hashview",
+        "--hashview",
+        "--download-torrent",
+        "--download-all-torrents",
+        "--weakpass",
+        "--rank",
+        "--hashmob",
+        "--rules",
+        "--cleanup",
+        "--debug",
+    ]
+    for flag in expected_flags:
+        assert flag in output, f"Missing {flag} in help output"
 
 
 def test_lima_hashcat_cracks_simple_password(lima_vm):
@@ -152,5 +189,33 @@ def test_lima_hashcat_cracks_simple_password(lima_vm):
     )
     run = _run_vm(lima_vm, command, timeout=180)
     assert run.returncode == 0, (
-        f"Lima VM hashcat crack failed. stdout={run.stdout} stderr={run.stderr}"
+        f"Lima VM hashcat crack failed.\nstdout={_truncate_output(run.stdout)}\nstderr={_truncate_output(run.stderr)}"
     )
+
+
+# --- Unit tests (no Lima VM required) ---
+
+
+def test_truncate_output_trims_long_text():
+    long = "\n".join(str(i) for i in range(200))
+    result = _truncate_output(long)
+    lines = result.splitlines()
+    assert len(lines) <= 102  # 100 lines + possible header
+    assert "199" in result  # last lines present
+    assert result.startswith("... (")  # header present
+
+
+def test_truncate_output_short_text_unchanged():
+    short = "line1\nline2\nline3"
+    assert _truncate_output(short) == short
+
+
+def test_require_lima_skips_without_rsync(monkeypatch):
+    monkeypatch.setenv("HATE_CRACK_RUN_LIMA_TESTS", "1")
+    monkeypatch.setattr(
+        shutil,
+        "which",
+        lambda cmd: None if cmd == "rsync" else "/usr/bin/limactl",
+    )
+    with pytest.raises(pytest.skip.Exception):
+        _require_lima()
