@@ -2849,10 +2849,10 @@ def hashview_api():
                     4: "user:hash",
                     5: "hash_only",
                 }
-                print(f"\nAuto-detected file format: {file_format} ({format_names.get(file_format, 'unknown')})")
                 format_list = ", ".join(f"{k}={v}" for k, v in format_names.items())
+                print(f"\nAuto-detected file format: {file_format} ({format_names.get(file_format, 'unknown')})")
                 override = input(
-                    f"Press Enter to accept or enter a format number [{format_list}]: "
+                    f"Override format number? [{format_list}] (Enter to accept): "
                 ).strip()
                 if override:
                     try:
@@ -2891,14 +2891,12 @@ def hashview_api():
                         if create_job.upper() == "Y":
                             job_name = input("Enter job name: ")
                             limit_recovered = False
-                            notify_email = True
                             try:
                                 job_result = api_harness.create_job(
                                     job_name,
                                     result["hashfile_id"],
                                     customer_id,
                                     limit_recovered,
-                                    notify_email,
                                 )
                                 print(
                                     f"\n✓ Success: {job_result.get('msg', 'Job created')}"
