@@ -772,7 +772,7 @@ class HashviewAPI:
         return resp.json()
 
     def create_job(
-        self, name, hashfile_id, customer_id, limit_recovered=False, notify_email=True
+        self, name, hashfile_id, customer_id, limit_recovered=False, notify_email=None
     ):
         url = f"{self.base_url}/v1/jobs/add"
         headers = {"Content-Type": "application/json"}
@@ -787,18 +787,9 @@ class HashviewAPI:
         resp = self.session.post(url, json=data, headers=headers)
         resp.raise_for_status()
         try:
-            payload = resp.json()
+            return resp.json()
         except Exception:
-            return resp.json()
-
-        msg = str(payload.get("msg", ""))
-        if "invalid keyword argument for JobNotifications" in msg:
-            # Retry without notify_email for older Hashview servers.
-            data.pop("notify_email", None)
-            resp = self.session.post(url, json=data, headers=headers)
-            resp.raise_for_status()
-            return resp.json()
-        return payload
+            return {}
 
     def stop_job(self, job_id):
         url = f"{self.base_url}/v1/jobs/stop/{job_id}"
