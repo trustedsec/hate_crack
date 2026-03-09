@@ -2841,7 +2841,6 @@ def hashview_api():
                 except Exception:
                     file_format = 5  # Default if detection fails
 
-                print(f"\nAuto-detected file format: {file_format} ", end="")
                 format_names = {
                     0: "pwdump",
                     1: "NetNTLM",
@@ -2850,7 +2849,16 @@ def hashview_api():
                     4: "user:hash",
                     5: "hash_only",
                 }
-                print(f"({format_names.get(file_format, 'unknown')})")
+                print(f"\nAuto-detected file format: {file_format} ({format_names.get(file_format, 'unknown')})")
+                format_list = ", ".join(f"{k}={v}" for k, v in format_names.items())
+                override = input(
+                    f"Press Enter to accept or enter a format number [{format_list}]: "
+                ).strip()
+                if override:
+                    try:
+                        file_format = int(override)
+                    except ValueError:
+                        print(f"\n✗ Invalid format '{override}', using auto-detected value.")
 
                 # Default hashfile name to the basename of the file
                 hashfile_name = os.path.basename(hashfile_path)
