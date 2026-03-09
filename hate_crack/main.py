@@ -2898,10 +2898,9 @@ def hashview_api():
                                     customer_id,
                                     limit_recovered,
                                 )
-                                print(
-                                    f"\n✓ Success: {job_result.get('msg', 'Job created')}"
-                                )
+                                msg = job_result.get("msg", "")
                                 if "job_id" in job_result:
+                                    print(f"\n✓ Success: {msg or 'Job created'}")
                                     print(f"  Job ID: {job_result['job_id']}")
                                     print(
                                         "\nNote: Job created with automatically assigned tasks based on"
@@ -2928,6 +2927,14 @@ def hashview_api():
                                         print(
                                             f"\n✓ Success: {start_result.get('msg', 'Job started')}"
                                         )
+                                else:
+                                    print(
+                                        f"\n✗ Error: {msg or 'Job creation failed (no job_id returned)'}"
+                                    )
+                                    print(
+                                        "  Note: The Hashview server may have created the job"
+                                        " despite this error. Check the Hashview UI before retrying."
+                                    )
                             except Exception as e:
                                 print(f"\n✗ Error creating job: {str(e)}")
                 except Exception as e:
@@ -3595,11 +3602,6 @@ def main():
             action="store_true",
             help="Limit to recovered hashes only",
         )
-        hv_upload_hashfile_job.add_argument(
-            "--no-notify-email",
-            action="store_true",
-            help="Disable email notifications",
-        )
         return parser, hashview_parser
 
     # Removed add_common_args(parser) since config items are now only set via config file
@@ -3761,12 +3763,19 @@ def main():
                 upload_result["hashfile_id"],
                 args.customer_id,
                 limit_recovered=args.limit_recovered,
-                notify_email=not args.no_notify_email,
             )
-            print(f"\n✓ Success: {job_result.get('msg', 'Job created')}")
+            msg = job_result.get("msg", "")
             if "job_id" in job_result:
+                print(f"\n✓ Success: {msg or 'Job created'}")
                 print(f"  Job ID: {job_result['job_id']}")
-            sys.exit(0)
+                sys.exit(0)
+            else:
+                print(f"\n✗ Error: {msg or 'Job creation failed (no job_id returned)'}")
+                print(
+                    "  Note: The Hashview server may have created the job despite this error."
+                    " Check the Hashview UI before retrying."
+                )
+                sys.exit(1)
 
         print("✗ Error: No hashview subcommand provided.")
         hashview_parser.print_help()

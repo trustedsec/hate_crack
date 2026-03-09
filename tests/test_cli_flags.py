@@ -258,13 +258,108 @@ def test_hashview_upload_hashfile_job_flags(monkeypatch, tmp_path, capsys):
             "--job-name",
             "TestJob",
             "--limit-recovered",
-            "--no-notify-email",
         ],
     )
     assert code == 0
     out = capsys.readouterr().out
     assert "Hashfile uploaded" in out
     assert "Job created" in out
+
+
+def test_hashview_upload_hashfile_job_no_notify_email_by_default(
+    monkeypatch, tmp_path, capsys
+):
+    """CLI must not send notify_email - it causes the server to create the job but
+    return 'Failed to add job: notify_email is invalid', hiding the created job and
+    causing a second job to be created on retry."""
+    captured_kwargs: dict = {}
+
+    class TrackingAPI:
+        def __init__(self, base_url, api_key, debug=False):
+            pass
+
+        def upload_hashfile(
+            self, file_path, customer_id, hash_type, file_format=5, hashfile_name=None
+        ):
+            return {"msg": "Hashfile uploaded", "hashfile_id": 456}
+
+        def create_job(
+            self, name, hashfile_id, customer_id, limit_recovered=False, notify_email=None
+        ):
+            captured_kwargs["notify_email"] = notify_email
+            return {"msg": "Job created", "job_id": 789}
+
+    hashfile = tmp_path / "hashes.txt"
+    hashfile.write_text("hash1\n")
+    monkeypatch.setattr(hc_main, "HashviewAPI", TrackingAPI)
+    monkeypatch.setattr(hc_main, "hashview_api_key", "dummy")
+    monkeypatch.setattr(hc_main, "hashview_url", "https://hv.example.com")
+    code = _run_main(
+        monkeypatch,
+        [
+            "hashview",
+            "upload-hashfile-job",
+            "--file",
+            str(hashfile),
+            "--customer-id",
+            "1",
+            "--hash-type",
+            "1000",
+            "--job-name",
+            "TestJob",
+        ],
+    )
+    assert code == 0
+    assert captured_kwargs["notify_email"] is None
+
+
+def test_hashview_upload_hashfile_job_error_response_exits_nonzero(
+    monkeypatch, tmp_path, capsys
+):
+    """When create_job returns an error response (no job_id), exit code must be 1
+    and output must show ✗ Error with a hint to check the Hashview UI."""
+
+    class ErrorJobAPI:
+        def __init__(self, base_url, api_key, debug=False):
+            pass
+
+        def upload_hashfile(
+            self, file_path, customer_id, hash_type, file_format=5, hashfile_name=None
+        ):
+            return {"msg": "Hashfile uploaded", "hashfile_id": 456}
+
+        def create_job(
+            self, name, hashfile_id, customer_id, limit_recovered=False, notify_email=None
+        ):
+            return {
+                "msg": "Failed to add job: 'notify_email' is an invalid keyword argument for JobNotifications"
+            }
+
+    hashfile = tmp_path / "hashes.txt"
+    hashfile.write_text("hash1\n")
+    monkeypatch.setattr(hc_main, "HashviewAPI", ErrorJobAPI)
+    monkeypatch.setattr(hc_main, "hashview_api_key", "dummy")
+    monkeypatch.setattr(hc_main, "hashview_url", "https://hv.example.com")
+    code = _run_main(
+        monkeypatch,
+        [
+            "hashview",
+            "upload-hashfile-job",
+            "--file",
+            str(hashfile),
+            "--customer-id",
+            "1",
+            "--hash-type",
+            "1000",
+            "--job-name",
+            "TestJob",
+        ],
+    )
+    assert code == 1
+    out = capsys.readouterr().out
+    assert "✗ Error" in out
+    assert "Job ID:" not in out
+    assert "Check the Hashview UI before retrying" in out
 
 
 # ---------------------------------------------------------------------------
