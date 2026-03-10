@@ -16,8 +16,10 @@ import glob
 import random
 import re
 import readline
+import signal
 import subprocess
 import shlex
+import time
 import argparse
 import urllib.request
 import urllib.error
@@ -74,6 +76,23 @@ try:
     from hashcat_rosetta.formatting import display_rule_opcodes_summary
 except ImportError:
     display_rule_opcodes_summary = None
+
+
+_DOUBLE_INTERRUPT_WINDOW = 2.0
+_last_interrupt_time: float = 0.0
+
+
+class DoubleInterrupt(Exception):
+    """Raised when Ctrl+C is pressed twice within _DOUBLE_INTERRUPT_WINDOW seconds."""
+
+
+def _sigint_handler(signum: int, frame: Any) -> None:
+    global _last_interrupt_time
+    now = time.time()
+    if now - _last_interrupt_time <= _DOUBLE_INTERRUPT_WINDOW:
+        raise DoubleInterrupt()
+    _last_interrupt_time = now
+    raise KeyboardInterrupt()
 
 
 def _has_hate_crack_assets(path):
@@ -2490,6 +2509,9 @@ def cleanup():
             os.remove(hcatHashFileOrig + ".working")
         if os.path.exists(hcatHashFileOrig + ".passwords"):
             os.remove(hcatHashFileOrig + ".passwords")
+    except DoubleInterrupt:
+        cleanup()
+        raise
     except KeyboardInterrupt:
         # incase someone mashes the Control+C it will still cleanup
         cleanup()
@@ -3455,6 +3477,8 @@ def main():
     global pipalPath, maxruntime, bandrelbasewords
     global hcatPotfilePath
 
+    signal.signal(signal.SIGINT, _sigint_handler)
+
     # Initialize global variables
     hcatHashFile = None
     hcatHashType = None
@@ -4043,6 +4067,10 @@ def main():
                     except OSError:
                         pass
                     _preprocessing_temp_files.remove(dedup_path)
+    except DoubleInterrupt:
+        print("\nPreprocessing interrupted. Cleaning up temp files...")
+        _cleanup_preprocessing_temps()
+        raise
     except KeyboardInterrupt:
         print("\nPreprocessing interrupted. Cleaning up temp files...")
         _cleanup_preprocessing_temps()
@@ -4099,6 +4127,8 @@ def main():
                 options[task]()
             except KeyError:
                 pass
+            except DoubleInterrupt:
+                print("\n[!] Returning to main menu...")
     except KeyboardInterrupt:
         quit_hc()
 
