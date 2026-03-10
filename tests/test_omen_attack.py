@@ -23,6 +23,8 @@ class TestHcatOmenTrain:
         model_dir.mkdir()
 
         with patch.object(main_module, "hate_path", str(tmp_path)), patch.object(
+            main_module, "_omen_dir", str(omen_dir)
+        ), patch.object(
             main_module, "hcatOmenCreateBin", "createNG"
         ), patch(
             "hate_crack.main._omen_model_dir", return_value=str(model_dir)
@@ -58,8 +60,8 @@ class TestHcatOmenTrain:
         training_file.write_text("test\n")
 
         with patch.object(main_module, "hate_path", str(tmp_path)), patch.object(
-            main_module, "hcatOmenCreateBin", "createNG"
-        ):
+            main_module, "_omen_dir", str(tmp_path / "omen")
+        ), patch.object(main_module, "hcatOmenCreateBin", "createNG"):
             main_module.hcatOmenTrain(str(training_file))
             captured = capsys.readouterr()
             assert "createNG binary not found" in captured.out
@@ -73,6 +75,8 @@ class TestHcatOmenTrain:
         model_dir.mkdir()
 
         with patch.object(main_module, "hate_path", str(tmp_path)), patch.object(
+            main_module, "_omen_dir", str(omen_dir)
+        ), patch.object(
             main_module, "hcatOmenCreateBin", "createNG"
         ), patch("hate_crack.main._omen_model_dir", return_value=str(model_dir)):
             main_module.hcatOmenTrain("/nonexistent/file.txt")
@@ -92,6 +96,8 @@ class TestHcatOmen:
         (model_dir / "createConfig").write_text("# test config\n")
 
         with patch.object(main_module, "hate_path", str(tmp_path)), patch.object(
+            main_module, "_omen_dir", str(omen_dir)
+        ), patch.object(
             main_module, "hcatOmenEnumBin", "enumNG"
         ), patch.object(main_module, "hcatBin", "hashcat"), patch.object(
             main_module, "hcatTuning", "--force"
@@ -132,8 +138,8 @@ class TestHcatOmen:
 
     def test_missing_binary(self, main_module, tmp_path, capsys):
         with patch.object(main_module, "hate_path", str(tmp_path)), patch.object(
-            main_module, "hcatOmenEnumBin", "enumNG"
-        ):
+            main_module, "_omen_dir", str(tmp_path / "omen")
+        ), patch.object(main_module, "hcatOmenEnumBin", "enumNG"):
             main_module.hcatOmen("1000", "/tmp/hashes.txt", 500000)
             captured = capsys.readouterr()
             assert "enumNG binary not found" in captured.out
@@ -149,6 +155,8 @@ class TestHcatOmen:
         # No createConfig in model_dir
 
         with patch.object(main_module, "hate_path", str(tmp_path)), patch.object(
+            main_module, "_omen_dir", str(omen_dir)
+        ), patch.object(
             main_module, "hcatOmenEnumBin", "enumNG"
         ), patch("hate_crack.main._omen_model_dir", return_value=str(model_dir)):
             main_module.hcatOmen("1000", "/tmp/hashes.txt", 500000)

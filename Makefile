@@ -81,7 +81,7 @@ clean-vendor:
 	@echo "Cleaning up vendored assets from working tree..."
 	@rm -rf hate_crack/hashcat hate_crack/hashcat-utils hate_crack/princeprocessor hate_crack/omen
 
-install: submodules vendor-assets
+install: submodules
 	@echo "Detecting OS and installing dependencies..."
 	@if [ "$(shell uname)" = "Darwin" ]; then \
 		echo "Detected macOS"; \
@@ -105,7 +105,7 @@ install: submodules vendor-assets
 	@command -v uv >/dev/null 2>&1 || { echo "uv not found. Installing uv..."; curl -LsSf https://astral.sh/uv/install.sh | sh; }
 	@uv tool install -e .
 
-update: submodules vendor-assets
+update: submodules
 	@uv tool install -e . --force --reinstall
 
 reinstall: uninstall install

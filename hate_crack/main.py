@@ -151,6 +151,13 @@ elif os.path.isdir(os.path.join(_repo_root, "hashcat-utils")):
     hate_path = _repo_root
 else:
     hate_path = _package_path
+# omen may not be vendored into hate_path (e.g. dev checkout with only some submodules built).
+# Check hate_path first, then fall back to repo root.
+_omen_dir = (
+    os.path.join(hate_path, "omen")
+    if os.path.isdir(os.path.join(hate_path, "omen"))
+    else os.path.join(_repo_root, "omen")
+)
 _config_path = _resolve_config_path()
 if not _config_path:
     print("Initializing config.json from config.json.example")
@@ -727,17 +734,17 @@ if not SKIP_INIT:
             print("LLM attacks will not be available.")
 
         # Verify OMEN binaries (optional, for OMEN attack)
-        omen_create_path = os.path.join(hate_path, "omen", hcatOmenCreateBin)
-        omen_enum_path = os.path.join(hate_path, "omen", hcatOmenEnumBin)
+        omen_create_path = os.path.join(_omen_dir, hcatOmenCreateBin)
+        omen_enum_path = os.path.join(_omen_dir, hcatOmenEnumBin)
         try:
             ensure_binary(
                 omen_create_path,
-                build_dir=os.path.join(hate_path, "omen"),
+                build_dir=_omen_dir,
                 name="OMEN createNG",
             )
             ensure_binary(
                 omen_enum_path,
-                build_dir=os.path.join(hate_path, "omen"),
+                build_dir=_omen_dir,
                 name="OMEN enumNG",
             )
         except SystemExit:
@@ -2173,7 +2180,7 @@ def _omen_model_dir():
 
 # OMEN Attack - Train model
 def hcatOmenTrain(training_file):
-    omen_dir = os.path.join(hate_path, "omen")
+    omen_dir = _omen_dir
     create_bin = os.path.join(omen_dir, hcatOmenCreateBin)
     if not os.path.isfile(create_bin):
         print(f"Error: OMEN createNG binary not found: {create_bin}")
@@ -2217,7 +2224,7 @@ def hcatOmenTrain(training_file):
 # OMEN Attack - Generate candidates and pipe to hashcat
 def hcatOmen(hcatHashType, hcatHashFile, max_candidates):
     global hcatProcess
-    omen_dir = os.path.join(hate_path, "omen")
+    omen_dir = _omen_dir
     enum_bin = os.path.join(omen_dir, hcatOmenEnumBin)
     if not os.path.isfile(enum_bin):
         print(f"Error: OMEN enumNG binary not found: {enum_bin}")
