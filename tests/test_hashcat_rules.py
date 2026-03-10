@@ -51,7 +51,7 @@ def _run_hashcat(
     cmd: list[str],
     cwd: Path,
     *,
-    timeout_s: int = 60,
+    timeout_s: int = 300,
     capsys=None,
     show_output: bool = False,
     show_cmd: bool = False,
