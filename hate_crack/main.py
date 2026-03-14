@@ -69,6 +69,7 @@ from hate_crack.cli import (  # noqa: E402
     setup_logging,
 )
 from hate_crack import attacks as _attacks  # noqa: E402
+from hate_crack.menu import interactive_menu  # noqa: E402
 
 # Import HashcatRosetta for rule analysis functionality
 try:
@@ -188,45 +189,44 @@ if not _config_path:
     print(f"Config destination: {dst_config}")
     _config_path = dst_config
 
-with open(_config_path) as config:
-    config_parser = json.load(config)
+try:
+    with open(_config_path) as config:
+        config_parser = json.load(config)
+except json.JSONDecodeError as e:
+    print("\nError: config.json contains invalid JSON")
+    print(f"  File: {_config_path}")
+    print(f"  Line {e.lineno}, column {e.colno}: {e.msg}")
+    print("\nTo fix:")
+    print("  1. Edit the file and fix the JSON syntax, or")
+    print("  2. Delete the file to regenerate from defaults")
+    sys.exit(1)
 
 config_dir = os.path.dirname(_config_path)
 defaults_path = os.path.join(config_dir, "config.json.example")
 if not os.path.isfile(defaults_path):
     defaults_path = os.path.join(_package_path, "config.json.example")
-with open(defaults_path) as defaults:
-    default_config = json.load(defaults)
+try:
+    with open(defaults_path) as defaults:
+        default_config = json.load(defaults)
+except json.JSONDecodeError:
+    print("\nError: config.json.example contains invalid JSON")
+    print(f"  File: {defaults_path}")
+    print("  This is a package installation issue. Try reinstalling hate_crack.")
+    sys.exit(1)
 
-_config_updated = False
+_missing_keys = []
 for _key, _value in default_config.items():
     if _key not in config_parser:
         config_parser[_key] = _value
-        print(f"[config] Added missing key '{_key}' with default value")
-        _config_updated = True
-if _config_updated:
+        _missing_keys.append(_key)
+if _missing_keys:
     with open(_config_path, "w") as _cf:
         json.dump(config_parser, _cf, indent=2)
+    print(f"[config] Added {len(_missing_keys)} missing key(s) to {_config_path}")
+    print(f"         Keys: {', '.join(_missing_keys)}")
 
-try:
-    hashview_url = config_parser["hashview_url"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    hashview_url = default_config.get("hashview_url", "https://localhost:8443")
-
-try:
-    hashview_api_key = config_parser["hashview_api_key"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    hashview_api_key = default_config.get("hashview_api_key", "")
+hashview_url = config_parser["hashview_url"]
+hashview_api_key = config_parser["hashview_api_key"]
 
 SKIP_INIT = os.environ.get("HATE_CRACK_SKIP_INIT") == "1"
 
@@ -267,10 +267,7 @@ def ensure_binary(binary_path, build_dir=None, name=None):
 # NOTE: hcatPath is the hashcat install directory, NOT for hate_crack assets.
 # hashcat-utils and princeprocessor should ALWAYS use hate_path.
 hcatPath = config_parser.get("hcatPath", "")
-try:
-    hcatBin = config_parser["hcatBin"]
-except KeyError:
-    hcatBin = default_config["hcatBin"]
+hcatBin = config_parser["hcatBin"]
 # If hcatBin is not absolute and hcatPath is set, construct full path from hcatPath + hcatBin
 if not os.path.isabs(hcatBin) and hcatPath:
     _candidate = os.path.join(hcatPath, hcatBin)
@@ -287,14 +284,8 @@ if shutil.which(hcatBin) is None and not os.path.isfile(hcatBin):
     if os.path.isfile(_vendored_hcat) and os.access(_vendored_hcat, os.X_OK):
         hcatBin = _vendored_hcat
         hcatPath = os.path.join(hate_path, "hashcat")
-try:
-    hcatTuning = config_parser["hcatTuning"]
-except KeyError:
-    hcatTuning = default_config["hcatTuning"]
-try:
-    hcatWordlists = config_parser["hcatWordlists"]
-except KeyError:
-    hcatWordlists = "./wordlists"
+hcatTuning = config_parser["hcatTuning"]
+hcatWordlists = config_parser["hcatWordlists"]
 hcatRules: list[str] = []
 
 
@@ -321,15 +312,7 @@ def _append_potfile_arg(cmd, *, use_potfile_path=True, potfile_path=None):
         cmd.append(f"--potfile-path={pot}")
 
 
-try:
-    rulesDirectory = config_parser["rules_directory"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    rulesDirectory = default_config.get("rules_directory")
+rulesDirectory = config_parser["rules_directory"]
 if not rulesDirectory:
     rulesDirectory = (
         os.path.join(hcatPath, "rules")
@@ -343,7 +326,7 @@ if not os.path.isabs(rulesDirectory):
 # Normalize wordlist directory
 hcatWordlists = os.path.expanduser(hcatWordlists)
 if not os.path.isabs(hcatWordlists):
-    hcatWordlists = os.path.join(hate_path, hcatWordlists)
+    hcatWordlists = os.path.normpath(os.path.join(hate_path, hcatWordlists))
 if not os.path.isdir(hcatWordlists):
     fallback_wordlists = os.path.join(hate_path, "wordlists")
     if os.path.isdir(fallback_wordlists):
@@ -351,189 +334,30 @@ if not os.path.isdir(hcatWordlists):
         print(f"[!] Falling back to {fallback_wordlists}")
         hcatWordlists = fallback_wordlists
 
-try:
-    maxruntime = config_parser["bandrelmaxruntime"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    maxruntime = default_config["bandrelmaxruntime"]
+maxruntime = config_parser["bandrelmaxruntime"]
+bandrelbasewords = config_parser["bandrel_common_basedwords"]
+pipal_count = config_parser["pipal_count"]
+pipalPath = config_parser["pipalPath"]
 
-try:
-    bandrelbasewords = config_parser["bandrel_common_basedwords"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    bandrelbasewords = default_config["bandrel_common_basedwords"]
+hcatDictionaryWordlist = config_parser["hcatDictionaryWordlist"]
+hcatHybridlist = config_parser["hcatHybridlist"]
+hcatCombinationWordlist = config_parser["hcatCombinationWordlist"]
+hcatMiddleCombinatorMasks = config_parser["hcatMiddleCombinatorMasks"]
+hcatMiddleBaseList = config_parser["hcatMiddleBaseList"]
+hcatThoroughCombinatorMasks = config_parser["hcatThoroughCombinatorMasks"]
+hcatThoroughBaseList = config_parser["hcatThoroughBaseList"]
+hcatPrinceBaseList = config_parser["hcatPrinceBaseList"]
+hcatGoodMeasureBaseList = config_parser["hcatGoodMeasureBaseList"]
 
-try:
-    pipal_count = config_parser["pipal_count"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    pipal_count = default_config["pipal_count"]
-
-try:
-    pipalPath = config_parser["pipalPath"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    pipalPath = default_config["pipalPath"]
-
-try:
-    hcatDictionaryWordlist = config_parser["hcatDictionaryWordlist"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    hcatDictionaryWordlist = default_config["hcatDictionaryWordlist"]
-try:
-    hcatHybridlist = config_parser["hcatHybridlist"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    hcatHybridlist = default_config[e.args[0]]
-try:
-    hcatCombinationWordlist = config_parser["hcatCombinationWordlist"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    hcatCombinationWordlist = default_config[e.args[0]]
-try:
-    hcatMiddleCombinatorMasks = config_parser["hcatMiddleCombinatorMasks"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    hcatMiddleCombinatorMasks = default_config[e.args[0]]
-try:
-    hcatMiddleBaseList = config_parser["hcatMiddleBaseList"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    hcatMiddleBaseList = default_config[e.args[0]]
-try:
-    hcatThoroughCombinatorMasks = config_parser["hcatThoroughCombinatorMasks"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    hcatThoroughCombinatorMasks = default_config[e.args[0]]
-try:
-    hcatThoroughBaseList = config_parser["hcatThoroughBaseList"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    hcatThoroughBaseList = default_config[e.args[0]]
-try:
-    hcatPrinceBaseList = config_parser["hcatPrinceBaseList"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    hcatPrinceBaseList = default_config[e.args[0]]
-try:
-    hcatGoodMeasureBaseList = config_parser["hcatGoodMeasureBaseList"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    hcatGoodMeasureBaseList = default_config[e.args[0]]
-
-try:
-    hcatDebugLogPath = config_parser.get("hcatDebugLogPath", "./hashcat_debug")
-    # Expand user home directory if present
-    hcatDebugLogPath = os.path.expanduser(hcatDebugLogPath)
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    hcatDebugLogPath = os.path.expanduser(
-        default_config.get("hcatDebugLogPath", "./hashcat_debug")
-    )
+hcatDebugLogPath = os.path.expanduser(config_parser["hcatDebugLogPath"])
 
 ollamaUrl = "http://" + os.environ.get("OLLAMA_HOST", "localhost:11434")
-try:
-    ollamaModel = config_parser["ollamaModel"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    ollamaModel = default_config.get("ollamaModel", "mistral")
-try:
-    ollamaNumCtx = int(config_parser["ollamaNumCtx"])
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    ollamaNumCtx = int(default_config.get("ollamaNumCtx", 2048))
+ollamaModel = config_parser["ollamaModel"]
+ollamaNumCtx = int(config_parser["ollamaNumCtx"])
 
-try:
-    omenTrainingList = config_parser["omenTrainingList"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    omenTrainingList = default_config.get("omenTrainingList", "rockyou.txt")
-try:
-    omenMaxCandidates = int(config_parser["omenMaxCandidates"])
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    omenMaxCandidates = int(default_config.get("omenMaxCandidates", 1000000))
-try:
-    check_for_updates_enabled = config_parser["check_for_updates"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    check_for_updates_enabled = default_config.get("check_for_updates", True)
+omenTrainingList = config_parser["omenTrainingList"]
+omenMaxCandidates = int(config_parser["omenMaxCandidates"])
+check_for_updates_enabled = config_parser["check_for_updates"]
 
 hcatExpanderBin = "expander.bin"
 hcatCombinatorBin = "combinator.bin"
@@ -919,24 +743,22 @@ def select_file_with_autocomplete(
     def path_completer(text, state):
         """Tab completion function for file paths"""
         if not text:
-            text = "./"
-
-        # Expand ~ to home directory
-        text = os.path.expanduser(text)
-
-        # Handle both absolute and relative paths
-        if (
-            text.startswith("/")
-            or text.startswith("./")
-            or text.startswith("../")
-            or text.startswith("~")
-        ):
-            matches = glob.glob(text + "*")
+            if base_dir:
+                pattern = os.path.join(base_dir, "*")
+                matches = glob.glob(pattern)
+            else:
+                matches = glob.glob("./*")
         else:
-            matches = glob.glob("./" + text + "*")
-            matches = [m[2:] if m.startswith("./") else m for m in matches]
+            text = os.path.expanduser(text)
+            if text.startswith(("/", "./", "../", "~")):
+                matches = glob.glob(text + "*")
+            elif base_dir:
+                pattern = os.path.join(base_dir, text + "*")
+                matches = glob.glob(pattern)
+            else:
+                matches = glob.glob("./" + text + "*")
+                matches = [m[2:] if m.startswith("./") else m for m in matches]
 
-        # Add trailing slash for directories
         matches = [m + "/" if os.path.isdir(m) else m for m in matches]
 
         try:
@@ -2566,25 +2388,28 @@ def hashview_api():
                 )
             menu_options.append(("back", "Back to Main Menu"))
 
-            # Display menu with dynamic numbering
-            for i, (option_key, option_text) in enumerate(menu_options, 1):
-                if option_key == "back":
-                    print(f"\t(99) {option_text}")
-                else:
-                    print(f"\t({i}) {option_text}")
-
-            # Create mapping of display numbers to option keys
+            # Build display items with numbered keys
+            display_items = []
             option_map = {}
             display_num = 1
-            for option_key, _ in menu_options[:-1]:  # All except "back"
-                option_map[str(display_num)] = option_key
-                display_num += 1
-            option_map["99"] = "back"
+            for opt_key, opt_text in menu_options:
+                if opt_key == "back":
+                    display_items.append(("99", opt_text))
+                    option_map["99"] = opt_key
+                else:
+                    display_items.append((str(display_num), opt_text))
+                    option_map[str(display_num)] = opt_key
+                    display_num += 1
 
-            choice = input("\nSelect an option: ")
+            choice = interactive_menu(
+                display_items,
+                title="What would you like to do?",
+                prompt="\nSelect an option: ",
+            )
 
-            if choice not in option_map:
-                print("Invalid option. Please try again.")
+            if choice is None or choice not in option_map:
+                if choice is not None:
+                    print("Invalid option. Please try again.")
                 continue
 
             option_key = option_map[choice]
@@ -2879,7 +2704,9 @@ def hashview_api():
                     5: "hash_only",
                 }
                 format_list = ", ".join(f"{k}={v}" for k, v in format_names.items())
-                print(f"\nAuto-detected file format: {file_format} ({format_names.get(file_format, 'unknown')})")
+                print(
+                    f"\nAuto-detected file format: {file_format} ({format_names.get(file_format, 'unknown')})"
+                )
                 override = input(
                     f"Override format number? [{format_list}] (Enter to accept): "
                 ).strip()
@@ -2887,7 +2714,9 @@ def hashview_api():
                     try:
                         file_format = int(override)
                     except ValueError:
-                        print(f"\n✗ Invalid format '{override}', using auto-detected value.")
+                        print(
+                            f"\n✗ Invalid format '{override}', using auto-detected value."
+                        )
 
                 # Default hashfile name to the basename of the file
                 hashfile_name = os.path.basename(hashfile_path)
@@ -3429,6 +3258,44 @@ def quit_hc():
     sys.exit(0)
 
 
+def get_main_menu_items():
+    """Return ordered (key, label) pairs for the main menu."""
+    items = [
+        ("1", "Quick Crack"),
+        ("2", "Extensive Pure_Hate Methodology Crack"),
+        ("3", "Brute Force Attack"),
+        ("4", "Top Mask Attack"),
+        ("5", "Fingerprint Attack"),
+        ("6", "Combinator Attack"),
+        ("7", "Hybrid Attack"),
+        ("8", "Pathwell Top 100 Mask Brute Force Crack"),
+        ("9", "PRINCE Attack"),
+        ("10", "YOLO Combinator Attack"),
+        ("11", "Middle Combinator Attack"),
+        ("12", "Thorough Combinator Attack"),
+        ("13", "Bandrel Methodology"),
+        ("14", "Loopback Attack"),
+        ("15", "LLM Attack"),
+        ("16", "OMEN Attack"),
+        ("90", "Download rules from Hashmob.net"),
+        ("91", "Analyze Hashcat Rules"),
+        ("92", "Download wordlists from Hashmob.net"),
+        ("93", "Weakpass Wordlist Menu"),
+    ]
+    if hashview_api_key:
+        items.append(("94", "Hashview API"))
+    items.extend(
+        [
+            ("95", "Analyze hashes with Pipal"),
+            ("96", "Export Output to Excel Format"),
+            ("97", "Display Cracked Hashes"),
+            ("98", "Display README"),
+            ("99", "Quit"),
+        ]
+    )
+    return items
+
+
 def get_main_menu_options():
     """Return the mapping of main menu keys to their handler functions."""
     options = {
@@ -3862,17 +3729,23 @@ def main():
         ascii_art()
         if not SKIP_INIT and check_for_updates_enabled:
             check_for_updates()
+        _no_hash_items = [
+            ("1", "Hashview API"),
+            ("2", "Download wordlists from Weakpass"),
+            ("3", "Download wordlists from Hashmob.net"),
+            ("4", "Download rules from Hashmob.net"),
+            ("5", "Exit"),
+        ]
         menu_loop = True
         while menu_loop:
             print("\n" + "=" * 60)
             print("No hash file provided. What would you like to do?")
             print("=" * 60)
-            print("\t(1) Hashview API")
-            print("\t(2) Download wordlists from Weakpass")
-            print("\t(3) Download wordlists from Hashmob.net")
-            print("\t(4) Download rules from Hashmob.net")
-            print("\t(5) Exit")
-            choice = input("\nSelect an option: ")
+            choice = interactive_menu(
+                _no_hash_items,
+                title="No hash file provided. What would you like to do?",
+                prompt="\nSelect an option: ",
+            )
             if choice == "1" or args.download_hashview:
                 hashview_api()
                 # Check if hashfile was set by hashview_api
@@ -4095,35 +3968,13 @@ def main():
     try:
         options = get_main_menu_options()
         while 1:
-            print("\n\t(1) Quick Crack")
-            print("\t(2) Extensive Pure_Hate Methodology Crack")
-            print("\t(3) Brute Force Attack")
-            print("\t(4) Top Mask Attack")
-            print("\t(5) Fingerprint Attack")
-            print("\t(6) Combinator Attack")
-            print("\t(7) Hybrid Attack")
-            print("\t(8) Pathwell Top 100 Mask Brute Force Crack")
-            print("\t(9) PRINCE Attack")
-            print("\t(10) YOLO Combinator Attack")
-            print("\t(11) Middle Combinator Attack")
-            print("\t(12) Thorough Combinator Attack")
-            print("\t(13) Bandrel Methodology")
-            print("\t(14) Loopback Attack")
-            print("\t(15) LLM Attack")
-            print("\t(16) OMEN Attack")
-            print("\n\t(90) Download rules from Hashmob.net")
-            print("\n\t(91) Analyze Hashcat Rules")
-            print("\t(92) Download wordlists from Hashmob.net")
-            print("\t(93) Weakpass Wordlist Menu")
-            if hashview_api_key:
-                print("\t(94) Hashview API")
-            print("\t(95) Analyze hashes with Pipal")
-            print("\t(96) Export Output to Excel Format")
-            print("\t(97) Display Cracked Hashes")
-            print("\t(98) Display README")
-            print("\t(99) Quit")
             try:
-                task = input("\nSelect a task: ")
+                task = interactive_menu(
+                    get_main_menu_items(),
+                    title="\nSelect a task:",
+                )
+                if task is None:
+                    continue
                 options[task]()
             except KeyError:
                 pass
