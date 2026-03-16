@@ -130,7 +130,9 @@ def _resolve_config_destination():
     for candidate in _candidate_roots():
         if _has_hate_crack_assets(candidate):
             return candidate
-    return os.getcwd()
+    fallback = os.path.join(os.path.expanduser("~"), ".hate_crack")
+    os.makedirs(fallback, exist_ok=True)
+    return fallback
 
 
 def _ensure_hashfile_in_cwd(hashfile_path):
