@@ -8,34 +8,66 @@ submodules:
 	@# Initialize submodules only when inside a git repo (not in Docker/CI copies)
 	@if [ -d .git ] && [ -f .gitmodules ] && command -v git >/dev/null 2>&1; then \
 		git submodule update --init --recursive; \
-	fi; \
-	$(MAKE) submodules-pre; \
-	if [ -f .gitmodules ] && command -v git >/dev/null 2>&1; then \
+	fi
+	@$(MAKE) submodules-pre
+	@if [ -f .gitmodules ] && command -v git >/dev/null 2>&1; then \
 		for path in $$(git config --file .gitmodules --get-regexp path | awk '{print $$2}'); do \
 			if [ "$$path" = "princeprocessor" ]; then \
-				$(MAKE) -C "$$path/src" CFLAGS_LINUX64="-W -Wall -std=c99 -O2 -s -DLINUX"; \
-				if [ -f "$$path/src/pp64.bin" ]; then cp "$$path/src/pp64.bin" "$$path/"; \
-				elif [ -f "$$path/src/ppAppleArm64.bin" ]; then cp "$$path/src/ppAppleArm64.bin" "$$path/pp64.bin"; fi; \
+				if [ -f "$$path/pp64.bin" ]; then \
+					echo "[submodules] princeprocessor already built, skipping"; \
+				else \
+					$(MAKE) -C "$$path/src" CFLAGS_LINUX64="-W -Wall -std=c99 -O2 -s -DLINUX"; \
+					if [ -f "$$path/src/pp64.bin" ]; then cp "$$path/src/pp64.bin" "$$path/"; \
+					elif [ -f "$$path/src/ppAppleArm64.bin" ]; then cp "$$path/src/ppAppleArm64.bin" "$$path/pp64.bin"; fi; \
+				fi; \
 				continue; \
 			fi; \
 			if [ -f "$$path/Makefile" ] || [ -f "$$path/makefile" ]; then \
-				$(MAKE) -C "$$path"; \
+				if [ "$$path" = "hashcat-utils" ] && [ -f "$$path/bin/expander.bin" ]; then \
+					echo "[submodules] hashcat-utils already built, skipping"; \
+				else \
+					$(MAKE) -C "$$path"; \
+				fi; \
 			fi; \
 		done; \
 	fi
-		
 
 submodules-pre:
-	@# Pre-step: basic sanity checks and file generation before building submodules.
-	@# Ensure required directories exist (whether as submodules or vendored copies).
 	@command -v hashcat >/dev/null 2>&1 || { \
 		echo "Error: hashcat not found. Install hashcat (e.g. apt install hashcat or brew install hashcat)."; exit 1; }
 	@test -d hashcat-utils || { echo "Error: missing required directory: hashcat-utils"; exit 1; }
 	@test -d princeprocessor || { echo "Error: missing required directory: princeprocessor"; exit 1; }
 	@test -d omen || { echo "Warning: missing directory: omen (OMEN attacks will not be available)"; }
-	@# Keep per-length expander sources in sync (expander8.c..expander24.c).
-	@# Patch hashcat-utils/src/Makefile so these new expanders are compiled by default.
-	@bases="hashcat-utils hate_crack/hashcat-utils"; for base in $$bases; do src="$$base/src/expander.c"; test -f "$$src" || continue; for i in $$(seq 8 36); do dst="$$base/src/expander$$i.c"; if [ ! -f "$$dst" ]; then cp "$$src" "$$dst"; perl -pi -e "s/#define LEN_MAX 7/#define LEN_MAX $$i/g" "$$dst"; fi; done; mk="$$base/src/Makefile"; test -f "$$mk" || continue; exp_bins=""; exp_exes=""; for i in $$(seq 8 36); do exp_bins="$$exp_bins expander$$i.bin"; exp_exes="$$exp_exes expander$$i.exe"; done; EXP_BINS="$$exp_bins" perl -pi -e 'if(/^native:/ && index($$_, "expander8.bin") < 0){chomp; $$_ .= "$$ENV{EXP_BINS}"; $$_ .= "\n";}' "$$mk"; EXP_EXES="$$exp_exes" perl -pi -e 'if(/^windows:/ && index($$_, "expander8.exe") < 0){chomp; $$_ .= "$$ENV{EXP_EXES}"; $$_ .= "\n";}' "$$mk"; perl -0777 -pi -e 's/\n# Auto-added by hate_crack \\(submodules-pre\\)\n.*\z/\n/s' "$$mk"; printf '%s\n' '' '# Auto-added by hate_crack (submodules-pre)' 'expander%.bin: src/expander%.c' >> "$$mk"; printf '\t%s\n' '$${CC_NATIVE} $${CFLAGS_NATIVE} $${LDFLAGS_NATIVE} -o bin/$$@ $$<' >> "$$mk"; printf '%s\n' '' 'expander%.exe: src/expander%.c' >> "$$mk"; printf '\t%s\n' '$${CC_WINDOWS} $${CFLAGS_WINDOWS} -o bin/$$@ $$<' >> "$$mk"; done
+	@# Generate per-length expander sources (expander8.c..expander36.c) and patch
+	@# hashcat-utils Makefiles to compile them. Skips if expander8.c already exists.
+	@for base in hashcat-utils hate_crack/hashcat-utils; do \
+		src="$$base/src/expander.c"; \
+		test -f "$$src" || continue; \
+		test -f "$$base/src/expander8.c" && continue; \
+		for i in $$(seq 8 36); do \
+			dst="$$base/src/expander$$i.c"; \
+			if [ ! -f "$$dst" ]; then \
+				cp "$$src" "$$dst"; \
+				perl -pi -e "s/#define LEN_MAX 7/#define LEN_MAX $$i/g" "$$dst"; \
+			fi; \
+		done; \
+		mk="$$base/src/Makefile"; \
+		test -f "$$mk" || continue; \
+		exp_bins=""; exp_exes=""; \
+		for i in $$(seq 8 36); do \
+			exp_bins="$$exp_bins expander$$i.bin"; \
+			exp_exes="$$exp_exes expander$$i.exe"; \
+		done; \
+		EXP_BINS="$$exp_bins" perl -pi -e \
+			'if(/^native:/ && index($$_, "expander8.bin") < 0){chomp; $$_ .= "$$ENV{EXP_BINS}\n";}' "$$mk"; \
+		EXP_EXES="$$exp_exes" perl -pi -e \
+			'if(/^windows:/ && index($$_, "expander8.exe") < 0){chomp; $$_ .= "$$ENV{EXP_EXES}\n";}' "$$mk"; \
+		perl -0777 -pi -e 's/\n# Auto-added by hate_crack \\(submodules-pre\\)\n.*\z/\n/s' "$$mk"; \
+		printf '%s\n' '' '# Auto-added by hate_crack (submodules-pre)' 'expander%.bin: src/expander%.c' >> "$$mk"; \
+		printf '\t%s\n' '$${CC_NATIVE} $${CFLAGS_NATIVE} $${LDFLAGS_NATIVE} -o bin/$$@ $$<' >> "$$mk"; \
+		printf '%s\n' '' 'expander%.exe: src/expander%.c' >> "$$mk"; \
+		printf '\t%s\n' '$${CC_WINDOWS} $${CFLAGS_WINDOWS} -o bin/$$@ $$<' >> "$$mk"; \
+	done
 
 vendor-assets:
 	@if [ ! -f princeprocessor/pp64.bin ] && [ ! -f princeprocessor/pp64.app ] && [ ! -f princeprocessor/pp64.exe ]; then \
@@ -82,7 +114,7 @@ clean-vendor:
 	@rm -rf hate_crack/hashcat hate_crack/hashcat-utils hate_crack/princeprocessor hate_crack/omen
 
 install: submodules
-	@echo "Detecting OS and installing dependencies..."
+	@echo "Installing dependencies..."
 	@if [ "$(shell uname)" = "Darwin" ]; then \
 		echo "Detected macOS"; \
 		xcode-select -p >/dev/null 2>&1 || { \
@@ -92,12 +124,17 @@ install: submodules
 			exit 1; \
 		}; \
 		command -v brew >/dev/null 2>&1 || { echo >&2 "Homebrew not found. Please install Homebrew first: https://brew.sh/"; exit 1; }; \
-		brew install p7zip transmission-cli; \
+		command -v 7z >/dev/null 2>&1 || brew install p7zip; \
+		command -v transmission-cli >/dev/null 2>&1 || brew install transmission-cli; \
 	elif [ -f /etc/debian_version ]; then \
 		echo "Detected Debian/Ubuntu"; \
 		command -v gcc >/dev/null 2>&1 || { sudo apt-get update && sudo apt-get install -y build-essential; }; \
-		sudo apt-get update; \
-		sudo apt-get install -y p7zip-full transmission-cli; \
+		NEED_INSTALL=""; \
+		command -v 7z >/dev/null 2>&1 || NEED_INSTALL="$$NEED_INSTALL p7zip-full"; \
+		command -v transmission-cli >/dev/null 2>&1 || NEED_INSTALL="$$NEED_INSTALL transmission-cli"; \
+		if [ -n "$$NEED_INSTALL" ]; then \
+			sudo apt-get update && sudo apt-get install -y $$NEED_INSTALL; \
+		fi; \
 	else \
 		echo "Unsupported OS. Please install dependencies manually."; \
 		exit 1; \
@@ -146,10 +183,10 @@ ty:
 	uv run ty check hate_crack
 
 lint: ruff ty
-	@echo "✓ All linting checks passed"
+	@echo "All linting checks passed"
 
 check: lint
-	@echo "✓ Code quality checks passed"
+	@echo "Code quality checks passed"
 
 uninstall:
 	@echo "Detecting OS and uninstalling dependencies..."
