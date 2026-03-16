@@ -789,6 +789,9 @@ Interactive menu for downloading and managing wordlists from Weakpass.com via Bi
 ### Version History
 
 Version 2.0+
+  - Fixed bare NTLM hash detection failing when hash files contain leading blank lines, BOM characters, or null bytes from UTF-16 encoding
+  - Improved error message for unrecognized hash formats to show the actual first-line content and list expected formats
+  - Fixed rule file path construction in Quick Crack and Loopback Attack using `os.path.join()` instead of string concatenation
   - Added automatic update checks on startup (check_for_updates config option)
   - Added `packaging` dependency for version comparison
   - Added OMEN Attack (option 16) using statistical model-based password generation
