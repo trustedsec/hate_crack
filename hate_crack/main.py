@@ -295,7 +295,11 @@ hcatRules: list[str] = []
 # Default: use ~/.hashcat/hashcat.potfile (explicitly passed to hashcat).
 # Disable override with config `hcatPotfilePath: ""` or CLI `--no-potfile-path`.
 if "hcatPotfilePath" not in config_parser:
-    hcatPotfilePath = os.path.expanduser("~/.hashcat/hashcat.potfile")
+    _default_pot = os.path.expanduser("~/.hashcat/hashcat.potfile")
+    if os.path.isfile(_default_pot) or os.path.isdir(os.path.dirname(_default_pot)):
+        hcatPotfilePath = _default_pot
+    else:
+        hcatPotfilePath = os.path.join(os.getcwd(), "hashcat.potfile")
 else:
     _raw_pot = (config_parser.get("hcatPotfilePath") or "").strip()
     if _raw_pot == "":
