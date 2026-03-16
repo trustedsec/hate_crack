@@ -3826,7 +3826,11 @@ def main():
             lmHashesFound = False
             pwdump_format = False
             with open(hcatHashFile, "r", encoding="utf-8-sig") as f:
-                hcatHashFileLine = f.readline().strip().replace("\x00", "")
+                hcatHashFileLine = ""
+                for raw_line in f:
+                    hcatHashFileLine = raw_line.strip().replace("\x00", "")
+                    if hcatHashFileLine:
+                        break
             if re.search(r"[a-f0-9A-F]{32}:[a-f0-9A-F]{32}:::", hcatHashFileLine):
                 pwdump_format = True
                 print("PWDUMP format detected...")
