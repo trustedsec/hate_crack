@@ -84,16 +84,7 @@ def lima_vm():
         f"rsync copy failed.\nstdout={_truncate_output(copy.stdout)}\nstderr={_truncate_output(copy.stderr)}"
     )
 
-    install_cmd = (
-        "cd /tmp/hate_crack && "
-        "make submodules vendor-assets && "
-        # Build the wheel directly (skips sdist) so freshly-compiled binaries
-        # in hate_crack/hashcat-utils/bin/ are included via package-data.
-        "rm -rf dist && "
-        "$HOME/.local/bin/uv build --wheel && "
-        "$HOME/.local/bin/uv tool install dist/hate_crack-*.whl && "
-        "make clean-vendor"
-    )
+    install_cmd = "cd /tmp/hate_crack && make install"
     try:
         install = subprocess.run(
             ["limactl", "shell", vm_name, "--", "bash", "-lc", install_cmd],
