@@ -67,6 +67,10 @@ def pipal():
     return _main.pipal()
 
 
+def get_main_menu_items():
+    return _main.get_main_menu_items()
+
+
 def get_main_menu_options():
     options = {
         "1": _attacks.quick_crack,
