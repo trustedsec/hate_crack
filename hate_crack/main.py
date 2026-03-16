@@ -352,12 +352,12 @@ hcatGoodMeasureBaseList = config_parser["hcatGoodMeasureBaseList"]
 hcatDebugLogPath = os.path.expanduser(config_parser["hcatDebugLogPath"])
 
 ollamaUrl = "http://" + os.environ.get("OLLAMA_HOST", "localhost:11434")
-ollamaModel = config_parser["ollamaModel"]
-ollamaNumCtx = int(config_parser["ollamaNumCtx"])
+ollamaModel = config_parser.get("ollamaModel", "mistral")
+ollamaNumCtx = int(config_parser.get("ollamaNumCtx", 2048))
 
-omenTrainingList = config_parser["omenTrainingList"]
-omenMaxCandidates = int(config_parser["omenMaxCandidates"])
-check_for_updates_enabled = config_parser["check_for_updates"]
+omenTrainingList = config_parser.get("omenTrainingList", "rockyou.txt")
+omenMaxCandidates = int(config_parser.get("omenMaxCandidates", 1000000))
+check_for_updates_enabled = config_parser.get("check_for_updates", True)
 
 hcatExpanderBin = "expander.bin"
 hcatCombinatorBin = "combinator.bin"
