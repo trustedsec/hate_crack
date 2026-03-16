@@ -3825,8 +3825,8 @@ def main():
         if hcatHashType == "1000":
             lmHashesFound = False
             pwdump_format = False
-            with open(hcatHashFile, "r") as f:
-                hcatHashFileLine = f.readline().strip().lstrip("\ufeff")
+            with open(hcatHashFile, "r", encoding="utf-8-sig") as f:
+                hcatHashFileLine = f.readline().strip().replace("\x00", "")
             if re.search(r"[a-f0-9A-F]{32}:[a-f0-9A-F]{32}:::", hcatHashFileLine):
                 pwdump_format = True
                 print("PWDUMP format detected...")
@@ -3897,7 +3897,11 @@ def main():
                     print("NetNTLMv2 format detected")
                     print("Note: Hash type should be 5500 for NetNTLMv2 hashes")
             else:
-                print("unknown format....does it have usernames?")
+                print(f"Unrecognized hash format on first line: {hcatHashFileLine!r}")
+                print(
+                    "Expected one of: pwdump (user:RID:LM:NT:::),"
+                    " bare hash (32 hex chars), user:hash, or NetNTLMv2"
+                )
                 exit(1)
         # Detect and optionally filter computer accounts from NetNTLM hashes
         if hcatHashType in ("5500", "5600"):
