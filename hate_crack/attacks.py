@@ -138,7 +138,7 @@ def quick_crack(ctx: Any) -> None:
         return
     if "98" in rule_choice:
         for rule in rule_files:
-            selected_hcatRules.append(f"-r {ctx.rulesDirectory}/{rule}")
+            selected_hcatRules.append(f"-r {os.path.join(ctx.rulesDirectory, rule)}")
     elif "0" in rule_choice:
         selected_hcatRules = [""]
     else:
@@ -148,15 +148,15 @@ def quick_crack(ctx: Any) -> None:
                 choices = choice.split("+")
                 for rule in choices:
                     try:
-                        combined_choice = f"{combined_choice} -r {ctx.rulesDirectory}/{rule_files[int(rule) - 1]}"
+                        rule_path = os.path.join(ctx.rulesDirectory, rule_files[int(rule) - 1])
+                        combined_choice = f"{combined_choice} -r {rule_path}"
                     except Exception:
                         continue
                 selected_hcatRules.append(combined_choice)
             else:
                 try:
-                    selected_hcatRules.append(
-                        f"-r {ctx.rulesDirectory}/{rule_files[int(choice) - 1]}"
-                    )
+                    rule_path = os.path.join(ctx.rulesDirectory, rule_files[int(choice) - 1])
+                    selected_hcatRules.append(f"-r {rule_path}")
                 except IndexError:
                     continue
 
@@ -229,7 +229,7 @@ def loopback_attack(ctx: Any) -> None:
         return
     if "98" in rule_choice:
         for rule in rule_files:
-            selected_hcatRules.append(f"-r {ctx.rulesDirectory}/{rule}")
+            selected_hcatRules.append(f"-r {os.path.join(ctx.rulesDirectory, rule)}")
     elif "0" in rule_choice:
         selected_hcatRules = [""]
     else:
@@ -239,15 +239,15 @@ def loopback_attack(ctx: Any) -> None:
                 choices = choice.split("+")
                 for rule in choices:
                     try:
-                        combined_choice = f"{combined_choice} -r {ctx.rulesDirectory}/{rule_files[int(rule) - 1]}"
+                        rule_path = os.path.join(ctx.rulesDirectory, rule_files[int(rule) - 1])
+                        combined_choice = f"{combined_choice} -r {rule_path}"
                     except Exception:
                         continue
                 selected_hcatRules.append(combined_choice)
             else:
                 try:
-                    selected_hcatRules.append(
-                        f"-r {ctx.rulesDirectory}/{rule_files[int(choice) - 1]}"
-                    )
+                    rule_path = os.path.join(ctx.rulesDirectory, rule_files[int(choice) - 1])
+                    selected_hcatRules.append(f"-r {rule_path}")
                 except IndexError:
                     continue
 
