@@ -1680,7 +1680,7 @@ def list_and_download_official_wordlists():
         print(f"Error listing official wordlists: {e}")
 
 
-def list_and_download_hashmob_rules():
+def list_and_download_hashmob_rules(rules_dir=None):
     """List rules via the Hashmob API, prompt for selection, and download."""
     rules = download_hashmob_rule_list()
     if not rules:
@@ -1703,7 +1703,8 @@ def list_and_download_hashmob_rules():
     )
     if sel.lower() == "q":
         return
-    rules_dir = get_rules_dir()
+    if not rules_dir:
+        rules_dir = get_rules_dir()
 
     def parse_indices(selection, max_index):
         indices = set()
@@ -1871,9 +1872,9 @@ def download_hashmob_wordlists(print_fn=print) -> None:
     print_fn("Hashmob wordlist download complete.")
 
 
-def download_hashmob_rules(print_fn=print) -> None:
+def download_hashmob_rules(print_fn=print, rules_dir=None) -> None:
     """Download Hashmob rules."""
-    list_and_download_hashmob_rules()
+    list_and_download_hashmob_rules(rules_dir=rules_dir)
     print_fn("Hashmob rules download complete.")
 
 

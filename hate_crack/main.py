@@ -3329,7 +3329,7 @@ def get_main_menu_options():
         "14": loopback_attack,
         "15": ollama_attack,
         "16": omen_attack,
-        "90": download_hashmob_rules,
+        "90": lambda: download_hashmob_rules(rules_dir=rulesDirectory),
         "91": analyze_rules,
         "92": download_hashmob_wordlists,
         "93": weakpass_wordlist_menu,
@@ -3725,7 +3725,7 @@ def main():
         download_hashmob_wordlists(print_fn=print)
         sys.exit(0)
     if args.rules:
-        download_hashmob_rules(print_fn=print)
+        download_hashmob_rules(print_fn=print, rules_dir=rulesDirectory)
         sys.exit(0)
 
     if args.hashfile and args.hashtype:
@@ -3781,7 +3781,7 @@ def main():
                     sys.exit(0)
                 # Otherwise continue the menu loop
             elif choice == "4" or args.rules:
-                download_hashmob_rules(print_fn=print)
+                download_hashmob_rules(print_fn=print, rules_dir=rulesDirectory)
                 if args.rules:
                     sys.exit(0)
                 # Otherwise continue the menu loop

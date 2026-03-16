@@ -87,7 +87,8 @@ def quick_crack(ctx: Any) -> None:
         except ValueError:
             print("Please enter a valid number.")
 
-    rule_files = sorted(f for f in os.listdir(ctx.rulesDirectory) if f != ".DS_Store")
+    rules_dir = ctx.rulesDirectory
+    rule_files = sorted(f for f in os.listdir(rules_dir) if f != ".DS_Store")
     if not rule_files:
         download_rules = (
             input("\nNo rules found. Download rules from Hashmob now? (Y/n): ")
@@ -95,8 +96,8 @@ def quick_crack(ctx: Any) -> None:
             .lower()
         )
         if download_rules in ("", "y", "yes"):
-            download_hashmob_rules(print_fn=print)
-            rule_files = sorted(os.listdir(ctx.rulesDirectory))
+            download_hashmob_rules(print_fn=print, rules_dir=rules_dir)
+            rule_files = sorted(os.listdir(rules_dir))
 
     if not rule_files:
         print("No rules available. Proceeding without rules.")
@@ -138,7 +139,7 @@ def quick_crack(ctx: Any) -> None:
         return
     if "98" in rule_choice:
         for rule in rule_files:
-            selected_hcatRules.append(f"-r {os.path.join(ctx.rulesDirectory, rule)}")
+            selected_hcatRules.append(f"-r {os.path.join(rules_dir, rule)}")
     elif "0" in rule_choice:
         selected_hcatRules = [""]
     else:
@@ -148,14 +149,14 @@ def quick_crack(ctx: Any) -> None:
                 choices = choice.split("+")
                 for rule in choices:
                     try:
-                        rule_path = os.path.join(ctx.rulesDirectory, rule_files[int(rule) - 1])
+                        rule_path = os.path.join(rules_dir, rule_files[int(rule) - 1])
                         combined_choice = f"{combined_choice} -r {rule_path}"
                     except Exception:
                         continue
                 selected_hcatRules.append(combined_choice)
             else:
                 try:
-                    rule_path = os.path.join(ctx.rulesDirectory, rule_files[int(choice) - 1])
+                    rule_path = os.path.join(rules_dir, rule_files[int(choice) - 1])
                     selected_hcatRules.append(f"-r {rule_path}")
                 except IndexError:
                     continue
@@ -178,7 +179,8 @@ def loopback_attack(ctx: Any) -> None:
     rule_choice = None
     selected_hcatRules = []
 
-    rule_files = sorted(f for f in os.listdir(ctx.rulesDirectory) if f != ".DS_Store")
+    rules_dir = ctx.rulesDirectory
+    rule_files = sorted(f for f in os.listdir(rules_dir) if f != ".DS_Store")
     if not rule_files:
         download_rules = (
             input("\nNo rules found. Download rules from Hashmob now? (Y/n): ")
@@ -186,8 +188,8 @@ def loopback_attack(ctx: Any) -> None:
             .lower()
         )
         if download_rules in ("", "y", "yes"):
-            download_hashmob_rules(print_fn=print)
-            rule_files = sorted(os.listdir(ctx.rulesDirectory))
+            download_hashmob_rules(print_fn=print, rules_dir=rules_dir)
+            rule_files = sorted(os.listdir(rules_dir))
 
     if not rule_files:
         print("No rules available. Proceeding without rules.")
@@ -229,7 +231,7 @@ def loopback_attack(ctx: Any) -> None:
         return
     if "98" in rule_choice:
         for rule in rule_files:
-            selected_hcatRules.append(f"-r {os.path.join(ctx.rulesDirectory, rule)}")
+            selected_hcatRules.append(f"-r {os.path.join(rules_dir, rule)}")
     elif "0" in rule_choice:
         selected_hcatRules = [""]
     else:
@@ -239,14 +241,14 @@ def loopback_attack(ctx: Any) -> None:
                 choices = choice.split("+")
                 for rule in choices:
                     try:
-                        rule_path = os.path.join(ctx.rulesDirectory, rule_files[int(rule) - 1])
+                        rule_path = os.path.join(rules_dir, rule_files[int(rule) - 1])
                         combined_choice = f"{combined_choice} -r {rule_path}"
                     except Exception:
                         continue
                 selected_hcatRules.append(combined_choice)
             else:
                 try:
-                    rule_path = os.path.join(ctx.rulesDirectory, rule_files[int(choice) - 1])
+                    rule_path = os.path.join(rules_dir, rule_files[int(choice) - 1])
                     selected_hcatRules.append(f"-r {rule_path}")
                 except IndexError:
                     continue
