@@ -315,6 +315,14 @@ def _append_potfile_arg(cmd, *, use_potfile_path=True, potfile_path=None):
         return
     pot = potfile_path or hcatPotfilePath
     if pot:
+        try:
+            pot_dir = os.path.dirname(pot)
+            if pot_dir:
+                os.makedirs(pot_dir, exist_ok=True)
+            if not os.path.exists(pot):
+                open(pot, "a").close()
+        except OSError:
+            pass
         cmd.append(f"--potfile-path={pot}")
 
 
