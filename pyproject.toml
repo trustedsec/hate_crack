@@ -19,6 +19,7 @@ dependencies = [
 hate_crack = "hate_crack.__main__:main"
 
 [project.optional-dependencies]
+tui = ["simple-term-menu==1.6.6"]
 dev = [
     "ty==0.0.17",
     "ruff==0.15.1",

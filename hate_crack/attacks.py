@@ -44,19 +44,17 @@ def quick_crack(ctx: Any) -> None:
     )
 
     def path_completer(text, state):
+        base = ctx.hcatWordlists
         if not text:
-            text = "./"
-        text = os.path.expanduser(text)
-        if (
-            text.startswith("/")
-            or text.startswith("./")
-            or text.startswith("../")
-            or text.startswith("~")
-        ):
-            matches = glob.glob(text + "*")
+            pattern = os.path.join(base, "*")
+            matches = glob.glob(pattern)
         else:
-            matches = glob.glob("./" + text + "*")
-            matches = [m[2:] if m.startswith("./") else m for m in matches]
+            text = os.path.expanduser(text)
+            if text.startswith(("/", "./", "../", "~")):
+                matches = glob.glob(text + "*")
+            else:
+                pattern = os.path.join(base, text + "*")
+                matches = glob.glob(pattern)
         matches = [m + "/" if os.path.isdir(m) else m for m in matches]
         try:
             return matches[state]
@@ -353,7 +351,9 @@ def combinator_crack(ctx: Any) -> None:
         print("  - Press TAB to autocomplete file paths")
 
         selection = ctx.select_file_with_autocomplete(
-            "Enter 2 wordlist files (comma-separated)", allow_multiple=True
+            "Enter 2 wordlist files (comma-separated)",
+            allow_multiple=True,
+            base_dir=ctx.hcatWordlists,
         )
 
         if not selection:
@@ -435,7 +435,9 @@ def hybrid_crack(ctx: Any) -> None:
         print("  - Press TAB to autocomplete file paths")
 
         selection = ctx.select_file_with_autocomplete(
-            "Enter wordlist file(s) (comma-separated for multiple)", allow_multiple=True
+            "Enter wordlist file(s) (comma-separated for multiple)",
+            allow_multiple=True,
+            base_dir=ctx.hcatWordlists,
         )
 
         if not selection:
