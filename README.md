@@ -172,7 +172,7 @@ This means the hate_crack assets were not bundled into the installed package.
 - `hashcat-utils/` and `princeprocessor/` → bundled into the package by `make install`
 
 **Solution:**
-Reinstall using the Makefile, which vendors the assets into the package:
+Reinstall using the Makefile, which builds submodules and installs the tool:
 ```bash
 cd /path/to/hate_crack  # the repository checkout
 make install
@@ -220,7 +220,7 @@ git pull
 -------------------------------------------------------------------
 ### Makefile Targets
 
-**Default (full installation)** - builds submodules, vendors assets, installs dependencies and tool:
+**Default (full installation)** - builds submodules, installs dependencies, and installs the tool:
 
 ```bash
 make

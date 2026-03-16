@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := install
-.PHONY: install reinstall update dev-install dev-reinstall clean hashcat-utils submodules submodules-pre vendor-assets clean-vendor test coverage lint check ruff ty
+.PHONY: install reinstall update dev-install dev-reinstall clean hashcat-utils submodules submodules-pre test coverage lint check ruff ty
 
 hashcat-utils: submodules
 	$(MAKE) -C hashcat-utils
@@ -40,7 +40,7 @@ submodules-pre:
 	@test -d omen || { echo "Warning: missing directory: omen (OMEN attacks will not be available)"; }
 	@# Generate per-length expander sources (expander8.c..expander36.c) and patch
 	@# hashcat-utils Makefiles to compile them. Skips if expander8.c already exists.
-	@for base in hashcat-utils hate_crack/hashcat-utils; do \
+	@for base in hashcat-utils; do \
 		src="$$base/src/expander.c"; \
 		test -f "$$src" || continue; \
 		test -f "$$base/src/expander8.c" && continue; \
@@ -68,50 +68,6 @@ submodules-pre:
 		printf '%s\n' '' 'expander%.exe: src/expander%.c' >> "$$mk"; \
 		printf '\t%s\n' '$${CC_WINDOWS} $${CFLAGS_WINDOWS} -o bin/$$@ $$<' >> "$$mk"; \
 	done
-
-vendor-assets:
-	@if [ ! -f princeprocessor/pp64.bin ] && [ ! -f princeprocessor/pp64.app ] && [ ! -f princeprocessor/pp64.exe ]; then \
-		echo "princeprocessor binaries are missing; please ensure the princeprocessor directory is present."; \
-		exit 1; \
-	fi
-	@echo "Syncing assets into package for uv tool install..."
-	@rm -rf hate_crack/hashcat hate_crack/hashcat-utils hate_crack/princeprocessor hate_crack/omen
-	@mkdir -p hate_crack/hashcat
-	@if [ -f hashcat/hashcat ]; then \
-		echo "Vendoring compiled hashcat binary from submodule..."; \
-		cp hashcat/hashcat hate_crack/hashcat/hashcat; \
-		[ -d hashcat/rules ] && cp -R hashcat/rules hate_crack/hashcat/rules || true; \
-		[ -d hashcat/OpenCL ] && cp -R hashcat/OpenCL hate_crack/hashcat/OpenCL || true; \
-		[ -d hashcat/modules ] && cp -R hashcat/modules hate_crack/hashcat/modules || true; \
-	elif [ -f hashcat/hashcat.app ]; then \
-		echo "Vendoring compiled hashcat submodule binary (macOS app)..."; \
-		cp hashcat/hashcat.app hate_crack/hashcat/hashcat; \
-		[ -d hashcat/rules ] && cp -R hashcat/rules hate_crack/hashcat/rules || true; \
-		[ -d hashcat/OpenCL ] && cp -R hashcat/OpenCL hate_crack/hashcat/OpenCL || true; \
-		[ -d hashcat/modules ] && cp -R hashcat/modules hate_crack/hashcat/modules || true; \
-	elif command -v hashcat >/dev/null 2>&1; then \
-		HASHCAT_PATH=$$(command -v hashcat); \
-		echo "Using system hashcat from $$HASHCAT_PATH..."; \
-		cp "$$HASHCAT_PATH" hate_crack/hashcat/hashcat; \
-		HASHCAT_DIR=$$(dirname $$(realpath "$$HASHCAT_PATH")); \
-		[ -d "$$HASHCAT_DIR/rules" ] && cp -R "$$HASHCAT_DIR/rules" hate_crack/hashcat/rules || true; \
-		[ -d "$$HASHCAT_DIR/OpenCL" ] && cp -R "$$HASHCAT_DIR/OpenCL" hate_crack/hashcat/OpenCL || true; \
-		[ -d "$$HASHCAT_DIR/modules" ] && cp -R "$$HASHCAT_DIR/modules" hate_crack/hashcat/modules || true; \
-	else \
-		echo "Error: hashcat not found. Install hashcat (e.g. apt install hashcat or brew install hashcat)."; \
-		exit 1; \
-	fi
-	@cp -R hashcat-utils hate_crack/
-	@cp -R princeprocessor hate_crack/
-	@if [ -d omen ]; then \
-		cp -R omen hate_crack/; \
-		rm -rf hate_crack/omen/.git; \
-	fi
-	@rm -rf hate_crack/hashcat-utils/.git hate_crack/princeprocessor/.git
-
-clean-vendor:
-	@echo "Cleaning up vendored assets from working tree..."
-	@rm -rf hate_crack/hashcat hate_crack/hashcat-utils hate_crack/princeprocessor hate_crack/omen
 
 install: submodules
 	@echo "Installing dependencies..."
