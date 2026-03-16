@@ -201,6 +201,22 @@ Most users can use defaults without customization:
 - Missing config keys are automatically backfilled from `config.json.example` on startup
 - Config is searched in multiple locations: repo root, current working directory, `~/.hate_crack`, `/opt/hate_crack`
 
+### Error: merge with ref 'refs/heads/master' but no such ref was fetched
+
+If you see:
+```
+Your configuration specifies to merge with the ref 'refs/heads/master'
+from the remote, but no such ref was fetched.
+```
+
+The default branch was renamed from `master` to `main`. Fix with:
+```bash
+git remote set-head origin -a
+git branch -m master main
+git branch --set-upstream-to=origin/main main
+git pull
+```
+
 -------------------------------------------------------------------
 ### Makefile Targets
 
@@ -335,6 +351,18 @@ This installs hooks defined in `prek.toml` using the pre-commit local-repo TOML 
 - **post-commit**: audit-docs
 
 Note: prek 0.3.3 expects `repos = [...]` at the top level. The old `[hooks.<stage>] commands = [...]` format is not supported.
+
+### Arrow-Key Menu Navigation (Optional)
+
+Install the `[tui]` extra to enable arrow-key menu navigation via `simple-term-menu`:
+
+```bash
+uv pip install '.[tui]'
+```
+
+When installed and running in a terminal (TTY), menus render with arrow-key navigation and number-key shortcuts. Without it, the classic numbered `print()` + `input()` menu is used.
+
+To force the plain numbered menu even when `simple-term-menu` is installed, set `HATE_CRACK_PLAIN_MENU=1`.
 
 ### Dev Dependencies
 
