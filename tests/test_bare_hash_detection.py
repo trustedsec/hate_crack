@@ -26,9 +26,13 @@ def main_module(monkeypatch):
 
 
 def _read_first_line(path):
-    """Replicate the first-line reading logic from main.py:3828-3829."""
+    """Replicate the first-line reading logic from main.py:3828-3832."""
     with open(path, "r", encoding="utf-8-sig") as f:
-        return f.readline().strip().replace("\x00", "")
+        for raw_line in f:
+            line = raw_line.strip().replace("\x00", "")
+            if line:
+                return line
+    return ""
 
 
 BARE_HASH_PATTERN = re.compile(r"^[a-f0-9A-F]{32}$")
@@ -109,6 +113,36 @@ class TestBareHashDetection:
         line = _read_first_line(str(hash_file))
         assert not BARE_HASH_PATTERN.search(line)
 
+    def test_bare_hash_with_leading_blank_line(self, tmp_path):
+        hash_file = tmp_path / "bare.txt"
+        hash_file.write_text("\naad3b435b51404eeaad3b435b51404ee\n")
+        line = _read_first_line(str(hash_file))
+        assert BARE_HASH_PATTERN.search(line), f"Blank first line not skipped: {line!r}"
+
+    def test_bare_hash_with_multiple_leading_blank_lines(self, tmp_path):
+        hash_file = tmp_path / "bare.txt"
+        hash_file.write_text("\n\n\naad3b435b51404eeaad3b435b51404ee\n")
+        line = _read_first_line(str(hash_file))
+        assert BARE_HASH_PATTERN.search(line), f"Blank lines not skipped: {line!r}"
+
+    def test_bare_hash_with_whitespace_only_lines(self, tmp_path):
+        hash_file = tmp_path / "bare.txt"
+        hash_file.write_text("   \n\t\naad3b435b51404eeaad3b435b51404ee\n")
+        line = _read_first_line(str(hash_file))
+        assert BARE_HASH_PATTERN.search(line), f"Whitespace lines not skipped: {line!r}"
+
+    def test_bare_hash_with_crlf_blank_lines(self, tmp_path):
+        hash_file = tmp_path / "bare.txt"
+        hash_file.write_bytes(b"\r\n\r\naad3b435b51404eeaad3b435b51404ee\r\n")
+        line = _read_first_line(str(hash_file))
+        assert BARE_HASH_PATTERN.search(line), f"CRLF blank lines not skipped: {line!r}"
+
+    def test_bare_hash_with_bom_then_blank_line(self, tmp_path):
+        hash_file = tmp_path / "bare.txt"
+        hash_file.write_bytes(b"\xef\xbb\xbf\naad3b435b51404eeaad3b435b51404ee\n")
+        line = _read_first_line(str(hash_file))
+        assert BARE_HASH_PATTERN.search(line), f"BOM+blank line not handled: {line!r}"
+
 
 class TestFormatDetectionPriority:
     """Verify the detection chain matches the correct format."""
@@ -127,6 +161,20 @@ class TestFormatDetectionPriority:
         line = _read_first_line(str(hash_file))
         assert not PWDUMP_PATTERN.search(line)
         assert not BARE_HASH_PATTERN.search(line)
+        assert USER_HASH_PATTERN.search(line)
+
+    def test_pwdump_with_leading_blank_line(self, tmp_path):
+        hash_file = tmp_path / "pwdump.txt"
+        hash_file.write_text(
+            "\nadmin:500:aad3b435b51404eeaad3b435b51404ee:31d6cfe0d16ae931b73c59d7e0c089c0:::\n"
+        )
+        line = _read_first_line(str(hash_file))
+        assert PWDUMP_PATTERN.search(line)
+
+    def test_user_hash_with_leading_blank_line(self, tmp_path):
+        hash_file = tmp_path / "userhash.txt"
+        hash_file.write_text("\nadmin:aad3b435b51404eeaad3b435b51404ee\n")
+        line = _read_first_line(str(hash_file))
         assert USER_HASH_PATTERN.search(line)
 
     def test_bare_hash_not_confused_with_user_hash(self, tmp_path):
