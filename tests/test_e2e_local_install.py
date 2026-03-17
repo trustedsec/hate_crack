@@ -10,40 +10,47 @@ import pytest
     os.environ.get("HATE_CRACK_RUN_E2E") != "1",
     reason="Set HATE_CRACK_RUN_E2E=1 to run local end-to-end install tests.",
 )
-def test_local_uv_tool_install_and_help(tmp_path):
+def test_local_make_install_and_help(tmp_path):
     if shutil.which("uv") is None:
         pytest.skip("uv not available")
 
     repo_root = Path(__file__).resolve().parents[1]
     home_dir = tmp_path / "home"
     home_dir.mkdir()
+    bin_dir = home_dir / ".local" / "bin"
+    bin_dir.mkdir(parents=True)
 
     env = os.environ.copy()
     env.update(
         {
             "HOME": str(home_dir),
-            "PATH": f"{home_dir / '.local' / 'bin'}:{env.get('PATH', '')}",
+            "PATH": f"{bin_dir}:{env.get('PATH', '')}",
             "HATE_CRACK_SKIP_INIT": "1",
             "XDG_CACHE_HOME": str(tmp_path / "cache"),
             "XDG_CONFIG_HOME": str(tmp_path / "config"),
             "XDG_DATA_HOME": str(tmp_path / "data"),
+            "XDG_BIN_HOME": str(bin_dir),
         }
     )
 
     install = subprocess.run(
-        ["uv", "tool", "install", "."],
+        ["make", "install"],
         cwd=repo_root,
         env=env,
         capture_output=True,
         text=True,
     )
     assert install.returncode == 0, (
-        f"uv tool install failed. stdout={install.stdout} stderr={install.stderr}"
+        f"make install failed. stdout={install.stdout} stderr={install.stderr}"
     )
+
+    shim_path = bin_dir / "hate_crack"
+    assert shim_path.exists(), "hate_crack shim was not created"
+    assert os.access(shim_path, os.X_OK), "hate_crack shim is not executable"
 
     tool_help = subprocess.run(
         ["hate_crack", "--help"],
-        cwd=repo_root,
+        cwd=str(tmp_path),
         env=env,
         capture_output=True,
         text=True,

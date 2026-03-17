@@ -47,7 +47,7 @@ Then customize configuration in `config.json` if needed (wordlist paths, API key
 The easiest way is to run `make` (or `make install`), which auto-detects your OS and installs:
 - External dependencies (p7zip, transmission-cli)
 - Builds submodules (hashcat-utils, princeprocessor, and optionally omen)
-- Python tool via uv
+- Python dependencies via uv and a CLI shim at `~/.local/bin/hate_crack`
 
 ```bash
 make
@@ -80,9 +80,12 @@ macOS (Homebrew):
 brew install p7zip transmission-cli
 ```
 
-Then install the Python tool:
+Then install the Python dependencies and CLI shim:
 ```bash
-uv tool install .
+uv sync
+mkdir -p ~/.local/bin
+printf '#!/usr/bin/env bash\nset -euo pipefail\nexec uv run --directory %s python -m hate_crack "$@"\n' "$(pwd)" > ~/.local/bin/hate_crack
+chmod +x ~/.local/bin/hate_crack
 ```
 
 -------------------------------------------------------------------
@@ -133,9 +136,11 @@ make
 hate_crack
 ```
 
-The tool will automatically search for these assets in:
-- The installed package (bundled by `make install`)
+The `make install` command creates a bash shim at `~/.local/bin/hate_crack` that runs from the repo directory, so config and assets are always found regardless of your current working directory.
+
+Config is also searched in:
 - Current working directory and parent directory
+- The repo root and package directory
 - `~/hate_crack`, `~/hate-crack`, or `~/.hate_crack`
 
 **Note:** The `hcatPath` in `config.json` is for the hashcat binary location only (optional if hashcat is in PATH). Hate_crack assets (hashcat-utils, princeprocessor, omen) are loaded from the repository directory and bundled automatically by `make install`.
@@ -789,6 +794,8 @@ Interactive menu for downloading and managing wordlists from Weakpass.com via Bi
 ### Version History
 
 Version 2.0+
+  - Replaced `uv tool install` with a bash shim for reliable config and asset resolution from any working directory
+  - Fixed config resolution to search the repo root and package directory in addition to CWD
   - Fixed bare NTLM hash detection failing when hash files contain leading blank lines, BOM characters, or null bytes from UTF-16 encoding
   - Improved error message for unrecognized hash formats to show the actual first-line content and list expected formats
   - Fixed rule file path construction in Quick Crack and Loopback Attack using `os.path.join()` instead of string concatenation
