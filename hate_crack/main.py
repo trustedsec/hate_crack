@@ -110,6 +110,8 @@ def _candidate_roots():
     candidates = [
         cwd,
         os.path.abspath(os.path.join(cwd, os.pardir)),
+        _repo_root,
+        _package_path,
         "/opt/hate_crack",
         "/usr/local/share/hate_crack",
     ]

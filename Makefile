@@ -97,10 +97,20 @@ install: submodules
 	fi
 	@command -v uv >/dev/null 2>&1 || { echo "uv not found. Installing uv..."; curl -LsSf https://astral.sh/uv/install.sh | sh; }
 	@UV_BIN=$$(command -v uv 2>/dev/null || echo "$$HOME/.local/bin/uv"); \
-		"$$UV_BIN" tool install -e .
+		"$$UV_BIN" sync
+	@mkdir -p "$${XDG_BIN_HOME:-$$HOME/.local/bin}"
+	@printf '#!/usr/bin/env bash\nset -euo pipefail\nexec uv run --directory %s python -m hate_crack "$$@"\n' "$(CURDIR)" \
+		> "$${XDG_BIN_HOME:-$$HOME/.local/bin}/hate_crack"
+	@chmod +x "$${XDG_BIN_HOME:-$$HOME/.local/bin}/hate_crack"
+	@echo "Installed hate_crack shim to $${XDG_BIN_HOME:-$$HOME/.local/bin}/hate_crack"
 
 update: submodules
-	@uv tool install -e . --force --reinstall
+	@uv sync
+	@mkdir -p "$${XDG_BIN_HOME:-$$HOME/.local/bin}"
+	@printf '#!/usr/bin/env bash\nset -euo pipefail\nexec uv run --directory %s python -m hate_crack "$$@"\n' "$(CURDIR)" \
+		> "$${XDG_BIN_HOME:-$$HOME/.local/bin}/hate_crack"
+	@chmod +x "$${XDG_BIN_HOME:-$$HOME/.local/bin}/hate_crack"
+	@echo "Updated hate_crack shim at $${XDG_BIN_HOME:-$$HOME/.local/bin}/hate_crack"
 
 reinstall: uninstall install
 
@@ -146,9 +156,6 @@ check: lint
 
 uninstall:
 	@echo "Detecting OS and uninstalling dependencies..."
-	@uv tool uninstall hate_crack || true
-	@data_home="$${XDG_DATA_HOME:-$$HOME/.local/share}"; \
-		rm -rf "$$data_home/uv/tools/hate-crack" "$$data_home/uv/tools/hate_crack"
 	@bin_home="$${XDG_BIN_HOME:-$$HOME/.local/bin}"; \
 		rm -f "$$bin_home/hate_crack"
 	@if [ "$(shell uname)" = "Darwin" ]; then \
