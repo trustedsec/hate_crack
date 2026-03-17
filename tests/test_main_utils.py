@@ -478,3 +478,91 @@ class TestCleanupWordlistArtifacts:
         ):
             # Should not raise even when directories don't exist
             main_module.cleanup_wordlist_artifacts()
+
+
+class TestListWordlistFiles:
+    @pytest.mark.parametrize(
+        "filename, included",
+        [
+            ("rockyou.txt", True),
+            ("wordlist.lst", True),
+            ("custom.dict", True),
+            ("compressed.gz", True),
+            ("archive.7z", False),
+            ("file.torrent", False),
+            ("hashes.out", False),
+            (".DS_Store", False),
+        ],
+    )
+    def test_filters_excluded_extensions(self, tmp_path, main_module, filename, included):
+        (tmp_path / filename).touch()
+        result = main_module.list_wordlist_files(str(tmp_path))
+        if included:
+            assert filename in result
+        else:
+            assert filename not in result
+
+    def test_returns_sorted(self, tmp_path, main_module):
+        for name in ["zebra.txt", "alpha.txt", "middle.txt"]:
+            (tmp_path / name).touch()
+        result = main_module.list_wordlist_files(str(tmp_path))
+        assert result == ["alpha.txt", "middle.txt", "zebra.txt"]
+
+
+class TestOptimizedKernel:
+    @pytest.mark.parametrize(
+        "attack_name",
+        [
+            "hcatDictionary",
+            "hcatQuickDictionary",
+            "hcatBandrel",
+            "hcatGoodMeasure",
+            "hcatRecycle",
+            "hcatBruteForce",
+            "hcatTopMask",
+            "hcatPathwellBruteForce",
+        ],
+    )
+    def test_optimized_attacks_return_true(self, main_module, attack_name):
+        assert main_module._should_use_optimized_kernel(attack_name) is True
+
+    @pytest.mark.parametrize(
+        "attack_name",
+        [
+            "hcatCombination",
+            "hcatYoloCombination",
+            "hcatMiddleCombinator",
+            "hcatThoroughCombinator",
+            "hcatHybrid",
+            "hcatPrince",
+            "hcatOmen",
+            "hcatFingerprint",
+            "hcatLMtoNT",
+        ],
+    )
+    def test_non_optimized_attacks_return_false(self, main_module, attack_name):
+        assert main_module._should_use_optimized_kernel(attack_name) is False
+
+    def test_insert_optimized_flag_adds_O(self, main_module):
+        cmd = ["hashcat", "-m", "1000"]
+        main_module._insert_optimized_flag(cmd)
+        assert "-O" in cmd
+
+    def test_insert_optimized_flag_no_duplicate(self, main_module):
+        cmd = ["hashcat", "-m", "1000", "-O"]
+        main_module._insert_optimized_flag(cmd)
+        assert cmd.count("-O") == 1
+
+    def test_insert_optimized_flag_respects_long_form(self, main_module):
+        cmd = ["hashcat", "-m", "1000", "--optimized-kernel-enable"]
+        main_module._insert_optimized_flag(cmd)
+        assert "-O" not in cmd
+
+    def test_config_override(self, main_module):
+        original = main_module._optimized_kernel_attacks
+        try:
+            main_module._optimized_kernel_attacks = frozenset({"hcatCustom"})
+            assert main_module._should_use_optimized_kernel("hcatCustom") is True
+            assert main_module._should_use_optimized_kernel("hcatBruteForce") is False
+        finally:
+            main_module._optimized_kernel_attacks = original

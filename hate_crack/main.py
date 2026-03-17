@@ -79,6 +79,46 @@ except ImportError:
     display_rule_opcodes_summary = None
 
 
+EXCLUDED_WORDLIST_EXTENSIONS = frozenset({".7z", ".torrent", ".out"})
+
+
+def list_wordlist_files(directory):
+    """Return sorted list of filenames in *directory*, excluding non-wordlist artifacts."""
+    return sorted(
+        f
+        for f in os.listdir(directory)
+        if f != ".DS_Store"
+        and not any(f.endswith(ext) for ext in EXCLUDED_WORDLIST_EXTENSIONS)
+    )
+
+
+DEFAULT_OPTIMIZED_ATTACKS = frozenset(
+    {
+        "hcatDictionary",
+        "hcatQuickDictionary",
+        "hcatBandrel",
+        "hcatGoodMeasure",
+        "hcatRecycle",
+        "hcatBruteForce",
+        "hcatTopMask",
+        "hcatPathwellBruteForce",
+    }
+)
+
+_optimized_kernel_attacks = DEFAULT_OPTIMIZED_ATTACKS
+
+
+def _should_use_optimized_kernel(attack_name):
+    """Return True if *attack_name* should use hashcat's -O (optimized kernels)."""
+    return attack_name in _optimized_kernel_attacks
+
+
+def _insert_optimized_flag(cmd):
+    """Insert -O into *cmd* if not already present (from hcatTuning or elsewhere)."""
+    if "-O" not in cmd and "--optimized-kernel-enable" not in cmd:
+        cmd.append("-O")
+
+
 _DOUBLE_INTERRUPT_WINDOW = 2.0
 _last_interrupt_time: float = 0.0
 
@@ -373,6 +413,13 @@ ollamaNumCtx = int(config_parser.get("ollamaNumCtx", 2048))
 
 omenTrainingList = config_parser.get("omenTrainingList", "rockyou.txt")
 omenMaxCandidates = int(config_parser.get("omenMaxCandidates", 1000000))
+
+try:
+    _cfg_optimized = config_parser["optimizedKernelAttacks"]
+    if isinstance(_cfg_optimized, list):
+        _optimized_kernel_attacks = frozenset(_cfg_optimized)
+except KeyError:
+    pass
 check_for_updates_enabled = config_parser.get("check_for_updates", True)
 
 hcatExpanderBin = "expander.bin"
@@ -1009,6 +1056,8 @@ def hcatBruteForce(hcatHashType, hcatHashFile, hcatMinLen, hcatMaxLen):
         "3",
         "?a?a?a?a?a?a?a?a?a?a?a?a?a?a",
     ]
+    if _should_use_optimized_kernel("hcatBruteForce"):
+        _insert_optimized_flag(cmd)
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
     hcatProcess = subprocess.Popen(cmd)
@@ -1026,7 +1075,9 @@ def hcatDictionary(hcatHashType, hcatHashFile):
     global hcatDictionaryCount
     global hcatProcess
     rule_best66 = get_rule_path("best66.rule")
-    optimized_lists = sorted(glob.glob(os.path.join(hcatWordlists, "*")))
+    optimized_lists = [
+        os.path.join(hcatWordlists, f) for f in list_wordlist_files(hcatWordlists)
+    ]
     if not optimized_lists:
         optimized_lists = [os.path.join(hcatWordlists, "*")]
     cmd = [
@@ -1041,6 +1092,8 @@ def hcatDictionary(hcatHashType, hcatHashFile):
     ]
     cmd.extend(optimized_lists)
     cmd.extend(["-r", rule_best66])
+    if _should_use_optimized_kernel("hcatDictionary"):
+        _insert_optimized_flag(cmd)
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
     cmd = _add_debug_mode_for_rules(cmd)
@@ -1132,6 +1185,8 @@ def hcatQuickDictionary(
         cmd.append("--loopback")
     if hcatChains:
         cmd.extend(shlex.split(hcatChains))
+    if _should_use_optimized_kernel("hcatQuickDictionary"):
+        _insert_optimized_flag(cmd)
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(
         cmd, use_potfile_path=use_potfile_path, potfile_path=potfile_path
@@ -1201,6 +1256,8 @@ def hcatTopMask(hcatHashType, hcatHashFile, hcatTargetTime):
         "3",
         f"{hcatHashFile}.hcmask",
     ]
+    if _should_use_optimized_kernel("hcatTopMask"):
+        _insert_optimized_flag(cmd)
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
     hcatProcess = subprocess.Popen(cmd)
@@ -1417,8 +1474,9 @@ def hcatYoloCombination(hcatHashType, hcatHashFile):
     global hcatProcess
     try:
         while 1:
-            hcatLeft = random.choice(os.listdir(hcatWordlists))
-            hcatRight = random.choice(os.listdir(hcatWordlists))
+            _yolo_wordlists = list_wordlist_files(hcatWordlists)
+            hcatLeft = random.choice(_yolo_wordlists)
+            hcatRight = random.choice(_yolo_wordlists)
             left_path = os.path.join(hcatWordlists, hcatLeft)
             right_path = os.path.join(hcatWordlists, hcatRight)
             cmd = [
@@ -1484,6 +1542,8 @@ def hcatBandrel(hcatHashType, hcatHashFile):
             hcatHashFile,
             mask2.strip(),
         ]
+        if _should_use_optimized_kernel("hcatBandrel"):
+            _insert_optimized_flag(cmd)
         cmd.extend(shlex.split(hcatTuning))
         _append_potfile_arg(cmd)
         hcatProcess = subprocess.Popen(cmd)
@@ -1527,6 +1587,8 @@ def hcatBandrel(hcatHashType, hcatHashFile):
             hcatHashFile,
             mask2.strip(),
         ]
+        if _should_use_optimized_kernel("hcatBandrel"):
+            _insert_optimized_flag(cmd)
         cmd.extend(shlex.split(hcatTuning))
         _append_potfile_arg(cmd)
         hcatProcess = subprocess.Popen(cmd)
@@ -1968,6 +2030,8 @@ def hcatPathwellBruteForce(hcatHashType, hcatHashFile):
         "3",
         os.path.join(hate_path, "masks", "pathwell.hcmask"),
     ]
+    if _should_use_optimized_kernel("hcatPathwellBruteForce"):
+        _insert_optimized_flag(cmd)
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
     hcatProcess = subprocess.Popen(cmd)
@@ -2035,17 +2099,45 @@ def _omen_model_dir():
     return model_dir
 
 
+_OMEN_REQUIRED_FILES = ["createConfig", "CP.level", "IP.level", "EP.level", "LN.level"]
+
+
+def _omen_model_is_valid(model_dir):
+    """Return True if all required OMEN model files exist and are non-empty."""
+    if not os.path.isdir(model_dir):
+        return False
+    for name in _OMEN_REQUIRED_FILES:
+        path = os.path.join(model_dir, name)
+        if not os.path.isfile(path) or os.path.getsize(path) == 0:
+            return False
+    return True
+
+
+def _omen_model_info(model_dir):
+    """Read model_info.json from model_dir. Returns dict or None."""
+    info_path = os.path.join(model_dir, "model_info.json")
+    if not os.path.isfile(info_path):
+        return None
+    try:
+        with open(info_path) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
 # OMEN Attack - Train model
 def hcatOmenTrain(training_file):
+    import datetime
+
     omen_dir = _omen_dir
     create_bin = os.path.join(omen_dir, hcatOmenCreateBin)
     if not os.path.isfile(create_bin):
         print(f"Error: OMEN createNG binary not found: {create_bin}")
-        return
+        return False
     training_file = os.path.abspath(training_file)
     if not os.path.isfile(training_file):
         print(f"Error: Training file not found: {training_file}")
-        return
+        return False
     model_dir = _omen_model_dir()
     print(f"Training OMEN model with: {training_file}")
     print(f"Model output directory: {model_dir}")
@@ -2071,11 +2163,21 @@ def hcatOmenTrain(training_file):
     except KeyboardInterrupt:
         print("Killing PID {0}...".format(str(proc.pid)))
         proc.kill()
-        return
-    if proc.returncode == 0:
-        print("OMEN model training complete.")
-    else:
+        return False
+    if proc.returncode != 0:
         print(f"OMEN training failed with exit code {proc.returncode}")
+        return False
+    print("OMEN model training complete.")
+    info = {
+        "training_file": training_file,
+        "trained_at": datetime.datetime.now().isoformat(),
+    }
+    try:
+        with open(os.path.join(model_dir, "model_info.json"), "w") as f:
+            json.dump(info, f)
+    except OSError:
+        pass
+    return True
 
 
 # OMEN Attack - Generate candidates and pipe to hashcat
@@ -2107,7 +2209,9 @@ def hcatOmen(hcatHashType, hcatHashFile, max_candidates):
     _append_potfile_arg(hashcat_cmd)
     print(f"[*] Running: {_format_cmd(enum_cmd)} | {_format_cmd(hashcat_cmd)}")
     _debug_cmd(hashcat_cmd)
-    enum_proc = subprocess.Popen(enum_cmd, cwd=model_dir, stdout=subprocess.PIPE)
+    enum_proc = subprocess.Popen(
+        enum_cmd, cwd=model_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
     hcatProcess = subprocess.Popen(hashcat_cmd, stdin=enum_proc.stdout)
     enum_proc.stdout.close()
     try:
@@ -2117,6 +2221,16 @@ def hcatOmen(hcatHashType, hcatHashFile, max_candidates):
         print("Killing PID {0}...".format(str(hcatProcess.pid)))
         hcatProcess.kill()
         enum_proc.kill()
+        return
+    if enum_proc.returncode != 0:
+        stderr_output = (
+            enum_proc.stderr.read().decode("utf-8", errors="replace").strip()
+        )
+        print(f"[!] enumNG failed with exit code {enum_proc.returncode}")
+        if stderr_output:
+            print(f"[!] enumNG error: {stderr_output}")
+    if enum_proc.stderr:
+        enum_proc.stderr.close()
 
 
 # Extra - Good Measure
@@ -2140,6 +2254,8 @@ def hcatGoodMeasure(hcatHashType, hcatHashFile):
         rule_insidepro,
         hcatGoodMeasureBaseList,
     ]
+    if _should_use_optimized_kernel("hcatGoodMeasure"):
+        _insert_optimized_flag(cmd)
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
     cmd = _add_debug_mode_for_rules(cmd)
@@ -2264,6 +2380,8 @@ def hcatRecycle(hcatHashType, hcatHashFile, hcatNewPasswords):
                 "-r",
                 rule_path,
             ]
+            if _should_use_optimized_kernel("hcatRecycle"):
+                _insert_optimized_flag(cmd)
             cmd.extend(shlex.split(hcatTuning))
             _append_potfile_arg(cmd)
             cmd = _add_debug_mode_for_rules(cmd)
