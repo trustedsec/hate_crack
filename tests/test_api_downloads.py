@@ -1,7 +1,8 @@
 import json
 import os
 
-from unittest.mock import MagicMock, patch
+import pytest
+from unittest.mock import MagicMock, call, patch
 
 from hate_crack.api import (
     check_7z,
@@ -11,6 +12,7 @@ from hate_crack.api import (
     get_hashmob_api_key,
     get_hcat_potfile_args,
     get_hcat_potfile_path,
+    list_and_download_hashmob_rules,
     sanitize_filename,
 )
 
@@ -225,3 +227,60 @@ class TestDownloadHashmobWordlist:
              patch("hate_crack.api.time.sleep"):
             result = download_hashmob_wordlist("test.txt", str(out))
         assert result is False
+
+
+class TestParallelRuleDownloads:
+    def _make_rules(self, names):
+        return [{"file_name": n} for n in names]
+
+    def _patch_stdin_tty(self):
+        mock_stdin = MagicMock()
+        mock_stdin.isatty.return_value = True
+        return patch("hate_crack.api.sys.stdin", mock_stdin)
+
+    def test_submits_to_thread_pool(self, tmp_path):
+        rules = self._make_rules(["rule1.rule", "rule2.rule", "rule3.rule"])
+        rules_dir = str(tmp_path / "rules")
+        os.makedirs(rules_dir)
+        with patch("hate_crack.api.download_hashmob_rule_list", return_value=rules), \
+             patch("hate_crack.api.download_hashmob_rule") as mock_dl, \
+             self._patch_stdin_tty(), \
+             patch("builtins.input", return_value="a"):
+            list_and_download_hashmob_rules(rules_dir=rules_dir)
+        assert mock_dl.call_count == 3
+        downloaded_names = {c.args[0] for c in mock_dl.call_args_list}
+        assert downloaded_names == {"rule1.rule", "rule2.rule", "rule3.rule"}
+
+    def test_failure_does_not_block_others(self, tmp_path, capsys):
+        rules = self._make_rules(["good.rule", "bad.rule", "also_good.rule"])
+        rules_dir = str(tmp_path / "rules")
+        os.makedirs(rules_dir)
+
+        def side_effect(file_name, out_path):
+            if file_name == "bad.rule":
+                raise RuntimeError("download error")
+
+        with patch("hate_crack.api.download_hashmob_rule_list", return_value=rules), \
+             patch("hate_crack.api.download_hashmob_rule", side_effect=side_effect), \
+             self._patch_stdin_tty(), \
+             patch("builtins.input", return_value="a"):
+            list_and_download_hashmob_rules(rules_dir=rules_dir)
+
+        captured = capsys.readouterr()
+        assert "2 succeeded" in captured.out
+        assert "1 failed" in captured.out
+
+    def test_skips_already_downloaded(self, tmp_path, capsys):
+        rules = self._make_rules(["existing.rule", "new.rule"])
+        rules_dir = str(tmp_path / "rules")
+        os.makedirs(rules_dir)
+        (tmp_path / "rules" / "existing.rule").touch()
+        with patch("hate_crack.api.download_hashmob_rule_list", return_value=rules), \
+             patch("hate_crack.api.download_hashmob_rule") as mock_dl, \
+             self._patch_stdin_tty(), \
+             patch("builtins.input", return_value="a"):
+            list_and_download_hashmob_rules(rules_dir=rules_dir)
+        assert mock_dl.call_count == 1
+        assert mock_dl.call_args.args[0] == "new.rule"
+        captured = capsys.readouterr()
+        assert "Skipping already downloaded" in captured.out

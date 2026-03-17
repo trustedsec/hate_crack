@@ -29,9 +29,7 @@ def quick_crack(ctx: Any) -> None:
     rule_choice = None
     selected_hcatRules = []
 
-    wordlist_files = sorted(
-        f for f in os.listdir(ctx.hcatWordlists) if f != ".DS_Store"
-    )
+    wordlist_files = ctx.list_wordlist_files(ctx.hcatWordlists)
     wordlist_entries = [
         f"{i}. {file}" for i, file in enumerate(wordlist_files, start=1)
     ]
@@ -511,6 +509,33 @@ def ollama_attack(ctx: Any) -> None:
     ctx.hcatOllama(ctx.hcatHashType, ctx.hcatHashFile, "target", target_info)
 
 
+def _omen_pick_training_wordlist(ctx: Any):
+    """Show wordlist picker for OMEN training. Returns path or None."""
+    wordlist_files = ctx.list_wordlist_files(ctx.hcatWordlists)
+    if wordlist_files:
+        entries = [f"{i}. {f}" for i, f in enumerate(wordlist_files, start=1)]
+        max_len = max((len(e) for e in entries), default=24)
+        print_multicolumn_list(
+            "Training Wordlists",
+            entries,
+            min_col_width=max_len,
+            max_col_width=max_len,
+        )
+    print("\tp. Enter a custom path")
+    sel = input("\n\tSelect wordlist for training: ").strip()
+    if sel.lower() == "p":
+        path = input("\n\tPath to training wordlist: ").strip()
+        return path if path else None
+    try:
+        idx = int(sel)
+        if 1 <= idx <= len(wordlist_files):
+            return os.path.join(ctx.hcatWordlists, wordlist_files[idx - 1])
+    except (ValueError, IndexError):
+        pass
+    print("\t[!] Invalid selection.")
+    return None
+
+
 def omen_attack(ctx: Any) -> None:
     print("\n\tOMEN Attack (Ordered Markov ENumerator)")
     omen_dir = os.path.join(ctx.hate_path, "omen")
@@ -520,16 +545,36 @@ def omen_attack(ctx: Any) -> None:
         print("\n\tOMEN binaries not found. Build them with:")
         print(f"\t  cd {omen_dir} && make")
         return
-    model_dir = os.path.join(os.path.expanduser("~"), ".hate_crack", "omen")
-    model_exists = os.path.isfile(os.path.join(model_dir, "createConfig"))
-    if not model_exists:
-        print("\n\tNo OMEN model found. Training is required before generation.")
-        training_source = input(
-            "\n\tTraining source (path to password list, or press Enter for default): "
-        ).strip()
-        if not training_source:
-            training_source = ctx.omenTrainingList
-        ctx.hcatOmenTrain(training_source)
+
+    model_dir = ctx._omen_model_dir()
+    model_valid = ctx._omen_model_is_valid(model_dir)
+    need_training = True
+
+    if model_valid:
+        info = ctx._omen_model_info(model_dir)
+        trained_with = info.get("training_file", "unknown") if info else "unknown"
+        print(f"\n\tOMEN model found (trained with: {trained_with})")
+        print("\t1. Use existing model")
+        print("\t2. Train new model (overwrites existing)")
+        print("\t3. Cancel")
+        choice = input("\n\tChoice: ").strip()
+        if choice == "1":
+            need_training = False
+        elif choice == "3":
+            return
+        elif choice != "2":
+            return
+    else:
+        print("\n\tNo valid OMEN model found. Training is required.")
+
+    if need_training:
+        training_file = _omen_pick_training_wordlist(ctx)
+        if not training_file:
+            return
+        if not ctx.hcatOmenTrain(training_file):
+            print("\n\t[!] Training failed. Aborting OMEN attack.")
+            return
+
     max_candidates = input(
         f"\n\tMax candidates to generate ({ctx.omenMaxCandidates}): "
     ).strip()

@@ -58,6 +58,7 @@ def test_get_hcat_wordlists_dir_from_config(tmp_path, monkeypatch):
     config_path.write_text('{"hcatWordlists": "wordlists"}')
 
     monkeypatch.setattr(api, "_resolve_config_path", lambda: str(config_path))
+    monkeypatch.setattr(api, "_get_hate_path", lambda: str(tmp_path))
     result = api.get_hcat_wordlists_dir()
 
     assert result == str(tmp_path / "wordlists")
@@ -79,6 +80,7 @@ def test_get_rules_dir_from_config(tmp_path, monkeypatch):
     config_path.write_text('{"rules_directory": "rules"}')
 
     monkeypatch.setattr(api, "_resolve_config_path", lambda: str(config_path))
+    monkeypatch.setattr(api, "_get_hate_path", lambda: str(tmp_path))
     result = api.get_rules_dir()
 
     assert result == str(tmp_path / "rules")

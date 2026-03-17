@@ -1,3 +1,4 @@
+import concurrent.futures
 import json
 import sys
 import os
@@ -13,6 +14,16 @@ from bs4 import BeautifulSoup
 from hate_crack.formatting import print_multicolumn_list
 
 _TORRENT_CLEANUP_REGISTERED = False
+
+
+def _get_hate_path():
+    _package_path = os.path.dirname(os.path.realpath(__file__))
+    _repo_root = os.path.dirname(_package_path)
+    if os.path.isdir(os.path.join(_package_path, "hashcat-utils")):
+        return _package_path
+    elif os.path.isdir(os.path.join(_repo_root, "hashcat-utils")):
+        return _repo_root
+    return _package_path
 
 
 def _candidate_roots():
@@ -71,7 +82,7 @@ def get_hcat_wordlists_dir():
             if path:
                 path = os.path.expanduser(path)
                 if not os.path.isabs(path):
-                    path = os.path.join(os.path.dirname(config_path), path)
+                    path = os.path.normpath(os.path.join(_get_hate_path(), path))
                 os.makedirs(path, exist_ok=True)
                 return path
         except Exception:
@@ -91,7 +102,7 @@ def get_rules_dir():
             if path:
                 path = os.path.expanduser(path)
                 if not os.path.isabs(path):
-                    path = os.path.join(os.path.dirname(config_path), path)
+                    path = os.path.normpath(os.path.join(_get_hate_path(), path))
                 os.makedirs(path, exist_ok=True)
                 return path
         except Exception:
@@ -1739,33 +1750,45 @@ def list_and_download_hashmob_rules(rules_dir=None):
         return sanitized in downloaded_rules
 
     if sel.lower() == "a":
-        for entry in rules:
-            file_name = entry.get("file_name")
-            if not file_name:
-                print("No file_name found for an entry, skipping.")
-                continue
-            out_path = os.path.join(rules_dir, sanitize_filename(file_name))
-            if already_downloaded(file_name):
-                print(f"[i] Skipping already downloaded rule: {file_name}")
-                continue
-            download_hashmob_rule(file_name, out_path)
-        return
+        entries = rules
+    else:
+        indices = parse_indices(sel, len(rules))
+        if not indices:
+            print("No valid selection.")
+            return
+        entries = [rules[idx - 1] for idx in indices]
 
-    indices = parse_indices(sel, len(rules))
-    if not indices:
-        print("No valid selection.")
-        return
-    for idx in indices:
-        entry = rules[idx - 1]
+    jobs = []
+    for entry in entries:
         file_name = entry.get("file_name")
         if not file_name:
-            print("No file_name found for selection, skipping.")
+            print("No file_name found for an entry, skipping.")
             continue
-        out_path = os.path.join(rules_dir, sanitize_filename(file_name))
         if already_downloaded(file_name):
             print(f"[i] Skipping already downloaded rule: {file_name}")
             continue
-        download_hashmob_rule(file_name, out_path)
+        out_path = os.path.join(rules_dir, sanitize_filename(file_name))
+        jobs.append((file_name, out_path))
+
+    if not jobs:
+        return
+
+    succeeded = 0
+    failed = 0
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {
+            executor.submit(download_hashmob_rule, fn, op): fn for fn, op in jobs
+        }
+        for future in concurrent.futures.as_completed(futures):
+            file_name = futures[future]
+            try:
+                future.result()
+                succeeded += 1
+            except Exception as exc:
+                print(f"[!] Failed to download {file_name}: {exc}")
+                failed += 1
+
+    print(f"[i] Rule downloads complete: {succeeded} succeeded, {failed} failed.")
 
 
 def download_official_wordlist(file_name, out_path):
