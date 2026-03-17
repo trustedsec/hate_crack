@@ -26,5 +26,6 @@
   "ollamaNumCtx": 2048,
   "omenTrainingList": "rockyou.txt",
   "omenMaxCandidates": 1000000,
-  "check_for_updates": true
+  "check_for_updates": true,
+  "optimizedKernelAttacks": ["hcatDictionary", "hcatQuickDictionary", "hcatBandrel", "hcatGoodMeasure", "hcatRecycle", "hcatBruteForce", "hcatTopMask", "hcatPathwellBruteForce"]
 }
