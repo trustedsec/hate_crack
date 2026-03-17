@@ -755,17 +755,21 @@ Uses a local Ollama instance to generate password candidates for a capture-the-f
 Uses the Ordered Markov ENumerator (OMEN) to train a statistical password model from a wordlist and generate password candidates. This attack learns patterns from known passwords and generates new candidates based on those patterns.
 
 * Requires OMEN binaries (createNG and enumNG) to be built from the omen submodule
-* Trains a model from a wordlist (configurable via config.json or prompted)
-* Generates up to a specified number of password candidates
+* Interactive menu: use existing model, train new model, or cancel
+* Training wordlist picker shows available wordlists from configured directory or accepts a custom path
+* Validates all 5 required model files (createConfig, CP/IP/EP/LN.level) before running
+* Captures and reports enumNG errors instead of failing silently
+* Generates up to a specified number of password candidates (configurable via `omenMaxCandidates`)
 * Pipes generated candidates directly into hashcat for cracking
-* Model files are stored in `~/.hate_crack/omen/` for persistence across sessions
+* Model files and metadata are stored in `~/.hate_crack/omen/` for persistence across sessions
 
 #### Download Rules from Hashmob.net
 Downloads the latest rule files from Hashmob.net's rule repository. These rules are curated and optimized for password cracking and can be used with the Quick Crack and Loopback Attack modes.
 
-* Automatically downloads popular rule sets
+* Downloads rule sets in parallel using a thread pool (up to 4 concurrent downloads)
+* Skips rules already downloaded locally
+* Reports download summary with success/failure counts
 * Stores rules in the configured rules directory
-* Provides progress feedback during download
 
 #### Analyze Hashcat Rules
 Powered by HashcatRosetta (https://github.com/bandrel/HashcatRosetta), this feature analyzes hashcat rule files to provide detailed insights into rule composition and complexity.
@@ -794,6 +798,11 @@ Interactive menu for downloading and managing wordlists from Weakpass.com via Bi
 ### Version History
 
 Version 2.0+
+  - Fixed OMEN attack failing silently when model files were incomplete or enumNG errors occurred
+  - OMEN attack now validates all 5 required model files, captures enumNG stderr, and provides a train/use/cancel menu with wordlist picker
+  - Filtered `.7z`, `.torrent`, and `.out` files from wordlist selection menus (#80)
+  - Parallelized Hashmob rule downloads using a thread pool with success/failure summary (#81)
+  - Added dynamic optimized kernel (`-O`) flag per attack type via `optimizedKernelAttacks` config (#82)
   - Replaced `uv tool install` with a bash shim for reliable config and asset resolution from any working directory
   - Fixed config resolution to search the repo root and package directory in addition to CWD
   - Fixed bare NTLM hash detection failing when hash files contain leading blank lines, BOM characters, or null bytes from UTF-16 encoding
