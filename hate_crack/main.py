@@ -23,6 +23,7 @@ import time
 import argparse
 import urllib.request
 import urllib.error
+import gzip
 from types import SimpleNamespace
 
 #!/usr/bin/env python3
@@ -2078,16 +2079,37 @@ def hcatMarkovTrain(source_file, hcatHashFile):
     hcstat2gen_bin = os.path.join(hate_path, "hashcat-utils", "bin", hcatHcstat2genBin)
     hcstat2_path = f"{hcatHashFile}.hcstat2"
     print(f"[*] Generating markov table -> {hcstat2_path}")
-    with open(source_file, "rb") as stdin_f, open(hcstat2_path, "wb") as stdout_f:
-        hcatProcess = subprocess.Popen(
-            [hcstat2gen_bin], stdin=stdin_f, stdout=stdout_f
-        )
-        try:
-            hcatProcess.wait()
-        except KeyboardInterrupt:
-            print("Killing PID {0}...".format(str(hcatProcess.pid)))
-            hcatProcess.kill()
-            return False
+
+    # Detect if file is gzipped by checking magic bytes
+    is_gzipped = False
+    try:
+        with open(source_file, "rb") as f:
+            magic = f.read(2)
+            is_gzipped = magic == b"\x1f\x8b"
+    except Exception:
+        pass
+
+    # Open file appropriately (gzipped or plain text)
+    if is_gzipped:
+        stdin_f = gzip.open(source_file, "rb")
+    else:
+        stdin_f = open(source_file, "rb")
+
+    try:
+        with stdin_f, open(hcstat2_path, "wb") as stdout_f:
+            hcatProcess = subprocess.Popen(
+                [hcstat2gen_bin], stdin=stdin_f, stdout=stdout_f
+            )
+            try:
+                hcatProcess.wait()
+            except KeyboardInterrupt:
+                print("Killing PID {0}...".format(str(hcatProcess.pid)))
+                hcatProcess.kill()
+                return False
+    finally:
+        if hasattr(stdin_f, "close"):
+            stdin_f.close()
+
     return os.path.isfile(hcstat2_path) and os.path.getsize(hcstat2_path) > 0
 
 
