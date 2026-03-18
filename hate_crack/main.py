@@ -23,6 +23,7 @@ import time
 import argparse
 import urllib.request
 import urllib.error
+import lzma
 from types import SimpleNamespace
 
 #!/usr/bin/env python3
@@ -2119,6 +2120,18 @@ def hcatMarkovTrain(source_file, hcatHashFile):
         return False
     if os.path.getsize(hcstat2_path) == 0:
         print(f"[!] Output file is empty: {hcstat2_path}")
+        return False
+
+    # Compress the hcstat2 file with LZMA2 (hashcat requires compressed format)
+    try:
+        with open(hcstat2_path, "rb") as f_in:
+            uncompressed_data = f_in.read()
+        # Use XZ format which is LZMA2-based
+        compressed_data = lzma.compress(uncompressed_data, format=lzma.FORMAT_XZ, preset=9)
+        with open(hcstat2_path, "wb") as f_out:
+            f_out.write(compressed_data)
+    except Exception as e:
+        print(f"[!] Failed to compress hcstat2 file: {e}")
         return False
 
     return True
