@@ -23,8 +23,6 @@ import time
 import argparse
 import urllib.request
 import urllib.error
-import gzip
-import tempfile
 from types import SimpleNamespace
 
 #!/usr/bin/env python3
@@ -2091,40 +2089,9 @@ def hcatMarkovTrain(source_file, hcatHashFile):
         print(f"[!] Source file not found: {source_file}")
         return False
 
-    # Detect if file is gzipped by checking magic bytes
-    is_gzipped = False
     try:
-        with open(source_file, "rb") as f:
-            magic = f.read(2)
-            is_gzipped = magic == b"\x1f\x8b"
-    except Exception as e:
-        print(f"[!] Failed to read source file: {e}")
-        return False
-
-    # If gzipped, decompress to temporary file first
-    input_file = source_file
-    temp_path = None
-    if is_gzipped:
-        try:
-            temp_f = tempfile.NamedTemporaryFile(delete=False, suffix=".txt")
-            temp_path = temp_f.name
-            temp_f.close()
-
-            with gzip.open(source_file, "rb") as gz_in, open(temp_path, "wb") as plain_out:
-                shutil.copyfileobj(gz_in, plain_out)
-
-            input_file = temp_path
-        except Exception as e:
-            print(f"[!] Failed to decompress gzipped file: {e}")
-            if temp_path and os.path.exists(temp_path):
-                try:
-                    os.remove(temp_path)
-                except Exception:
-                    pass
-            return False
-
-    try:
-        with open(input_file, "rb") as stdin_f:
+        # hcstat2gen.bin supports both plain text and gzipped input directly
+        with open(source_file, "rb") as stdin_f:
             hcatProcess = subprocess.Popen(
                 [hcstat2gen_bin, hcstat2_path], stdin=stdin_f, stdout=subprocess.PIPE, stderr=subprocess.PIPE
             )
@@ -2145,13 +2112,6 @@ def hcatMarkovTrain(source_file, hcatHashFile):
     except Exception as e:
         print(f"[!] Failed to run hcstat2gen.bin: {e}")
         return False
-    finally:
-        # Clean up temporary file if it was created
-        if temp_path and os.path.exists(temp_path):
-            try:
-                os.remove(temp_path)
-            except Exception:
-                pass
 
     # Verify output file was created
     if not os.path.isfile(hcstat2_path):
