@@ -24,6 +24,7 @@ import argparse
 import urllib.request
 import urllib.error
 import gzip
+import tempfile
 from types import SimpleNamespace
 
 #!/usr/bin/env python3
@@ -2089,14 +2090,27 @@ def hcatMarkovTrain(source_file, hcatHashFile):
     except Exception:
         pass
 
-    # Open file appropriately (gzipped or plain text)
+    # If gzipped, decompress to temporary file first
+    input_file = source_file
+    temp_f = None
     if is_gzipped:
-        stdin_f = gzip.open(source_file, "rb")
-    else:
-        stdin_f = open(source_file, "rb")
+        try:
+            temp_f = tempfile.NamedTemporaryFile(delete=False, suffix=".txt")
+            temp_path = temp_f.name
+            temp_f.close()
+
+            with gzip.open(source_file, "rb") as gz_in, open(temp_path, "wb") as plain_out:
+                shutil.copyfileobj(gz_in, plain_out)
+
+            input_file = temp_path
+        except Exception as e:
+            print(f"[!] Failed to decompress gzipped file: {e}")
+            if temp_f and os.path.exists(temp_path):
+                os.remove(temp_path)
+            return False
 
     try:
-        with stdin_f, open(hcstat2_path, "wb") as stdout_f:
+        with open(input_file, "rb") as stdin_f, open(hcstat2_path, "wb") as stdout_f:
             hcatProcess = subprocess.Popen(
                 [hcstat2gen_bin], stdin=stdin_f, stdout=stdout_f
             )
@@ -2107,8 +2121,12 @@ def hcatMarkovTrain(source_file, hcatHashFile):
                 hcatProcess.kill()
                 return False
     finally:
-        if hasattr(stdin_f, "close"):
-            stdin_f.close()
+        # Clean up temporary file if it was created
+        if temp_f and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
 
     return os.path.isfile(hcstat2_path) and os.path.getsize(hcstat2_path) > 0
 
