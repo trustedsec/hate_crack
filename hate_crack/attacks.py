@@ -522,3 +522,123 @@ def omen_attack(ctx: Any) -> None:
 
     for chain in selected_rules:
         ctx.hcatOmen(ctx.hcatHashType, ctx.hcatHashFile, int(max_candidates), chain)
+
+
+def _markov_pick_training_source(ctx: Any):
+    """Prompt user to select markov training source. Returns file path or None."""
+    out_path = f"{ctx.hcatHashFile}.out"
+    has_cracked = os.path.isfile(out_path) and os.path.getsize(out_path) > 0
+
+    wordlist_files = ctx.list_wordlist_files(ctx.hcatWordlists)
+    entries = []
+    if has_cracked:
+        entries.append("0. Cracked passwords (current session)")
+    entries.extend([f"{i}. {f}" for i, f in enumerate(wordlist_files, start=1)])
+    if entries:
+        max_len = max((len(e) for e in entries), default=24)
+        print_multicolumn_list(
+            "Markov Training Source",
+            entries,
+            min_col_width=max_len,
+            max_col_width=max_len,
+        )
+    print("\tp. Enter a custom path")
+    sel = input("\n\tSelect training source: ").strip()
+    if sel == "0" and has_cracked:
+        return out_path
+    if sel.lower() == "p":
+        path = input("\n\tPath to training file: ").strip()
+        return path if path else None
+    try:
+        idx = int(sel)
+        if 1 <= idx <= len(wordlist_files):
+            return os.path.join(ctx.hcatWordlists, wordlist_files[idx - 1])
+    except (ValueError, IndexError):
+        pass
+    print("\t[!] Invalid selection.")
+    return None
+
+
+def adhoc_mask_crack(ctx: Any) -> None:
+    print(
+        "\nEnter a hashcat mask. Tokens: ?l=lower ?u=upper ?d=digit ?s=special ?a=all ?b=binary ?1-?4=custom"
+    )
+    mask = input("Mask (e.g. ?u?l?l?l?d?d): ").strip()
+    if not mask:
+        return
+
+    charset_flags = []
+    for i in range(1, 5):
+        cs = input(f"Custom charset -{i} [leave blank to skip]: ").strip()
+        if cs:
+            charset_flags.extend([f"-{i}", cs])
+        else:
+            break
+
+    ctx.hcatAdHocMask(
+        ctx.hcatHashType,
+        ctx.hcatHashFile,
+        mask,
+        " ".join(charset_flags),
+    )
+
+
+def markov_brute_force(ctx: Any) -> None:
+    print("\n\tMarkov Brute Force Attack")
+    hcstat2_path = f"{ctx.hcatHashFile}.hcstat2"
+    need_training = True
+
+    if os.path.isfile(hcstat2_path):
+        print(f"\n\tMarkov table found: {hcstat2_path}")
+        print("\t1. Use existing table")
+        print("\t2. Generate new table (overwrites existing)")
+        print("\t3. Cancel")
+        choice = input("\n\tChoice: ").strip()
+        if choice == "1":
+            need_training = False
+        elif choice == "3":
+            return
+        elif choice != "2":
+            return
+    else:
+        print("\n\tNo markov table found. Generation is required.")
+
+    if need_training:
+        source = _markov_pick_training_source(ctx)
+        if not source:
+            return
+        if not ctx.hcatMarkovTrain(source, ctx.hcatHashFile):
+            print("\n\t[!] Markov table generation failed. Aborting.")
+            return
+
+    hcatMinLen = int(
+        input("\nEnter the minimum password length to brute force (1): ") or 1
+    )
+    hcatMaxLen = int(
+        input("\nEnter the maximum password length to brute force (7): ") or 7
+    )
+    ctx.hcatMarkovBruteForce(ctx.hcatHashType, ctx.hcatHashFile, hcatMinLen, hcatMaxLen)
+
+
+def combinator_submenu(ctx: Any) -> None:
+    from hate_crack.menu import interactive_menu
+
+    items = [
+        ("1", "Combinator Attack"),
+        ("2", "YOLO Combinator Attack"),
+        ("3", "Middle Combinator Attack"),
+        ("4", "Thorough Combinator Attack"),
+        ("99", "Back to Main Menu"),
+    ]
+    while True:
+        choice = interactive_menu(items, title="\nCombinator Attacks:")
+        if choice is None or choice == "99":
+            break
+        elif choice == "1":
+            combinator_crack(ctx)
+        elif choice == "2":
+            yolo_combination(ctx)
+        elif choice == "3":
+            middle_combinator(ctx)
+        elif choice == "4":
+            thorough_combinator(ctx)

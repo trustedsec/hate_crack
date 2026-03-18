@@ -102,6 +102,8 @@ DEFAULT_OPTIMIZED_ATTACKS = frozenset(
         "hcatBruteForce",
         "hcatTopMask",
         "hcatPathwellBruteForce",
+        "hcatAdHocMask",
+        "hcatMarkovBruteForce",
     }
 )
 
@@ -2042,6 +2044,86 @@ def hcatPathwellBruteForce(hcatHashType, hcatHashFile):
         hcatProcess.kill()
 
 
+def hcatAdHocMask(hcatHashType, hcatHashFile, mask, custom_charsets=""):
+    global hcatProcess
+    cmd = [
+        hcatBin,
+        "-m",
+        hcatHashType,
+        hcatHashFile,
+        "--session",
+        generate_session_id(),
+        "-o",
+        f"{hcatHashFile}.out",
+        "-a",
+        "3",
+    ]
+    if custom_charsets:
+        cmd.extend(shlex.split(custom_charsets))
+    cmd.append(mask)
+    if _should_use_optimized_kernel("hcatAdHocMask"):
+        _insert_optimized_flag(cmd)
+    cmd.extend(shlex.split(hcatTuning))
+    _append_potfile_arg(cmd)
+    hcatProcess = subprocess.Popen(cmd)
+    try:
+        hcatProcess.wait()
+    except KeyboardInterrupt:
+        print("Killing PID {0}...".format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+
+
+def hcatMarkovTrain(source_file, hcatHashFile):
+    global hcatProcess
+    hcstat2gen_bin = os.path.join(hate_path, "hashcat-utils", "bin", hcatHcstat2genBin)
+    hcstat2_path = f"{hcatHashFile}.hcstat2"
+    print(f"[*] Generating markov table -> {hcstat2_path}")
+    with open(source_file, "rb") as stdin_f, open(hcstat2_path, "wb") as stdout_f:
+        hcatProcess = subprocess.Popen(
+            [hcstat2gen_bin], stdin=stdin_f, stdout=stdout_f
+        )
+        try:
+            hcatProcess.wait()
+        except KeyboardInterrupt:
+            print("Killing PID {0}...".format(str(hcatProcess.pid)))
+            hcatProcess.kill()
+            return False
+    return os.path.isfile(hcstat2_path) and os.path.getsize(hcstat2_path) > 0
+
+
+def hcatMarkovBruteForce(hcatHashType, hcatHashFile, hcatMinLen, hcatMaxLen):
+    global hcatProcess
+    hcstat2_path = f"{hcatHashFile}.hcstat2"
+    cmd = [
+        hcatBin,
+        "-m",
+        hcatHashType,
+        hcatHashFile,
+        "--session",
+        generate_session_id(),
+        "-o",
+        f"{hcatHashFile}.out",
+        "--markov-hcstat2",
+        hcstat2_path,
+        "--increment",
+        f"--increment-min={hcatMinLen}",
+        f"--increment-max={hcatMaxLen}",
+        "-a",
+        "3",
+        "?a?a?a?a?a?a?a?a?a?a?a?a?a?a",
+    ]
+    if _should_use_optimized_kernel("hcatMarkovBruteForce"):
+        _insert_optimized_flag(cmd)
+    cmd.extend(shlex.split(hcatTuning))
+    _append_potfile_arg(cmd)
+    hcatProcess = subprocess.Popen(cmd)
+    try:
+        hcatProcess.wait()
+    except KeyboardInterrupt:
+        print("Killing PID {0}...".format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+
+
 # PRINCE Attack
 def hcatPrince(hcatHashType, hcatHashFile):
     global hcatProcess
@@ -3169,6 +3251,18 @@ def middle_combinator():
     return _attacks.middle_combinator(_attack_ctx())
 
 
+def combinator_submenu():
+    return _attacks.combinator_submenu(_attack_ctx())
+
+
+def adhoc_mask_crack():
+    return _attacks.adhoc_mask_crack(_attack_ctx())
+
+
+def markov_brute_force():
+    return _attacks.markov_brute_force(_attack_ctx())
+
+
 def bandrel_method():
     return _attacks.bandrel_method(_attack_ctx())
 
@@ -3403,17 +3497,16 @@ def get_main_menu_items():
         ("3", "Brute Force Attack"),
         ("4", "Top Mask Attack"),
         ("5", "Fingerprint Attack"),
-        ("6", "Combinator Attack"),
+        ("6", "Combinator Attacks"),
         ("7", "Hybrid Attack"),
         ("8", "Pathwell Top 100 Mask Brute Force Crack"),
         ("9", "PRINCE Attack"),
-        ("10", "YOLO Combinator Attack"),
-        ("11", "Middle Combinator Attack"),
-        ("12", "Thorough Combinator Attack"),
         ("13", "Bandrel Methodology"),
         ("14", "Loopback Attack"),
         ("15", "LLM Attack"),
         ("16", "OMEN Attack"),
+        ("17", "Ad-hoc Mask Attack"),
+        ("18", "Markov Brute Force Attack"),
         ("90", "Download rules from Hashmob.net"),
         ("91", "Analyze Hashcat Rules"),
         ("92", "Download wordlists from Hashmob.net"),
@@ -3441,17 +3534,16 @@ def get_main_menu_options():
         "3": brute_force_crack,
         "4": top_mask_crack,
         "5": fingerprint_crack,
-        "6": combinator_crack,
+        "6": combinator_submenu,
         "7": hybrid_crack,
         "8": pathwell_crack,
         "9": prince_attack,
-        "10": yolo_combination,
-        "11": middle_combinator,
-        "12": thorough_combinator,
         "13": bandrel_method,
         "14": loopback_attack,
         "15": ollama_attack,
         "16": omen_attack,
+        "17": adhoc_mask_crack,
+        "18": markov_brute_force,
         "90": lambda: download_hashmob_rules(rules_dir=rulesDirectory),
         "91": analyze_rules,
         "92": download_hashmob_wordlists,
