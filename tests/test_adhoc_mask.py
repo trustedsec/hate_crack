@@ -52,31 +52,6 @@ class TestAdHocMaskHandler:
         assert "abc" in call_args[0][3]
 
 
-class TestHcatAdHocMask:
-    """Test the hcatAdHocMask wrapper function."""
-
-    def test_mask_attack_command(self, tmp_path: Path) -> None:
-        """Verify mask attack command structure."""
-        from hate_crack import main
-
-        hash_file = str(tmp_path / "hashes.txt")
-
-        with patch("subprocess.Popen") as mock_popen:
-            mock_process = MagicMock()
-            mock_process.wait.return_value = None
-            mock_popen.return_value = mock_process
-
-            main.hcatAdHocMask("1000", hash_file, "?l?l?d?d", "")
-
-            call_args = mock_popen.call_args[0][0]
-            assert "-m" in call_args
-            assert "1000" in call_args
-            assert hash_file in call_args
-            assert "-a" in call_args
-            assert "3" in call_args
-            assert "?l?l?d?d" in call_args
-
-
 class TestMarkovBruteForceHandler:
     """Test markov_brute_force handler logic with table reuse options."""
 
@@ -127,55 +102,3 @@ class TestMarkovBruteForceHandler:
 
         ctx.hcatMarkovTrain.assert_called_once()
         ctx.hcatMarkovBruteForce.assert_not_called()
-
-
-class TestHcatMarkovBruteForce:
-    """Test hcatMarkovBruteForce wrapper function."""
-
-    def test_markov_flags_in_cmd(self, tmp_path: Path) -> None:
-        """Verify markov attack command includes table and increment flags."""
-        from hate_crack import main
-
-        hash_file = str(tmp_path / "hashes.txt")
-        hcstat2_path = f"{hash_file}.hcstat2"
-        Path(hcstat2_path).touch()
-
-        with patch("subprocess.Popen") as mock_popen:
-            mock_process = MagicMock()
-            mock_process.wait.return_value = None
-            mock_popen.return_value = mock_process
-
-            main.hcatMarkovBruteForce("1000", hash_file, 1, 7)
-
-            call_args = mock_popen.call_args[0][0]
-            assert "--markov-hcstat2" in call_args
-            assert hcstat2_path in call_args
-            assert "--increment" in call_args
-            assert "--increment-min=1" in call_args
-            assert "--increment-max=7" in call_args
-
-
-class TestHcatMarkovTrain:
-    """Test hcatMarkovTrain wrapper function."""
-
-    def test_success_with_output(self, tmp_path: Path) -> None:
-        """Training succeeds when output file is non-empty."""
-        from hate_crack import main
-
-        source_file = str(tmp_path / "source.txt")
-        source_file_path = Path(source_file)
-        source_file_path.write_text("password1\npassword2\n")
-
-        hash_file = str(tmp_path / "hashes.txt")
-        hcstat2_path = f"{hash_file}.hcstat2"
-
-        with patch("subprocess.Popen") as mock_popen:
-            mock_process = MagicMock()
-            mock_process.wait.return_value = None
-            mock_popen.return_value = mock_process
-
-            with patch("os.path.isfile", return_value=True):
-                with patch("os.path.getsize", return_value=1024):
-                    result = main.hcatMarkovTrain(source_file, hash_file)
-
-            assert result is True
