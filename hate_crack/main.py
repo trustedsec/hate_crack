@@ -2126,7 +2126,7 @@ def hcatMarkovTrain(source_file, hcatHashFile):
     try:
         with open(input_file, "rb") as stdin_f:
             hcatProcess = subprocess.Popen(
-                [hcstat2gen_bin], stdin=stdin_f, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                [hcstat2gen_bin, hcstat2_path], stdin=stdin_f, stdout=subprocess.PIPE, stderr=subprocess.PIPE
             )
             try:
                 stdout_data, stderr_data = hcatProcess.communicate(timeout=300)
@@ -2134,9 +2134,6 @@ def hcatMarkovTrain(source_file, hcatHashFile):
                     err_msg = stderr_data.decode("utf-8", errors="replace") if stderr_data else "Unknown error"
                     print(f"[!] hcstat2gen.bin failed with code {hcatProcess.returncode}: {err_msg}")
                     return False
-                # Write stdout to hcstat2 file
-                with open(hcstat2_path, "wb") as f:
-                    f.write(stdout_data)
             except subprocess.TimeoutExpired:
                 print("[!] hcstat2gen.bin timed out after 300 seconds")
                 hcatProcess.kill()
