@@ -608,17 +608,16 @@ All tests use mocked API calls, so they can run without connectivity to a Hashvi
   (3) Brute Force Attack
   (4) Top Mask Attack
   (5) Fingerprint Attack
-  (6) Combinator Attack
+  (6) Combinator Attacks
   (7) Hybrid Attack
   (8) Pathwell Top 100 Mask Brute Force Crack
   (9) PRINCE Attack
-  (10) YOLO Combinator Attack
-  (11) Middle Combinator Attack
-  (12) Thorough Combinator Attack
   (13) Bandrel Methodology
   (14) Loopback Attack
   (15) LLM Attack
   (16) OMEN Attack
+  (17) Ad-hoc Mask Attack
+  (18) Markov Brute Force Attack
 
   (90) Download rules from Hashmob.net
   (91) Analyze Hashcat Rules
@@ -763,6 +762,33 @@ Uses the Ordered Markov ENumerator (OMEN) to train a statistical password model 
 * Pipes generated candidates directly into hashcat for cracking
 * Model files and metadata are stored in `~/.hate_crack/omen/` for persistence across sessions
 
+#### Combinator Attacks Submenu
+Opens an interactive submenu with four combinator attack variants (formerly at menu keys 10-12). Consolidates related attacks for cleaner menu organization:
+- Combinator Attack - combines two wordlists
+- YOLO Combinator Attack - combines all permutations of multiple wordlists
+- Middle Combinator Attack - combines wordlists with an extra word in the middle
+- Thorough Combinator Attack - comprehensive combination of wordlists with rules
+
+#### Ad-hoc Mask Attack
+Runs hashcat mask attack (mode 3) with a user-specified custom mask string. Allows fine-grained control over character-set brute forcing.
+
+* Prompts for a hashcat mask (e.g., `?u?l?l?l?d?d` for uppercase + lowercase + lowercase + lowercase + digit + digit)
+* Supports custom character sets (`-1`, `-2`, `-3`, `-4`) for specialized character combinations
+* Interactive charset entry with early exit on blank input
+* Useful for targeted brute forcing when you know password structure patterns
+
+#### Markov Brute Force Attack
+Generates password candidates using Markov chain statistical models. Similar to OMEN but simpler and faster.
+
+* Checks for existing `.hcstat2` Markov table from previous sessions (with option to reuse, regenerate, or cancel)
+* Generates table from training source if needed:
+  - Can use cracked passwords from current session (`.out` file) as training data
+  - Or select any wordlist from configured directory or custom path
+* Interactive menu: choose minimum and maximum password length
+* Uses `--increment` flag to test lengths in sequence
+* Markov table persists with hash file (filename.out.hcstat2) for fast subsequent runs
+* Faster than OMEN for general-purpose brute forcing
+
 #### Download Rules from Hashmob.net
 Downloads the latest rule files from Hashmob.net's rule repository. These rules are curated and optimized for password cracking and can be used with the Quick Crack and Loopback Attack modes.
 
@@ -798,6 +824,10 @@ Interactive menu for downloading and managing wordlists from Weakpass.com via Bi
 ### Version History
 
 Version 2.0+
+  - Added Ad-hoc Mask Attack (option 17) for user-typed hashcat masks with optional custom character sets
+  - Added Markov Brute Force Attack (option 18) using `hcstat2` statistical tables for password generation
+  - Consolidated Combinator Attacks (formerly options 10/11/12) into interactive submenu under option 6
+  - Markov attack supports training from cracked passwords or any wordlist, with table reuse/regeneration menu
   - Fixed OMEN attack failing silently when model files were incomplete or enumNG errors occurred
   - OMEN attack now validates all 5 required model files, captures enumNG stderr, and provides a train/use/cancel menu with wordlist picker
   - Filtered `.7z`, `.torrent`, and `.out` files from wordlist selection menus (#80)
