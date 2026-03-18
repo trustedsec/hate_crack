@@ -2081,18 +2081,29 @@ def hcatMarkovTrain(source_file, hcatHashFile):
     hcstat2_path = f"{hcatHashFile}.hcstat2"
     print(f"[*] Generating markov table -> {hcstat2_path}")
 
+    # Verify hcstat2gen.bin exists
+    if not os.path.isfile(hcstat2gen_bin):
+        print(f"[!] hcstat2gen.bin not found at {hcstat2gen_bin}")
+        return False
+
+    # Verify source file is readable
+    if not os.path.isfile(source_file):
+        print(f"[!] Source file not found: {source_file}")
+        return False
+
     # Detect if file is gzipped by checking magic bytes
     is_gzipped = False
     try:
         with open(source_file, "rb") as f:
             magic = f.read(2)
             is_gzipped = magic == b"\x1f\x8b"
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[!] Failed to read source file: {e}")
+        return False
 
     # If gzipped, decompress to temporary file first
     input_file = source_file
-    temp_f = None
+    temp_path = None
     if is_gzipped:
         try:
             temp_f = tempfile.NamedTemporaryFile(delete=False, suffix=".txt")
@@ -2105,30 +2116,55 @@ def hcatMarkovTrain(source_file, hcatHashFile):
             input_file = temp_path
         except Exception as e:
             print(f"[!] Failed to decompress gzipped file: {e}")
-            if temp_f and os.path.exists(temp_path):
-                os.remove(temp_path)
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
             return False
 
     try:
-        with open(input_file, "rb") as stdin_f, open(hcstat2_path, "wb") as stdout_f:
+        with open(input_file, "rb") as stdin_f:
             hcatProcess = subprocess.Popen(
-                [hcstat2gen_bin], stdin=stdin_f, stdout=stdout_f
+                [hcstat2gen_bin], stdin=stdin_f, stdout=subprocess.PIPE, stderr=subprocess.PIPE
             )
             try:
-                hcatProcess.wait()
+                stdout_data, stderr_data = hcatProcess.communicate(timeout=300)
+                if hcatProcess.returncode != 0:
+                    err_msg = stderr_data.decode("utf-8", errors="replace") if stderr_data else "Unknown error"
+                    print(f"[!] hcstat2gen.bin failed with code {hcatProcess.returncode}: {err_msg}")
+                    return False
+                # Write stdout to hcstat2 file
+                with open(hcstat2_path, "wb") as f:
+                    f.write(stdout_data)
+            except subprocess.TimeoutExpired:
+                print("[!] hcstat2gen.bin timed out after 300 seconds")
+                hcatProcess.kill()
+                return False
             except KeyboardInterrupt:
                 print("Killing PID {0}...".format(str(hcatProcess.pid)))
                 hcatProcess.kill()
                 return False
+    except Exception as e:
+        print(f"[!] Failed to run hcstat2gen.bin: {e}")
+        return False
     finally:
         # Clean up temporary file if it was created
-        if temp_f and os.path.exists(temp_path):
+        if temp_path and os.path.exists(temp_path):
             try:
                 os.remove(temp_path)
             except Exception:
                 pass
 
-    return os.path.isfile(hcstat2_path) and os.path.getsize(hcstat2_path) > 0
+    # Verify output file was created
+    if not os.path.isfile(hcstat2_path):
+        print(f"[!] Output file not created: {hcstat2_path}")
+        return False
+    if os.path.getsize(hcstat2_path) == 0:
+        print(f"[!] Output file is empty: {hcstat2_path}")
+        return False
+
+    return True
 
 
 def hcatMarkovBruteForce(hcatHashType, hcatHashFile, hcatMinLen, hcatMaxLen):
