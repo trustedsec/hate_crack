@@ -5,10 +5,22 @@ from typing import Optional
 
 
 def resolve_path(value: Optional[str]) -> Optional[str]:
-    """Expand user and return an absolute path, or None."""
+    """Expand user and return an absolute path, or None.
+
+    When invoked via the bash shim (``uv run --directory``), the working
+    directory is changed to the repo root before Python starts.
+    ``HATE_CRACK_ORIG_CWD`` preserves the caller's real working directory
+    so that relative paths on the command line resolve correctly.
+    """
     if not value:
         return None
-    return os.path.abspath(os.path.expanduser(value))
+    value = os.path.expanduser(value)
+    if os.path.isabs(value):
+        return value
+    orig_cwd = os.environ.get("HATE_CRACK_ORIG_CWD")
+    if orig_cwd:
+        return os.path.normpath(os.path.join(orig_cwd, value))
+    return os.path.abspath(value)
 
 
 def add_common_args(parser) -> None:
