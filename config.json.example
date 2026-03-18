@@ -25,7 +25,7 @@
   "ollamaModel": "mistral",
   "ollamaNumCtx": 2048,
   "omenTrainingList": "rockyou.txt",
-  "omenMaxCandidates": 1000000,
+  "omenMaxCandidates": 50000000,
   "check_for_updates": true,
   "optimizedKernelAttacks": ["hcatDictionary", "hcatQuickDictionary", "hcatBandrel", "hcatGoodMeasure", "hcatRecycle", "hcatBruteForce", "hcatTopMask", "hcatPathwellBruteForce"]
 }
