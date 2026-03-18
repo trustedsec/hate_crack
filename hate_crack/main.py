@@ -2181,7 +2181,7 @@ def hcatOmenTrain(training_file):
 
 
 # OMEN Attack - Generate candidates and pipe to hashcat
-def hcatOmen(hcatHashType, hcatHashFile, max_candidates):
+def hcatOmen(hcatHashType, hcatHashFile, max_candidates, hcatChains=""):
     global hcatProcess
     omen_dir = _omen_dir
     enum_bin = os.path.join(omen_dir, hcatOmenEnumBin)
@@ -2205,8 +2205,11 @@ def hcatOmen(hcatHashType, hcatHashFile, max_candidates):
         "-o",
         f"{hcatHashFile}.out",
     ]
+    if hcatChains:
+        hashcat_cmd.extend(shlex.split(hcatChains))
     hashcat_cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(hashcat_cmd)
+    hashcat_cmd = _add_debug_mode_for_rules(hashcat_cmd)
     print(f"[*] Running: {_format_cmd(enum_cmd)} | {_format_cmd(hashcat_cmd)}")
     _debug_cmd(hashcat_cmd)
     enum_proc = subprocess.Popen(
