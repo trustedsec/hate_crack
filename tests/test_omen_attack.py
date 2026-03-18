@@ -252,10 +252,11 @@ class TestOmenAttackHandler:
         ctx.hcatOmenCreateBin = "createNG"
         ctx.hcatOmenEnumBin = "enumNG"
         ctx.omenTrainingList = "/default/rockyou.txt"
-        ctx.omenMaxCandidates = 1000000
+        ctx.omenMaxCandidates = 50000000
         ctx.hcatHashType = "1000"
         ctx.hcatHashFile = "/tmp/hashes.txt"
         ctx.hcatWordlists = str(tmp_path / "wordlists")
+        ctx.rulesDirectory = str(tmp_path / "rules")
         ctx._omen_model_is_valid.return_value = model_valid
         ctx._omen_model_info.return_value = (
             {"training_file": "/old/rockyou.txt"} if model_valid else None
@@ -265,10 +266,19 @@ class TestOmenAttackHandler:
         ctx.list_wordlist_files.return_value = ["rockyou.txt", "custom.txt"]
         return ctx
 
+    def _setup_rules_dir(self, tmp_path, rule_names=None):
+        rules_dir = tmp_path / "rules"
+        rules_dir.mkdir(exist_ok=True)
+        if rule_names:
+            for name in rule_names:
+                (rules_dir / name).write_text(":")
+        return rules_dir
+
     def test_use_existing_model(self, tmp_path):
         ctx = self._make_ctx(tmp_path, model_valid=True)
+        self._setup_rules_dir(tmp_path)
         with patch("os.path.isfile", return_value=True), patch(
-            "builtins.input", side_effect=["1", ""]
+            "builtins.input", side_effect=["1", "", "0"]
         ):
             from hate_crack.attacks import omen_attack
 
@@ -278,8 +288,9 @@ class TestOmenAttackHandler:
 
     def test_train_new_model_with_wordlist_pick(self, tmp_path):
         ctx = self._make_ctx(tmp_path, model_valid=True)
+        self._setup_rules_dir(tmp_path)
         with patch("os.path.isfile", return_value=True), patch(
-            "builtins.input", side_effect=["2", "1", ""]
+            "builtins.input", side_effect=["2", "1", "", "0"]
         ):
             from hate_crack.attacks import omen_attack
 
@@ -302,8 +313,9 @@ class TestOmenAttackHandler:
 
     def test_no_model_goes_straight_to_training(self, tmp_path):
         ctx = self._make_ctx(tmp_path, model_valid=False)
+        self._setup_rules_dir(tmp_path)
         with patch("os.path.isfile", return_value=True), patch(
-            "builtins.input", side_effect=["1", ""]
+            "builtins.input", side_effect=["1", "", "0"]
         ):
             from hate_crack.attacks import omen_attack
 
@@ -324,13 +336,165 @@ class TestOmenAttackHandler:
 
     def test_custom_path_for_training(self, tmp_path):
         ctx = self._make_ctx(tmp_path, model_valid=False)
+        self._setup_rules_dir(tmp_path)
         with patch("os.path.isfile", return_value=True), patch(
-            "builtins.input", side_effect=["p", "/custom/wordlist.txt", ""]
+            "builtins.input", side_effect=["p", "/custom/wordlist.txt", "", "0"]
         ):
             from hate_crack.attacks import omen_attack
 
             omen_attack(ctx)
         ctx.hcatOmenTrain.assert_called_once_with("/custom/wordlist.txt")
+
+    def test_rules_passed_to_hcatOmen(self, tmp_path):
+        ctx = self._make_ctx(tmp_path, model_valid=True)
+        self._setup_rules_dir(tmp_path, ["best64.rule"])
+        with patch("os.path.isfile", return_value=True), patch(
+            "builtins.input", side_effect=["1", "", "1"]
+        ):
+            from hate_crack.attacks import omen_attack
+
+            omen_attack(ctx)
+        call_args = ctx.hcatOmen.call_args
+        assert "-r" in call_args[0][3]
+        assert "best64.rule" in call_args[0][3]
+
+    def test_multiple_rule_chains_spawn_multiple_calls(self, tmp_path):
+        ctx = self._make_ctx(tmp_path, model_valid=True)
+        self._setup_rules_dir(tmp_path, ["best64.rule", "dive.rule"])
+        with patch("os.path.isfile", return_value=True), patch(
+            "builtins.input", side_effect=["1", "", "1,2"]
+        ):
+            from hate_crack.attacks import omen_attack
+
+            omen_attack(ctx)
+        assert ctx.hcatOmen.call_count == 2
+
+    def test_cancel_from_rules_aborts(self, tmp_path):
+        ctx = self._make_ctx(tmp_path, model_valid=True)
+        self._setup_rules_dir(tmp_path, ["best64.rule"])
+        with patch("os.path.isfile", return_value=True), patch(
+            "builtins.input", side_effect=["1", "", "99"]
+        ):
+            from hate_crack.attacks import omen_attack
+
+            omen_attack(ctx)
+        ctx.hcatOmen.assert_not_called()
+
+    def test_no_rules_passes_empty_chain(self, tmp_path):
+        ctx = self._make_ctx(tmp_path, model_valid=True)
+        self._setup_rules_dir(tmp_path, ["best64.rule"])
+        with patch("os.path.isfile", return_value=True), patch(
+            "builtins.input", side_effect=["1", "", "0"]
+        ):
+            from hate_crack.attacks import omen_attack
+
+            omen_attack(ctx)
+        ctx.hcatOmen.assert_called_once()
+        assert ctx.hcatOmen.call_args[0][3] == ""
+
+
+class TestHcatOmenWithRules:
+    def test_rule_flags_appear_in_hashcat_command(self, main_module, tmp_path):
+        omen_dir = tmp_path / "omen"
+        omen_dir.mkdir()
+        enum_bin = omen_dir / "enumNG"
+        enum_bin.touch()
+        enum_bin.chmod(0o755)
+        model_dir = tmp_path / "model"
+        model_dir.mkdir()
+        (model_dir / "createConfig").write_text("# test config\n")
+
+        with patch.object(main_module, "_omen_dir", str(omen_dir)), \
+             patch.object(main_module, "hcatOmenEnumBin", "enumNG"), \
+             patch.object(main_module, "hcatBin", "hashcat"), \
+             patch.object(main_module, "hcatTuning", ""), \
+             patch.object(main_module, "hcatPotfilePath", ""), \
+             patch.object(main_module, "hcatDebugLogPath", str(tmp_path / "debug")), \
+             patch.object(main_module, "hcatHashFile", "/tmp/hashes.txt", create=True), \
+             patch("hate_crack.main._omen_model_dir", return_value=str(model_dir)), \
+             patch("hate_crack.main.subprocess.Popen") as mock_popen:
+            mock_enum_proc = MagicMock()
+            mock_enum_proc.stdout = MagicMock()
+            mock_enum_proc.stderr = MagicMock()
+            mock_enum_proc.stderr.read.return_value = b""
+            mock_enum_proc.returncode = 0
+            mock_enum_proc.wait.return_value = None
+            mock_hashcat_proc = MagicMock()
+            mock_hashcat_proc.wait.return_value = None
+            mock_popen.side_effect = [mock_enum_proc, mock_hashcat_proc]
+
+            main_module.hcatOmen("1000", "/tmp/hashes.txt", 500000, "-r /tmp/best64.rule")
+
+        hashcat_cmd = mock_popen.call_args_list[1][0][0]
+        assert "-r" in hashcat_cmd
+        assert "/tmp/best64.rule" in hashcat_cmd
+
+    def test_debug_mode_added_when_rules_present(self, main_module, tmp_path):
+        omen_dir = tmp_path / "omen"
+        omen_dir.mkdir()
+        enum_bin = omen_dir / "enumNG"
+        enum_bin.touch()
+        enum_bin.chmod(0o755)
+        model_dir = tmp_path / "model"
+        model_dir.mkdir()
+        (model_dir / "createConfig").write_text("# test config\n")
+
+        with patch.object(main_module, "_omen_dir", str(omen_dir)), \
+             patch.object(main_module, "hcatOmenEnumBin", "enumNG"), \
+             patch.object(main_module, "hcatBin", "hashcat"), \
+             patch.object(main_module, "hcatTuning", ""), \
+             patch.object(main_module, "hcatPotfilePath", ""), \
+             patch.object(main_module, "hcatDebugLogPath", str(tmp_path / "debug")), \
+             patch.object(main_module, "hcatHashFile", "/tmp/hashes.txt", create=True), \
+             patch("hate_crack.main._omen_model_dir", return_value=str(model_dir)), \
+             patch("hate_crack.main.subprocess.Popen") as mock_popen:
+            mock_enum_proc = MagicMock()
+            mock_enum_proc.stdout = MagicMock()
+            mock_enum_proc.stderr = MagicMock()
+            mock_enum_proc.stderr.read.return_value = b""
+            mock_enum_proc.returncode = 0
+            mock_enum_proc.wait.return_value = None
+            mock_hashcat_proc = MagicMock()
+            mock_hashcat_proc.wait.return_value = None
+            mock_popen.side_effect = [mock_enum_proc, mock_hashcat_proc]
+
+            main_module.hcatOmen("1000", "/tmp/hashes.txt", 500000, "-r /tmp/best64.rule")
+
+        hashcat_cmd = mock_popen.call_args_list[1][0][0]
+        assert "--debug-mode" in hashcat_cmd
+
+    def test_no_rules_no_debug_mode(self, main_module, tmp_path):
+        omen_dir = tmp_path / "omen"
+        omen_dir.mkdir()
+        enum_bin = omen_dir / "enumNG"
+        enum_bin.touch()
+        enum_bin.chmod(0o755)
+        model_dir = tmp_path / "model"
+        model_dir.mkdir()
+        (model_dir / "createConfig").write_text("# test config\n")
+
+        with patch.object(main_module, "_omen_dir", str(omen_dir)), \
+             patch.object(main_module, "hcatOmenEnumBin", "enumNG"), \
+             patch.object(main_module, "hcatBin", "hashcat"), \
+             patch.object(main_module, "hcatTuning", ""), \
+             patch.object(main_module, "hcatPotfilePath", ""), \
+             patch.object(main_module, "hcatHashFile", "/tmp/hashes.txt", create=True), \
+             patch("hate_crack.main._omen_model_dir", return_value=str(model_dir)), \
+             patch("hate_crack.main.subprocess.Popen") as mock_popen:
+            mock_enum_proc = MagicMock()
+            mock_enum_proc.stdout = MagicMock()
+            mock_enum_proc.stderr = MagicMock()
+            mock_enum_proc.stderr.read.return_value = b""
+            mock_enum_proc.returncode = 0
+            mock_enum_proc.wait.return_value = None
+            mock_hashcat_proc = MagicMock()
+            mock_hashcat_proc.wait.return_value = None
+            mock_popen.side_effect = [mock_enum_proc, mock_hashcat_proc]
+
+            main_module.hcatOmen("1000", "/tmp/hashes.txt", 500000)
+
+        hashcat_cmd = mock_popen.call_args_list[1][0][0]
+        assert "--debug-mode" not in hashcat_cmd
 
 
 class TestOmenModelValidation:

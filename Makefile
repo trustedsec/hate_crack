@@ -99,7 +99,7 @@ install: submodules
 	@UV_BIN=$$(command -v uv 2>/dev/null || echo "$$HOME/.local/bin/uv"); \
 		"$$UV_BIN" sync
 	@mkdir -p "$${XDG_BIN_HOME:-$$HOME/.local/bin}"
-	@printf '#!/usr/bin/env bash\nset -euo pipefail\nexec uv run --directory %s python -m hate_crack "$$@"\n' "$(CURDIR)" \
+	@printf '#!/usr/bin/env bash\nset -euo pipefail\nexport HATE_CRACK_ORIG_CWD="$$PWD"\nexec uv run --directory %s python -m hate_crack "$$@"\n' "$(CURDIR)" \
 		> "$${XDG_BIN_HOME:-$$HOME/.local/bin}/hate_crack"
 	@chmod +x "$${XDG_BIN_HOME:-$$HOME/.local/bin}/hate_crack"
 	@echo "Installed hate_crack shim to $${XDG_BIN_HOME:-$$HOME/.local/bin}/hate_crack"
@@ -107,7 +107,7 @@ install: submodules
 update: submodules
 	@uv sync
 	@mkdir -p "$${XDG_BIN_HOME:-$$HOME/.local/bin}"
-	@printf '#!/usr/bin/env bash\nset -euo pipefail\nexec uv run --directory %s python -m hate_crack "$$@"\n' "$(CURDIR)" \
+	@printf '#!/usr/bin/env bash\nset -euo pipefail\nexport HATE_CRACK_ORIG_CWD="$$PWD"\nexec uv run --directory %s python -m hate_crack "$$@"\n' "$(CURDIR)" \
 		> "$${XDG_BIN_HOME:-$$HOME/.local/bin}/hate_crack"
 	@chmod +x "$${XDG_BIN_HOME:-$$HOME/.local/bin}/hate_crack"
 	@echo "Updated hate_crack shim at $${XDG_BIN_HOME:-$$HOME/.local/bin}/hate_crack"

@@ -24,10 +24,88 @@ def _configure_readline(completer):
     readline.set_completer(completer)
 
 
+def _select_rules(ctx) -> list[str] | None:
+    """Prompt user to select rules. Returns list of rule chain strings, or None if cancelled."""
+    rule_choice = None
+    selected_rules = []
+
+    rules_dir = ctx.rulesDirectory
+    rule_files = sorted(f for f in os.listdir(rules_dir) if f != ".DS_Store")
+    if not rule_files:
+        download_rules = (
+            input("\nNo rules found. Download rules from Hashmob now? (Y/n): ")
+            .strip()
+            .lower()
+        )
+        if download_rules in ("", "y", "yes"):
+            download_hashmob_rules(print_fn=print, rules_dir=rules_dir)
+            rule_files = sorted(os.listdir(rules_dir))
+
+    if not rule_files:
+        print("No rules available. Proceeding without rules.")
+        return [""]
+
+    print("\nWhich rule(s) would you like to run?")
+    rule_entries = ["0. To run without any rules"]
+    rule_entries.extend([f"{i}. {file}" for i, file in enumerate(rule_files, start=1)])
+    rule_entries.append("98. YOLO...run all of the rules")
+    rule_entries.append("99. Back to Main Menu")
+    max_rule_len = max((len(e) for e in rule_entries), default=26)
+    print_multicolumn_list(
+        "Available Rules",
+        rule_entries,
+        min_col_width=max_rule_len,
+        max_col_width=max_rule_len,
+    )
+
+    example_line = ""
+    if len(rule_files) >= 2:
+        example_line = f"For example 1+1 will run {rule_files[0]} chained twice and 1,2 would run {rule_files[0]} and then {rule_files[1]} sequentially.\n"
+    elif len(rule_files) == 1:
+        example_line = f"For example 1+1 will run {rule_files[0]} chained twice.\n"
+
+    while rule_choice is None:
+        raw_choice = input(
+            "Enter Comma separated list of rules you would like to run. To run rules chained use the + symbol.\n"
+            f"{example_line}"
+            "Choose wisely: "
+        )
+        if raw_choice.strip() == "99":
+            return None
+        if raw_choice != "":
+            rule_choice = raw_choice.split(",")
+
+    if "99" in rule_choice:
+        return None
+    if "98" in rule_choice:
+        for rule in rule_files:
+            selected_rules.append(f"-r {os.path.join(rules_dir, rule)}")
+    elif "0" in rule_choice:
+        selected_rules = [""]
+    else:
+        for choice in rule_choice:
+            if "+" in choice:
+                combined_choice = ""
+                choices = choice.split("+")
+                for rule in choices:
+                    try:
+                        rule_path = os.path.join(rules_dir, rule_files[int(rule) - 1])
+                        combined_choice = f"{combined_choice} -r {rule_path}"
+                    except Exception:
+                        continue
+                selected_rules.append(combined_choice)
+            else:
+                try:
+                    rule_path = os.path.join(rules_dir, rule_files[int(choice) - 1])
+                    selected_rules.append(f"-r {rule_path}")
+                except IndexError:
+                    continue
+
+    return selected_rules
+
+
 def quick_crack(ctx: Any) -> None:
     wordlist_choice = None
-    rule_choice = None
-    selected_hcatRules = []
 
     wordlist_files = ctx.list_wordlist_files(ctx.hcatWordlists)
     wordlist_entries = [
@@ -85,81 +163,11 @@ def quick_crack(ctx: Any) -> None:
         except ValueError:
             print("Please enter a valid number.")
 
-    rules_dir = ctx.rulesDirectory
-    rule_files = sorted(f for f in os.listdir(rules_dir) if f != ".DS_Store")
-    if not rule_files:
-        download_rules = (
-            input("\nNo rules found. Download rules from Hashmob now? (Y/n): ")
-            .strip()
-            .lower()
-        )
-        if download_rules in ("", "y", "yes"):
-            download_hashmob_rules(print_fn=print, rules_dir=rules_dir)
-            rule_files = sorted(os.listdir(rules_dir))
-
-    if not rule_files:
-        print("No rules available. Proceeding without rules.")
-        rule_choice = ["0"]
-    else:
-        print("\nWhich rule(s) would you like to run?")
-        rule_entries = ["0. To run without any rules"]
-        rule_entries.extend(
-            [f"{i}. {file}" for i, file in enumerate(rule_files, start=1)]
-        )
-        rule_entries.append("98. YOLO...run all of the rules")
-        rule_entries.append("99. Back to Main Menu")
-        max_rule_len = max((len(e) for e in rule_entries), default=26)
-        print_multicolumn_list(
-            "Available Rules",
-            rule_entries,
-            min_col_width=max_rule_len,
-            max_col_width=max_rule_len,
-        )
-
-        example_line = ""
-        if len(rule_files) >= 2:
-            example_line = f"For example 1+1 will run {rule_files[0]} chained twice and 1,2 would run {rule_files[0]} and then {rule_files[1]} sequentially.\n"
-        elif len(rule_files) == 1:
-            example_line = f"For example 1+1 will run {rule_files[0]} chained twice.\n"
-
-    while rule_choice is None:
-        raw_choice = input(
-            "Enter Comma separated list of rules you would like to run. To run rules chained use the + symbol.\n"
-            f"{example_line}"
-            "Choose wisely: "
-        )
-        if raw_choice.strip() == "99":
-            return
-        if raw_choice != "":
-            rule_choice = raw_choice.split(",")
-
-    if "99" in rule_choice:
+    selected_rules = _select_rules(ctx)
+    if selected_rules is None:
         return
-    if "98" in rule_choice:
-        for rule in rule_files:
-            selected_hcatRules.append(f"-r {os.path.join(rules_dir, rule)}")
-    elif "0" in rule_choice:
-        selected_hcatRules = [""]
-    else:
-        for choice in rule_choice:
-            if "+" in choice:
-                combined_choice = ""
-                choices = choice.split("+")
-                for rule in choices:
-                    try:
-                        rule_path = os.path.join(rules_dir, rule_files[int(rule) - 1])
-                        combined_choice = f"{combined_choice} -r {rule_path}"
-                    except Exception:
-                        continue
-                selected_hcatRules.append(combined_choice)
-            else:
-                try:
-                    rule_path = os.path.join(rules_dir, rule_files[int(choice) - 1])
-                    selected_hcatRules.append(f"-r {rule_path}")
-                except IndexError:
-                    continue
 
-    for chain in selected_hcatRules:
+    for chain in selected_rules:
         ctx.hcatQuickDictionary(
             ctx.hcatHashType, ctx.hcatHashFile, chain, wordlist_choice
         )
@@ -174,84 +182,11 @@ def loopback_attack(ctx: Any) -> None:
 
     print(f"\nUsing loopback attack with wordlist: {empty_wordlist}")
 
-    rule_choice = None
-    selected_hcatRules = []
-
-    rules_dir = ctx.rulesDirectory
-    rule_files = sorted(f for f in os.listdir(rules_dir) if f != ".DS_Store")
-    if not rule_files:
-        download_rules = (
-            input("\nNo rules found. Download rules from Hashmob now? (Y/n): ")
-            .strip()
-            .lower()
-        )
-        if download_rules in ("", "y", "yes"):
-            download_hashmob_rules(print_fn=print, rules_dir=rules_dir)
-            rule_files = sorted(os.listdir(rules_dir))
-
-    if not rule_files:
-        print("No rules available. Proceeding without rules.")
-        rule_choice = ["0"]
-    else:
-        print("\nWhich rule(s) would you like to run?")
-        rule_entries = ["0. To run without any rules"]
-        rule_entries.extend(
-            [f"{i}. {file}" for i, file in enumerate(rule_files, start=1)]
-        )
-        rule_entries.append("98. YOLO...run all of the rules")
-        rule_entries.append("99. Back to Main Menu")
-        max_rule_len = max((len(e) for e in rule_entries), default=26)
-        print_multicolumn_list(
-            "Available Rules",
-            rule_entries,
-            min_col_width=max_rule_len,
-            max_col_width=max_rule_len,
-        )
-
-        example_line = ""
-        if len(rule_files) >= 2:
-            example_line = f"For example 1+1 will run {rule_files[0]} chained twice and 1,2 would run {rule_files[0]} and then {rule_files[1]} sequentially.\n"
-        elif len(rule_files) == 1:
-            example_line = f"For example 1+1 will run {rule_files[0]} chained twice.\n"
-
-    while rule_choice is None:
-        raw_choice = input(
-            "Enter Comma separated list of rules you would like to run. To run rules chained use the + symbol.\n"
-            f"{example_line}"
-            "Choose wisely: "
-        )
-        if raw_choice.strip() == "99":
-            return
-        if raw_choice != "":
-            rule_choice = raw_choice.split(",")
-
-    if "99" in rule_choice:
+    selected_rules = _select_rules(ctx)
+    if selected_rules is None:
         return
-    if "98" in rule_choice:
-        for rule in rule_files:
-            selected_hcatRules.append(f"-r {os.path.join(rules_dir, rule)}")
-    elif "0" in rule_choice:
-        selected_hcatRules = [""]
-    else:
-        for choice in rule_choice:
-            if "+" in choice:
-                combined_choice = ""
-                choices = choice.split("+")
-                for rule in choices:
-                    try:
-                        rule_path = os.path.join(rules_dir, rule_files[int(rule) - 1])
-                        combined_choice = f"{combined_choice} -r {rule_path}"
-                    except Exception:
-                        continue
-                selected_hcatRules.append(combined_choice)
-            else:
-                try:
-                    rule_path = os.path.join(rules_dir, rule_files[int(choice) - 1])
-                    selected_hcatRules.append(f"-r {rule_path}")
-                except IndexError:
-                    continue
 
-    for chain in selected_hcatRules:
+    for chain in selected_rules:
         ctx.hcatQuickDictionary(
             ctx.hcatHashType,
             ctx.hcatHashFile,
@@ -580,4 +515,10 @@ def omen_attack(ctx: Any) -> None:
     ).strip()
     if not max_candidates:
         max_candidates = str(ctx.omenMaxCandidates)
-    ctx.hcatOmen(ctx.hcatHashType, ctx.hcatHashFile, int(max_candidates))
+
+    selected_rules = _select_rules(ctx)
+    if selected_rules is None:
+        return
+
+    for chain in selected_rules:
+        ctx.hcatOmen(ctx.hcatHashType, ctx.hcatHashFile, int(max_candidates), chain)
