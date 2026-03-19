@@ -643,6 +643,8 @@ All tests use mocked API calls, so they can run without connectivity to a Hashvi
 
   (80) Wordlist Tools
 
+  (81) Rule File Tools
+
   (90) Download rules from Hashmob.net
   (91) Analyze Hashcat Rules
   (92) Download wordlists from Hashmob.net
@@ -854,6 +856,15 @@ A submenu of wordlist preprocessing utilities using hashcat-utils binaries. All 
 | 7 | Shard Wordlist | Extract every mod-th line at a given offset to create equal-sized shards (`gate.bin`) |
 
 All binaries are in `hate_crack/hashcat-utils/bin/`.
+
+#### Rule File Tools (option 81)
+Preprocesses hashcat rule files using `cleanup-rules.bin` and `rules_optimize.bin` from hashcat-utils.
+
+* **Clean** - removes invalid syntax and duplicate rules using `cleanup-rules.bin`. Useful after combining rule files or downloading rules from external sources.
+* **Optimize** - consolidates redundant operations using `rules_optimize.bin`. Reduces rule file size and improves cracking speed.
+* **Clean and optimize** - runs both operations in sequence via a temporary file, then writes the final result.
+
+All three operations read from an input file and write to a separate output file (original is never modified).
 
 #### Download Rules from Hashmob.net
 Downloads the latest rule files from Hashmob.net's rule repository. These rules are curated and optimized for password cracking and can be used with the Quick Crack and Loopback Attack modes.

@@ -3738,6 +3738,26 @@ def wordlist_tools_submenu():
     return _attacks.wordlist_tools_submenu(_attack_ctx())
 
 
+def rules_cleanup(infile: str, outfile: str) -> bool:
+    """Clean a rule file using cleanup-rules.bin. Returns True on success."""
+    cleanup_path = os.path.join(hate_path, "hashcat-utils", "bin", "cleanup-rules.bin")
+    with open(infile, "rb") as fin, open(outfile, "wb") as fout:
+        result = subprocess.run([cleanup_path], stdin=fin, stdout=fout)
+    return result.returncode == 0
+
+
+def rules_optimize(infile: str, outfile: str) -> bool:
+    """Optimize a rule file using rules_optimize.bin. Returns True on success."""
+    optimize_path = os.path.join(hate_path, "hashcat-utils", "bin", "rules_optimize.bin")
+    with open(infile, "rb") as fin, open(outfile, "wb") as fout:
+        result = subprocess.run([optimize_path], stdin=fin, stdout=fout)
+    return result.returncode == 0
+
+
+def rule_tools_submenu():
+    return _attacks.rule_tools_submenu(_attack_ctx())
+
+
 # convert hex words for recycling
 def convert_hex(working_file):
     processed_words = []
@@ -3971,6 +3991,7 @@ def get_main_menu_items():
         ("21", "Random Rules Attack"),
         ("22", "Combipow Passphrase Attack"),
         ("80", "Wordlist Tools"),
+        ("81", "Rule File Tools"),
         ("90", "Download rules from Hashmob.net"),
         ("91", "Analyze Hashcat Rules"),
         ("92", "Download wordlists from Hashmob.net"),
@@ -4013,6 +4034,7 @@ def get_main_menu_options():
         "21": generate_rules_crack,
         "22": combipow_crack,
         "80": wordlist_tools_submenu,
+        "81": rule_tools_submenu,
         "90": lambda: download_hashmob_rules(rules_dir=rulesDirectory),
         "91": analyze_rules,
         "92": download_hashmob_wordlists,
