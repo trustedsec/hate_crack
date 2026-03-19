@@ -25,7 +25,6 @@ import urllib.request
 import urllib.error
 import gzip
 import lzma
-import tempfile
 from types import SimpleNamespace
 
 #!/usr/bin/env python3
