@@ -811,6 +811,38 @@ def ascii_art():
     )
 
 
+def _run_upgrade():
+    """Run `git pull && make clean && make && make install` in the repo root."""
+    import subprocess
+
+    print()
+    # Find the actual git repo root - _repo_root may point to
+    # site-packages when installed rather than the source checkout.
+    git_root_result = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        cwd=_repo_root,
+        capture_output=True,
+        text=True,
+    )
+    if git_root_result.returncode != 0:
+        print(
+            "\n  Could not find a git repository to upgrade from."
+            "\n  Run manually: git pull && make clean && make && make install\n"
+        )
+        raise SystemExit(1)
+    repo_root = git_root_result.stdout.strip()
+    result = subprocess.run(
+        "git pull && make clean && make && make install",
+        shell=True,
+        cwd=repo_root,
+    )
+    if result.returncode == 0:
+        print("\n  Upgrade complete. Please restart hate_crack.\n")
+    else:
+        print("\n  Upgrade failed. Check the output above for errors.\n")
+    raise SystemExit(0)
+
+
 def check_for_updates():
     """Check GitHub for a newer release and print a notice if one exists."""
     try:
@@ -842,34 +874,7 @@ def check_for_updates():
                 print()
                 return
             if answer == "y":
-                import subprocess
-
-                print()
-                # Find the actual git repo root - _repo_root may point to
-                # site-packages when installed rather than the source checkout.
-                git_root_result = subprocess.run(
-                    ["git", "rev-parse", "--show-toplevel"],
-                    cwd=_repo_root,
-                    capture_output=True,
-                    text=True,
-                )
-                if git_root_result.returncode != 0:
-                    print(
-                        "\n  Could not find a git repository to upgrade from."
-                        "\n  Run manually: git pull && make clean && make && make install\n"
-                    )
-                    raise SystemExit(1)
-                repo_root = git_root_result.stdout.strip()
-                result = subprocess.run(
-                    "git pull && make clean && make && make install",
-                    shell=True,
-                    cwd=repo_root,
-                )
-                if result.returncode == 0:
-                    print("\n  Upgrade complete. Please restart hate_crack.\n")
-                else:
-                    print("\n  Upgrade failed. Check the output above for errors.\n")
-                raise SystemExit(0)
+                _run_upgrade()
     except Exception:
         pass
 
@@ -4159,6 +4164,11 @@ def main():
             action="store_true",
             help="Cleanup .out files, torrents, and extract or remove .7z archives",
         )
+        parser.add_argument(
+            "--update",
+            action="store_true",
+            help="Pull latest changes and reinstall (git pull && make clean && make && make install)",
+        )
         parser.add_argument("--debug", action="store_true", help="Enable debug mode")
         parser.add_argument(
             "--potfile-path",
@@ -4340,6 +4350,9 @@ def main():
     pipalPath = config.pipalPath
     maxruntime = config.maxruntime
     bandrelbasewords = config.bandrelbasewords
+
+    if args.update:
+        _run_upgrade()
 
     if args.download_torrent:
         download_weakpass_torrent(
