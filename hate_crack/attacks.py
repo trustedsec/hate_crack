@@ -620,6 +620,52 @@ def markov_brute_force(ctx: Any) -> None:
     ctx.hcatMarkovBruteForce(ctx.hcatHashType, ctx.hcatHashFile, hcatMinLen, hcatMaxLen)
 
 
+def ngram_attack(ctx: Any) -> None:
+    print("\n" + "=" * 60)
+    print("N-GRAM ATTACK")
+    print("=" * 60)
+    print("Generates consecutive N-word sequences from a corpus.")
+    print("Effective against passphrase-style passwords from familiar text.")
+    print("Examples: song lyrics, book passages, company slogans.")
+    print("=" * 60)
+
+    def path_completer(text, state):
+        import glob as _glob
+
+        text = os.path.expanduser(text)
+        if text.startswith(("/", "./", "../", "~")):
+            matches = _glob.glob(text + "*")
+        else:
+            matches = _glob.glob(text + "*")
+        matches = [m + "/" if os.path.isdir(m) else m for m in matches]
+        try:
+            return matches[state]
+        except IndexError:
+            return None
+
+    _configure_readline(path_completer)
+
+    corpus = None
+    while corpus is None:
+        raw = input(
+            "\nEnter path to corpus file (tab to autocomplete): "
+        ).strip()
+        raw = os.path.expanduser(raw)
+        if os.path.isfile(raw):
+            corpus = raw
+        else:
+            print(f"File not found: {raw!r}. Please enter a valid file path.")
+
+    raw_size = input("\nN-gram group size (words per candidate) (3): ").strip()
+    group_size = int(raw_size) if raw_size else 3
+
+    if group_size < 1:
+        print(f"[!] Group size must be >= 1, got {group_size}. Aborting.")
+        return
+
+    ctx.hcatNgramX(ctx.hcatHashType, ctx.hcatHashFile, corpus, group_size)
+
+
 def combinator_submenu(ctx: Any) -> None:
     from hate_crack.menu import interactive_menu
 

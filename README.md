@@ -618,6 +618,7 @@ All tests use mocked API calls, so they can run without connectivity to a Hashvi
   (16) OMEN Attack
   (17) Ad-hoc Mask Attack
   (18) Markov Brute Force Attack
+  (22) N-gram Attack
 
   (90) Download rules from Hashmob.net
   (91) Analyze Hashcat Rules
@@ -788,6 +789,15 @@ Generates password candidates using Markov chain statistical models. Similar to 
 * Uses `--increment` flag to test lengths in sequence
 * Markov table persists with hash file (filename.out.hcstat2) for fast subsequent runs
 * Faster than OMEN for general-purpose brute forcing
+
+#### N-gram Attack
+Generates consecutive N-word sequences from a corpus file and pipes them to hashcat as password candidates. Effective against passphrase-style passwords derived from familiar text (song lyrics, book passages, company slogans).
+
+* Requires `ngramX.bin` from the hashcat-utils submodule
+* Prompts for a corpus file path (tab autocomplete supported) and N-gram group size
+* Defaults to trigrams (group size 3) if no size is entered
+* Validates the corpus file exists and group size is at least 1 before running
+* Pipes generator output directly to hashcat stdin (no intermediate file)
 
 #### Download Rules from Hashmob.net
 Downloads the latest rule files from Hashmob.net's rule repository. These rules are curated and optimized for password cracking and can be used with the Quick Crack and Loopback Attack modes.

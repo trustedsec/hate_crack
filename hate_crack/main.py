@@ -677,6 +677,7 @@ hcatCombinationCount = 0
 hcatHybridCount = 0
 hcatExtraCount = 0
 hcatRecycleCount = 0
+hcatNgramXCount = 0
 hcatProcess: subprocess.Popen[Any] | None = None
 debug_mode = False
 
@@ -2222,6 +2223,37 @@ def hcatPrince(hcatHashType, hcatHashFile):
             prince_proc.kill()
 
 
+def hcatNgramX(hcatHashType, hcatHashFile, wordlist, group_size):
+    global hcatProcess, hcatNgramXCount
+    ngramx_path = os.path.join(hate_path, "hashcat-utils", "bin", "ngramX.bin")
+    hashcat_cmd = [
+        hcatBin,
+        "-m",
+        hcatHashType,
+        hcatHashFile,
+        "--session",
+        generate_session_id(),
+        "-o",
+        f"{hcatHashFile}.out",
+    ]
+    hashcat_cmd.extend(shlex.split(hcatTuning))
+    _append_potfile_arg(hashcat_cmd)
+    ngram_proc = subprocess.Popen(
+        [ngramx_path, wordlist, str(group_size)],
+        stdout=subprocess.PIPE,
+    )
+    hcatProcess = subprocess.Popen(hashcat_cmd, stdin=ngram_proc.stdout)
+    ngram_proc.stdout.close()
+    try:
+        hcatProcess.wait()
+        ngram_proc.wait()
+    except KeyboardInterrupt:
+        print(f"Killing PID {hcatProcess.pid}...")
+        hcatProcess.kill()
+        ngram_proc.kill()
+    hcatNgramXCount = lineCount(f"{hcatHashFile}.out") - hcatHashCracked
+
+
 # OMEN model directory - writable location for trained model files.
 # The binaries live in {hate_path}/omen/ (possibly read-only after install),
 # but model output (createConfig, *.level) goes to ~/.hate_crack/omen/.
@@ -3313,6 +3345,10 @@ def markov_brute_force():
     return _attacks.markov_brute_force(_attack_ctx())
 
 
+def ngram_attack():
+    return _attacks.ngram_attack(_attack_ctx())
+
+
 def bandrel_method():
     return _attacks.bandrel_method(_attack_ctx())
 
@@ -3557,6 +3593,7 @@ def get_main_menu_items():
         ("16", "OMEN Attack"),
         ("17", "Ad-hoc Mask Attack"),
         ("18", "Markov Brute Force Attack"),
+        ("22", "N-gram Attack"),
         ("90", "Download rules from Hashmob.net"),
         ("91", "Analyze Hashcat Rules"),
         ("92", "Download wordlists from Hashmob.net"),
@@ -3594,6 +3631,7 @@ def get_main_menu_options():
         "16": omen_attack,
         "17": adhoc_mask_crack,
         "18": markov_brute_force,
+        "22": ngram_attack,
         "90": lambda: download_hashmob_rules(rules_dir=rulesDirectory),
         "91": analyze_rules,
         "92": download_hashmob_wordlists,
