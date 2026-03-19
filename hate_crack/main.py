@@ -2343,6 +2343,60 @@ def hcatMarkovBruteForce(hcatHashType, hcatHashFile, hcatMinLen, hcatMaxLen):
         hcatProcess.kill()
 
 
+# Combipow Passphrase Attack
+hcatCombipowCount = 0
+
+
+def hcatCombipow(hcatHashType, hcatHashFile, wordlist, use_space_sep=True):
+    global hcatProcess, hcatCombipowCount
+    hcatCombipowCount += 1
+    combipow_bin = os.path.join(hate_path, "hashcat-utils/bin/combipow.bin")
+
+    tmp_file = None
+    if wordlist.endswith(".gz"):
+        tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".txt")
+        with gzip.open(wordlist, "rb") as gz_in:
+            tmp_file.write(gz_in.read())
+        tmp_file.close()
+        wordlist_path = tmp_file.name
+    else:
+        wordlist_path = wordlist
+
+    generator_cmd = [combipow_bin]
+    if use_space_sep:
+        generator_cmd.append("-s")
+    generator_cmd.append(wordlist_path)
+    session_name = re.sub(
+        r"[^a-zA-Z0-9_-]", "_", os.path.splitext(os.path.basename(hcatHashFile))[0]
+    )
+    hashcat_cmd = [
+        hcatBin,
+        "--session",
+        session_name,
+        "-m",
+        hcatHashType,
+        hcatHashFile,
+        "-o",
+        f"{hcatHashFile}.out",
+    ]
+    hashcat_cmd.extend(shlex.split(hcatTuning))
+    _append_potfile_arg(hashcat_cmd)
+    generator_proc = subprocess.Popen(generator_cmd, stdout=subprocess.PIPE)
+    hcatProcess = subprocess.Popen(hashcat_cmd, stdin=generator_proc.stdout)
+    generator_proc.stdout.close()
+    try:
+        hcatProcess.wait()
+        generator_proc.wait()
+    except KeyboardInterrupt:
+        print("Killing PID {0}...".format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+        generator_proc.kill()
+    finally:
+        if tmp_file is not None:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_file.name)
+
+
 # PRINCE Attack
 def hcatPrince(hcatHashType, hcatHashFile):
     global hcatProcess
@@ -3598,6 +3652,10 @@ def omen_attack():
     return _attacks.omen_attack(_attack_ctx())
 
 
+def combipow_crack():
+    return _attacks.combipow_crack(_attack_ctx())
+
+
 def generate_rules_crack():
     return _attacks.generate_rules_crack(_attack_ctx())
 
@@ -3837,6 +3895,7 @@ def get_main_menu_items():
         ("19", "N-gram Attack"),
         ("20", "Permutation Attack"),
         ("21", "Random Rules Attack"),
+        ("22", "Combipow Passphrase Attack"),
         ("90", "Download rules from Hashmob.net"),
         ("91", "Analyze Hashcat Rules"),
         ("92", "Download wordlists from Hashmob.net"),
@@ -3877,6 +3936,7 @@ def get_main_menu_options():
         "19": ngram_attack,
         "20": permute_crack,
         "21": generate_rules_crack,
+        "22": combipow_crack,
         "90": lambda: download_hashmob_rules(rules_dir=rulesDirectory),
         "91": analyze_rules,
         "92": download_hashmob_wordlists,

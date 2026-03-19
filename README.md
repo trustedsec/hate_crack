@@ -621,6 +621,7 @@ All tests use mocked API calls, so they can run without connectivity to a Hashvi
   (19) N-gram Attack
   (20) Permutation Attack
   (21) Random Rules Attack
+  (22) Combipow Passphrase Attack
 
   (90) Download rules from Hashmob.net
   (91) Analyze Hashcat Rules
@@ -809,6 +810,15 @@ Generates a set of random hashcat mutation rules using `generate-rules.bin`, wri
 * Prompts for wordlist path with tab-completion and numbered selection
 * Temporary rules file is cleaned up after the run regardless of outcome
 * Useful when known rule sets are exhausted - explores random rule-space for additional cracks
+
+#### Combipow Passphrase Attack
+Generates all unique non-empty subset combinations from a short wordlist using `combipow.bin` and pipes them into hashcat. Designed for passphrase cracking when you know the pool of words a password was built from.
+
+* Prompts for a wordlist file (max 63 lines - combipow generates up to 2^n-1 combinations)
+* Optional space separator (`-s` flag) to insert spaces between words in each combination
+* Warns if the wordlist exceeds 20 lines (output volume may be large)
+* Aborts with a clear message if the wordlist exceeds 63 lines (hard limit)
+* Candidates are piped directly to hashcat stdin
 
 #### Download Rules from Hashmob.net
 Downloads the latest rule files from Hashmob.net's rule repository. These rules are curated and optimized for password cracking and can be used with the Quick Crack and Loopback Attack modes.
