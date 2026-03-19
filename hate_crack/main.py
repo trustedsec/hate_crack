@@ -687,8 +687,16 @@ hcatNgramXCount = 0
 hcatHybridCount = 0
 hcatExtraCount = 0
 hcatRecycleCount = 0
+hcatPermuteCount = 0
 hcatProcess: subprocess.Popen[Any] | None = None
 debug_mode = False
+
+
+def _open_wordlist(path):
+    """Open a wordlist file, transparently decompressing gzip if the path ends with .gz."""
+    if path.endswith(".gz"):
+        return gzip.open(path, "rb")
+    return open(path, "rb")
 
 
 def _format_cmd(cmd):
@@ -2251,7 +2259,7 @@ def hcatMarkovTrain(source_file, hcatHashFile):
         return False
 
     try:
-        with open(source_file, "rb") as stdin_f:
+        with _open_wordlist(source_file) as stdin_f:
             hcatProcess = subprocess.Popen(
                 [hcstat2gen_bin, hcstat2_path], stdin=stdin_f, stderr=subprocess.PIPE
             )
@@ -2369,7 +2377,7 @@ def hcatPrince(hcatHashType, hcatHashFile):
     hashcat_cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(hashcat_cmd)
     hashcat_cmd = _add_debug_mode_for_rules(hashcat_cmd)
-    with open(prince_base, "rb") as base:
+    with _open_wordlist(prince_base) as base:
         prince_proc = subprocess.Popen(prince_cmd, stdin=base, stdout=subprocess.PIPE)
         hcatProcess = subprocess.Popen(hashcat_cmd, stdin=prince_proc.stdout)
         prince_proc.stdout.close()
@@ -2380,6 +2388,45 @@ def hcatPrince(hcatHashType, hcatHashFile):
             print("Killing PID {0}...".format(str(hcatProcess.pid)))
             hcatProcess.kill()
             prince_proc.kill()
+
+
+def hcatPermute(hcatHashType, hcatHashFile, wordlist):
+    global hcatProcess, hcatPermuteCount
+    permute_path = os.path.join(hate_path, "hashcat-utils", "bin", "permute.bin")
+    if not os.path.isfile(permute_path):
+        print(f"Error: permute.bin not found: {permute_path}")
+        return
+    if not os.path.isfile(wordlist):
+        print(f"Error: wordlist not found: {wordlist}")
+        return
+    hashcat_cmd = [
+        hcatBin,
+        "-m",
+        hcatHashType,
+        hcatHashFile,
+        "--session",
+        generate_session_id(),
+        "-o",
+        f"{hcatHashFile}.out",
+    ]
+    hashcat_cmd.extend(shlex.split(hcatTuning))
+    _append_potfile_arg(hashcat_cmd)
+    with _open_wordlist(wordlist) as wl_file:
+        permute_proc = subprocess.Popen(
+            [permute_path], stdin=wl_file, stdout=subprocess.PIPE
+        )
+        hcatProcess = subprocess.Popen(
+            hashcat_cmd, stdin=permute_proc.stdout
+        )
+        permute_proc.stdout.close()
+        try:
+            hcatProcess.wait()
+            permute_proc.wait()
+        except KeyboardInterrupt:
+            print(f"Killing PID {hcatProcess.pid}...")
+            hcatProcess.kill()
+            permute_proc.kill()
+    hcatPermuteCount = lineCount(f"{hcatHashFile}.out") - hcatHashCracked
 
 
 # OMEN model directory - writable location for trained model files.
@@ -3505,6 +3552,10 @@ def omen_attack():
     return _attacks.omen_attack(_attack_ctx())
 
 
+def permute_crack():
+    return _attacks.permute_crack(_attack_ctx())
+
+
 # convert hex words for recycling
 def convert_hex(working_file):
     processed_words = []
@@ -3734,6 +3785,7 @@ def get_main_menu_items():
         ("17", "Ad-hoc Mask Attack"),
         ("18", "Markov Brute Force Attack"),
         ("19", "N-gram Attack"),
+        ("20", "Permutation Attack"),
         ("90", "Download rules from Hashmob.net"),
         ("91", "Analyze Hashcat Rules"),
         ("92", "Download wordlists from Hashmob.net"),
@@ -3772,6 +3824,7 @@ def get_main_menu_options():
         "17": adhoc_mask_crack,
         "18": markov_brute_force,
         "19": ngram_attack,
+        "20": permute_crack,
         "90": lambda: download_hashmob_rules(rules_dir=rulesDirectory),
         "91": analyze_rules,
         "92": download_hashmob_wordlists,
