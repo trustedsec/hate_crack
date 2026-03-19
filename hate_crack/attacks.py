@@ -637,6 +637,32 @@ def markov_brute_force(ctx: Any) -> None:
     ctx.hcatMarkovBruteForce(ctx.hcatHashType, ctx.hcatHashFile, hcatMinLen, hcatMaxLen)
 
 
+def ngram_attack(ctx: Any) -> None:
+    print("\n" + "=" * 60)
+    print("NGRAM ATTACK")
+    print("=" * 60)
+    print("Generates n-gram candidates from a corpus file via ngramX.bin.")
+    print("Gzip-compressed corpus files are auto-detected and decompressed.")
+    print("=" * 60)
+
+    corpus = ctx.select_file_with_autocomplete(
+        "Select corpus file (tab to autocomplete)",
+        base_dir=ctx.hcatWordlists,
+    )
+    if not corpus:
+        print("No corpus selected. Aborting ngram attack.")
+        return
+
+    group_size_raw = input("\nEnter n-gram group size (default 3): ").strip()
+    try:
+        group_size = int(group_size_raw) if group_size_raw else 3
+    except ValueError:
+        print("[!] Invalid group size. Using default of 3.")
+        group_size = 3
+
+    ctx.hcatNgramX(ctx.hcatHashType, ctx.hcatHashFile, corpus, group_size)
+
+
 def combinator_submenu(ctx: Any) -> None:
     items = [
         ("1", "Combinator Attack (2-8 wordlists)"),
