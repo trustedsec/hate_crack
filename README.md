@@ -618,6 +618,7 @@ All tests use mocked API calls, so they can run without connectivity to a Hashvi
   (16) OMEN Attack
   (17) Ad-hoc Mask Attack
   (18) Markov Brute Force Attack
+  (19) Permutation Attack
 
   (90) Download rules from Hashmob.net
   (91) Analyze Hashcat Rules
@@ -788,6 +789,14 @@ Generates password candidates using Markov chain statistical models. Similar to 
 * Uses `--increment` flag to test lengths in sequence
 * Markov table persists with hash file (filename.out.hcstat2) for fast subsequent runs
 * Faster than OMEN for general-purpose brute forcing
+
+#### Permutation Attack
+Generates all character permutations of each word in a targeted wordlist and pipes them to hashcat via `permute.bin` from hashcat-utils.
+
+* Prompts for a single wordlist file (not a directory)
+* Effective against short targeted wordlists where the character set is known but the order is not (company abbreviations, name fragments, known tokens)
+* WARNING: Scales as N! per word - an 8-character word produces 40,320 permutations. Only practical for words up to ~8 characters.
+* Uses `permute.bin < wordlist | hashcat` pipeline pattern
 
 #### Download Rules from Hashmob.net
 Downloads the latest rule files from Hashmob.net's rule repository. These rules are curated and optimized for password cracking and can be used with the Quick Crack and Loopback Attack modes.

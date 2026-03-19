@@ -620,6 +620,53 @@ def markov_brute_force(ctx: Any) -> None:
     ctx.hcatMarkovBruteForce(ctx.hcatHashType, ctx.hcatHashFile, hcatMinLen, hcatMaxLen)
 
 
+def permute_crack(ctx: Any) -> None:
+    print("\n" + "=" * 60)
+    print("PERMUTATION ATTACK")
+    print("=" * 60)
+    print("Generates ALL character permutations of each word in a targeted wordlist.")
+    print("WARNING: Scales as N! per word. Only practical for words up to ~8 characters.")
+    print("Best for: short targeted wordlists (names, abbreviations, known fragments).")
+    print("=" * 60)
+
+    def path_completer(text, state):
+        base = ctx.hcatWordlists
+        if not text:
+            pattern = os.path.join(base, "*")
+            matches = glob.glob(pattern)
+        else:
+            text = os.path.expanduser(text)
+            if text.startswith(("/", "./", "../", "~")):
+                matches = glob.glob(text + "*")
+            else:
+                pattern = os.path.join(base, text + "*")
+                matches = glob.glob(pattern)
+        matches = [m + "/" if os.path.isdir(m) else m for m in matches]
+        try:
+            return matches[state]
+        except IndexError:
+            return None
+
+    _configure_readline(path_completer)
+
+    wordlist_path = None
+    while wordlist_path is None:
+        raw = input(
+            "\nEnter path to a wordlist FILE (tab to autocomplete): "
+        ).strip()
+        if not raw:
+            continue
+        if not os.path.exists(raw):
+            print(f"[!] Path not found: {raw}")
+            continue
+        if os.path.isdir(raw):
+            print("[!] A directory was provided. Please enter a single wordlist file.")
+            continue
+        wordlist_path = raw
+
+    ctx.hcatPermute(ctx.hcatHashType, ctx.hcatHashFile, wordlist_path)
+
+
 def combinator_submenu(ctx: Any) -> None:
     from hate_crack.menu import interactive_menu
 
