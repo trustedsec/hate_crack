@@ -23,8 +23,10 @@ import time
 import argparse
 import urllib.request
 import urllib.error
+import contextlib
 import gzip
 import lzma
+import tempfile
 from types import SimpleNamespace
 
 #!/usr/bin/env python3
@@ -357,19 +359,19 @@ else:
 
 
 def _append_potfile_arg(cmd, *, use_potfile_path=True, potfile_path=None):
-    if not use_potfile_path:
-        return
-    pot = potfile_path or hcatPotfilePath
-    if pot:
-        try:
-            pot_dir = os.path.dirname(pot)
-            if pot_dir:
-                os.makedirs(pot_dir, exist_ok=True)
-            if not os.path.exists(pot):
-                open(pot, "a").close()
-        except OSError:
-            pass
-        cmd.append(f"--potfile-path={pot}")
+    if use_potfile_path:
+        pot = potfile_path or hcatPotfilePath
+        if pot:
+            try:
+                pot_dir = os.path.dirname(pot)
+                if pot_dir:
+                    os.makedirs(pot_dir, exist_ok=True)
+                if not os.path.exists(pot):
+                    open(pot, "a").close()
+            except OSError:
+                pass
+            cmd.append(f"--potfile-path={pot}")
+    _debug_cmd(cmd)
 
 
 rulesDirectory = config_parser["rules_directory"]
@@ -402,6 +404,8 @@ pipalPath = config_parser["pipalPath"]
 hcatDictionaryWordlist = config_parser["hcatDictionaryWordlist"]
 hcatHybridlist = config_parser["hcatHybridlist"]
 hcatCombinationWordlist = config_parser["hcatCombinationWordlist"]
+hcatCombinator3Wordlist = config_parser.get("hcatCombinator3Wordlist", ["rockyou.txt", "rockyou.txt", "rockyou.txt"])
+hcatCombinatorXWordlist = config_parser.get("hcatCombinatorXWordlist", ["rockyou.txt", "rockyou.txt"])
 hcatMiddleCombinatorMasks = config_parser["hcatMiddleCombinatorMasks"]
 hcatMiddleBaseList = config_parser["hcatMiddleBaseList"]
 hcatThoroughCombinatorMasks = config_parser["hcatThoroughCombinatorMasks"]
@@ -559,6 +563,8 @@ hcatDictionaryWordlist = _normalize_wordlist_setting(
 hcatCombinationWordlist = _normalize_wordlist_setting(
     hcatCombinationWordlist, wordlists_dir
 )
+hcatCombinator3Wordlist = _normalize_wordlist_setting(hcatCombinator3Wordlist, wordlists_dir)
+hcatCombinatorXWordlist = _normalize_wordlist_setting(hcatCombinatorXWordlist, wordlists_dir)
 hcatHybridlist = _normalize_wordlist_setting(hcatHybridlist, wordlists_dir)
 hcatMiddleBaseList = _normalize_wordlist_setting(hcatMiddleBaseList, wordlists_dir)
 hcatThoroughBaseList = _normalize_wordlist_setting(hcatThoroughBaseList, wordlists_dir)
@@ -675,6 +681,9 @@ hcatDictionaryCount = 0
 hcatMaskCount = 0
 hcatFingerprintCount = 0
 hcatCombinationCount = 0
+hcatCombinator3Count = 0
+hcatCombinatorXCount = 0
+hcatNgramXCount = 0
 hcatHybridCount = 0
 hcatExtraCount = 0
 hcatRecycleCount = 0
@@ -698,6 +707,37 @@ def _format_cmd(cmd):
 def _debug_cmd(cmd):
     if debug_mode:
         print(f"[DEBUG] hashcat cmd: {_format_cmd(cmd)}")
+
+
+def _is_gzipped(path: str) -> bool:
+    try:
+        with open(path, "rb") as f:
+            return f.read(2) == b"\x1f\x8b"
+    except OSError:
+        return False
+
+
+@contextlib.contextmanager
+def _wordlist_path(path: str):
+    """Yield an uncompressed path for path.
+
+    If the file is gzip-compressed, decompress to a temp file and clean up on
+    exit. Otherwise yield the original path unchanged.
+    """
+    if _is_gzipped(path):
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as tmp:
+            tmp_name = tmp.name
+            with gzip.open(path, "rb") as gz_in:
+                shutil.copyfileobj(gz_in, tmp)
+        try:
+            yield tmp_name
+        finally:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+    else:
+        yield path
 
 
 def _add_debug_mode_for_rules(cmd):
@@ -1422,6 +1462,125 @@ def hcatCombination(hcatHashType, hcatHashFile, wordlists=None):
         hcatProcess.kill()
 
     hcatCombinationCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
+
+
+# Combinator3 Attack - 3-way combination via combinator3.bin piped to hashcat
+def hcatCombinator3(hcatHashType, hcatHashFile, wordlists):
+    global hcatCombinator3Count
+    global hcatProcess
+
+    if len(wordlists) < 3:
+        print("[!] Combinator3 attack requires exactly 3 wordlists.")
+        return
+
+    combinator3_bin = os.path.join(hate_path, "hashcat-utils/bin/combinator3.bin")
+    with contextlib.ExitStack() as stack:
+        resolved = [stack.enter_context(_wordlist_path(w)) for w in wordlists[:3]]
+        generator_cmd = [combinator3_bin] + resolved
+        hashcat_cmd = [
+            hcatBin,
+            "-m",
+            hcatHashType,
+            hcatHashFile,
+            "--session",
+            generate_session_id(),
+            "-o",
+            f"{hcatHashFile}.out",
+        ]
+        hashcat_cmd.extend(shlex.split(hcatTuning))
+        _append_potfile_arg(hashcat_cmd)
+        generator_proc = subprocess.Popen(generator_cmd, stdout=subprocess.PIPE)
+        assert generator_proc.stdout is not None
+        hcatProcess = subprocess.Popen(hashcat_cmd, stdin=generator_proc.stdout)
+        generator_proc.stdout.close()
+        try:
+            hcatProcess.wait()
+            generator_proc.wait()
+        except KeyboardInterrupt:
+            print("Killing PID {0}...".format(str(hcatProcess.pid)))
+            hcatProcess.kill()
+            generator_proc.kill()
+
+    hcatCombinator3Count = lineCount(hcatHashFile + ".out") - hcatHashCracked
+
+
+# CombinatorX Attack - N-way combination (2-8 wordlists) via combinatorX.bin piped to hashcat
+def hcatCombinatorX(hcatHashType, hcatHashFile, wordlists, separator=None):
+    global hcatCombinatorXCount
+    global hcatProcess
+
+    if len(wordlists) < 2:
+        print("[!] CombinatorX attack requires at least 2 wordlists.")
+        return
+
+    combinatorX_bin = os.path.join(hate_path, "hashcat-utils/bin/combinatorX.bin")
+    with contextlib.ExitStack() as stack:
+        resolved = [stack.enter_context(_wordlist_path(w)) for w in wordlists[:8]]
+        generator_cmd = [combinatorX_bin]
+        for i, f in enumerate(resolved, start=1):
+            generator_cmd += [f"--file{i}", f]
+        if separator:
+            generator_cmd += ["--sepFill", separator]
+        hashcat_cmd = [
+            hcatBin,
+            "-m",
+            hcatHashType,
+            hcatHashFile,
+            "--session",
+            generate_session_id(),
+            "-o",
+            f"{hcatHashFile}.out",
+        ]
+        hashcat_cmd.extend(shlex.split(hcatTuning))
+        _append_potfile_arg(hashcat_cmd)
+        generator_proc = subprocess.Popen(generator_cmd, stdout=subprocess.PIPE)
+        assert generator_proc.stdout is not None
+        hcatProcess = subprocess.Popen(hashcat_cmd, stdin=generator_proc.stdout)
+        generator_proc.stdout.close()
+        try:
+            hcatProcess.wait()
+            generator_proc.wait()
+        except KeyboardInterrupt:
+            print("Killing PID {0}...".format(str(hcatProcess.pid)))
+            hcatProcess.kill()
+            generator_proc.kill()
+
+    hcatCombinatorXCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
+
+
+# NgramX Attack - n-gram candidates from corpus file piped to hashcat
+def hcatNgramX(hcatHashType, hcatHashFile, corpus, group_size=3):
+    global hcatNgramXCount
+    global hcatProcess
+
+    ngramX_bin = os.path.join(hate_path, "hashcat-utils/bin/ngramX.bin")
+    with _wordlist_path(corpus) as resolved_corpus:
+        generator_cmd = [ngramX_bin, resolved_corpus, str(group_size)]
+        hashcat_cmd = [
+            hcatBin,
+            "-m",
+            hcatHashType,
+            hcatHashFile,
+            "--session",
+            generate_session_id(),
+            "-o",
+            f"{hcatHashFile}.out",
+        ]
+        hashcat_cmd.extend(shlex.split(hcatTuning))
+        _append_potfile_arg(hashcat_cmd)
+        generator_proc = subprocess.Popen(generator_cmd, stdout=subprocess.PIPE)
+        assert generator_proc.stdout is not None
+        hcatProcess = subprocess.Popen(hashcat_cmd, stdin=generator_proc.stdout)
+        generator_proc.stdout.close()
+        try:
+            hcatProcess.wait()
+            generator_proc.wait()
+        except KeyboardInterrupt:
+            print("Killing PID {0}...".format(str(hcatProcess.pid)))
+            hcatProcess.kill()
+            generator_proc.kill()
+
+    hcatNgramXCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
 
 # Hybrid Attack
@@ -3349,6 +3508,22 @@ def middle_combinator():
     return _attacks.middle_combinator(_attack_ctx())
 
 
+def combinator3_crack():
+    return _attacks.combinator3_crack(_attack_ctx())
+
+
+def combinatorX_crack():
+    return _attacks.combinatorX_crack(_attack_ctx())
+
+
+def combinator_3plus_crack():
+    return _attacks.combinator_3plus_crack(_attack_ctx())
+
+
+def ngram_attack():
+    return _attacks.ngram_attack(_attack_ctx())
+
+
 def combinator_submenu():
     return _attacks.combinator_submenu(_attack_ctx())
 
@@ -3609,7 +3784,8 @@ def get_main_menu_items():
         ("16", "OMEN Attack"),
         ("17", "Ad-hoc Mask Attack"),
         ("18", "Markov Brute Force Attack"),
-        ("19", "Permutation Attack"),
+        ("19", "N-gram Attack"),
+        ("20", "Permutation Attack"),
         ("90", "Download rules from Hashmob.net"),
         ("91", "Analyze Hashcat Rules"),
         ("92", "Download wordlists from Hashmob.net"),
@@ -3647,7 +3823,8 @@ def get_main_menu_options():
         "16": omen_attack,
         "17": adhoc_mask_crack,
         "18": markov_brute_force,
-        "19": permute_crack,
+        "19": ngram_attack,
+        "20": permute_crack,
         "90": lambda: download_hashmob_rules(rules_dir=rulesDirectory),
         "91": analyze_rules,
         "92": download_hashmob_wordlists,

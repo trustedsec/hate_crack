@@ -764,11 +764,13 @@ Uses the Ordered Markov ENumerator (OMEN) to train a statistical password model 
 * Model files and metadata are stored in `~/.hate_crack/omen/` for persistence across sessions
 
 #### Combinator Attacks Submenu
-Opens an interactive submenu with four combinator attack variants (formerly at menu keys 10-12). Consolidates related attacks for cleaner menu organization:
+Opens an interactive submenu with six combinator attack variants (formerly at menu keys 10-12). Consolidates related attacks for cleaner menu organization:
 - Combinator Attack - combines two wordlists
 - YOLO Combinator Attack - combines all permutations of multiple wordlists
 - Middle Combinator Attack - combines wordlists with an extra word in the middle
 - Thorough Combinator Attack - comprehensive combination of wordlists with rules
+- Combinator3 Attack - combines exactly 3 wordlists using `combinator3.bin`, generating all `word1+word2+word3` combinations piped to hashcat
+- CombinatorX Attack - combines 2-8 wordlists using `combinatorX.bin` with optional `--sepFill` separator character between word segments
 
 #### Ad-hoc Mask Attack
 Runs hashcat mask attack (mode 3) with a user-specified custom mask string. Allows fine-grained control over character-set brute forcing.
