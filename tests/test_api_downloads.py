@@ -79,6 +79,22 @@ class TestGetHcatPotfilePath:
             result = get_hcat_potfile_path()
         assert result == os.path.expanduser("~/.hashcat/hashcat.potfile")
 
+    def test_returns_empty_string_when_key_is_empty(self, tmp_path):
+        config_data = {"hcatPotfilePath": ""}
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps(config_data))
+        with patch("hate_crack.api._resolve_config_path", return_value=str(config_file)):
+            result = get_hcat_potfile_path()
+        assert result == ""
+
+    def test_resolves_relative_path_from_config_dir(self, tmp_path):
+        config_data = {"hcatPotfilePath": "hashcat.potfile"}
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps(config_data))
+        with patch("hate_crack.api._resolve_config_path", return_value=str(config_file)):
+            result = get_hcat_potfile_path()
+        assert result == str(tmp_path / "hashcat.potfile")
+
     def test_returns_default_when_no_config(self):
         with patch("hate_crack.api._resolve_config_path", return_value=None):
             result = get_hcat_potfile_path()
