@@ -642,3 +642,115 @@ def combinator_submenu(ctx: Any) -> None:
             middle_combinator(ctx)
         elif choice == "4":
             thorough_combinator(ctx)
+
+
+def _rule_select_file(ctx: Any, prompt: str = "Rule file: ") -> str:
+    """Prompt for a rule file path with tab-autocomplete."""
+    import glob as _glob
+
+    def rule_completer(text: str, state: int) -> str | None:
+        base = ctx.rulesDirectory
+        if not text:
+            pattern = os.path.join(base, "*.rule")
+        else:
+            text = os.path.expanduser(text)
+            if text.startswith(("/", "./", "../", "~")):
+                pattern = text + "*"
+            else:
+                pattern = os.path.join(base, text + "*")
+        matches = _glob.glob(pattern)
+        try:
+            return matches[state]
+        except IndexError:
+            return None
+
+    _configure_readline(rule_completer)
+    return input(prompt).strip()
+
+
+def rule_cleanup_handler(ctx: Any) -> None:
+    """Clean a rule file using cleanup-rules.bin."""
+    print("\nClean rule file - removes invalid and duplicate rules.")
+    print("Reads an input rule file and writes cleaned rules to an output file.\n")
+    infile = _rule_select_file(ctx, "Input rule file (tab to autocomplete): ")
+    if not infile or not os.path.isfile(infile):
+        print(f"[!] File not found: {infile}")
+        return
+    outfile = input("Output file path: ").strip()
+    if not outfile:
+        print("[!] Output path required.")
+        return
+    print(f"\nCleaning {infile} -> {outfile}")
+    if ctx.rules_cleanup(infile, outfile):
+        print("[+] Done.")
+    else:
+        print("[!] Cleanup failed.")
+
+
+def rule_optimize_handler(ctx: Any) -> None:
+    """Optimize a rule file using rules_optimize.bin."""
+    print("\nOptimize rule file - consolidates redundant operations.")
+    infile = _rule_select_file(ctx, "Input rule file: ")
+    if not infile or not os.path.isfile(infile):
+        print(f"[!] File not found: {infile}")
+        return
+    outfile = input("Output file path: ").strip()
+    if not outfile:
+        print("[!] Output path required.")
+        return
+    print(f"\nOptimizing {infile} -> {outfile}")
+    if ctx.rules_optimize(infile, outfile):
+        print("[+] Done.")
+    else:
+        print("[!] Optimize failed.")
+
+
+def rule_cleanup_and_optimize_handler(ctx: Any) -> None:
+    """Clean then optimize a rule file."""
+    import tempfile
+
+    print("\nClean and optimize rule file (both operations in sequence).")
+    infile = _rule_select_file(ctx, "Input rule file: ")
+    if not infile or not os.path.isfile(infile):
+        print(f"[!] File not found: {infile}")
+        return
+    outfile = input("Output file path: ").strip()
+    if not outfile:
+        print("[!] Output path required.")
+        return
+    with tempfile.NamedTemporaryFile(suffix=".rule", delete=False) as tmp:
+        tmp_path = tmp.name
+    try:
+        print(f"\nStep 1/2: Cleaning {infile}...")
+        if not ctx.rules_cleanup(infile, tmp_path):
+            print("[!] Cleanup failed.")
+            return
+        print(f"Step 2/2: Optimizing -> {outfile}...")
+        if ctx.rules_optimize(tmp_path, outfile):
+            print("[+] Done.")
+        else:
+            print("[!] Optimize failed.")
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
+
+def rule_tools_submenu(ctx: Any) -> None:
+    from hate_crack.menu import interactive_menu
+
+    items = [
+        ("1", "Clean rule file (remove invalid/duplicate rules)"),
+        ("2", "Optimize rule file (consolidate redundant operations)"),
+        ("3", "Clean and optimize rule file (both)"),
+        ("99", "Back to Main Menu"),
+    ]
+    while True:
+        choice = interactive_menu(items, title="\nRule File Tools:")
+        if choice is None or choice == "99":
+            break
+        elif choice == "1":
+            rule_cleanup_handler(ctx)
+        elif choice == "2":
+            rule_optimize_handler(ctx)
+        elif choice == "3":
+            rule_cleanup_and_optimize_handler(ctx)
