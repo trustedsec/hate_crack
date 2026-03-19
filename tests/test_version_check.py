@@ -212,6 +212,57 @@ class TestCheckForUpdates:
         output = capsys.readouterr().out
         assert "Run manually" in output
 
+
+class TestRunUpgrade:
+    """Tests for _run_upgrade() called directly via --update flag."""
+
+    def test_run_upgrade_success(self, hc_module, capsys):
+        git_root_proc = MagicMock()
+        git_root_proc.returncode = 0
+        git_root_proc.stdout = "/fake/repo\n"
+
+        make_proc = MagicMock()
+        make_proc.returncode = 0
+
+        with patch("subprocess.run", side_effect=[git_root_proc, make_proc]) as mock_run, pytest.raises(SystemExit) as exc:
+            hc_module._run_upgrade()
+
+        assert exc.value.code == 0
+        assert mock_run.call_count == 2
+        make_cmd = mock_run.call_args_list[1][0][0]
+        assert "git pull" in make_cmd
+        assert "make install" in make_cmd
+        assert mock_run.call_args_list[1][1]["cwd"] == "/fake/repo"
+        output = capsys.readouterr().out
+        assert "Upgrade complete" in output
+
+    def test_run_upgrade_make_failure(self, hc_module, capsys):
+        git_root_proc = MagicMock()
+        git_root_proc.returncode = 0
+        git_root_proc.stdout = "/fake/repo\n"
+
+        make_proc = MagicMock()
+        make_proc.returncode = 1
+
+        with patch("subprocess.run", side_effect=[git_root_proc, make_proc]), pytest.raises(SystemExit) as exc:
+            hc_module._run_upgrade()
+
+        assert exc.value.code == 0
+        output = capsys.readouterr().out
+        assert "Upgrade failed" in output
+
+    def test_run_upgrade_no_git_repo(self, hc_module, capsys):
+        git_root_proc = MagicMock()
+        git_root_proc.returncode = 128
+        git_root_proc.stdout = ""
+
+        with patch("subprocess.run", return_value=git_root_proc), pytest.raises(SystemExit) as exc:
+            hc_module._run_upgrade()
+
+        assert exc.value.code == 1
+        output = capsys.readouterr().out
+        assert "Run manually" in output
+
     def test_upgrade_prompt_ctrl_c_continues(self, hc_module, capsys):
         mock_resp = MagicMock()
         mock_resp.json.return_value = {"tag_name": "v99.0.0"}
