@@ -3941,15 +3941,12 @@ def analyze_rules():
     print("Rule Opcode Analyzer")
     print("=" * 60)
 
-    # Get rule file path from user
-    rule_file = input("\nEnter path to rule file: ").strip()
+    # Get rule file path from user with tab completion
+    rule_file = select_file_with_autocomplete("Enter path to rule file")
 
     if not rule_file:
         print("No rule file specified.")
         return
-
-    # Expand user path
-    rule_file = os.path.expanduser(rule_file)
 
     if not os.path.isfile(rule_file):
         print(f"Error: Rule file not found: {rule_file}")
