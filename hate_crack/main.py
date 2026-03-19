@@ -677,6 +677,7 @@ hcatCombinationCount = 0
 hcatHybridCount = 0
 hcatExtraCount = 0
 hcatRecycleCount = 0
+hcatPermuteCount = 0
 hcatProcess: subprocess.Popen[Any] | None = None
 debug_mode = False
 
@@ -2222,6 +2223,45 @@ def hcatPrince(hcatHashType, hcatHashFile):
             prince_proc.kill()
 
 
+def hcatPermute(hcatHashType, hcatHashFile, wordlist):
+    global hcatProcess, hcatPermuteCount
+    permute_path = os.path.join(hate_path, "hashcat-utils", "bin", "permute.bin")
+    if not os.path.isfile(permute_path):
+        print(f"Error: permute.bin not found: {permute_path}")
+        return
+    if not os.path.isfile(wordlist):
+        print(f"Error: wordlist not found: {wordlist}")
+        return
+    hashcat_cmd = [
+        hcatBin,
+        "-m",
+        hcatHashType,
+        hcatHashFile,
+        "--session",
+        generate_session_id(),
+        "-o",
+        f"{hcatHashFile}.out",
+    ]
+    hashcat_cmd.extend(shlex.split(hcatTuning))
+    _append_potfile_arg(hashcat_cmd)
+    with open(wordlist, "rb") as wl_file:
+        permute_proc = subprocess.Popen(
+            [permute_path], stdin=wl_file, stdout=subprocess.PIPE
+        )
+        hcatProcess = subprocess.Popen(
+            hashcat_cmd, stdin=permute_proc.stdout
+        )
+        permute_proc.stdout.close()
+        try:
+            hcatProcess.wait()
+            permute_proc.wait()
+        except KeyboardInterrupt:
+            print(f"Killing PID {hcatProcess.pid}...")
+            hcatProcess.kill()
+            permute_proc.kill()
+    hcatPermuteCount = lineCount(f"{hcatHashFile}.out") - hcatHashCracked
+
+
 # OMEN model directory - writable location for trained model files.
 # The binaries live in {hate_path}/omen/ (possibly read-only after install),
 # but model output (createConfig, *.level) goes to ~/.hate_crack/omen/.
@@ -3329,6 +3369,10 @@ def omen_attack():
     return _attacks.omen_attack(_attack_ctx())
 
 
+def permute_crack():
+    return _attacks.permute_crack(_attack_ctx())
+
+
 # convert hex words for recycling
 def convert_hex(working_file):
     processed_words = []
@@ -3557,6 +3601,7 @@ def get_main_menu_items():
         ("16", "OMEN Attack"),
         ("17", "Ad-hoc Mask Attack"),
         ("18", "Markov Brute Force Attack"),
+        ("19", "Permutation Attack"),
         ("90", "Download rules from Hashmob.net"),
         ("91", "Analyze Hashcat Rules"),
         ("92", "Download wordlists from Hashmob.net"),
@@ -3594,6 +3639,7 @@ def get_main_menu_options():
         "16": omen_attack,
         "17": adhoc_mask_crack,
         "18": markov_brute_force,
+        "19": permute_crack,
         "90": lambda: download_hashmob_rules(rules_dir=rulesDirectory),
         "91": analyze_rules,
         "92": download_hashmob_wordlists,
