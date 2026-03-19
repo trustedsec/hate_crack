@@ -687,6 +687,7 @@ hcatNgramXCount = 0
 hcatHybridCount = 0
 hcatExtraCount = 0
 hcatRecycleCount = 0
+hcatGenerateRulesCount = 0
 hcatPermuteCount = 0
 hcatProcess: subprocess.Popen[Any] | None = None
 debug_mode = False
@@ -2734,6 +2735,51 @@ def hcatRecycle(hcatHashType, hcatHashFile, hcatNewPasswords):
                 hcatProcess.kill()
 
 
+def hcatGenerateRules(hcatHashType, hcatHashFile, rule_count, wordlist):
+    global hcatProcess, hcatGenerateRulesCount
+    generate_rules_path = os.path.join(
+        hate_path, "hashcat-utils", "bin", "generate-rules.bin"
+    )
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".rule", prefix="hate_crack_random_", delete=False
+    ) as rules_file:
+        rules_path = rules_file.name
+    try:
+        result = subprocess.run(
+            [generate_rules_path, str(rule_count)],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        with open(rules_path, "w") as f:
+            f.write(result.stdout)
+        cmd = [
+            hcatBin,
+            "-m",
+            hcatHashType,
+            hcatHashFile,
+            "--session",
+            generate_session_id(),
+            "-o",
+            f"{hcatHashFile}.out",
+            "-r",
+            rules_path,
+            wordlist,
+        ]
+        cmd.extend(shlex.split(hcatTuning))
+        _append_potfile_arg(cmd)
+        hcatProcess = subprocess.Popen(cmd)
+        try:
+            hcatProcess.wait()
+        except KeyboardInterrupt:
+            print(f"Killing PID {hcatProcess.pid}...")
+            hcatProcess.kill()
+    finally:
+        if os.path.exists(rules_path):
+            os.unlink(rules_path)
+    hcatGenerateRulesCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
+
+
 def check_potfile():
     print("Checking POT file for already cracked hashes...")
     _run_hashcat_show(hcatHashType, hcatHashFile, f"{hcatHashFile}.out")
@@ -3552,6 +3598,10 @@ def omen_attack():
     return _attacks.omen_attack(_attack_ctx())
 
 
+def generate_rules_crack():
+    return _attacks.generate_rules_crack(_attack_ctx())
+
+
 def permute_crack():
     return _attacks.permute_crack(_attack_ctx())
 
@@ -3786,6 +3836,7 @@ def get_main_menu_items():
         ("18", "Markov Brute Force Attack"),
         ("19", "N-gram Attack"),
         ("20", "Permutation Attack"),
+        ("21", "Random Rules Attack"),
         ("90", "Download rules from Hashmob.net"),
         ("91", "Analyze Hashcat Rules"),
         ("92", "Download wordlists from Hashmob.net"),
@@ -3825,6 +3876,7 @@ def get_main_menu_options():
         "18": markov_brute_force,
         "19": ngram_attack,
         "20": permute_crack,
+        "21": generate_rules_crack,
         "90": lambda: download_hashmob_rules(rules_dir=rulesDirectory),
         "91": analyze_rules,
         "92": download_hashmob_wordlists,

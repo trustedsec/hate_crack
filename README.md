@@ -618,7 +618,9 @@ All tests use mocked API calls, so they can run without connectivity to a Hashvi
   (16) OMEN Attack
   (17) Ad-hoc Mask Attack
   (18) Markov Brute Force Attack
-  (19) Permutation Attack
+  (19) N-gram Attack
+  (20) Permutation Attack
+  (21) Random Rules Attack
 
   (90) Download rules from Hashmob.net
   (91) Analyze Hashcat Rules
@@ -800,6 +802,14 @@ Generates all character permutations of each word in a targeted wordlist and pip
 * WARNING: Scales as N! per word - an 8-character word produces 40,320 permutations. Only practical for words up to ~8 characters.
 * Uses `permute.bin < wordlist | hashcat` pipeline pattern
 
+#### Random Rules Attack
+Generates a set of random hashcat mutation rules using `generate-rules.bin`, writes them to a temporary file, then runs hashcat against a chosen wordlist with those rules.
+
+* Prompts for rule count (default 65536)
+* Prompts for wordlist path with tab-completion and numbered selection
+* Temporary rules file is cleaned up after the run regardless of outcome
+* Useful when known rule sets are exhausted - explores random rule-space for additional cracks
+
 #### Download Rules from Hashmob.net
 Downloads the latest rule files from Hashmob.net's rule repository. These rules are curated and optimized for password cracking and can be used with the Quick Crack and Loopback Attack modes.
 
@@ -835,6 +845,7 @@ Interactive menu for downloading and managing wordlists from Weakpass.com via Bi
 ### Version History
 
 Version 2.0+
+  - Added Random Rules Attack (option 20) using `generate-rules.bin` to generate random mutation rules (#87)
   - Added Ad-hoc Mask Attack (option 17) for user-typed hashcat masks with optional custom character sets
   - Added Markov Brute Force Attack (option 18) using `hcstat2` statistical tables for password generation
   - Consolidated Combinator Attacks (formerly options 10/11/12) into interactive submenu under option 6

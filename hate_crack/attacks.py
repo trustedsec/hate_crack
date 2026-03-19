@@ -637,6 +637,84 @@ def markov_brute_force(ctx: Any) -> None:
     ctx.hcatMarkovBruteForce(ctx.hcatHashType, ctx.hcatHashFile, hcatMinLen, hcatMaxLen)
 
 
+def generate_rules_crack(ctx: Any) -> None:
+    print("\n" + "=" * 60)
+    print("RANDOM RULES ATTACK")
+    print("=" * 60)
+    print("Generates random hashcat mutation rules and applies them to a wordlist.")
+    print("Use when known rulesets are exhausted - a chaos mode for rule-space exploration.")
+    print("=" * 60)
+
+    raw_count = input("\nNumber of random rules to generate (65536): ").strip()
+    try:
+        rule_count = int(raw_count) if raw_count else 65536
+        if rule_count < 1:
+            print("[!] Rule count must be at least 1.")
+            return
+    except ValueError:
+        print("[!] Invalid rule count.")
+        return
+
+    wordlist_files = ctx.list_wordlist_files(ctx.hcatWordlists)
+    wordlist_entries = [
+        f"{i}. {file}" for i, file in enumerate(wordlist_files, start=1)
+    ]
+    max_entry_len = max((len(e) for e in wordlist_entries), default=24)
+    print_multicolumn_list(
+        "Wordlists",
+        wordlist_entries,
+        min_col_width=max_entry_len,
+        max_col_width=max_entry_len,
+    )
+
+    def path_completer(text, state):
+        base = ctx.hcatWordlists
+        if not text:
+            pattern = os.path.join(base, "*")
+            matches = glob.glob(pattern)
+        else:
+            text = os.path.expanduser(text)
+            if text.startswith(("/", "./", "../", "~")):
+                matches = glob.glob(text + "*")
+            else:
+                pattern = os.path.join(base, text + "*")
+                matches = glob.glob(pattern)
+        matches = [m + "/" if os.path.isdir(m) else m for m in matches]
+        try:
+            return matches[state]
+        except IndexError:
+            return None
+
+    _configure_readline(path_completer)
+
+    wordlist_choice = None
+    while wordlist_choice is None:
+        try:
+            raw_choice = input(
+                "\nEnter path of wordlist (tab to autocomplete).\n"
+                f"Press Enter for default wordlist directory [{ctx.hcatWordlists}]: "
+            )
+            raw_choice = raw_choice.strip()
+            if raw_choice == "":
+                wordlist_choice = ctx.hcatWordlists
+            elif raw_choice.isdigit() and 1 <= int(raw_choice) <= len(wordlist_files):
+                chosen = os.path.join(
+                    ctx.hcatWordlists, wordlist_files[int(raw_choice) - 1]
+                )
+                if os.path.exists(chosen):
+                    wordlist_choice = chosen
+                    print(wordlist_choice)
+            elif os.path.exists(raw_choice):
+                wordlist_choice = raw_choice
+            else:
+                print("[!] Wordlist not found. Please enter a valid path.")
+                return
+        except ValueError:
+            print("Please enter a valid number.")
+
+    ctx.hcatGenerateRules(ctx.hcatHashType, ctx.hcatHashFile, rule_count, wordlist_choice)
+
+
 def ngram_attack(ctx: Any) -> None:
     print("\n" + "=" * 60)
     print("NGRAM ATTACK")
