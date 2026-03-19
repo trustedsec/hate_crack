@@ -619,6 +619,8 @@ All tests use mocked API calls, so they can run without connectivity to a Hashvi
   (17) Ad-hoc Mask Attack
   (18) Markov Brute Force Attack
 
+  (81) Rule File Tools
+
   (90) Download rules from Hashmob.net
   (91) Analyze Hashcat Rules
   (92) Download wordlists from Hashmob.net
@@ -788,6 +790,15 @@ Generates password candidates using Markov chain statistical models. Similar to 
 * Uses `--increment` flag to test lengths in sequence
 * Markov table persists with hash file (filename.out.hcstat2) for fast subsequent runs
 * Faster than OMEN for general-purpose brute forcing
+
+#### Rule File Tools
+Preprocesses hashcat rule files using `cleanup-rules.bin` and `rules_optimize.bin` from hashcat-utils.
+
+* **Clean** - removes invalid syntax and duplicate rules using `cleanup-rules.bin`. Useful after combining rule files or downloading rules from external sources.
+* **Optimize** - consolidates redundant operations using `rules_optimize.bin`. Reduces rule file size and improves cracking speed.
+* **Clean and optimize** - runs both operations in sequence via a temporary file, then writes the final result.
+
+All three operations read from an input file and write to a separate output file (original is never modified).
 
 #### Download Rules from Hashmob.net
 Downloads the latest rule files from Hashmob.net's rule repository. These rules are curated and optimized for password cracking and can be used with the Quick Crack and Loopback Attack modes.
