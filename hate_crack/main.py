@@ -832,7 +832,7 @@ def _run_upgrade():
         raise SystemExit(1)
     repo_root = git_root_result.stdout.strip()
     result = subprocess.run(
-        "git pull && make clean && make && make install",
+        "git pull && make install",
         shell=True,
         cwd=repo_root,
     )
