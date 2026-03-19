@@ -16,11 +16,17 @@ import glob
 import random
 import re
 import readline
+import signal
 import subprocess
 import shlex
+import time
 import argparse
 import urllib.request
 import urllib.error
+import contextlib
+import gzip
+import lzma
+import tempfile
 from types import SimpleNamespace
 
 #!/usr/bin/env python3
@@ -34,18 +40,6 @@ try:
     import requests as requests  # type: ignore[import-untyped, no-redef] # noqa: F401
 
     REQUESTS_AVAILABLE = True
-except Exception:
-    pass
-
-# Disable HuggingFace telemetry before any HF-related imports
-os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
-
-HAS_ML_DEPS = False
-try:
-    import torch  # noqa: F401
-    import transformers  # noqa: F401
-
-    HAS_ML_DEPS = True
 except Exception:
     pass
 
@@ -79,6 +73,7 @@ from hate_crack.cli import (  # noqa: E402
     setup_logging,
 )
 from hate_crack import attacks as _attacks  # noqa: E402
+from hate_crack.menu import interactive_menu  # noqa: E402
 
 # Import HashcatRosetta for rule analysis functionality
 try:
@@ -86,6 +81,65 @@ try:
     from hashcat_rosetta.formatting import display_rule_opcodes_summary
 except ImportError:
     display_rule_opcodes_summary = None
+
+
+EXCLUDED_WORDLIST_EXTENSIONS = frozenset({".7z", ".torrent", ".out"})
+
+
+def list_wordlist_files(directory):
+    """Return sorted list of filenames in *directory*, excluding non-wordlist artifacts."""
+    return sorted(
+        f
+        for f in os.listdir(directory)
+        if f != ".DS_Store"
+        and not any(f.endswith(ext) for ext in EXCLUDED_WORDLIST_EXTENSIONS)
+    )
+
+
+DEFAULT_OPTIMIZED_ATTACKS = frozenset(
+    {
+        "hcatDictionary",
+        "hcatQuickDictionary",
+        "hcatBandrel",
+        "hcatGoodMeasure",
+        "hcatRecycle",
+        "hcatBruteForce",
+        "hcatTopMask",
+        "hcatPathwellBruteForce",
+        "hcatAdHocMask",
+        "hcatMarkovBruteForce",
+    }
+)
+
+_optimized_kernel_attacks = DEFAULT_OPTIMIZED_ATTACKS
+
+
+def _should_use_optimized_kernel(attack_name):
+    """Return True if *attack_name* should use hashcat's -O (optimized kernels)."""
+    return attack_name in _optimized_kernel_attacks
+
+
+def _insert_optimized_flag(cmd):
+    """Insert -O into *cmd* if not already present (from hcatTuning or elsewhere)."""
+    if "-O" not in cmd and "--optimized-kernel-enable" not in cmd:
+        cmd.append("-O")
+
+
+_DOUBLE_INTERRUPT_WINDOW = 2.0
+_last_interrupt_time: float = 0.0
+
+
+class DoubleInterrupt(Exception):
+    """Raised when Ctrl+C is pressed twice within _DOUBLE_INTERRUPT_WINDOW seconds."""
+
+
+def _sigint_handler(signum: int, frame: Any) -> None:
+    global _last_interrupt_time
+    now = time.time()
+    if now - _last_interrupt_time <= _DOUBLE_INTERRUPT_WINDOW:
+        raise DoubleInterrupt()
+    _last_interrupt_time = now
+    raise KeyboardInterrupt()
 
 
 def _has_hate_crack_assets(path):
@@ -102,6 +156,8 @@ def _candidate_roots():
     candidates = [
         cwd,
         os.path.abspath(os.path.join(cwd, os.pardir)),
+        _repo_root,
+        _package_path,
         "/opt/hate_crack",
         "/usr/local/share/hate_crack",
     ]
@@ -122,7 +178,9 @@ def _resolve_config_destination():
     for candidate in _candidate_roots():
         if _has_hate_crack_assets(candidate):
             return candidate
-    return os.getcwd()
+    fallback = os.path.join(os.path.expanduser("~"), ".hate_crack")
+    os.makedirs(fallback, exist_ok=True)
+    return fallback
 
 
 def _ensure_hashfile_in_cwd(hashfile_path):
@@ -163,6 +221,13 @@ elif os.path.isdir(os.path.join(_repo_root, "hashcat-utils")):
     hate_path = _repo_root
 else:
     hate_path = _package_path
+# omen may not be vendored into hate_path (e.g. dev checkout with only some submodules built).
+# Check hate_path first, then fall back to repo root.
+_omen_dir = (
+    os.path.join(hate_path, "omen")
+    if os.path.isdir(os.path.join(hate_path, "omen"))
+    else os.path.join(_repo_root, "omen")
+)
 _config_path = _resolve_config_path()
 if not _config_path:
     print("Initializing config.json from config.json.example")
@@ -174,35 +239,44 @@ if not _config_path:
     print(f"Config destination: {dst_config}")
     _config_path = dst_config
 
-with open(_config_path) as config:
-    config_parser = json.load(config)
+try:
+    with open(_config_path) as config:
+        config_parser = json.load(config)
+except json.JSONDecodeError as e:
+    print("\nError: config.json contains invalid JSON")
+    print(f"  File: {_config_path}")
+    print(f"  Line {e.lineno}, column {e.colno}: {e.msg}")
+    print("\nTo fix:")
+    print("  1. Edit the file and fix the JSON syntax, or")
+    print("  2. Delete the file to regenerate from defaults")
+    sys.exit(1)
 
 config_dir = os.path.dirname(_config_path)
 defaults_path = os.path.join(config_dir, "config.json.example")
 if not os.path.isfile(defaults_path):
     defaults_path = os.path.join(_package_path, "config.json.example")
-with open(defaults_path) as defaults:
-    default_config = json.load(defaults)
-
 try:
-    hashview_url = config_parser["hashview_url"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    hashview_url = default_config.get("hashview_url", "https://localhost:8443")
+    with open(defaults_path) as defaults:
+        default_config = json.load(defaults)
+except json.JSONDecodeError:
+    print("\nError: config.json.example contains invalid JSON")
+    print(f"  File: {defaults_path}")
+    print("  This is a package installation issue. Try reinstalling hate_crack.")
+    sys.exit(1)
 
-try:
-    hashview_api_key = config_parser["hashview_api_key"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    hashview_api_key = default_config.get("hashview_api_key", "")
+_missing_keys = []
+for _key, _value in default_config.items():
+    if _key not in config_parser:
+        config_parser[_key] = _value
+        _missing_keys.append(_key)
+if _missing_keys:
+    with open(_config_path, "w") as _cf:
+        json.dump(config_parser, _cf, indent=2)
+    print(f"[config] Added {len(_missing_keys)} missing key(s) to {_config_path}")
+    print(f"         Keys: {', '.join(_missing_keys)}")
+
+hashview_url = config_parser["hashview_url"]
+hashview_api_key = config_parser["hashview_api_key"]
 
 SKIP_INIT = os.environ.get("HATE_CRACK_SKIP_INIT") == "1"
 
@@ -254,9 +328,14 @@ if not hcatPath:
     _which = shutil.which(hcatBin)
     if _which:
         hcatPath = os.path.dirname(os.path.realpath(_which))
+# Fall back to the vendored hashcat binary if not found via PATH or hcatPath
+if shutil.which(hcatBin) is None and not os.path.isfile(hcatBin):
+    _vendored_hcat = os.path.join(hate_path, "hashcat", "hashcat")
+    if os.path.isfile(_vendored_hcat) and os.access(_vendored_hcat, os.X_OK):
+        hcatBin = _vendored_hcat
+        hcatPath = os.path.join(hate_path, "hashcat")
 hcatTuning = config_parser["hcatTuning"]
 hcatWordlists = config_parser["hcatWordlists"]
-hcatOptimizedWordlists = config_parser["hcatOptimizedWordlists"]
 hcatRules: list[str] = []
 
 
@@ -264,7 +343,11 @@ hcatRules: list[str] = []
 # Default: use ~/.hashcat/hashcat.potfile (explicitly passed to hashcat).
 # Disable override with config `hcatPotfilePath: ""` or CLI `--no-potfile-path`.
 if "hcatPotfilePath" not in config_parser:
-    hcatPotfilePath = os.path.expanduser("~/.hashcat/hashcat.potfile")
+    _default_pot = os.path.expanduser("~/.hashcat/hashcat.potfile")
+    if os.path.isfile(_default_pot) or os.path.isdir(os.path.dirname(_default_pot)):
+        hcatPotfilePath = _default_pot
+    else:
+        hcatPotfilePath = os.path.join(os.getcwd(), "hashcat.potfile")
 else:
     _raw_pot = (config_parser.get("hcatPotfilePath") or "").strip()
     if _raw_pot == "":
@@ -276,22 +359,22 @@ else:
 
 
 def _append_potfile_arg(cmd, *, use_potfile_path=True, potfile_path=None):
-    if not use_potfile_path:
-        return
-    pot = potfile_path or hcatPotfilePath
-    if pot:
-        cmd.append(f"--potfile-path={pot}")
+    if use_potfile_path:
+        pot = potfile_path or hcatPotfilePath
+        if pot:
+            try:
+                pot_dir = os.path.dirname(pot)
+                if pot_dir:
+                    os.makedirs(pot_dir, exist_ok=True)
+                if not os.path.exists(pot):
+                    open(pot, "a").close()
+            except OSError:
+                pass
+            cmd.append(f"--potfile-path={pot}")
+    _debug_cmd(cmd)
 
 
-try:
-    rulesDirectory = config_parser["rules_directory"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    rulesDirectory = default_config.get("rules_directory")
+rulesDirectory = config_parser["rules_directory"]
 if not rulesDirectory:
     rulesDirectory = (
         os.path.join(hcatPath, "rules")
@@ -302,247 +385,50 @@ rulesDirectory = os.path.expanduser(rulesDirectory)
 if not os.path.isabs(rulesDirectory):
     rulesDirectory = os.path.join(hate_path, rulesDirectory)
 
-# Normalize wordlist directories
+# Normalize wordlist directory
 hcatWordlists = os.path.expanduser(hcatWordlists)
 if not os.path.isabs(hcatWordlists):
-    hcatWordlists = os.path.join(hate_path, hcatWordlists)
-hcatOptimizedWordlists = os.path.expanduser(hcatOptimizedWordlists)
-if not os.path.isabs(hcatOptimizedWordlists):
-    hcatOptimizedWordlists = os.path.join(hate_path, hcatOptimizedWordlists)
+    hcatWordlists = os.path.normpath(os.path.join(hate_path, hcatWordlists))
 if not os.path.isdir(hcatWordlists):
     fallback_wordlists = os.path.join(hate_path, "wordlists")
     if os.path.isdir(fallback_wordlists):
         print(f"[!] hcatWordlists directory not found: {hcatWordlists}")
         print(f"[!] Falling back to {fallback_wordlists}")
         hcatWordlists = fallback_wordlists
-if not os.path.isdir(hcatOptimizedWordlists):
-    fallback_optimized = os.path.join(hate_path, "optimized_wordlists")
-    if os.path.isdir(fallback_optimized):
-        print(
-            f"[!] hcatOptimizedWordlists directory not found: {hcatOptimizedWordlists}"
-        )
-        print(f"[!] Falling back to {fallback_optimized}")
-        hcatOptimizedWordlists = fallback_optimized
 
-try:
-    maxruntime = config_parser["bandrelmaxruntime"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    maxruntime = default_config["bandrelmaxruntime"]
+maxruntime = config_parser["bandrelmaxruntime"]
+bandrelbasewords = config_parser["bandrel_common_basedwords"]
+pipal_count = config_parser["pipal_count"]
+pipalPath = config_parser["pipalPath"]
 
-try:
-    bandrelbasewords = config_parser["bandrel_common_basedwords"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    bandrelbasewords = default_config["bandrel_common_basedwords"]
+hcatDictionaryWordlist = config_parser["hcatDictionaryWordlist"]
+hcatHybridlist = config_parser["hcatHybridlist"]
+hcatCombinationWordlist = config_parser["hcatCombinationWordlist"]
+hcatCombinator3Wordlist = config_parser.get("hcatCombinator3Wordlist", ["rockyou.txt", "rockyou.txt", "rockyou.txt"])
+hcatCombinatorXWordlist = config_parser.get("hcatCombinatorXWordlist", ["rockyou.txt", "rockyou.txt"])
+hcatMiddleCombinatorMasks = config_parser["hcatMiddleCombinatorMasks"]
+hcatMiddleBaseList = config_parser["hcatMiddleBaseList"]
+hcatThoroughCombinatorMasks = config_parser["hcatThoroughCombinatorMasks"]
+hcatThoroughBaseList = config_parser["hcatThoroughBaseList"]
+hcatPrinceBaseList = config_parser["hcatPrinceBaseList"]
+hcatGoodMeasureBaseList = config_parser["hcatGoodMeasureBaseList"]
 
-try:
-    pipal_count = config_parser["pipal_count"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    pipal_count = default_config["pipal_count"]
-
-try:
-    pipalPath = config_parser["pipalPath"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    pipalPath = default_config["pipalPath"]
-
-try:
-    hcatDictionaryWordlist = config_parser["hcatDictionaryWordlist"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    hcatDictionaryWordlist = default_config["hcatDictionaryWordlist"]
-try:
-    hcatHybridlist = config_parser["hcatHybridlist"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    hcatHybridlist = default_config[e.args[0]]
-try:
-    hcatCombinationWordlist = config_parser["hcatCombinationWordlist"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    hcatCombinationWordlist = default_config[e.args[0]]
-try:
-    hcatMiddleCombinatorMasks = config_parser["hcatMiddleCombinatorMasks"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    hcatMiddleCombinatorMasks = default_config[e.args[0]]
-try:
-    hcatMiddleBaseList = config_parser["hcatMiddleBaseList"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    hcatMiddleBaseList = default_config[e.args[0]]
-try:
-    hcatThoroughCombinatorMasks = config_parser["hcatThoroughCombinatorMasks"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    hcatThoroughCombinatorMasks = default_config[e.args[0]]
-try:
-    hcatThoroughBaseList = config_parser["hcatThoroughBaseList"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    hcatThoroughBaseList = default_config[e.args[0]]
-try:
-    hcatPrinceBaseList = config_parser["hcatPrinceBaseList"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    hcatPrinceBaseList = default_config[e.args[0]]
-try:
-    hcatGoodMeasureBaseList = config_parser["hcatGoodMeasureBaseList"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    hcatGoodMeasureBaseList = default_config[e.args[0]]
-
-try:
-    hcatDebugLogPath = config_parser.get("hcatDebugLogPath", "./hashcat_debug")
-    # Expand user home directory if present
-    hcatDebugLogPath = os.path.expanduser(hcatDebugLogPath)
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    hcatDebugLogPath = os.path.expanduser(
-        default_config.get("hcatDebugLogPath", "./hashcat_debug")
-    )
+hcatDebugLogPath = os.path.expanduser(config_parser["hcatDebugLogPath"])
 
 ollamaUrl = "http://" + os.environ.get("OLLAMA_HOST", "localhost:11434")
-try:
-    ollamaModel = config_parser["ollamaModel"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    ollamaModel = default_config.get("ollamaModel", "mistral")
-try:
-    ollamaNumCtx = int(config_parser["ollamaNumCtx"])
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    ollamaNumCtx = int(default_config.get("ollamaNumCtx", 2048))
+ollamaModel = config_parser.get("ollamaModel", "mistral")
+ollamaNumCtx = int(config_parser.get("ollamaNumCtx", 2048))
+
+omenTrainingList = config_parser.get("omenTrainingList", "rockyou.txt")
+omenMaxCandidates = int(config_parser.get("omenMaxCandidates", 1000000))
 
 try:
-    omenTrainingList = config_parser["omenTrainingList"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    omenTrainingList = default_config.get("omenTrainingList", "rockyou.txt")
-try:
-    omenMaxCandidates = int(config_parser["omenMaxCandidates"])
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    omenMaxCandidates = int(default_config.get("omenMaxCandidates", 1000000))
-try:
-    passgptModel = config_parser["passgptModel"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    passgptModel = default_config.get("passgptModel", "javirandor/passgpt-10characters")
-try:
-    passgptMaxCandidates = int(config_parser["passgptMaxCandidates"])
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    passgptMaxCandidates = int(default_config.get("passgptMaxCandidates", 1000000))
-try:
-    passgptBatchSize = int(config_parser["passgptBatchSize"])
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    passgptBatchSize = int(default_config.get("passgptBatchSize", 1024))
-try:
-    passgptTrainingList = config_parser["passgptTrainingList"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    passgptTrainingList = default_config.get("passgptTrainingList", "rockyou.txt")
-try:
-    check_for_updates_enabled = config_parser["check_for_updates"]
-except KeyError as e:
-    print(
-        "{0} is not defined in config.json using defaults from config.json.example".format(
-            e
-        )
-    )
-    check_for_updates_enabled = default_config.get("check_for_updates", True)
+    _cfg_optimized = config_parser["optimizedKernelAttacks"]
+    if isinstance(_cfg_optimized, list):
+        _optimized_kernel_attacks = frozenset(_cfg_optimized)
+except KeyError:
+    pass
+check_for_updates_enabled = config_parser.get("check_for_updates", True)
 
 hcatExpanderBin = "expander.bin"
 hcatCombinatorBin = "combinator.bin"
@@ -677,6 +563,8 @@ hcatDictionaryWordlist = _normalize_wordlist_setting(
 hcatCombinationWordlist = _normalize_wordlist_setting(
     hcatCombinationWordlist, wordlists_dir
 )
+hcatCombinator3Wordlist = _normalize_wordlist_setting(hcatCombinator3Wordlist, wordlists_dir)
+hcatCombinatorXWordlist = _normalize_wordlist_setting(hcatCombinatorXWordlist, wordlists_dir)
 hcatHybridlist = _normalize_wordlist_setting(hcatHybridlist, wordlists_dir)
 hcatMiddleBaseList = _normalize_wordlist_setting(hcatMiddleBaseList, wordlists_dir)
 hcatThoroughBaseList = _normalize_wordlist_setting(hcatThoroughBaseList, wordlists_dir)
@@ -685,7 +573,6 @@ hcatGoodMeasureBaseList = _normalize_wordlist_setting(
 )
 hcatPrinceBaseList = _normalize_wordlist_setting(hcatPrinceBaseList, wordlists_dir)
 omenTrainingList = _normalize_wordlist_setting(omenTrainingList, wordlists_dir)
-passgptTrainingList = _normalize_wordlist_setting(passgptTrainingList, wordlists_dir)
 if not SKIP_INIT:
     # Verify hashcat binary is available
     # hcatBin should be in PATH or be an absolute path (resolved from hcatPath + hcatBin if configured)
@@ -763,17 +650,17 @@ if not SKIP_INIT:
             print("LLM attacks will not be available.")
 
         # Verify OMEN binaries (optional, for OMEN attack)
-        omen_create_path = os.path.join(hate_path, "omen", hcatOmenCreateBin)
-        omen_enum_path = os.path.join(hate_path, "omen", hcatOmenEnumBin)
+        omen_create_path = os.path.join(_omen_dir, hcatOmenCreateBin)
+        omen_enum_path = os.path.join(_omen_dir, hcatOmenEnumBin)
         try:
             ensure_binary(
                 omen_create_path,
-                build_dir=os.path.join(hate_path, "omen"),
+                build_dir=_omen_dir,
                 name="OMEN createNG",
             )
             ensure_binary(
                 omen_enum_path,
-                build_dir=os.path.join(hate_path, "omen"),
+                build_dir=_omen_dir,
                 name="OMEN enumNG",
             )
         except SystemExit:
@@ -794,11 +681,23 @@ hcatDictionaryCount = 0
 hcatMaskCount = 0
 hcatFingerprintCount = 0
 hcatCombinationCount = 0
+hcatCombinator3Count = 0
+hcatCombinatorXCount = 0
+hcatNgramXCount = 0
 hcatHybridCount = 0
 hcatExtraCount = 0
 hcatRecycleCount = 0
+hcatGenerateRulesCount = 0
+hcatPermuteCount = 0
 hcatProcess: subprocess.Popen[Any] | None = None
 debug_mode = False
+
+
+def _open_wordlist(path):
+    """Open a wordlist file, transparently decompressing gzip if the path ends with .gz."""
+    if path.endswith(".gz"):
+        return gzip.open(path, "rb")
+    return open(path, "rb")
 
 
 def _format_cmd(cmd):
@@ -809,6 +708,37 @@ def _format_cmd(cmd):
 def _debug_cmd(cmd):
     if debug_mode:
         print(f"[DEBUG] hashcat cmd: {_format_cmd(cmd)}")
+
+
+def _is_gzipped(path: str) -> bool:
+    try:
+        with open(path, "rb") as f:
+            return f.read(2) == b"\x1f\x8b"
+    except OSError:
+        return False
+
+
+@contextlib.contextmanager
+def _wordlist_path(path: str):
+    """Yield an uncompressed path for path.
+
+    If the file is gzip-compressed, decompress to a temp file and clean up on
+    exit. Otherwise yield the original path unchanged.
+    """
+    if _is_gzipped(path):
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as tmp:
+            tmp_name = tmp.name
+            with gzip.open(path, "rb") as gz_in:
+                shutil.copyfileobj(gz_in, tmp)
+        try:
+            yield tmp_name
+        finally:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+    else:
+        yield path
 
 
 def _add_debug_mode_for_rules(cmd):
@@ -929,24 +859,22 @@ def select_file_with_autocomplete(
     def path_completer(text, state):
         """Tab completion function for file paths"""
         if not text:
-            text = "./"
-
-        # Expand ~ to home directory
-        text = os.path.expanduser(text)
-
-        # Handle both absolute and relative paths
-        if (
-            text.startswith("/")
-            or text.startswith("./")
-            or text.startswith("../")
-            or text.startswith("~")
-        ):
-            matches = glob.glob(text + "*")
+            if base_dir:
+                pattern = os.path.join(base_dir, "*")
+                matches = glob.glob(pattern)
+            else:
+                matches = glob.glob("./*")
         else:
-            matches = glob.glob("./" + text + "*")
-            matches = [m[2:] if m.startswith("./") else m for m in matches]
+            text = os.path.expanduser(text)
+            if text.startswith(("/", "./", "../", "~")):
+                matches = glob.glob(text + "*")
+            elif base_dir:
+                pattern = os.path.join(base_dir, text + "*")
+                matches = glob.glob(pattern)
+            else:
+                matches = glob.glob("./" + text + "*")
+                matches = [m[2:] if m.startswith("./") else m for m in matches]
 
-        # Add trailing slash for directories
         matches = [m + "/" if os.path.isdir(m) else m for m in matches]
 
         try:
@@ -1181,6 +1109,8 @@ def hcatBruteForce(hcatHashType, hcatHashFile, hcatMinLen, hcatMaxLen):
         "3",
         "?a?a?a?a?a?a?a?a?a?a?a?a?a?a",
     ]
+    if _should_use_optimized_kernel("hcatBruteForce"):
+        _insert_optimized_flag(cmd)
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
     hcatProcess = subprocess.Popen(cmd)
@@ -1198,9 +1128,11 @@ def hcatDictionary(hcatHashType, hcatHashFile):
     global hcatDictionaryCount
     global hcatProcess
     rule_best66 = get_rule_path("best66.rule")
-    optimized_lists = sorted(glob.glob(os.path.join(hcatOptimizedWordlists, "*")))
+    optimized_lists = [
+        os.path.join(hcatWordlists, f) for f in list_wordlist_files(hcatWordlists)
+    ]
     if not optimized_lists:
-        optimized_lists = [os.path.join(hcatOptimizedWordlists, "*")]
+        optimized_lists = [os.path.join(hcatWordlists, "*")]
     cmd = [
         hcatBin,
         "-m",
@@ -1213,6 +1145,8 @@ def hcatDictionary(hcatHashType, hcatHashFile):
     ]
     cmd.extend(optimized_lists)
     cmd.extend(["-r", rule_best66])
+    if _should_use_optimized_kernel("hcatDictionary"):
+        _insert_optimized_flag(cmd)
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
     cmd = _add_debug_mode_for_rules(cmd)
@@ -1304,6 +1238,8 @@ def hcatQuickDictionary(
         cmd.append("--loopback")
     if hcatChains:
         cmd.extend(shlex.split(hcatChains))
+    if _should_use_optimized_kernel("hcatQuickDictionary"):
+        _insert_optimized_flag(cmd)
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(
         cmd, use_potfile_path=use_potfile_path, potfile_path=potfile_path
@@ -1373,6 +1309,8 @@ def hcatTopMask(hcatHashType, hcatHashFile, hcatTargetTime):
         "3",
         f"{hcatHashFile}.hcmask",
     ]
+    if _should_use_optimized_kernel("hcatTopMask"):
+        _insert_optimized_flag(cmd)
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
     hcatProcess = subprocess.Popen(cmd)
@@ -1527,6 +1465,125 @@ def hcatCombination(hcatHashType, hcatHashFile, wordlists=None):
     hcatCombinationCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
 
+# Combinator3 Attack - 3-way combination via combinator3.bin piped to hashcat
+def hcatCombinator3(hcatHashType, hcatHashFile, wordlists):
+    global hcatCombinator3Count
+    global hcatProcess
+
+    if len(wordlists) < 3:
+        print("[!] Combinator3 attack requires exactly 3 wordlists.")
+        return
+
+    combinator3_bin = os.path.join(hate_path, "hashcat-utils/bin/combinator3.bin")
+    with contextlib.ExitStack() as stack:
+        resolved = [stack.enter_context(_wordlist_path(w)) for w in wordlists[:3]]
+        generator_cmd = [combinator3_bin] + resolved
+        hashcat_cmd = [
+            hcatBin,
+            "-m",
+            hcatHashType,
+            hcatHashFile,
+            "--session",
+            generate_session_id(),
+            "-o",
+            f"{hcatHashFile}.out",
+        ]
+        hashcat_cmd.extend(shlex.split(hcatTuning))
+        _append_potfile_arg(hashcat_cmd)
+        generator_proc = subprocess.Popen(generator_cmd, stdout=subprocess.PIPE)
+        assert generator_proc.stdout is not None
+        hcatProcess = subprocess.Popen(hashcat_cmd, stdin=generator_proc.stdout)
+        generator_proc.stdout.close()
+        try:
+            hcatProcess.wait()
+            generator_proc.wait()
+        except KeyboardInterrupt:
+            print("Killing PID {0}...".format(str(hcatProcess.pid)))
+            hcatProcess.kill()
+            generator_proc.kill()
+
+    hcatCombinator3Count = lineCount(hcatHashFile + ".out") - hcatHashCracked
+
+
+# CombinatorX Attack - N-way combination (2-8 wordlists) via combinatorX.bin piped to hashcat
+def hcatCombinatorX(hcatHashType, hcatHashFile, wordlists, separator=None):
+    global hcatCombinatorXCount
+    global hcatProcess
+
+    if len(wordlists) < 2:
+        print("[!] CombinatorX attack requires at least 2 wordlists.")
+        return
+
+    combinatorX_bin = os.path.join(hate_path, "hashcat-utils/bin/combinatorX.bin")
+    with contextlib.ExitStack() as stack:
+        resolved = [stack.enter_context(_wordlist_path(w)) for w in wordlists[:8]]
+        generator_cmd = [combinatorX_bin]
+        for i, f in enumerate(resolved, start=1):
+            generator_cmd += [f"--file{i}", f]
+        if separator:
+            generator_cmd += ["--sepFill", separator]
+        hashcat_cmd = [
+            hcatBin,
+            "-m",
+            hcatHashType,
+            hcatHashFile,
+            "--session",
+            generate_session_id(),
+            "-o",
+            f"{hcatHashFile}.out",
+        ]
+        hashcat_cmd.extend(shlex.split(hcatTuning))
+        _append_potfile_arg(hashcat_cmd)
+        generator_proc = subprocess.Popen(generator_cmd, stdout=subprocess.PIPE)
+        assert generator_proc.stdout is not None
+        hcatProcess = subprocess.Popen(hashcat_cmd, stdin=generator_proc.stdout)
+        generator_proc.stdout.close()
+        try:
+            hcatProcess.wait()
+            generator_proc.wait()
+        except KeyboardInterrupt:
+            print("Killing PID {0}...".format(str(hcatProcess.pid)))
+            hcatProcess.kill()
+            generator_proc.kill()
+
+    hcatCombinatorXCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
+
+
+# NgramX Attack - n-gram candidates from corpus file piped to hashcat
+def hcatNgramX(hcatHashType, hcatHashFile, corpus, group_size=3):
+    global hcatNgramXCount
+    global hcatProcess
+
+    ngramX_bin = os.path.join(hate_path, "hashcat-utils/bin/ngramX.bin")
+    with _wordlist_path(corpus) as resolved_corpus:
+        generator_cmd = [ngramX_bin, resolved_corpus, str(group_size)]
+        hashcat_cmd = [
+            hcatBin,
+            "-m",
+            hcatHashType,
+            hcatHashFile,
+            "--session",
+            generate_session_id(),
+            "-o",
+            f"{hcatHashFile}.out",
+        ]
+        hashcat_cmd.extend(shlex.split(hcatTuning))
+        _append_potfile_arg(hashcat_cmd)
+        generator_proc = subprocess.Popen(generator_cmd, stdout=subprocess.PIPE)
+        assert generator_proc.stdout is not None
+        hcatProcess = subprocess.Popen(hashcat_cmd, stdin=generator_proc.stdout)
+        generator_proc.stdout.close()
+        try:
+            hcatProcess.wait()
+            generator_proc.wait()
+        except KeyboardInterrupt:
+            print("Killing PID {0}...".format(str(hcatProcess.pid)))
+            hcatProcess.kill()
+            generator_proc.kill()
+
+    hcatNgramXCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
+
+
 # Hybrid Attack
 def hcatHybrid(hcatHashType, hcatHashFile, wordlists=None):
     global hcatHybridCount
@@ -1589,10 +1646,11 @@ def hcatYoloCombination(hcatHashType, hcatHashFile):
     global hcatProcess
     try:
         while 1:
-            hcatLeft = random.choice(os.listdir(hcatOptimizedWordlists))
-            hcatRight = random.choice(os.listdir(hcatOptimizedWordlists))
-            left_path = os.path.join(hcatOptimizedWordlists, hcatLeft)
-            right_path = os.path.join(hcatOptimizedWordlists, hcatRight)
+            _yolo_wordlists = list_wordlist_files(hcatWordlists)
+            hcatLeft = random.choice(_yolo_wordlists)
+            hcatRight = random.choice(_yolo_wordlists)
+            left_path = os.path.join(hcatWordlists, hcatLeft)
+            right_path = os.path.join(hcatWordlists, hcatRight)
             cmd = [
                 hcatBin,
                 "-m",
@@ -1656,6 +1714,8 @@ def hcatBandrel(hcatHashType, hcatHashFile):
             hcatHashFile,
             mask2.strip(),
         ]
+        if _should_use_optimized_kernel("hcatBandrel"):
+            _insert_optimized_flag(cmd)
         cmd.extend(shlex.split(hcatTuning))
         _append_potfile_arg(cmd)
         hcatProcess = subprocess.Popen(cmd)
@@ -1699,6 +1759,8 @@ def hcatBandrel(hcatHashType, hcatHashFile):
             hcatHashFile,
             mask2.strip(),
         ]
+        if _should_use_optimized_kernel("hcatBandrel"):
+            _insert_optimized_flag(cmd)
         cmd.extend(shlex.split(hcatTuning))
         _append_potfile_arg(cmd)
         hcatProcess = subprocess.Popen(cmd)
@@ -2140,6 +2202,8 @@ def hcatPathwellBruteForce(hcatHashType, hcatHashFile):
         "3",
         os.path.join(hate_path, "masks", "pathwell.hcmask"),
     ]
+    if _should_use_optimized_kernel("hcatPathwellBruteForce"):
+        _insert_optimized_flag(cmd)
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
     hcatProcess = subprocess.Popen(cmd)
@@ -2148,6 +2212,189 @@ def hcatPathwellBruteForce(hcatHashType, hcatHashFile):
     except KeyboardInterrupt:
         print("Killing PID {0}...".format(str(hcatProcess.pid)))
         hcatProcess.kill()
+
+
+def hcatAdHocMask(hcatHashType, hcatHashFile, mask, custom_charsets=""):
+    global hcatProcess
+    cmd = [
+        hcatBin,
+        "-m",
+        hcatHashType,
+        hcatHashFile,
+        "--session",
+        generate_session_id(),
+        "-o",
+        f"{hcatHashFile}.out",
+        "-a",
+        "3",
+    ]
+    if custom_charsets:
+        cmd.extend(shlex.split(custom_charsets))
+    cmd.append(mask)
+    if _should_use_optimized_kernel("hcatAdHocMask"):
+        _insert_optimized_flag(cmd)
+    cmd.extend(shlex.split(hcatTuning))
+    _append_potfile_arg(cmd)
+    hcatProcess = subprocess.Popen(cmd)
+    try:
+        hcatProcess.wait()
+    except KeyboardInterrupt:
+        print("Killing PID {0}...".format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+
+
+def hcatMarkovTrain(source_file, hcatHashFile):
+    global hcatProcess
+    hcstat2gen_bin = os.path.join(hate_path, "hashcat-utils", "bin", hcatHcstat2genBin)
+    hcstat2_path = f"{hcatHashFile}.hcstat2"
+    print(f"[*] Generating markov table -> {hcstat2_path}")
+
+    # Verify hcstat2gen.bin exists
+    if not os.path.isfile(hcstat2gen_bin):
+        print(f"[!] hcstat2gen.bin not found at {hcstat2gen_bin}")
+        return False
+
+    # Verify source file is readable
+    if not os.path.isfile(source_file):
+        print(f"[!] Source file not found: {source_file}")
+        return False
+
+    try:
+        with _open_wordlist(source_file) as stdin_f:
+            hcatProcess = subprocess.Popen(
+                [hcstat2gen_bin, hcstat2_path], stdin=stdin_f, stderr=subprocess.PIPE
+            )
+            try:
+                hcatProcess.wait(timeout=300)
+                if hcatProcess.returncode != 0:
+                    _, stderr_data = hcatProcess.communicate()
+                    err_msg = stderr_data.decode("utf-8", errors="replace") if stderr_data else "Unknown error"
+                    print(f"[!] hcstat2gen.bin failed with code {hcatProcess.returncode}: {err_msg}")
+                    return False
+            except subprocess.TimeoutExpired:
+                print("[!] hcstat2gen.bin timed out after 300 seconds")
+                hcatProcess.kill()
+                return False
+            except KeyboardInterrupt:
+                print("Killing PID {0}...".format(str(hcatProcess.pid)))
+                hcatProcess.kill()
+                return False
+    except Exception as e:
+        print(f"[!] Failed to run hcstat2gen.bin: {e}")
+        return False
+
+    # Verify output file was created
+    if not os.path.isfile(hcstat2_path):
+        print(f"[!] Output file not created: {hcstat2_path}")
+        return False
+    if os.path.getsize(hcstat2_path) == 0:
+        print(f"[!] Output file is empty: {hcstat2_path}")
+        return False
+
+    # Compress the hcstat2 file with LZMA2 (hashcat requires compressed format)
+    try:
+        with open(hcstat2_path, "rb") as f_in:
+            uncompressed_data = f_in.read()
+        # Use raw LZMA2 stream (not XZ container) - hashcat decodes with Lzma2Decode()
+        compressed_data = lzma.compress(
+            uncompressed_data,
+            format=lzma.FORMAT_RAW,
+            filters=[{"id": lzma.FILTER_LZMA2, "preset": 9}],
+        )
+        with open(hcstat2_path, "wb") as f_out:
+            f_out.write(compressed_data)
+    except Exception as e:
+        print(f"[!] Failed to compress hcstat2 file: {e}")
+        return False
+
+    return True
+
+
+def hcatMarkovBruteForce(hcatHashType, hcatHashFile, hcatMinLen, hcatMaxLen):
+    global hcatProcess
+    hcstat2_path = f"{hcatHashFile}.hcstat2"
+    cmd = [
+        hcatBin,
+        "-m",
+        hcatHashType,
+        hcatHashFile,
+        "--session",
+        generate_session_id(),
+        "-o",
+        f"{hcatHashFile}.out",
+        "--markov-hcstat2",
+        hcstat2_path,
+        "--increment",
+        f"--increment-min={hcatMinLen}",
+        f"--increment-max={hcatMaxLen}",
+        "-a",
+        "3",
+        "?a?a?a?a?a?a?a?a?a?a?a?a?a?a",
+    ]
+    if _should_use_optimized_kernel("hcatMarkovBruteForce"):
+        _insert_optimized_flag(cmd)
+    cmd.extend(shlex.split(hcatTuning))
+    _append_potfile_arg(cmd)
+    hcatProcess = subprocess.Popen(cmd)
+    try:
+        hcatProcess.wait()
+    except KeyboardInterrupt:
+        print("Killing PID {0}...".format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+
+
+# Combipow Passphrase Attack
+hcatCombipowCount = 0
+
+
+def hcatCombipow(hcatHashType, hcatHashFile, wordlist, use_space_sep=True):
+    global hcatProcess, hcatCombipowCount
+    hcatCombipowCount += 1
+    combipow_bin = os.path.join(hate_path, "hashcat-utils/bin/combipow.bin")
+
+    tmp_file = None
+    if wordlist.endswith(".gz"):
+        tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".txt")
+        with gzip.open(wordlist, "rb") as gz_in:
+            tmp_file.write(gz_in.read())
+        tmp_file.close()
+        wordlist_path = tmp_file.name
+    else:
+        wordlist_path = wordlist
+
+    generator_cmd = [combipow_bin]
+    if use_space_sep:
+        generator_cmd.append("-s")
+    generator_cmd.append(wordlist_path)
+    session_name = re.sub(
+        r"[^a-zA-Z0-9_-]", "_", os.path.splitext(os.path.basename(hcatHashFile))[0]
+    )
+    hashcat_cmd = [
+        hcatBin,
+        "--session",
+        session_name,
+        "-m",
+        hcatHashType,
+        hcatHashFile,
+        "-o",
+        f"{hcatHashFile}.out",
+    ]
+    hashcat_cmd.extend(shlex.split(hcatTuning))
+    _append_potfile_arg(hashcat_cmd)
+    generator_proc = subprocess.Popen(generator_cmd, stdout=subprocess.PIPE)
+    hcatProcess = subprocess.Popen(hashcat_cmd, stdin=generator_proc.stdout)
+    generator_proc.stdout.close()
+    try:
+        hcatProcess.wait()
+        generator_proc.wait()
+    except KeyboardInterrupt:
+        print("Killing PID {0}...".format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+        generator_proc.kill()
+    finally:
+        if tmp_file is not None:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_file.name)
 
 
 # PRINCE Attack
@@ -2185,7 +2432,7 @@ def hcatPrince(hcatHashType, hcatHashFile):
     hashcat_cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(hashcat_cmd)
     hashcat_cmd = _add_debug_mode_for_rules(hashcat_cmd)
-    with open(prince_base, "rb") as base:
+    with _open_wordlist(prince_base) as base:
         prince_proc = subprocess.Popen(prince_cmd, stdin=base, stdout=subprocess.PIPE)
         hcatProcess = subprocess.Popen(hashcat_cmd, stdin=prince_proc.stdout)
         prince_proc.stdout.close()
@@ -2198,6 +2445,45 @@ def hcatPrince(hcatHashType, hcatHashFile):
             prince_proc.kill()
 
 
+def hcatPermute(hcatHashType, hcatHashFile, wordlist):
+    global hcatProcess, hcatPermuteCount
+    permute_path = os.path.join(hate_path, "hashcat-utils", "bin", "permute.bin")
+    if not os.path.isfile(permute_path):
+        print(f"Error: permute.bin not found: {permute_path}")
+        return
+    if not os.path.isfile(wordlist):
+        print(f"Error: wordlist not found: {wordlist}")
+        return
+    hashcat_cmd = [
+        hcatBin,
+        "-m",
+        hcatHashType,
+        hcatHashFile,
+        "--session",
+        generate_session_id(),
+        "-o",
+        f"{hcatHashFile}.out",
+    ]
+    hashcat_cmd.extend(shlex.split(hcatTuning))
+    _append_potfile_arg(hashcat_cmd)
+    with _open_wordlist(wordlist) as wl_file:
+        permute_proc = subprocess.Popen(
+            [permute_path], stdin=wl_file, stdout=subprocess.PIPE
+        )
+        hcatProcess = subprocess.Popen(
+            hashcat_cmd, stdin=permute_proc.stdout
+        )
+        permute_proc.stdout.close()
+        try:
+            hcatProcess.wait()
+            permute_proc.wait()
+        except KeyboardInterrupt:
+            print(f"Killing PID {hcatProcess.pid}...")
+            hcatProcess.kill()
+            permute_proc.kill()
+    hcatPermuteCount = lineCount(f"{hcatHashFile}.out") - hcatHashCracked
+
+
 # OMEN model directory - writable location for trained model files.
 # The binaries live in {hate_path}/omen/ (possibly read-only after install),
 # but model output (createConfig, *.level) goes to ~/.hate_crack/omen/.
@@ -2207,17 +2493,45 @@ def _omen_model_dir():
     return model_dir
 
 
+_OMEN_REQUIRED_FILES = ["createConfig", "CP.level", "IP.level", "EP.level", "LN.level"]
+
+
+def _omen_model_is_valid(model_dir):
+    """Return True if all required OMEN model files exist and are non-empty."""
+    if not os.path.isdir(model_dir):
+        return False
+    for name in _OMEN_REQUIRED_FILES:
+        path = os.path.join(model_dir, name)
+        if not os.path.isfile(path) or os.path.getsize(path) == 0:
+            return False
+    return True
+
+
+def _omen_model_info(model_dir):
+    """Read model_info.json from model_dir. Returns dict or None."""
+    info_path = os.path.join(model_dir, "model_info.json")
+    if not os.path.isfile(info_path):
+        return None
+    try:
+        with open(info_path) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
 # OMEN Attack - Train model
 def hcatOmenTrain(training_file):
-    omen_dir = os.path.join(hate_path, "omen")
+    import datetime
+
+    omen_dir = _omen_dir
     create_bin = os.path.join(omen_dir, hcatOmenCreateBin)
     if not os.path.isfile(create_bin):
         print(f"Error: OMEN createNG binary not found: {create_bin}")
-        return
+        return False
     training_file = os.path.abspath(training_file)
     if not os.path.isfile(training_file):
         print(f"Error: Training file not found: {training_file}")
-        return
+        return False
     model_dir = _omen_model_dir()
     print(f"Training OMEN model with: {training_file}")
     print(f"Model output directory: {model_dir}")
@@ -2243,17 +2557,27 @@ def hcatOmenTrain(training_file):
     except KeyboardInterrupt:
         print("Killing PID {0}...".format(str(proc.pid)))
         proc.kill()
-        return
-    if proc.returncode == 0:
-        print("OMEN model training complete.")
-    else:
+        return False
+    if proc.returncode != 0:
         print(f"OMEN training failed with exit code {proc.returncode}")
+        return False
+    print("OMEN model training complete.")
+    info = {
+        "training_file": training_file,
+        "trained_at": datetime.datetime.now().isoformat(),
+    }
+    try:
+        with open(os.path.join(model_dir, "model_info.json"), "w") as f:
+            json.dump(info, f)
+    except OSError:
+        pass
+    return True
 
 
 # OMEN Attack - Generate candidates and pipe to hashcat
-def hcatOmen(hcatHashType, hcatHashFile, max_candidates):
+def hcatOmen(hcatHashType, hcatHashFile, max_candidates, hcatChains=""):
     global hcatProcess
-    omen_dir = os.path.join(hate_path, "omen")
+    omen_dir = _omen_dir
     enum_bin = os.path.join(omen_dir, hcatOmenEnumBin)
     if not os.path.isfile(enum_bin):
         print(f"Error: OMEN enumNG binary not found: {enum_bin}")
@@ -2275,11 +2599,16 @@ def hcatOmen(hcatHashType, hcatHashFile, max_candidates):
         "-o",
         f"{hcatHashFile}.out",
     ]
+    if hcatChains:
+        hashcat_cmd.extend(shlex.split(hcatChains))
     hashcat_cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(hashcat_cmd)
+    hashcat_cmd = _add_debug_mode_for_rules(hashcat_cmd)
     print(f"[*] Running: {_format_cmd(enum_cmd)} | {_format_cmd(hashcat_cmd)}")
     _debug_cmd(hashcat_cmd)
-    enum_proc = subprocess.Popen(enum_cmd, cwd=model_dir, stdout=subprocess.PIPE)
+    enum_proc = subprocess.Popen(
+        enum_cmd, cwd=model_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
     hcatProcess = subprocess.Popen(hashcat_cmd, stdin=enum_proc.stdout)
     enum_proc.stdout.close()
     try:
@@ -2289,111 +2618,16 @@ def hcatOmen(hcatHashType, hcatHashFile, max_candidates):
         print("Killing PID {0}...".format(str(hcatProcess.pid)))
         hcatProcess.kill()
         enum_proc.kill()
-
-
-# PassGPT model directory - writable location for fine-tuned models.
-# Models are saved to ~/.hate_crack/passgpt/<model_name>/.
-def _passgpt_model_dir():
-    model_dir = os.path.join(os.path.expanduser("~"), ".hate_crack", "passgpt")
-    os.makedirs(model_dir, exist_ok=True)
-    return model_dir
-
-
-# PassGPT Attack - Fine-tune a model on a custom wordlist
-def hcatPassGPTTrain(training_file, base_model=None, device=None):
-    training_file = os.path.abspath(training_file)
-    if not os.path.isfile(training_file):
-        print(f"Error: Training file not found: {training_file}")
-        return None
-    if base_model is None:
-        base_model = passgptModel
-    # Derive output dir name from training file
-    basename = os.path.splitext(os.path.basename(training_file))[0]
-    # Sanitize: replace non-alphanumeric chars with underscores
-    sanitized = "".join(c if c.isalnum() or c in "-_" else "_" for c in basename)
-    output_dir = os.path.join(_passgpt_model_dir(), sanitized)
-    os.makedirs(output_dir, exist_ok=True)
-    cmd = [
-        sys.executable,
-        "-m",
-        "hate_crack.passgpt_train",
-        "--training-file",
-        training_file,
-        "--base-model",
-        base_model,
-        "--output-dir",
-        output_dir,
-    ]
-    if device:
-        cmd.extend(["--device", device])
-    if debug_mode:
-        cmd.append("--debug")
-    print(f"[*] Running: {_format_cmd(cmd)}")
-    proc = subprocess.Popen(cmd)
-    try:
-        proc.wait()
-    except KeyboardInterrupt:
-        print("Killing PID {0}...".format(str(proc.pid)))
-        proc.kill()
-        return None
-    if proc.returncode == 0:
-        print(f"PassGPT model training complete. Model saved to: {output_dir}")
-        return output_dir
-    else:
-        print(f"PassGPT training failed with exit code {proc.returncode}")
-        return None
-
-
-# PassGPT Attack - Generate candidates with ML model and pipe to hashcat
-def hcatPassGPT(
-    hcatHashType,
-    hcatHashFile,
-    max_candidates,
-    model_name=None,
-    batch_size=None,
-):
-    global hcatProcess
-    if model_name is None:
-        model_name = passgptModel
-    if batch_size is None:
-        batch_size = passgptBatchSize
-    gen_cmd = [
-        sys.executable,
-        "-m",
-        "hate_crack.passgpt_generate",
-        "--num",
-        str(max_candidates),
-        "--model",
-        model_name,
-        "--batch-size",
-        str(batch_size),
-    ]
-    if debug_mode:
-        gen_cmd.append("--debug")
-    hashcat_cmd = [
-        hcatBin,
-        "-m",
-        hcatHashType,
-        hcatHashFile,
-        "--session",
-        generate_session_id(),
-        "-o",
-        f"{hcatHashFile}.out",
-    ]
-    hashcat_cmd.extend(shlex.split(hcatTuning))
-    _append_potfile_arg(hashcat_cmd)
-    print(f"[*] Running: {_format_cmd(gen_cmd)} | {_format_cmd(hashcat_cmd)}")
-    _debug_cmd(hashcat_cmd)
-    gen_proc = subprocess.Popen(gen_cmd, stdout=subprocess.PIPE)
-    hcatProcess = subprocess.Popen(hashcat_cmd, stdin=gen_proc.stdout)
-    gen_proc.stdout.close()
-    try:
-        hcatProcess.wait()
-        gen_proc.wait()
-    except KeyboardInterrupt:
-        print("Killing PID {0}...".format(str(hcatProcess.pid)))
-        hcatProcess.kill()
-        gen_proc.kill()
+        return
+    if enum_proc.returncode != 0:
+        stderr_output = (
+            enum_proc.stderr.read().decode("utf-8", errors="replace").strip()
+        )
+        print(f"[!] enumNG failed with exit code {enum_proc.returncode}")
+        if stderr_output:
+            print(f"[!] enumNG error: {stderr_output}")
+    if enum_proc.stderr:
+        enum_proc.stderr.close()
 
 
 # Extra - Good Measure
@@ -2417,6 +2651,8 @@ def hcatGoodMeasure(hcatHashType, hcatHashFile):
         rule_insidepro,
         hcatGoodMeasureBaseList,
     ]
+    if _should_use_optimized_kernel("hcatGoodMeasure"):
+        _insert_optimized_flag(cmd)
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
     cmd = _add_debug_mode_for_rules(cmd)
@@ -2541,6 +2777,8 @@ def hcatRecycle(hcatHashType, hcatHashFile, hcatNewPasswords):
                 "-r",
                 rule_path,
             ]
+            if _should_use_optimized_kernel("hcatRecycle"):
+                _insert_optimized_flag(cmd)
             cmd.extend(shlex.split(hcatTuning))
             _append_potfile_arg(cmd)
             cmd = _add_debug_mode_for_rules(cmd)
@@ -2549,6 +2787,51 @@ def hcatRecycle(hcatHashType, hcatHashFile, hcatNewPasswords):
                 hcatProcess.wait()
             except KeyboardInterrupt:
                 hcatProcess.kill()
+
+
+def hcatGenerateRules(hcatHashType, hcatHashFile, rule_count, wordlist):
+    global hcatProcess, hcatGenerateRulesCount
+    generate_rules_path = os.path.join(
+        hate_path, "hashcat-utils", "bin", "generate-rules.bin"
+    )
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".rule", prefix="hate_crack_random_", delete=False
+    ) as rules_file:
+        rules_path = rules_file.name
+    try:
+        result = subprocess.run(
+            [generate_rules_path, str(rule_count)],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        with open(rules_path, "w") as f:
+            f.write(result.stdout)
+        cmd = [
+            hcatBin,
+            "-m",
+            hcatHashType,
+            hcatHashFile,
+            "--session",
+            generate_session_id(),
+            "-o",
+            f"{hcatHashFile}.out",
+            "-r",
+            rules_path,
+            wordlist,
+        ]
+        cmd.extend(shlex.split(hcatTuning))
+        _append_potfile_arg(cmd)
+        hcatProcess = subprocess.Popen(cmd)
+        try:
+            hcatProcess.wait()
+        except KeyboardInterrupt:
+            print(f"Killing PID {hcatProcess.pid}...")
+            hcatProcess.kill()
+    finally:
+        if os.path.exists(rules_path):
+            os.unlink(rules_path)
+    hcatGenerateRulesCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
 
 def check_potfile():
@@ -2598,6 +2881,8 @@ def cleanup():
     global pwdump_format
     global hcatHashFileOrig
     try:
+        if not hcatHashFileOrig:
+            return
         if hcatHashType == "1000" and pwdump_format:
             print("\nComparing cracked hashes to original file...")
             combine_ntlm_output()
@@ -2622,6 +2907,9 @@ def cleanup():
             os.remove(hcatHashFileOrig + ".working")
         if os.path.exists(hcatHashFileOrig + ".passwords"):
             os.remove(hcatHashFileOrig + ".passwords")
+    except DoubleInterrupt:
+        cleanup()
+        raise
     except KeyboardInterrupt:
         # incase someone mashes the Control+C it will still cleanup
         cleanup()
@@ -2676,25 +2964,28 @@ def hashview_api():
                 )
             menu_options.append(("back", "Back to Main Menu"))
 
-            # Display menu with dynamic numbering
-            for i, (option_key, option_text) in enumerate(menu_options, 1):
-                if option_key == "back":
-                    print(f"\t(99) {option_text}")
-                else:
-                    print(f"\t({i}) {option_text}")
-
-            # Create mapping of display numbers to option keys
+            # Build display items with numbered keys
+            display_items = []
             option_map = {}
             display_num = 1
-            for option_key, _ in menu_options[:-1]:  # All except "back"
-                option_map[str(display_num)] = option_key
-                display_num += 1
-            option_map["99"] = "back"
+            for opt_key, opt_text in menu_options:
+                if opt_key == "back":
+                    display_items.append(("99", opt_text))
+                    option_map["99"] = opt_key
+                else:
+                    display_items.append((str(display_num), opt_text))
+                    option_map[str(display_num)] = opt_key
+                    display_num += 1
 
-            choice = input("\nSelect an option: ")
+            choice = interactive_menu(
+                display_items,
+                title="What would you like to do?",
+                prompt="\nSelect an option: ",
+            )
 
-            if choice not in option_map:
-                print("Invalid option. Please try again.")
+            if choice is None or choice not in option_map:
+                if choice is not None:
+                    print("Invalid option. Please try again.")
                 continue
 
             option_key = option_map[choice]
@@ -2980,7 +3271,6 @@ def hashview_api():
                 except Exception:
                     file_format = 5  # Default if detection fails
 
-                print(f"\nAuto-detected file format: {file_format} ", end="")
                 format_names = {
                     0: "pwdump",
                     1: "NetNTLM",
@@ -2989,7 +3279,20 @@ def hashview_api():
                     4: "user:hash",
                     5: "hash_only",
                 }
-                print(f"({format_names.get(file_format, 'unknown')})")
+                format_list = ", ".join(f"{k}={v}" for k, v in format_names.items())
+                print(
+                    f"\nAuto-detected file format: {file_format} ({format_names.get(file_format, 'unknown')})"
+                )
+                override = input(
+                    f"Override format number? [{format_list}] (Enter to accept): "
+                ).strip()
+                if override:
+                    try:
+                        file_format = int(override)
+                    except ValueError:
+                        print(
+                            f"\n✗ Invalid format '{override}', using auto-detected value."
+                        )
 
                 # Default hashfile name to the basename of the file
                 hashfile_name = os.path.basename(hashfile_path)
@@ -3022,19 +3325,16 @@ def hashview_api():
                         if create_job.upper() == "Y":
                             job_name = input("Enter job name: ")
                             limit_recovered = False
-                            notify_email = True
                             try:
                                 job_result = api_harness.create_job(
                                     job_name,
                                     result["hashfile_id"],
                                     customer_id,
                                     limit_recovered,
-                                    notify_email,
                                 )
-                                print(
-                                    f"\n✓ Success: {job_result.get('msg', 'Job created')}"
-                                )
+                                msg = job_result.get("msg", "")
                                 if "job_id" in job_result:
+                                    print(f"\n✓ Success: {msg or 'Job created'}")
                                     print(f"  Job ID: {job_result['job_id']}")
                                     print(
                                         "\nNote: Job created with automatically assigned tasks based on"
@@ -3061,6 +3361,14 @@ def hashview_api():
                                         print(
                                             f"\n✓ Success: {start_result.get('msg', 'Job started')}"
                                         )
+                                else:
+                                    print(
+                                        f"\n✗ Error: {msg or 'Job creation failed (no job_id returned)'}"
+                                    )
+                                    print(
+                                        "  Note: The Hashview server may have created the job"
+                                        " despite this error. Check the Hashview UI before retrying."
+                                    )
                             except Exception as e:
                                 print(f"\n✗ Error creating job: {str(e)}")
                 except Exception as e:
@@ -3239,7 +3547,8 @@ def hashview_api():
                 break
 
     except KeyboardInterrupt:
-        quit_hc()
+        print("\nKeyboard interrupt: Returning to main menu...")
+        return
     except Exception as e:
         print(f"\nError connecting to Hashview: {str(e)}")
 
@@ -3299,6 +3608,34 @@ def middle_combinator():
     return _attacks.middle_combinator(_attack_ctx())
 
 
+def combinator3_crack():
+    return _attacks.combinator3_crack(_attack_ctx())
+
+
+def combinatorX_crack():
+    return _attacks.combinatorX_crack(_attack_ctx())
+
+
+def combinator_3plus_crack():
+    return _attacks.combinator_3plus_crack(_attack_ctx())
+
+
+def ngram_attack():
+    return _attacks.ngram_attack(_attack_ctx())
+
+
+def combinator_submenu():
+    return _attacks.combinator_submenu(_attack_ctx())
+
+
+def adhoc_mask_crack():
+    return _attacks.adhoc_mask_crack(_attack_ctx())
+
+
+def markov_brute_force():
+    return _attacks.markov_brute_force(_attack_ctx())
+
+
 def bandrel_method():
     return _attacks.bandrel_method(_attack_ctx())
 
@@ -3315,8 +3652,110 @@ def omen_attack():
     return _attacks.omen_attack(_attack_ctx())
 
 
-def passgpt_attack():
-    return _attacks.passgpt_attack(_attack_ctx())
+def combipow_crack():
+    return _attacks.combipow_crack(_attack_ctx())
+
+
+def generate_rules_crack():
+    return _attacks.generate_rules_crack(_attack_ctx())
+
+
+def permute_crack():
+    return _attacks.permute_crack(_attack_ctx())
+
+
+def wordlist_filter_len(infile: str, outfile: str, min_len: int, max_len: int) -> bool:
+    """Filter wordlist keeping only words between min_len and max_len (inclusive)."""
+    len_bin = os.path.join(hate_path, "hashcat-utils/bin/len.bin")
+    with open(infile, "rb") as fin, open(outfile, "wb") as fout:
+        result = subprocess.run(
+            [len_bin, str(min_len), str(max_len)], stdin=fin, stdout=fout
+        )
+    return result.returncode == 0
+
+
+def wordlist_filter_req_include(infile: str, outfile: str, mask: int) -> bool:
+    """Filter wordlist keeping only words that include all char classes in mask."""
+    req_bin = os.path.join(hate_path, "hashcat-utils/bin/req-include.bin")
+    with open(infile, "rb") as fin, open(outfile, "wb") as fout:
+        result = subprocess.run([req_bin, str(mask)], stdin=fin, stdout=fout)
+    return result.returncode == 0
+
+
+def wordlist_filter_req_exclude(infile: str, outfile: str, mask: int) -> bool:
+    """Filter wordlist removing words that contain any char class in mask."""
+    req_bin = os.path.join(hate_path, "hashcat-utils/bin/req-exclude.bin")
+    with open(infile, "rb") as fin, open(outfile, "wb") as fout:
+        result = subprocess.run([req_bin, str(mask)], stdin=fin, stdout=fout)
+    return result.returncode == 0
+
+
+def wordlist_cutb(
+    infile: str, outfile: str, offset: int, length: int | None
+) -> bool:
+    """Extract a substring from each word starting at offset, optionally limited to length bytes."""
+    cutb_bin = os.path.join(hate_path, "hashcat-utils/bin/cutb.bin")
+    cmd = [cutb_bin, str(offset)]
+    if length is not None:
+        cmd.append(str(length))
+    with open(infile, "rb") as fin, open(outfile, "wb") as fout:
+        result = subprocess.run(cmd, stdin=fin, stdout=fout)
+    return result.returncode == 0
+
+
+def wordlist_splitlen(infile: str, outdir: str) -> bool:
+    """Split wordlist into per-length files in outdir."""
+    splitlen_bin = os.path.join(hate_path, "hashcat-utils/bin/splitlen.bin")
+    with open(infile, "rb") as fin:
+        result = subprocess.run([splitlen_bin, outdir], stdin=fin)
+    return result.returncode == 0
+
+
+def wordlist_subtract(infile: str, outfile: str, *remove_files: str) -> bool:
+    """Remove lines from infile that appear in any of remove_files, write to outfile."""
+    rli_bin = os.path.join(hate_path, "hashcat-utils/bin/rli.bin")
+    result = subprocess.run([rli_bin, infile, outfile, *remove_files])
+    return result.returncode == 0
+
+
+def wordlist_subtract_single(infile: str, remove_file: str, outfile: str) -> bool:
+    """Subtract remove_file from infile, writing result to stdout captured in outfile."""
+    rli2_bin = os.path.join(hate_path, "hashcat-utils/bin/rli2.bin")
+    with open(outfile, "wb") as fout:
+        result = subprocess.run([rli2_bin, infile, remove_file], stdout=fout)
+    return result.returncode == 0
+
+
+def wordlist_gate(infile: str, outfile: str, mod: int, offset: int) -> bool:
+    """Shard wordlist: keep every mod-th line starting at offset."""
+    gate_bin = os.path.join(hate_path, "hashcat-utils/bin/gate.bin")
+    with open(infile, "rb") as fin, open(outfile, "wb") as fout:
+        result = subprocess.run([gate_bin, str(mod), str(offset)], stdin=fin, stdout=fout)
+    return result.returncode == 0
+
+
+def wordlist_tools_submenu():
+    return _attacks.wordlist_tools_submenu(_attack_ctx())
+
+
+def rules_cleanup(infile: str, outfile: str) -> bool:
+    """Clean a rule file using cleanup-rules.bin. Returns True on success."""
+    cleanup_path = os.path.join(hate_path, "hashcat-utils", "bin", "cleanup-rules.bin")
+    with open(infile, "rb") as fin, open(outfile, "wb") as fout:
+        result = subprocess.run([cleanup_path], stdin=fin, stdout=fout)
+    return result.returncode == 0
+
+
+def rules_optimize(infile: str, outfile: str) -> bool:
+    """Optimize a rule file using rules_optimize.bin. Returns True on success."""
+    optimize_path = os.path.join(hate_path, "hashcat-utils", "bin", "rules_optimize.bin")
+    with open(infile, "rb") as fin, open(outfile, "wb") as fout:
+        result = subprocess.run([optimize_path], stdin=fin, stdout=fout)
+    return result.returncode == 0
+
+
+def rule_tools_submenu():
+    return _attacks.rule_tools_submenu(_attack_ctx())
 
 
 # convert hex words for recycling
@@ -3526,6 +3965,49 @@ def quit_hc():
     sys.exit(0)
 
 
+def get_main_menu_items():
+    """Return ordered (key, label) pairs for the main menu."""
+    items = [
+        ("1", "Quick Crack"),
+        ("2", "Extensive Pure_Hate Methodology Crack"),
+        ("3", "Brute Force Attack"),
+        ("4", "Top Mask Attack"),
+        ("5", "Fingerprint Attack"),
+        ("6", "Combinator Attacks"),
+        ("7", "Hybrid Attack"),
+        ("8", "Pathwell Top 100 Mask Brute Force Crack"),
+        ("9", "PRINCE Attack"),
+        ("13", "Bandrel Methodology"),
+        ("14", "Loopback Attack"),
+        ("15", "LLM Attack"),
+        ("16", "OMEN Attack"),
+        ("17", "Ad-hoc Mask Attack"),
+        ("18", "Markov Brute Force Attack"),
+        ("19", "N-gram Attack"),
+        ("20", "Permutation Attack"),
+        ("21", "Random Rules Attack"),
+        ("22", "Combipow Passphrase Attack"),
+        ("80", "Wordlist Tools"),
+        ("81", "Rule File Tools"),
+        ("90", "Download rules from Hashmob.net"),
+        ("91", "Analyze Hashcat Rules"),
+        ("92", "Download wordlists from Hashmob.net"),
+        ("93", "Weakpass Wordlist Menu"),
+    ]
+    if hashview_api_key:
+        items.append(("94", "Hashview API"))
+    items.extend(
+        [
+            ("95", "Analyze hashes with Pipal"),
+            ("96", "Export Output to Excel Format"),
+            ("97", "Display Cracked Hashes"),
+            ("98", "Display README"),
+            ("99", "Quit"),
+        ]
+    )
+    return items
+
+
 def get_main_menu_options():
     """Return the mapping of main menu keys to their handler functions."""
     options = {
@@ -3534,18 +4016,23 @@ def get_main_menu_options():
         "3": brute_force_crack,
         "4": top_mask_crack,
         "5": fingerprint_crack,
-        "6": combinator_crack,
+        "6": combinator_submenu,
         "7": hybrid_crack,
         "8": pathwell_crack,
         "9": prince_attack,
-        "10": yolo_combination,
-        "11": middle_combinator,
-        "12": thorough_combinator,
         "13": bandrel_method,
         "14": loopback_attack,
         "15": ollama_attack,
         "16": omen_attack,
-        "90": download_hashmob_rules,
+        "17": adhoc_mask_crack,
+        "18": markov_brute_force,
+        "19": ngram_attack,
+        "20": permute_crack,
+        "21": generate_rules_crack,
+        "22": combipow_crack,
+        "80": wordlist_tools_submenu,
+        "81": rule_tools_submenu,
+        "90": lambda: download_hashmob_rules(rules_dir=rulesDirectory),
         "91": analyze_rules,
         "92": download_hashmob_wordlists,
         "93": weakpass_wordlist_menu,
@@ -3555,8 +4042,6 @@ def get_main_menu_options():
         "98": show_readme,
         "99": quit_hc,
     }
-    if HAS_ML_DEPS:
-        options["17"] = passgpt_attack
     # Only show this when Hashview API is configured (requested behavior).
     if hashview_api_key:
         options["94"] = hashview_api
@@ -3572,9 +4057,11 @@ def main():
     global lmHashesFound
     global debug_mode
     global hashview_url, hashview_api_key
-    global hcatPath, hcatBin, hcatWordlists, hcatOptimizedWordlists, rulesDirectory
+    global hcatPath, hcatBin, hcatWordlists, rulesDirectory
     global pipalPath, maxruntime, bandrelbasewords
     global hcatPotfilePath
+
+    signal.signal(signal.SIGINT, _sigint_handler)
 
     # Initialize global variables
     hcatHashFile = None
@@ -3730,11 +4217,6 @@ def main():
             action="store_true",
             help="Limit to recovered hashes only",
         )
-        hv_upload_hashfile_job.add_argument(
-            "--no-notify-email",
-            action="store_true",
-            help="Disable email notifications",
-        )
         return parser, hashview_parser
 
     # Removed add_common_args(parser) since config items are now only set via config file
@@ -3809,7 +4291,6 @@ def main():
         hcatPath=hcatPath,
         hcatBin=hcatBin,
         hcatWordlists=hcatWordlists,
-        hcatOptimizedWordlists=hcatOptimizedWordlists,
         rules_directory=rulesDirectory,
         pipalPath=pipalPath,
         maxruntime=maxruntime,
@@ -3821,7 +4302,6 @@ def main():
     hcatPath = config.hcatPath
     hcatBin = config.hcatBin
     hcatWordlists = config.hcatWordlists
-    hcatOptimizedWordlists = config.hcatOptimizedWordlists
     rulesDirectory = config.rules_directory
     pipalPath = config.pipalPath
     maxruntime = config.maxruntime
@@ -3898,12 +4378,19 @@ def main():
                 upload_result["hashfile_id"],
                 args.customer_id,
                 limit_recovered=args.limit_recovered,
-                notify_email=not args.no_notify_email,
             )
-            print(f"\n✓ Success: {job_result.get('msg', 'Job created')}")
+            msg = job_result.get("msg", "")
             if "job_id" in job_result:
+                print(f"\n✓ Success: {msg or 'Job created'}")
                 print(f"  Job ID: {job_result['job_id']}")
-            sys.exit(0)
+                sys.exit(0)
+            else:
+                print(f"\n✗ Error: {msg or 'Job creation failed (no job_id returned)'}")
+                print(
+                    "  Note: The Hashview server may have created the job despite this error."
+                    " Check the Hashview UI before retrying."
+                )
+                sys.exit(1)
 
         print("✗ Error: No hashview subcommand provided.")
         hashview_parser.print_help()
@@ -3941,7 +4428,7 @@ def main():
         download_hashmob_wordlists(print_fn=print)
         sys.exit(0)
     if args.rules:
-        download_hashmob_rules(print_fn=print)
+        download_hashmob_rules(print_fn=print, rules_dir=rulesDirectory)
         sys.exit(0)
 
     if args.hashfile and args.hashtype:
@@ -3959,17 +4446,23 @@ def main():
         ascii_art()
         if not SKIP_INIT and check_for_updates_enabled:
             check_for_updates()
+        _no_hash_items = [
+            ("1", "Hashview API"),
+            ("2", "Download wordlists from Weakpass"),
+            ("3", "Download wordlists from Hashmob.net"),
+            ("4", "Download rules from Hashmob.net"),
+            ("5", "Exit"),
+        ]
         menu_loop = True
         while menu_loop:
             print("\n" + "=" * 60)
             print("No hash file provided. What would you like to do?")
             print("=" * 60)
-            print("\t(1) Hashview API")
-            print("\t(2) Download wordlists from Weakpass")
-            print("\t(3) Download wordlists from Hashmob.net")
-            print("\t(4) Download rules from Hashmob.net")
-            print("\t(5) Exit")
-            choice = input("\nSelect an option: ")
+            choice = interactive_menu(
+                _no_hash_items,
+                title="No hash file provided. What would you like to do?",
+                prompt="\nSelect an option: ",
+            )
             if choice == "1" or args.download_hashview:
                 hashview_api()
                 # Check if hashfile was set by hashview_api
@@ -3991,7 +4484,7 @@ def main():
                     sys.exit(0)
                 # Otherwise continue the menu loop
             elif choice == "4" or args.rules:
-                download_hashmob_rules(print_fn=print)
+                download_hashmob_rules(print_fn=print, rules_dir=rulesDirectory)
                 if args.rules:
                     sys.exit(0)
                 # Otherwise continue the menu loop
@@ -4035,8 +4528,12 @@ def main():
         if hcatHashType == "1000":
             lmHashesFound = False
             pwdump_format = False
-            with open(hcatHashFile, "r") as f:
-                hcatHashFileLine = f.readline().strip().lstrip("\ufeff")
+            with open(hcatHashFile, "r", encoding="utf-8-sig") as f:
+                hcatHashFileLine = ""
+                for raw_line in f:
+                    hcatHashFileLine = raw_line.strip().replace("\x00", "")
+                    if hcatHashFileLine:
+                        break
             if re.search(r"[a-f0-9A-F]{32}:[a-f0-9A-F]{32}:::", hcatHashFileLine):
                 pwdump_format = True
                 print("PWDUMP format detected...")
@@ -4107,7 +4604,11 @@ def main():
                     print("NetNTLMv2 format detected")
                     print("Note: Hash type should be 5500 for NetNTLMv2 hashes")
             else:
-                print("unknown format....does it have usernames?")
+                print(f"Unrecognized hash format on first line: {hcatHashFileLine!r}")
+                print(
+                    "Expected one of: pwdump (user:RID:LM:NT:::),"
+                    " bare hash (32 hex chars), user:hash, or NetNTLMv2"
+                )
                 exit(1)
         # Detect and optionally filter computer accounts from NetNTLM hashes
         if hcatHashType in ("5500", "5600"):
@@ -4164,6 +4665,10 @@ def main():
                     except OSError:
                         pass
                     _preprocessing_temp_files.remove(dedup_path)
+    except DoubleInterrupt:
+        print("\nPreprocessing interrupted. Cleaning up temp files...")
+        _cleanup_preprocessing_temps()
+        raise
     except KeyboardInterrupt:
         print("\nPreprocessing interrupted. Cleaning up temp files...")
         _cleanup_preprocessing_temps()
@@ -4188,40 +4693,18 @@ def main():
     try:
         options = get_main_menu_options()
         while 1:
-            print("\n\t(1) Quick Crack")
-            print("\t(2) Extensive Pure_Hate Methodology Crack")
-            print("\t(3) Brute Force Attack")
-            print("\t(4) Top Mask Attack")
-            print("\t(5) Fingerprint Attack")
-            print("\t(6) Combinator Attack")
-            print("\t(7) Hybrid Attack")
-            print("\t(8) Pathwell Top 100 Mask Brute Force Crack")
-            print("\t(9) PRINCE Attack")
-            print("\t(10) YOLO Combinator Attack")
-            print("\t(11) Middle Combinator Attack")
-            print("\t(12) Thorough Combinator Attack")
-            print("\t(13) Bandrel Methodology")
-            print("\t(14) Loopback Attack")
-            print("\t(15) LLM Attack")
-            print("\t(16) OMEN Attack")
-            if HAS_ML_DEPS:
-                print("\t(17) PassGPT Attack")
-            print("\n\t(90) Download rules from Hashmob.net")
-            print("\n\t(91) Analyze Hashcat Rules")
-            print("\t(92) Download wordlists from Hashmob.net")
-            print("\t(93) Weakpass Wordlist Menu")
-            if hashview_api_key:
-                print("\t(94) Hashview API")
-            print("\t(95) Analyze hashes with Pipal")
-            print("\t(96) Export Output to Excel Format")
-            print("\t(97) Display Cracked Hashes")
-            print("\t(98) Display README")
-            print("\t(99) Quit")
             try:
-                task = input("\nSelect a task: ")
+                task = interactive_menu(
+                    get_main_menu_items(),
+                    title="\nSelect a task:",
+                )
+                if task is None:
+                    continue
                 options[task]()
             except KeyError:
                 pass
+            except DoubleInterrupt:
+                print("\n[!] Returning to main menu...")
     except KeyboardInterrupt:
         quit_hc()
 

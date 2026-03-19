@@ -1,3 +1,4 @@
+import concurrent.futures
 import json
 import sys
 import os
@@ -13,6 +14,16 @@ from bs4 import BeautifulSoup
 from hate_crack.formatting import print_multicolumn_list
 
 _TORRENT_CLEANUP_REGISTERED = False
+
+
+def _get_hate_path():
+    _package_path = os.path.dirname(os.path.realpath(__file__))
+    _repo_root = os.path.dirname(_package_path)
+    if os.path.isdir(os.path.join(_package_path, "hashcat-utils")):
+        return _package_path
+    elif os.path.isdir(os.path.join(_repo_root, "hashcat-utils")):
+        return _repo_root
+    return _package_path
 
 
 def _candidate_roots():
@@ -71,7 +82,7 @@ def get_hcat_wordlists_dir():
             if path:
                 path = os.path.expanduser(path)
                 if not os.path.isabs(path):
-                    path = os.path.join(os.path.dirname(config_path), path)
+                    path = os.path.normpath(os.path.join(_get_hate_path(), path))
                 os.makedirs(path, exist_ok=True)
                 return path
         except Exception:
@@ -91,7 +102,7 @@ def get_rules_dir():
             if path:
                 path = os.path.expanduser(path)
                 if not os.path.isabs(path):
-                    path = os.path.join(os.path.dirname(config_path), path)
+                    path = os.path.normpath(os.path.join(_get_hate_path(), path))
                 os.makedirs(path, exist_ok=True)
                 return path
         except Exception:
@@ -772,7 +783,7 @@ class HashviewAPI:
         return resp.json()
 
     def create_job(
-        self, name, hashfile_id, customer_id, limit_recovered=False, notify_email=True
+        self, name, hashfile_id, customer_id, limit_recovered=False, notify_email=None
     ):
         url = f"{self.base_url}/v1/jobs/add"
         headers = {"Content-Type": "application/json"}
@@ -787,18 +798,9 @@ class HashviewAPI:
         resp = self.session.post(url, json=data, headers=headers)
         resp.raise_for_status()
         try:
-            payload = resp.json()
+            return resp.json()
         except Exception:
-            return resp.json()
-
-        msg = str(payload.get("msg", ""))
-        if "invalid keyword argument for JobNotifications" in msg:
-            # Retry without notify_email for older Hashview servers.
-            data.pop("notify_email", None)
-            resp = self.session.post(url, json=data, headers=headers)
-            resp.raise_for_status()
-            return resp.json()
-        return payload
+            return {}
 
     def stop_job(self, job_id):
         url = f"{self.base_url}/v1/jobs/stop/{job_id}"
@@ -1689,7 +1691,7 @@ def list_and_download_official_wordlists():
         print(f"Error listing official wordlists: {e}")
 
 
-def list_and_download_hashmob_rules():
+def list_and_download_hashmob_rules(rules_dir=None):
     """List rules via the Hashmob API, prompt for selection, and download."""
     rules = download_hashmob_rule_list()
     if not rules:
@@ -1712,7 +1714,8 @@ def list_and_download_hashmob_rules():
     )
     if sel.lower() == "q":
         return
-    rules_dir = get_rules_dir()
+    if not rules_dir:
+        rules_dir = get_rules_dir()
 
     def parse_indices(selection, max_index):
         indices = set()
@@ -1747,33 +1750,45 @@ def list_and_download_hashmob_rules():
         return sanitized in downloaded_rules
 
     if sel.lower() == "a":
-        for entry in rules:
-            file_name = entry.get("file_name")
-            if not file_name:
-                print("No file_name found for an entry, skipping.")
-                continue
-            out_path = os.path.join(rules_dir, sanitize_filename(file_name))
-            if already_downloaded(file_name):
-                print(f"[i] Skipping already downloaded rule: {file_name}")
-                continue
-            download_hashmob_rule(file_name, out_path)
-        return
+        entries = rules
+    else:
+        indices = parse_indices(sel, len(rules))
+        if not indices:
+            print("No valid selection.")
+            return
+        entries = [rules[idx - 1] for idx in indices]
 
-    indices = parse_indices(sel, len(rules))
-    if not indices:
-        print("No valid selection.")
-        return
-    for idx in indices:
-        entry = rules[idx - 1]
+    jobs = []
+    for entry in entries:
         file_name = entry.get("file_name")
         if not file_name:
-            print("No file_name found for selection, skipping.")
+            print("No file_name found for an entry, skipping.")
             continue
-        out_path = os.path.join(rules_dir, sanitize_filename(file_name))
         if already_downloaded(file_name):
             print(f"[i] Skipping already downloaded rule: {file_name}")
             continue
-        download_hashmob_rule(file_name, out_path)
+        out_path = os.path.join(rules_dir, sanitize_filename(file_name))
+        jobs.append((file_name, out_path))
+
+    if not jobs:
+        return
+
+    succeeded = 0
+    failed = 0
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {
+            executor.submit(download_hashmob_rule, fn, op): fn for fn, op in jobs
+        }
+        for future in concurrent.futures.as_completed(futures):
+            file_name = futures[future]
+            try:
+                future.result()
+                succeeded += 1
+            except Exception as exc:
+                print(f"[!] Failed to download {file_name}: {exc}")
+                failed += 1
+
+    print(f"[i] Rule downloads complete: {succeeded} succeeded, {failed} failed.")
 
 
 def download_official_wordlist(file_name, out_path):
@@ -1880,9 +1895,9 @@ def download_hashmob_wordlists(print_fn=print) -> None:
     print_fn("Hashmob wordlist download complete.")
 
 
-def download_hashmob_rules(print_fn=print) -> None:
+def download_hashmob_rules(print_fn=print, rules_dir=None) -> None:
     """Download Hashmob rules."""
-    list_and_download_hashmob_rules()
+    list_and_download_hashmob_rules(rules_dir=rules_dir)
     print_fn("Hashmob rules download complete.")
 
 

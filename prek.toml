@@ -1,0 +1,47 @@
+[[repos]]
+repo = "local"
+
+[[repos.hooks]]
+id = "ruff"
+name = "ruff"
+entry = "uv run ruff check hate_crack"
+language = "system"
+stages = ["pre-push"]
+pass_filenames = false
+always_run = true
+
+[[repos.hooks]]
+id = "ty"
+name = "ty"
+entry = "uv run ty check hate_crack"
+language = "system"
+stages = ["pre-push"]
+pass_filenames = false
+always_run = true
+
+[[repos.hooks]]
+id = "pytest"
+name = "pytest"
+entry = "env HATE_CRACK_SKIP_INIT=1 uv run pytest -q"
+language = "system"
+stages = ["pre-push"]
+pass_filenames = false
+always_run = true
+
+[[repos.hooks]]
+id = "pytest-lima"
+name = "pytest-lima"
+entry = "uv run pytest tests/test_lima_vm_install.py -v"
+language = "system"
+stages = ["pre-push"]
+pass_filenames = false
+always_run = true
+
+[[repos.hooks]]
+id = "audit-docs"
+name = "audit-docs"
+entry = "bash .claude/audit-docs.sh HEAD"
+language = "system"
+stages = ["post-commit"]
+pass_filenames = false
+always_run = true
