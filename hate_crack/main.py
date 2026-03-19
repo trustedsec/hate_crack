@@ -2126,8 +2126,12 @@ def hcatMarkovTrain(source_file, hcatHashFile):
     try:
         with open(hcstat2_path, "rb") as f_in:
             uncompressed_data = f_in.read()
-        # Use XZ format which is LZMA2-based
-        compressed_data = lzma.compress(uncompressed_data, format=lzma.FORMAT_XZ, preset=9)
+        # Use raw LZMA2 stream (not XZ container) - hashcat decodes with Lzma2Decode()
+        compressed_data = lzma.compress(
+            uncompressed_data,
+            format=lzma.FORMAT_RAW,
+            filters=[{"id": lzma.FILTER_LZMA2, "preset": 9}],
+        )
         with open(hcstat2_path, "wb") as f_out:
             f_out.write(compressed_data)
     except Exception as e:
