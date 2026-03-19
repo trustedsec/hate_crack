@@ -1,7 +1,7 @@
 """Tests for the startup version check feature."""
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -27,7 +27,7 @@ class TestCheckForUpdates:
 
         with patch.object(hc_module, "requests") as mock_requests, patch.object(
             hc_module, "REQUESTS_AVAILABLE", True
-        ):
+        ), patch("builtins.input", return_value="n"):
             mock_requests.get.return_value = mock_resp
             hc_module.check_for_updates()
 
@@ -99,7 +99,7 @@ class TestCheckForUpdates:
 
         with patch.object(hc_module, "requests") as mock_requests, patch.object(
             hc_module, "REQUESTS_AVAILABLE", True
-        ):
+        ), patch("builtins.input", return_value="n"):
             mock_requests.get.return_value = mock_resp
             hc_module.check_for_updates()
 
@@ -119,3 +119,110 @@ class TestCheckForUpdates:
 
         output = capsys.readouterr().out
         assert "Update available" not in output
+
+    def test_upgrade_declined_does_not_run_make(self, hc_module):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"tag_name": "v99.0.0"}
+        mock_resp.raise_for_status = MagicMock()
+
+        with patch.object(hc_module, "requests") as mock_requests, patch.object(
+            hc_module, "REQUESTS_AVAILABLE", True
+        ), patch("builtins.input", return_value="n"), patch(
+            "subprocess.run"
+        ) as mock_run:
+            mock_requests.get.return_value = mock_resp
+            hc_module.check_for_updates()
+
+        mock_run.assert_not_called()
+
+    def test_upgrade_accepted_runs_make_and_exits(self, hc_module, capsys):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"tag_name": "v99.0.0"}
+        mock_resp.raise_for_status = MagicMock()
+
+        git_root_proc = MagicMock()
+        git_root_proc.returncode = 0
+        git_root_proc.stdout = "/fake/repo\n"
+
+        make_proc = MagicMock()
+        make_proc.returncode = 0
+
+        with patch.object(hc_module, "requests") as mock_requests, patch.object(
+            hc_module, "REQUESTS_AVAILABLE", True
+        ), patch("builtins.input", return_value="y"), patch(
+            "subprocess.run", side_effect=[git_root_proc, make_proc]
+        ) as mock_run, pytest.raises(
+            SystemExit
+        ):
+            mock_requests.get.return_value = mock_resp
+            hc_module.check_for_updates()
+
+        assert mock_run.call_count == 2
+        make_cmd = mock_run.call_args_list[1][0][0]
+        assert "git pull" in make_cmd
+        assert "make install" in make_cmd
+        assert mock_run.call_args_list[1][1]["cwd"] == "/fake/repo"
+        output = capsys.readouterr().out
+        assert "Upgrade complete" in output
+
+    def test_upgrade_failure_prints_error(self, hc_module, capsys):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"tag_name": "v99.0.0"}
+        mock_resp.raise_for_status = MagicMock()
+
+        git_root_proc = MagicMock()
+        git_root_proc.returncode = 0
+        git_root_proc.stdout = "/fake/repo\n"
+
+        make_proc = MagicMock()
+        make_proc.returncode = 1
+
+        with patch.object(hc_module, "requests") as mock_requests, patch.object(
+            hc_module, "REQUESTS_AVAILABLE", True
+        ), patch("builtins.input", return_value="y"), patch(
+            "subprocess.run", side_effect=[git_root_proc, make_proc]
+        ), pytest.raises(
+            SystemExit
+        ):
+            mock_requests.get.return_value = mock_resp
+            hc_module.check_for_updates()
+
+        output = capsys.readouterr().out
+        assert "Upgrade failed" in output
+
+    def test_upgrade_no_git_repo_prints_manual_instructions(self, hc_module, capsys):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"tag_name": "v99.0.0"}
+        mock_resp.raise_for_status = MagicMock()
+
+        git_root_proc = MagicMock()
+        git_root_proc.returncode = 128
+        git_root_proc.stdout = ""
+
+        with patch.object(hc_module, "requests") as mock_requests, patch.object(
+            hc_module, "REQUESTS_AVAILABLE", True
+        ), patch("builtins.input", return_value="y"), patch(
+            "subprocess.run", return_value=git_root_proc
+        ), pytest.raises(
+            SystemExit
+        ):
+            mock_requests.get.return_value = mock_resp
+            hc_module.check_for_updates()
+
+        output = capsys.readouterr().out
+        assert "Run manually" in output
+
+    def test_upgrade_prompt_ctrl_c_continues(self, hc_module, capsys):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"tag_name": "v99.0.0"}
+        mock_resp.raise_for_status = MagicMock()
+
+        with patch.object(hc_module, "requests") as mock_requests, patch.object(
+            hc_module, "REQUESTS_AVAILABLE", True
+        ), patch("builtins.input", side_effect=KeyboardInterrupt), patch(
+            "subprocess.run"
+        ) as mock_run:
+            mock_requests.get.return_value = mock_resp
+            hc_module.check_for_updates()
+
+        mock_run.assert_not_called()
