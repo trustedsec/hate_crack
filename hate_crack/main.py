@@ -831,11 +831,23 @@ def _run_upgrade():
         )
         raise SystemExit(1)
     repo_root = git_root_result.stdout.strip()
+
+    # Locate the uv binary. It may not be in PATH when running as root or via sudo.
+    import shutil
+
+    uv = shutil.which("uv") or os.path.expanduser("~/.local/bin/uv")
+    if not os.path.isfile(uv):
+        print(
+            "\n  Could not find the uv binary."
+            "\n  Run manually: git pull && git fetch --tags && uv sync --reinstall-package hate_crack\n"
+        )
+        raise SystemExit(1)
+
     result = subprocess.run(
         # git fetch --tags ensures new release tags are visible to setuptools-scm.
         # uv sync --reinstall-package forces hate_crack to be rebuilt from
         # current source so setuptools-scm generates the correct version.
-        "git pull && git fetch --tags && uv sync --reinstall-package hate_crack",
+        f"git pull && git fetch --tags && {uv} sync --reinstall-package hate_crack",
         shell=True,
         cwd=repo_root,
     )
