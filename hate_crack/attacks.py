@@ -5,6 +5,7 @@ from typing import Any
 
 from hate_crack.api import download_hashmob_rules
 from hate_crack.formatting import print_multicolumn_list
+from hate_crack.menu import interactive_menu
 
 
 def _configure_readline(completer):
@@ -261,8 +262,7 @@ def combinator_crack(ctx: Any) -> None:
     print("\n" + "=" * 60)
     print("COMBINATOR ATTACK")
     print("=" * 60)
-    print("This attack combines two wordlists to generate candidates.")
-    print("Example: wordlist1='password' + wordlist2='123' = 'password123'")
+    print("Combines 2-8 wordlists. 2 uses hashcat native mode; 3+ use external binaries.")
     print("=" * 60)
 
     use_default = (
@@ -270,73 +270,30 @@ def combinator_crack(ctx: Any) -> None:
     )
 
     if use_default != "n":
-        print("\nUsing default wordlist(s) from config:")
-        if isinstance(ctx.hcatCombinationWordlist, list):
-            for wl in ctx.hcatCombinationWordlist:
-                print(f"  - {wl}")
-            wordlists = ctx.hcatCombinationWordlist
-        else:
-            print(f"  - {ctx.hcatCombinationWordlist}")
-            wordlists = [ctx.hcatCombinationWordlist]
-    else:
-        print("\nSelect wordlists for combinator attack.")
-        print("You need to provide exactly 2 wordlists.")
-        print("You can enter:")
-        print("  - Two file paths separated by commas")
-        print("  - Press TAB to autocomplete file paths")
-
-        selection = ctx.select_file_with_autocomplete(
-            "Enter 2 wordlist files (comma-separated)",
-            allow_multiple=True,
-            base_dir=ctx.hcatWordlists,
-        )
-
-        if not selection:
-            print("No wordlists selected. Aborting combinator attack.")
+        base = ctx.hcatCombinationWordlist
+        wordlists = base if isinstance(base, list) else [base]
+        wordlists = [ctx._resolve_wordlist_path(wl, ctx.hcatWordlists) for wl in wordlists]
+        if len(wordlists) < 2:
+            print("\n[!] Config does not have at least 2 wordlists.")
+            print("Set hcatCombinationWordlist to a list of 2+ paths in config.json.")
+            print("Aborting combinator attack.")
             return
-
-        if isinstance(selection, str):
-            wordlists = [selection]
-        else:
-            wordlists = selection
-
+        separator = ""
+    else:
+        print("\nEnter 2-8 wordlists. Enter a blank line when done.")
+        wordlists = _prompt_wordlist_paths(ctx, max_count=8)
         if len(wordlists) < 2:
             print("\n[!] Combinator attack requires at least 2 wordlists.")
             print("Aborting combinator attack.")
             return
+        separator = input("\nEnter separator between words (leave blank for none): ").strip()
 
-        valid_wordlists = []
-        for wl in wordlists[:2]:  # Only use first 2
-            resolved = ctx._resolve_wordlist_path(wl, ctx.hcatWordlists)
-            if os.path.isfile(resolved):
-                valid_wordlists.append(resolved)
-                print(f"✓ Found: {resolved}")
-            else:
-                print(f"✗ Not found: {resolved}")
-
-        if len(valid_wordlists) < 2:
-            print("\nCould not find 2 valid wordlists. Aborting combinator attack.")
-            return
-
-        wordlists = valid_wordlists
-
-    wordlists = [
-        ctx._resolve_wordlist_path(wl, ctx.hcatWordlists) for wl in wordlists[:2]
-    ]
-
-    if len(wordlists) < 2:
-        print("\n[!] Combinator attack requires 2 wordlists but only 1 is configured.")
-        print("Set hcatCombinationWordlist to a list of 2 paths in config.json.")
-        print("Aborting combinator attack.")
-        return
-
-    print("\nStarting combinator attack with 2 wordlists:")
-    print(f"  Wordlist 1: {wordlists[0]}")
-    print(f"  Wordlist 2: {wordlists[1]}")
-    print(f"Hash type: {ctx.hcatHashType}")
-    print(f"Hash file: {ctx.hcatHashFile}")
-
-    ctx.hcatCombination(ctx.hcatHashType, ctx.hcatHashFile, wordlists)
+    if len(wordlists) == 2 and not separator:
+        ctx.hcatCombination(ctx.hcatHashType, ctx.hcatHashFile, wordlists)
+    elif len(wordlists) == 3 and not separator:
+        ctx.hcatCombinator3(ctx.hcatHashType, ctx.hcatHashFile, wordlists)
+    else:
+        ctx.hcatCombinatorX(ctx.hcatHashType, ctx.hcatHashFile, wordlists, separator or None)
 
 
 def hybrid_crack(ctx: Any) -> None:
@@ -425,6 +382,66 @@ def thorough_combinator(ctx: Any) -> None:
 
 def middle_combinator(ctx: Any) -> None:
     ctx.hcatMiddleCombinator(ctx.hcatHashType, ctx.hcatHashFile)
+
+
+def _prompt_wordlist_paths(ctx, max_count: int) -> list[str]:
+    """Prompt for wordlist paths one at a time with tab-autocomplete.
+
+    Stops when a blank line is entered or max_count paths have been collected.
+    Returns a list of resolved, valid file paths.
+    """
+
+    def path_completer(text, state):
+        base = ctx.hcatWordlists
+        if not text:
+            pattern = os.path.join(base, "*")
+            matches = glob.glob(pattern)
+        else:
+            expanded = os.path.expanduser(text)
+            if expanded.startswith(("/", "./", "../", "~")):
+                matches = glob.glob(expanded + "*")
+            else:
+                pattern = os.path.join(base, expanded + "*")
+                matches = glob.glob(pattern)
+        matches = [m + "/" if os.path.isdir(m) else m for m in matches]
+        try:
+            return matches[state]
+        except IndexError:
+            return None
+
+    _configure_readline(path_completer)
+
+    collected: list[str] = []
+    count = 1
+    while len(collected) < max_count:
+        raw = input(
+            f"\nWordlist #{count} (tab to autocomplete, blank to finish): "
+        ).strip()
+        if not raw:
+            break
+        resolved = ctx._resolve_wordlist_path(raw, ctx.hcatWordlists)
+        if os.path.isfile(resolved):
+            collected.append(resolved)
+            print(f"Added: {resolved}")
+            count += 1
+        else:
+            print(f"Not found: {resolved}")
+    return collected
+
+
+def combinator3_crack(ctx: Any) -> None:
+    """3-way combinator attack (delegates to unified combinator_crack)."""
+    combinator_crack(ctx)
+
+
+def combinatorX_crack(ctx: Any) -> None:
+    """N-way combinator attack (delegates to unified combinator_crack)."""
+    combinator_crack(ctx)
+
+
+def combinator_3plus_crack(ctx: Any) -> None:
+    """3+ wordlist combinator (delegates to unified combinator_crack)."""
+    combinator_crack(ctx)
 
 
 def bandrel_method(ctx: Any) -> None:
@@ -698,11 +715,82 @@ def generate_rules_crack(ctx: Any) -> None:
     ctx.hcatGenerateRules(ctx.hcatHashType, ctx.hcatHashFile, rule_count, wordlist_choice)
 
 
-def combinator_submenu(ctx: Any) -> None:
-    from hate_crack.menu import interactive_menu
+def ngram_attack(ctx: Any) -> None:
+    print("\n" + "=" * 60)
+    print("NGRAM ATTACK")
+    print("=" * 60)
+    print("Generates n-gram candidates from a corpus file via ngramX.bin.")
+    print("Gzip-compressed corpus files are auto-detected and decompressed.")
+    print("=" * 60)
 
+    corpus = ctx.select_file_with_autocomplete(
+        "Select corpus file (tab to autocomplete)",
+        base_dir=ctx.hcatWordlists,
+    )
+    if not corpus:
+        print("No corpus selected. Aborting ngram attack.")
+        return
+
+    group_size_raw = input("\nEnter n-gram group size (default 3): ").strip()
+    try:
+        group_size = int(group_size_raw) if group_size_raw else 3
+    except ValueError:
+        print("[!] Invalid group size. Using default of 3.")
+        group_size = 3
+
+    ctx.hcatNgramX(ctx.hcatHashType, ctx.hcatHashFile, corpus, group_size)
+
+
+def permute_crack(ctx: Any) -> None:
+    print("\n" + "=" * 60)
+    print("PERMUTATION ATTACK")
+    print("=" * 60)
+    print("Generates ALL character permutations of each word in a targeted wordlist.")
+    print("WARNING: Scales as N! per word. Only practical for words up to ~8 characters.")
+    print("Best for: short targeted wordlists (names, abbreviations, known fragments).")
+    print("=" * 60)
+
+    def path_completer(text, state):
+        base = ctx.hcatWordlists
+        if not text:
+            pattern = os.path.join(base, "*")
+            matches = glob.glob(pattern)
+        else:
+            text = os.path.expanduser(text)
+            if text.startswith(("/", "./", "../", "~")):
+                matches = glob.glob(text + "*")
+            else:
+                pattern = os.path.join(base, text + "*")
+                matches = glob.glob(pattern)
+        matches = [m + "/" if os.path.isdir(m) else m for m in matches]
+        try:
+            return matches[state]
+        except IndexError:
+            return None
+
+    _configure_readline(path_completer)
+
+    wordlist_path = None
+    while wordlist_path is None:
+        raw = input(
+            "\nEnter path to a wordlist FILE (tab to autocomplete): "
+        ).strip()
+        if not raw:
+            continue
+        if not os.path.exists(raw):
+            print(f"[!] Path not found: {raw}")
+            continue
+        if os.path.isdir(raw):
+            print("[!] A directory was provided. Please enter a single wordlist file.")
+            continue
+        wordlist_path = raw
+
+    ctx.hcatPermute(ctx.hcatHashType, ctx.hcatHashFile, wordlist_path)
+
+
+def combinator_submenu(ctx: Any) -> None:
     items = [
-        ("1", "Combinator Attack"),
+        ("1", "Combinator Attack (2-8 wordlists)"),
         ("2", "YOLO Combinator Attack"),
         ("3", "Middle Combinator Attack"),
         ("4", "Thorough Combinator Attack"),
