@@ -187,7 +187,7 @@ class DummyHashviewAPI:
     def __init__(self, base_url, api_key, debug=False):
         self.calls = []
 
-    def download_left_hashes(self, customer_id, hashfile_id, hash_type=None):
+    def download_left_hashes(self, customer_id, hashfile_id, hash_type=None, potfile_path=None):
         self.calls.append(
             ("download_left_hashes", customer_id, hashfile_id, hash_type)
         )

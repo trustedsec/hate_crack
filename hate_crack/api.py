@@ -6,7 +6,7 @@ import threading
 import time
 from queue import Queue
 import shutil
-from typing import Callable, Tuple
+from typing import Callable, Optional, Tuple
 
 import requests  # type: ignore[import-untyped]
 from bs4 import BeautifulSoup
@@ -135,9 +135,14 @@ def get_hcat_potfile_path():
         try:
             with open(config_path) as f:
                 config = json.load(f)
-            raw = (config.get("hcatPotfilePath") or "").strip()
-            if raw:
-                return os.path.expanduser(raw)
+            if "hcatPotfilePath" in config:
+                raw = (config["hcatPotfilePath"] or "").strip()
+                if raw == "":
+                    return ""
+                expanded = os.path.expanduser(raw)
+                if not os.path.isabs(expanded):
+                    expanded = os.path.join(os.path.dirname(config_path), expanded)
+                return expanded
         except Exception:
             pass
     return os.path.expanduser("~/.hashcat/hashcat.potfile")
@@ -827,7 +832,7 @@ class HashviewAPI:
         return resp.json()
 
     def download_left_hashes(
-        self, customer_id, hashfile_id, output_file=None, hash_type=None
+        self, customer_id, hashfile_id, output_file=None, hash_type=None, potfile_path=None
     ):
         import sys
 
@@ -918,22 +923,11 @@ class HashviewAPI:
                     f"Split found file into {hashes_count} hashes and {clears_count} clears"
                 )
 
-                # Append found hashes to the left file
-                with open(output_abs, "a", encoding="utf-8") as lf:
-                    with open(
-                        found_hashes_file, "r", encoding="utf-8", errors="ignore"
-                    ) as fhf:
-                        for line in fhf:
-                            line = line.strip()
-                            if line:
-                                lf.write(line + "\n")
-                print(f"✓ Appended {hashes_count} found hashes to {output_abs}")
-
                 # Append found hash:clear pairs to the potfile
-                potfile_path = get_hcat_potfile_path()
-                if potfile_path:
+                resolved_potfile = potfile_path if potfile_path is not None else get_hcat_potfile_path()
+                if resolved_potfile:
                     appended = 0
-                    with open(potfile_path, "a", encoding="utf-8") as pf:
+                    with open(resolved_potfile, "a", encoding="utf-8") as pf:
                         with open(
                             found_file, "r", encoding="utf-8", errors="ignore"
                         ) as ff:
@@ -944,7 +938,7 @@ class HashviewAPI:
                                     appended += 1
                     combined_count = appended
                     print(
-                        f"✓ Appended {appended} found hashes to potfile: {potfile_path}"
+                        f"✓ Appended {appended} found hashes to potfile: {resolved_potfile}"
                     )
                 else:
                     print(
@@ -1108,6 +1102,7 @@ def download_hashes_from_hashview(
     debug_mode: bool,
     input_fn: Callable[[str], str] = input,
     print_fn: Callable[..., None] = print,
+    potfile_path: Optional[str] = None,
 ) -> Tuple[str, str]:
     """Interactive Hashview download flow used by CLI."""
     try:
@@ -1242,6 +1237,7 @@ def download_hashes_from_hashview(
         hashfile_id,
         output_file,
         hash_type=selected_hash_type,
+        potfile_path=potfile_path,
     )
     print_fn(f"\n✓ Success: Downloaded {download_result['size']} bytes")
     print_fn(f"  File: {download_result['output_file']}")
