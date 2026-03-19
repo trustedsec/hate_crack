@@ -262,8 +262,7 @@ def combinator_crack(ctx: Any) -> None:
     print("\n" + "=" * 60)
     print("COMBINATOR ATTACK")
     print("=" * 60)
-    print("This attack combines two wordlists to generate candidates.")
-    print("Example: wordlist1='password' + wordlist2='123' = 'password123'")
+    print("Combines 2-8 wordlists. 2 uses hashcat native mode; 3+ use external binaries.")
     print("=" * 60)
 
     use_default = (
@@ -271,73 +270,30 @@ def combinator_crack(ctx: Any) -> None:
     )
 
     if use_default != "n":
-        print("\nUsing default wordlist(s) from config:")
-        if isinstance(ctx.hcatCombinationWordlist, list):
-            for wl in ctx.hcatCombinationWordlist:
-                print(f"  - {wl}")
-            wordlists = ctx.hcatCombinationWordlist
-        else:
-            print(f"  - {ctx.hcatCombinationWordlist}")
-            wordlists = [ctx.hcatCombinationWordlist]
-    else:
-        print("\nSelect wordlists for combinator attack.")
-        print("You need to provide exactly 2 wordlists.")
-        print("You can enter:")
-        print("  - Two file paths separated by commas")
-        print("  - Press TAB to autocomplete file paths")
-
-        selection = ctx.select_file_with_autocomplete(
-            "Enter 2 wordlist files (comma-separated)",
-            allow_multiple=True,
-            base_dir=ctx.hcatWordlists,
-        )
-
-        if not selection:
-            print("No wordlists selected. Aborting combinator attack.")
+        base = ctx.hcatCombinationWordlist
+        wordlists = base if isinstance(base, list) else [base]
+        wordlists = [ctx._resolve_wordlist_path(wl, ctx.hcatWordlists) for wl in wordlists]
+        if len(wordlists) < 2:
+            print("\n[!] Config does not have at least 2 wordlists.")
+            print("Set hcatCombinationWordlist to a list of 2+ paths in config.json.")
+            print("Aborting combinator attack.")
             return
-
-        if isinstance(selection, str):
-            wordlists = [selection]
-        else:
-            wordlists = selection
-
+        separator = ""
+    else:
+        print("\nEnter 2-8 wordlists. Enter a blank line when done.")
+        wordlists = _prompt_wordlist_paths(ctx, max_count=8)
         if len(wordlists) < 2:
             print("\n[!] Combinator attack requires at least 2 wordlists.")
             print("Aborting combinator attack.")
             return
+        separator = input("\nEnter separator between words (leave blank for none): ").strip()
 
-        valid_wordlists = []
-        for wl in wordlists[:2]:  # Only use first 2
-            resolved = ctx._resolve_wordlist_path(wl, ctx.hcatWordlists)
-            if os.path.isfile(resolved):
-                valid_wordlists.append(resolved)
-                print(f"✓ Found: {resolved}")
-            else:
-                print(f"✗ Not found: {resolved}")
-
-        if len(valid_wordlists) < 2:
-            print("\nCould not find 2 valid wordlists. Aborting combinator attack.")
-            return
-
-        wordlists = valid_wordlists
-
-    wordlists = [
-        ctx._resolve_wordlist_path(wl, ctx.hcatWordlists) for wl in wordlists[:2]
-    ]
-
-    if len(wordlists) < 2:
-        print("\n[!] Combinator attack requires 2 wordlists but only 1 is configured.")
-        print("Set hcatCombinationWordlist to a list of 2 paths in config.json.")
-        print("Aborting combinator attack.")
-        return
-
-    print("\nStarting combinator attack with 2 wordlists:")
-    print(f"  Wordlist 1: {wordlists[0]}")
-    print(f"  Wordlist 2: {wordlists[1]}")
-    print(f"Hash type: {ctx.hcatHashType}")
-    print(f"Hash file: {ctx.hcatHashFile}")
-
-    ctx.hcatCombination(ctx.hcatHashType, ctx.hcatHashFile, wordlists)
+    if len(wordlists) == 2 and not separator:
+        ctx.hcatCombination(ctx.hcatHashType, ctx.hcatHashFile, wordlists)
+    elif len(wordlists) == 3 and not separator:
+        ctx.hcatCombinator3(ctx.hcatHashType, ctx.hcatHashFile, wordlists)
+    else:
+        ctx.hcatCombinatorX(ctx.hcatHashType, ctx.hcatHashFile, wordlists, separator or None)
 
 
 def hybrid_crack(ctx: Any) -> None:
@@ -428,108 +384,64 @@ def middle_combinator(ctx: Any) -> None:
     ctx.hcatMiddleCombinator(ctx.hcatHashType, ctx.hcatHashFile)
 
 
-def combinator3_crack(ctx: Any) -> None:
-    print("\n" + "=" * 60)
-    print("COMBINATOR3 ATTACK")
-    print("=" * 60)
-    print("This attack combines three wordlists to generate candidates.")
-    print("=" * 60)
+def _prompt_wordlist_paths(ctx, max_count: int) -> list[str]:
+    """Prompt for wordlist paths one at a time with tab-autocomplete.
 
-    use_default = (
-        input("\nUse default combinator wordlists from config? (Y/n): ").strip().lower()
-    )
+    Stops when a blank line is entered or max_count paths have been collected.
+    Returns a list of resolved, valid file paths.
+    """
 
-    if use_default != "n":
-        base = ctx.hcatCombinationWordlist
-        wordlists = base if isinstance(base, list) else [base]
-        if len(wordlists) < 3:
-            print("\n[!] Config does not have 3 wordlists for combinator3.")
-            print("Set hcatCombinationWordlist to a list of 3 paths in config.json.")
-            print("Aborting combinator3 attack.")
-            return
-    else:
+    def path_completer(text, state):
+        base = ctx.hcatWordlists
+        if not text:
+            pattern = os.path.join(base, "*")
+            matches = glob.glob(pattern)
+        else:
+            expanded = os.path.expanduser(text)
+            if expanded.startswith(("/", "./", "../", "~")):
+                matches = glob.glob(expanded + "*")
+            else:
+                pattern = os.path.join(base, expanded + "*")
+                matches = glob.glob(pattern)
+        matches = [m + "/" if os.path.isdir(m) else m for m in matches]
+        try:
+            return matches[state]
+        except IndexError:
+            return None
+
+    _configure_readline(path_completer)
+
+    collected: list[str] = []
+    count = 1
+    while len(collected) < max_count:
         raw = input(
-            "\nEnter 3 wordlist file paths (comma-separated): "
+            f"\nWordlist #{count} (tab to autocomplete, blank to finish): "
         ).strip()
         if not raw:
-            print("No wordlists provided. Aborting combinator3 attack.")
-            return
+            break
+        resolved = ctx._resolve_wordlist_path(raw, ctx.hcatWordlists)
+        if os.path.isfile(resolved):
+            collected.append(resolved)
+            print(f"Added: {resolved}")
+            count += 1
+        else:
+            print(f"Not found: {resolved}")
+    return collected
 
-        entries = [p.strip() for p in raw.split(",") if p.strip()]
-        if len(entries) < 3:
-            print("\n[!] Combinator3 attack requires exactly 3 wordlists.")
-            print("Aborting combinator3 attack.")
-            return
 
-        valid = []
-        for p in entries[:3]:
-            resolved = ctx._resolve_wordlist_path(p, ctx.hcatWordlists)
-            if os.path.isfile(resolved):
-                valid.append(resolved)
-                print(f"Found: {resolved}")
-            else:
-                print(f"Not found: {resolved}")
-
-        if len(valid) < 3:
-            print("\nCould not find 3 valid wordlists. Aborting combinator3 attack.")
-            return
-
-        wordlists = valid
-
-    ctx.hcatCombinator3(ctx.hcatHashType, ctx.hcatHashFile, wordlists)
+def combinator3_crack(ctx: Any) -> None:
+    """3-way combinator attack (delegates to unified combinator_crack)."""
+    combinator_crack(ctx)
 
 
 def combinatorX_crack(ctx: Any) -> None:
-    print("\n" + "=" * 60)
-    print("COMBINATORX ATTACK")
-    print("=" * 60)
-    print("This attack combines 2-8 wordlists with an optional separator.")
-    print("=" * 60)
+    """N-way combinator attack (delegates to unified combinator_crack)."""
+    combinator_crack(ctx)
 
-    use_default = (
-        input("\nUse default combinator wordlists from config? (Y/n): ").strip().lower()
-    )
 
-    if use_default != "n":
-        base = ctx.hcatCombinationWordlist
-        wordlists = base if isinstance(base, list) else [base]
-        if len(wordlists) < 2:
-            print("\n[!] Config does not have at least 2 wordlists for combinatorX.")
-            print("Set hcatCombinationWordlist to a list of 2+ paths in config.json.")
-            print("Aborting combinatorX attack.")
-            return
-        separator = ""
-    else:
-        raw = input(
-            "\nEnter 2-8 wordlist file paths (comma-separated): "
-        ).strip()
-        if not raw:
-            print("No wordlists provided. Aborting combinatorX attack.")
-            return
-
-        entries = [p.strip() for p in raw.split(",") if p.strip()]
-        if len(entries) < 2:
-            print("\n[!] CombinatorX attack requires at least 2 wordlists.")
-            print("Aborting combinatorX attack.")
-            return
-
-        valid = []
-        for p in entries[:8]:
-            resolved = ctx._resolve_wordlist_path(p, ctx.hcatWordlists)
-            if os.path.isfile(resolved):
-                valid.append(resolved)
-                print(f"Found: {resolved}")
-            else:
-                print(f"Not found: {resolved}")
-
-        if len(valid) < 2:
-            print("\nCould not find 2 valid wordlists. Aborting combinatorX attack.")
-            return
-
-        wordlists = valid
-        separator = input("\nEnter separator between words (leave blank for none): ").strip()
-
-    ctx.hcatCombinatorX(ctx.hcatHashType, ctx.hcatHashFile, wordlists, separator or None)
+def combinator_3plus_crack(ctx: Any) -> None:
+    """3+ wordlist combinator (delegates to unified combinator_crack)."""
+    combinator_crack(ctx)
 
 
 def bandrel_method(ctx: Any) -> None:
@@ -727,12 +639,10 @@ def markov_brute_force(ctx: Any) -> None:
 
 def combinator_submenu(ctx: Any) -> None:
     items = [
-        ("1", "Combinator Attack"),
+        ("1", "Combinator Attack (2-8 wordlists)"),
         ("2", "YOLO Combinator Attack"),
         ("3", "Middle Combinator Attack"),
         ("4", "Thorough Combinator Attack"),
-        ("5", "Combinator3 Attack (3-way)"),
-        ("6", "CombinatorX Attack (N-way, 2-8 wordlists)"),
         ("99", "Back to Main Menu"),
     ]
     while True:
@@ -747,7 +657,3 @@ def combinator_submenu(ctx: Any) -> None:
             middle_combinator(ctx)
         elif choice == "4":
             thorough_combinator(ctx)
-        elif choice == "5":
-            combinator3_crack(ctx)
-        elif choice == "6":
-            combinatorX_crack(ctx)

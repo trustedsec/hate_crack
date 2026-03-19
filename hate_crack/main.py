@@ -356,19 +356,19 @@ else:
 
 
 def _append_potfile_arg(cmd, *, use_potfile_path=True, potfile_path=None):
-    if not use_potfile_path:
-        return
-    pot = potfile_path or hcatPotfilePath
-    if pot:
-        try:
-            pot_dir = os.path.dirname(pot)
-            if pot_dir:
-                os.makedirs(pot_dir, exist_ok=True)
-            if not os.path.exists(pot):
-                open(pot, "a").close()
-        except OSError:
-            pass
-        cmd.append(f"--potfile-path={pot}")
+    if use_potfile_path:
+        pot = potfile_path or hcatPotfilePath
+        if pot:
+            try:
+                pot_dir = os.path.dirname(pot)
+                if pot_dir:
+                    os.makedirs(pot_dir, exist_ok=True)
+                if not os.path.exists(pot):
+                    open(pot, "a").close()
+            except OSError:
+                pass
+            cmd.append(f"--potfile-path={pot}")
+    _debug_cmd(cmd)
 
 
 rulesDirectory = config_parser["rules_directory"]
@@ -401,6 +401,8 @@ pipalPath = config_parser["pipalPath"]
 hcatDictionaryWordlist = config_parser["hcatDictionaryWordlist"]
 hcatHybridlist = config_parser["hcatHybridlist"]
 hcatCombinationWordlist = config_parser["hcatCombinationWordlist"]
+hcatCombinator3Wordlist = config_parser.get("hcatCombinator3Wordlist", ["rockyou.txt", "rockyou.txt", "rockyou.txt"])
+hcatCombinatorXWordlist = config_parser.get("hcatCombinatorXWordlist", ["rockyou.txt", "rockyou.txt"])
 hcatMiddleCombinatorMasks = config_parser["hcatMiddleCombinatorMasks"]
 hcatMiddleBaseList = config_parser["hcatMiddleBaseList"]
 hcatThoroughCombinatorMasks = config_parser["hcatThoroughCombinatorMasks"]
@@ -558,6 +560,8 @@ hcatDictionaryWordlist = _normalize_wordlist_setting(
 hcatCombinationWordlist = _normalize_wordlist_setting(
     hcatCombinationWordlist, wordlists_dir
 )
+hcatCombinator3Wordlist = _normalize_wordlist_setting(hcatCombinator3Wordlist, wordlists_dir)
+hcatCombinatorXWordlist = _normalize_wordlist_setting(hcatCombinatorXWordlist, wordlists_dir)
 hcatHybridlist = _normalize_wordlist_setting(hcatHybridlist, wordlists_dir)
 hcatMiddleBaseList = _normalize_wordlist_setting(hcatMiddleBaseList, wordlists_dir)
 hcatThoroughBaseList = _normalize_wordlist_setting(hcatThoroughBaseList, wordlists_dir)
@@ -3389,6 +3393,10 @@ def combinator3_crack():
 
 def combinatorX_crack():
     return _attacks.combinatorX_crack(_attack_ctx())
+
+
+def combinator_3plus_crack():
+    return _attacks.combinator_3plus_crack(_attack_ctx())
 
 
 
