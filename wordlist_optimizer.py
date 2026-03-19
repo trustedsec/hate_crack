@@ -40,7 +40,7 @@ def main():
 
     # Resolve binary paths relative to script location
     script_dir = os.path.dirname(os.path.realpath(__file__))
-    ext = ".app" if sys.platform == "darwin" else ".bin"
+    ext = ".bin" if sys.platform == "darwin" else ".bin"
     splitlen_bin = os.path.join(script_dir, "hashcat-utils", "bin", f"splitlen{ext}")
     rli_bin = os.path.join(script_dir, "hashcat-utils", "bin", f"rli{ext}")
 
