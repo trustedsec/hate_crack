@@ -471,6 +471,24 @@ The LLM Attack (option 15) uses Ollama to generate password candidates. Configur
 - **`ollamaNumCtx`** — Context window size for the model (default: `2048`).
 - The Ollama URL defaults to `http://localhost:11434`. Ensure Ollama is running before using the LLM Attack.
 
+### Wordlist Tools (menu option 80)
+
+The Wordlist Tools submenu provides 7 wordlist preprocessing utilities backed by hashcat-utils binaries. Access via option **80** in the main menu.
+
+| Option | Binary | What it does |
+|--------|--------|--------------|
+| 1 | `len.bin` | Filter by length - keep only words between a min and max length |
+| 2 | `req-include.bin` | Require character classes - keep only words containing all required character types |
+| 3 | `req-exclude.bin` | Exclude character classes - remove words containing any excluded character type |
+| 4 | `cutb.bin` | Extract substring - cut a byte range from each word |
+| 5 | `splitlen.bin` | Split by length - create separate files per word length (files named `01`-`64` in an output directory) |
+| 6 | `rli.bin` / `rli2.bin` | Subtract words - remove entries that appear in one or more other files |
+| 7 | `gate.bin` | Shard - extract every N-th word for distributed cracking across multiple machines |
+
+**Character class mask bits** (used by options 2 and 3): `1`=lowercase, `2`=uppercase, `4`=digit, `8`=symbol, `16`=other. Add values together: `7` = lowercase+uppercase+digit.
+
+**Sharding example**: to split a wordlist across 4 nodes, run option 7 with mod=4 and offset=0 on node 1, offset=1 on node 2, etc.
+
 #### Automatic Update Checks
 
 hate_crack can automatically check GitHub for newer releases on startup. This feature is controlled by the `check_for_updates` config option:
@@ -622,6 +640,8 @@ All tests use mocked API calls, so they can run without connectivity to a Hashvi
   (20) Permutation Attack
   (21) Random Rules Attack
   (22) Combipow Passphrase Attack
+
+  (80) Wordlist Tools
 
   (90) Download rules from Hashmob.net
   (91) Analyze Hashcat Rules
@@ -819,6 +839,21 @@ Generates all unique non-empty subset combinations from a short wordlist using `
 * Warns if the wordlist exceeds 20 lines (output volume may be large)
 * Aborts with a clear message if the wordlist exceeds 63 lines (hard limit)
 * Candidates are piped directly to hashcat stdin
+
+#### Wordlist Tools (option 80)
+A submenu of wordlist preprocessing utilities using hashcat-utils binaries. All tools read from and write to files on disk.
+
+| Key | Tool | Description |
+|-----|------|-------------|
+| 1 | Filter by Length | Keep only words between a min and max length (`len.bin`) |
+| 2 | Require Char Classes | Keep words that include all char classes in mask (`req-include.bin`). Mask: 1=lower, 2=upper, 4=digit, 8=symbol (additive) |
+| 3 | Exclude Char Classes | Remove words containing any char class in mask (`req-exclude.bin`). Same mask encoding |
+| 4 | Extract Substring | Cut bytes from each word at a given offset and optional length (`cutb.bin`) |
+| 5 | Split by Length | Create per-length files in an output directory (`splitlen.bin`) |
+| 6 | Subtract Wordlist | Remove lines from a wordlist that appear in one or more remove files. Mode 1 uses `rli2.bin` (single file); mode 2 uses `rli.bin` (multiple files) |
+| 7 | Shard Wordlist | Extract every mod-th line at a given offset to create equal-sized shards (`gate.bin`) |
+
+All binaries are in `hate_crack/hashcat-utils/bin/`.
 
 #### Download Rules from Hashmob.net
 Downloads the latest rule files from Hashmob.net's rule repository. These rules are curated and optimized for password cracking and can be used with the Quick Crack and Loopback Attack modes.
