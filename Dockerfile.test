@@ -7,6 +7,7 @@ RUN apt-get update \
         build-essential \
         ca-certificates \
         curl \
+        git \
         gzip \
         hashcat \
         ocl-icd-libopencl1 \
@@ -19,7 +20,7 @@ RUN python -m pip install -q uv==0.9.28
 
 COPY . /workspace
 
-RUN make submodules vendor-assets && uv tool install . && make clean-vendor
+RUN make install
 
 ENV PATH="${HOME}/.local/bin:${PATH}"
 ENV HATE_CRACK_SKIP_INIT=1

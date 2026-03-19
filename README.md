@@ -7,56 +7,56 @@
        \/      \/          \/_____/      \/            \/     \/     \/
 ```
 
-## Status
-
-**Code Quality & Testing:**
-
-[![ruff](https://github.com/trustedsec/hate_crack/actions/workflows/ruff.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/ruff.yml)
-[![mypy](https://github.com/trustedsec/hate_crack/actions/workflows/mypy.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/mypy.yml)
-[![pytest](https://github.com/trustedsec/hate_crack/actions/workflows/pytest.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/pytest.yml)
-
-**Python Version Testing:**
-
-[![py39](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py39.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py39.yml)
-[![py310](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py310.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py310.yml)
-[![py311](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py311.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py311.yml)
-[![py312](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py312.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py312.yml)
-[![py313](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py313.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py313.yml)
-[![py314](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py314.yml/badge.svg)](https://github.com/trustedsec/hate_crack/actions/workflows/pytest-py314.yml)
-
 ## Installation
 
 ### 1. Install hashcat
-Get the latest hashcat binaries (https://hashcat.net/hashcat/)
 
+Hashcat must be installed and available in your PATH:
+
+Ubuntu/Kali:
 ```bash
-git clone https://github.com/hashcat/hashcat.git
-cd hashcat/
-make
-make install
+sudo apt-get install -y hashcat
 ```
 
+macOS (Homebrew):
+```bash
+brew install hashcat
+```
+
+Or download a pre-built binary from https://hashcat.net/hashcat/ and set `hcatPath` in `config.json` to its location.
+
 ### 2. Download hate_crack
+
+Clone with submodules (required for hashcat-utils, princeprocessor, and optionally omen):
+
 ```bash
 git clone --recurse-submodules https://github.com/trustedsec/hate_crack.git
 cd hate_crack
 ```
 
-* Customize binary and wordlist paths in "config.json"
-* The hashcat-utils repo is a submodule. If you didn't clone with --recurse-submodules then initialize with:
+If you cloned without submodules, initialize them:
 
 ```bash
 git submodule update --init --recursive
 ```
 
+Then customize configuration in `config.json` if needed (wordlist paths, API keys, etc.). Most users can skip this step as default paths work out-of-the-box.
+
 ### 3. Install dependencies and hate_crack
 
-The easiest way is to use `make install` which auto-detects your OS and installs:
+The easiest way is to run `make` (or `make install`), which auto-detects your OS and installs:
 - External dependencies (p7zip, transmission-cli)
-- Python tool via uv
+- Builds submodules (hashcat-utils, princeprocessor, and optionally omen)
+- Python dependencies via uv and a CLI shim at `~/.local/bin/hate_crack`
 
 ```bash
-make install
+make
+```
+
+This is idempotent - it skips tools already installed. To force a clean reinstall:
+
+```bash
+make reinstall
 ```
 
 **Or install dependencies manually:**
@@ -80,9 +80,12 @@ macOS (Homebrew):
 brew install p7zip transmission-cli
 ```
 
-Then install the Python tool:
+Then install the Python dependencies and CLI shim:
 ```bash
-uv tool install .
+uv sync
+mkdir -p ~/.local/bin
+printf '#!/usr/bin/env bash\nset -euo pipefail\nexec uv run --directory %s python -m hate_crack "$@"\n' "$(pwd)" > ~/.local/bin/hate_crack
+chmod +x ~/.local/bin/hate_crack
 ```
 
 -------------------------------------------------------------------
@@ -108,38 +111,39 @@ This project depends on and is inspired by a number of external projects and ser
 
 -------------------------------------------------------------------
 ## Usage
-You can run hate_crack as a tool, as a script, or via `uv run`:
+
+After installing with `make`, run hate_crack from anywhere:
 
 ```bash
-uv run hate_crack.py
-# or 
-uv run hate_crack.py <hash_file> <hash_type> [options]
+hate_crack
+# or with arguments:
+hate_crack <hash_file> <hash_type> [options]
+```
+
+Alternatively, run via `uv`:
+
+```bash
+uv run hate_crack.py <hash_file> <hash_type>
 ```
 
 ### Run as a tool (recommended)
-Install once from the repo root:
+
+Install using `make` from the repository root - this builds submodules and bundles assets:
 
 ```bash
-uv tool install .
+cd /path/to/hate_crack
+make
 hate_crack
 ```
 
-**Important:** The tool needs access to `hashcat-utils` and `princeprocessor` subdirectories from the hate_crack repository.
+The `make install` command creates a bash shim at `~/.local/bin/hate_crack` that runs from the repo directory, so config and assets are always found regardless of your current working directory.
 
-The tool will automatically search for these assets in:
-- The directory that contains the hate_crack checkout (and includes `config.json`, `hashcat-utils/`, and `princeprocessor/`)
+Config is also searched in:
 - Current working directory and parent directory
+- The repo root and package directory
 - `~/hate_crack`, `~/hate-crack`, or `~/.hate_crack`
 
-**Option 1 - Run from repository directory:**
-```bash
-cd /path/to/hate_crack
-hate_crack <hash_file> <hash_type>
-```
-
-Run `make install` to install the tool with all assets bundled into the package.
-
-**Note:** The `hcatPath` in `config.json` is for the hashcat binary location (optional if hashcat is in PATH), not for hate_crack assets.
+**Note:** The `hcatPath` in `config.json` is for the hashcat binary location only (optional if hashcat is in PATH). Hate_crack assets (hashcat-utils, princeprocessor, omen) are loaded from the repository directory and bundled automatically by `make install`.
 
 ### Run as a script
 The script uses a `uv` shebang. Make it executable and run:
@@ -173,63 +177,104 @@ This means the hate_crack assets were not bundled into the installed package.
 - `hashcat-utils/` and `princeprocessor/` → bundled into the package by `make install`
 
 **Solution:**
-Reinstall using the Makefile, which vendors the assets into the package:
+Reinstall using the Makefile, which builds submodules and installs the tool:
 ```bash
 cd /path/to/hate_crack  # the repository checkout
 make install
 ```
 
-**Example config.json:**
+**Default configuration (config.json.example):**
+
+Most users can use defaults without customization:
+- `hcatWordlists`: `./wordlists` (relative to repo root or HOME/.hate_crack)
+- `rules_directory`: `./hashcat/rules` (includes submodule rules)
+- `hcatTuning`: `` (empty string - no default tuning flags)
+
+**Example config.json customizations:**
 ```json
 {
-  "hcatPath": "/usr/local/bin",     # Location of hashcat binary (or omit if in PATH)
-  "hcatBin": "hashcat",             # Hashcat binary name
+  "hcatPath": "/usr/local/bin",          # Location of hashcat binary (optional, auto-detected from PATH)
+  "hcatBin": "hashcat",                  # Hashcat binary name
+  "hcatWordlists": "./wordlists",        # Dictionary wordlist directory (relative or absolute)
+  "rules_directory": "./hashcat/rules",  # Rules directory (relative or absolute)
+  "hcatTuning": "",                      # Additional hashcat flags (empty by default)
   ...
 }
 ```
 
+**Configuration loading:**
+- Missing config keys are automatically backfilled from `config.json.example` on startup
+- Config is searched in multiple locations: repo root, current working directory, `~/.hate_crack`, `/opt/hate_crack`
+
+### Error: merge with ref 'refs/heads/master' but no such ref was fetched
+
+If you see:
+```
+Your configuration specifies to merge with the ref 'refs/heads/master'
+from the remote, but no such ref was fetched.
+```
+
+The default branch was renamed from `master` to `main`. Fix with:
+```bash
+git remote set-head origin -a
+git branch -m master main
+git branch --set-upstream-to=origin/main main
+git pull
+```
+
 -------------------------------------------------------------------
-### Makefile helpers
-Install OS dependencies + tool (auto-detects macOS vs Debian/Ubuntu):
+### Makefile Targets
+
+**Default (full installation)** - builds submodules, installs dependencies, and installs the tool:
 
 ```bash
+make
+# or explicitly:
 make install
 ```
 
-Rebuild submodules and reinstall the tool (quick update after pulling changes):
+This is idempotent - it skips tools already installed.
 
-```bash
-make update
-```
-
-Reinstall the Python tool in-place (keeps OS deps as-is):
+**Force clean reinstall:**
 
 ```bash
 make reinstall
 ```
 
-Uninstall OS dependencies + tool:
+**Quick update** - rebuilds submodules and reinstalls tool (after pulling changes):
+
+```bash
+make update
+```
+
+**Uninstall** - removes OS dependencies and tool:
 
 ```bash
 make uninstall
 ```
 
-Build hashcat-utils only:
+**Build hashcat-utils only:**
 
 ```bash
 make hashcat-utils
 ```
 
-Clean build/test artifacts:
-
-```bash
-make clean
-```
-
-Run the test suite:
+**Run tests** - automatically handles HATE_CRACK_SKIP_INIT when needed:
 
 ```bash
 make test
+```
+
+**Coverage report:**
+
+```bash
+make coverage
+```
+
+**Clean build/test artifacts:**
+
+```bash
+make clean
 ```
 
 -------------------------------------------------------------------
@@ -237,117 +282,100 @@ make test
 
 ### Setting Up the Development Environment
 
-Install the project with optional dev dependencies (includes type stubs, linters, and testing tools):
+Install the project with optional dev dependencies (includes linters and testing tools):
 
 ```bash
 make dev-install
 ```
 
-### Continuous Integration
-
-The project uses GitHub Actions to automatically run quality checks on every push and pull request.
-
-**Checks that run on each commit:**
-
-1. **Linting (Ruff)** - Code style and quality validation
-   - ✅ **PASS**: Code follows style rules and best practices
-   - ❌ **FAIL**: Code has style violations or quality issues
-   - Run locally: `make ruff`
-
-2. **Type Checking (Mypy)** - Static type analysis
-   - ✅ **PASS**: No type errors detected
-   - ❌ **FAIL**: Type mismatches or missing annotations found
-   - Run locally: `make mypy`
-
-3. **Testing (Multi-Version)** - Tests across Python 3.9 through 3.14
-   - ✅ **PASS**: All tests pass on all supported Python versions
-   - ⚠️  **PARTIAL**: Tests pass on some versions but fail on others
-   - ❌ **FAIL**: Tests fail on one or more Python versions
-   - Run locally: `make test`
-
-**View CI/CD Status:**
-- Click the badge above to see the full test results
-- Each workflow shows which Python version(s) failed or passed
-- Details are available in the Actions tab
-
 ### Running Linters and Type Checks
 
-Before pushing changes, run these checks locally to catch issues early:
+Before pushing changes, run these checks locally. Use `make lint` for everything, or run individual checks:
 
 **Ruff (linting and formatting):**
 ```bash
-.venv/bin/ruff check hate_crack
+make ruff
+# or manually:
+uv run ruff check hate_crack
 ```
 
 Auto-fix issues:
 ```bash
-.venv/bin/ruff check --fix hate_crack
+uv run ruff format hate_crack
+uv run ruff check --fix hate_crack
 ```
 
-**Mypy (type checking):**
+**ty (type checking):**
 ```bash
-.venv/bin/mypy hate_crack
+make ty
+# or manually:
+uv run ty check hate_crack
 ```
 
 **Run all checks together:**
 ```bash
-.venv/bin/ruff check hate_crack && .venv/bin/mypy hate_crack && echo "✓ All checks passed"
+make lint
 ```
 
 ### Running Tests
 
+Tests auto-detect when submodules are not built and set `HATE_CRACK_SKIP_INIT=1` automatically.
+
 ```bash
-.venv/bin/pytest
+make test
+```
+
+Or run pytest directly:
+
+```bash
+uv run pytest -v
 ```
 
 With coverage:
-```bash
-.venv/bin/pytest --cov=hate_crack
-```
-
-### Pre-commit Hook (Optional)
-
-Create `.git/hooks/pre-push` to automatically run checks before pushing:
 
 ```bash
-#!/bin/bash
-set -e
-.venv/bin/ruff check hate_crack
-.venv/bin/mypy --exclude HashcatRosetta --exclude hashcat-utils --ignore-missing-imports hate_crack
-HATE_CRACK_SKIP_INIT=1 HATE_CRACK_RUN_E2E=0 HATE_CRACK_RUN_DOCKER_TESTS=0 HATE_CRACK_RUN_LIVE_TESTS=0 .venv/bin/python -m pytest
-echo "✓ Local checks passed!"
+make coverage
 ```
 
-Make it executable:
+Or with pytest:
+
 ```bash
-chmod +x .git/hooks/pre-push
+uv run pytest --cov=hate_crack
 ```
 
-### Optional Dependencies
+### Git Hooks (prek)
 
-The optional `[ml]` group includes ML/AI features required for the PassGPT attack:
-- **torch** - PyTorch deep learning framework (for PassGPT attack and training)
-- **transformers** - HuggingFace transformers library (for GPT-2 models)
-- **datasets** - HuggingFace datasets library (for fine-tuning support)
-- **accelerate** - HuggingFace training acceleration library
+Git hooks are managed by [prek](https://github.com/j178/prek) (v0.3.3+). Install hooks with:
 
-Install with:
 ```bash
-uv pip install -e ".[ml]"
+prek install --hook-type pre-push --hook-type post-commit
 ```
 
-PassGPT (option 17) will be hidden from the menu if ML dependencies are not installed.
+This installs hooks defined in `prek.toml` using the pre-commit local-repo TOML schema:
+- **pre-push**: ruff, ty, pytest, pytest-lima
+- **post-commit**: audit-docs
+
+Note: prek 0.3.3 expects `repos = [...]` at the top level. The old `[hooks.<stage>] commands = [...]` format is not supported.
+
+### Arrow-Key Menu Navigation (Optional)
+
+Install the `[tui]` extra to enable arrow-key menu navigation via `simple-term-menu`:
+
+```bash
+uv pip install '.[tui]'
+```
+
+When installed and running in a terminal (TTY), menus render with arrow-key navigation and number-key shortcuts. Without it, the classic numbered `print()` + `input()` menu is used.
+
+To force the plain numbered menu even when `simple-term-menu` is installed, set `HATE_CRACK_PLAIN_MENU=1`.
 
 ### Dev Dependencies
 
 The optional `[dev]` group includes:
-- **mypy** - Static type checker
+- **ty** - Static type checker
 - **ruff** - Fast Python linter and formatter
 - **pytest** - Testing framework
 - **pytest-cov** - Coverage reporting
-- **types-requests** - Type stubs for requests library
-- **types-beautifulsoup4** - Type stubs for BeautifulSoup
-- **types-openpyxl** - Type stubs for openpyxl library
 
 -------------------------------------------------------------------
 Common options:
@@ -442,6 +470,24 @@ The LLM Attack (option 15) uses Ollama to generate password candidates. Configur
 - **`ollamaModel`** — The Ollama model to use for candidate generation (default: `mistral`).
 - **`ollamaNumCtx`** — Context window size for the model (default: `2048`).
 - The Ollama URL defaults to `http://localhost:11434`. Ensure Ollama is running before using the LLM Attack.
+
+### Wordlist Tools (menu option 80)
+
+The Wordlist Tools submenu provides 7 wordlist preprocessing utilities backed by hashcat-utils binaries. Access via option **80** in the main menu.
+
+| Option | Binary | What it does |
+|--------|--------|--------------|
+| 1 | `len.bin` | Filter by length - keep only words between a min and max length |
+| 2 | `req-include.bin` | Require character classes - keep only words containing all required character types |
+| 3 | `req-exclude.bin` | Exclude character classes - remove words containing any excluded character type |
+| 4 | `cutb.bin` | Extract substring - cut a byte range from each word |
+| 5 | `splitlen.bin` | Split by length - create separate files per word length (files named `01`-`64` in an output directory) |
+| 6 | `rli.bin` / `rli2.bin` | Subtract words - remove entries that appear in one or more other files |
+| 7 | `gate.bin` | Shard - extract every N-th word for distributed cracking across multiple machines |
+
+**Character class mask bits** (used by options 2 and 3): `1`=lowercase, `2`=uppercase, `4`=digit, `8`=symbol, `16`=other. Add values together: `7` = lowercase+uppercase+digit.
+
+**Sharding example**: to split a wordlist across 4 nodes, run option 7 with mod=4 and offset=0 on node 1, offset=1 on node 2, etc.
 
 #### Automatic Update Checks
 
@@ -547,6 +593,22 @@ HATE_CRACK_RUN_DOCKER_TESTS=1 uv run pytest tests/test_docker_script_install.py 
 The Docker E2E test also downloads a small subset of rockyou and runs a basic
 hashcat crack to validate external tool integration.
 
+Lima VM end-to-end test (macOS only):
+
+Prerequisites: [Lima](https://lima-vm.io/) and `rsync` must be installed.
+
+```bash
+brew install lima
+```
+
+The test VM provisions automatically with all Linux dependencies (hashcat, build-essential, curl, git, gzip, p7zip-full, transmission-cli, ocl-icd-libopencl1, pocl-opencl-icd, uv).
+
+```bash
+HATE_CRACK_RUN_LIMA_TESTS=1 uv run pytest tests/test_lima_vm_install.py -v
+```
+
+This test validates installation and execution within a lightweight Linux VM on macOS.
+
 ### Test Structure
 
 - **tests/test_hashview.py**: Comprehensive test suite for HashviewAPI class with mocked API responses, including:
@@ -555,11 +617,7 @@ hashcat crack to validate external tool integration.
   - Hashfile upload functionality
   - Complete job creation workflow
 
-All tests use mocked API calls, so they can run without connectivity to a Hashview server. This allows tests to run in CI/CD environments (like GitHub Actions) without requiring actual API credentials.
-
-### Continuous Integration
-
-Tests automatically run on GitHub Actions for every push and pull request (Ubuntu, Python 3.9 through 3.14).
+All tests use mocked API calls, so they can run without connectivity to a Hashview server.
 
 -------------------------------------------------------------------
 
@@ -568,18 +626,24 @@ Tests automatically run on GitHub Actions for every push and pull request (Ubunt
   (3) Brute Force Attack
   (4) Top Mask Attack
   (5) Fingerprint Attack
-  (6) Combinator Attack
+  (6) Combinator Attacks
   (7) Hybrid Attack
   (8) Pathwell Top 100 Mask Brute Force Crack
   (9) PRINCE Attack
-  (10) YOLO Combinator Attack
-  (11) Middle Combinator Attack
-  (12) Thorough Combinator Attack
   (13) Bandrel Methodology
   (14) Loopback Attack
   (15) LLM Attack
   (16) OMEN Attack
-  (17) PassGPT Attack
+  (17) Ad-hoc Mask Attack
+  (18) Markov Brute Force Attack
+  (19) N-gram Attack
+  (20) Permutation Attack
+  (21) Random Rules Attack
+  (22) Combipow Passphrase Attack
+
+  (80) Wordlist Tools
+
+  (81) Rule File Tools
 
   (90) Download rules from Hashmob.net
   (91) Analyze Hashcat Rules
@@ -596,9 +660,7 @@ Select a task:
 ```
 -------------------------------------------------------------------
 #### Quick Crack
-* Runs a dictionary attack using all wordlists configured in your "hcatOptimizedWordlists" path
-and optionally applies a rule that can be selected from a list by ID number. Multiple rules can be selected by using a
-comma separated list, and chains can be created by using the '+' symbol.
+Runs a dictionary attack using all wordlists configured in your `hcatWordlists` path and optionally applies rules. Multiple rules can be selected by comma-separated list, and chains can be created with the '+' symbol.
 
 ```
 Which rule(s) would you like to run?
@@ -616,18 +678,18 @@ Choose wisely:
 
 
 #### Extensive Pure_Hate Methodology Crack
-Runs several attack methods provided by Martin Bos (formerly known as pure_hate)
+Runs several attack methods provided by Martin Bos (formerly known as pure_hate):
   * Brute Force Attack (7 characters)
   * Dictionary Attack
-    * All wordlists in "hcatOptimizedWordlists" with "best64.rule"
-    * wordlists/rockyou.txt with "d3ad0ne.rule"
-    * wordlists/rockyou.txt with "T0XlC.rule"
+    * All wordlists in `hcatWordlists` with `best64.rule`
+    * `rockyou.txt` with `d3ad0ne.rule`
+    * `rockyou.txt` with `T0XlC.rule`
   * Top Mask Attack (Target Time = 4 Hours)
   * Fingerprint Attack
   * Combinator Attack
   * Hybrid Attack
   * Extra - Just For Good Measure
-    - Runs a dictionary attack using wordlists/rockyou.txt with chained "combinator.rule" and "InsidePro-PasswordsPro.rule" rules
+    - Runs a dictionary attack using `rockyou.txt` with chained `combinator.rule` and `InsidePro-PasswordsPro.rule` rules
     
 #### Brute Force Attack
 Brute forces all characters with the choice of a minimum and maximum password length.
@@ -667,8 +729,7 @@ https://hashcat.net/events/p14-trondheim/prince-attack.pdf
 Runs a PRINCE attack using wordlists/rockyou.txt
 
 #### YOLO Combinator Attack
-Runs a continuous combinator attack using random wordlists from the 
-optimized wordlists for the left and right sides.
+Runs a continuous combinator attack using random wordlists from the configured wordlists directory for the left and right sides.
 
 #### Middle Combinator Attack
 https://jeffh.net/2018/04/26/combinator_methods/
@@ -694,10 +755,10 @@ https://jeffh.net/2018/04/26/combinator_methods/
 
 #### Bandrel Methodology
 
-* Prompts for input of comma separated names and then creates a pseudo hybrid attack by capitalizing the first letter
-and adding up to six additional characters at the end. Each word is limited to a total of five minutes.
-  - Built in additional common words including seasons, months has been included as a customizable config.json entry
-  - The default five minute time limit is customizable via the config.json
+Prompts for comma-separated names and creates a pseudo hybrid attack by capitalizing the first letter and adding up to six additional characters at the end. Each word is limited to a total of five minutes.
+
+  - Built-in common words (seasons, months) included as a customizable `config.json` entry (`bandrel_common_basedwords`)
+  - The default five-minute time limit is customizable via `bandrelmaxruntime` in `config.json`
 
 #### Loopback Attack
 https://hashcat.net/wiki/doku.php?id=loopback_attack
@@ -719,87 +780,99 @@ Uses a local Ollama instance to generate password candidates for a capture-the-f
 Uses the Ordered Markov ENumerator (OMEN) to train a statistical password model from a wordlist and generate password candidates. This attack learns patterns from known passwords and generates new candidates based on those patterns.
 
 * Requires OMEN binaries (createNG and enumNG) to be built from the omen submodule
-* Trains a model from a wordlist (configurable via config.json or prompted)
-* Generates up to a specified number of password candidates
+* Interactive menu: use existing model, train new model, or cancel
+* Training wordlist picker shows available wordlists from configured directory or accepts a custom path
+* Validates all 5 required model files (createConfig, CP/IP/EP/LN.level) before running
+* Captures and reports enumNG errors instead of failing silently
+* Generates up to a specified number of password candidates (configurable via `omenMaxCandidates`)
 * Pipes generated candidates directly into hashcat for cracking
-* Model files are stored in `~/.hate_crack/omen/` for persistence across sessions
+* Model files and metadata are stored in `~/.hate_crack/omen/` for persistence across sessions
 
-#### PassGPT Attack
-Uses PassGPT, a GPT-2 based password generator trained on leaked password datasets, to generate candidate passwords. PassGPT produces higher-quality candidates than traditional Markov models by leveraging transformer-based language modeling. You can use the default HuggingFace model or fine-tune a custom model on your own password wordlist.
+#### Combinator Attacks Submenu
+Opens an interactive submenu with six combinator attack variants (formerly at menu keys 10-12). Consolidates related attacks for cleaner menu organization:
+- Combinator Attack - combines two wordlists
+- YOLO Combinator Attack - combines all permutations of multiple wordlists
+- Middle Combinator Attack - combines wordlists with an extra word in the middle
+- Thorough Combinator Attack - comprehensive combination of wordlists with rules
+- Combinator3 Attack - combines exactly 3 wordlists using `combinator3.bin`, generating all `word1+word2+word3` combinations piped to hashcat
+- CombinatorX Attack - combines 2-8 wordlists using `combinatorX.bin` with optional `--sepFill` separator character between word segments
 
-**Note:** This menu item is hidden unless ML dependencies are installed.
+#### Ad-hoc Mask Attack
+Runs hashcat mask attack (mode 3) with a user-specified custom mask string. Allows fine-grained control over character-set brute forcing.
 
-**Requirements:** ML dependencies must be installed separately:
-```bash
-uv pip install -e ".[ml]"
-```
+* Prompts for a hashcat mask (e.g., `?u?l?l?l?d?d` for uppercase + lowercase + lowercase + lowercase + digit + digit)
+* Supports custom character sets (`-1`, `-2`, `-3`, `-4`) for specialized character combinations
+* Interactive charset entry with early exit on blank input
+* Useful for targeted brute forcing when you know password structure patterns
 
-This installs PyTorch and HuggingFace Transformers. GPU acceleration (CUDA/MPS) is auto-detected but not required.
+#### Markov Brute Force Attack
+Generates password candidates using Markov chain statistical models. Similar to OMEN but simpler and faster.
 
-**Configuration keys:**
-- `passgptModel` - HuggingFace model name (default: `javirandor/passgpt-10characters`)
-- `passgptMaxCandidates` - Maximum candidates to generate (default: 1000000)
-- `passgptBatchSize` - Generation batch size (default: 1024)
-- `passgptTrainingList` - Default wordlist for fine-tuning (default: `rockyou.txt`)
+* Checks for existing `.hcstat2` Markov table from previous sessions (with option to reuse, regenerate, or cancel)
+* Generates table from training source if needed:
+  - Can use cracked passwords from current session (`.out` file) as training data
+  - Or select any wordlist from configured directory or custom path
+* Interactive menu: choose minimum and maximum password length
+* Uses `--increment` flag to test lengths in sequence
+* Markov table persists with hash file (filename.out.hcstat2) for fast subsequent runs
+* Faster than OMEN for general-purpose brute forcing
 
-**Supported models:**
-- `javirandor/passgpt-10characters` - Trained on passwords up to 10 characters (default)
-- `javirandor/passgpt-16characters` - Trained on passwords up to 16 characters
-- Any compatible GPT-2 model on HuggingFace
-- Locally fine-tuned models (stored in `~/.hate_crack/passgpt/`)
+#### Permutation Attack
+Generates all character permutations of each word in a targeted wordlist and pipes them to hashcat via `permute.bin` from hashcat-utils.
 
-**Training a Custom Model:**
-When you select the PassGPT Attack (option 17), the menu presents:
-- List of available models (default HF model + any locally fine-tuned models)
-- Option (T) to train a new model on a custom wordlist
-- Fine-tuned models are automatically saved to `~/.hate_crack/passgpt/<name>/` for reuse
+* Prompts for a single wordlist file (not a directory)
+* Effective against short targeted wordlists where the character set is known but the order is not (company abbreviations, name fragments, known tokens)
+* WARNING: Scales as N! per word - an 8-character word produces 40,320 permutations. Only practical for words up to ~8 characters.
+* Uses `permute.bin < wordlist | hashcat` pipeline pattern
 
-To train a new model:
-1. Select option (T) from the model selection menu
-2. Choose a training wordlist (supports tab-complete file selection)
-3. Optionally specify a base model (defaults to configured `passgptModel`)
-4. Training will fine-tune the model on your wordlist and save it locally
+#### Random Rules Attack
+Generates a set of random hashcat mutation rules using `generate-rules.bin`, writes them to a temporary file, then runs hashcat against a chosen wordlist with those rules.
 
-Fine-tuned models can be reused in future cracking sessions and appear in the model selection menu alongside the default models.
+* Prompts for rule count (default 65536)
+* Prompts for wordlist path with tab-completion and numbered selection
+* Temporary rules file is cleaned up after the run regardless of outcome
+* Useful when known rule sets are exhausted - explores random rule-space for additional cracks
 
-**Apple Silicon (MPS) Performance Notes:**
-- Batch size is automatically capped at 64 to prevent memory errors on MPS devices
-- GPU memory watermark ratios are configured for stability (50% high, 30% low)
-- Specify `--device cpu` to force CPU generation if MPS has issues
+#### Combipow Passphrase Attack
+Generates all unique non-empty subset combinations from a short wordlist using `combipow.bin` and pipes them into hashcat. Designed for passphrase cracking when you know the pool of words a password was built from.
 
-**Standalone usage:**
+* Prompts for a wordlist file (max 63 lines - combipow generates up to 2^n-1 combinations)
+* Optional space separator (`-s` flag) to insert spaces between words in each combination
+* Warns if the wordlist exceeds 20 lines (output volume may be large)
+* Aborts with a clear message if the wordlist exceeds 63 lines (hard limit)
+* Candidates are piped directly to hashcat stdin
 
-Generate candidates:
-```bash
-python -m hate_crack.passgpt_generate --num 1000 --model javirandor/passgpt-10characters
-```
+#### Wordlist Tools (option 80)
+A submenu of wordlist preprocessing utilities using hashcat-utils binaries. All tools read from and write to files on disk.
 
-Fine-tune a custom model:
-```bash
-python -m hate_crack.passgpt_train --training-file wordlist.txt --output-dir ~/.hate_crack/passgpt/my_model
-```
+| Key | Tool | Description |
+|-----|------|-------------|
+| 1 | Filter by Length | Keep only words between a min and max length (`len.bin`) |
+| 2 | Require Char Classes | Keep words that include all char classes in mask (`req-include.bin`). Mask: 1=lower, 2=upper, 4=digit, 8=symbol (additive) |
+| 3 | Exclude Char Classes | Remove words containing any char class in mask (`req-exclude.bin`). Same mask encoding |
+| 4 | Extract Substring | Cut bytes from each word at a given offset and optional length (`cutb.bin`) |
+| 5 | Split by Length | Create per-length files in an output directory (`splitlen.bin`) |
+| 6 | Subtract Wordlist | Remove lines from a wordlist that appear in one or more remove files. Mode 1 uses `rli2.bin` (single file); mode 2 uses `rli.bin` (multiple files) |
+| 7 | Shard Wordlist | Extract every mod-th line at a given offset to create equal-sized shards (`gate.bin`) |
 
-**Generator command-line options:**
-- `--num` - Number of candidates to generate (default: 1000000)
-- `--model` - HuggingFace model name or local path (default: javirandor/passgpt-10characters)
-- `--batch-size` - Generation batch size (default: 1024)
-- `--max-length` - Max token length including special tokens (default: 12)
-- `--device` - Device: cuda, mps, or cpu (default: auto-detect)
+All binaries are in `hate_crack/hashcat-utils/bin/`.
 
-**Training command-line options:**
-- `--training-file` - Path to password wordlist for fine-tuning (required)
-- `--output-dir` - Directory to save the fine-tuned model (required)
-- `--base-model` - Base HuggingFace model to fine-tune (default: javirandor/passgpt-10characters)
-- `--epochs` - Number of training epochs (default: 3)
-- `--batch-size` - Training batch size (default: 8)
-- `--device` - Device: cuda, mps, or cpu (default: auto-detect)
+#### Rule File Tools (option 81)
+Preprocesses hashcat rule files using `cleanup-rules.bin` and `rules_optimize.bin` from hashcat-utils.
+
+* **Clean** - removes invalid syntax and duplicate rules using `cleanup-rules.bin`. Useful after combining rule files or downloading rules from external sources.
+* **Optimize** - consolidates redundant operations using `rules_optimize.bin`. Reduces rule file size and improves cracking speed.
+* **Clean and optimize** - runs both operations in sequence via a temporary file, then writes the final result.
+
+All three operations read from an input file and write to a separate output file (original is never modified).
 
 #### Download Rules from Hashmob.net
 Downloads the latest rule files from Hashmob.net's rule repository. These rules are curated and optimized for password cracking and can be used with the Quick Crack and Loopback Attack modes.
 
-* Automatically downloads popular rule sets
+* Downloads rule sets in parallel using a thread pool (up to 4 concurrent downloads)
+* Skips rules already downloaded locally
+* Reports download summary with success/failure counts
 * Stores rules in the configured rules directory
-* Provides progress feedback during download
 
 #### Analyze Hashcat Rules
 Powered by HashcatRosetta (https://github.com/bandrel/HashcatRosetta), this feature analyzes hashcat rule files to provide detailed insights into rule composition and complexity.
@@ -828,19 +901,28 @@ Interactive menu for downloading and managing wordlists from Weakpass.com via Bi
 ### Version History
 
 Version 2.0+
+  - Added Random Rules Attack (option 20) using `generate-rules.bin` to generate random mutation rules (#87)
+  - Added Ad-hoc Mask Attack (option 17) for user-typed hashcat masks with optional custom character sets
+  - Added Markov Brute Force Attack (option 18) using `hcstat2` statistical tables for password generation
+  - Consolidated Combinator Attacks (formerly options 10/11/12) into interactive submenu under option 6
+  - Markov attack supports training from cracked passwords or any wordlist, with table reuse/regeneration menu
+  - Fixed OMEN attack failing silently when model files were incomplete or enumNG errors occurred
+  - OMEN attack now validates all 5 required model files, captures enumNG stderr, and provides a train/use/cancel menu with wordlist picker
+  - Filtered `.7z`, `.torrent`, and `.out` files from wordlist selection menus (#80)
+  - Parallelized Hashmob rule downloads using a thread pool with success/failure summary (#81)
+  - Added dynamic optimized kernel (`-O`) flag per attack type via `optimizedKernelAttacks` config (#82)
+  - Replaced `uv tool install` with a bash shim for reliable config and asset resolution from any working directory
+  - Fixed config resolution to search the repo root and package directory in addition to CWD
+  - Fixed bare NTLM hash detection failing when hash files contain leading blank lines, BOM characters, or null bytes from UTF-16 encoding
+  - Improved error message for unrecognized hash formats to show the actual first-line content and list expected formats
+  - Fixed rule file path construction in Quick Crack and Loopback Attack using `os.path.join()` instead of string concatenation
   - Added automatic update checks on startup (check_for_updates config option)
   - Added `packaging` dependency for version comparison
-  - Added PassGPT Attack (option 17) using GPT-2 based ML password generation
-  - Added PassGPT fine-tuning capability for custom password models
-  - Added PassGPT configuration keys (passgptModel, passgptMaxCandidates, passgptBatchSize, passgptTrainingList)
-  - Added `[ml]` optional dependency group for PyTorch, Transformers, and Datasets
   - Added OMEN Attack (option 16) using statistical model-based password generation
   - Added OMEN configuration keys (omenTrainingList, omenMaxCandidates)
   - Added LLM Attack (option 15) using Ollama for AI-generated password candidates
   - Added Ollama configuration keys (ollamaModel, ollamaNumCtx)
   - Auto-versioning via setuptools-scm from git tags
-  - Automatic patch version bump (v2.0.1, v2.0.2, ...) on PR merge to main
-  - CI test fixes across Python 3.9-3.14
 
 Version 2.0
   Modularized codebase into CLI/API/attacks modules

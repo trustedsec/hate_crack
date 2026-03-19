@@ -15,3 +15,7 @@ hate_crack/princeprocessor/
 *.ollama_candidates
 *.filtered
 research/
+--help
+4_char_all
+all_hashes.enabled
+some_histories

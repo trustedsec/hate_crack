@@ -15,6 +15,27 @@ def test_resolve_path_none_and_expand():
     assert os.path.isabs(resolved)
 
 
+def test_resolve_path_uses_orig_cwd_for_relative_paths(monkeypatch, tmp_path):
+    """When HATE_CRACK_ORIG_CWD is set, relative paths resolve against it."""
+    monkeypatch.setenv("HATE_CRACK_ORIG_CWD", str(tmp_path))
+    result = cli.resolve_path("hashes.txt")
+    assert result == os.path.join(str(tmp_path), "hashes.txt")
+
+
+def test_resolve_path_ignores_orig_cwd_for_absolute_paths(monkeypatch, tmp_path):
+    """Absolute paths are returned as-is regardless of HATE_CRACK_ORIG_CWD."""
+    monkeypatch.setenv("HATE_CRACK_ORIG_CWD", str(tmp_path))
+    result = cli.resolve_path("/absolute/path/hashes.txt")
+    assert result == "/absolute/path/hashes.txt"
+
+
+def test_resolve_path_without_orig_cwd_uses_abspath(monkeypatch):
+    """Without HATE_CRACK_ORIG_CWD, falls back to os.path.abspath."""
+    monkeypatch.delenv("HATE_CRACK_ORIG_CWD", raising=False)
+    result = cli.resolve_path("hashes.txt")
+    assert result == os.path.abspath("hashes.txt")
+
+
 def test_setup_logging_adds_single_streamhandler(tmp_path):
     logger = logging.getLogger("hate_crack_test")
     logger.handlers.clear()
@@ -58,6 +79,7 @@ def test_get_hcat_wordlists_dir_from_config(tmp_path, monkeypatch):
     config_path.write_text('{"hcatWordlists": "wordlists"}')
 
     monkeypatch.setattr(api, "_resolve_config_path", lambda: str(config_path))
+    monkeypatch.setattr(api, "_get_hate_path", lambda: str(tmp_path))
     result = api.get_hcat_wordlists_dir()
 
     assert result == str(tmp_path / "wordlists")
@@ -79,6 +101,7 @@ def test_get_rules_dir_from_config(tmp_path, monkeypatch):
     config_path.write_text('{"rules_directory": "rules"}')
 
     monkeypatch.setattr(api, "_resolve_config_path", lambda: str(config_path))
+    monkeypatch.setattr(api, "_get_hate_path", lambda: str(tmp_path))
     result = api.get_rules_dir()
 
     assert result == str(tmp_path / "rules")

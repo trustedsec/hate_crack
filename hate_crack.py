@@ -67,6 +67,10 @@ def pipal():
     return _main.pipal()
 
 
+def get_main_menu_items():
+    return _main.get_main_menu_items()
+
+
 def get_main_menu_options():
     options = {
         "1": _attacks.quick_crack,
@@ -74,17 +78,22 @@ def get_main_menu_options():
         "3": _attacks.brute_force_crack,
         "4": _attacks.top_mask_crack,
         "5": _attacks.fingerprint_crack,
-        "6": _attacks.combinator_crack,
+        "6": _attacks.combinator_submenu,
         "7": _attacks.hybrid_crack,
         "8": _attacks.pathwell_crack,
         "9": _attacks.prince_attack,
-        "10": _attacks.yolo_combination,
-        "11": _attacks.middle_combinator,
-        "12": _attacks.thorough_combinator,
         "13": _attacks.bandrel_method,
         "14": _attacks.loopback_attack,
         "15": _attacks.ollama_attack,
         "16": _attacks.omen_attack,
+        "17": _attacks.adhoc_mask_crack,
+        "18": _attacks.markov_brute_force,
+        "19": _attacks.ngram_attack,
+        "20": _attacks.permute_crack,
+        "21": _attacks.generate_rules_crack,
+        "22": _attacks.combipow_crack,
+        "80": _attacks.wordlist_tools_submenu,
+        "81": _attacks.rule_tools_submenu,
         "90": download_hashmob_rules,
         "91": weakpass_wordlist_menu,
         "92": download_hashmob_wordlists,
@@ -95,8 +104,6 @@ def get_main_menu_options():
         "98": show_readme,
         "99": quit_hc,
     }
-    if globals().get("HAS_ML_DEPS"):
-        options["17"] = _attacks.passgpt_attack
     # Only show Hashview API when configured.
     if globals().get("hashview_api_key"):
         options["94"] = hashview_api
