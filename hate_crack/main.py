@@ -3329,6 +3329,80 @@ def omen_attack():
     return _attacks.omen_attack(_attack_ctx())
 
 
+def wordlist_filter_len(infile: str, outfile: str, min_len: int, max_len: int) -> bool:
+    """Filter wordlist keeping only words between min_len and max_len (inclusive)."""
+    len_bin = os.path.join(hate_path, "hashcat-utils/bin/len.bin")
+    with open(infile, "rb") as fin, open(outfile, "wb") as fout:
+        result = subprocess.run(
+            [len_bin, str(min_len), str(max_len)], stdin=fin, stdout=fout
+        )
+    return result.returncode == 0
+
+
+def wordlist_filter_req_include(infile: str, outfile: str, mask: int) -> bool:
+    """Filter wordlist keeping only words that include all char classes in mask."""
+    req_bin = os.path.join(hate_path, "hashcat-utils/bin/req-include.bin")
+    with open(infile, "rb") as fin, open(outfile, "wb") as fout:
+        result = subprocess.run([req_bin, str(mask)], stdin=fin, stdout=fout)
+    return result.returncode == 0
+
+
+def wordlist_filter_req_exclude(infile: str, outfile: str, mask: int) -> bool:
+    """Filter wordlist removing words that contain any char class in mask."""
+    req_bin = os.path.join(hate_path, "hashcat-utils/bin/req-exclude.bin")
+    with open(infile, "rb") as fin, open(outfile, "wb") as fout:
+        result = subprocess.run([req_bin, str(mask)], stdin=fin, stdout=fout)
+    return result.returncode == 0
+
+
+def wordlist_cutb(
+    infile: str, outfile: str, offset: int, length: int | None
+) -> bool:
+    """Extract a substring from each word starting at offset, optionally limited to length bytes."""
+    cutb_bin = os.path.join(hate_path, "hashcat-utils/bin/cutb.bin")
+    cmd = [cutb_bin, str(offset)]
+    if length is not None:
+        cmd.append(str(length))
+    with open(infile, "rb") as fin, open(outfile, "wb") as fout:
+        result = subprocess.run(cmd, stdin=fin, stdout=fout)
+    return result.returncode == 0
+
+
+def wordlist_splitlen(infile: str, outdir: str) -> bool:
+    """Split wordlist into per-length files in outdir."""
+    splitlen_bin = os.path.join(hate_path, "hashcat-utils/bin/splitlen.bin")
+    with open(infile, "rb") as fin:
+        result = subprocess.run([splitlen_bin, outdir], stdin=fin)
+    return result.returncode == 0
+
+
+def wordlist_subtract(infile: str, outfile: str, *remove_files: str) -> bool:
+    """Remove lines from infile that appear in any of remove_files, write to outfile."""
+    rli_bin = os.path.join(hate_path, "hashcat-utils/bin/rli.bin")
+    result = subprocess.run([rli_bin, infile, outfile, *remove_files])
+    return result.returncode == 0
+
+
+def wordlist_subtract_single(infile: str, remove_file: str, outfile: str) -> bool:
+    """Subtract remove_file from infile, writing result to stdout captured in outfile."""
+    rli2_bin = os.path.join(hate_path, "hashcat-utils/bin/rli2.bin")
+    with open(outfile, "wb") as fout:
+        result = subprocess.run([rli2_bin, infile, remove_file], stdout=fout)
+    return result.returncode == 0
+
+
+def wordlist_gate(infile: str, outfile: str, mod: int, offset: int) -> bool:
+    """Shard wordlist: keep every mod-th line starting at offset."""
+    gate_bin = os.path.join(hate_path, "hashcat-utils/bin/gate.bin")
+    with open(infile, "rb") as fin, open(outfile, "wb") as fout:
+        result = subprocess.run([gate_bin, str(mod), str(offset)], stdin=fin, stdout=fout)
+    return result.returncode == 0
+
+
+def wordlist_tools_submenu():
+    return _attacks.wordlist_tools_submenu(_attack_ctx())
+
+
 # convert hex words for recycling
 def convert_hex(working_file):
     processed_words = []
@@ -3557,6 +3631,7 @@ def get_main_menu_items():
         ("16", "OMEN Attack"),
         ("17", "Ad-hoc Mask Attack"),
         ("18", "Markov Brute Force Attack"),
+        ("80", "Wordlist Tools"),
         ("90", "Download rules from Hashmob.net"),
         ("91", "Analyze Hashcat Rules"),
         ("92", "Download wordlists from Hashmob.net"),
@@ -3594,6 +3669,7 @@ def get_main_menu_options():
         "16": omen_attack,
         "17": adhoc_mask_crack,
         "18": markov_brute_force,
+        "80": wordlist_tools_submenu,
         "90": lambda: download_hashmob_rules(rules_dir=rulesDirectory),
         "91": analyze_rules,
         "92": download_hashmob_wordlists,

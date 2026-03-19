@@ -5,6 +5,7 @@ from typing import Any
 
 from hate_crack.api import download_hashmob_rules
 from hate_crack.formatting import print_multicolumn_list
+from hate_crack.menu import interactive_menu
 
 
 def _configure_readline(completer):
@@ -621,8 +622,6 @@ def markov_brute_force(ctx: Any) -> None:
 
 
 def combinator_submenu(ctx: Any) -> None:
-    from hate_crack.menu import interactive_menu
-
     items = [
         ("1", "Combinator Attack"),
         ("2", "YOLO Combinator Attack"),
@@ -642,3 +641,195 @@ def combinator_submenu(ctx: Any) -> None:
             middle_combinator(ctx)
         elif choice == "4":
             thorough_combinator(ctx)
+
+
+def wordlist_filter_length(ctx: Any) -> None:
+    """Prompt for paths and lengths, then filter wordlist by word length."""
+    infile = input("\n[*] Enter path to input wordlist: ").strip()
+    if not os.path.isfile(infile):
+        print(f"[!] File not found: {infile}")
+        return
+    outfile = input("[*] Enter path to output wordlist: ").strip()
+    if not outfile:
+        print("[!] Output path cannot be empty.")
+        return
+    min_len = int(input("[*] Minimum length: ").strip() or "0")
+    max_len = int(input("[*] Maximum length: ").strip() or "0")
+    if ctx.wordlist_filter_len(infile, outfile, min_len, max_len):
+        print(f"\n[*] Filtered wordlist written to: {outfile}")
+    else:
+        print("[!] Filter failed.")
+
+
+def wordlist_filter_charclass_include(ctx: Any) -> None:
+    """Prompt for paths and mask, then keep only words matching required char classes."""
+    infile = input("\n[*] Enter path to input wordlist: ").strip()
+    if not os.path.isfile(infile):
+        print(f"[!] File not found: {infile}")
+        return
+    outfile = input("[*] Enter path to output wordlist: ").strip()
+    if not outfile:
+        print("[!] Output path cannot be empty.")
+        return
+    print("[*] Char class mask: 1=lowercase, 2=uppercase, 4=digit, 8=symbol (additive, e.g. 3=lower+upper)")
+    mask = int(input("[*] Enter mask value: ").strip() or "0")
+    if ctx.wordlist_filter_req_include(infile, outfile, mask):
+        print(f"\n[*] Filtered wordlist written to: {outfile}")
+    else:
+        print("[!] Filter failed.")
+
+
+def wordlist_filter_charclass_exclude(ctx: Any) -> None:
+    """Prompt for paths and mask, then remove words containing excluded char classes."""
+    infile = input("\n[*] Enter path to input wordlist: ").strip()
+    if not os.path.isfile(infile):
+        print(f"[!] File not found: {infile}")
+        return
+    outfile = input("[*] Enter path to output wordlist: ").strip()
+    if not outfile:
+        print("[!] Output path cannot be empty.")
+        return
+    print("[*] Char class mask: 1=lowercase, 2=uppercase, 4=digit, 8=symbol (additive)")
+    mask = int(input("[*] Enter mask value: ").strip() or "0")
+    if ctx.wordlist_filter_req_exclude(infile, outfile, mask):
+        print(f"\n[*] Filtered wordlist written to: {outfile}")
+    else:
+        print("[!] Filter failed.")
+
+
+def wordlist_cut_substring(ctx: Any) -> None:
+    """Prompt for paths, offset, and optional length, then extract substring from each word."""
+    infile = input("\n[*] Enter path to input wordlist: ").strip()
+    if not os.path.isfile(infile):
+        print(f"[!] File not found: {infile}")
+        return
+    outfile = input("[*] Enter path to output wordlist: ").strip()
+    if not outfile:
+        print("[!] Output path cannot be empty.")
+        return
+    offset = int(input("[*] Byte offset to start from: ").strip() or "0")
+    raw_length = input("[*] Length (leave blank for rest of line): ").strip()
+    length = int(raw_length) if raw_length else None
+    if ctx.wordlist_cutb(infile, outfile, offset, length):
+        print(f"\n[*] Output written to: {outfile}")
+    else:
+        print("[!] Cut failed.")
+
+
+def wordlist_split_by_length(ctx: Any) -> None:
+    """Prompt for input wordlist and output directory, then split by word length."""
+    infile = input("\n[*] Enter path to input wordlist: ").strip()
+    if not os.path.isfile(infile):
+        print(f"[!] File not found: {infile}")
+        return
+    outdir = input("[*] Enter output directory path: ").strip()
+    if not outdir:
+        print("[!] Output directory cannot be empty.")
+        return
+    os.makedirs(outdir, exist_ok=True)
+    if ctx.wordlist_splitlen(infile, outdir):
+        print(f"\n[*] Split wordlists written to: {outdir}")
+    else:
+        print("[!] Split failed.")
+
+
+def wordlist_subtract_words(ctx: Any) -> None:
+    """Prompt for mode then remove matching lines from a wordlist."""
+    print("\n[*] Subtract mode:")
+    print("    1. Single remove file (rli2 - faster for one file)")
+    print("    2. Multiple remove files (rli)")
+    mode = input("[*] Choose mode (1/2): ").strip()
+
+    if mode == "1":
+        infile = input("[*] Enter path to input wordlist: ").strip()
+        if not os.path.isfile(infile):
+            print(f"[!] File not found: {infile}")
+            return
+        remove_file = input("[*] Enter path to wordlist to subtract: ").strip()
+        if not os.path.isfile(remove_file):
+            print(f"[!] File not found: {remove_file}")
+            return
+        outfile = input("[*] Enter path to output wordlist: ").strip()
+        if not outfile:
+            print("[!] Output path cannot be empty.")
+            return
+        if ctx.wordlist_subtract_single(infile, remove_file, outfile):
+            print(f"\n[*] Result written to: {outfile}")
+        else:
+            print("[!] Subtraction failed.")
+    elif mode == "2":
+        infile = input("[*] Enter path to input wordlist: ").strip()
+        if not os.path.isfile(infile):
+            print(f"[!] File not found: {infile}")
+            return
+        outfile = input("[*] Enter path to output wordlist: ").strip()
+        if not outfile:
+            print("[!] Output path cannot be empty.")
+            return
+        raw = input("[*] Enter remove file paths (comma-separated): ").strip()
+        remove_files = [r.strip() for r in raw.split(",") if r.strip()]
+        if not remove_files:
+            print("[!] No remove files provided.")
+            return
+        if ctx.wordlist_subtract(infile, outfile, *remove_files):
+            print(f"\n[*] Deduplicated wordlist written to: {outfile}")
+        else:
+            print("[!] Subtraction failed.")
+    else:
+        print("[!] Invalid mode.")
+
+
+def wordlist_shard(ctx: Any) -> None:
+    """Prompt for input/output paths, modulus, and offset, then shard the wordlist."""
+    infile = input("\n[*] Enter path to input wordlist: ").strip()
+    if not os.path.isfile(infile):
+        print(f"[!] File not found: {infile}")
+        return
+    outfile = input("[*] Enter path to output wordlist: ").strip()
+    if not outfile:
+        print("[!] Output path cannot be empty.")
+        return
+    mod = int(input("[*] Modulus (shard count, e.g. 4 for 4 shards): ").strip() or "0")
+    if mod < 2:
+        print("[!] Modulus must be at least 2.")
+        return
+    offset = int(input("[*] Offset (shard index, 0-based, e.g. 0 for first shard): ").strip() or "0")
+    if offset >= mod:
+        print(f"[!] Offset must be less than modulus ({mod}).")
+        return
+    if ctx.wordlist_gate(infile, outfile, mod, offset):
+        print(f"\n[*] Shard written to: {outfile}")
+    else:
+        print("[!] Shard failed.")
+
+
+def wordlist_tools_submenu(ctx: Any) -> None:
+    """Display the Wordlist Tools submenu and dispatch to the selected handler."""
+    items = [
+        ("1", "Filter by Length"),
+        ("2", "Require Character Classes"),
+        ("3", "Exclude Character Classes"),
+        ("4", "Extract Substring"),
+        ("5", "Split by Length"),
+        ("6", "Subtract Wordlist"),
+        ("7", "Shard Wordlist"),
+        ("99", "Back to Main Menu"),
+    ]
+    while True:
+        choice = interactive_menu(items, title="\nWordlist Tools:")
+        if choice is None or choice == "99":
+            break
+        elif choice == "1":
+            wordlist_filter_length(ctx)
+        elif choice == "2":
+            wordlist_filter_charclass_include(ctx)
+        elif choice == "3":
+            wordlist_filter_charclass_exclude(ctx)
+        elif choice == "4":
+            wordlist_cut_substring(ctx)
+        elif choice == "5":
+            wordlist_split_by_length(ctx)
+        elif choice == "6":
+            wordlist_subtract_words(ctx)
+        elif choice == "7":
+            wordlist_shard(ctx)
