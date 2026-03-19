@@ -88,6 +88,7 @@ def get_main_menu_options():
         "16": _attacks.omen_attack,
         "17": _attacks.adhoc_mask_crack,
         "18": _attacks.markov_brute_force,
+        "21": _attacks.combipow_crack,
         "90": download_hashmob_rules,
         "91": weakpass_wordlist_menu,
         "92": download_hashmob_wordlists,

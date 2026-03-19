@@ -2174,6 +2174,45 @@ def hcatMarkovBruteForce(hcatHashType, hcatHashFile, hcatMinLen, hcatMaxLen):
         hcatProcess.kill()
 
 
+# Combipow Passphrase Attack
+hcatCombipowCount = 0
+
+
+def hcatCombipow(hcatHashType, hcatHashFile, wordlist, use_space_sep=True):
+    global hcatProcess, hcatCombipowCount
+    hcatCombipowCount += 1
+    combipow_bin = os.path.join(hate_path, "hashcat-utils/bin/combipow.bin")
+    generator_cmd = [combipow_bin]
+    if use_space_sep:
+        generator_cmd.append("-s")
+    generator_cmd.append(wordlist)
+    session_name = re.sub(
+        r"[^a-zA-Z0-9_-]", "_", os.path.splitext(os.path.basename(hcatHashFile))[0]
+    )
+    hashcat_cmd = [
+        hcatBin,
+        "--session",
+        session_name,
+        "-m",
+        hcatHashType,
+        hcatHashFile,
+        "-o",
+        f"{hcatHashFile}.out",
+    ]
+    hashcat_cmd.extend(shlex.split(hcatTuning))
+    _append_potfile_arg(hashcat_cmd)
+    generator_proc = subprocess.Popen(generator_cmd, stdout=subprocess.PIPE)
+    hcatProcess = subprocess.Popen(hashcat_cmd, stdin=generator_proc.stdout)
+    generator_proc.stdout.close()
+    try:
+        hcatProcess.wait()
+        generator_proc.wait()
+    except KeyboardInterrupt:
+        print("Killing PID {0}...".format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+        generator_proc.kill()
+
+
 # PRINCE Attack
 def hcatPrince(hcatHashType, hcatHashFile):
     global hcatProcess
@@ -3329,6 +3368,10 @@ def omen_attack():
     return _attacks.omen_attack(_attack_ctx())
 
 
+def combipow_crack():
+    return _attacks.combipow_crack(_attack_ctx())
+
+
 # convert hex words for recycling
 def convert_hex(working_file):
     processed_words = []
@@ -3557,6 +3600,7 @@ def get_main_menu_items():
         ("16", "OMEN Attack"),
         ("17", "Ad-hoc Mask Attack"),
         ("18", "Markov Brute Force Attack"),
+        ("21", "Combipow Passphrase Attack"),
         ("90", "Download rules from Hashmob.net"),
         ("91", "Analyze Hashcat Rules"),
         ("92", "Download wordlists from Hashmob.net"),
@@ -3594,6 +3638,7 @@ def get_main_menu_options():
         "16": omen_attack,
         "17": adhoc_mask_crack,
         "18": markov_brute_force,
+        "21": combipow_crack,
         "90": lambda: download_hashmob_rules(rules_dir=rulesDirectory),
         "91": analyze_rules,
         "92": download_hashmob_wordlists,
