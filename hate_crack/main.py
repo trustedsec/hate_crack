@@ -827,12 +827,15 @@ def _run_upgrade():
     if git_root_result.returncode != 0:
         print(
             "\n  Could not find a git repository to upgrade from."
-            "\n  Run manually: git pull && make clean && make && make install\n"
+            "\n  Run manually: git pull && git fetch --tags && uv sync --reinstall-package hate_crack\n"
         )
         raise SystemExit(1)
     repo_root = git_root_result.stdout.strip()
     result = subprocess.run(
-        "git pull && make install",
+        # git fetch --tags ensures new release tags are visible to setuptools-scm.
+        # uv sync --reinstall-package forces hate_crack to be rebuilt from
+        # current source so setuptools-scm generates the correct version.
+        "git pull && git fetch --tags && uv sync --reinstall-package hate_crack",
         shell=True,
         cwd=repo_root,
     )

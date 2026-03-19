@@ -160,7 +160,7 @@ class TestCheckForUpdates:
         assert mock_run.call_count == 2
         make_cmd = mock_run.call_args_list[1][0][0]
         assert "git pull" in make_cmd
-        assert "make install" in make_cmd
+        assert "uv sync --reinstall-package hate_crack" in make_cmd
         assert mock_run.call_args_list[1][1]["cwd"] == "/fake/repo"
         output = capsys.readouterr().out
         assert "Upgrade complete" in output
@@ -231,7 +231,7 @@ class TestRunUpgrade:
         assert mock_run.call_count == 2
         make_cmd = mock_run.call_args_list[1][0][0]
         assert "git pull" in make_cmd
-        assert "make install" in make_cmd
+        assert "uv sync --reinstall-package hate_crack" in make_cmd
         assert mock_run.call_args_list[1][1]["cwd"] == "/fake/repo"
         output = capsys.readouterr().out
         assert "Upgrade complete" in output
