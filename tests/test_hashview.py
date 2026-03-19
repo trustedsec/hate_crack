@@ -644,6 +644,18 @@ class TestHashviewAPI:
         # Verify left file was created
         assert os.path.exists(result["output_file"])
 
+        # Verify left file contains only the original uncracked hashes
+        with open(result["output_file"], "r") as f:
+            left_contents = f.read()
+        assert "found_hash1" not in left_contents, (
+            "Found hashes must NOT be written back into the left file"
+        )
+        assert "found_hash2" not in left_contents, (
+            "Found hashes must NOT be written back into the left file"
+        )
+        assert "uncracked_hash1" in left_contents
+        assert "uncracked_hash2" in left_contents
+
         # Verify found files are cleaned up after merge
         found_file = tmp_path / "found_1_2.txt"
         assert not os.path.exists(found_file), (
@@ -658,6 +670,41 @@ class TestHashviewAPI:
         assert not os.path.exists(str(found_clears_file)), (
             "Split clears file should be deleted after merge"
         )
+
+        # Verify potfile received the found hash:plaintext pairs
+        with open(potfile, "r") as f:
+            potfile_contents = f.read()
+        assert "found_hash1:found_password1" in potfile_contents
+        assert "found_hash2:found_password2" in potfile_contents
+
+    def test_download_left_potfile_path_param_overrides_config(self, api, tmp_path):
+        """Test that a passed-in potfile_path is used instead of re-reading config."""
+        mock_left_response = Mock()
+        mock_left_response.content = b"hash1\n"
+        mock_left_response.raise_for_status = Mock()
+        mock_left_response.headers = {"content-length": "0"}
+        mock_left_response.iter_content = lambda chunk_size=8192: iter([mock_left_response.content])
+
+        mock_found_response = Mock()
+        mock_found_response.content = b"found_hash:plaintext\n"
+        mock_found_response.raise_for_status = Mock()
+        mock_found_response.headers = {"content-length": "0"}
+        mock_found_response.iter_content = lambda chunk_size=8192: iter([mock_found_response.content])
+
+        api.session.get.side_effect = [mock_left_response, mock_found_response]
+
+        explicit_potfile = str(tmp_path / "explicit.potfile")
+        other_potfile = str(tmp_path / "other.potfile")
+
+        left_file = tmp_path / "left_1_2.txt"
+        # Pass potfile_path explicitly - config-derived path should NOT be used
+        with patch("hate_crack.api.get_hcat_potfile_path", return_value=other_potfile):
+            api.download_left_hashes(1, 2, output_file=str(left_file), potfile_path=explicit_potfile)
+
+        assert os.path.exists(explicit_potfile), "Explicit potfile should be written"
+        assert not os.path.exists(other_potfile), "Config-derived potfile should NOT be written"
+        with open(explicit_potfile, "r") as f:
+            assert "found_hash:plaintext" in f.read()
 
     def test_download_left_id_matching(self, api, tmp_path):
         """Test that found hashes only merge when customer_id and hashfile_id match"""

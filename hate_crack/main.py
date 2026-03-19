@@ -3570,6 +3570,7 @@ def hashview_api():
                         hashfile_id,
                         output_file,
                         hash_type=selected_hash_type,
+                        potfile_path=hcatPotfilePath,
                     )
                     print(f"\n✓ Success: Downloaded {download_result['size']} bytes")
                     print(f"  File: {download_result['output_file']}")
@@ -4414,6 +4415,7 @@ def main():
                 args.customer_id,
                 args.hashfile_id,
                 hash_type=args.hash_type,
+                potfile_path=hcatPotfilePath,
             )
             print(f"\n✓ Success: Downloaded {download_result['size']} bytes")
             print(f"  File: {download_result['output_file']}")
