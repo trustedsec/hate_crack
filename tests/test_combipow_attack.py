@@ -14,9 +14,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 def _load_attacks():
     """Import hate_crack.attacks with SKIP_INIT set."""
-    for key in list(sys.modules.keys()):
-        if "hate_crack" in key:
-            del sys.modules[key]
     if str(PROJECT_ROOT) not in sys.path:
         sys.path.insert(0, str(PROJECT_ROOT))
     import hate_crack.attacks as attacks  # noqa: PLC0415
@@ -25,9 +22,6 @@ def _load_attacks():
 
 
 def _load_cli():
-    for key in list(sys.modules.keys()):
-        if "hate_crack" in key:
-            del sys.modules[key]
     spec = importlib.util.spec_from_file_location(
         "hate_crack_cli", PROJECT_ROOT / "hate_crack.py"
     )
@@ -148,84 +142,56 @@ class TestCombipowCrack:
 
 # --- hcatCombipow wrapper tests ---
 
+def _get_main_module():
+    if str(PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(PROJECT_ROOT))
+    import hate_crack.main as m  # noqa: PLC0415
+
+    return m
+
+
 class TestHcatCombipow:
-    def _setup_module(self, tmp_path):
-        """Return main module with hate_path and hcatBin patched."""
-        for key in list(sys.modules.keys()):
-            if "hate_crack" in key:
-                del sys.modules[key]
-        if str(PROJECT_ROOT) not in sys.path:
-            sys.path.insert(0, str(PROJECT_ROOT))
-        import hate_crack.main as m  # noqa: PLC0415
-
-        m.hate_path = str(tmp_path)
-        m.hcatBin = "hashcat"
-        m.hcatTuning = ""
-        m.hcatHashCracked = 0
-        m.hcatHashFile = str(tmp_path / "hashes.txt")
-
+    def _run(self, tmp_path, wl, use_space_sep):
+        """Run hcatCombipow with module globals patched via context managers."""
+        m = _get_main_module()
+        hash_file = str(tmp_path / "hashes.txt")
         combipow_bin = tmp_path / "hashcat-utils" / "bin" / "combipow.bin"
         combipow_bin.parent.mkdir(parents=True, exist_ok=True)
         combipow_bin.touch()
 
-        return m
-
-    def test_includes_s_flag_when_use_space_sep_true(self, tmp_path):
-        m = self._setup_module(tmp_path)
-        wl = tmp_path / "words.txt"
-        wl.write_text("word1\nword2\n")
-
         fake_combipow = MagicMock()
         fake_combipow.stdout = MagicMock()
         fake_hashcat = MagicMock()
         fake_hashcat.pid = 9999
 
-        out_file = tmp_path / "hashes.txt.out"
-        out_file.write_text("")
+        with (
+            patch.object(m, "hate_path", str(tmp_path)),
+            patch.object(m, "hcatBin", "hashcat"),
+            patch.object(m, "hcatTuning", ""),
+            patch("hate_crack.main.hcatHashFile", hash_file, create=True),
+            patch("hate_crack.main.subprocess.Popen", side_effect=[fake_combipow, fake_hashcat]) as mock_popen,
+        ):
+            m.hcatCombipow("1000", hash_file, str(wl), use_space_sep=use_space_sep)
 
-        with patch("subprocess.Popen", side_effect=[fake_combipow, fake_hashcat]) as mock_popen:
-            with patch.object(m, "lineCount", return_value=0):
-                m.hcatCombipow("1000", str(tmp_path / "hashes.txt"), str(wl), use_space_sep=True)
+        return mock_popen
 
+    def test_includes_s_flag_when_use_space_sep_true(self, tmp_path):
+        wl = tmp_path / "words.txt"
+        wl.write_text("word1\nword2\n")
+        mock_popen = self._run(tmp_path, wl, use_space_sep=True)
         first_call_args = mock_popen.call_args_list[0][0][0]
         assert "-s" in first_call_args
 
     def test_omits_s_flag_when_use_space_sep_false(self, tmp_path):
-        m = self._setup_module(tmp_path)
         wl = tmp_path / "words.txt"
         wl.write_text("word1\nword2\n")
-
-        fake_combipow = MagicMock()
-        fake_combipow.stdout = MagicMock()
-        fake_hashcat = MagicMock()
-        fake_hashcat.pid = 9999
-
-        out_file = tmp_path / "hashes.txt.out"
-        out_file.write_text("")
-
-        with patch("subprocess.Popen", side_effect=[fake_combipow, fake_hashcat]) as mock_popen:
-            with patch.object(m, "lineCount", return_value=0):
-                m.hcatCombipow("1000", str(tmp_path / "hashes.txt"), str(wl), use_space_sep=False)
-
+        mock_popen = self._run(tmp_path, wl, use_space_sep=False)
         first_call_args = mock_popen.call_args_list[0][0][0]
         assert "-s" not in first_call_args
 
     def test_wordlist_passed_as_argument(self, tmp_path):
-        m = self._setup_module(tmp_path)
         wl = tmp_path / "words.txt"
         wl.write_text("word1\nword2\n")
-
-        fake_combipow = MagicMock()
-        fake_combipow.stdout = MagicMock()
-        fake_hashcat = MagicMock()
-        fake_hashcat.pid = 9999
-
-        out_file = tmp_path / "hashes.txt.out"
-        out_file.write_text("")
-
-        with patch("subprocess.Popen", side_effect=[fake_combipow, fake_hashcat]) as mock_popen:
-            with patch.object(m, "lineCount", return_value=0):
-                m.hcatCombipow("1000", str(tmp_path / "hashes.txt"), str(wl), use_space_sep=True)
-
+        mock_popen = self._run(tmp_path, wl, use_space_sep=True)
         first_call_args = mock_popen.call_args_list[0][0][0]
         assert str(wl) in first_call_args
