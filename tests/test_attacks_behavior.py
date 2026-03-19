@@ -216,7 +216,7 @@ class TestCombinatorCrack:
         ctx._resolve_wordlist_path.assert_any_call("/wl/a.txt", ctx.hcatWordlists)
         ctx._resolve_wordlist_path.assert_any_call("/wl/b.txt", ctx.hcatWordlists)
 
-    def test_uses_only_first_two_wordlists(self) -> None:
+    def test_three_wordlists_in_config_routes_to_combinator3(self) -> None:
         ctx = _make_ctx()
         ctx.hcatCombinationWordlist = ["/wl/a.txt", "/wl/b.txt", "/wl/c.txt"]
         ctx._resolve_wordlist_path.side_effect = lambda wl, _: wl
@@ -224,9 +224,10 @@ class TestCombinatorCrack:
         with patch("builtins.input", return_value=""):
             combinator_crack(ctx)
 
-        call_wordlists = ctx.hcatCombination.call_args[0][2]
-        assert len(call_wordlists) == 2
-        assert "/wl/c.txt" not in call_wordlists
+        ctx.hcatCombinator3.assert_called_once()
+        ctx.hcatCombination.assert_not_called()
+        call_wordlists = ctx.hcatCombinator3.call_args[0][2]
+        assert len(call_wordlists) == 3
 
 
 class TestHybridCrack:
