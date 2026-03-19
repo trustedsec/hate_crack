@@ -12,7 +12,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 def load_cli_module():
     os.environ["HATE_CRACK_SKIP_INIT"] = "1"
     for key in list(sys.modules.keys()):
-        if "hate_crack" in key:
+        # Preserve hate_crack.attacks - reloading it creates a new module object
+        # that breaks __globals__ references held by functions imported at
+        # module level in other test files (test isolation violation).
+        if "hate_crack" in key and key != "hate_crack.attacks":
             del sys.modules[key]
     spec = importlib.util.spec_from_file_location(
         "hate_crack_cli", PROJECT_ROOT / "hate_crack.py"
@@ -29,7 +32,7 @@ def cli():
 
 def test_generate_rules_crack_in_main_menu(cli):
     options = cli.get_main_menu_options()
-    assert "20" in options
+    assert "21" in options
 
 
 def test_generate_rules_crack_handler_calls_main(cli, tmp_path):
