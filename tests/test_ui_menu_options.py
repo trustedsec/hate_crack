@@ -29,6 +29,7 @@ MENU_OPTION_TEST_CASES = [
     ("19", CLI_MODULE._attacks, "ngram_attack", "ngram"),
     ("20", CLI_MODULE._attacks, "permute_crack", "permute"),
     ("21", CLI_MODULE._attacks, "generate_rules_crack", "random-rules"),
+    ("22", CLI_MODULE._attacks, "combipow_crack", "combipow"),
     ("90", CLI_MODULE, "download_hashmob_rules", "hashmob-rules"),
     ("91", CLI_MODULE, "weakpass_wordlist_menu", "weakpass-menu"),
     ("92", CLI_MODULE, "download_hashmob_wordlists", "hashmob-wordlists"),

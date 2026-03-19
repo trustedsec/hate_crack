@@ -1,4 +1,5 @@
 import glob
+import gzip
 import os
 import readline
 from typing import Any
@@ -635,6 +636,31 @@ def markov_brute_force(ctx: Any) -> None:
         input("\nEnter the maximum password length to brute force (7): ") or 7
     )
     ctx.hcatMarkovBruteForce(ctx.hcatHashType, ctx.hcatHashFile, hcatMinLen, hcatMaxLen)
+
+
+def combipow_crack(ctx: Any) -> None:
+    wordlist = None
+    while wordlist is None:
+        path = input("\n[*] Enter path to wordlist (max 63 lines recommended): ").strip()
+        if not path:
+            continue
+        if not os.path.isfile(path):
+            print(f"[!] File not found: {path}")
+            continue
+        with (gzip.open(path, "rb") if path.endswith(".gz") else open(path, "rb")) as fh:
+            line_count = sum(1 for _ in fh)
+        if line_count > 63:
+            print(
+                f"[!] Wordlist has {line_count} lines (max 63). combipow generates 2^n-1 combinations."
+            )
+            return
+        if line_count > 20:
+            print(
+                f"[*] Warning: {line_count} lines will generate a large number of combinations."
+            )
+        wordlist = path
+    use_space_sep = input("[*] Add spaces between words? (Y/n): ").strip().lower() != "n"
+    ctx.hcatCombipow(ctx.hcatHashType, ctx.hcatHashFile, wordlist, use_space_sep)
 
 
 def generate_rules_crack(ctx: Any) -> None:
