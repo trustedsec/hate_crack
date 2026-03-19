@@ -471,6 +471,24 @@ The LLM Attack (option 15) uses Ollama to generate password candidates. Configur
 - **`ollamaNumCtx`** — Context window size for the model (default: `2048`).
 - The Ollama URL defaults to `http://localhost:11434`. Ensure Ollama is running before using the LLM Attack.
 
+### Wordlist Tools (menu option 80)
+
+The Wordlist Tools submenu provides 7 wordlist preprocessing utilities backed by hashcat-utils binaries. Access via option **80** in the main menu.
+
+| Option | Binary | What it does |
+|--------|--------|--------------|
+| 1 | `len.bin` | Filter by length - keep only words between a min and max length |
+| 2 | `req-include.bin` | Require character classes - keep only words containing all required character types |
+| 3 | `req-exclude.bin` | Exclude character classes - remove words containing any excluded character type |
+| 4 | `cutb.bin` | Extract substring - cut a byte range from each word |
+| 5 | `splitlen.bin` | Split by length - create separate files per word length (files named `01`-`64` in an output directory) |
+| 6 | `rli.bin` / `rli2.bin` | Subtract words - remove entries that appear in one or more other files |
+| 7 | `gate.bin` | Shard - extract every N-th word for distributed cracking across multiple machines |
+
+**Character class mask bits** (used by options 2 and 3): `1`=lowercase, `2`=uppercase, `4`=digit, `8`=symbol, `16`=other. Add values together: `7` = lowercase+uppercase+digit.
+
+**Sharding example**: to split a wordlist across 4 nodes, run option 7 with mod=4 and offset=0 on node 1, offset=1 on node 2, etc.
+
 #### Automatic Update Checks
 
 hate_crack can automatically check GitHub for newer releases on startup. This feature is controlled by the `check_for_updates` config option:
