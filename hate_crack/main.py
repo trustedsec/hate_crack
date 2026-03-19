@@ -23,7 +23,9 @@ import time
 import argparse
 import urllib.request
 import urllib.error
+import gzip
 import lzma
+import tempfile
 from types import SimpleNamespace
 
 #!/usr/bin/env python3
@@ -680,6 +682,13 @@ hcatRecycleCount = 0
 hcatPermuteCount = 0
 hcatProcess: subprocess.Popen[Any] | None = None
 debug_mode = False
+
+
+def _open_wordlist(path):
+    """Open a wordlist file, transparently decompressing gzip if the path ends with .gz."""
+    if path.endswith(".gz"):
+        return gzip.open(path, "rb")
+    return open(path, "rb")
 
 
 def _format_cmd(cmd):
@@ -2092,7 +2101,7 @@ def hcatMarkovTrain(source_file, hcatHashFile):
         return False
 
     try:
-        with open(source_file, "rb") as stdin_f:
+        with _open_wordlist(source_file) as stdin_f:
             hcatProcess = subprocess.Popen(
                 [hcstat2gen_bin, hcstat2_path], stdin=stdin_f, stderr=subprocess.PIPE
             )
@@ -2210,7 +2219,7 @@ def hcatPrince(hcatHashType, hcatHashFile):
     hashcat_cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(hashcat_cmd)
     hashcat_cmd = _add_debug_mode_for_rules(hashcat_cmd)
-    with open(prince_base, "rb") as base:
+    with _open_wordlist(prince_base) as base:
         prince_proc = subprocess.Popen(prince_cmd, stdin=base, stdout=subprocess.PIPE)
         hcatProcess = subprocess.Popen(hashcat_cmd, stdin=prince_proc.stdout)
         prince_proc.stdout.close()
@@ -2244,7 +2253,7 @@ def hcatPermute(hcatHashType, hcatHashFile, wordlist):
     ]
     hashcat_cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(hashcat_cmd)
-    with open(wordlist, "rb") as wl_file:
+    with _open_wordlist(wordlist) as wl_file:
         permute_proc = subprocess.Popen(
             [permute_path], stdin=wl_file, stdout=subprocess.PIPE
         )
