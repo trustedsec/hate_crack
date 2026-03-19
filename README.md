@@ -471,6 +471,24 @@ The LLM Attack (option 15) uses Ollama to generate password candidates. Configur
 - **`ollamaNumCtx`** — Context window size for the model (default: `2048`).
 - The Ollama URL defaults to `http://localhost:11434`. Ensure Ollama is running before using the LLM Attack.
 
+### Wordlist Tools (menu option 80)
+
+The Wordlist Tools submenu provides 7 wordlist preprocessing utilities backed by hashcat-utils binaries. Access via option **80** in the main menu.
+
+| Option | Binary | What it does |
+|--------|--------|--------------|
+| 1 | `len.bin` | Filter by length - keep only words between a min and max length |
+| 2 | `req-include.bin` | Require character classes - keep only words containing all required character types |
+| 3 | `req-exclude.bin` | Exclude character classes - remove words containing any excluded character type |
+| 4 | `cutb.bin` | Extract substring - cut a byte range from each word |
+| 5 | `splitlen.bin` | Split by length - create separate files per word length (files named `01`-`64` in an output directory) |
+| 6 | `rli.bin` / `rli2.bin` | Subtract words - remove entries that appear in one or more other files |
+| 7 | `gate.bin` | Shard - extract every N-th word for distributed cracking across multiple machines |
+
+**Character class mask bits** (used by options 2 and 3): `1`=lowercase, `2`=uppercase, `4`=digit, `8`=symbol, `16`=other. Add values together: `7` = lowercase+uppercase+digit.
+
+**Sharding example**: to split a wordlist across 4 nodes, run option 7 with mod=4 and offset=0 on node 1, offset=1 on node 2, etc.
+
 #### Automatic Update Checks
 
 hate_crack can automatically check GitHub for newer releases on startup. This feature is controlled by the `check_for_updates` config option:
@@ -618,6 +636,12 @@ All tests use mocked API calls, so they can run without connectivity to a Hashvi
   (16) OMEN Attack
   (17) Ad-hoc Mask Attack
   (18) Markov Brute Force Attack
+  (19) N-gram Attack
+  (20) Permutation Attack
+  (21) Random Rules Attack
+  (22) Combipow Passphrase Attack
+
+  (80) Wordlist Tools
 
   (81) Rule File Tools
 
@@ -765,11 +789,13 @@ Uses the Ordered Markov ENumerator (OMEN) to train a statistical password model 
 * Model files and metadata are stored in `~/.hate_crack/omen/` for persistence across sessions
 
 #### Combinator Attacks Submenu
-Opens an interactive submenu with four combinator attack variants (formerly at menu keys 10-12). Consolidates related attacks for cleaner menu organization:
+Opens an interactive submenu with six combinator attack variants (formerly at menu keys 10-12). Consolidates related attacks for cleaner menu organization:
 - Combinator Attack - combines two wordlists
 - YOLO Combinator Attack - combines all permutations of multiple wordlists
 - Middle Combinator Attack - combines wordlists with an extra word in the middle
 - Thorough Combinator Attack - comprehensive combination of wordlists with rules
+- Combinator3 Attack - combines exactly 3 wordlists using `combinator3.bin`, generating all `word1+word2+word3` combinations piped to hashcat
+- CombinatorX Attack - combines 2-8 wordlists using `combinatorX.bin` with optional `--sepFill` separator character between word segments
 
 #### Ad-hoc Mask Attack
 Runs hashcat mask attack (mode 3) with a user-specified custom mask string. Allows fine-grained control over character-set brute forcing.
@@ -791,7 +817,47 @@ Generates password candidates using Markov chain statistical models. Similar to 
 * Markov table persists with hash file (filename.out.hcstat2) for fast subsequent runs
 * Faster than OMEN for general-purpose brute forcing
 
-#### Rule File Tools
+#### Permutation Attack
+Generates all character permutations of each word in a targeted wordlist and pipes them to hashcat via `permute.bin` from hashcat-utils.
+
+* Prompts for a single wordlist file (not a directory)
+* Effective against short targeted wordlists where the character set is known but the order is not (company abbreviations, name fragments, known tokens)
+* WARNING: Scales as N! per word - an 8-character word produces 40,320 permutations. Only practical for words up to ~8 characters.
+* Uses `permute.bin < wordlist | hashcat` pipeline pattern
+
+#### Random Rules Attack
+Generates a set of random hashcat mutation rules using `generate-rules.bin`, writes them to a temporary file, then runs hashcat against a chosen wordlist with those rules.
+
+* Prompts for rule count (default 65536)
+* Prompts for wordlist path with tab-completion and numbered selection
+* Temporary rules file is cleaned up after the run regardless of outcome
+* Useful when known rule sets are exhausted - explores random rule-space for additional cracks
+
+#### Combipow Passphrase Attack
+Generates all unique non-empty subset combinations from a short wordlist using `combipow.bin` and pipes them into hashcat. Designed for passphrase cracking when you know the pool of words a password was built from.
+
+* Prompts for a wordlist file (max 63 lines - combipow generates up to 2^n-1 combinations)
+* Optional space separator (`-s` flag) to insert spaces between words in each combination
+* Warns if the wordlist exceeds 20 lines (output volume may be large)
+* Aborts with a clear message if the wordlist exceeds 63 lines (hard limit)
+* Candidates are piped directly to hashcat stdin
+
+#### Wordlist Tools (option 80)
+A submenu of wordlist preprocessing utilities using hashcat-utils binaries. All tools read from and write to files on disk.
+
+| Key | Tool | Description |
+|-----|------|-------------|
+| 1 | Filter by Length | Keep only words between a min and max length (`len.bin`) |
+| 2 | Require Char Classes | Keep words that include all char classes in mask (`req-include.bin`). Mask: 1=lower, 2=upper, 4=digit, 8=symbol (additive) |
+| 3 | Exclude Char Classes | Remove words containing any char class in mask (`req-exclude.bin`). Same mask encoding |
+| 4 | Extract Substring | Cut bytes from each word at a given offset and optional length (`cutb.bin`) |
+| 5 | Split by Length | Create per-length files in an output directory (`splitlen.bin`) |
+| 6 | Subtract Wordlist | Remove lines from a wordlist that appear in one or more remove files. Mode 1 uses `rli2.bin` (single file); mode 2 uses `rli.bin` (multiple files) |
+| 7 | Shard Wordlist | Extract every mod-th line at a given offset to create equal-sized shards (`gate.bin`) |
+
+All binaries are in `hate_crack/hashcat-utils/bin/`.
+
+#### Rule File Tools (option 81)
 Preprocesses hashcat rule files using `cleanup-rules.bin` and `rules_optimize.bin` from hashcat-utils.
 
 * **Clean** - removes invalid syntax and duplicate rules using `cleanup-rules.bin`. Useful after combining rule files or downloading rules from external sources.
@@ -835,6 +901,7 @@ Interactive menu for downloading and managing wordlists from Weakpass.com via Bi
 ### Version History
 
 Version 2.0+
+  - Added Random Rules Attack (option 20) using `generate-rules.bin` to generate random mutation rules (#87)
   - Added Ad-hoc Mask Attack (option 17) for user-typed hashcat masks with optional custom character sets
   - Added Markov Brute Force Attack (option 18) using `hcstat2` statistical tables for password generation
   - Consolidated Combinator Attacks (formerly options 10/11/12) into interactive submenu under option 6

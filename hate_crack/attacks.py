@@ -1,10 +1,12 @@
 import glob
+import gzip
 import os
 import readline
 from typing import Any
 
 from hate_crack.api import download_hashmob_rules
 from hate_crack.formatting import print_multicolumn_list
+from hate_crack.menu import interactive_menu
 
 
 def _configure_readline(completer):
@@ -261,8 +263,7 @@ def combinator_crack(ctx: Any) -> None:
     print("\n" + "=" * 60)
     print("COMBINATOR ATTACK")
     print("=" * 60)
-    print("This attack combines two wordlists to generate candidates.")
-    print("Example: wordlist1='password' + wordlist2='123' = 'password123'")
+    print("Combines 2-8 wordlists. 2 uses hashcat native mode; 3+ use external binaries.")
     print("=" * 60)
 
     use_default = (
@@ -270,73 +271,30 @@ def combinator_crack(ctx: Any) -> None:
     )
 
     if use_default != "n":
-        print("\nUsing default wordlist(s) from config:")
-        if isinstance(ctx.hcatCombinationWordlist, list):
-            for wl in ctx.hcatCombinationWordlist:
-                print(f"  - {wl}")
-            wordlists = ctx.hcatCombinationWordlist
-        else:
-            print(f"  - {ctx.hcatCombinationWordlist}")
-            wordlists = [ctx.hcatCombinationWordlist]
-    else:
-        print("\nSelect wordlists for combinator attack.")
-        print("You need to provide exactly 2 wordlists.")
-        print("You can enter:")
-        print("  - Two file paths separated by commas")
-        print("  - Press TAB to autocomplete file paths")
-
-        selection = ctx.select_file_with_autocomplete(
-            "Enter 2 wordlist files (comma-separated)",
-            allow_multiple=True,
-            base_dir=ctx.hcatWordlists,
-        )
-
-        if not selection:
-            print("No wordlists selected. Aborting combinator attack.")
+        base = ctx.hcatCombinationWordlist
+        wordlists = base if isinstance(base, list) else [base]
+        wordlists = [ctx._resolve_wordlist_path(wl, ctx.hcatWordlists) for wl in wordlists]
+        if len(wordlists) < 2:
+            print("\n[!] Config does not have at least 2 wordlists.")
+            print("Set hcatCombinationWordlist to a list of 2+ paths in config.json.")
+            print("Aborting combinator attack.")
             return
-
-        if isinstance(selection, str):
-            wordlists = [selection]
-        else:
-            wordlists = selection
-
+        separator = ""
+    else:
+        print("\nEnter 2-8 wordlists. Enter a blank line when done.")
+        wordlists = _prompt_wordlist_paths(ctx, max_count=8)
         if len(wordlists) < 2:
             print("\n[!] Combinator attack requires at least 2 wordlists.")
             print("Aborting combinator attack.")
             return
+        separator = input("\nEnter separator between words (leave blank for none): ").strip()
 
-        valid_wordlists = []
-        for wl in wordlists[:2]:  # Only use first 2
-            resolved = ctx._resolve_wordlist_path(wl, ctx.hcatWordlists)
-            if os.path.isfile(resolved):
-                valid_wordlists.append(resolved)
-                print(f"✓ Found: {resolved}")
-            else:
-                print(f"✗ Not found: {resolved}")
-
-        if len(valid_wordlists) < 2:
-            print("\nCould not find 2 valid wordlists. Aborting combinator attack.")
-            return
-
-        wordlists = valid_wordlists
-
-    wordlists = [
-        ctx._resolve_wordlist_path(wl, ctx.hcatWordlists) for wl in wordlists[:2]
-    ]
-
-    if len(wordlists) < 2:
-        print("\n[!] Combinator attack requires 2 wordlists but only 1 is configured.")
-        print("Set hcatCombinationWordlist to a list of 2 paths in config.json.")
-        print("Aborting combinator attack.")
-        return
-
-    print("\nStarting combinator attack with 2 wordlists:")
-    print(f"  Wordlist 1: {wordlists[0]}")
-    print(f"  Wordlist 2: {wordlists[1]}")
-    print(f"Hash type: {ctx.hcatHashType}")
-    print(f"Hash file: {ctx.hcatHashFile}")
-
-    ctx.hcatCombination(ctx.hcatHashType, ctx.hcatHashFile, wordlists)
+    if len(wordlists) == 2 and not separator:
+        ctx.hcatCombination(ctx.hcatHashType, ctx.hcatHashFile, wordlists)
+    elif len(wordlists) == 3 and not separator:
+        ctx.hcatCombinator3(ctx.hcatHashType, ctx.hcatHashFile, wordlists)
+    else:
+        ctx.hcatCombinatorX(ctx.hcatHashType, ctx.hcatHashFile, wordlists, separator or None)
 
 
 def hybrid_crack(ctx: Any) -> None:
@@ -425,6 +383,66 @@ def thorough_combinator(ctx: Any) -> None:
 
 def middle_combinator(ctx: Any) -> None:
     ctx.hcatMiddleCombinator(ctx.hcatHashType, ctx.hcatHashFile)
+
+
+def _prompt_wordlist_paths(ctx, max_count: int) -> list[str]:
+    """Prompt for wordlist paths one at a time with tab-autocomplete.
+
+    Stops when a blank line is entered or max_count paths have been collected.
+    Returns a list of resolved, valid file paths.
+    """
+
+    def path_completer(text, state):
+        base = ctx.hcatWordlists
+        if not text:
+            pattern = os.path.join(base, "*")
+            matches = glob.glob(pattern)
+        else:
+            expanded = os.path.expanduser(text)
+            if expanded.startswith(("/", "./", "../", "~")):
+                matches = glob.glob(expanded + "*")
+            else:
+                pattern = os.path.join(base, expanded + "*")
+                matches = glob.glob(pattern)
+        matches = [m + "/" if os.path.isdir(m) else m for m in matches]
+        try:
+            return matches[state]
+        except IndexError:
+            return None
+
+    _configure_readline(path_completer)
+
+    collected: list[str] = []
+    count = 1
+    while len(collected) < max_count:
+        raw = input(
+            f"\nWordlist #{count} (tab to autocomplete, blank to finish): "
+        ).strip()
+        if not raw:
+            break
+        resolved = ctx._resolve_wordlist_path(raw, ctx.hcatWordlists)
+        if os.path.isfile(resolved):
+            collected.append(resolved)
+            print(f"Added: {resolved}")
+            count += 1
+        else:
+            print(f"Not found: {resolved}")
+    return collected
+
+
+def combinator3_crack(ctx: Any) -> None:
+    """3-way combinator attack (delegates to unified combinator_crack)."""
+    combinator_crack(ctx)
+
+
+def combinatorX_crack(ctx: Any) -> None:
+    """N-way combinator attack (delegates to unified combinator_crack)."""
+    combinator_crack(ctx)
+
+
+def combinator_3plus_crack(ctx: Any) -> None:
+    """3+ wordlist combinator (delegates to unified combinator_crack)."""
+    combinator_crack(ctx)
 
 
 def bandrel_method(ctx: Any) -> None:
@@ -620,11 +638,186 @@ def markov_brute_force(ctx: Any) -> None:
     ctx.hcatMarkovBruteForce(ctx.hcatHashType, ctx.hcatHashFile, hcatMinLen, hcatMaxLen)
 
 
-def combinator_submenu(ctx: Any) -> None:
-    from hate_crack.menu import interactive_menu
+def combipow_crack(ctx: Any) -> None:
+    wordlist = None
+    while wordlist is None:
+        path = input("\n[*] Enter path to wordlist (max 63 lines recommended): ").strip()
+        if not path:
+            continue
+        if not os.path.isfile(path):
+            print(f"[!] File not found: {path}")
+            continue
+        with (gzip.open(path, "rb") if path.endswith(".gz") else open(path, "rb")) as fh:
+            line_count = sum(1 for _ in fh)
+        if line_count > 63:
+            print(
+                f"[!] Wordlist has {line_count} lines (max 63). combipow generates 2^n-1 combinations."
+            )
+            return
+        if line_count > 20:
+            print(
+                f"[*] Warning: {line_count} lines will generate a large number of combinations."
+            )
+        wordlist = path
+    use_space_sep = input("[*] Add spaces between words? (Y/n): ").strip().lower() != "n"
+    ctx.hcatCombipow(ctx.hcatHashType, ctx.hcatHashFile, wordlist, use_space_sep)
 
+
+def generate_rules_crack(ctx: Any) -> None:
+    print("\n" + "=" * 60)
+    print("RANDOM RULES ATTACK")
+    print("=" * 60)
+    print("Generates random hashcat mutation rules and applies them to a wordlist.")
+    print("Use when known rulesets are exhausted - a chaos mode for rule-space exploration.")
+    print("=" * 60)
+
+    raw_count = input("\nNumber of random rules to generate (65536): ").strip()
+    try:
+        rule_count = int(raw_count) if raw_count else 65536
+        if rule_count < 1:
+            print("[!] Rule count must be at least 1.")
+            return
+    except ValueError:
+        print("[!] Invalid rule count.")
+        return
+
+    wordlist_files = ctx.list_wordlist_files(ctx.hcatWordlists)
+    wordlist_entries = [
+        f"{i}. {file}" for i, file in enumerate(wordlist_files, start=1)
+    ]
+    max_entry_len = max((len(e) for e in wordlist_entries), default=24)
+    print_multicolumn_list(
+        "Wordlists",
+        wordlist_entries,
+        min_col_width=max_entry_len,
+        max_col_width=max_entry_len,
+    )
+
+    def path_completer(text, state):
+        base = ctx.hcatWordlists
+        if not text:
+            pattern = os.path.join(base, "*")
+            matches = glob.glob(pattern)
+        else:
+            text = os.path.expanduser(text)
+            if text.startswith(("/", "./", "../", "~")):
+                matches = glob.glob(text + "*")
+            else:
+                pattern = os.path.join(base, text + "*")
+                matches = glob.glob(pattern)
+        matches = [m + "/" if os.path.isdir(m) else m for m in matches]
+        try:
+            return matches[state]
+        except IndexError:
+            return None
+
+    _configure_readline(path_completer)
+
+    wordlist_choice = None
+    while wordlist_choice is None:
+        try:
+            raw_choice = input(
+                "\nEnter path of wordlist (tab to autocomplete).\n"
+                f"Press Enter for default wordlist directory [{ctx.hcatWordlists}]: "
+            )
+            raw_choice = raw_choice.strip()
+            if raw_choice == "":
+                wordlist_choice = ctx.hcatWordlists
+            elif raw_choice.isdigit() and 1 <= int(raw_choice) <= len(wordlist_files):
+                chosen = os.path.join(
+                    ctx.hcatWordlists, wordlist_files[int(raw_choice) - 1]
+                )
+                if os.path.exists(chosen):
+                    wordlist_choice = chosen
+                    print(wordlist_choice)
+            elif os.path.exists(raw_choice):
+                wordlist_choice = raw_choice
+            else:
+                print("[!] Wordlist not found. Please enter a valid path.")
+                return
+        except ValueError:
+            print("Please enter a valid number.")
+
+    ctx.hcatGenerateRules(ctx.hcatHashType, ctx.hcatHashFile, rule_count, wordlist_choice)
+
+
+def ngram_attack(ctx: Any) -> None:
+    print("\n" + "=" * 60)
+    print("NGRAM ATTACK")
+    print("=" * 60)
+    print("Generates n-gram candidates from a corpus file via ngramX.bin.")
+    print("Gzip-compressed corpus files are auto-detected and decompressed.")
+    print("=" * 60)
+
+    corpus = ctx.select_file_with_autocomplete(
+        "Select corpus file (tab to autocomplete)",
+        base_dir=ctx.hcatWordlists,
+    )
+    if not corpus:
+        print("No corpus selected. Aborting ngram attack.")
+        return
+
+    group_size_raw = input("\nEnter n-gram group size (default 3): ").strip()
+    try:
+        group_size = int(group_size_raw) if group_size_raw else 3
+    except ValueError:
+        print("[!] Invalid group size. Using default of 3.")
+        group_size = 3
+
+    ctx.hcatNgramX(ctx.hcatHashType, ctx.hcatHashFile, corpus, group_size)
+
+
+def permute_crack(ctx: Any) -> None:
+    print("\n" + "=" * 60)
+    print("PERMUTATION ATTACK")
+    print("=" * 60)
+    print("Generates ALL character permutations of each word in a targeted wordlist.")
+    print("WARNING: Scales as N! per word. Only practical for words up to ~8 characters.")
+    print("Best for: short targeted wordlists (names, abbreviations, known fragments).")
+    print("=" * 60)
+
+    def path_completer(text, state):
+        base = ctx.hcatWordlists
+        if not text:
+            pattern = os.path.join(base, "*")
+            matches = glob.glob(pattern)
+        else:
+            text = os.path.expanduser(text)
+            if text.startswith(("/", "./", "../", "~")):
+                matches = glob.glob(text + "*")
+            else:
+                pattern = os.path.join(base, text + "*")
+                matches = glob.glob(pattern)
+        matches = [m + "/" if os.path.isdir(m) else m for m in matches]
+        try:
+            return matches[state]
+        except IndexError:
+            return None
+
+    _configure_readline(path_completer)
+
+    wordlist_path = None
+    while wordlist_path is None:
+        raw = input(
+            "\nEnter path to a wordlist FILE (tab to autocomplete): "
+        ).strip()
+        if not raw:
+            continue
+        if not os.path.exists(raw):
+            print(f"[!] Path not found: {raw}")
+            continue
+        if os.path.isdir(raw):
+            print("[!] A directory was provided. Please enter a single wordlist file.")
+            continue
+        wordlist_path = raw
+
+    ctx.hcatPermute(ctx.hcatHashType, ctx.hcatHashFile, wordlist_path)
+
+
+
+def combinator_submenu(ctx: Any) -> None:
     items = [
-        ("1", "Combinator Attack"),
+        ("1", "Combinator Attack (2-8 wordlists)"),
         ("2", "YOLO Combinator Attack"),
         ("3", "Middle Combinator Attack"),
         ("4", "Thorough Combinator Attack"),
@@ -754,3 +947,195 @@ def rule_tools_submenu(ctx: Any) -> None:
             rule_optimize_handler(ctx)
         elif choice == "3":
             rule_cleanup_and_optimize_handler(ctx)
+
+
+def wordlist_filter_length(ctx: Any) -> None:
+    """Prompt for paths and lengths, then filter wordlist by word length."""
+    infile = input("\n[*] Enter path to input wordlist: ").strip()
+    if not os.path.isfile(infile):
+        print(f"[!] File not found: {infile}")
+        return
+    outfile = input("[*] Enter path to output wordlist: ").strip()
+    if not outfile:
+        print("[!] Output path cannot be empty.")
+        return
+    min_len = int(input("[*] Minimum length: ").strip() or "0")
+    max_len = int(input("[*] Maximum length: ").strip() or "0")
+    if ctx.wordlist_filter_len(infile, outfile, min_len, max_len):
+        print(f"\n[*] Filtered wordlist written to: {outfile}")
+    else:
+        print("[!] Filter failed.")
+
+
+def wordlist_filter_charclass_include(ctx: Any) -> None:
+    """Prompt for paths and mask, then keep only words matching required char classes."""
+    infile = input("\n[*] Enter path to input wordlist: ").strip()
+    if not os.path.isfile(infile):
+        print(f"[!] File not found: {infile}")
+        return
+    outfile = input("[*] Enter path to output wordlist: ").strip()
+    if not outfile:
+        print("[!] Output path cannot be empty.")
+        return
+    print("[*] Char class mask: 1=lowercase, 2=uppercase, 4=digit, 8=symbol (additive, e.g. 3=lower+upper)")
+    mask = int(input("[*] Enter mask value: ").strip() or "0")
+    if ctx.wordlist_filter_req_include(infile, outfile, mask):
+        print(f"\n[*] Filtered wordlist written to: {outfile}")
+    else:
+        print("[!] Filter failed.")
+
+
+def wordlist_filter_charclass_exclude(ctx: Any) -> None:
+    """Prompt for paths and mask, then remove words containing excluded char classes."""
+    infile = input("\n[*] Enter path to input wordlist: ").strip()
+    if not os.path.isfile(infile):
+        print(f"[!] File not found: {infile}")
+        return
+    outfile = input("[*] Enter path to output wordlist: ").strip()
+    if not outfile:
+        print("[!] Output path cannot be empty.")
+        return
+    print("[*] Char class mask: 1=lowercase, 2=uppercase, 4=digit, 8=symbol (additive)")
+    mask = int(input("[*] Enter mask value: ").strip() or "0")
+    if ctx.wordlist_filter_req_exclude(infile, outfile, mask):
+        print(f"\n[*] Filtered wordlist written to: {outfile}")
+    else:
+        print("[!] Filter failed.")
+
+
+def wordlist_cut_substring(ctx: Any) -> None:
+    """Prompt for paths, offset, and optional length, then extract substring from each word."""
+    infile = input("\n[*] Enter path to input wordlist: ").strip()
+    if not os.path.isfile(infile):
+        print(f"[!] File not found: {infile}")
+        return
+    outfile = input("[*] Enter path to output wordlist: ").strip()
+    if not outfile:
+        print("[!] Output path cannot be empty.")
+        return
+    offset = int(input("[*] Byte offset to start from: ").strip() or "0")
+    raw_length = input("[*] Length (leave blank for rest of line): ").strip()
+    length = int(raw_length) if raw_length else None
+    if ctx.wordlist_cutb(infile, outfile, offset, length):
+        print(f"\n[*] Output written to: {outfile}")
+    else:
+        print("[!] Cut failed.")
+
+
+def wordlist_split_by_length(ctx: Any) -> None:
+    """Prompt for input wordlist and output directory, then split by word length."""
+    infile = input("\n[*] Enter path to input wordlist: ").strip()
+    if not os.path.isfile(infile):
+        print(f"[!] File not found: {infile}")
+        return
+    outdir = input("[*] Enter output directory path: ").strip()
+    if not outdir:
+        print("[!] Output directory cannot be empty.")
+        return
+    os.makedirs(outdir, exist_ok=True)
+    if ctx.wordlist_splitlen(infile, outdir):
+        print(f"\n[*] Split wordlists written to: {outdir}")
+    else:
+        print("[!] Split failed.")
+
+
+def wordlist_subtract_words(ctx: Any) -> None:
+    """Prompt for mode then remove matching lines from a wordlist."""
+    print("\n[*] Subtract mode:")
+    print("    1. Single remove file (rli2 - faster for one file)")
+    print("    2. Multiple remove files (rli)")
+    mode = input("[*] Choose mode (1/2): ").strip()
+
+    if mode == "1":
+        infile = input("[*] Enter path to input wordlist: ").strip()
+        if not os.path.isfile(infile):
+            print(f"[!] File not found: {infile}")
+            return
+        remove_file = input("[*] Enter path to wordlist to subtract: ").strip()
+        if not os.path.isfile(remove_file):
+            print(f"[!] File not found: {remove_file}")
+            return
+        outfile = input("[*] Enter path to output wordlist: ").strip()
+        if not outfile:
+            print("[!] Output path cannot be empty.")
+            return
+        if ctx.wordlist_subtract_single(infile, remove_file, outfile):
+            print(f"\n[*] Result written to: {outfile}")
+        else:
+            print("[!] Subtraction failed.")
+    elif mode == "2":
+        infile = input("[*] Enter path to input wordlist: ").strip()
+        if not os.path.isfile(infile):
+            print(f"[!] File not found: {infile}")
+            return
+        outfile = input("[*] Enter path to output wordlist: ").strip()
+        if not outfile:
+            print("[!] Output path cannot be empty.")
+            return
+        raw = input("[*] Enter remove file paths (comma-separated): ").strip()
+        remove_files = [r.strip() for r in raw.split(",") if r.strip()]
+        if not remove_files:
+            print("[!] No remove files provided.")
+            return
+        if ctx.wordlist_subtract(infile, outfile, *remove_files):
+            print(f"\n[*] Deduplicated wordlist written to: {outfile}")
+        else:
+            print("[!] Subtraction failed.")
+    else:
+        print("[!] Invalid mode.")
+
+
+def wordlist_shard(ctx: Any) -> None:
+    """Prompt for input/output paths, modulus, and offset, then shard the wordlist."""
+    infile = input("\n[*] Enter path to input wordlist: ").strip()
+    if not os.path.isfile(infile):
+        print(f"[!] File not found: {infile}")
+        return
+    outfile = input("[*] Enter path to output wordlist: ").strip()
+    if not outfile:
+        print("[!] Output path cannot be empty.")
+        return
+    mod = int(input("[*] Modulus (shard count, e.g. 4 for 4 shards): ").strip() or "0")
+    if mod < 2:
+        print("[!] Modulus must be at least 2.")
+        return
+    offset = int(input("[*] Offset (shard index, 0-based, e.g. 0 for first shard): ").strip() or "0")
+    if offset >= mod:
+        print(f"[!] Offset must be less than modulus ({mod}).")
+        return
+    if ctx.wordlist_gate(infile, outfile, mod, offset):
+        print(f"\n[*] Shard written to: {outfile}")
+    else:
+        print("[!] Shard failed.")
+
+
+def wordlist_tools_submenu(ctx: Any) -> None:
+    """Display the Wordlist Tools submenu and dispatch to the selected handler."""
+    items = [
+        ("1", "Filter by Length"),
+        ("2", "Require Character Classes"),
+        ("3", "Exclude Character Classes"),
+        ("4", "Extract Substring"),
+        ("5", "Split by Length"),
+        ("6", "Subtract Wordlist"),
+        ("7", "Shard Wordlist"),
+        ("99", "Back to Main Menu"),
+    ]
+    while True:
+        choice = interactive_menu(items, title="\nWordlist Tools:")
+        if choice is None or choice == "99":
+            break
+        elif choice == "1":
+            wordlist_filter_length(ctx)
+        elif choice == "2":
+            wordlist_filter_charclass_include(ctx)
+        elif choice == "3":
+            wordlist_filter_charclass_exclude(ctx)
+        elif choice == "4":
+            wordlist_cut_substring(ctx)
+        elif choice == "5":
+            wordlist_split_by_length(ctx)
+        elif choice == "6":
+            wordlist_subtract_words(ctx)
+        elif choice == "7":
+            wordlist_shard(ctx)
