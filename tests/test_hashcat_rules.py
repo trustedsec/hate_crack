@@ -122,6 +122,10 @@ def test_toggle_rule_parses_with_and_without_loopback(tmp_path: Path, capsys):
         pytest.skip("hashcat not available in PATH")
     if not _hashcat_sessions_writable():
         pytest.skip("hashcat session directory (~/.hashcat/sessions) is not writable")
+    # Hashcat renames hashcat.induct after each run; recreate so loopback can write.
+    (Path.home() / ".hashcat" / "sessions" / "hashcat.induct").mkdir(
+        parents=True, exist_ok=True
+    )
 
     show_output = os.environ.get("HATE_CRACK_SHOW_HASHCAT_OUTPUT") == "1"
     show_cmd = (
