@@ -674,6 +674,8 @@ hcatDictionaryCount = 0
 hcatMaskCount = 0
 hcatFingerprintCount = 0
 hcatCombinationCount = 0
+hcatCombinator3Count = 0
+hcatCombinatorXCount = 0
 hcatHybridCount = 0
 hcatExtraCount = 0
 hcatRecycleCount = 0
@@ -1413,6 +1415,86 @@ def hcatCombination(hcatHashType, hcatHashFile, wordlists=None):
         hcatProcess.kill()
 
     hcatCombinationCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
+
+
+# Combinator3 Attack - 3-way combination via combinator3.bin piped to hashcat
+def hcatCombinator3(hcatHashType, hcatHashFile, wordlists):
+    global hcatCombinator3Count
+    global hcatProcess
+
+    if len(wordlists) < 3:
+        print("[!] Combinator3 attack requires exactly 3 wordlists.")
+        return
+
+    combinator3_bin = os.path.join(hate_path, "hashcat-utils/bin/combinator3.bin")
+    generator_cmd = [combinator3_bin] + list(wordlists[:3])
+    hashcat_cmd = [
+        hcatBin,
+        "-m",
+        hcatHashType,
+        hcatHashFile,
+        "--session",
+        generate_session_id(),
+        "-o",
+        f"{hcatHashFile}.out",
+    ]
+    hashcat_cmd.extend(shlex.split(hcatTuning))
+    _append_potfile_arg(hashcat_cmd)
+    generator_proc = subprocess.Popen(generator_cmd, stdout=subprocess.PIPE)
+    assert generator_proc.stdout is not None
+    hcatProcess = subprocess.Popen(hashcat_cmd, stdin=generator_proc.stdout)
+    generator_proc.stdout.close()
+    try:
+        hcatProcess.wait()
+        generator_proc.wait()
+    except KeyboardInterrupt:
+        print("Killing PID {0}...".format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+        generator_proc.kill()
+
+    hcatCombinator3Count = lineCount(hcatHashFile + ".out") - hcatHashCracked
+
+
+# CombinatorX Attack - N-way combination (2-8 wordlists) via combinatorX.bin piped to hashcat
+def hcatCombinatorX(hcatHashType, hcatHashFile, wordlists, separator=None):
+    global hcatCombinatorXCount
+    global hcatProcess
+
+    if len(wordlists) < 2:
+        print("[!] CombinatorX attack requires at least 2 wordlists.")
+        return
+
+    combinatorX_bin = os.path.join(hate_path, "hashcat-utils/bin/combinatorX.bin")
+    generator_cmd = [combinatorX_bin]
+    for i, f in enumerate(wordlists[:8], start=1):
+        generator_cmd += [f"--file{i}", f]
+    if separator:
+        generator_cmd += ["--sepFill", separator]
+    hashcat_cmd = [
+        hcatBin,
+        "-m",
+        hcatHashType,
+        hcatHashFile,
+        "--session",
+        generate_session_id(),
+        "-o",
+        f"{hcatHashFile}.out",
+    ]
+    hashcat_cmd.extend(shlex.split(hcatTuning))
+    _append_potfile_arg(hashcat_cmd)
+    generator_proc = subprocess.Popen(generator_cmd, stdout=subprocess.PIPE)
+    assert generator_proc.stdout is not None
+    hcatProcess = subprocess.Popen(hashcat_cmd, stdin=generator_proc.stdout)
+    generator_proc.stdout.close()
+    try:
+        hcatProcess.wait()
+        generator_proc.wait()
+    except KeyboardInterrupt:
+        print("Killing PID {0}...".format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+        generator_proc.kill()
+
+    hcatCombinatorXCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
 
 # Hybrid Attack
@@ -3299,6 +3381,15 @@ def thorough_combinator():
 
 def middle_combinator():
     return _attacks.middle_combinator(_attack_ctx())
+
+
+def combinator3_crack():
+    return _attacks.combinator3_crack(_attack_ctx())
+
+
+def combinatorX_crack():
+    return _attacks.combinatorX_crack(_attack_ctx())
+
 
 
 def combinator_submenu():
