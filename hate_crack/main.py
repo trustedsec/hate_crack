@@ -836,6 +836,40 @@ def check_for_updates():
                 f"\n  Update available: {latest} (current: {local_base})."
                 f"\n  See https://github.com/trustedsec/hate_crack/releases\n"
             )
+            try:
+                answer = input("  Upgrade now? [y/N] ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                return
+            if answer == "y":
+                import subprocess
+
+                print()
+                # Find the actual git repo root - _repo_root may point to
+                # site-packages when installed rather than the source checkout.
+                git_root_result = subprocess.run(
+                    ["git", "rev-parse", "--show-toplevel"],
+                    cwd=_repo_root,
+                    capture_output=True,
+                    text=True,
+                )
+                if git_root_result.returncode != 0:
+                    print(
+                        "\n  Could not find a git repository to upgrade from."
+                        "\n  Run manually: git pull && make clean && make && make install\n"
+                    )
+                    raise SystemExit(1)
+                repo_root = git_root_result.stdout.strip()
+                result = subprocess.run(
+                    "git pull && make clean && make && make install",
+                    shell=True,
+                    cwd=repo_root,
+                )
+                if result.returncode == 0:
+                    print("\n  Upgrade complete. Please restart hate_crack.\n")
+                else:
+                    print("\n  Upgrade failed. Check the output above for errors.\n")
+                raise SystemExit(0)
     except Exception:
         pass
 
