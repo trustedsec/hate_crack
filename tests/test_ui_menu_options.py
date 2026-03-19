@@ -26,6 +26,7 @@ MENU_OPTION_TEST_CASES = [
     ("16", CLI_MODULE._attacks, "omen_attack", "omen"),
     ("17", CLI_MODULE._attacks, "adhoc_mask_crack", "adhoc-mask"),
     ("18", CLI_MODULE._attacks, "markov_brute_force", "markov-brute"),
+    ("80", CLI_MODULE._attacks, "wordlist_tools_submenu", "wordlist-tools"),
     ("90", CLI_MODULE, "download_hashmob_rules", "hashmob-rules"),
     ("91", CLI_MODULE, "weakpass_wordlist_menu", "weakpass-menu"),
     ("92", CLI_MODULE, "download_hashmob_wordlists", "hashmob-wordlists"),

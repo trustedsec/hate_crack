@@ -619,6 +619,8 @@ All tests use mocked API calls, so they can run without connectivity to a Hashvi
   (17) Ad-hoc Mask Attack
   (18) Markov Brute Force Attack
 
+  (80) Wordlist Tools
+
   (90) Download rules from Hashmob.net
   (91) Analyze Hashcat Rules
   (92) Download wordlists from Hashmob.net
@@ -788,6 +790,21 @@ Generates password candidates using Markov chain statistical models. Similar to 
 * Uses `--increment` flag to test lengths in sequence
 * Markov table persists with hash file (filename.out.hcstat2) for fast subsequent runs
 * Faster than OMEN for general-purpose brute forcing
+
+#### Wordlist Tools (option 80)
+A submenu of wordlist preprocessing utilities using hashcat-utils binaries. All tools read from and write to files on disk.
+
+| Key | Tool | Description |
+|-----|------|-------------|
+| 1 | Filter by Length | Keep only words between a min and max length (`len.bin`) |
+| 2 | Require Char Classes | Keep words that include all char classes in mask (`req-include.bin`). Mask: 1=lower, 2=upper, 4=digit, 8=symbol (additive) |
+| 3 | Exclude Char Classes | Remove words containing any char class in mask (`req-exclude.bin`). Same mask encoding |
+| 4 | Extract Substring | Cut bytes from each word at a given offset and optional length (`cutb.bin`) |
+| 5 | Split by Length | Create per-length files in an output directory (`splitlen.bin`) |
+| 6 | Subtract Wordlist | Remove lines from a wordlist that appear in one or more remove files. Mode 1 uses `rli2.bin` (single file); mode 2 uses `rli.bin` (multiple files) |
+| 7 | Shard Wordlist | Extract every mod-th line at a given offset to create equal-sized shards (`gate.bin`) |
+
+All binaries are in `hate_crack/hashcat-utils/bin/`.
 
 #### Download Rules from Hashmob.net
 Downloads the latest rule files from Hashmob.net's rule repository. These rules are curated and optimized for password cracking and can be used with the Quick Crack and Loopback Attack modes.
