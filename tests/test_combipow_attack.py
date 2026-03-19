@@ -46,16 +46,16 @@ def _make_ctx(hash_type="1000", hash_file="/tmp/hashes.txt"):
 
 def test_combipow_crack_in_main_menu(cli):
     options = cli.get_main_menu_options()
-    assert "21" in options
+    assert "22" in options
 
 
 def test_combipow_crack_menu_item_label():
     cli = _load_cli()
     items = cli.get_main_menu_items()
     keys = [k for k, _ in items]
-    assert "21" in keys
+    assert "22" in keys
     labels = {k: label for k, label in items}
-    assert "passphrase" in labels["21"].lower() or "combipow" in labels["21"].lower()
+    assert "passphrase" in labels["22"].lower() or "combipow" in labels["22"].lower()
 
 
 # --- combipow_crack handler tests ---

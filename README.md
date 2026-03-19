@@ -618,7 +618,10 @@ All tests use mocked API calls, so they can run without connectivity to a Hashvi
   (16) OMEN Attack
   (17) Ad-hoc Mask Attack
   (18) Markov Brute Force Attack
-  (21) Combipow Passphrase Attack
+  (19) N-gram Attack
+  (20) Permutation Attack
+  (21) Random Rules Attack
+  (22) Combipow Passphrase Attack
 
   (90) Download rules from Hashmob.net
   (91) Analyze Hashcat Rules
@@ -764,11 +767,13 @@ Uses the Ordered Markov ENumerator (OMEN) to train a statistical password model 
 * Model files and metadata are stored in `~/.hate_crack/omen/` for persistence across sessions
 
 #### Combinator Attacks Submenu
-Opens an interactive submenu with four combinator attack variants (formerly at menu keys 10-12). Consolidates related attacks for cleaner menu organization:
+Opens an interactive submenu with six combinator attack variants (formerly at menu keys 10-12). Consolidates related attacks for cleaner menu organization:
 - Combinator Attack - combines two wordlists
 - YOLO Combinator Attack - combines all permutations of multiple wordlists
 - Middle Combinator Attack - combines wordlists with an extra word in the middle
 - Thorough Combinator Attack - comprehensive combination of wordlists with rules
+- Combinator3 Attack - combines exactly 3 wordlists using `combinator3.bin`, generating all `word1+word2+word3` combinations piped to hashcat
+- CombinatorX Attack - combines 2-8 wordlists using `combinatorX.bin` with optional `--sepFill` separator character between word segments
 
 #### Ad-hoc Mask Attack
 Runs hashcat mask attack (mode 3) with a user-specified custom mask string. Allows fine-grained control over character-set brute forcing.
@@ -789,6 +794,22 @@ Generates password candidates using Markov chain statistical models. Similar to 
 * Uses `--increment` flag to test lengths in sequence
 * Markov table persists with hash file (filename.out.hcstat2) for fast subsequent runs
 * Faster than OMEN for general-purpose brute forcing
+
+#### Permutation Attack
+Generates all character permutations of each word in a targeted wordlist and pipes them to hashcat via `permute.bin` from hashcat-utils.
+
+* Prompts for a single wordlist file (not a directory)
+* Effective against short targeted wordlists where the character set is known but the order is not (company abbreviations, name fragments, known tokens)
+* WARNING: Scales as N! per word - an 8-character word produces 40,320 permutations. Only practical for words up to ~8 characters.
+* Uses `permute.bin < wordlist | hashcat` pipeline pattern
+
+#### Random Rules Attack
+Generates a set of random hashcat mutation rules using `generate-rules.bin`, writes them to a temporary file, then runs hashcat against a chosen wordlist with those rules.
+
+* Prompts for rule count (default 65536)
+* Prompts for wordlist path with tab-completion and numbered selection
+* Temporary rules file is cleaned up after the run regardless of outcome
+* Useful when known rule sets are exhausted - explores random rule-space for additional cracks
 
 #### Combipow Passphrase Attack
 Generates all unique non-empty subset combinations from a short wordlist using `combipow.bin` and pipes them into hashcat. Designed for passphrase cracking when you know the pool of words a password was built from.
@@ -834,6 +855,7 @@ Interactive menu for downloading and managing wordlists from Weakpass.com via Bi
 ### Version History
 
 Version 2.0+
+  - Added Random Rules Attack (option 20) using `generate-rules.bin` to generate random mutation rules (#87)
   - Added Ad-hoc Mask Attack (option 17) for user-typed hashcat masks with optional custom character sets
   - Added Markov Brute Force Attack (option 18) using `hcstat2` statistical tables for password generation
   - Consolidated Combinator Attacks (formerly options 10/11/12) into interactive submenu under option 6
