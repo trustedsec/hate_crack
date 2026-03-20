@@ -114,7 +114,7 @@ reinstall: uninstall install
 
 dev-install:
 	@echo "Installing project with development dependencies..."
-	uv pip install -e ".[dev]"
+	uv sync --group dev
 
 dev-reinstall: uninstall dev-install
 
