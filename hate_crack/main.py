@@ -327,7 +327,7 @@ def ensure_binary(binary_path, build_dir=None, name=None):
 
 # NOTE: hcatPath is the hashcat install directory, NOT for hate_crack assets.
 # hashcat-utils and princeprocessor should ALWAYS use hate_path.
-hcatPath = config_parser.get("hcatPath", "")
+hcatPath = os.path.expanduser(config_parser.get("hcatPath", ""))
 hcatBin = config_parser["hcatBin"]
 # If hcatBin is not absolute and hcatPath is set, construct full path from hcatPath + hcatBin
 if not os.path.isabs(hcatBin) and hcatPath:
@@ -597,9 +597,15 @@ if not SKIP_INIT:
         else:
             # hcatBin should be in PATH
             if shutil.which(hcatBin) is None:
-                print(
-                    f'Hashcat binary "{hcatBin}" not found in PATH. Please check configuration and try again.'
-                )
+                if hcatPath:
+                    print(
+                        f'Hashcat binary not found. Checked hcatPath "{hcatPath}" (no "{hcatBin}" there)'
+                        f' and "{hcatBin}" is not in PATH. Please verify hcatPath in config.json.'
+                    )
+                else:
+                    print(
+                        f'Hashcat binary "{hcatBin}" not found in PATH. Please check configuration and try again.'
+                    )
                 sys.exit(1)
 
         # Verify hashcat-utils binaries exist and work
