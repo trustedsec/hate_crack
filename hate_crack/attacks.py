@@ -108,8 +108,9 @@ def _select_rules(ctx) -> list[str] | None:
 
 def quick_crack(ctx: Any) -> None:
     wordlist_choice = None
+    default_dir = ctx.hcatOptimizedWordlists
 
-    wordlist_files = ctx.list_wordlist_files(ctx.hcatWordlists)
+    wordlist_files = ctx.list_wordlist_files(default_dir)
     wordlist_entries = [
         f"{i}. {file}" for i, file in enumerate(wordlist_files, start=1)
     ]
@@ -122,7 +123,7 @@ def quick_crack(ctx: Any) -> None:
     )
 
     def path_completer(text, state):
-        base = ctx.hcatWordlists
+        base = default_dir
         if not text:
             pattern = os.path.join(base, "*")
             matches = glob.glob(pattern)
@@ -145,14 +146,14 @@ def quick_crack(ctx: Any) -> None:
         try:
             raw_choice = input(
                 "\nEnter path of wordlist or wordlist directory (tab to autocomplete).\n"
-                f"Press Enter for default wordlist directory [{ctx.hcatWordlists}]: "
+                f"Press Enter for default wordlist directory [{default_dir}]: "
             )
             raw_choice = raw_choice.strip()
             if raw_choice == "":
-                wordlist_choice = ctx.hcatWordlists
+                wordlist_choice = default_dir
             elif raw_choice.isdigit() and 1 <= int(raw_choice) <= len(wordlist_files):
                 chosen = os.path.join(
-                    ctx.hcatWordlists, wordlist_files[int(raw_choice) - 1]
+                    default_dir, wordlist_files[int(raw_choice) - 1]
                 )
                 if os.path.exists(chosen):
                     wordlist_choice = chosen
