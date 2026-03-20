@@ -7,6 +7,8 @@ from hate_crack.api import HashviewAPI
 
 def get_hashview_config():
     config_path = os.path.join(os.path.dirname(__file__), "..", "config.json")
+    if not os.path.isfile(config_path):
+        pytest.skip("config.json not present (worktree or fresh checkout)")
     with open(config_path, "r") as f:
         config = json.load(f)
     hashview_url = config.get("hashview_url")

@@ -1,6 +1,5 @@
 """End-to-end tests for markov brute force attack flow."""
 
-import os
 import gzip
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -18,6 +17,9 @@ class TestMarkovE2E:
         # Setup paths
         main.hate_path = Path(__file__).resolve().parents[1]
         main.hcatHcstat2genBin = "hcstat2gen.bin"
+        bin_path = main.hate_path / "hashcat-utils" / "bin" / "hcstat2gen.bin"
+        if not bin_path.is_file():
+            pytest.skip(f"hcstat2gen.bin not compiled: {bin_path}")
 
         # Create test wordlist
         wordlist = tmp_path / "wordlist.txt"
@@ -44,6 +46,9 @@ class TestMarkovE2E:
         # Setup paths
         main.hate_path = Path(__file__).resolve().parents[1]
         main.hcatHcstat2genBin = "hcstat2gen.bin"
+        bin_path = main.hate_path / "hashcat-utils" / "bin" / "hcstat2gen.bin"
+        if not bin_path.is_file():
+            pytest.skip(f"hcstat2gen.bin not compiled: {bin_path}")
 
         # Create test wordlist (gzipped)
         wordlist_plain = tmp_path / "wordlist.txt"
