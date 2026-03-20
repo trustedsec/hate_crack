@@ -951,11 +951,13 @@ def rule_tools_submenu(ctx: Any) -> None:
 
 def wordlist_filter_length(ctx: Any) -> None:
     """Prompt for paths and lengths, then filter wordlist by word length."""
-    infile = input("\n[*] Enter path to input wordlist: ").strip()
+    infile = ctx.select_file_with_autocomplete(
+        "\n[*] Enter path to input wordlist", base_dir=ctx.hcatWordlists
+    ).strip()
     if not os.path.isfile(infile):
         print(f"[!] File not found: {infile}")
         return
-    outfile = input("[*] Enter path to output wordlist: ").strip()
+    outfile = ctx.select_file_with_autocomplete("[*] Enter path to output wordlist").strip()
     if not outfile:
         print("[!] Output path cannot be empty.")
         return
@@ -969,11 +971,13 @@ def wordlist_filter_length(ctx: Any) -> None:
 
 def wordlist_filter_charclass_include(ctx: Any) -> None:
     """Prompt for paths and mask, then keep only words matching required char classes."""
-    infile = input("\n[*] Enter path to input wordlist: ").strip()
+    infile = ctx.select_file_with_autocomplete(
+        "\n[*] Enter path to input wordlist", base_dir=ctx.hcatWordlists
+    ).strip()
     if not os.path.isfile(infile):
         print(f"[!] File not found: {infile}")
         return
-    outfile = input("[*] Enter path to output wordlist: ").strip()
+    outfile = ctx.select_file_with_autocomplete("[*] Enter path to output wordlist").strip()
     if not outfile:
         print("[!] Output path cannot be empty.")
         return
@@ -987,11 +991,13 @@ def wordlist_filter_charclass_include(ctx: Any) -> None:
 
 def wordlist_filter_charclass_exclude(ctx: Any) -> None:
     """Prompt for paths and mask, then remove words containing excluded char classes."""
-    infile = input("\n[*] Enter path to input wordlist: ").strip()
+    infile = ctx.select_file_with_autocomplete(
+        "\n[*] Enter path to input wordlist", base_dir=ctx.hcatWordlists
+    ).strip()
     if not os.path.isfile(infile):
         print(f"[!] File not found: {infile}")
         return
-    outfile = input("[*] Enter path to output wordlist: ").strip()
+    outfile = ctx.select_file_with_autocomplete("[*] Enter path to output wordlist").strip()
     if not outfile:
         print("[!] Output path cannot be empty.")
         return
@@ -1005,11 +1011,13 @@ def wordlist_filter_charclass_exclude(ctx: Any) -> None:
 
 def wordlist_cut_substring(ctx: Any) -> None:
     """Prompt for paths, offset, and optional length, then extract substring from each word."""
-    infile = input("\n[*] Enter path to input wordlist: ").strip()
+    infile = ctx.select_file_with_autocomplete(
+        "\n[*] Enter path to input wordlist", base_dir=ctx.hcatWordlists
+    ).strip()
     if not os.path.isfile(infile):
         print(f"[!] File not found: {infile}")
         return
-    outfile = input("[*] Enter path to output wordlist: ").strip()
+    outfile = ctx.select_file_with_autocomplete("[*] Enter path to output wordlist").strip()
     if not outfile:
         print("[!] Output path cannot be empty.")
         return
@@ -1024,11 +1032,13 @@ def wordlist_cut_substring(ctx: Any) -> None:
 
 def wordlist_split_by_length(ctx: Any) -> None:
     """Prompt for input wordlist and output directory, then split by word length."""
-    infile = input("\n[*] Enter path to input wordlist: ").strip()
+    infile = ctx.select_file_with_autocomplete(
+        "\n[*] Enter path to input wordlist", base_dir=ctx.hcatWordlists
+    ).strip()
     if not os.path.isfile(infile):
         print(f"[!] File not found: {infile}")
         return
-    outdir = input("[*] Enter output directory path: ").strip()
+    outdir = ctx.select_file_with_autocomplete("[*] Enter output directory path").strip()
     if not outdir:
         print("[!] Output directory cannot be empty.")
         return
@@ -1047,15 +1057,19 @@ def wordlist_subtract_words(ctx: Any) -> None:
     mode = input("[*] Choose mode (1/2): ").strip()
 
     if mode == "1":
-        infile = input("[*] Enter path to input wordlist: ").strip()
+        infile = ctx.select_file_with_autocomplete(
+            "[*] Enter path to input wordlist", base_dir=ctx.hcatWordlists
+        ).strip()
         if not os.path.isfile(infile):
             print(f"[!] File not found: {infile}")
             return
-        remove_file = input("[*] Enter path to wordlist to subtract: ").strip()
+        remove_file = ctx.select_file_with_autocomplete(
+            "[*] Enter path to wordlist to subtract", base_dir=ctx.hcatWordlists
+        ).strip()
         if not os.path.isfile(remove_file):
             print(f"[!] File not found: {remove_file}")
             return
-        outfile = input("[*] Enter path to output wordlist: ").strip()
+        outfile = ctx.select_file_with_autocomplete("[*] Enter path to output wordlist").strip()
         if not outfile:
             print("[!] Output path cannot be empty.")
             return
@@ -1064,15 +1078,19 @@ def wordlist_subtract_words(ctx: Any) -> None:
         else:
             print("[!] Subtraction failed.")
     elif mode == "2":
-        infile = input("[*] Enter path to input wordlist: ").strip()
+        infile = ctx.select_file_with_autocomplete(
+            "[*] Enter path to input wordlist", base_dir=ctx.hcatWordlists
+        ).strip()
         if not os.path.isfile(infile):
             print(f"[!] File not found: {infile}")
             return
-        outfile = input("[*] Enter path to output wordlist: ").strip()
+        outfile = ctx.select_file_with_autocomplete("[*] Enter path to output wordlist").strip()
         if not outfile:
             print("[!] Output path cannot be empty.")
             return
-        raw = input("[*] Enter remove file paths (comma-separated): ").strip()
+        raw = ctx.select_file_with_autocomplete(
+            "[*] Enter remove file paths", allow_multiple=True, base_dir=ctx.hcatWordlists
+        ).strip()
         remove_files = [r.strip() for r in raw.split(",") if r.strip()]
         if not remove_files:
             print("[!] No remove files provided.")
@@ -1087,11 +1105,13 @@ def wordlist_subtract_words(ctx: Any) -> None:
 
 def wordlist_shard(ctx: Any) -> None:
     """Prompt for input/output paths, modulus, and offset, then shard the wordlist."""
-    infile = input("\n[*] Enter path to input wordlist: ").strip()
+    infile = ctx.select_file_with_autocomplete(
+        "\n[*] Enter path to input wordlist", base_dir=ctx.hcatWordlists
+    ).strip()
     if not os.path.isfile(infile):
         print(f"[!] File not found: {infile}")
         return
-    outfile = input("[*] Enter path to output wordlist: ").strip()
+    outfile = ctx.select_file_with_autocomplete("[*] Enter path to output wordlist").strip()
     if not outfile:
         print("[!] Output path cannot be empty.")
         return
