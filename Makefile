@@ -94,7 +94,6 @@ install: submodules
 		exit 1; \
 	fi
 	@command -v uv >/dev/null 2>&1 || { echo "uv not found. Installing uv..."; curl -LsSf https://astral.sh/uv/install.sh | sh; }
-	@rm -f hate_crack/_version.py
 	@UV_BIN=$$(command -v uv 2>/dev/null || echo "$$HOME/.local/bin/uv"); \
 		"$$UV_BIN" sync
 	@mkdir -p "$${XDG_BIN_HOME:-$$HOME/.local/bin}"
@@ -123,7 +122,7 @@ dev-reinstall: uninstall dev-install
 clean:
 	-$(MAKE) -C hashcat-utils clean
 	-@if [ -f .gitmodules ]; then git submodule deinit -f --all; fi
-	rm -rf .pytest_cache .ruff_cache build dist *.egg-info hate_crack/_version.py
+	rm -rf .pytest_cache .ruff_cache build dist *.egg-info
 	rm -rf ~/.cache/uv
 	find . -name "__pycache__" -type d -prune -exec rm -rf {} +
 
