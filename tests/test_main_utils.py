@@ -515,6 +515,17 @@ class TestOptimizedKernel:
         [
             "hcatDictionary",
             "hcatQuickDictionary",
+            "hcatFingerprint",
+            "hcatCombination",
+            "hcatCombinator3",
+            "hcatCombinatorX",
+            "hcatHybrid",
+            "hcatYoloCombination",
+            "hcatMiddleCombinator",
+            "hcatThoroughCombinator",
+            "hcatCombipow",
+            "hcatPrince",
+            "hcatPermute",
             "hcatBandrel",
             "hcatGoodMeasure",
             "hcatRecycle",
@@ -529,14 +540,7 @@ class TestOptimizedKernel:
     @pytest.mark.parametrize(
         "attack_name",
         [
-            "hcatCombination",
-            "hcatYoloCombination",
-            "hcatMiddleCombinator",
-            "hcatThoroughCombinator",
-            "hcatHybrid",
-            "hcatPrince",
             "hcatOmen",
-            "hcatFingerprint",
             "hcatLMtoNT",
         ],
     )
