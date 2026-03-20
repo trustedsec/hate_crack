@@ -33,25 +33,6 @@ submodules:
 	fi
 
 submodules-pre:
-	@_hcat_bin="hashcat"; _hcat_path=""; \
-		_config=""; \
-		for _dir in "." "$$HOME/.hate_crack" "$$HOME/hate_crack" "$$HOME/hate-crack" "/opt/hate_crack" "/usr/local/share/hate_crack"; do \
-			if [ -f "$$_dir/config.json" ]; then _config="$$_dir/config.json"; break; fi; \
-		done; \
-		if [ -n "$$_config" ] && command -v python3 >/dev/null 2>&1; then \
-			_hcat_bin=$$(python3 -c "import json; d=json.load(open('$$_config')); print(d.get('hcatBin','hashcat'))" 2>/dev/null || echo "hashcat"); \
-			_hcat_path=$$(python3 -c "import json,os; d=json.load(open('$$_config')); print(os.path.expanduser(d.get('hcatPath','')))" 2>/dev/null || echo ""); \
-		fi; \
-		_found=0; \
-		if [ -n "$$_hcat_path" ] && [ -f "$$_hcat_path/$$_hcat_bin" ] && [ -x "$$_hcat_path/$$_hcat_bin" ]; then \
-			_found=1; \
-		elif command -v "$$_hcat_bin" >/dev/null 2>&1; then \
-			_found=1; \
-		elif [ -x "hate_crack/hashcat/hashcat" ]; then \
-			_found=1; \
-		fi; \
-		[ "$$_found" = "1" ] || { \
-			echo "Error: hashcat not found. Checked hcatPath=\"$$_hcat_path\" hcatBin=\"$$_hcat_bin\" and PATH. Install hashcat (e.g. apt install hashcat or brew install hashcat)."; exit 1; }
 	@test -d hashcat-utils || { echo "Error: missing required directory: hashcat-utils"; exit 1; }
 	@test -d princeprocessor || { echo "Error: missing required directory: princeprocessor"; exit 1; }
 	@test -d omen || { echo "Warning: missing directory: omen (OMEN attacks will not be available)"; }
