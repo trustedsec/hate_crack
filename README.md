@@ -187,6 +187,7 @@ make install
 
 Most users can use defaults without customization:
 - `hcatWordlists`: `./wordlists` (relative to repo root or HOME/.hate_crack)
+- `hcatOptimizedWordlists`: `./optimized_wordlists` (directory used by Quick Crack; falls back to `hcatWordlists` if not found)
 - `rules_directory`: `./hashcat/rules` (includes submodule rules)
 - `hcatTuning`: `` (empty string - no default tuning flags)
 
@@ -660,7 +661,7 @@ Select a task:
 ```
 -------------------------------------------------------------------
 #### Quick Crack
-Runs a dictionary attack using all wordlists configured in your `hcatWordlists` path and optionally applies rules. Multiple rules can be selected by comma-separated list, and chains can be created with the '+' symbol.
+Runs a dictionary attack against wordlists in your `hcatOptimizedWordlists` directory (falls back to `hcatWordlists` if not configured) and optionally applies rules. Multiple rules can be selected by comma-separated list, and chains can be created with the '+' symbol. Pressing Enter at the wordlist prompt uses the configured optimized wordlists directory as the default.
 
 ```
 Which rule(s) would you like to run?
@@ -843,7 +844,7 @@ Generates all unique non-empty subset combinations from a short wordlist using `
 * Candidates are piped directly to hashcat stdin
 
 #### Wordlist Tools (option 80)
-A submenu of wordlist preprocessing utilities using hashcat-utils binaries. All tools read from and write to files on disk.
+A submenu of wordlist preprocessing utilities using hashcat-utils binaries. All tools read from and write to files on disk. All file and directory path prompts support tab completion.
 
 | Key | Tool | Description |
 |-----|------|-------------|
@@ -899,6 +900,11 @@ Interactive menu for downloading and managing wordlists from Weakpass.com via Bi
   
 -------------------------------------------------------------------
 ### Version History
+
+Version 2.5.0
+  - Added tab autocomplete to all file and directory path prompts in the Wordlist Tools submenu (option 80)
+  - Restored `hcatOptimizedWordlists` config key (directory for pre-optimized wordlists); defaults to `./optimized_wordlists`, falls back to `hcatWordlists` if not found
+  - Quick Crack now defaults to `hcatOptimizedWordlists` instead of `hcatWordlists`
 
 Version 2.0+
   - Added Random Rules Attack (option 20) using `generate-rules.bin` to generate random mutation rules (#87)
