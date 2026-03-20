@@ -35,22 +35,23 @@ class TestWordlistFilterLength:
         infile = tmp_path / "in.txt"
         infile.write_text("test\n")
         outfile = tmp_path / "out.txt"
-        with patch("builtins.input", side_effect=[str(infile), str(outfile), "4", "8"]):
+        ctx.select_file_with_autocomplete.side_effect = [str(infile), str(outfile)]
+        with patch("builtins.input", side_effect=["4", "8"]):
             wordlist_filter_length(ctx)
         ctx.wordlist_filter_len.assert_called_once_with(str(infile), str(outfile), 4, 8)
 
     def test_rejects_nonexistent_infile(self, tmp_path):
         ctx = _make_ctx()
-        with patch("builtins.input", return_value="/nonexistent/file.txt"):
-            wordlist_filter_length(ctx)
+        ctx.select_file_with_autocomplete.return_value = "/nonexistent/file.txt"
+        wordlist_filter_length(ctx)
         ctx.wordlist_filter_len.assert_not_called()
 
     def test_rejects_empty_outfile(self, tmp_path):
         ctx = _make_ctx()
         infile = tmp_path / "in.txt"
         infile.write_text("test\n")
-        with patch("builtins.input", side_effect=[str(infile), ""]):
-            wordlist_filter_length(ctx)
+        ctx.select_file_with_autocomplete.side_effect = [str(infile), ""]
+        wordlist_filter_length(ctx)
         ctx.wordlist_filter_len.assert_not_called()
 
     def test_prints_success_message(self, tmp_path, capsys):
@@ -58,7 +59,8 @@ class TestWordlistFilterLength:
         infile = tmp_path / "in.txt"
         infile.write_text("test\n")
         outfile = tmp_path / "out.txt"
-        with patch("builtins.input", side_effect=[str(infile), str(outfile), "4", "8"]):
+        ctx.select_file_with_autocomplete.side_effect = [str(infile), str(outfile)]
+        with patch("builtins.input", side_effect=["4", "8"]):
             wordlist_filter_length(ctx)
         out = capsys.readouterr().out
         assert "success" in out.lower() or "wrote" in out.lower() or str(outfile) in out
@@ -69,7 +71,8 @@ class TestWordlistFilterLength:
         infile = tmp_path / "in.txt"
         infile.write_text("test\n")
         outfile = tmp_path / "out.txt"
-        with patch("builtins.input", side_effect=[str(infile), str(outfile), "4", "8"]):
+        ctx.select_file_with_autocomplete.side_effect = [str(infile), str(outfile)]
+        with patch("builtins.input", side_effect=["4", "8"]):
             wordlist_filter_length(ctx)
         out = capsys.readouterr().out
         assert "fail" in out.lower() or "error" in out.lower() or "!" in out
@@ -81,14 +84,15 @@ class TestWordlistFilterCharclassInclude:
         infile = tmp_path / "in.txt"
         infile.write_text("test\n")
         outfile = tmp_path / "out.txt"
-        with patch("builtins.input", side_effect=[str(infile), str(outfile), "7"]):
+        ctx.select_file_with_autocomplete.side_effect = [str(infile), str(outfile)]
+        with patch("builtins.input", side_effect=["7"]):
             wordlist_filter_charclass_include(ctx)
         ctx.wordlist_filter_req_include.assert_called_once_with(str(infile), str(outfile), 7)
 
     def test_rejects_nonexistent_infile(self, tmp_path):
         ctx = _make_ctx()
-        with patch("builtins.input", return_value="/nonexistent/file.txt"):
-            wordlist_filter_charclass_include(ctx)
+        ctx.select_file_with_autocomplete.return_value = "/nonexistent/file.txt"
+        wordlist_filter_charclass_include(ctx)
         ctx.wordlist_filter_req_include.assert_not_called()
 
 
@@ -98,14 +102,15 @@ class TestWordlistFilterCharclassExclude:
         infile = tmp_path / "in.txt"
         infile.write_text("test\n")
         outfile = tmp_path / "out.txt"
-        with patch("builtins.input", side_effect=[str(infile), str(outfile), "8"]):
+        ctx.select_file_with_autocomplete.side_effect = [str(infile), str(outfile)]
+        with patch("builtins.input", side_effect=["8"]):
             wordlist_filter_charclass_exclude(ctx)
         ctx.wordlist_filter_req_exclude.assert_called_once_with(str(infile), str(outfile), 8)
 
     def test_rejects_nonexistent_infile(self, tmp_path):
         ctx = _make_ctx()
-        with patch("builtins.input", return_value="/nonexistent/file.txt"):
-            wordlist_filter_charclass_exclude(ctx)
+        ctx.select_file_with_autocomplete.return_value = "/nonexistent/file.txt"
+        wordlist_filter_charclass_exclude(ctx)
         ctx.wordlist_filter_req_exclude.assert_not_called()
 
 
@@ -115,7 +120,8 @@ class TestWordlistCutSubstring:
         infile = tmp_path / "in.txt"
         infile.write_text("test\n")
         outfile = tmp_path / "out.txt"
-        with patch("builtins.input", side_effect=[str(infile), str(outfile), "2", "4"]):
+        ctx.select_file_with_autocomplete.side_effect = [str(infile), str(outfile)]
+        with patch("builtins.input", side_effect=["2", "4"]):
             wordlist_cut_substring(ctx)
         ctx.wordlist_cutb.assert_called_once_with(str(infile), str(outfile), 2, 4)
 
@@ -124,14 +130,15 @@ class TestWordlistCutSubstring:
         infile = tmp_path / "in.txt"
         infile.write_text("test\n")
         outfile = tmp_path / "out.txt"
-        with patch("builtins.input", side_effect=[str(infile), str(outfile), "2", ""]):
+        ctx.select_file_with_autocomplete.side_effect = [str(infile), str(outfile)]
+        with patch("builtins.input", side_effect=["2", ""]):
             wordlist_cut_substring(ctx)
         ctx.wordlist_cutb.assert_called_once_with(str(infile), str(outfile), 2, None)
 
     def test_rejects_nonexistent_infile(self, tmp_path):
         ctx = _make_ctx()
-        with patch("builtins.input", return_value="/nonexistent/file.txt"):
-            wordlist_cut_substring(ctx)
+        ctx.select_file_with_autocomplete.return_value = "/nonexistent/file.txt"
+        wordlist_cut_substring(ctx)
         ctx.wordlist_cutb.assert_not_called()
 
 
@@ -141,8 +148,8 @@ class TestWordlistSplitByLength:
         infile = tmp_path / "in.txt"
         infile.write_text("test\n")
         outdir = tmp_path / "split"
-        with patch("builtins.input", side_effect=[str(infile), str(outdir)]):
-            wordlist_split_by_length(ctx)
+        ctx.select_file_with_autocomplete.side_effect = [str(infile), str(outdir)]
+        wordlist_split_by_length(ctx)
         ctx.wordlist_splitlen.assert_called_once_with(str(infile), str(outdir))
 
     def test_creates_outdir_if_missing(self, tmp_path):
@@ -150,14 +157,14 @@ class TestWordlistSplitByLength:
         infile = tmp_path / "in.txt"
         infile.write_text("test\n")
         outdir = tmp_path / "split" / "nested"
-        with patch("builtins.input", side_effect=[str(infile), str(outdir)]):
-            wordlist_split_by_length(ctx)
+        ctx.select_file_with_autocomplete.side_effect = [str(infile), str(outdir)]
+        wordlist_split_by_length(ctx)
         assert outdir.exists()
 
     def test_rejects_nonexistent_infile(self, tmp_path):
         ctx = _make_ctx()
-        with patch("builtins.input", return_value="/nonexistent/file.txt"):
-            wordlist_split_by_length(ctx)
+        ctx.select_file_with_autocomplete.return_value = "/nonexistent/file.txt"
+        wordlist_split_by_length(ctx)
         ctx.wordlist_splitlen.assert_not_called()
 
 
@@ -169,8 +176,8 @@ class TestWordlistSubtractWords:
         removefile = tmp_path / "remove.txt"
         removefile.write_text("word1\n")
         outfile = tmp_path / "out.txt"
-        # "1" = single remove
-        with patch("builtins.input", side_effect=["1", str(infile), str(removefile), str(outfile)]):
+        ctx.select_file_with_autocomplete.side_effect = [str(infile), str(removefile), str(outfile)]
+        with patch("builtins.input", side_effect=["1"]):
             wordlist_subtract_words(ctx)
         ctx.wordlist_subtract_single.assert_called_once_with(str(infile), str(removefile), str(outfile))
 
@@ -183,11 +190,12 @@ class TestWordlistSubtractWords:
         removefile2 = tmp_path / "remove2.txt"
         removefile2.write_text("word2\n")
         outfile = tmp_path / "out.txt"
-        # "2" = multiple removes, then two remove files separated by comma or newline
-        with patch(
-            "builtins.input",
-            side_effect=["2", str(infile), str(outfile), f"{removefile1},{removefile2}"],
-        ):
+        ctx.select_file_with_autocomplete.side_effect = [
+            str(infile),
+            str(outfile),
+            f"{removefile1},{removefile2}",
+        ]
+        with patch("builtins.input", side_effect=["2"]):
             wordlist_subtract_words(ctx)
         ctx.wordlist_subtract.assert_called_once_with(
             str(infile), str(outfile), str(removefile1), str(removefile2)
@@ -195,7 +203,8 @@ class TestWordlistSubtractWords:
 
     def test_single_remove_rejects_nonexistent_infile(self, tmp_path):
         ctx = _make_ctx()
-        with patch("builtins.input", side_effect=["1", "/nonexistent.txt"]):
+        ctx.select_file_with_autocomplete.return_value = "/nonexistent.txt"
+        with patch("builtins.input", side_effect=["1"]):
             wordlist_subtract_words(ctx)
         ctx.wordlist_subtract_single.assert_not_called()
 
@@ -206,7 +215,8 @@ class TestWordlistShard:
         infile = tmp_path / "in.txt"
         infile.write_text("word1\nword2\nword3\n")
         outfile = tmp_path / "shard.txt"
-        with patch("builtins.input", side_effect=[str(infile), str(outfile), "3", "0"]):
+        ctx.select_file_with_autocomplete.side_effect = [str(infile), str(outfile)]
+        with patch("builtins.input", side_effect=["3", "0"]):
             wordlist_shard(ctx)
         ctx.wordlist_gate.assert_called_once_with(str(infile), str(outfile), 3, 0)
 
@@ -215,14 +225,15 @@ class TestWordlistShard:
         infile = tmp_path / "in.txt"
         infile.write_text("word1\n")
         outfile = tmp_path / "shard.txt"
-        with patch("builtins.input", side_effect=[str(infile), str(outfile), "3", "3"]):
+        ctx.select_file_with_autocomplete.side_effect = [str(infile), str(outfile)]
+        with patch("builtins.input", side_effect=["3", "3"]):
             wordlist_shard(ctx)
         ctx.wordlist_gate.assert_not_called()
 
     def test_rejects_nonexistent_infile(self, tmp_path):
         ctx = _make_ctx()
-        with patch("builtins.input", return_value="/nonexistent/file.txt"):
-            wordlist_shard(ctx)
+        ctx.select_file_with_autocomplete.return_value = "/nonexistent/file.txt"
+        wordlist_shard(ctx)
         ctx.wordlist_gate.assert_not_called()
 
     def test_rejects_mod_less_than_2(self, tmp_path):
@@ -230,7 +241,8 @@ class TestWordlistShard:
         infile = tmp_path / "in.txt"
         infile.write_text("word1\n")
         outfile = tmp_path / "shard.txt"
-        with patch("builtins.input", side_effect=[str(infile), str(outfile), "1", "0"]):
+        ctx.select_file_with_autocomplete.side_effect = [str(infile), str(outfile)]
+        with patch("builtins.input", side_effect=["1", "0"]):
             wordlist_shard(ctx)
         ctx.wordlist_gate.assert_not_called()
 
