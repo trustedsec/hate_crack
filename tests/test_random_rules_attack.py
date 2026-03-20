@@ -11,11 +11,15 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 def load_cli_module():
     os.environ["HATE_CRACK_SKIP_INIT"] = "1"
+    _preserve = {"hate_crack.attacks", "hate_crack.api"}
     for key in list(sys.modules.keys()):
-        # Preserve hate_crack.attacks - reloading it creates a new module object
-        # that breaks __globals__ references held by functions imported at
-        # module level in other test files (test isolation violation).
-        if "hate_crack" in key and key != "hate_crack.attacks":
+        # Preserve hate_crack.attacks and hate_crack.api - reloading them creates
+        # new module objects that break __globals__ references held by functions
+        # imported at module level in other test files (test isolation violation).
+        # In particular, hate_crack.api must be preserved so that mocks applied via
+        # patch("hate_crack.api.*") in later tests (e.g. test_rule_download_parallel)
+        # target the same module object that the already-imported functions reference.
+        if "hate_crack" in key and key not in _preserve:
             del sys.modules[key]
     spec = importlib.util.spec_from_file_location(
         "hate_crack_cli", PROJECT_ROOT / "hate_crack.py"
