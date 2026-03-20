@@ -34,9 +34,13 @@ submodules:
 
 submodules-pre:
 	@_hcat_bin="hashcat"; _hcat_path=""; \
-		if [ -f config.json ] && command -v python3 >/dev/null 2>&1; then \
-			_hcat_bin=$$(python3 -c "import json; d=json.load(open('config.json')); print(d.get('hcatBin','hashcat'))" 2>/dev/null || echo "hashcat"); \
-			_hcat_path=$$(python3 -c "import json,os; d=json.load(open('config.json')); print(os.path.expanduser(d.get('hcatPath','')))" 2>/dev/null || echo ""); \
+		_config=""; \
+		for _dir in "." "$$HOME/.hate_crack" "$$HOME/hate_crack" "$$HOME/hate-crack" "/opt/hate_crack" "/usr/local/share/hate_crack"; do \
+			if [ -f "$$_dir/config.json" ]; then _config="$$_dir/config.json"; break; fi; \
+		done; \
+		if [ -n "$$_config" ] && command -v python3 >/dev/null 2>&1; then \
+			_hcat_bin=$$(python3 -c "import json; d=json.load(open('$$_config')); print(d.get('hcatBin','hashcat'))" 2>/dev/null || echo "hashcat"); \
+			_hcat_path=$$(python3 -c "import json,os; d=json.load(open('$$_config')); print(os.path.expanduser(d.get('hcatPath','')))" 2>/dev/null || echo ""); \
 		fi; \
 		_found=0; \
 		if [ -n "$$_hcat_path" ] && [ -f "$$_hcat_path/$$_hcat_bin" ] && [ -x "$$_hcat_path/$$_hcat_bin" ]; then \
