@@ -29,5 +29,12 @@
   "omenTrainingList": "rockyou.txt",
   "omenMaxCandidates": 50000000,
   "check_for_updates": true,
-  "optimizedKernelAttacks": ["hcatDictionary", "hcatQuickDictionary", "hcatBandrel", "hcatGoodMeasure", "hcatRecycle", "hcatBruteForce", "hcatTopMask", "hcatPathwellBruteForce"]
+  "optimizedKernelAttacks": [
+    "hcatDictionary", "hcatQuickDictionary", "hcatBandrel", "hcatGoodMeasure",
+    "hcatRecycle", "hcatBruteForce", "hcatTopMask", "hcatPathwellBruteForce",
+    "hcatAdHocMask", "hcatMarkovBruteForce", "hcatFingerprint", "hcatCombination",
+    "hcatCombinator3", "hcatCombinatorX", "hcatHybrid", "hcatYoloCombination",
+    "hcatMiddleCombinator", "hcatThoroughCombinator", "hcatCombipow", "hcatPrince",
+    "hcatPermute"
+  ]
 }
