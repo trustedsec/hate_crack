@@ -1,19 +1,18 @@
 import os
 import subprocess
-
-
 import json
+import pytest
 
 
 def test_pipal_executable_and_runs(tmp_path):
     # Read pipalPath from config.json
     config_path = os.path.join(os.path.dirname(__file__), "..", "config.json")
+    if not os.path.isfile(config_path):
+        pytest.skip("config.json not present (worktree or fresh checkout)")
     with open(config_path, "r") as f:
         config = json.load(f)
     pipal_path = config.get("pipalPath")
     if not pipal_path or not os.path.isfile(pipal_path):
-        import pytest
-
         pytest.skip("pipalPath not configured or file missing")
 
     if not os.access(pipal_path, os.X_OK):

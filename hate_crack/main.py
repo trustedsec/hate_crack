@@ -108,6 +108,17 @@ DEFAULT_OPTIMIZED_ATTACKS = frozenset(
         "hcatPathwellBruteForce",
         "hcatAdHocMask",
         "hcatMarkovBruteForce",
+        "hcatFingerprint",
+        "hcatCombination",
+        "hcatCombinator3",
+        "hcatCombinatorX",
+        "hcatHybrid",
+        "hcatYoloCombination",
+        "hcatMiddleCombinator",
+        "hcatThoroughCombinator",
+        "hcatCombipow",
+        "hcatPrince",
+        "hcatPermute",
     }
 )
 
@@ -1430,24 +1441,25 @@ def hcatFingerprint(
                 print("Killing PID {0}...".format(str(sort_proc.pid)))
                 sort_proc.kill()
                 expander_proc.kill()
-        hcatProcess = subprocess.Popen(
-            [
-                hcatBin,
-                "-m",
-                hcatHashType,
-                hcatHashFile,
-                "--session",
-                generate_session_id(),
-                "-o",
-                f"{hcatHashFile}.out",
-                "-a",
-                "1",
-                f"{hcatHashFile}.expanded",
-                f"{hcatHashFile}.expanded",
-                *shlex.split(hcatTuning),
-                *([f"--potfile-path={hcatPotfilePath}"] if hcatPotfilePath else []),
-            ]
-        )
+        fingerprint_cmd = [
+            hcatBin,
+            "-m",
+            hcatHashType,
+            hcatHashFile,
+            "--session",
+            generate_session_id(),
+            "-o",
+            f"{hcatHashFile}.out",
+            "-a",
+            "1",
+            f"{hcatHashFile}.expanded",
+            f"{hcatHashFile}.expanded",
+        ]
+        if _should_use_optimized_kernel("hcatFingerprint"):
+            _insert_optimized_flag(fingerprint_cmd)
+        fingerprint_cmd.extend(shlex.split(hcatTuning))
+        _append_potfile_arg(fingerprint_cmd)
+        hcatProcess = subprocess.Popen(fingerprint_cmd)
         try:
             hcatProcess.wait()
         except KeyboardInterrupt:
@@ -1507,6 +1519,8 @@ def hcatCombination(hcatHashType, hcatHashFile, wordlists=None):
         resolved_wordlists[0],
         resolved_wordlists[1],
     ]
+    if _should_use_optimized_kernel("hcatCombination"):
+        _insert_optimized_flag(cmd)
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
     hcatProcess = subprocess.Popen(cmd)
@@ -1542,6 +1556,8 @@ def hcatCombinator3(hcatHashType, hcatHashFile, wordlists):
             "-o",
             f"{hcatHashFile}.out",
         ]
+        if _should_use_optimized_kernel("hcatCombinator3"):
+            _insert_optimized_flag(hashcat_cmd)
         hashcat_cmd.extend(shlex.split(hcatTuning))
         _append_potfile_arg(hashcat_cmd)
         generator_proc = subprocess.Popen(generator_cmd, stdout=subprocess.PIPE)
@@ -1586,6 +1602,8 @@ def hcatCombinatorX(hcatHashType, hcatHashFile, wordlists, separator=None):
             "-o",
             f"{hcatHashFile}.out",
         ]
+        if _should_use_optimized_kernel("hcatCombinatorX"):
+            _insert_optimized_flag(hashcat_cmd)
         hashcat_cmd.extend(shlex.split(hcatTuning))
         _append_potfile_arg(hashcat_cmd)
         generator_proc = subprocess.Popen(generator_cmd, stdout=subprocess.PIPE)
@@ -1683,6 +1701,8 @@ def hcatHybrid(hcatHashType, hcatHashFile, wordlists=None):
                 f"{hcatHashFile}.out",
                 *args,
             ]
+            if _should_use_optimized_kernel("hcatHybrid"):
+                _insert_optimized_flag(cmd)
             cmd.extend(shlex.split(hcatTuning))
             _append_potfile_arg(cmd)
             hcatProcess = subprocess.Popen(cmd)
@@ -1719,6 +1739,8 @@ def hcatYoloCombination(hcatHashType, hcatHashFile):
                 left_path,
                 right_path,
             ]
+            if _should_use_optimized_kernel("hcatYoloCombination"):
+                _insert_optimized_flag(cmd)
             cmd.extend(shlex.split(hcatTuning))
             _append_potfile_arg(cmd)
             hcatProcess = subprocess.Popen(cmd)
@@ -2102,8 +2124,11 @@ def hcatMiddleCombinator(hcatHashType, hcatHashFile):
                 masks[x],
                 hcatMiddleBaseList,
                 hcatMiddleBaseList,
-                *([f"--potfile-path={hcatPotfilePath}"] if hcatPotfilePath else []),
             ]
+            if _should_use_optimized_kernel("hcatMiddleCombinator"):
+                _insert_optimized_flag(cmd)
+            cmd.extend(shlex.split(hcatTuning))
+            _append_potfile_arg(cmd)
             hcatProcess = subprocess.Popen(cmd)
             try:
                 hcatProcess.wait()
@@ -2145,6 +2170,8 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
         hcatThoroughBaseList,
         hcatThoroughBaseList,
     ]
+    if _should_use_optimized_kernel("hcatThoroughCombinator"):
+        _insert_optimized_flag(cmd)
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
     hcatProcess = subprocess.Popen(cmd)
@@ -2171,8 +2198,11 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
                 masks[x],
                 hcatThoroughBaseList,
                 hcatThoroughBaseList,
-                *([f"--potfile-path={hcatPotfilePath}"] if hcatPotfilePath else []),
             ]
+            if _should_use_optimized_kernel("hcatThoroughCombinator"):
+                _insert_optimized_flag(cmd)
+            cmd.extend(shlex.split(hcatTuning))
+            _append_potfile_arg(cmd)
             hcatProcess = subprocess.Popen(cmd)
             try:
                 hcatProcess.wait()
@@ -2200,6 +2230,8 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
                 hcatThoroughBaseList,
                 hcatThoroughBaseList,
             ]
+            if _should_use_optimized_kernel("hcatThoroughCombinator"):
+                _insert_optimized_flag(cmd)
             cmd.extend(shlex.split(hcatTuning))
             _append_potfile_arg(cmd)
             hcatProcess = subprocess.Popen(cmd)
@@ -2231,6 +2263,8 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
                 hcatThoroughBaseList,
                 hcatThoroughBaseList,
             ]
+            if _should_use_optimized_kernel("hcatThoroughCombinator"):
+                _insert_optimized_flag(cmd)
             cmd.extend(shlex.split(hcatTuning))
             _append_potfile_arg(cmd)
             hcatProcess = subprocess.Popen(cmd)
@@ -2433,6 +2467,8 @@ def hcatCombipow(hcatHashType, hcatHashFile, wordlist, use_space_sep=True):
         "-o",
         f"{hcatHashFile}.out",
     ]
+    if _should_use_optimized_kernel("hcatCombipow"):
+        _insert_optimized_flag(hashcat_cmd)
     hashcat_cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(hashcat_cmd)
     generator_proc = subprocess.Popen(generator_cmd, stdout=subprocess.PIPE)
@@ -2483,6 +2519,8 @@ def hcatPrince(hcatHashType, hcatHashFile):
         "-r",
         prince_rule,
     ]
+    if _should_use_optimized_kernel("hcatPrince"):
+        _insert_optimized_flag(hashcat_cmd)
     hashcat_cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(hashcat_cmd)
     hashcat_cmd = _add_debug_mode_for_rules(hashcat_cmd)
@@ -2518,6 +2556,8 @@ def hcatPermute(hcatHashType, hcatHashFile, wordlist):
         "-o",
         f"{hcatHashFile}.out",
     ]
+    if _should_use_optimized_kernel("hcatPermute"):
+        _insert_optimized_flag(hashcat_cmd)
     hashcat_cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(hashcat_cmd)
     with _open_wordlist(wordlist) as wl_file:
