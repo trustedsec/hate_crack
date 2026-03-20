@@ -33,8 +33,21 @@ submodules:
 	fi
 
 submodules-pre:
-	@command -v hashcat >/dev/null 2>&1 || { \
-		echo "Error: hashcat not found. Install hashcat (e.g. apt install hashcat or brew install hashcat)."; exit 1; }
+	@_hcat_bin="hashcat"; _hcat_path=""; \
+		if [ -f config.json ] && command -v python3 >/dev/null 2>&1; then \
+			_hcat_bin=$$(python3 -c "import json; d=json.load(open('config.json')); print(d.get('hcatBin','hashcat'))" 2>/dev/null || echo "hashcat"); \
+			_hcat_path=$$(python3 -c "import json,os; d=json.load(open('config.json')); print(os.path.expanduser(d.get('hcatPath','')))" 2>/dev/null || echo ""); \
+		fi; \
+		_found=0; \
+		if [ -n "$$_hcat_path" ] && [ -f "$$_hcat_path/$$_hcat_bin" ] && [ -x "$$_hcat_path/$$_hcat_bin" ]; then \
+			_found=1; \
+		elif command -v "$$_hcat_bin" >/dev/null 2>&1; then \
+			_found=1; \
+		elif [ -x "hate_crack/hashcat/hashcat" ]; then \
+			_found=1; \
+		fi; \
+		[ "$$_found" = "1" ] || { \
+			echo "Error: hashcat not found. Checked hcatPath=\"$$_hcat_path\" hcatBin=\"$$_hcat_bin\" and PATH. Install hashcat (e.g. apt install hashcat or brew install hashcat)."; exit 1; }
 	@test -d hashcat-utils || { echo "Error: missing required directory: hashcat-utils"; exit 1; }
 	@test -d princeprocessor || { echo "Error: missing required directory: princeprocessor"; exit 1; }
 	@test -d omen || { echo "Warning: missing directory: omen (OMEN attacks will not be available)"; }
