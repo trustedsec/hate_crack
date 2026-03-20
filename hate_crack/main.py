@@ -407,6 +407,24 @@ if not os.path.isdir(hcatWordlists):
         print(f"[!] Falling back to {fallback_wordlists}")
         hcatWordlists = fallback_wordlists
 
+hcatOptimizedWordlists = config_parser.get("hcatOptimizedWordlists", "")
+if hcatOptimizedWordlists:
+    hcatOptimizedWordlists = os.path.expanduser(hcatOptimizedWordlists)
+    if not os.path.isabs(hcatOptimizedWordlists):
+        hcatOptimizedWordlists = os.path.normpath(
+            os.path.join(hate_path, hcatOptimizedWordlists)
+        )
+    if not os.path.isdir(hcatOptimizedWordlists):
+        fallback_optimized = os.path.join(hate_path, "optimized_wordlists")
+        if os.path.isdir(fallback_optimized):
+            print(f"[!] hcatOptimizedWordlists directory not found: {hcatOptimizedWordlists}")
+            print(f"[!] Falling back to {fallback_optimized}")
+            hcatOptimizedWordlists = fallback_optimized
+        else:
+            hcatOptimizedWordlists = hcatWordlists
+else:
+    hcatOptimizedWordlists = hcatWordlists
+
 maxruntime = config_parser["bandrelmaxruntime"]
 bandrelbasewords = config_parser["bandrel_common_basedwords"]
 pipal_count = config_parser["pipal_count"]
@@ -4158,7 +4176,7 @@ def main():
     global lmHashesFound
     global debug_mode
     global hashview_url, hashview_api_key
-    global hcatPath, hcatBin, hcatWordlists, rulesDirectory
+    global hcatPath, hcatBin, hcatWordlists, hcatOptimizedWordlists, rulesDirectory
     global pipalPath, maxruntime, bandrelbasewords
     global hcatPotfilePath
 
@@ -4397,6 +4415,7 @@ def main():
         hcatPath=hcatPath,
         hcatBin=hcatBin,
         hcatWordlists=hcatWordlists,
+        hcatOptimizedWordlists=hcatOptimizedWordlists,
         rules_directory=rulesDirectory,
         pipalPath=pipalPath,
         maxruntime=maxruntime,
@@ -4408,6 +4427,7 @@ def main():
     hcatPath = config.hcatPath
     hcatBin = config.hcatBin
     hcatWordlists = config.hcatWordlists
+    hcatOptimizedWordlists = config.hcatOptimizedWordlists
     rulesDirectory = config.rules_directory
     pipalPath = config.pipalPath
     maxruntime = config.maxruntime
