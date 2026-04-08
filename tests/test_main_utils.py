@@ -100,25 +100,8 @@ class TestEnsureHashfileInCwd:
         result = main_module._ensure_hashfile_in_cwd(str(target))
         assert result == str(target)
 
-    def test_different_dir_existing_file_in_cwd(self, main_module, tmp_path, monkeypatch):
-        # File exists in a different directory
-        other_dir = tmp_path / "other"
-        other_dir.mkdir()
-        source_file = other_dir / "hashes.txt"
-        source_file.write_text("hashes")
-
-        # A file with the same name already exists in cwd
-        cwd_dir = tmp_path / "cwd"
-        cwd_dir.mkdir()
-        cwd_copy = cwd_dir / "hashes.txt"
-        cwd_copy.write_text("cwd version")
-
-        monkeypatch.setenv("HATE_CRACK_ORIG_CWD", str(cwd_dir))
-        result = main_module._ensure_hashfile_in_cwd(str(source_file))
-        assert result == str(cwd_copy)
-
-    def test_different_dir_creates_symlink(self, main_module, tmp_path, monkeypatch):
-        # Source file in a different directory, nothing in cwd
+    def test_different_dir_returns_original_path(self, main_module, tmp_path, monkeypatch):
+        """File in different dir is returned as-is (no symlink/copy)."""
         other_dir = tmp_path / "other"
         other_dir.mkdir()
         source_file = other_dir / "hashes.txt"
@@ -129,14 +112,25 @@ class TestEnsureHashfileInCwd:
 
         monkeypatch.setenv("HATE_CRACK_ORIG_CWD", str(cwd_dir))
         result = main_module._ensure_hashfile_in_cwd(str(source_file))
+        assert result == str(source_file)
 
-        expected = str(cwd_dir / "hashes.txt")
-        assert result == expected
-        assert os.path.exists(expected)
+    def test_different_dir_no_symlink(self, main_module, tmp_path, monkeypatch):
+        """File in different dir does NOT create a symlink in cwd."""
+        other_dir = tmp_path / "other"
+        other_dir.mkdir()
+        source_file = other_dir / "hashes.txt"
+        source_file.write_text("hashes")
+
+        cwd_dir = tmp_path / "cwd"
+        cwd_dir.mkdir()
+
+        monkeypatch.setenv("HATE_CRACK_ORIG_CWD", str(cwd_dir))
+        result = main_module._ensure_hashfile_in_cwd(str(source_file))
+        assert result == str(source_file)
+        assert not (cwd_dir / "hashes.txt").exists()
 
     def test_uses_orig_cwd_not_process_cwd(self, main_module, tmp_path, monkeypatch):
-        """Output files go to HATE_CRACK_ORIG_CWD, not the process CWD."""
-        # Simulate: process CWD is the install dir, orig CWD is the user's dir
+        """Returns original path as-is; no files created in any cwd."""
         install_dir = tmp_path / "install"
         install_dir.mkdir()
         user_dir = tmp_path / "user"
@@ -150,10 +144,9 @@ class TestEnsureHashfileInCwd:
         monkeypatch.setenv("HATE_CRACK_ORIG_CWD", str(user_dir))
         result = main_module._ensure_hashfile_in_cwd(str(source_file))
 
-        # Should land in user_dir, NOT install_dir
-        assert result == str(user_dir / "hashes.txt")
-        assert os.path.exists(user_dir / "hashes.txt")
-        assert not os.path.exists(install_dir / "hashes.txt")
+        assert result == str(source_file)
+        assert not (user_dir / "hashes.txt").exists()
+        assert not (install_dir / "hashes.txt").exists()
 
 
 class TestRunHashcatShow:
