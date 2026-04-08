@@ -11,6 +11,7 @@ from typing import Callable, Optional, Tuple
 import requests  # type: ignore[import-untyped]
 from bs4 import BeautifulSoup
 
+from hate_crack.cli import orig_cwd
 from hate_crack.formatting import print_multicolumn_list
 
 _TORRENT_CLEANUP_REGISTERED = False
@@ -841,8 +842,10 @@ class HashviewAPI:
         resp.raise_for_status()
         if output_file is None:
             output_file = f"left_{customer_id}_{hashfile_id}.txt"
-        # Convert to absolute path to ensure file is preserved if CWD changes
-        output_file = os.path.abspath(output_file)
+        # Resolve relative paths against the user's original CWD, not the
+        # install directory that ``uv run --directory`` may have switched to.
+        if not os.path.isabs(output_file):
+            output_file = os.path.join(orig_cwd(), output_file)
         output_abs = output_file
         total = int(resp.headers.get("content-length", 0))
         downloaded = 0
@@ -869,7 +872,7 @@ class HashviewAPI:
         # Try to download found file and process with hashcat
         combined_count = 0
         combined_file = None
-        out_dir = os.path.dirname(output_abs) or os.getcwd()
+        out_dir = os.path.dirname(output_abs) or orig_cwd()
         found_file = os.path.join(out_dir, f"found_{customer_id}_{hashfile_id}.txt")
 
         try:

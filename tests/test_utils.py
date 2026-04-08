@@ -8,6 +8,18 @@ from hate_crack import cli
 from hate_crack import formatting
 
 
+def test_orig_cwd_uses_env_var(monkeypatch, tmp_path):
+    """orig_cwd() returns HATE_CRACK_ORIG_CWD when set."""
+    monkeypatch.setenv("HATE_CRACK_ORIG_CWD", str(tmp_path))
+    assert cli.orig_cwd() == str(tmp_path)
+
+
+def test_orig_cwd_falls_back_to_getcwd(monkeypatch):
+    """orig_cwd() falls back to os.getcwd() when env var is unset."""
+    monkeypatch.delenv("HATE_CRACK_ORIG_CWD", raising=False)
+    assert cli.orig_cwd() == os.getcwd()
+
+
 def test_resolve_path_none_and_expand():
     assert cli.resolve_path("") is None
     resolved = cli.resolve_path("~")

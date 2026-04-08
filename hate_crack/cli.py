@@ -4,6 +4,17 @@ import sys
 from typing import Optional
 
 
+def orig_cwd() -> str:
+    """Return the caller's original working directory.
+
+    When invoked via the bash shim (``uv run --directory``), the process CWD
+    is the install directory, not where the user ran the command.
+    ``HATE_CRACK_ORIG_CWD`` preserves the real CWD so that output files
+    (e.g. ``.out``, ``.nt``) are created next to the hashfile the user specified.
+    """
+    return os.environ.get("HATE_CRACK_ORIG_CWD") or os.getcwd()
+
+
 def resolve_path(value: Optional[str]) -> Optional[str]:
     """Expand user and return an absolute path, or None.
 

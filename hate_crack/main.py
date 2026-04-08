@@ -69,6 +69,7 @@ from hate_crack.api import (  # noqa: E402
     extract_with_7z,
 )
 from hate_crack.cli import (  # noqa: E402
+    orig_cwd,
     resolve_path,
     setup_logging,
 )
@@ -198,10 +199,7 @@ def _ensure_hashfile_in_cwd(hashfile_path):
     """Ensure hashfile path points to cwd to keep output files in execution dir."""
     if not hashfile_path:
         return hashfile_path
-    try:
-        cwd = os.getcwd()
-    except Exception:
-        return hashfile_path
+    cwd = orig_cwd()
     if not os.path.isabs(hashfile_path):
         return hashfile_path
     if os.path.dirname(hashfile_path) == cwd:
@@ -358,7 +356,7 @@ if "hcatPotfilePath" not in config_parser:
     if os.path.isfile(_default_pot) or os.path.isdir(os.path.dirname(_default_pot)):
         hcatPotfilePath = _default_pot
     else:
-        hcatPotfilePath = os.path.join(os.getcwd(), "hashcat.potfile")
+        hcatPotfilePath = os.path.join(orig_cwd(), "hashcat.potfile")
 else:
     _raw_pot = (config_parser.get("hcatPotfilePath") or "").strip()
     if _raw_pot == "":
