@@ -2988,10 +2988,11 @@ def cleanup():
         if hcatHashType == "1000" and pwdump_format:
             print("\nComparing cracked hashes to original file...")
             combine_ntlm_output()
-        print(
-            "\nCracked passwords combined with original hashes in %s"
-            % (hcatHashFileOrig + ".out")
-        )
+        out_path = hcatHashFileOrig + ".out"
+        if os.path.isfile(out_path):
+            print(f"\nCracked passwords combined with original hashes in {out_path}")
+        else:
+            print(f"\nNo cracked hashes to combine. Raw output (if any): {hcatHashFile}.out")
         print("\nCleaning up temporary files...")
         if os.path.exists(hcatHashFile + ".masks"):
             os.remove(hcatHashFile + ".masks")
