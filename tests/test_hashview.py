@@ -774,14 +774,8 @@ class TestHashviewAPI:
             content = f.read()
         assert content == b"hash1\nhash2\n"
 
-    def test_hashfile_orig_path_preservation(self, tmp_path):
+    def test_hashfile_orig_path_preservation(self, tmp_path, monkeypatch):
         """Test that original hashfile path is preserved before _ensure_hashfile_in_cwd"""
-        import sys
-        import os
-
-        sys.path.insert(
-            0, os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-        )
         from hate_crack.main import _ensure_hashfile_in_cwd
 
         # Create a test hashfile in a different directory
@@ -792,27 +786,22 @@ class TestHashviewAPI:
 
         original_path = str(test_file)
 
-        # Save current directory
-        orig_cwd = os.getcwd()
-        try:
-            # Change to tmp_path
-            os.chdir(str(tmp_path))
+        # Set HATE_CRACK_ORIG_CWD so _ensure_hashfile_in_cwd targets tmp_path
+        monkeypatch.setenv("HATE_CRACK_ORIG_CWD", str(tmp_path))
 
-            # Call _ensure_hashfile_in_cwd
-            result_path = _ensure_hashfile_in_cwd(original_path)
+        # Call _ensure_hashfile_in_cwd
+        result_path = _ensure_hashfile_in_cwd(original_path)
 
-            # The result should be different from original (in cwd now)
-            # But original_path should still exist and be unchanged
-            assert os.path.exists(original_path), "Original file should still exist"
-            assert os.path.exists(result_path), "Result file should exist"
+        # The result should be different from original (in cwd now)
+        # But original_path should still exist and be unchanged
+        assert os.path.exists(original_path), "Original file should still exist"
+        assert os.path.exists(result_path), "Result file should exist"
 
-            # If they're different, result should be in cwd
-            if result_path != original_path:
-                assert os.path.dirname(result_path) == str(tmp_path), (
-                    "Result should be in cwd"
-                )
-        finally:
-            os.chdir(orig_cwd)
+        # If they're different, result should be in cwd
+        if result_path != original_path:
+            assert os.path.dirname(result_path) == str(tmp_path), (
+                "Result should be in cwd"
+            )
 
 
 if __name__ == "__main__":
