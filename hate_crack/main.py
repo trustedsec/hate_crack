@@ -196,27 +196,13 @@ def _resolve_config_destination():
 
 
 def _ensure_hashfile_in_cwd(hashfile_path):
-    """Ensure hashfile path points to cwd to keep output files in execution dir."""
-    if not hashfile_path:
-        return hashfile_path
-    cwd = orig_cwd()
-    if not os.path.isabs(hashfile_path):
-        return hashfile_path
-    if os.path.dirname(hashfile_path) == cwd:
-        return hashfile_path
-    basename = os.path.basename(hashfile_path)
-    local_path = os.path.join(cwd, basename)
-    if os.path.exists(local_path):
-        return local_path
-    try:
-        os.symlink(hashfile_path, local_path)
-        return local_path
-    except Exception:
-        try:
-            shutil.copy2(hashfile_path, local_path)
-            return local_path
-        except Exception:
-            return hashfile_path
+    """Return hashfile path as-is.
+
+    Output files (.out, .nt, etc.) are written next to the hashfile.
+    ``resolve_path()`` already resolves relative paths against
+    ``HATE_CRACK_ORIG_CWD`` so no relocation is needed.
+    """
+    return hashfile_path
 
 
 # hate_path is where hate_crack assets live (hashcat-utils, princeprocessor, etc.)
@@ -3002,10 +2988,11 @@ def cleanup():
         if hcatHashType == "1000" and pwdump_format:
             print("\nComparing cracked hashes to original file...")
             combine_ntlm_output()
-        print(
-            "\nCracked passwords combined with original hashes in %s"
-            % (hcatHashFileOrig + ".out")
-        )
+        out_path = hcatHashFileOrig + ".out"
+        if os.path.isfile(out_path):
+            print(f"\nCracked passwords combined with original hashes in {out_path}")
+        else:
+            print(f"\nNo cracked hashes to combine. Raw output (if any): {hcatHashFile}.out")
         print("\nCleaning up temporary files...")
         if os.path.exists(hcatHashFile + ".masks"):
             os.remove(hcatHashFile + ".masks")
