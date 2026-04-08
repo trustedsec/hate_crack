@@ -775,7 +775,7 @@ class TestHashviewAPI:
         assert content == b"hash1\nhash2\n"
 
     def test_hashfile_orig_path_preservation(self, tmp_path, monkeypatch):
-        """Test that original hashfile path is preserved before _ensure_hashfile_in_cwd"""
+        """Test that _ensure_hashfile_in_cwd is a pass-through returning the input path."""
         from hate_crack.main import _ensure_hashfile_in_cwd
 
         # Create a test hashfile in a different directory
@@ -792,16 +792,8 @@ class TestHashviewAPI:
         # Call _ensure_hashfile_in_cwd
         result_path = _ensure_hashfile_in_cwd(original_path)
 
-        # The result should be different from original (in cwd now)
-        # But original_path should still exist and be unchanged
+        assert result_path == original_path, "Pass-through should return the input path"
         assert os.path.exists(original_path), "Original file should still exist"
-        assert os.path.exists(result_path), "Result file should exist"
-
-        # If they're different, result should be in cwd
-        if result_path != original_path:
-            assert os.path.dirname(result_path) == str(tmp_path), (
-                "Result should be in cwd"
-            )
 
 
 if __name__ == "__main__":
