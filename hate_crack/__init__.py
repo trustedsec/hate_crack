@@ -8,11 +8,10 @@ try:
 except _PackageNotFoundError:
     _raw_version = "0.0.0"
 
-# Clean setuptools-scm version for display:
-#   "2.0.post1.dev0+g05b5d6dc7.d20260214" → "2.0+g05b5d6dc7"
-#   "2.0.post1.dev1+g1234abc"              → "2.0+g1234abc"
-#   "2.0"                                  → "2.0"
-__version__ = _re.sub(r"(\.post\d+\.dev\d+|\.d\d{8})", "", _raw_version)
+# Clean setuptools-scm suffixes for display:
+#   "2.5.1.post1.dev0" → "2.5.1"
+#   "2.5.1"            → "2.5.1"
+__version__ = _re.sub(r"(\.post\d+|\.dev\d+)", "", _raw_version)
 __version_tuple__ = tuple(
     int(x) if x.isdigit() else x for x in __version__.split(".")
 )
