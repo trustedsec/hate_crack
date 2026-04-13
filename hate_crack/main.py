@@ -1233,54 +1233,48 @@ def hcatDictionary(hcatHashType, hcatHashFile):
         print("Killing PID {0}...".format(str(hcatProcess.pid)))
         hcatProcess.kill()
 
+    rule_d3ad0ne = get_rule_path("d3ad0ne.rule")
+    rule_toxic = get_rule_path("T0XlC.rule")
     for wordlist in hcatDictionaryWordlist:
-        rule_d3ad0ne = get_rule_path("d3ad0ne.rule")
-        cmd = [
-            hcatBin,
-            "-m",
-            hcatHashType,
-            hcatHashFile,
-            "--session",
-            generate_session_id(),
-            "-o",
-            f"{hcatHashFile}.out",
-            wordlist,
-            "-r",
-            rule_d3ad0ne,
-        ]
-        cmd.extend(shlex.split(hcatTuning))
-        _append_potfile_arg(cmd)
-        cmd = _add_debug_mode_for_rules(cmd)
-        hcatProcess = subprocess.Popen(cmd)
+        # Combine d3ad0ne + T0XlC rules into a single file so hashcat only
+        # starts once per wordlist instead of twice (saves GPU init overhead).
+        with tempfile.NamedTemporaryFile(
+            mode="wb", suffix=".rule", prefix="hate_crack_combined_", delete=False
+        ) as combined:
+            combined_path = combined.name
+            for rule_path in (rule_d3ad0ne, rule_toxic):
+                with open(rule_path, "rb") as rf:
+                    data = rf.read()
+                    combined.write(data)
+                    if data and not data.endswith(b"\n"):
+                        combined.write(b"\n")
         try:
-            hcatProcess.wait()
-        except KeyboardInterrupt:
-            print("Killing PID {0}...".format(str(hcatProcess.pid)))
-            hcatProcess.kill()
-
-        rule_toxic = get_rule_path("T0XlC.rule")
-        cmd = [
-            hcatBin,
-            "-m",
-            hcatHashType,
-            hcatHashFile,
-            "--session",
-            generate_session_id(),
-            "-o",
-            f"{hcatHashFile}.out",
-            wordlist,
-            "-r",
-            rule_toxic,
-        ]
-        cmd.extend(shlex.split(hcatTuning))
-        _append_potfile_arg(cmd)
-        cmd = _add_debug_mode_for_rules(cmd)
-        hcatProcess = subprocess.Popen(cmd)
-        try:
-            hcatProcess.wait()
-        except KeyboardInterrupt:
-            print("Killing PID {0}...".format(str(hcatProcess.pid)))
-            hcatProcess.kill()
+            cmd = [
+                hcatBin,
+                "-m",
+                hcatHashType,
+                hcatHashFile,
+                "--session",
+                generate_session_id(),
+                "-o",
+                f"{hcatHashFile}.out",
+                wordlist,
+                "-r",
+                combined_path,
+            ]
+            if _should_use_optimized_kernel("hcatDictionary"):
+                _insert_optimized_flag(cmd)
+            cmd.extend(shlex.split(hcatTuning))
+            _append_potfile_arg(cmd)
+            cmd = _add_debug_mode_for_rules(cmd)
+            hcatProcess = subprocess.Popen(cmd)
+            try:
+                hcatProcess.wait()
+            except KeyboardInterrupt:
+                print("Killing PID {0}...".format(str(hcatProcess.pid)))
+                hcatProcess.kill()
+        finally:
+            os.unlink(combined_path)
 
     hcatDictionaryCount = lineCount(hcatHashFile + ".out") - hcatBruteCount
 
