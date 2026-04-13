@@ -1411,9 +1411,7 @@ def hcatFingerprint(
         raise ValueError("expander_len must be an integer between 7 and 36")
 
     crackedBefore = lineCount(hcatHashFile + ".out")
-    crackedAfter = 0
-    while crackedBefore != crackedAfter:
-        crackedBefore = lineCount(hcatHashFile + ".out")
+    while True:
         _write_delimited_field(f"{hcatHashFile}.out", f"{hcatHashFile}.working", 2)
         expander_bin = (
             hcatExpanderBin if expander_len == 7 else f"expander{expander_len}.bin"
@@ -1477,6 +1475,9 @@ def hcatFingerprint(
             hcatHybrid(hcatHashType, hcatHashFile, [f"{hcatHashFile}.expanded"])
 
         crackedAfter = lineCount(hcatHashFile + ".out")
+        if crackedAfter == crackedBefore:
+            break
+        crackedBefore = crackedAfter
     hcatFingerprintCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
 

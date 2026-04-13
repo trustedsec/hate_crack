@@ -42,7 +42,8 @@ def test_hcatFingerprint_uses_selected_expander_and_calls_hybrid(monkeypatch, tm
     out_path.write_text("deadbeef:Accordbookkeeping2025!:x\n")
 
     # Make the loop run exactly one iteration.
-    counts = iter([1, 1, 1, 1])
+    # Calls: before-loop(1), end-of-iteration(1) == before → break, post-loop(1).
+    counts = iter([1, 1, 1])
     monkeypatch.setattr(hc_main, "lineCount", lambda _p: next(counts))
     monkeypatch.setattr(hc_main, "hcatHashCracked", 0)
 
