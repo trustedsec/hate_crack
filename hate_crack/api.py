@@ -17,6 +17,26 @@ from hate_crack.formatting import print_multicolumn_list
 _TORRENT_CLEANUP_REGISTERED = False
 
 
+class _RateLimiter:
+    """Simple rate limiter: at most ``rate`` requests per ``period`` seconds."""
+
+    def __init__(self, rate: float = 1, period: float = 2.0):
+        self._lock = threading.Lock()
+        self._min_interval = period / rate
+        self._last_request = 0.0
+
+    def wait(self):
+        with self._lock:
+            now = time.monotonic()
+            elapsed = now - self._last_request
+            if elapsed < self._min_interval:
+                time.sleep(self._min_interval - elapsed)
+            self._last_request = time.monotonic()
+
+
+_hashmob_limiter = _RateLimiter(rate=1, period=2.0)
+
+
 def _get_hate_path():
     _package_path = os.path.dirname(os.path.realpath(__file__))
     _repo_root = os.path.dirname(_package_path)
@@ -1317,17 +1337,12 @@ def download_hashmob_wordlist(file_name, out_path):
     url = f"https://hashmob.net/api/v2/downloads/research/wordlists/{file_name}"
     api_key = get_hashmob_api_key()
     headers = {"api-key": api_key} if api_key else {}
-    base_backoff = 256
+    base_backoff = 30
     max_backoff = 300
-    penalty_add = 2
+    penalty_add = 30
     penalty = base_backoff
-    lock = getattr(download_hashmob_wordlist, "_rate_lock", None)
-    if lock is None:
-        lock = threading.Lock()
-        download_hashmob_wordlist._rate_lock = lock
     while True:
-        with lock:
-            time.sleep(15)
+        _hashmob_limiter.wait()
         try:
             with requests.get(
                 url, headers=headers, stream=True, timeout=60, allow_redirects=True
@@ -1496,17 +1511,12 @@ def download_hashmob_rule(file_name, out_path):
     alt_url = f"https://hashmob.net/api/v2/downloads/research/official/hashmob_rules/{file_name}"
     api_key = get_hashmob_api_key()
     headers = {"api-key": api_key} if api_key else {}
-    base_backoff = 256
+    base_backoff = 30
     max_backoff = 300
-    penalty_add = 2
+    penalty_add = 30
     penalty = base_backoff
-    lock = getattr(download_hashmob_rule, "_rate_lock", None)
-    if lock is None:
-        lock = threading.Lock()
-        download_hashmob_rule._rate_lock = lock
     while True:
-        with lock:
-            time.sleep(15)
+        _hashmob_limiter.wait()
         try:
             with requests.get(
                 url, headers=headers, stream=True, timeout=60, allow_redirects=True
