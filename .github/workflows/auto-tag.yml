@@ -1,0 +1,80 @@
+name: Auto Tag
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine version bump
+        id: bump
+        run: |
+          # Get the latest semver tag
+          latest_tag=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+          if [ -z "$latest_tag" ]; then
+            echo "No semver tag found, starting at v0.1.0"
+            echo "new_tag=v0.1.0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Latest tag: $latest_tag"
+
+          # Get commits since last tag
+          commits=$(git log "$latest_tag"..HEAD --pretty=format:"%s")
+
+          if [ -z "$commits" ]; then
+            echo "No new commits since $latest_tag"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Parse current version
+          version="${latest_tag#v}"
+          major=$(echo "$version" | cut -d. -f1)
+          minor=$(echo "$version" | cut -d. -f2)
+          patch=$(echo "$version" | cut -d. -f3)
+
+          # Check commit prefixes for bump type
+          bump="none"
+          while IFS= read -r msg; do
+            if echo "$msg" | grep -qE '^feat(\(.+\))?!?:'; then
+              bump="minor"
+            elif echo "$msg" | grep -qE '^(fix|perf)(\(.+\))?:' && [ "$bump" != "minor" ]; then
+              bump="patch"
+            fi
+          done <<< "$commits"
+
+          if [ "$bump" = "none" ]; then
+            echo "No feat/fix/perf commits, skipping tag"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$bump" = "minor" ]; then
+            minor=$((minor + 1))
+            patch=0
+          else
+            patch=$((patch + 1))
+          fi
+
+          new_tag="v${major}.${minor}.${patch}"
+          echo "Bump: $bump → $new_tag"
+          echo "new_tag=$new_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Create tag
+        if: steps.bump.outputs.skip != 'true'
+        env:
+          NEW_TAG: ${{ steps.bump.outputs.new_tag }}
+        run: |
+          git tag "$NEW_TAG"
+          git push origin "$NEW_TAG"
