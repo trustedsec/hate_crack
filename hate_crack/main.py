@@ -997,10 +997,13 @@ def select_file_with_autocomplete(
 # Counts the number of lines in a file
 def lineCount(file):
     try:
-        with open(file) as outFile:
-            count = 0
-            for line in outFile:
-                count = count + 1
+        count = 0
+        with open(file, "rb") as f:
+            while True:
+                buf = f.read(1 << 20)  # 1 MiB chunks
+                if not buf:
+                    break
+                count += buf.count(b"\n")
         return count
     except Exception:
         return 0
