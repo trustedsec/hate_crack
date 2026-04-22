@@ -1,8 +1,16 @@
 """Unit tests for the toggle_per_crack_enabled runtime toggle."""
+import importlib.util
 import json
 from pathlib import Path
 
 from hate_crack import notify as _notify
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_CLI_SPEC = importlib.util.spec_from_file_location(
+    "hate_crack_cli_percrack", PROJECT_ROOT / "hate_crack.py"
+)
+CLI_MODULE = importlib.util.module_from_spec(_CLI_SPEC)
+_CLI_SPEC.loader.exec_module(CLI_MODULE)
 
 
 def _init_with(tmp_path: Path, **overrides) -> Path:
@@ -65,3 +73,64 @@ class TestTogglePerCrackEnabled:
             assert data["notify_per_crack_enabled"] is True
         finally:
             _notify.clear_state_for_tests()
+
+
+class TestTogglePerCrackNotificationsUI:
+    def _seed_settings(self, monkeypatch, *, enabled: bool, per_crack: bool):
+        from hate_crack.notify.settings import NotifySettings
+
+        settings = NotifySettings(enabled=enabled, per_crack_enabled=per_crack)
+        monkeypatch.setattr(
+            CLI_MODULE._notify, "get_settings", lambda: settings
+        )
+        return settings
+
+    def test_guard_refuses_on_when_global_off(self, monkeypatch, capsys):
+        self._seed_settings(monkeypatch, enabled=False, per_crack=False)
+        called = {"n": 0}
+
+        def _fake_toggle() -> bool:
+            called["n"] += 1
+            return True
+
+        monkeypatch.setattr(
+            CLI_MODULE._notify, "toggle_per_crack_enabled", _fake_toggle
+        )
+        CLI_MODULE.toggle_per_crack_notifications()
+        captured = capsys.readouterr().out
+        assert "Global Pushover notifications are OFF" in captured
+        assert called["n"] == 0
+
+    def test_flips_on_when_global_on(self, monkeypatch, capsys):
+        self._seed_settings(monkeypatch, enabled=True, per_crack=False)
+        called = {"n": 0}
+
+        def _fake_toggle() -> bool:
+            called["n"] += 1
+            return True
+
+        monkeypatch.setattr(
+            CLI_MODULE._notify, "toggle_per_crack_enabled", _fake_toggle
+        )
+        CLI_MODULE.toggle_per_crack_notifications()
+        captured = capsys.readouterr().out
+        assert "Per-crack notifications are now ON" in captured
+        assert called["n"] == 1
+
+    def test_off_to_off_is_allowed_even_if_global_off(self, monkeypatch, capsys):
+        # Turning OFF must always succeed, even with global OFF, so a user
+        # can clean up an inconsistent (per_crack=True, enabled=False) config.
+        self._seed_settings(monkeypatch, enabled=False, per_crack=True)
+        called = {"n": 0}
+
+        def _fake_toggle() -> bool:
+            called["n"] += 1
+            return False
+
+        monkeypatch.setattr(
+            CLI_MODULE._notify, "toggle_per_crack_enabled", _fake_toggle
+        )
+        CLI_MODULE.toggle_per_crack_notifications()
+        captured = capsys.readouterr().out
+        assert "Per-crack notifications are now OFF" in captured
+        assert called["n"] == 1

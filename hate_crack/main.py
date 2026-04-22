@@ -4108,6 +4108,29 @@ def toggle_notifications():
             )
 
 
+def toggle_per_crack_notifications():
+    """Runtime toggle for ``notify_per_crack_enabled`` with a UI-level guard.
+
+    Per-crack notifications require global notifications to be ON in order
+    to fire (see ``notify.start_tailer``).  Turning per-crack ON while the
+    global switch is OFF is silently ineffective, which surprises users —
+    so we refuse the transition and point them at the global toggle.
+
+    Turning per-crack OFF is always allowed, regardless of the global
+    state, so users can clean up an inconsistent config without friction.
+    """
+    settings = _notify.get_settings()
+    if not settings.per_crack_enabled and not settings.enabled:
+        print(
+            "\n[!] Global Pushover notifications are OFF. Enable option 1 "
+            "(Toggle Pushover Notifications) first."
+        )
+        return
+    new_state = _notify.toggle_per_crack_enabled()
+    label = "ON" if new_state else "OFF"
+    print(f"\nPer-crack notifications are now {label}.")
+
+
 def test_pushover_notification():
     """Send a canned test notification so the user can verify Pushover works.
 
