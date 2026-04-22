@@ -1154,16 +1154,21 @@ def _dedup_netntlm_by_username(
 
 
 def _run_hashcat_show(hash_type, hash_file, output_path):
+    cmd = [
+        hcatBin,
+        "--show",
+        # Use hashcat's built-in potfile unless configured otherwise.
+        *([f"--potfile-path={hcatPotfilePath}"] if hcatPotfilePath else []),
+        "-m",
+        str(hash_type),
+        hash_file,
+    ]
+    # If username:hash format was detected, --show also needs --username
+    # to parse the input correctly; otherwise it treats "user:hash" as a
+    # literal hash and finds no matches in the potfile.
+    _maybe_append_username_flag(cmd)
     result = subprocess.run(
-        [
-            hcatBin,
-            "--show",
-            # Use hashcat's built-in potfile unless configured otherwise.
-            *([f"--potfile-path={hcatPotfilePath}"] if hcatPotfilePath else []),
-            "-m",
-            str(hash_type),
-            hash_file,
-        ],
+        cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
         check=False,

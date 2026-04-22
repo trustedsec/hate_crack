@@ -332,3 +332,36 @@ class TestUsernameInjectionIntoBruteForce:
             main_module.hcatBruteForce("0", hash_file, 1, 7)
         cmd = mp.call_args[0][0]
         assert cmd.count("--username") == 1
+
+
+class TestUsernameInjectionIntoShow:
+    """_run_hashcat_show should also honor hcatUsernamePrefix so the initial
+    potfile check and combine_ntlm_output correctly parse user:hash files."""
+
+    def test_show_contains_username_when_flag_set(self, main_module, tmp_path):
+        hash_file = str(tmp_path / "hashes.txt")
+        output_path = str(tmp_path / "hashes.out")
+        mock_result = MagicMock()
+        mock_result.stdout = b""
+
+        with patch.object(main_module, "hcatBin", "hashcat"), \
+             patch.object(main_module, "hcatPotfilePath", ""), \
+             patch.object(main_module, "hcatUsernamePrefix", True), \
+             patch("hate_crack.main.subprocess.run", return_value=mock_result) as mr:
+            main_module._run_hashcat_show("0", hash_file, output_path)
+        cmd = mr.call_args[0][0]
+        assert "--username" in cmd
+
+    def test_show_no_username_when_flag_unset(self, main_module, tmp_path):
+        hash_file = str(tmp_path / "hashes.txt")
+        output_path = str(tmp_path / "hashes.out")
+        mock_result = MagicMock()
+        mock_result.stdout = b""
+
+        with patch.object(main_module, "hcatBin", "hashcat"), \
+             patch.object(main_module, "hcatPotfilePath", ""), \
+             patch.object(main_module, "hcatUsernamePrefix", False), \
+             patch("hate_crack.main.subprocess.run", return_value=mock_result) as mr:
+            main_module._run_hashcat_show("0", hash_file, output_path)
+        cmd = mr.call_args[0][0]
+        assert "--username" not in cmd
