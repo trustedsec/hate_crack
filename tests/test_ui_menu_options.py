@@ -32,8 +32,7 @@ MENU_OPTION_TEST_CASES = [
     ("22", CLI_MODULE._attacks, "combipow_crack", "combipow"),
     ("80", CLI_MODULE._attacks, "wordlist_tools_submenu", "wordlist-tools"),
     ("81", CLI_MODULE._attacks, "rule_tools_submenu", "rule-tools"),
-    ("83", CLI_MODULE, "toggle_notifications", "toggle-notifications"),
-    ("84", CLI_MODULE, "test_pushover_notification", "test-pushover"),
+    ("82", CLI_MODULE, "notifications_submenu", "notifications-submenu"),
     ("90", CLI_MODULE, "download_hashmob_rules", "hashmob-rules"),
     ("91", CLI_MODULE, "weakpass_wordlist_menu", "weakpass-menu"),
     ("92", CLI_MODULE, "download_hashmob_wordlists", "hashmob-wordlists"),
@@ -79,3 +78,19 @@ def test_main_menu_option_94_hashview_visible_with_hashview_api_key(monkeypatch)
     options = CLI_MODULE.get_main_menu_options()
     assert "94" in options
     assert options["94"]() == sentinel
+
+
+def test_main_menu_no_longer_exposes_options_83_84():
+    """Options 83 and 84 moved into the Notifications submenu (option 82)."""
+    options = CLI_MODULE.get_main_menu_options()
+    assert "83" not in options
+    assert "84" not in options
+    assert "82" in options
+
+
+def test_main_menu_items_include_notifications_entry():
+    items = dict(CLI_MODULE.get_main_menu_items())
+    assert "82" in items
+    assert "Notifications" in items["82"]
+    assert "83" not in items
+    assert "84" not in items
