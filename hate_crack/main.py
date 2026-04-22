@@ -3881,6 +3881,31 @@ def rule_tools_submenu():
     return _attacks.rule_tools_submenu(_attack_ctx())
 
 
+def notifications_submenu():
+    """Submenu for all Pushover notification controls (main-menu option 82)."""
+    from hate_crack.menu import interactive_menu
+
+    while True:
+        settings = _notify.get_settings()
+        global_label = "ON" if settings.enabled else "OFF"
+        per_crack_label = "ON" if settings.per_crack_enabled else "OFF"
+        items = [
+            ("1", f"Toggle Pushover Notifications [{global_label}]"),
+            ("2", f"Toggle Per-Crack Notifications [{per_crack_label}]"),
+            ("3", "Send Test Pushover Notification"),
+            ("99", "Back to Main Menu"),
+        ]
+        choice = interactive_menu(items, title="\nNotifications:")
+        if choice is None or choice == "99":
+            break
+        if choice == "1":
+            toggle_notifications()
+        elif choice == "2":
+            toggle_per_crack_notifications()
+        elif choice == "3":
+            test_pushover_notification()
+
+
 # convert hex words for recycling
 def convert_hex(working_file):
     processed_words = []
