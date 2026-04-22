@@ -75,6 +75,7 @@ from hate_crack.cli import (  # noqa: E402
 )
 from hate_crack import attacks as _attacks  # noqa: E402
 from hate_crack.menu import interactive_menu  # noqa: E402
+from hate_crack.username_detect import detect_username_hash_format  # noqa: E402
 
 # Import HashcatRosetta for rule analysis functionality
 try:
@@ -353,6 +354,13 @@ else:
             hcatPotfilePath = os.path.join(hate_path, hcatPotfilePath)
 
 
+def _maybe_append_username_flag(cmd):
+    """Append --username if the active hash file has user:hash format and
+    the flag isn't already present (from hcatTuning or elsewhere)."""
+    if hcatUsernamePrefix and "--username" not in cmd:
+        cmd.append("--username")
+
+
 def _append_potfile_arg(cmd, *, use_potfile_path=True, potfile_path=None):
     if use_potfile_path:
         pot = potfile_path or hcatPotfilePath
@@ -366,6 +374,7 @@ def _append_potfile_arg(cmd, *, use_potfile_path=True, potfile_path=None):
             except OSError:
                 pass
             cmd.append(f"--potfile-path={pot}")
+    _maybe_append_username_flag(cmd)
     _debug_cmd(cmd)
 
 
@@ -710,6 +719,7 @@ hcatGenerateRulesCount = 0
 hcatPermuteCount = 0
 hcatProcess: subprocess.Popen[Any] | None = None
 debug_mode = False
+hcatUsernamePrefix: bool = False
 
 
 def _open_wordlist(path):
@@ -4786,6 +4796,15 @@ def main():
         print("\nPreprocessing interrupted. Cleaning up temp files...")
         _cleanup_preprocessing_temps()
         sys.exit(1)
+
+    # Detect username:hash format to inject --username into hashcat commands.
+    # Skip modes already handled by the NTLM (1000) and NetNTLM (5500/5600)
+    # preprocessing blocks above.
+    global hcatUsernamePrefix
+    if hcatHashType not in ("1000", "5500", "5600"):
+        hcatUsernamePrefix = detect_username_hash_format(hcatHashFile, hcatHashType)
+        if hcatUsernamePrefix:
+            print("[*] Username prefixes detected \u2014 adding --username flag")
 
     # Check POT File for Already Cracked Hashes
     if not os.path.isfile(hcatHashFile + ".out"):
