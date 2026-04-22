@@ -32,6 +32,7 @@ MENU_OPTION_TEST_CASES = [
     ("22", CLI_MODULE._attacks, "combipow_crack", "combipow"),
     ("80", CLI_MODULE._attacks, "wordlist_tools_submenu", "wordlist-tools"),
     ("81", CLI_MODULE._attacks, "rule_tools_submenu", "rule-tools"),
+    ("83", CLI_MODULE, "toggle_notifications", "toggle-notifications"),
     ("90", CLI_MODULE, "download_hashmob_rules", "hashmob-rules"),
     ("91", CLI_MODULE, "weakpass_wordlist_menu", "weakpass-menu"),
     ("92", CLI_MODULE, "download_hashmob_wordlists", "hashmob-wordlists"),
