@@ -4,6 +4,7 @@ import os
 import readline
 from typing import Any
 
+from hate_crack import notify as _notify
 from hate_crack.api import download_hashmob_rules
 from hate_crack.formatting import print_multicolumn_list
 from hate_crack.menu import interactive_menu
@@ -107,6 +108,7 @@ def _select_rules(ctx) -> list[str] | None:
 
 
 def quick_crack(ctx: Any) -> None:
+    _notify.prompt_notify_for_attack("Quick Crack")
     wordlist_choice = None
     default_dir = ctx.hcatOptimizedWordlists
 
@@ -177,6 +179,7 @@ def quick_crack(ctx: Any) -> None:
 
 
 def loopback_attack(ctx: Any) -> None:
+    _notify.prompt_notify_for_attack("Loopback")
     empty_wordlist = os.path.join(ctx.hcatWordlists, "empty.txt")
     os.makedirs(ctx.hcatWordlists, exist_ok=True)
     if not os.path.exists(empty_wordlist):
@@ -200,26 +203,43 @@ def loopback_attack(ctx: Any) -> None:
 
 
 def extensive_crack(ctx: Any) -> None:
-    ctx.hcatBruteForce(ctx.hcatHashType, ctx.hcatHashFile, "1", "7")
-    ctx.hcatRecycle(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatBruteCount)
-    ctx.hcatDictionary(ctx.hcatHashType, ctx.hcatHashFile)
-    ctx.hcatRecycle(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatDictionaryCount)
-    hcatTargetTime = 4 * 60 * 60
-    ctx.hcatTopMask(ctx.hcatHashType, ctx.hcatHashFile, hcatTargetTime)
-    ctx.hcatRecycle(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatMaskCount)
-    ctx.hcatFingerprint(
-        ctx.hcatHashType, ctx.hcatHashFile, 7, run_hybrid_on_expanded=False
+    # Orchestrator attack: chains ~14 primitives. We suppress each primitive's
+    # own notifications and fire exactly one "Extensive Crack complete" at the
+    # end with the aggregate delta. This both prevents notification spam and
+    # gives the user an actually-useful summary.
+    _notify.prompt_notify_for_attack("Extensive Crack")
+    out_path = ctx.hcatHashFile + ".out"
+    cracked_before = ctx.lineCount(out_path) if os.path.exists(out_path) else 0
+    with _notify.suppressed_notifications():
+        ctx.hcatBruteForce(ctx.hcatHashType, ctx.hcatHashFile, "1", "7")
+        ctx.hcatRecycle(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatBruteCount)
+        ctx.hcatDictionary(ctx.hcatHashType, ctx.hcatHashFile)
+        ctx.hcatRecycle(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatDictionaryCount)
+        hcatTargetTime = 4 * 60 * 60
+        ctx.hcatTopMask(ctx.hcatHashType, ctx.hcatHashFile, hcatTargetTime)
+        ctx.hcatRecycle(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatMaskCount)
+        ctx.hcatFingerprint(
+            ctx.hcatHashType, ctx.hcatHashFile, 7, run_hybrid_on_expanded=False
+        )
+        ctx.hcatRecycle(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatFingerprintCount)
+        ctx.hcatCombination(ctx.hcatHashType, ctx.hcatHashFile)
+        ctx.hcatRecycle(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatCombinationCount)
+        ctx.hcatHybrid(ctx.hcatHashType, ctx.hcatHashFile)
+        ctx.hcatRecycle(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatHybridCount)
+        ctx.hcatGoodMeasure(ctx.hcatHashType, ctx.hcatHashFile)
+        ctx.hcatRecycle(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatExtraCount)
+    cracked_after = ctx.lineCount(out_path) if os.path.exists(out_path) else 0
+    _notify.notify_job_done(
+        "Extensive Crack", cracked_after, ctx.hcatHashFile
     )
-    ctx.hcatRecycle(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatFingerprintCount)
-    ctx.hcatCombination(ctx.hcatHashType, ctx.hcatHashFile)
-    ctx.hcatRecycle(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatCombinationCount)
-    ctx.hcatHybrid(ctx.hcatHashType, ctx.hcatHashFile)
-    ctx.hcatRecycle(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatHybridCount)
-    ctx.hcatGoodMeasure(ctx.hcatHashType, ctx.hcatHashFile)
-    ctx.hcatRecycle(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatExtraCount)
+    # Note: ``cracked_before`` is tracked for potential future per-orchestrator
+    # delta reporting, but today the notify message uses the absolute count
+    # because that matches what single-attack notifications already report.
+    _ = cracked_before
 
 
 def brute_force_crack(ctx: Any) -> None:
+    _notify.prompt_notify_for_attack("Brute Force")
     hcatMinLen = int(
         input("\nEnter the minimum password length to brute force (1): ") or 1
     )
@@ -230,6 +250,7 @@ def brute_force_crack(ctx: Any) -> None:
 
 
 def top_mask_crack(ctx: Any) -> None:
+    _notify.prompt_notify_for_attack("Top Mask")
     hcatTargetTime = int(
         input("\nEnter a target time for completion in hours (4): ") or 4
     )
@@ -238,6 +259,7 @@ def top_mask_crack(ctx: Any) -> None:
 
 
 def fingerprint_crack(ctx: Any) -> None:
+    _notify.prompt_notify_for_attack("Fingerprint")
     while True:
         raw = input("\nEnter expander max length (7-36) (7): ").strip()
         if raw == "":
@@ -261,6 +283,7 @@ def fingerprint_crack(ctx: Any) -> None:
 
 
 def combinator_crack(ctx: Any) -> None:
+    _notify.prompt_notify_for_attack("Combinator")
     print("\n" + "=" * 60)
     print("COMBINATOR ATTACK")
     print("=" * 60)
@@ -299,6 +322,7 @@ def combinator_crack(ctx: Any) -> None:
 
 
 def hybrid_crack(ctx: Any) -> None:
+    _notify.prompt_notify_for_attack("Hybrid")
     print("\n" + "=" * 60)
     print("HYBRID ATTACK")
     print("=" * 60)
@@ -367,22 +391,27 @@ def hybrid_crack(ctx: Any) -> None:
 
 
 def pathwell_crack(ctx: Any) -> None:
+    _notify.prompt_notify_for_attack("Pathwell Brute Force")
     ctx.hcatPathwellBruteForce(ctx.hcatHashType, ctx.hcatHashFile)
 
 
 def prince_attack(ctx: Any) -> None:
+    _notify.prompt_notify_for_attack("PRINCE")
     ctx.hcatPrince(ctx.hcatHashType, ctx.hcatHashFile)
 
 
 def yolo_combination(ctx: Any) -> None:
+    _notify.prompt_notify_for_attack("YOLO Combination")
     ctx.hcatYoloCombination(ctx.hcatHashType, ctx.hcatHashFile)
 
 
 def thorough_combinator(ctx: Any) -> None:
+    _notify.prompt_notify_for_attack("Thorough Combinator")
     ctx.hcatThoroughCombinator(ctx.hcatHashType, ctx.hcatHashFile)
 
 
 def middle_combinator(ctx: Any) -> None:
+    _notify.prompt_notify_for_attack("Middle Combinator")
     ctx.hcatMiddleCombinator(ctx.hcatHashType, ctx.hcatHashFile)
 
 
@@ -447,10 +476,12 @@ def combinator_3plus_crack(ctx: Any) -> None:
 
 
 def bandrel_method(ctx: Any) -> None:
+    _notify.prompt_notify_for_attack("Bandrel")
     ctx.hcatBandrel(ctx.hcatHashType, ctx.hcatHashFile)
 
 
 def ollama_attack(ctx: Any) -> None:
+    _notify.prompt_notify_for_attack("LLM")
     print("\n\tLLM Attack")
     company = input("Company name: ").strip()
     industry = input("Industry: ").strip()
@@ -491,6 +522,7 @@ def _omen_pick_training_wordlist(ctx: Any):
 
 
 def omen_attack(ctx: Any) -> None:
+    _notify.prompt_notify_for_attack("OMEN")
     print("\n\tOMEN Attack (Ordered Markov ENumerator)")
     omen_dir = os.path.join(ctx.hate_path, "omen")
     create_bin = os.path.join(omen_dir, ctx.hcatOmenCreateBin)
@@ -579,6 +611,7 @@ def _markov_pick_training_source(ctx: Any):
 
 
 def adhoc_mask_crack(ctx: Any) -> None:
+    _notify.prompt_notify_for_attack("Ad-hoc Mask")
     print(
         "\nEnter a hashcat mask. Tokens: ?l=lower ?u=upper ?d=digit ?s=special ?a=all ?b=binary ?1-?4=custom"
     )
@@ -603,6 +636,7 @@ def adhoc_mask_crack(ctx: Any) -> None:
 
 
 def markov_brute_force(ctx: Any) -> None:
+    _notify.prompt_notify_for_attack("Markov Brute Force")
     print("\n\tMarkov Brute Force Attack")
     hcstat2_path = f"{ctx.hcatHashFile}.hcstat2"
     need_training = True
@@ -640,6 +674,7 @@ def markov_brute_force(ctx: Any) -> None:
 
 
 def combipow_crack(ctx: Any) -> None:
+    _notify.prompt_notify_for_attack("Combipow")
     wordlist = None
     while wordlist is None:
         path = input("\n[*] Enter path to wordlist (max 63 lines recommended): ").strip()
@@ -665,6 +700,7 @@ def combipow_crack(ctx: Any) -> None:
 
 
 def generate_rules_crack(ctx: Any) -> None:
+    _notify.prompt_notify_for_attack("Random Rules")
     print("\n" + "=" * 60)
     print("RANDOM RULES ATTACK")
     print("=" * 60)
@@ -743,6 +779,7 @@ def generate_rules_crack(ctx: Any) -> None:
 
 
 def ngram_attack(ctx: Any) -> None:
+    _notify.prompt_notify_for_attack("N-gram")
     print("\n" + "=" * 60)
     print("NGRAM ATTACK")
     print("=" * 60)
@@ -769,6 +806,7 @@ def ngram_attack(ctx: Any) -> None:
 
 
 def permute_crack(ctx: Any) -> None:
+    _notify.prompt_notify_for_attack("Permute")
     print("\n" + "=" * 60)
     print("PERMUTATION ATTACK")
     print("=" * 60)

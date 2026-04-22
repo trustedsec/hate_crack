@@ -94,6 +94,7 @@ def get_main_menu_options():
         "22": _attacks.combipow_crack,
         "80": _attacks.wordlist_tools_submenu,
         "81": _attacks.rule_tools_submenu,
+        "83": toggle_notifications,
         "90": download_hashmob_rules,
         "91": weakpass_wordlist_menu,
         "92": download_hashmob_wordlists,
