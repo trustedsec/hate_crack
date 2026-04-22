@@ -4108,6 +4108,39 @@ def toggle_notifications():
             )
 
 
+def test_pushover_notification():
+    """Send a canned test notification so the user can verify Pushover works.
+
+    Ignores the global ``notify_enabled`` toggle on purpose: the point of the
+    test is to confirm the wire is live, independent of whether attacks are
+    currently wired to notify.  When the global toggle is OFF we still send
+    but print a note so the user is not surprised later.
+    """
+    settings = _notify.get_settings()
+    token = settings.pushover_token
+    user = settings.pushover_user
+    if not token or not user:
+        print(
+            "\n[!] Pushover credentials missing. Set notify_pushover_token "
+            "and notify_pushover_user in config.json."
+        )
+        return
+
+    if not settings.enabled:
+        print("\n(notifications are globally OFF, but sending test anyway)")
+
+    title = "hate_crack: test notification"
+    message = (
+        "This is a test notification from hate_crack. "
+        "If you see this, Pushover is wired up correctly."
+    )
+    ok = _notify._send_pushover(token, user, title, message)
+    if ok:
+        print("[+] Test Pushover notification sent. Check your device.")
+    else:
+        print("[!] Test Pushover notification failed. See log output for details.")
+
+
 def get_main_menu_items():
     """Return ordered (key, label) pairs for the main menu."""
     items = [
@@ -4136,6 +4169,7 @@ def get_main_menu_items():
             "83",
             f"Toggle Pushover Notifications [{'ON' if _notify.get_settings().enabled else 'OFF'}]",
         ),
+        ("84", "Send Test Pushover Notification"),
         ("90", "Download rules from Hashmob.net"),
         ("91", "Analyze Hashcat Rules"),
         ("92", "Download wordlists from Hashmob.net"),
@@ -4180,6 +4214,7 @@ def get_main_menu_options():
         "80": wordlist_tools_submenu,
         "81": rule_tools_submenu,
         "83": toggle_notifications,
+        "84": test_pushover_notification,
         "90": lambda: download_hashmob_rules(rules_dir=rulesDirectory),
         "91": analyze_rules,
         "92": download_hashmob_wordlists,
