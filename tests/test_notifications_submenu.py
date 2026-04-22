@@ -6,6 +6,7 @@ and resolves ``toggle_notifications`` / ``toggle_per_crack_notifications`` /
 We therefore patch that module directly — patching the ``hate_crack.py``
 proxy would have no effect on the submenu's internal dispatch.
 """
+
 import hate_crack.main as _main_mod
 import hate_crack.menu as _menu_mod
 from hate_crack.notify.settings import NotifySettings

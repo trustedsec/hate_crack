@@ -1,4 +1,5 @@
 """Unit tests for hate_crack.notify.settings."""
+
 import json
 from pathlib import Path
 
@@ -40,16 +41,18 @@ class TestLoadSettings:
         assert load_settings(None) == NotifySettings()
 
     def test_load_full_dict(self) -> None:
-        s = load_settings({
-            "notify_enabled": True,
-            "notify_pushover_token": "tok",
-            "notify_pushover_user": "usr",
-            "notify_per_crack_enabled": True,
-            "notify_attack_allowlist": ["Brute Force", "Dictionary"],
-            "notify_suppress_in_orchestrators": False,
-            "notify_max_cracks_per_burst": 20,
-            "notify_poll_interval_seconds": 2.5,
-        })
+        s = load_settings(
+            {
+                "notify_enabled": True,
+                "notify_pushover_token": "tok",
+                "notify_pushover_user": "usr",
+                "notify_per_crack_enabled": True,
+                "notify_attack_allowlist": ["Brute Force", "Dictionary"],
+                "notify_suppress_in_orchestrators": False,
+                "notify_max_cracks_per_burst": 20,
+                "notify_poll_interval_seconds": 2.5,
+            }
+        )
         assert s.enabled is True
         assert s.pushover_token == "tok"
         assert s.pushover_user == "usr"
@@ -60,12 +63,14 @@ class TestLoadSettings:
         assert s.poll_interval_seconds == 2.5
 
     def test_load_tolerates_bad_types(self) -> None:
-        s = load_settings({
-            "notify_enabled": "true",
-            "notify_max_cracks_per_burst": "not-a-number",
-            "notify_poll_interval_seconds": "also-bad",
-            "notify_attack_allowlist": "not-a-list",
-        })
+        s = load_settings(
+            {
+                "notify_enabled": "true",
+                "notify_max_cracks_per_burst": "not-a-number",
+                "notify_poll_interval_seconds": "also-bad",
+                "notify_attack_allowlist": "not-a-list",
+            }
+        )
         # string "true" -> True
         assert s.enabled is True
         # bad ints fall back to defaults (5, 5.0)
@@ -136,10 +141,14 @@ class TestAddToAllowlist:
 
     def test_preserves_other_entries(self, tmp_path: Path) -> None:
         config_path = tmp_path / "config.json"
-        config_path.write_text(json.dumps({
-            "hcatBin": "hashcat",
-            "notify_attack_allowlist": ["Existing"],
-        }))
+        config_path.write_text(
+            json.dumps(
+                {
+                    "hcatBin": "hashcat",
+                    "notify_attack_allowlist": ["Existing"],
+                }
+            )
+        )
         add_to_allowlist(str(config_path), "Brute Force")
         data = json.loads(config_path.read_text())
         assert data["hcatBin"] == "hashcat"
