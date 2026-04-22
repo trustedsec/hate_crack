@@ -49,6 +49,7 @@ from hate_crack.notify.settings import (
     add_to_allowlist,
     load_settings,
     save_enabled,
+    save_per_crack_enabled,
 )
 from hate_crack.notify.tailer import (
     CrackTailer,
@@ -91,6 +92,7 @@ __all__ = [
     "stop_tailer",
     "suppressed_notifications",
     "toggle_enabled",
+    "toggle_per_crack_enabled",
     "_send_pushover",
 ]
 
@@ -143,6 +145,24 @@ def toggle_enabled() -> bool:
         except OSError as exc:
             logger.warning("Could not persist notify_enabled: %s", exc)
     return _settings.enabled
+
+
+def toggle_per_crack_enabled() -> bool:
+    """Flip ``notify_per_crack_enabled``, persist to ``config.json``, return new state.
+
+    If ``init`` was never called we still toggle an in-memory default — the
+    UI update must not crash even if the config file is unreachable.
+    """
+    global _settings
+    if _settings is None:
+        _settings = NotifySettings()
+    _settings.per_crack_enabled = not _settings.per_crack_enabled
+    if _config_path:
+        try:
+            save_per_crack_enabled(_config_path, _settings.per_crack_enabled)
+        except OSError as exc:
+            logger.warning("Could not persist notify_per_crack_enabled: %s", exc)
+    return _settings.per_crack_enabled
 
 
 def _in_allowlist(attack_name: str) -> bool:
