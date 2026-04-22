@@ -401,7 +401,9 @@ if hcatOptimizedWordlists:
     if not os.path.isdir(hcatOptimizedWordlists):
         fallback_optimized = os.path.join(hate_path, "optimized_wordlists")
         if os.path.isdir(fallback_optimized):
-            print(f"[!] hcatOptimizedWordlists directory not found: {hcatOptimizedWordlists}")
+            print(
+                f"[!] hcatOptimizedWordlists directory not found: {hcatOptimizedWordlists}"
+            )
             print(f"[!] Falling back to {fallback_optimized}")
             hcatOptimizedWordlists = fallback_optimized
         else:
@@ -417,8 +419,12 @@ pipalPath = config_parser["pipalPath"]
 hcatDictionaryWordlist = config_parser["hcatDictionaryWordlist"]
 hcatHybridlist = config_parser["hcatHybridlist"]
 hcatCombinationWordlist = config_parser["hcatCombinationWordlist"]
-hcatCombinator3Wordlist = config_parser.get("hcatCombinator3Wordlist", ["rockyou.txt", "rockyou.txt", "rockyou.txt"])
-hcatCombinatorXWordlist = config_parser.get("hcatCombinatorXWordlist", ["rockyou.txt", "rockyou.txt"])
+hcatCombinator3Wordlist = config_parser.get(
+    "hcatCombinator3Wordlist", ["rockyou.txt", "rockyou.txt", "rockyou.txt"]
+)
+hcatCombinatorXWordlist = config_parser.get(
+    "hcatCombinatorXWordlist", ["rockyou.txt", "rockyou.txt"]
+)
 hcatMiddleCombinatorMasks = config_parser["hcatMiddleCombinatorMasks"]
 hcatMiddleBaseList = config_parser["hcatMiddleBaseList"]
 hcatThoroughCombinatorMasks = config_parser["hcatThoroughCombinatorMasks"]
@@ -584,8 +590,12 @@ hcatDictionaryWordlist = _normalize_wordlist_setting(
 hcatCombinationWordlist = _normalize_wordlist_setting(
     hcatCombinationWordlist, wordlists_dir
 )
-hcatCombinator3Wordlist = _normalize_wordlist_setting(hcatCombinator3Wordlist, wordlists_dir)
-hcatCombinatorXWordlist = _normalize_wordlist_setting(hcatCombinatorXWordlist, wordlists_dir)
+hcatCombinator3Wordlist = _normalize_wordlist_setting(
+    hcatCombinator3Wordlist, wordlists_dir
+)
+hcatCombinatorXWordlist = _normalize_wordlist_setting(
+    hcatCombinatorXWordlist, wordlists_dir
+)
 hcatHybridlist = _normalize_wordlist_setting(hcatHybridlist, wordlists_dir)
 hcatMiddleBaseList = _normalize_wordlist_setting(hcatMiddleBaseList, wordlists_dir)
 hcatThoroughBaseList = _normalize_wordlist_setting(hcatThoroughBaseList, wordlists_dir)
@@ -2397,8 +2407,14 @@ def hcatMarkovTrain(source_file, hcatHashFile):
                 hcatProcess.wait(timeout=300)
                 if hcatProcess.returncode != 0:
                     _, stderr_data = hcatProcess.communicate()
-                    err_msg = stderr_data.decode("utf-8", errors="replace") if stderr_data else "Unknown error"
-                    print(f"[!] hcstat2gen.bin failed with code {hcatProcess.returncode}: {err_msg}")
+                    err_msg = (
+                        stderr_data.decode("utf-8", errors="replace")
+                        if stderr_data
+                        else "Unknown error"
+                    )
+                    print(
+                        f"[!] hcstat2gen.bin failed with code {hcatProcess.returncode}: {err_msg}"
+                    )
                     return False
             except subprocess.TimeoutExpired:
                 print("[!] hcstat2gen.bin timed out after 300 seconds")
@@ -3011,7 +3027,9 @@ def cleanup():
         if os.path.isfile(out_path):
             print(f"\nCracked passwords combined with original hashes in {out_path}")
         else:
-            print(f"\nNo cracked hashes to combine. Raw output (if any): {hcatHashFile}.out")
+            print(
+                f"\nNo cracked hashes to combine. Raw output (if any): {hcatHashFile}.out"
+            )
         print("\nCleaning up temporary files...")
         if os.path.exists(hcatHashFile + ".masks"):
             os.remove(hcatHashFile + ".masks")
@@ -3813,9 +3831,7 @@ def wordlist_filter_req_exclude(infile: str, outfile: str, mask: int) -> bool:
     return result.returncode == 0
 
 
-def wordlist_cutb(
-    infile: str, outfile: str, offset: int, length: int | None
-) -> bool:
+def wordlist_cutb(infile: str, outfile: str, offset: int, length: int | None) -> bool:
     """Extract a substring from each word starting at offset, optionally limited to length bytes."""
     cutb_bin = os.path.join(hate_path, "hashcat-utils/bin/cutb.bin")
     cmd = [cutb_bin, str(offset)]
@@ -3853,7 +3869,9 @@ def wordlist_gate(infile: str, outfile: str, mod: int, offset: int) -> bool:
     """Shard wordlist: keep every mod-th line starting at offset."""
     gate_bin = os.path.join(hate_path, "hashcat-utils/bin/gate.bin")
     with open(infile, "rb") as fin, open(outfile, "wb") as fout:
-        result = subprocess.run([gate_bin, str(mod), str(offset)], stdin=fin, stdout=fout)
+        result = subprocess.run(
+            [gate_bin, str(mod), str(offset)], stdin=fin, stdout=fout
+        )
     return result.returncode == 0
 
 
@@ -3871,7 +3889,9 @@ def rules_cleanup(infile: str, outfile: str) -> bool:
 
 def rules_optimize(infile: str, outfile: str) -> bool:
     """Optimize a rule file using rules_optimize.bin. Returns True on success."""
-    optimize_path = os.path.join(hate_path, "hashcat-utils", "bin", "rules_optimize.bin")
+    optimize_path = os.path.join(
+        hate_path, "hashcat-utils", "bin", "rules_optimize.bin"
+    )
     with open(infile, "rb") as fin, open(outfile, "wb") as fout:
         result = subprocess.run([optimize_path], stdin=fin, stdout=fout)
     return result.returncode == 0

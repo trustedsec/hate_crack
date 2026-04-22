@@ -84,8 +84,12 @@ def load_settings(config_parser: dict | None) -> NotifySettings:
     defaults = NotifySettings()
     return NotifySettings(
         enabled=_coerce_bool(cfg.get("notify_enabled"), defaults.enabled),
-        pushover_token=_coerce_str(cfg.get("notify_pushover_token"), defaults.pushover_token),
-        pushover_user=_coerce_str(cfg.get("notify_pushover_user"), defaults.pushover_user),
+        pushover_token=_coerce_str(
+            cfg.get("notify_pushover_token"), defaults.pushover_token
+        ),
+        pushover_user=_coerce_str(
+            cfg.get("notify_pushover_user"), defaults.pushover_user
+        ),
         per_crack_enabled=_coerce_bool(
             cfg.get("notify_per_crack_enabled"), defaults.per_crack_enabled
         ),

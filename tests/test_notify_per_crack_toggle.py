@@ -1,4 +1,5 @@
 """Unit tests for the toggle_per_crack_enabled runtime toggle."""
+
 import importlib.util
 import json
 from pathlib import Path
@@ -80,9 +81,7 @@ class TestTogglePerCrackNotificationsUI:
         from hate_crack.notify.settings import NotifySettings
 
         settings = NotifySettings(enabled=enabled, per_crack_enabled=per_crack)
-        monkeypatch.setattr(
-            CLI_MODULE._notify, "get_settings", lambda: settings
-        )
+        monkeypatch.setattr(CLI_MODULE._notify, "get_settings", lambda: settings)
         return settings
 
     def test_guard_refuses_on_when_global_off(self, monkeypatch, capsys):
