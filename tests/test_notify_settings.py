@@ -7,6 +7,7 @@ from hate_crack.notify.settings import (
     add_to_allowlist,
     load_settings,
     save_enabled,
+    save_per_crack_enabled,
 )
 
 
@@ -157,3 +158,32 @@ class TestAddToAllowlist:
         add_to_allowlist(str(config_path), "Brute Force")
         data = json.loads(config_path.read_text())
         assert data["notify_attack_allowlist"] == ["Brute Force"]
+
+
+class TestSavePerCrackEnabled:
+    def test_writes_new_config(self, tmp_path: Path) -> None:
+        config_path = tmp_path / "config.json"
+        save_per_crack_enabled(str(config_path), True)
+        data = json.loads(config_path.read_text())
+        assert data["notify_per_crack_enabled"] is True
+
+    def test_preserves_existing_keys(self, tmp_path: Path) -> None:
+        config_path = tmp_path / "config.json"
+        initial = {
+            "hcatBin": "hashcat",
+            "notify_enabled": True,
+            "notify_per_crack_enabled": False,
+        }
+        config_path.write_text(json.dumps(initial))
+        save_per_crack_enabled(str(config_path), True)
+        data = json.loads(config_path.read_text())
+        assert data["hcatBin"] == "hashcat"
+        assert data["notify_enabled"] is True
+        assert data["notify_per_crack_enabled"] is True
+
+    def test_toggles_back_and_forth(self, tmp_path: Path) -> None:
+        config_path = tmp_path / "config.json"
+        save_per_crack_enabled(str(config_path), True)
+        save_per_crack_enabled(str(config_path), False)
+        data = json.loads(config_path.read_text())
+        assert data["notify_per_crack_enabled"] is False

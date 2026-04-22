@@ -147,6 +147,15 @@ def save_enabled(config_path: str, enabled: bool) -> None:
     _atomic_rewrite(config_path, _apply)
 
 
+def save_per_crack_enabled(config_path: str, enabled: bool) -> None:
+    """Persist ``notify_per_crack_enabled`` without disturbing other config keys."""
+
+    def _apply(data: dict) -> None:
+        data["notify_per_crack_enabled"] = bool(enabled)
+
+    _atomic_rewrite(config_path, _apply)
+
+
 def add_to_allowlist(config_path: str, attack_name: str) -> None:
     """Append ``attack_name`` to ``notify_attack_allowlist`` if absent.
 
