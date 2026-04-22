@@ -1,3 +1,7 @@
+> **Superseded by** `.claude/specs/2026-04-22-notifications-submenu-design.md`.
+> The top-level option 83/84 layout described here was replaced by a single
+> main-menu entry at option 82 that opens a Notifications submenu.
+
 # Test Pushover Notification — Menu Entry
 
 **Date:** 2026-04-22
