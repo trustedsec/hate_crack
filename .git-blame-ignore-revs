@@ -1,0 +1,9 @@
+# Revisions listed here are skipped by `git blame --ignore-revs-file`.
+# Enable locally with:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+#
+# Only add commits whose changes are purely mechanical (e.g., formatter
+# passes, mass-rename refactors). Do not add feature commits.
+
+# style: ruff format pass for Notifications submenu
+9b684bb44c3cd04b00a5421691179ea56162780c

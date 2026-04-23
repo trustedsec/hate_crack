@@ -25,5 +25,13 @@
   "passgptModel": "javirandor/passgpt-10characters",
   "passgptMaxCandidates": 1000000,
   "passgptBatchSize": 1024,
-  "passgptTrainingList": ""
+  "passgptTrainingList": "",
+  "notify_enabled": false,
+  "notify_pushover_token": "",
+  "notify_pushover_user": "",
+  "notify_per_crack_enabled": false,
+  "notify_attack_allowlist": [],
+  "notify_suppress_in_orchestrators": true,
+  "notify_max_cracks_per_burst": 5,
+  "notify_poll_interval_seconds": 5.0
 }
