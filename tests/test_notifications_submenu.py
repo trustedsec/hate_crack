@@ -107,3 +107,30 @@ class TestNotificationsSubmenu:
         assert labels["3"] == "Send Test Pushover Notification"
         assert labels["99"] == "Back to Main Menu"
         assert "Notifications" in captured_items["title"]
+
+    def test_labels_refresh_between_iterations(self, monkeypatch):
+        # Guards against a regression where items are built once outside
+        # the while-loop: labels would go stale after a toggle.
+        settings = NotifySettings(enabled=False, per_crack_enabled=False)
+        monkeypatch.setattr(_main_mod._notify, "get_settings", lambda: settings)
+
+        def _flip_enabled():
+            settings.enabled = not settings.enabled
+
+        monkeypatch.setattr(_main_mod, "toggle_notifications", _flip_enabled)
+        monkeypatch.setattr(_main_mod, "toggle_per_crack_notifications", lambda: None)
+        monkeypatch.setattr(_main_mod, "test_pushover_notification", lambda: None)
+
+        captured = []
+        choices = iter(["1", "99"])
+
+        def _fake_menu(items, title=""):
+            captured.append(dict(items))
+            return next(choices)
+
+        monkeypatch.setattr(_menu_mod, "interactive_menu", _fake_menu)
+        _main_mod.notifications_submenu()
+
+        assert len(captured) == 2
+        assert "[OFF]" in captured[0]["1"]
+        assert "[ON]" in captured[1]["1"]

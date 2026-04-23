@@ -3902,7 +3902,15 @@ def rule_tools_submenu():
 
 
 def notifications_submenu():
-    """Submenu for all Pushover notification controls (main-menu option 82)."""
+    """Submenu for all Pushover notification controls (main-menu option 82).
+
+    The inline ``interactive_menu`` import is not redundant with the
+    module-scope import at the top of this file: re-importing inside the
+    function re-reads ``hate_crack.menu.interactive_menu`` on every call,
+    which lets tests patch the real menu function via
+    ``monkeypatch.setattr(hate_crack.menu, "interactive_menu", ...)``.
+    Removing it breaks test isolation.
+    """
     from hate_crack.menu import interactive_menu
 
     while True:
