@@ -84,8 +84,12 @@ def load_settings(config_parser: dict | None) -> NotifySettings:
     defaults = NotifySettings()
     return NotifySettings(
         enabled=_coerce_bool(cfg.get("notify_enabled"), defaults.enabled),
-        pushover_token=_coerce_str(cfg.get("notify_pushover_token"), defaults.pushover_token),
-        pushover_user=_coerce_str(cfg.get("notify_pushover_user"), defaults.pushover_user),
+        pushover_token=_coerce_str(
+            cfg.get("notify_pushover_token"), defaults.pushover_token
+        ),
+        pushover_user=_coerce_str(
+            cfg.get("notify_pushover_user"), defaults.pushover_user
+        ),
         per_crack_enabled=_coerce_bool(
             cfg.get("notify_per_crack_enabled"), defaults.per_crack_enabled
         ),
@@ -143,6 +147,15 @@ def save_enabled(config_path: str, enabled: bool) -> None:
 
     def _apply(data: dict) -> None:
         data["notify_enabled"] = bool(enabled)
+
+    _atomic_rewrite(config_path, _apply)
+
+
+def save_per_crack_enabled(config_path: str, enabled: bool) -> None:
+    """Persist ``notify_per_crack_enabled`` without disturbing other config keys."""
+
+    def _apply(data: dict) -> None:
+        data["notify_per_crack_enabled"] = bool(enabled)
 
     _atomic_rewrite(config_path, _apply)
 

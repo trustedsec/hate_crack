@@ -401,7 +401,9 @@ if hcatOptimizedWordlists:
     if not os.path.isdir(hcatOptimizedWordlists):
         fallback_optimized = os.path.join(hate_path, "optimized_wordlists")
         if os.path.isdir(fallback_optimized):
-            print(f"[!] hcatOptimizedWordlists directory not found: {hcatOptimizedWordlists}")
+            print(
+                f"[!] hcatOptimizedWordlists directory not found: {hcatOptimizedWordlists}"
+            )
             print(f"[!] Falling back to {fallback_optimized}")
             hcatOptimizedWordlists = fallback_optimized
         else:
@@ -417,8 +419,12 @@ pipalPath = config_parser["pipalPath"]
 hcatDictionaryWordlist = config_parser["hcatDictionaryWordlist"]
 hcatHybridlist = config_parser["hcatHybridlist"]
 hcatCombinationWordlist = config_parser["hcatCombinationWordlist"]
-hcatCombinator3Wordlist = config_parser.get("hcatCombinator3Wordlist", ["rockyou.txt", "rockyou.txt", "rockyou.txt"])
-hcatCombinatorXWordlist = config_parser.get("hcatCombinatorXWordlist", ["rockyou.txt", "rockyou.txt"])
+hcatCombinator3Wordlist = config_parser.get(
+    "hcatCombinator3Wordlist", ["rockyou.txt", "rockyou.txt", "rockyou.txt"]
+)
+hcatCombinatorXWordlist = config_parser.get(
+    "hcatCombinatorXWordlist", ["rockyou.txt", "rockyou.txt"]
+)
 hcatMiddleCombinatorMasks = config_parser["hcatMiddleCombinatorMasks"]
 hcatMiddleBaseList = config_parser["hcatMiddleBaseList"]
 hcatThoroughCombinatorMasks = config_parser["hcatThoroughCombinatorMasks"]
@@ -584,8 +590,12 @@ hcatDictionaryWordlist = _normalize_wordlist_setting(
 hcatCombinationWordlist = _normalize_wordlist_setting(
     hcatCombinationWordlist, wordlists_dir
 )
-hcatCombinator3Wordlist = _normalize_wordlist_setting(hcatCombinator3Wordlist, wordlists_dir)
-hcatCombinatorXWordlist = _normalize_wordlist_setting(hcatCombinatorXWordlist, wordlists_dir)
+hcatCombinator3Wordlist = _normalize_wordlist_setting(
+    hcatCombinator3Wordlist, wordlists_dir
+)
+hcatCombinatorXWordlist = _normalize_wordlist_setting(
+    hcatCombinatorXWordlist, wordlists_dir
+)
 hcatHybridlist = _normalize_wordlist_setting(hcatHybridlist, wordlists_dir)
 hcatMiddleBaseList = _normalize_wordlist_setting(hcatMiddleBaseList, wordlists_dir)
 hcatThoroughBaseList = _normalize_wordlist_setting(hcatThoroughBaseList, wordlists_dir)
@@ -2397,8 +2407,14 @@ def hcatMarkovTrain(source_file, hcatHashFile):
                 hcatProcess.wait(timeout=300)
                 if hcatProcess.returncode != 0:
                     _, stderr_data = hcatProcess.communicate()
-                    err_msg = stderr_data.decode("utf-8", errors="replace") if stderr_data else "Unknown error"
-                    print(f"[!] hcstat2gen.bin failed with code {hcatProcess.returncode}: {err_msg}")
+                    err_msg = (
+                        stderr_data.decode("utf-8", errors="replace")
+                        if stderr_data
+                        else "Unknown error"
+                    )
+                    print(
+                        f"[!] hcstat2gen.bin failed with code {hcatProcess.returncode}: {err_msg}"
+                    )
                     return False
             except subprocess.TimeoutExpired:
                 print("[!] hcstat2gen.bin timed out after 300 seconds")
@@ -3011,7 +3027,9 @@ def cleanup():
         if os.path.isfile(out_path):
             print(f"\nCracked passwords combined with original hashes in {out_path}")
         else:
-            print(f"\nNo cracked hashes to combine. Raw output (if any): {hcatHashFile}.out")
+            print(
+                f"\nNo cracked hashes to combine. Raw output (if any): {hcatHashFile}.out"
+            )
         print("\nCleaning up temporary files...")
         if os.path.exists(hcatHashFile + ".masks"):
             os.remove(hcatHashFile + ".masks")
@@ -3813,9 +3831,7 @@ def wordlist_filter_req_exclude(infile: str, outfile: str, mask: int) -> bool:
     return result.returncode == 0
 
 
-def wordlist_cutb(
-    infile: str, outfile: str, offset: int, length: int | None
-) -> bool:
+def wordlist_cutb(infile: str, outfile: str, offset: int, length: int | None) -> bool:
     """Extract a substring from each word starting at offset, optionally limited to length bytes."""
     cutb_bin = os.path.join(hate_path, "hashcat-utils/bin/cutb.bin")
     cmd = [cutb_bin, str(offset)]
@@ -3853,7 +3869,9 @@ def wordlist_gate(infile: str, outfile: str, mod: int, offset: int) -> bool:
     """Shard wordlist: keep every mod-th line starting at offset."""
     gate_bin = os.path.join(hate_path, "hashcat-utils/bin/gate.bin")
     with open(infile, "rb") as fin, open(outfile, "wb") as fout:
-        result = subprocess.run([gate_bin, str(mod), str(offset)], stdin=fin, stdout=fout)
+        result = subprocess.run(
+            [gate_bin, str(mod), str(offset)], stdin=fin, stdout=fout
+        )
     return result.returncode == 0
 
 
@@ -3871,7 +3889,9 @@ def rules_cleanup(infile: str, outfile: str) -> bool:
 
 def rules_optimize(infile: str, outfile: str) -> bool:
     """Optimize a rule file using rules_optimize.bin. Returns True on success."""
-    optimize_path = os.path.join(hate_path, "hashcat-utils", "bin", "rules_optimize.bin")
+    optimize_path = os.path.join(
+        hate_path, "hashcat-utils", "bin", "rules_optimize.bin"
+    )
     with open(infile, "rb") as fin, open(outfile, "wb") as fout:
         result = subprocess.run([optimize_path], stdin=fin, stdout=fout)
     return result.returncode == 0
@@ -3879,6 +3899,39 @@ def rules_optimize(infile: str, outfile: str) -> bool:
 
 def rule_tools_submenu():
     return _attacks.rule_tools_submenu(_attack_ctx())
+
+
+def notifications_submenu():
+    """Submenu for all Pushover notification controls (main-menu option 82).
+
+    The inline ``interactive_menu`` import is not redundant with the
+    module-scope import at the top of this file: re-importing inside the
+    function re-reads ``hate_crack.menu.interactive_menu`` on every call,
+    which lets tests patch the real menu function via
+    ``monkeypatch.setattr(hate_crack.menu, "interactive_menu", ...)``.
+    Removing it breaks test isolation.
+    """
+    from hate_crack.menu import interactive_menu
+
+    while True:
+        settings = _notify.get_settings()
+        global_label = "ON" if settings.enabled else "OFF"
+        per_crack_label = "ON" if settings.per_crack_enabled else "OFF"
+        items = [
+            ("1", f"Toggle Pushover Notifications [{global_label}]"),
+            ("2", f"Toggle Per-Crack Notifications [{per_crack_label}]"),
+            ("3", "Send Test Pushover Notification"),
+            ("99", "Back to Main Menu"),
+        ]
+        choice = interactive_menu(items, title="\nNotifications:")
+        if choice is None or choice == "99":
+            break
+        if choice == "1":
+            toggle_notifications()
+        elif choice == "2":
+            toggle_per_crack_notifications()
+        elif choice == "3":
+            test_pushover_notification()
 
 
 # convert hex words for recycling
@@ -4108,6 +4161,29 @@ def toggle_notifications():
             )
 
 
+def toggle_per_crack_notifications():
+    """Runtime toggle for ``notify_per_crack_enabled`` with a UI-level guard.
+
+    Per-crack notifications require global notifications to be ON in order
+    to fire (see ``notify.start_tailer``).  Turning per-crack ON while the
+    global switch is OFF is silently ineffective, which surprises users —
+    so we refuse the transition and point them at the global toggle.
+
+    Turning per-crack OFF is always allowed, regardless of the global
+    state, so users can clean up an inconsistent config without friction.
+    """
+    settings = _notify.get_settings()
+    if not settings.per_crack_enabled and not settings.enabled:
+        print(
+            "\n[!] Global Pushover notifications are OFF. Enable option 1 "
+            "(Toggle Pushover Notifications) first."
+        )
+        return
+    new_state = _notify.toggle_per_crack_enabled()
+    label = "ON" if new_state else "OFF"
+    print(f"\nPer-crack notifications are now {label}.")
+
+
 def test_pushover_notification():
     """Send a canned test notification so the user can verify Pushover works.
 
@@ -4165,11 +4241,7 @@ def get_main_menu_items():
         ("22", "Combipow Passphrase Attack"),
         ("80", "Wordlist Tools"),
         ("81", "Rule File Tools"),
-        (
-            "83",
-            f"Toggle Pushover Notifications [{'ON' if _notify.get_settings().enabled else 'OFF'}]",
-        ),
-        ("84", "Send Test Pushover Notification"),
+        ("82", "Notifications"),
         ("90", "Download rules from Hashmob.net"),
         ("91", "Analyze Hashcat Rules"),
         ("92", "Download wordlists from Hashmob.net"),
@@ -4213,8 +4285,7 @@ def get_main_menu_options():
         "22": combipow_crack,
         "80": wordlist_tools_submenu,
         "81": rule_tools_submenu,
-        "83": toggle_notifications,
-        "84": test_pushover_notification,
+        "82": notifications_submenu,
         "90": lambda: download_hashmob_rules(rules_dir=rulesDirectory),
         "91": analyze_rules,
         "92": download_hashmob_wordlists,
