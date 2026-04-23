@@ -401,7 +401,9 @@ if hcatOptimizedWordlists:
     if not os.path.isdir(hcatOptimizedWordlists):
         fallback_optimized = os.path.join(hate_path, "optimized_wordlists")
         if os.path.isdir(fallback_optimized):
-            print(f"[!] hcatOptimizedWordlists directory not found: {hcatOptimizedWordlists}")
+            print(
+                f"[!] hcatOptimizedWordlists directory not found: {hcatOptimizedWordlists}"
+            )
             print(f"[!] Falling back to {fallback_optimized}")
             hcatOptimizedWordlists = fallback_optimized
         else:
@@ -417,8 +419,12 @@ pipalPath = config_parser["pipalPath"]
 hcatDictionaryWordlist = config_parser["hcatDictionaryWordlist"]
 hcatHybridlist = config_parser["hcatHybridlist"]
 hcatCombinationWordlist = config_parser["hcatCombinationWordlist"]
-hcatCombinator3Wordlist = config_parser.get("hcatCombinator3Wordlist", ["rockyou.txt", "rockyou.txt", "rockyou.txt"])
-hcatCombinatorXWordlist = config_parser.get("hcatCombinatorXWordlist", ["rockyou.txt", "rockyou.txt"])
+hcatCombinator3Wordlist = config_parser.get(
+    "hcatCombinator3Wordlist", ["rockyou.txt", "rockyou.txt", "rockyou.txt"]
+)
+hcatCombinatorXWordlist = config_parser.get(
+    "hcatCombinatorXWordlist", ["rockyou.txt", "rockyou.txt"]
+)
 hcatMiddleCombinatorMasks = config_parser["hcatMiddleCombinatorMasks"]
 hcatMiddleBaseList = config_parser["hcatMiddleBaseList"]
 hcatThoroughCombinatorMasks = config_parser["hcatThoroughCombinatorMasks"]
@@ -442,6 +448,14 @@ try:
 except KeyError:
     pass
 check_for_updates_enabled = config_parser.get("check_for_updates", True)
+
+# Notification subsystem bootstrap.  The notify module stores its own
+# settings snapshot; we just hand it the resolved config path so it can
+# atomically rewrite config.json when the user toggles enabled / answers
+# "always" at a prompt.
+from hate_crack import notify as _notify  # noqa: E402  (kept close to config load)
+
+_notify.init(_config_path, config_parser)
 
 hcatExpanderBin = "expander.bin"
 hcatCombinatorBin = "combinator.bin"
@@ -576,8 +590,12 @@ hcatDictionaryWordlist = _normalize_wordlist_setting(
 hcatCombinationWordlist = _normalize_wordlist_setting(
     hcatCombinationWordlist, wordlists_dir
 )
-hcatCombinator3Wordlist = _normalize_wordlist_setting(hcatCombinator3Wordlist, wordlists_dir)
-hcatCombinatorXWordlist = _normalize_wordlist_setting(hcatCombinatorXWordlist, wordlists_dir)
+hcatCombinator3Wordlist = _normalize_wordlist_setting(
+    hcatCombinator3Wordlist, wordlists_dir
+)
+hcatCombinatorXWordlist = _normalize_wordlist_setting(
+    hcatCombinatorXWordlist, wordlists_dir
+)
 hcatHybridlist = _normalize_wordlist_setting(hcatHybridlist, wordlists_dir)
 hcatMiddleBaseList = _normalize_wordlist_setting(hcatMiddleBaseList, wordlists_dir)
 hcatThoroughBaseList = _normalize_wordlist_setting(hcatThoroughBaseList, wordlists_dir)
@@ -727,6 +745,93 @@ def _format_cmd(cmd):
 def _debug_cmd(cmd):
     if debug_mode:
         print(f"[DEBUG] hashcat cmd: {_format_cmd(cmd)}")
+
+
+def _run_hcat_cmd(
+    cmd,
+    attack_name: str = "",
+    hash_file: str | None = None,
+    *,
+    stdin=None,
+    companion_procs=None,
+    reraise_interrupt: bool = False,
+    out_path: str | None = None,
+):
+    """Execute a hashcat subprocess and bracket it with notify hooks.
+
+    This consolidates the ``hcatProcess = subprocess.Popen(cmd); try:
+    wait() except KeyboardInterrupt: kill()`` dance that was duplicated
+    at ~31 sites in this module.  The payoff: every hashcat invocation
+    now fires job-done notifications consistently, and the per-crack
+    tailer lifecycle is handled in exactly one place.
+
+    - ``attack_name`` is the label that appears in notifications. Pass
+      an empty string for no-notify invocations.
+    - ``hash_file`` is required to locate ``{hash_file}.out`` for the
+      tailer.  When omitted, we skip the tailer and the job-done count.
+    - ``stdin`` mirrors the ``subprocess.Popen(..., stdin=...)`` kwarg
+      for generator-pipe callers.
+    - ``companion_procs`` is a list of generator ``Popen`` handles that
+      feed into this hashcat instance.  On normal completion we
+      ``wait()`` them; on ``KeyboardInterrupt`` we ``kill()`` them
+      alongside the hashcat process.  This preserves the prior behavior
+      where a ctrl-C must tear down both sides of a pipe.
+
+    Notifications are fire-and-forget: suppression (see
+    ``notify.suppressed_notifications``) and disabled-globally state are
+    both handled inside the notify module, so callers need not branch.
+    """
+    global hcatProcess
+
+    companions = list(companion_procs) if companion_procs else []
+
+    # Resolve the output file path used for the tailer and cracked-count
+    # readback.  Most hashcat calls write to ``{hash_file}.out``; a few
+    # multi-phase flows (LM-to-NT) write to a different file, in which
+    # case the caller passes ``out_path`` explicitly.
+    resolved_out = out_path if out_path else (hash_file + ".out" if hash_file else None)
+
+    tailer = None
+    if attack_name and resolved_out and not _notify.is_suppressed():
+        tailer = _notify.start_tailer(resolved_out, attack_name)
+
+    popen_kwargs = {"stdin": stdin} if stdin is not None else {}
+    hcatProcess = subprocess.Popen(cmd, **popen_kwargs)
+    interrupted = False
+    try:
+        hcatProcess.wait()
+        for gen in companions:
+            try:
+                gen.wait()
+            except Exception:
+                pass
+    except KeyboardInterrupt:
+        interrupted = True
+        print("Killing PID {0}...".format(str(hcatProcess.pid)))
+        hcatProcess.kill()
+        for gen in companions:
+            try:
+                gen.kill()
+            except Exception:
+                pass
+    finally:
+        _notify.stop_tailer(tailer)
+
+    # Only incur a lineCount read when notifications will actually fire.
+    # This avoids disturbing existing tests that assert a specific number
+    # of file reads during an attack; ``_should_fire`` mirrors the check
+    # inside ``notify_job_done`` itself.
+    if (
+        attack_name
+        and resolved_out
+        and not _notify.is_suppressed()
+        and _notify.get_settings().enabled
+    ):
+        cracked = lineCount(resolved_out)
+        _notify.notify_job_done(attack_name, cracked, hash_file or resolved_out)
+
+    if interrupted and reraise_interrupt:
+        raise KeyboardInterrupt
 
 
 def _is_gzipped(path: str) -> bool:
@@ -1189,12 +1294,7 @@ def hcatBruteForce(hcatHashType, hcatHashFile, hcatMinLen, hcatMaxLen):
         _insert_optimized_flag(cmd)
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
-    hcatProcess = subprocess.Popen(cmd)
-    try:
-        hcatProcess.wait()
-    except KeyboardInterrupt:
-        print("Killing PID {0}...".format(str(hcatProcess.pid)))
-        hcatProcess.kill()
+    _run_hcat_cmd(cmd, attack_name="Brute Force", hash_file=hcatHashFile)
 
     hcatBruteCount = lineCount(hcatHashFile + ".out")
 
@@ -1226,12 +1326,7 @@ def hcatDictionary(hcatHashType, hcatHashFile):
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
     cmd = _add_debug_mode_for_rules(cmd)
-    hcatProcess = subprocess.Popen(cmd)
-    try:
-        hcatProcess.wait()
-    except KeyboardInterrupt:
-        print("Killing PID {0}...".format(str(hcatProcess.pid)))
-        hcatProcess.kill()
+    _run_hcat_cmd(cmd, attack_name="Dictionary", hash_file=hcatHashFile)
 
     rule_d3ad0ne = get_rule_path("d3ad0ne.rule")
     rule_toxic = get_rule_path("T0XlC.rule")
@@ -1267,12 +1362,7 @@ def hcatDictionary(hcatHashType, hcatHashFile):
             cmd.extend(shlex.split(hcatTuning))
             _append_potfile_arg(cmd)
             cmd = _add_debug_mode_for_rules(cmd)
-            hcatProcess = subprocess.Popen(cmd)
-            try:
-                hcatProcess.wait()
-            except KeyboardInterrupt:
-                print("Killing PID {0}...".format(str(hcatProcess.pid)))
-                hcatProcess.kill()
+            _run_hcat_cmd(cmd, attack_name="Dictionary", hash_file=hcatHashFile)
         finally:
             os.unlink(combined_path)
 
@@ -1316,12 +1406,7 @@ def hcatQuickDictionary(
     )
     cmd = _add_debug_mode_for_rules(cmd)
     _debug_cmd(cmd)
-    hcatProcess = subprocess.Popen(cmd)
-    try:
-        hcatProcess.wait()
-    except KeyboardInterrupt:
-        print("Killing PID {0}...".format(str(hcatProcess.pid)))
-        hcatProcess.kill()
+    _run_hcat_cmd(cmd, attack_name="Quick Dictionary", hash_file=hcatHashFile)
 
 
 # Top Mask Attack
@@ -1383,12 +1468,7 @@ def hcatTopMask(hcatHashType, hcatHashFile, hcatTargetTime):
         _insert_optimized_flag(cmd)
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
-    hcatProcess = subprocess.Popen(cmd)
-    try:
-        hcatProcess.wait()
-    except KeyboardInterrupt:
-        print("Killing PID {0}...".format(str(hcatProcess.pid)))
-        hcatProcess.kill()
+    _run_hcat_cmd(cmd, attack_name="Top Mask", hash_file=hcatHashFile)
 
     hcatMaskCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
@@ -1462,12 +1542,9 @@ def hcatFingerprint(
             _insert_optimized_flag(fingerprint_cmd)
         fingerprint_cmd.extend(shlex.split(hcatTuning))
         _append_potfile_arg(fingerprint_cmd)
-        hcatProcess = subprocess.Popen(fingerprint_cmd)
-        try:
-            hcatProcess.wait()
-        except KeyboardInterrupt:
-            print("Killing PID {0}...".format(str(hcatProcess.pid)))
-            hcatProcess.kill()
+        _run_hcat_cmd(
+            fingerprint_cmd, attack_name="Fingerprint", hash_file=hcatHashFile
+        )
 
         # Secondary attack: run hybrid on the expanded candidates (mode 6/7 variants).
         # This is intentionally optional to avoid changing the "extensive" pipeline ordering.
@@ -1529,12 +1606,7 @@ def hcatCombination(hcatHashType, hcatHashFile, wordlists=None):
         _insert_optimized_flag(cmd)
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
-    hcatProcess = subprocess.Popen(cmd)
-    try:
-        hcatProcess.wait()
-    except KeyboardInterrupt:
-        print("Killing PID {0}...".format(str(hcatProcess.pid)))
-        hcatProcess.kill()
+    _run_hcat_cmd(cmd, attack_name="Combination", hash_file=hcatHashFile)
 
     hcatCombinationCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
@@ -1568,15 +1640,15 @@ def hcatCombinator3(hcatHashType, hcatHashFile, wordlists):
         _append_potfile_arg(hashcat_cmd)
         generator_proc = subprocess.Popen(generator_cmd, stdout=subprocess.PIPE)
         assert generator_proc.stdout is not None
-        hcatProcess = subprocess.Popen(hashcat_cmd, stdin=generator_proc.stdout)
-        generator_proc.stdout.close()
-        try:
-            hcatProcess.wait()
-            generator_proc.wait()
-        except KeyboardInterrupt:
-            print("Killing PID {0}...".format(str(hcatProcess.pid)))
-            hcatProcess.kill()
-            generator_proc.kill()
+        _run_hcat_cmd(
+            hashcat_cmd,
+            attack_name="Combinator3",
+            hash_file=hcatHashFile,
+            stdin=generator_proc.stdout,
+            companion_procs=[generator_proc],
+        )
+        if generator_proc.stdout:
+            generator_proc.stdout.close()
 
     hcatCombinator3Count = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
@@ -1614,15 +1686,15 @@ def hcatCombinatorX(hcatHashType, hcatHashFile, wordlists, separator=None):
         _append_potfile_arg(hashcat_cmd)
         generator_proc = subprocess.Popen(generator_cmd, stdout=subprocess.PIPE)
         assert generator_proc.stdout is not None
-        hcatProcess = subprocess.Popen(hashcat_cmd, stdin=generator_proc.stdout)
-        generator_proc.stdout.close()
-        try:
-            hcatProcess.wait()
-            generator_proc.wait()
-        except KeyboardInterrupt:
-            print("Killing PID {0}...".format(str(hcatProcess.pid)))
-            hcatProcess.kill()
-            generator_proc.kill()
+        _run_hcat_cmd(
+            hashcat_cmd,
+            attack_name="CombinatorX",
+            hash_file=hcatHashFile,
+            stdin=generator_proc.stdout,
+            companion_procs=[generator_proc],
+        )
+        if generator_proc.stdout:
+            generator_proc.stdout.close()
 
     hcatCombinatorXCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
@@ -1649,15 +1721,15 @@ def hcatNgramX(hcatHashType, hcatHashFile, corpus, group_size=3):
         _append_potfile_arg(hashcat_cmd)
         generator_proc = subprocess.Popen(generator_cmd, stdout=subprocess.PIPE)
         assert generator_proc.stdout is not None
-        hcatProcess = subprocess.Popen(hashcat_cmd, stdin=generator_proc.stdout)
-        generator_proc.stdout.close()
-        try:
-            hcatProcess.wait()
-            generator_proc.wait()
-        except KeyboardInterrupt:
-            print("Killing PID {0}...".format(str(hcatProcess.pid)))
-            hcatProcess.kill()
-            generator_proc.kill()
+        _run_hcat_cmd(
+            hashcat_cmd,
+            attack_name="NgramX",
+            hash_file=hcatHashFile,
+            stdin=generator_proc.stdout,
+            companion_procs=[generator_proc],
+        )
+        if generator_proc.stdout:
+            generator_proc.stdout.close()
 
     hcatNgramXCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
@@ -1711,12 +1783,7 @@ def hcatHybrid(hcatHashType, hcatHashFile, wordlists=None):
                 _insert_optimized_flag(cmd)
             cmd.extend(shlex.split(hcatTuning))
             _append_potfile_arg(cmd)
-            hcatProcess = subprocess.Popen(cmd)
-            try:
-                hcatProcess.wait()
-            except KeyboardInterrupt:
-                print("Killing PID {0}...".format(str(hcatProcess.pid)))
-                hcatProcess.kill()
+            _run_hcat_cmd(cmd, attack_name="Hybrid", hash_file=hcatHashFile)
 
         hcatHybridCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
@@ -1749,13 +1816,12 @@ def hcatYoloCombination(hcatHashType, hcatHashFile):
                 _insert_optimized_flag(cmd)
             cmd.extend(shlex.split(hcatTuning))
             _append_potfile_arg(cmd)
-            hcatProcess = subprocess.Popen(cmd)
-            try:
-                hcatProcess.wait()
-            except KeyboardInterrupt:
-                print("Killing PID {0}...".format(str(hcatProcess.pid)))
-                hcatProcess.kill()
-                raise
+            _run_hcat_cmd(
+                cmd,
+                attack_name="YOLO Combination",
+                hash_file=hcatHashFile,
+                reraise_interrupt=True,
+            )
     except KeyboardInterrupt:
         pass
 
@@ -1800,12 +1866,7 @@ def hcatBandrel(hcatHashType, hcatHashFile):
             _insert_optimized_flag(cmd)
         cmd.extend(shlex.split(hcatTuning))
         _append_potfile_arg(cmd)
-        hcatProcess = subprocess.Popen(cmd)
-        try:
-            hcatProcess.wait()
-        except KeyboardInterrupt:
-            print("Killing PID {0}...".format(str(hcatProcess.pid)))
-            hcatProcess.kill()
+        _run_hcat_cmd(cmd, attack_name="Bandrel", hash_file=hcatHashFile)
     print(
         "Checking passwords against pipal for top {0} passwords and basewords".format(
             pipal_count
@@ -1845,12 +1906,7 @@ def hcatBandrel(hcatHashType, hcatHashFile):
             _insert_optimized_flag(cmd)
         cmd.extend(shlex.split(hcatTuning))
         _append_potfile_arg(cmd)
-        hcatProcess = subprocess.Popen(cmd)
-        try:
-            hcatProcess.wait()
-        except KeyboardInterrupt:
-            print("Killing PID {0}...".format(str(hcatProcess.pid)))
-            hcatProcess.kill()
+        _run_hcat_cmd(cmd, attack_name="Bandrel", hash_file=hcatHashFile)
 
 
 # Pull an Ollama model via the /api/pull streaming endpoint
@@ -2053,12 +2109,14 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
     ]
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
-    hcatProcess = subprocess.Popen(cmd)
     try:
-        hcatProcess.wait()
+        _run_hcat_cmd(
+            cmd,
+            attack_name="LLM",
+            hash_file=hcatHashFile,
+            reraise_interrupt=True,
+        )
     except KeyboardInterrupt:
-        print("Killing PID {0}...".format(str(hcatProcess.pid)))
-        hcatProcess.kill()
         return
 
     # Step D: Run hashcat with LLM candidates against every rule in the rules directory
@@ -2088,12 +2146,14 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
         ]
         cmd.extend(shlex.split(hcatTuning))
         _append_potfile_arg(cmd)
-        hcatProcess = subprocess.Popen(cmd)
         try:
-            hcatProcess.wait()
+            _run_hcat_cmd(
+                cmd,
+                attack_name="LLM",
+                hash_file=hcatHashFile,
+                reraise_interrupt=True,
+            )
         except KeyboardInterrupt:
-            print("Killing PID {0}...".format(str(hcatProcess.pid)))
-            hcatProcess.kill()
             return
 
 
@@ -2135,13 +2195,12 @@ def hcatMiddleCombinator(hcatHashType, hcatHashFile):
                 _insert_optimized_flag(cmd)
             cmd.extend(shlex.split(hcatTuning))
             _append_potfile_arg(cmd)
-            hcatProcess = subprocess.Popen(cmd)
-            try:
-                hcatProcess.wait()
-            except KeyboardInterrupt:
-                print("Killing PID {0}...".format(str(hcatProcess.pid)))
-                hcatProcess.kill()
-                raise
+            _run_hcat_cmd(
+                cmd,
+                attack_name="Middle Combinator",
+                hash_file=hcatHashFile,
+                reraise_interrupt=True,
+            )
     except KeyboardInterrupt:
         pass
 
@@ -2180,12 +2239,7 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
         _insert_optimized_flag(cmd)
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
-    hcatProcess = subprocess.Popen(cmd)
-    try:
-        hcatProcess.wait()
-    except KeyboardInterrupt:
-        print("Killing PID {0}...".format(str(hcatProcess.pid)))
-        hcatProcess.kill()
+    _run_hcat_cmd(cmd, attack_name="Thorough Combinator", hash_file=hcatHashFile)
 
     try:
         for x in range(len(masks)):
@@ -2209,13 +2263,12 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
                 _insert_optimized_flag(cmd)
             cmd.extend(shlex.split(hcatTuning))
             _append_potfile_arg(cmd)
-            hcatProcess = subprocess.Popen(cmd)
-            try:
-                hcatProcess.wait()
-            except KeyboardInterrupt:
-                print("Killing PID {0}...".format(str(hcatProcess.pid)))
-                hcatProcess.kill()
-                raise
+            _run_hcat_cmd(
+                cmd,
+                attack_name="Thorough Combinator",
+                hash_file=hcatHashFile,
+                reraise_interrupt=True,
+            )
     except KeyboardInterrupt:
         pass
     try:
@@ -2240,13 +2293,12 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
                 _insert_optimized_flag(cmd)
             cmd.extend(shlex.split(hcatTuning))
             _append_potfile_arg(cmd)
-            hcatProcess = subprocess.Popen(cmd)
-            try:
-                hcatProcess.wait()
-            except KeyboardInterrupt:
-                print("Killing PID {0}...".format(str(hcatProcess.pid)))
-                hcatProcess.kill()
-                raise
+            _run_hcat_cmd(
+                cmd,
+                attack_name="Thorough Combinator",
+                hash_file=hcatHashFile,
+                reraise_interrupt=True,
+            )
     except KeyboardInterrupt:
         pass
     try:
@@ -2273,11 +2325,14 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
                 _insert_optimized_flag(cmd)
             cmd.extend(shlex.split(hcatTuning))
             _append_potfile_arg(cmd)
-            hcatProcess = subprocess.Popen(cmd)
-            hcatProcess.wait()
+            _run_hcat_cmd(
+                cmd,
+                attack_name="Thorough Combinator",
+                hash_file=hcatHashFile,
+                reraise_interrupt=True,
+            )
     except KeyboardInterrupt:
-        print("Killing PID {0}...".format(str(hcatProcess.pid)))
-        hcatProcess.kill()
+        pass
 
 
 # Pathwell Mask Brute Force Attack
@@ -2300,12 +2355,7 @@ def hcatPathwellBruteForce(hcatHashType, hcatHashFile):
         _insert_optimized_flag(cmd)
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
-    hcatProcess = subprocess.Popen(cmd)
-    try:
-        hcatProcess.wait()
-    except KeyboardInterrupt:
-        print("Killing PID {0}...".format(str(hcatProcess.pid)))
-        hcatProcess.kill()
+    _run_hcat_cmd(cmd, attack_name="Pathwell Brute Force", hash_file=hcatHashFile)
 
 
 def hcatAdHocMask(hcatHashType, hcatHashFile, mask, custom_charsets=""):
@@ -2329,12 +2379,7 @@ def hcatAdHocMask(hcatHashType, hcatHashFile, mask, custom_charsets=""):
         _insert_optimized_flag(cmd)
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
-    hcatProcess = subprocess.Popen(cmd)
-    try:
-        hcatProcess.wait()
-    except KeyboardInterrupt:
-        print("Killing PID {0}...".format(str(hcatProcess.pid)))
-        hcatProcess.kill()
+    _run_hcat_cmd(cmd, attack_name="Ad-hoc Mask", hash_file=hcatHashFile)
 
 
 def hcatMarkovTrain(source_file, hcatHashFile):
@@ -2362,8 +2407,14 @@ def hcatMarkovTrain(source_file, hcatHashFile):
                 hcatProcess.wait(timeout=300)
                 if hcatProcess.returncode != 0:
                     _, stderr_data = hcatProcess.communicate()
-                    err_msg = stderr_data.decode("utf-8", errors="replace") if stderr_data else "Unknown error"
-                    print(f"[!] hcstat2gen.bin failed with code {hcatProcess.returncode}: {err_msg}")
+                    err_msg = (
+                        stderr_data.decode("utf-8", errors="replace")
+                        if stderr_data
+                        else "Unknown error"
+                    )
+                    print(
+                        f"[!] hcstat2gen.bin failed with code {hcatProcess.returncode}: {err_msg}"
+                    )
                     return False
             except subprocess.TimeoutExpired:
                 print("[!] hcstat2gen.bin timed out after 300 seconds")
@@ -2429,12 +2480,7 @@ def hcatMarkovBruteForce(hcatHashType, hcatHashFile, hcatMinLen, hcatMaxLen):
         _insert_optimized_flag(cmd)
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
-    hcatProcess = subprocess.Popen(cmd)
-    try:
-        hcatProcess.wait()
-    except KeyboardInterrupt:
-        print("Killing PID {0}...".format(str(hcatProcess.pid)))
-        hcatProcess.kill()
+    _run_hcat_cmd(cmd, attack_name="Markov Brute Force", hash_file=hcatHashFile)
 
 
 # Combipow Passphrase Attack
@@ -2478,15 +2524,16 @@ def hcatCombipow(hcatHashType, hcatHashFile, wordlist, use_space_sep=True):
     hashcat_cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(hashcat_cmd)
     generator_proc = subprocess.Popen(generator_cmd, stdout=subprocess.PIPE)
-    hcatProcess = subprocess.Popen(hashcat_cmd, stdin=generator_proc.stdout)
-    generator_proc.stdout.close()
     try:
-        hcatProcess.wait()
-        generator_proc.wait()
-    except KeyboardInterrupt:
-        print("Killing PID {0}...".format(str(hcatProcess.pid)))
-        hcatProcess.kill()
-        generator_proc.kill()
+        _run_hcat_cmd(
+            hashcat_cmd,
+            attack_name="Combipow",
+            hash_file=hcatHashFile,
+            stdin=generator_proc.stdout,
+            companion_procs=[generator_proc],
+        )
+        if generator_proc.stdout:
+            generator_proc.stdout.close()
     finally:
         if tmp_file is not None:
             with contextlib.suppress(OSError):
@@ -2532,15 +2579,15 @@ def hcatPrince(hcatHashType, hcatHashFile):
     hashcat_cmd = _add_debug_mode_for_rules(hashcat_cmd)
     with _open_wordlist(prince_base) as base:
         prince_proc = subprocess.Popen(prince_cmd, stdin=base, stdout=subprocess.PIPE)
-        hcatProcess = subprocess.Popen(hashcat_cmd, stdin=prince_proc.stdout)
-        prince_proc.stdout.close()
-        try:
-            hcatProcess.wait()
-            prince_proc.wait()
-        except KeyboardInterrupt:
-            print("Killing PID {0}...".format(str(hcatProcess.pid)))
-            hcatProcess.kill()
-            prince_proc.kill()
+        _run_hcat_cmd(
+            hashcat_cmd,
+            attack_name="PRINCE",
+            hash_file=hcatHashFile,
+            stdin=prince_proc.stdout,
+            companion_procs=[prince_proc],
+        )
+        if prince_proc.stdout:
+            prince_proc.stdout.close()
 
 
 def hcatPermute(hcatHashType, hcatHashFile, wordlist):
@@ -2570,17 +2617,15 @@ def hcatPermute(hcatHashType, hcatHashFile, wordlist):
         permute_proc = subprocess.Popen(
             [permute_path], stdin=wl_file, stdout=subprocess.PIPE
         )
-        hcatProcess = subprocess.Popen(
-            hashcat_cmd, stdin=permute_proc.stdout
+        _run_hcat_cmd(
+            hashcat_cmd,
+            attack_name="Permute",
+            hash_file=hcatHashFile,
+            stdin=permute_proc.stdout,
+            companion_procs=[permute_proc],
         )
-        permute_proc.stdout.close()
-        try:
-            hcatProcess.wait()
-            permute_proc.wait()
-        except KeyboardInterrupt:
-            print(f"Killing PID {hcatProcess.pid}...")
-            hcatProcess.kill()
-            permute_proc.kill()
+        if permute_proc.stdout:
+            permute_proc.stdout.close()
     hcatPermuteCount = lineCount(f"{hcatHashFile}.out") - hcatHashCracked
 
 
@@ -2709,16 +2754,21 @@ def hcatOmen(hcatHashType, hcatHashFile, max_candidates, hcatChains=""):
     enum_proc = subprocess.Popen(
         enum_cmd, cwd=model_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE
     )
-    hcatProcess = subprocess.Popen(hashcat_cmd, stdin=enum_proc.stdout)
-    enum_proc.stdout.close()
     try:
-        hcatProcess.wait()
-        enum_proc.wait()
+        _run_hcat_cmd(
+            hashcat_cmd,
+            attack_name="OMEN",
+            hash_file=hcatHashFile,
+            stdin=enum_proc.stdout,
+            companion_procs=[enum_proc],
+            reraise_interrupt=True,
+        )
     except KeyboardInterrupt:
-        print("Killing PID {0}...".format(str(hcatProcess.pid)))
-        hcatProcess.kill()
-        enum_proc.kill()
+        if enum_proc.stderr:
+            enum_proc.stderr.close()
         return
+    if enum_proc.stdout:
+        enum_proc.stdout.close()
     if enum_proc.returncode != 0:
         stderr_output = (
             enum_proc.stderr.read().decode("utf-8", errors="replace").strip()
@@ -2756,12 +2806,7 @@ def hcatGoodMeasure(hcatHashType, hcatHashFile):
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
     cmd = _add_debug_mode_for_rules(cmd)
-    hcatProcess = subprocess.Popen(cmd)
-    try:
-        hcatProcess.wait()
-    except KeyboardInterrupt:
-        print("Killing PID {0}...".format(str(hcatProcess.pid)))
-        hcatProcess.kill()
+    _run_hcat_cmd(cmd, attack_name="Good Measure", hash_file=hcatHashFile)
 
     hcatExtraCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
@@ -2789,11 +2834,12 @@ def hcatLMtoNT():
     ]
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
-    hcatProcess = subprocess.Popen(cmd)
-    try:
-        hcatProcess.wait()
-    except KeyboardInterrupt:
-        hcatProcess.kill()
+    _run_hcat_cmd(
+        cmd,
+        attack_name="LM to NT (LM phase)",
+        hash_file=f"{hcatHashFile}.lm",
+        out_path=f"{hcatHashFile}.lm.cracked",
+    )
 
     _write_delimited_field(f"{hcatHashFile}.lm.cracked", f"{hcatHashFile}.working", 2)
     converted = convert_hex("{hash_file}.working".format(hash_file=hcatHashFile))
@@ -2840,12 +2886,12 @@ def hcatLMtoNT():
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
     cmd = _add_debug_mode_for_rules(cmd)
-    hcatProcess = subprocess.Popen(cmd)
-    try:
-        hcatProcess.wait()
-    except KeyboardInterrupt:
-        print("Killing PID {0}...".format(str(hcatProcess.pid)))
-        hcatProcess.kill()
+    _run_hcat_cmd(
+        cmd,
+        attack_name="LM to NT (NT phase)",
+        hash_file=f"{hcatHashFile}.nt",
+        out_path=f"{hcatHashFile}.nt.out",
+    )
 
     # toggle-lm-ntlm.rule by Didier Stevens https://blog.didierstevens.com/2016/07/16/tool-to-generate-hashcat-toggle-rules/
 
@@ -2882,11 +2928,7 @@ def hcatRecycle(hcatHashType, hcatHashFile, hcatNewPasswords):
             cmd.extend(shlex.split(hcatTuning))
             _append_potfile_arg(cmd)
             cmd = _add_debug_mode_for_rules(cmd)
-            hcatProcess = subprocess.Popen(cmd)
-            try:
-                hcatProcess.wait()
-            except KeyboardInterrupt:
-                hcatProcess.kill()
+            _run_hcat_cmd(cmd, attack_name="Recycle", hash_file=hcatHashFile)
 
 
 def hcatGenerateRules(hcatHashType, hcatHashFile, rule_count, wordlist):
@@ -2922,12 +2964,7 @@ def hcatGenerateRules(hcatHashType, hcatHashFile, rule_count, wordlist):
         ]
         cmd.extend(shlex.split(hcatTuning))
         _append_potfile_arg(cmd)
-        hcatProcess = subprocess.Popen(cmd)
-        try:
-            hcatProcess.wait()
-        except KeyboardInterrupt:
-            print(f"Killing PID {hcatProcess.pid}...")
-            hcatProcess.kill()
+        _run_hcat_cmd(cmd, attack_name="Random Rules", hash_file=hcatHashFile)
     finally:
         if os.path.exists(rules_path):
             os.unlink(rules_path)
@@ -2990,7 +3027,9 @@ def cleanup():
         if os.path.isfile(out_path):
             print(f"\nCracked passwords combined with original hashes in {out_path}")
         else:
-            print(f"\nNo cracked hashes to combine. Raw output (if any): {hcatHashFile}.out")
+            print(
+                f"\nNo cracked hashes to combine. Raw output (if any): {hcatHashFile}.out"
+            )
         print("\nCleaning up temporary files...")
         if os.path.exists(hcatHashFile + ".masks"):
             os.remove(hcatHashFile + ".masks")
@@ -3792,9 +3831,7 @@ def wordlist_filter_req_exclude(infile: str, outfile: str, mask: int) -> bool:
     return result.returncode == 0
 
 
-def wordlist_cutb(
-    infile: str, outfile: str, offset: int, length: int | None
-) -> bool:
+def wordlist_cutb(infile: str, outfile: str, offset: int, length: int | None) -> bool:
     """Extract a substring from each word starting at offset, optionally limited to length bytes."""
     cutb_bin = os.path.join(hate_path, "hashcat-utils/bin/cutb.bin")
     cmd = [cutb_bin, str(offset)]
@@ -3832,7 +3869,9 @@ def wordlist_gate(infile: str, outfile: str, mod: int, offset: int) -> bool:
     """Shard wordlist: keep every mod-th line starting at offset."""
     gate_bin = os.path.join(hate_path, "hashcat-utils/bin/gate.bin")
     with open(infile, "rb") as fin, open(outfile, "wb") as fout:
-        result = subprocess.run([gate_bin, str(mod), str(offset)], stdin=fin, stdout=fout)
+        result = subprocess.run(
+            [gate_bin, str(mod), str(offset)], stdin=fin, stdout=fout
+        )
     return result.returncode == 0
 
 
@@ -3850,7 +3889,9 @@ def rules_cleanup(infile: str, outfile: str) -> bool:
 
 def rules_optimize(infile: str, outfile: str) -> bool:
     """Optimize a rule file using rules_optimize.bin. Returns True on success."""
-    optimize_path = os.path.join(hate_path, "hashcat-utils", "bin", "rules_optimize.bin")
+    optimize_path = os.path.join(
+        hate_path, "hashcat-utils", "bin", "rules_optimize.bin"
+    )
     with open(infile, "rb") as fin, open(outfile, "wb") as fout:
         result = subprocess.run([optimize_path], stdin=fin, stdout=fout)
     return result.returncode == 0
@@ -3858,6 +3899,39 @@ def rules_optimize(infile: str, outfile: str) -> bool:
 
 def rule_tools_submenu():
     return _attacks.rule_tools_submenu(_attack_ctx())
+
+
+def notifications_submenu():
+    """Submenu for all Pushover notification controls (main-menu option 82).
+
+    The inline ``interactive_menu`` import is not redundant with the
+    module-scope import at the top of this file: re-importing inside the
+    function re-reads ``hate_crack.menu.interactive_menu`` on every call,
+    which lets tests patch the real menu function via
+    ``monkeypatch.setattr(hate_crack.menu, "interactive_menu", ...)``.
+    Removing it breaks test isolation.
+    """
+    from hate_crack.menu import interactive_menu
+
+    while True:
+        settings = _notify.get_settings()
+        global_label = "ON" if settings.enabled else "OFF"
+        per_crack_label = "ON" if settings.per_crack_enabled else "OFF"
+        items = [
+            ("1", f"Toggle Pushover Notifications [{global_label}]"),
+            ("2", f"Toggle Per-Crack Notifications [{per_crack_label}]"),
+            ("3", "Send Test Pushover Notification"),
+            ("99", "Back to Main Menu"),
+        ]
+        choice = interactive_menu(items, title="\nNotifications:")
+        if choice is None or choice == "99":
+            break
+        if choice == "1":
+            toggle_notifications()
+        elif choice == "2":
+            toggle_per_crack_notifications()
+        elif choice == "3":
+            test_pushover_notification()
 
 
 # convert hex words for recycling
@@ -4067,6 +4141,82 @@ def quit_hc():
     sys.exit(0)
 
 
+def toggle_notifications():
+    """Global on/off toggle for Pushover notifications.
+
+    Flips ``notify_enabled`` in the active settings and persists to
+    ``config.json``.  Prints the new state so the user has immediate
+    confirmation even though the menu label will also refresh on the
+    next render.
+    """
+    new_state = _notify.toggle_enabled()
+    label = "ON" if new_state else "OFF"
+    print(f"\nPushover notifications are now {label}.")
+    if new_state:
+        settings = _notify.get_settings()
+        if not settings.pushover_token or not settings.pushover_user:
+            print(
+                "[!] notify_pushover_token / notify_pushover_user are empty in "
+                "config.json — notifications will silently no-op until set."
+            )
+
+
+def toggle_per_crack_notifications():
+    """Runtime toggle for ``notify_per_crack_enabled`` with a UI-level guard.
+
+    Per-crack notifications require global notifications to be ON in order
+    to fire (see ``notify.start_tailer``).  Turning per-crack ON while the
+    global switch is OFF is silently ineffective, which surprises users —
+    so we refuse the transition and point them at the global toggle.
+
+    Turning per-crack OFF is always allowed, regardless of the global
+    state, so users can clean up an inconsistent config without friction.
+    """
+    settings = _notify.get_settings()
+    if not settings.per_crack_enabled and not settings.enabled:
+        print(
+            "\n[!] Global Pushover notifications are OFF. Enable option 1 "
+            "(Toggle Pushover Notifications) first."
+        )
+        return
+    new_state = _notify.toggle_per_crack_enabled()
+    label = "ON" if new_state else "OFF"
+    print(f"\nPer-crack notifications are now {label}.")
+
+
+def test_pushover_notification():
+    """Send a canned test notification so the user can verify Pushover works.
+
+    Ignores the global ``notify_enabled`` toggle on purpose: the point of the
+    test is to confirm the wire is live, independent of whether attacks are
+    currently wired to notify.  When the global toggle is OFF we still send
+    but print a note so the user is not surprised later.
+    """
+    settings = _notify.get_settings()
+    token = settings.pushover_token
+    user = settings.pushover_user
+    if not token or not user:
+        print(
+            "\n[!] Pushover credentials missing. Set notify_pushover_token "
+            "and notify_pushover_user in config.json."
+        )
+        return
+
+    if not settings.enabled:
+        print("\n(notifications are globally OFF, but sending test anyway)")
+
+    title = "hate_crack: test notification"
+    message = (
+        "This is a test notification from hate_crack. "
+        "If you see this, Pushover is wired up correctly."
+    )
+    ok = _notify._send_pushover(token, user, title, message)
+    if ok:
+        print("[+] Test Pushover notification sent. Check your device.")
+    else:
+        print("[!] Test Pushover notification failed. See log output for details.")
+
+
 def get_main_menu_items():
     """Return ordered (key, label) pairs for the main menu."""
     items = [
@@ -4091,6 +4241,7 @@ def get_main_menu_items():
         ("22", "Combipow Passphrase Attack"),
         ("80", "Wordlist Tools"),
         ("81", "Rule File Tools"),
+        ("82", "Notifications"),
         ("90", "Download rules from Hashmob.net"),
         ("91", "Analyze Hashcat Rules"),
         ("92", "Download wordlists from Hashmob.net"),
@@ -4134,6 +4285,7 @@ def get_main_menu_options():
         "22": combipow_crack,
         "80": wordlist_tools_submenu,
         "81": rule_tools_submenu,
+        "82": notifications_submenu,
         "90": lambda: download_hashmob_rules(rules_dir=rulesDirectory),
         "91": analyze_rules,
         "92": download_hashmob_wordlists,

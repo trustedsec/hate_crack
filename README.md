@@ -472,6 +472,23 @@ The LLM Attack (option 15) uses Ollama to generate password candidates. Configur
 - **`ollamaNumCtx`** — Context window size for the model (default: `2048`).
 - The Ollama URL defaults to `http://localhost:11434`. Ensure Ollama is running before using the LLM Attack.
 
+### Notifications (menu option 82)
+
+hate_crack can send Pushover push notifications when attacks complete and,
+optionally, when individual hashes are cracked. All controls live under
+main-menu option `82 — Notifications`:
+
+1. **Toggle Pushover Notifications [ON/OFF]** — master switch. Persists to `config.json` as `notify_enabled`.
+2. **Toggle Per-Crack Notifications [ON/OFF]** — when ON, a background tailer watches the `.out` file and pushes a notification per crack (with per-tick burst aggregation). Persists to `config.json` as `notify_per_crack_enabled`. Cannot be enabled while the master switch is OFF — enable option 1 first.
+3. **Send Test Pushover Notification** — fires a canned push so you can confirm your Pushover token/user pair works. Works even when the master switch is OFF.
+
+Credentials and tuning knobs remain config-file-only in `config.json`:
+
+- `notify_pushover_token`, `notify_pushover_user` — required for any push to fire.
+- `notify_attack_allowlist` — attack names that auto-consent without the `[y/N/always]` prompt. Populated automatically when you answer `always`.
+- `notify_suppress_in_orchestrators` (default `true`) — silences nested attacks launched by Quick/Extensive/Brute-Force wrappers; the wrapper fires a single summary instead.
+- `notify_max_cracks_per_burst` (default `5`), `notify_poll_interval_seconds` (default `5.0`) — per-crack tailer tuning. See `hate_crack/notify/tailer.py` for the burst aggregation logic.
+
 ### Wordlist Tools (menu option 80)
 
 The Wordlist Tools submenu provides 7 wordlist preprocessing utilities backed by hashcat-utils binaries. Access via option **80** in the main menu.
