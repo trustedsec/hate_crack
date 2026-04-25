@@ -70,15 +70,16 @@ def test_download_keyboard_interrupt(tmp_path, patch_dependencies):
     file_name = "wordlist.txt"
     out_path = str(tmp_path / file_name)
 
-    # Simulate KeyboardInterrupt in requests.get context manager
+    # The refactored code re-raises KeyboardInterrupt so callers (e.g.
+    # list_and_download_official_wordlists) can catch it and return to the menu.
     def raise_keyboard_interrupt(*a, **kw):
         raise KeyboardInterrupt()
 
     with mock.patch(
         "hate_crack.api.requests.get", side_effect=raise_keyboard_interrupt
     ):
-        result = api.download_official_wordlist(file_name, out_path)
-        assert result is False
+        with pytest.raises(KeyboardInterrupt):
+            api.download_official_wordlist(file_name, out_path)
 
 
 def test_download_exception(tmp_path, patch_dependencies):
