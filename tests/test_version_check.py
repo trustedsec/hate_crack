@@ -151,18 +151,14 @@ class TestCheckForUpdates:
             hc_module, "REQUESTS_AVAILABLE", True
         ), patch("builtins.input", return_value="y"), patch(
             "subprocess.run", side_effect=[git_root_proc, make_proc]
-        ) as mock_run, patch("shutil.which", return_value="/usr/local/bin/uv"), patch(
-            "os.path.isfile", return_value=True
-        ), patch.object(hc_module, "_install_system_deps"), pytest.raises(
-            SystemExit
-        ):
+        ) as mock_run, pytest.raises(SystemExit):
             mock_requests.get.return_value = mock_resp
             hc_module.check_for_updates()
 
         assert mock_run.call_count == 2
         make_cmd = mock_run.call_args_list[1][0][0]
         assert "git pull" in make_cmd
-        assert "uv sync --reinstall-package hate_crack" in make_cmd
+        assert "make install" in make_cmd
         assert mock_run.call_args_list[1][1]["cwd"] == "/fake/repo"
         output = capsys.readouterr().out
         assert "Upgrade complete" in output
@@ -220,14 +216,6 @@ class TestCheckForUpdates:
 class TestRunUpgrade:
     """Tests for _run_upgrade() called directly via --update flag."""
 
-    @pytest.fixture(autouse=True)
-    def mock_uv(self):
-        """Patch shutil.which and os.path.isfile so uv is always 'found'."""
-        with patch("shutil.which", return_value="/usr/local/bin/uv"), patch(
-            "os.path.isfile", return_value=True
-        ):
-            yield
-
     def test_run_upgrade_success(self, hc_module, capsys):
         git_root_proc = MagicMock()
         git_root_proc.returncode = 0
@@ -237,7 +225,6 @@ class TestRunUpgrade:
         make_proc.returncode = 0
 
         with patch("subprocess.run", side_effect=[git_root_proc, make_proc]) as mock_run, \
-             patch.object(hc_module, "_install_system_deps"), \
              pytest.raises(SystemExit) as exc:
             hc_module._run_upgrade()
 
@@ -245,7 +232,7 @@ class TestRunUpgrade:
         assert mock_run.call_count == 2
         make_cmd = mock_run.call_args_list[1][0][0]
         assert "git pull" in make_cmd
-        assert "uv sync --reinstall-package hate_crack" in make_cmd
+        assert "make install" in make_cmd
         assert mock_run.call_args_list[1][1]["cwd"] == "/fake/repo"
         output = capsys.readouterr().out
         assert "Upgrade complete" in output
@@ -276,20 +263,6 @@ class TestRunUpgrade:
         assert exc.value.code == 1
         output = capsys.readouterr().out
         assert "Run manually" in output
-
-    def test_run_upgrade_uv_not_found(self, hc_module, capsys):
-        git_root_proc = MagicMock()
-        git_root_proc.returncode = 0
-        git_root_proc.stdout = "/fake/repo\n"
-
-        with patch("subprocess.run", return_value=git_root_proc), patch(
-            "shutil.which", return_value=None
-        ), patch("os.path.isfile", return_value=False), pytest.raises(SystemExit) as exc:
-            hc_module._run_upgrade()
-
-        assert exc.value.code == 1
-        output = capsys.readouterr().out
-        assert "uv binary" in output
 
     def test_upgrade_prompt_ctrl_c_continues(self, hc_module, capsys):
         mock_resp = MagicMock()
