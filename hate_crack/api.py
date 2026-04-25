@@ -342,6 +342,7 @@ class TransmissionSession:
         import re
         import subprocess
 
+        before_ids = {e["id"] for e in self.list()}
         result = subprocess.run(
             [
                 "transmission-remote",
@@ -360,9 +361,10 @@ class TransmissionSession:
         m = re.search(r"torrent added\s*\(id\s+(\d+)\)", out, re.IGNORECASE)
         if m:
             return int(m.group(1))
-        entries = self.list()
-        if entries:
-            return max(entry["id"] for entry in entries)
+        after_entries = self.list()
+        new_ids = [e["id"] for e in after_entries if e["id"] not in before_ids]
+        if new_ids:
+            return new_ids[0]
         raise RuntimeError(f"Failed to add torrent: {torrent_path}")
 
     def list(self) -> list:
@@ -461,7 +463,6 @@ class TransmissionSession:
                 return rest
         except Exception:
             return ""
-        return ""
 
     def remove(self, torrent_id: int):
         import subprocess
@@ -483,9 +484,6 @@ class TransmissionSession:
             time.sleep(self.poll_interval)
             entries = self.list()
             if not entries:
-                if completed_ids:
-                    break
-                # Nothing left to do
                 break
             for entry in entries:
                 if (
@@ -494,8 +492,7 @@ class TransmissionSession:
                 ):
                     completed_ids.add(entry["id"])
                     file_name = self.info_file(entry["id"])
-                    if file_name:
-                        on_complete(entry["id"], file_name)
+                    on_complete(entry["id"], file_name)
                     self.remove(entry["id"])
 
 

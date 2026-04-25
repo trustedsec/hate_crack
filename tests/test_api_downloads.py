@@ -164,11 +164,16 @@ class TestTransmissionSession:
         ts = TransmissionSession(str(tmp_path))
         ts._rpc = "127.0.0.1:9999"
         result = MagicMock(returncode=0, stdout="garbage output\n", stderr="")
+        # Before: IDs 3 and 5 exist. After: ID 7 appears as the newly added torrent.
+        list_calls = iter([
+            [{"id": 3}, {"id": 5}],   # before snapshot
+            [{"id": 3}, {"id": 5}, {"id": 7}],  # after snapshot
+        ])
         with patch("subprocess.run", return_value=result), patch.object(
-            ts, "list", return_value=[{"id": 3}, {"id": 5}]
+            ts, "list", side_effect=list_calls
         ):
             tid = ts.add("/tmp/foo.torrent")
-        assert tid == 5
+        assert tid == 7
 
     def test_add_raises_when_list_empty(self, tmp_path):
         ts = TransmissionSession(str(tmp_path))
@@ -260,6 +265,25 @@ class TestTransmissionSession:
         assert callbacks == [(1, "my-list.7z")]
         assert remove_calls == [1]
         assert info_calls == [1]
+
+    def test_wait_for_all_calls_on_complete_when_info_file_empty(self, tmp_path):
+        """on_complete must be called even when info_file returns "" so the caller
+        can account for the torrent (e.g. increment a failure counter)."""
+        ts = TransmissionSession(str(tmp_path), poll_interval=0.0)
+        ts._rpc = "127.0.0.1:9999"
+        list_results = [
+            [{"id": 2, "percent_done": 100.0, "status": "Idle", "name": "x"}],
+            [],
+        ]
+        callbacks = []
+
+        with patch.object(ts, "list", side_effect=lambda: list_results.pop(0)), \
+             patch.object(ts, "info_file", return_value=""), \
+             patch.object(ts, "remove"), \
+             patch("time.sleep"):
+            ts.wait_for_all(on_complete=lambda tid, name: callbacks.append((tid, name)))
+
+        assert callbacks == [(2, "")], "on_complete must fire even when info_file returns empty"
 
     def test_wait_for_all_keyboard_interrupt_propagates(self, tmp_path):
         ts = TransmissionSession(str(tmp_path), poll_interval=0.0)
