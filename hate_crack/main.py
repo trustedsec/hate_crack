@@ -967,11 +967,16 @@ def _run_upgrade():
         raise SystemExit(1)
     repo_root = git_root_result.stdout.strip()
 
+    import shutil
+
+    uv = shutil.which("uv") or os.path.expanduser("~/.local/bin/uv")
+
     result = subprocess.run(
         # git fetch --tags ensures new release tags are visible to setuptools-scm.
-        # make install handles system deps (transmission-daemon, p7zip) and
-        # reinstalls the Python package and CLI shim.
-        "git pull && git fetch --tags && make install",
+        # make install handles system deps and the CLI shim.
+        # uv sync --reinstall-package forces setuptools-scm to regenerate the
+        # version from the new tag so the version number updates correctly.
+        f"git pull && git fetch --tags && make install && {uv} sync --reinstall-package hate_crack",
         shell=True,
         cwd=repo_root,
     )
