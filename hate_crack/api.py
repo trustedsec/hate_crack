@@ -217,7 +217,7 @@ def check_transmission_daemon():
     if daemon and remote:
         return True
     print("\n[!] transmission-daemon and/or transmission-remote is missing.")
-    print("To install on macOS:  brew install transmission")
+    print("To install on macOS:  brew install transmission-cli")
     print("To install on Ubuntu/Debian:  sudo apt-get install transmission-daemon")
     print("Please install transmission-daemon and transmission-remote and try again.")
     return False
