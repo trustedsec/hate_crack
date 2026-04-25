@@ -946,27 +946,8 @@ def ascii_art():
     )
 
 
-def _install_system_deps():
-    """Best-effort install of system dependencies after an upgrade."""
-    import subprocess
-    import sys
-
-    plat = sys.platform
-    if plat == "darwin":
-        if subprocess.run(["which", "brew"], capture_output=True).returncode == 0:
-            print("  Installing/updating system dependencies via Homebrew...")
-            subprocess.run(["brew", "install", "transmission-cli", "p7zip"])
-        else:
-            print("  [!] Homebrew not found — install transmission-cli and p7zip manually.")
-    elif plat.startswith("linux"):
-        print("  Installing/updating system dependencies via apt-get...")
-        subprocess.run(["sudo", "apt-get", "install", "-y", "transmission-daemon", "p7zip-full"])
-    else:
-        print(f"  [!] Unknown platform '{plat}' — install transmission-daemon and p7zip manually.")
-
-
 def _run_upgrade():
-    """Run `git pull && make clean && make && make install` in the repo root."""
+    """Run `git pull && git fetch --tags && make install` in the repo root."""
     import subprocess
 
     print()
@@ -981,27 +962,16 @@ def _run_upgrade():
     if git_root_result.returncode != 0:
         print(
             "\n  Could not find a git repository to upgrade from."
-            "\n  Run manually: git pull && git fetch --tags && uv sync --reinstall-package hate_crack\n"
+            "\n  Run manually: git pull && git fetch --tags && make install\n"
         )
         raise SystemExit(1)
     repo_root = git_root_result.stdout.strip()
 
-    # Locate the uv binary. It may not be in PATH when running as root or via sudo.
-    import shutil
-
-    uv = shutil.which("uv") or os.path.expanduser("~/.local/bin/uv")
-    if not os.path.isfile(uv):
-        print(
-            "\n  Could not find the uv binary."
-            "\n  Run manually: git pull && git fetch --tags && uv sync --reinstall-package hate_crack\n"
-        )
-        raise SystemExit(1)
-
     result = subprocess.run(
         # git fetch --tags ensures new release tags are visible to setuptools-scm.
-        # uv sync --reinstall-package forces hate_crack to be rebuilt from
-        # current source so setuptools-scm generates the correct version.
-        f"git pull && git fetch --tags && {uv} sync --reinstall-package hate_crack",
+        # make install handles system deps (transmission-daemon, p7zip) and
+        # reinstalls the Python package and CLI shim.
+        "git pull && git fetch --tags && make install",
         shell=True,
         cwd=repo_root,
     )
@@ -1009,7 +979,6 @@ def _run_upgrade():
         print("\n  Upgrade failed. Check the output above for errors.\n")
         raise SystemExit(1)
 
-    _install_system_deps()
     print("\n  Upgrade complete. Please restart hate_crack.\n")
     raise SystemExit(0)
 
