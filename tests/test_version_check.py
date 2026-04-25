@@ -153,7 +153,7 @@ class TestCheckForUpdates:
             "subprocess.run", side_effect=[git_root_proc, make_proc]
         ) as mock_run, patch("shutil.which", return_value="/usr/local/bin/uv"), patch(
             "os.path.isfile", return_value=True
-        ), pytest.raises(
+        ), patch.object(hc_module, "_install_system_deps"), pytest.raises(
             SystemExit
         ):
             mock_requests.get.return_value = mock_resp
@@ -236,7 +236,9 @@ class TestRunUpgrade:
         make_proc = MagicMock()
         make_proc.returncode = 0
 
-        with patch("subprocess.run", side_effect=[git_root_proc, make_proc]) as mock_run, pytest.raises(SystemExit) as exc:
+        with patch("subprocess.run", side_effect=[git_root_proc, make_proc]) as mock_run, \
+             patch.object(hc_module, "_install_system_deps"), \
+             pytest.raises(SystemExit) as exc:
             hc_module._run_upgrade()
 
         assert exc.value.code == 0
@@ -259,7 +261,7 @@ class TestRunUpgrade:
         with patch("subprocess.run", side_effect=[git_root_proc, make_proc]), pytest.raises(SystemExit) as exc:
             hc_module._run_upgrade()
 
-        assert exc.value.code == 0
+        assert exc.value.code == 1
         output = capsys.readouterr().out
         assert "Upgrade failed" in output
 

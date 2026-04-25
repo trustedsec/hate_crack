@@ -946,6 +946,25 @@ def ascii_art():
     )
 
 
+def _install_system_deps():
+    """Best-effort install of system dependencies after an upgrade."""
+    import subprocess
+    import sys
+
+    plat = sys.platform
+    if plat == "darwin":
+        if subprocess.run(["which", "brew"], capture_output=True).returncode == 0:
+            print("  Installing/updating system dependencies via Homebrew...")
+            subprocess.run(["brew", "install", "transmission-cli", "p7zip"])
+        else:
+            print("  [!] Homebrew not found — install transmission-cli and p7zip manually.")
+    elif plat.startswith("linux"):
+        print("  Installing/updating system dependencies via apt-get...")
+        subprocess.run(["sudo", "apt-get", "install", "-y", "transmission-daemon", "p7zip-full"])
+    else:
+        print(f"  [!] Unknown platform '{plat}' — install transmission-daemon and p7zip manually.")
+
+
 def _run_upgrade():
     """Run `git pull && make clean && make && make install` in the repo root."""
     import subprocess
@@ -986,10 +1005,12 @@ def _run_upgrade():
         shell=True,
         cwd=repo_root,
     )
-    if result.returncode == 0:
-        print("\n  Upgrade complete. Please restart hate_crack.\n")
-    else:
+    if result.returncode != 0:
         print("\n  Upgrade failed. Check the output above for errors.\n")
+        raise SystemExit(1)
+
+    _install_system_deps()
+    print("\n  Upgrade complete. Please restart hate_crack.\n")
     raise SystemExit(0)
 
 
