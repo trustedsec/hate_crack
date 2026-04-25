@@ -6,15 +6,18 @@ from unittest.mock import MagicMock, patch
 
 from hate_crack.api import (
     check_7z,
-    check_transmission_cli,
+    check_transmission_daemon,
     download_hashmob_wordlist,
     extract_with_7z,
     get_hashmob_api_key,
     get_hcat_potfile_args,
     get_hcat_potfile_path,
     list_and_download_hashmob_rules,
+    run_torrent_session,
     sanitize_filename,
+    TransmissionSession,
     _Hashmob429,
+    _pick_free_port,
     _streamed_download,
     _with_hashmob_backoff,
     list_and_download_official_wordlists,
@@ -54,18 +57,299 @@ class TestCheck7z:
         assert "7z" in captured.out
 
 
-class TestCheckTransmissionCli:
-    def test_returns_true_when_found(self):
-        with patch("shutil.which", return_value="/usr/bin/transmission-cli"):
-            result = check_transmission_cli()
+class TestCheckTransmissionDaemon:
+    def test_returns_true_when_both_found(self):
+        with patch("shutil.which", side_effect=lambda x: f"/usr/bin/{x}"):
+            result = check_transmission_daemon()
         assert result is True
 
-    def test_returns_false_when_missing(self, capsys):
-        with patch("shutil.which", return_value=None):
-            result = check_transmission_cli()
+    def test_returns_false_when_daemon_missing(self, capsys):
+        def which(x):
+            return None if x == "transmission-daemon" else f"/usr/bin/{x}"
+
+        with patch("shutil.which", side_effect=which):
+            result = check_transmission_daemon()
         assert result is False
-        captured = capsys.readouterr()
-        assert "transmission-cli" in captured.out
+        assert "transmission-daemon" in capsys.readouterr().out
+
+    def test_returns_false_when_remote_missing(self, capsys):
+        def which(x):
+            return None if x == "transmission-remote" else f"/usr/bin/{x}"
+
+        with patch("shutil.which", side_effect=which):
+            result = check_transmission_daemon()
+        assert result is False
+
+
+class TestPickFreePort:
+    def test_returns_int_in_valid_range(self):
+        port = _pick_free_port()
+        assert isinstance(port, int)
+        assert 1 <= port <= 65535
+
+
+class TestTransmissionSession:
+    def _patch_startup_success(self):
+        """Helper: returns patches that simulate a successful daemon startup."""
+        proc_mock = MagicMock()
+        # transmission-remote -l probe returns rc 0 immediately.
+        probe_result = MagicMock(returncode=0, stdout="", stderr="")
+        return proc_mock, probe_result
+
+    def test_daemon_starts_with_expected_args(self, tmp_path):
+        proc_mock, probe_result = self._patch_startup_success()
+        with patch("hate_crack.api._pick_free_port", return_value=12345), patch(
+            "subprocess.Popen", return_value=proc_mock
+        ) as popen, patch(
+            "subprocess.run", return_value=probe_result
+        ) as run_mock, patch(
+            "atexit.register"
+        ):
+            ts = TransmissionSession(str(tmp_path))
+            ts.__enter__()
+            try:
+                # Popen called with transmission-daemon and key flags
+                args = popen.call_args[0][0]
+                assert args[0] == "transmission-daemon"
+                assert "-f" in args
+                assert "--rpc-port" in args
+                assert "12345" in args
+                assert "--no-auth" in args
+                assert "--download-dir" in args
+                assert str(tmp_path) in args
+                # Probe used transmission-remote with -l
+                probe_args = run_mock.call_args[0][0]
+                assert probe_args[0] == "transmission-remote"
+                assert probe_args[-1] == "-l"
+            finally:
+                ts._stopped = True  # avoid running real cleanup
+
+    def test_startup_timeout_raises(self, tmp_path):
+        proc_mock = MagicMock()
+        probe_failure = MagicMock(returncode=1, stdout="", stderr="")
+        with patch("hate_crack.api._pick_free_port", return_value=12345), patch(
+            "subprocess.Popen", return_value=proc_mock
+        ), patch("subprocess.run", return_value=probe_failure), patch(
+            "time.sleep"
+        ), patch(
+            "time.monotonic", side_effect=[0.0, 0.1, 100.0, 200.0, 300.0]
+        ), patch(
+            "atexit.register"
+        ):
+            ts = TransmissionSession(str(tmp_path), startup_timeout=1.0)
+            with pytest.raises(RuntimeError, match="Transmission daemon failed"):
+                ts.__enter__()
+
+    def test_add_parses_id_from_stdout(self, tmp_path):
+        ts = TransmissionSession(str(tmp_path))
+        ts._rpc = "127.0.0.1:9999"
+        result = MagicMock(
+            returncode=0, stdout="Added torrent foo.torrent\n  ID: 7\n", stderr=""
+        )
+        with patch("subprocess.run", return_value=result):
+            tid = ts.add("/tmp/foo.torrent")
+        assert tid == 7
+
+    def test_add_parses_lowercase_alt_format(self, tmp_path):
+        ts = TransmissionSession(str(tmp_path))
+        ts._rpc = "127.0.0.1:9999"
+        result = MagicMock(
+            returncode=0, stdout="torrent added (id 42)\n", stderr=""
+        )
+        with patch("subprocess.run", return_value=result):
+            tid = ts.add("/tmp/foo.torrent")
+        assert tid == 42
+
+    def test_add_falls_back_to_list(self, tmp_path):
+        ts = TransmissionSession(str(tmp_path))
+        ts._rpc = "127.0.0.1:9999"
+        result = MagicMock(returncode=0, stdout="garbage output\n", stderr="")
+        with patch("subprocess.run", return_value=result), patch.object(
+            ts, "list", return_value=[{"id": 3}, {"id": 5}]
+        ):
+            tid = ts.add("/tmp/foo.torrent")
+        assert tid == 5
+
+    def test_add_raises_when_list_empty(self, tmp_path):
+        ts = TransmissionSession(str(tmp_path))
+        ts._rpc = "127.0.0.1:9999"
+        result = MagicMock(returncode=0, stdout="garbage\n", stderr="")
+        with patch("subprocess.run", return_value=result), patch.object(
+            ts, "list", return_value=[]
+        ):
+            with pytest.raises(RuntimeError):
+                ts.add("/tmp/foo.torrent")
+
+    def test_list_parses_rows(self, tmp_path):
+        ts = TransmissionSession(str(tmp_path))
+        ts._rpc = "127.0.0.1:9999"
+        stdout = (
+            "ID     Done       Have  ETA           Up    Down  Ratio  Status       Name\n"
+            "  1   100%  1.50 GB  Done           0.0     0.0   1.0  Idle         my-list.7z\n"
+            "  2    45%  500 MB   3 hours        0.0   200.0   0.1  Downloading  another-list.7z\n"
+            "Sum:        2.00 GB                  0.0   200.0\n"
+        )
+        result = MagicMock(returncode=0, stdout=stdout, stderr="")
+        with patch("subprocess.run", return_value=result):
+            entries = ts.list()
+        assert len(entries) == 2
+        assert entries[0]["id"] == 1
+        assert entries[0]["percent_done"] == 100.0
+        assert entries[1]["id"] == 2
+        assert entries[1]["percent_done"] == 45.0
+
+    def test_list_returns_empty_on_nonzero_rc(self, tmp_path):
+        ts = TransmissionSession(str(tmp_path))
+        ts._rpc = "127.0.0.1:9999"
+        result = MagicMock(returncode=1, stdout="", stderr="boom")
+        with patch("subprocess.run", return_value=result):
+            assert ts.list() == []
+
+    def test_info_file_parses_path(self, tmp_path):
+        ts = TransmissionSession(str(tmp_path))
+        ts._rpc = "127.0.0.1:9999"
+        stdout = (
+            "myname.torrent (1 files):\n"
+            "  #  Done Priority Get      Size       Name\n"
+            "  0: 100% Normal   Yes      1.50 GB    my-list.7z\n"
+        )
+        result = MagicMock(returncode=0, stdout=stdout, stderr="")
+        with patch("subprocess.run", return_value=result):
+            name = ts.info_file(1)
+        assert name == "my-list.7z"
+
+    def test_info_file_returns_empty_on_failure(self, tmp_path):
+        ts = TransmissionSession(str(tmp_path))
+        ts._rpc = "127.0.0.1:9999"
+        result = MagicMock(returncode=1, stdout="", stderr="bad")
+        with patch("subprocess.run", return_value=result):
+            assert ts.info_file(1) == ""
+
+    def test_wait_for_all_invokes_callback_and_remove(self, tmp_path):
+        ts = TransmissionSession(str(tmp_path), poll_interval=0.0)
+        ts._rpc = "127.0.0.1:9999"
+        # First poll: torrent at 100%. Second poll: empty.
+        list_results = [
+            [{"id": 1, "percent_done": 100.0, "status": "Idle", "name": "x"}],
+            [],
+        ]
+        info_calls = []
+        remove_calls = []
+
+        def fake_list():
+            return list_results.pop(0)
+
+        def fake_info(tid):
+            info_calls.append(tid)
+            return "my-list.7z"
+
+        def fake_remove(tid):
+            remove_calls.append(tid)
+
+        callbacks = []
+
+        def on_complete(tid, name):
+            callbacks.append((tid, name))
+
+        with patch.object(ts, "list", side_effect=fake_list), patch.object(
+            ts, "info_file", side_effect=fake_info
+        ), patch.object(ts, "remove", side_effect=fake_remove), patch(
+            "time.sleep"
+        ):
+            ts.wait_for_all(on_complete=on_complete)
+        assert callbacks == [(1, "my-list.7z")]
+        assert remove_calls == [1]
+        assert info_calls == [1]
+
+    def test_wait_for_all_keyboard_interrupt_propagates(self, tmp_path):
+        ts = TransmissionSession(str(tmp_path), poll_interval=0.0)
+        ts._rpc = "127.0.0.1:9999"
+        with patch.object(ts, "list", side_effect=KeyboardInterrupt), patch(
+            "time.sleep"
+        ):
+            with pytest.raises(KeyboardInterrupt):
+                ts.wait_for_all(on_complete=lambda *a: None)
+
+    def test_exit_calls_stop_and_cleans_cfg_dir(self, tmp_path):
+        proc_mock = MagicMock()
+        probe_result = MagicMock(returncode=0, stdout="", stderr="")
+        rmtree_mock = MagicMock()
+        with patch("hate_crack.api._pick_free_port", return_value=12345), patch(
+            "subprocess.Popen", return_value=proc_mock
+        ), patch("subprocess.run", return_value=probe_result) as run_mock, patch(
+            "atexit.register"
+        ), patch(
+            "tempfile.mkdtemp", return_value="/tmp/fake_cfg_dir"
+        ), patch(
+            "shutil.rmtree", rmtree_mock
+        ):
+            with TransmissionSession(str(tmp_path)) as ts:
+                pass
+            # transmission-remote --exit was called
+            exit_called = any(
+                "--exit" in (call.args[0] if call.args else [])
+                for call in run_mock.call_args_list
+            )
+            assert exit_called
+            # cfg_dir removed
+            rmtree_mock.assert_called_with(
+                "/tmp/fake_cfg_dir", ignore_errors=True
+            )
+
+    def test_stop_is_idempotent(self, tmp_path):
+        ts = TransmissionSession(str(tmp_path))
+        ts._stopped = True
+        # No subprocess calls should be made when already stopped.
+        with patch("subprocess.run") as run_mock:
+            ts._stop()
+        run_mock.assert_not_called()
+
+
+class TestRunTorrentSession:
+    def test_returns_early_when_daemon_missing(self):
+        with patch(
+            "hate_crack.api.check_transmission_daemon", return_value=False
+        ), patch("hate_crack.api.check_7z") as seven_z:
+            run_torrent_session(["a.torrent"], "/tmp/save")
+        seven_z.assert_not_called()
+
+    def test_returns_early_when_7z_missing(self):
+        with patch(
+            "hate_crack.api.check_transmission_daemon", return_value=True
+        ), patch("hate_crack.api.check_7z", return_value=False), patch(
+            "hate_crack.api.TransmissionSession"
+        ) as ts_cls:
+            run_torrent_session(["a.torrent"], "/tmp/save")
+        ts_cls.assert_not_called()
+
+    def test_happy_path_adds_and_waits(self):
+        ts_instance = MagicMock()
+        ts_cls = MagicMock()
+        ts_cls.return_value.__enter__ = MagicMock(return_value=ts_instance)
+        ts_cls.return_value.__exit__ = MagicMock(return_value=None)
+        with patch(
+            "hate_crack.api.check_transmission_daemon", return_value=True
+        ), patch("hate_crack.api.check_7z", return_value=True), patch(
+            "hate_crack.api.TransmissionSession", ts_cls
+        ):
+            run_torrent_session(["a.torrent", "b.torrent"], "/tmp/save")
+        # ts.add called for each torrent
+        assert ts_instance.add.call_count == 2
+        ts_instance.wait_for_all.assert_called_once()
+
+    def test_keyboard_interrupt_propagates(self):
+        ts_instance = MagicMock()
+        ts_instance.wait_for_all.side_effect = KeyboardInterrupt
+        ts_cls = MagicMock()
+        ts_cls.return_value.__enter__ = MagicMock(return_value=ts_instance)
+        ts_cls.return_value.__exit__ = MagicMock(return_value=None)
+        with patch(
+            "hate_crack.api.check_transmission_daemon", return_value=True
+        ), patch("hate_crack.api.check_7z", return_value=True), patch(
+            "hate_crack.api.TransmissionSession", ts_cls
+        ):
+            with pytest.raises(KeyboardInterrupt):
+                run_torrent_session(["a.torrent"], "/tmp/save")
 
 
 class TestGetHcatPotfilePath:

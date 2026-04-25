@@ -209,16 +209,294 @@ def check_7z():
     return False
 
 
-def check_transmission_cli():
+def check_transmission_daemon():
     import shutil
 
-    if shutil.which("transmission-cli"):
+    daemon = shutil.which("transmission-daemon")
+    remote = shutil.which("transmission-remote")
+    if daemon and remote:
         return True
-    print("\n[!] transmission-cli is missing.")
-    print("To install on macOS:  brew install transmission-cli")
-    print("To install on Ubuntu/Debian:  sudo apt-get install transmission-cli")
-    print("Please install transmission-cli and try again.")
+    print("\n[!] transmission-daemon and/or transmission-remote is missing.")
+    print("To install on macOS:  brew install transmission")
+    print("To install on Ubuntu/Debian:  sudo apt-get install transmission-daemon")
+    print("Please install transmission-daemon and transmission-remote and try again.")
     return False
+
+
+def _pick_free_port() -> int:
+    """Pick an unused TCP port on localhost by binding to port 0."""
+    import socket
+
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.bind(("127.0.0.1", 0))
+        return int(s.getsockname()[1])
+    finally:
+        s.close()
+
+
+class TransmissionSession:
+    """Context manager that runs a private transmission-daemon process.
+
+    All torrents are added/managed via transmission-remote. The daemon is
+    spawned with a fresh tempdir config and an unused localhost RPC port,
+    so it never collides with any pre-existing transmission-daemon. Exiting
+    the context (or process exit via atexit) sends ``--exit`` and cleans
+    up the temporary config directory.
+    """
+
+    def __init__(
+        self,
+        save_dir: str,
+        *,
+        poll_interval: float = 3.0,
+        startup_timeout: float = 15.0,
+        shutdown_timeout: float = 15.0,
+    ):
+        self.save_dir = save_dir
+        self.poll_interval = poll_interval
+        self.startup_timeout = startup_timeout
+        self.shutdown_timeout = shutdown_timeout
+        self._cfg_dir = ""
+        self._port = 0
+        self._rpc = ""
+        self._proc = None
+        self._stopped = False
+
+    def __enter__(self):
+        import atexit
+        import subprocess
+        import tempfile
+
+        self._cfg_dir = tempfile.mkdtemp(prefix="hate_crack_transmission_")
+        self._port = _pick_free_port()
+        self._rpc = f"127.0.0.1:{self._port}"
+        self._proc = subprocess.Popen(
+            [
+                "transmission-daemon",
+                "-f",
+                "-g",
+                self._cfg_dir,
+                "--rpc-port",
+                str(self._port),
+                "--rpc-bind-address",
+                "127.0.0.1",
+                "--no-auth",
+                "--download-dir",
+                self.save_dir,
+                "--no-portmap",
+                "--no-watch-dir",
+            ]
+        )
+        deadline = time.monotonic() + self.startup_timeout
+        while time.monotonic() < deadline:
+            probe = subprocess.run(
+                ["transmission-remote", self._rpc, "-l"],
+                capture_output=True,
+            )
+            if probe.returncode == 0:
+                break
+            time.sleep(0.5)
+        else:
+            self._stop()
+            raise RuntimeError("Transmission daemon failed to start")
+        atexit.register(self._stop)
+        return self
+
+    def _stop(self):
+        import subprocess
+
+        if self._stopped:
+            return
+        self._stopped = True
+        if self._rpc:
+            try:
+                subprocess.run(
+                    ["transmission-remote", self._rpc, "--exit"],
+                    capture_output=True,
+                )
+            except Exception:
+                pass
+        if self._proc is not None:
+            try:
+                self._proc.wait(timeout=self.shutdown_timeout)
+            except subprocess.TimeoutExpired:
+                try:
+                    self._proc.terminate()
+                    try:
+                        self._proc.wait(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        self._proc.kill()
+                except Exception:
+                    pass
+            except Exception:
+                pass
+        if self._cfg_dir:
+            shutil.rmtree(self._cfg_dir, ignore_errors=True)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._stop()
+        return None
+
+    def add(self, torrent_path: str) -> int:
+        import re
+        import subprocess
+
+        result = subprocess.run(
+            [
+                "transmission-remote",
+                self._rpc,
+                "--no-auth",
+                "-a",
+                torrent_path,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        out = result.stdout or ""
+        m = re.search(r"Added torrent.*\n.*ID:\s*(\d+)", out)
+        if m:
+            return int(m.group(1))
+        m = re.search(r"torrent added\s*\(id\s+(\d+)\)", out, re.IGNORECASE)
+        if m:
+            return int(m.group(1))
+        entries = self.list()
+        if entries:
+            return max(entry["id"] for entry in entries)
+        raise RuntimeError(f"Failed to add torrent: {torrent_path}")
+
+    def list(self) -> list:
+        import subprocess
+
+        result = subprocess.run(
+            ["transmission-remote", self._rpc, "--no-auth", "-l"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            return []
+        entries = []
+        try:
+            lines = (result.stdout or "").splitlines()
+            for line in lines:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                if stripped.startswith("ID"):
+                    continue
+                if stripped.startswith("Sum:"):
+                    continue
+                tokens = stripped.split()
+                if not tokens:
+                    continue
+                # First token must be an integer ID
+                try:
+                    tid = int(tokens[0])
+                except ValueError:
+                    continue
+                # transmission-remote -l columns:
+                # ID  Done  Have  ETA  Up  Down  Ratio  Status  Name
+                # Done is tokens[1], like "100%" or "0%".
+                percent_str = tokens[1] if len(tokens) > 1 else "0%"
+                try:
+                    percent_done = float(percent_str.rstrip("%"))
+                except ValueError:
+                    percent_done = 0.0
+                # Status is tokens[7] (best-effort); name is the rest.
+                status = tokens[7] if len(tokens) > 8 else ""
+                name = " ".join(tokens[8:]) if len(tokens) > 8 else (
+                    tokens[-1] if len(tokens) > 1 else ""
+                )
+                entries.append(
+                    {
+                        "id": tid,
+                        "percent_done": percent_done,
+                        "status": status,
+                        "name": name,
+                    }
+                )
+        except Exception:
+            return []
+        return entries
+
+    def info_file(self, torrent_id: int) -> str:
+        import subprocess
+
+        result = subprocess.run(
+            [
+                "transmission-remote",
+                self._rpc,
+                "--no-auth",
+                f"-t{torrent_id}",
+                "--info-files",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            return ""
+        import re
+
+        try:
+            lines = (result.stdout or "").splitlines()
+            for line in lines:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                # Data rows look like: "0: 100% Normal Yes 1.50 GB my-list.7z"
+                # i.e. they start with an integer followed by a colon.
+                m = re.match(r"^\d+:\s+(.*)$", stripped)
+                if not m:
+                    continue
+                rest = m.group(1)
+                # Columns after "<id>:" are: Done Priority Get Size Unit Name
+                # Split into 6 tokens; 5 splits gives us up to the Name field.
+                tokens = rest.split(None, 5)
+                if len(tokens) >= 6:
+                    return tokens[5]
+                # Less-formal output: return whatever follows the percent token.
+                tokens = rest.split(None, 1)
+                if len(tokens) == 2:
+                    return tokens[1]
+                return rest
+        except Exception:
+            return ""
+        return ""
+
+    def remove(self, torrent_id: int):
+        import subprocess
+
+        subprocess.run(
+            [
+                "transmission-remote",
+                self._rpc,
+                "--no-auth",
+                f"-t{torrent_id}",
+                "--remove",
+            ],
+            capture_output=True,
+        )
+
+    def wait_for_all(self, on_complete: Callable[[int, str], None]) -> None:
+        completed_ids: set = set()
+        while True:
+            time.sleep(self.poll_interval)
+            entries = self.list()
+            if not entries:
+                if completed_ids:
+                    break
+                # Nothing left to do
+                break
+            for entry in entries:
+                if (
+                    entry["percent_done"] >= 100.0
+                    and entry["id"] not in completed_ids
+                ):
+                    completed_ids.add(entry["id"])
+                    file_name = self.info_file(entry["id"])
+                    if file_name:
+                        on_complete(entry["id"], file_name)
+                    self.remove(entry["id"])
 
 
 def get_hcat_wordlists_dir():
@@ -329,6 +607,58 @@ def register_torrent_cleanup():
 
     atexit.register(cleanup_torrent_files)
     _TORRENT_CLEANUP_REGISTERED = True
+
+
+def run_torrent_session(torrent_files, save_dir, *, print_fn=print) -> None:
+    """Run a single transmission-daemon session that downloads all
+    ``torrent_files`` into ``save_dir`` in parallel.
+
+    For each torrent that completes, the resulting file is auto-extracted
+    if it ends with ``.7z``. The daemon is torn down on exit (clean or
+    interrupted).
+    """
+    if not check_transmission_daemon():
+        return
+    if not check_7z():
+        return
+    completed = 0
+    failed = 0
+
+    def on_complete(torrent_id, file_path):
+        nonlocal completed, failed
+        if not file_path:
+            failed += 1
+            return
+        abs_path = (
+            file_path
+            if os.path.isabs(file_path)
+            else os.path.join(save_dir, file_path)
+        )
+        if abs_path.endswith(".7z"):
+            ok = extract_with_7z(abs_path, save_dir, remove_archive=True)
+            if ok:
+                completed += 1
+            else:
+                failed += 1
+        else:
+            completed += 1
+
+    try:
+        with TransmissionSession(save_dir) as ts:
+            for tf in torrent_files:
+                try:
+                    ts.add(tf)
+                    print_fn(f"[i] Added torrent: {tf}")
+                except Exception as e:
+                    print_fn(f"[!] Failed to add torrent {tf}: {e}")
+                    failed += 1
+            ts.wait_for_all(on_complete=on_complete)
+    except KeyboardInterrupt:
+        print_fn("\n[!] Torrent download interrupted.")
+        raise
+    print_fn(
+        f"[i] Torrent session complete: {completed} succeeded, {failed} failed."
+    )
 
 
 def fetch_all_weakpass_wordlists_multithreaded(total_pages=None, threads=10):
