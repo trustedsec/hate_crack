@@ -429,7 +429,8 @@ def fetch_all_weakpass_wordlists_multithreaded(total_pages=None, threads=10):
                     wordlists.extend(entries)
             except Exception as e:
                 print(f"Error fetching page {page}: {e}")
-            q.task_done()
+            finally:
+                q.task_done()
 
     start_page = 2 if entries1 else 1
     for page in range(start_page, total_pages + 1):
