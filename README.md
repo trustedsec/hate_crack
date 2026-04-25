@@ -77,7 +77,7 @@ sudo apt-get install -y p7zip-full transmission-daemon
 
 macOS (Homebrew):
 ```bash
-brew install p7zip transmission-cli
+brew install p7zip transmission-cli  # provides transmission-daemon and transmission-remote
 ```
 
 Then install the Python dependencies and CLI shim:

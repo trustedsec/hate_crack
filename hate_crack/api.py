@@ -461,6 +461,7 @@ class TransmissionSession:
                 if len(tokens) == 2:
                     return tokens[1]
                 return rest
+            return ""
         except Exception:
             return ""
 
