@@ -13,7 +13,7 @@ RUN apt-get update \
         ocl-icd-libopencl1 \
         pocl-opencl-icd \
         p7zip-full \
-        transmission-cli \
+        transmission-daemon \
     && rm -rf /var/lib/apt/lists/*
 
 RUN python -m pip install -q uv==0.9.28

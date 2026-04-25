@@ -18,7 +18,7 @@ make coverage
 | `HASHMOB_TEST_REAL=1` | Enable live Hashmob connectivity tests |
 | `HASHVIEW_TEST_REAL=1` | Enable live Hashview CLI menu tests |
 | `WEAKPASS_TEST_REAL=1` | Enable live Weakpass CLI menu tests |
-| `HATE_CRACK_REQUIRE_DEPS=1` | Fail if `7z` or `transmission-cli` are missing |
+| `HATE_CRACK_REQUIRE_DEPS=1` | Fail if `7z` or `transmission-daemon` are missing |
 | `HATE_CRACK_RUN_LIVE_TESTS=1` | Enable live Hashview upload test (requires valid credentials in `config.json`) |
 | `HATE_CRACK_RUN_LIVE_HASHVIEW_TESTS=1` | Enable live Hashview wordlist upload test |
 | `HATE_CRACK_RUN_E2E=1` | Enable local uv tool install E2E test |

@@ -21,5 +21,9 @@ def test_dependency_7z_installed():
     _require_executable("7z")
 
 
-def test_dependency_transmission_cli_installed():
-    _require_executable("transmission-cli")
+def test_dependency_transmission_daemon_installed():
+    _require_executable("transmission-daemon")
+
+
+def test_dependency_transmission_remote_installed():
+    _require_executable("transmission-remote")
