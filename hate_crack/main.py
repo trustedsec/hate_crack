@@ -58,6 +58,7 @@ if os.path.isdir(_pkg_dir):
 from hate_crack.api import (  # noqa: E402
     fetch_all_weakpass_wordlists_multithreaded,
     download_torrent_file,
+    fetch_torrent_metadata,
     weakpass_wordlist_menu,
 )
 from hate_crack.api import HashviewAPI  # noqa: E402
@@ -4669,7 +4670,7 @@ def main():
         try:
             download_all_weakpass_torrents(
                 fetch_all_wordlists=fetch_all_weakpass_wordlists_multithreaded,
-                download_torrent=download_torrent_file,
+                download_torrent=fetch_torrent_metadata,
                 print_fn=print,
             )
         except Exception:
