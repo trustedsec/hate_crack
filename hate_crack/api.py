@@ -277,7 +277,7 @@ class TransmissionSession:
                 "-f",
                 "-g",
                 self._cfg_dir,
-                "--rpc-port",
+                "--port",
                 str(self._port),
                 "--rpc-bind-address",
                 "127.0.0.1",
