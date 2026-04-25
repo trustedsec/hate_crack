@@ -153,9 +153,10 @@ def _with_hashmob_backoff(
     penalty = base_delay
     for attempt in range(max_attempts):
         try:
-            result = fn()
-            return result
+            return fn()
         except _Hashmob429:
+            if attempt == max_attempts - 1:
+                break
             print(f"[!] Rate limit hit (429). Backing off for {penalty} seconds...")
             time.sleep(penalty)
             penalty = min(penalty + step, max_delay)
@@ -1182,8 +1183,10 @@ class HashviewAPI:
             output_file = os.path.join(dest_dir, output_file)
         os.makedirs(os.path.dirname(output_file), exist_ok=True)
 
-        ok = _stream_response_to_file(resp, output_file, label=output_file)
-        resp.close()
+        try:
+            ok = _stream_response_to_file(resp, output_file, label=output_file)
+        finally:
+            resp.close()
         if ok:
             return {"output_file": output_file, "size": os.path.getsize(output_file)}
         return {"output_file": output_file, "size": 0}
@@ -1452,9 +1455,7 @@ def download_hashmob_wordlist(file_name, out_path):
 
     def _attempt():
         _hashmob_limiter.wait()
-        with requests.get(
-            url, headers=headers, stream=True, timeout=60, allow_redirects=True
-        ) as r:
+        with requests.get(url, headers=headers, stream=True, timeout=60, allow_redirects=True) as r:
             if r.status_code == 429:
                 raise _Hashmob429()
             r.raise_for_status()
@@ -1472,8 +1473,7 @@ def download_hashmob_wordlist(file_name, out_path):
                     return _streamed_download(real_url, out_path, label=file_name)
                 print("Error: Received HTML instead of file. Possible permission or quota issue.")
                 return False
-        # Normal binary download — re-request now that we've confirmed the URL is good
-        return _streamed_download(url, out_path, headers=headers, label=file_name)
+            return _stream_response_to_file(r, out_path, label=file_name)
 
     try:
         return _with_hashmob_backoff(_attempt)
@@ -1588,24 +1588,18 @@ def download_hashmob_rule(file_name, out_path):
 
     def _attempt():
         _hashmob_limiter.wait()
-        with requests.get(
-            primary_url, headers=headers, stream=True, timeout=60, allow_redirects=True
-        ) as r:
+        with requests.get(primary_url, headers=headers, stream=True, timeout=60, allow_redirects=True) as r:
             if r.status_code == 429:
                 raise _Hashmob429()
             if r.status_code == 404 and alt_url:
-                print(
-                    f"[i] Hashmob rule not found at primary URL, trying fallback: {alt_url}"
-                )
-                with requests.get(
-                    alt_url, headers=headers, stream=True, timeout=60, allow_redirects=True
-                ) as r_alt:
-                    if r_alt.status_code == 429:
+                print(f"[i] Hashmob rule not found at primary URL, trying fallback: {alt_url}")
+                with requests.get(alt_url, headers=headers, stream=True, timeout=60, allow_redirects=True) as r2:
+                    if r2.status_code == 429:
                         raise _Hashmob429()
-                    r_alt.raise_for_status()
-                return _streamed_download(alt_url, out_path, headers=headers, label=file_name)
+                    r2.raise_for_status()
+                    return _stream_response_to_file(r2, out_path, label=file_name)
             r.raise_for_status()
-        return _streamed_download(primary_url, out_path, headers=headers, label=file_name)
+            return _stream_response_to_file(r, out_path, label=file_name)
 
     try:
         return _with_hashmob_backoff(_attempt)
