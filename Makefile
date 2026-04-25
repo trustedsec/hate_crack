@@ -79,13 +79,13 @@ install: submodules
 		}; \
 		command -v brew >/dev/null 2>&1 || { echo >&2 "Homebrew not found. Please install Homebrew first: https://brew.sh/"; exit 1; }; \
 		command -v 7z >/dev/null 2>&1 || brew install p7zip; \
-		command -v transmission-cli >/dev/null 2>&1 || brew install transmission-cli; \
+		command -v transmission-daemon >/dev/null 2>&1 || brew install transmission; \
 	elif [ -f /etc/debian_version ]; then \
 		echo "Detected Debian/Ubuntu"; \
 		command -v gcc >/dev/null 2>&1 || { sudo apt-get update && sudo apt-get install -y build-essential; }; \
 		NEED_INSTALL=""; \
 		command -v 7z >/dev/null 2>&1 || NEED_INSTALL="$$NEED_INSTALL p7zip-full"; \
-		command -v transmission-cli >/dev/null 2>&1 || NEED_INSTALL="$$NEED_INSTALL transmission-cli"; \
+		command -v transmission-daemon >/dev/null 2>&1 || NEED_INSTALL="$$NEED_INSTALL transmission-daemon"; \
 		if [ -n "$$NEED_INSTALL" ]; then \
 			sudo apt-get update && sudo apt-get install -y $$NEED_INSTALL; \
 		fi; \
@@ -159,11 +159,11 @@ uninstall:
 	@if [ "$(shell uname)" = "Darwin" ]; then \
 		echo "Detected macOS"; \
 		command -v brew >/dev/null 2>&1 || { echo >&2 "Homebrew not found. Please uninstall Homebrew packages manually."; exit 1; }; \
-		brew uninstall --ignore-dependencies p7zip transmission-cli || true; \
+		brew uninstall --ignore-dependencies p7zip transmission || true; \
 		rm -rf ~/.cache/uv; \
 	elif [ -f /etc/debian_version ]; then \
 		echo "Detected Debian/Ubuntu"; \
-		sudo apt-get remove -y p7zip-full transmission-cli || true; \
+		sudo apt-get remove -y p7zip-full transmission-daemon || true; \
 		rm -rf ~/.cache/uv; \
 	else \
 		echo "Unsupported OS. Please uninstall dependencies manually."; \

@@ -32,7 +32,7 @@ provision:
         ocl-icd-libopencl1 \
         pocl-opencl-icd \
         p7zip-full \
-        transmission-cli
+        transmission-daemon
 
   - mode: user
     script: |
