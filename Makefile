@@ -79,7 +79,7 @@ install: submodules
 		}; \
 		command -v brew >/dev/null 2>&1 || { echo >&2 "Homebrew not found. Please install Homebrew first: https://brew.sh/"; exit 1; }; \
 		command -v 7z >/dev/null 2>&1 || brew install p7zip; \
-		command -v transmission-daemon >/dev/null 2>&1 || brew install transmission; \
+		command -v transmission-daemon >/dev/null 2>&1 || brew install transmission-cli; \
 	elif [ -f /etc/debian_version ]; then \
 		echo "Detected Debian/Ubuntu"; \
 		command -v gcc >/dev/null 2>&1 || { sudo apt-get update && sudo apt-get install -y build-essential; }; \
@@ -159,7 +159,7 @@ uninstall:
 	@if [ "$(shell uname)" = "Darwin" ]; then \
 		echo "Detected macOS"; \
 		command -v brew >/dev/null 2>&1 || { echo >&2 "Homebrew not found. Please uninstall Homebrew packages manually."; exit 1; }; \
-		brew uninstall --ignore-dependencies p7zip transmission || true; \
+		brew uninstall --ignore-dependencies p7zip transmission-cli || true; \
 		rm -rf ~/.cache/uv; \
 	elif [ -f /etc/debian_version ]; then \
 		echo "Detected Debian/Ubuntu"; \
