@@ -1677,12 +1677,26 @@ def list_and_download_official_wordlists():
         )
         if sel.lower() == "q":
             return
+        dest_dir = get_hcat_wordlists_dir()
+
+        def _already_downloaded_wordlist(file_name):
+            sanitized = sanitize_filename(file_name)
+            if sanitized.endswith(".7z"):
+                extracted_name = sanitized[:-3]
+                check_path = os.path.join(dest_dir, extracted_name)
+            else:
+                check_path = os.path.join(dest_dir, sanitized)
+            return os.path.isfile(check_path) and os.path.getsize(check_path) > 0
+
         if sel.lower() == "a":
             try:
                 for entry in data:
                     file_name = entry.get("file_name")
                     if not file_name:
                         print("No file_name found for an entry, skipping.")
+                        continue
+                    if _already_downloaded_wordlist(file_name):
+                        print(f"[i] Skipping {file_name} (already present)")
                         continue
                     out_path = entry.get("file_name", file_name)
                     download_official_wordlist(file_name, out_path)
@@ -1722,6 +1736,9 @@ def list_and_download_official_wordlists():
                 file_name = entry.get("file_name")
                 if not file_name:
                     print("No file_name found for selection, skipping.")
+                    continue
+                if _already_downloaded_wordlist(file_name):
+                    print(f"[i] Skipping {file_name} (already present)")
                     continue
                 out_path = entry.get("file_name", file_name)
                 download_official_wordlist(file_name, out_path)
