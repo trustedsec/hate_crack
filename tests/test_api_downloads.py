@@ -2,7 +2,7 @@ import json
 import os
 
 import pytest
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 from hate_crack.api import (
     check_7z,
@@ -14,7 +14,12 @@ from hate_crack.api import (
     get_hcat_potfile_path,
     list_and_download_hashmob_rules,
     sanitize_filename,
+    _Hashmob429,
+    _streamed_download,
+    _with_hashmob_backoff,
+    list_and_download_official_wordlists,
 )
+import requests as req_lib
 
 
 class TestSanitizeFilename:
@@ -300,3 +305,165 @@ class TestParallelRuleDownloads:
         assert mock_dl.call_args.args[0] == "new.rule"
         captured = capsys.readouterr()
         assert "Skipping already downloaded" in captured.out
+
+
+def _make_mock_response(
+    status_code=200,
+    content=b"file data",
+    content_type="application/octet-stream",
+    headers=None,
+):
+    mock_resp = MagicMock()
+    mock_resp.__enter__ = lambda s: mock_resp
+    mock_resp.__exit__ = MagicMock(return_value=False)
+    mock_resp.status_code = status_code
+    mock_resp.headers = {
+        "Content-Type": content_type,
+        "content-length": str(len(content)),
+        **(headers or {}),
+    }
+    mock_resp.iter_content.return_value = [content]
+    mock_resp.content = content
+    mock_resp.raise_for_status = MagicMock()
+    return mock_resp
+
+
+class TestStreamedDownload:
+    def test_happy_path(self, tmp_path):
+        content = b"hello data"
+        mock_resp = _make_mock_response(status_code=200, content=content)
+        out = tmp_path / "out.txt"
+        with patch("hate_crack.api.requests.get", return_value=mock_resp) as mock_get:
+            result = _streamed_download("https://example.com/file.txt", str(out))
+        assert result is True
+        assert out.exists()
+        assert out.read_bytes() == content
+        assert not (tmp_path / "out.txt.part").exists()
+        mock_get.assert_called_once()
+        assert mock_get.call_args.args[0] == "https://example.com/file.txt"
+
+    def test_partial_cleanup_on_error(self, tmp_path):
+        mock_resp = _make_mock_response(status_code=200, content=b"some data")
+        mock_resp.iter_content.side_effect = req_lib.exceptions.ChunkedEncodingError(
+            "network error"
+        )
+        out = tmp_path / "out.txt"
+        with patch("hate_crack.api.requests.get", return_value=mock_resp):
+            result = _streamed_download("https://example.com/file.txt", str(out))
+        assert result is False
+        assert not out.exists()
+        assert not (tmp_path / "out.txt.part").exists()
+
+    def test_keyboardinterrupt_cleanup(self, tmp_path):
+        mock_resp = _make_mock_response(status_code=200, content=b"some data")
+        mock_resp.iter_content.side_effect = KeyboardInterrupt
+        out = tmp_path / "out.txt"
+        ki_raised = False
+        with patch("hate_crack.api.requests.get", return_value=mock_resp):
+            try:
+                _streamed_download("https://example.com/file.txt", str(out))
+            except KeyboardInterrupt:
+                ki_raised = True
+        assert ki_raised
+        assert not (tmp_path / "out.txt.part").exists()
+
+    def test_skip_existing(self, tmp_path):
+        out = tmp_path / "out.txt"
+        out.write_bytes(b"already here")
+        with patch("hate_crack.api.requests.get") as mock_get:
+            result = _streamed_download(
+                "https://example.com/file.txt", str(out), skip_existing=True
+            )
+        assert result is True
+        mock_get.assert_not_called()
+
+
+class TestHashmobBackoff:
+    def test_gives_up_after_max_attempts(self, capsys):
+        fn = MagicMock(side_effect=_Hashmob429)
+        with patch("time.sleep") as mock_sleep, \
+             patch("hate_crack.api._hashmob_limiter.wait"):
+            result = _with_hashmob_backoff(fn, max_attempts=3, base_delay=1, step=1, max_delay=10)
+        assert result is False
+        assert fn.call_count == 3
+        # sleep called between attempts, but NOT after the last attempt
+        assert mock_sleep.call_count == 2
+        captured = capsys.readouterr()
+        assert "gave up after 3 attempts" in captured.out
+
+    def test_succeeds_on_first_try(self):
+        fn = MagicMock(return_value=True)
+        with patch("time.sleep") as mock_sleep:
+            result = _with_hashmob_backoff(fn)
+        assert result is True
+        mock_sleep.assert_not_called()
+
+    def test_succeeds_after_retry(self):
+        fn = MagicMock(side_effect=[_Hashmob429(), _Hashmob429(), True])
+        with patch("time.sleep") as mock_sleep, \
+             patch("hate_crack.api._hashmob_limiter.wait"):
+            result = _with_hashmob_backoff(fn, max_attempts=6, base_delay=1, step=1, max_delay=10)
+        assert result is True
+        assert fn.call_count == 3
+        assert mock_sleep.call_count == 2
+
+    def test_non_429_exception_reraises(self):
+        fn = MagicMock(side_effect=ValueError("not a 429"))
+        with pytest.raises(ValueError, match="not a 429"):
+            _with_hashmob_backoff(fn)
+
+
+class TestHashmobWordlistRedirectBugFix:
+    def test_meta_refresh_redirect_uses_verbatim_url(self, tmp_path):
+        real_url = "https://real-server.example.com/actual_file.txt"
+        html_content = (
+            "<html><head>"
+            '<meta http-equiv="refresh" content="0;url=https://real-server.example.com/actual_file.txt">'
+            "</head></html>"
+        ).encode()
+        mock_resp = _make_mock_response(
+            status_code=200,
+            content=html_content,
+            content_type="text/plain",
+        )
+        with patch("hate_crack.api.requests.get", return_value=mock_resp), \
+             patch("hate_crack.api.time.sleep"), \
+             patch("hate_crack.api._hashmob_limiter.wait"), \
+             patch("hate_crack.api._streamed_download", return_value=True) as mock_sd:
+            download_hashmob_wordlist("some_file.txt", str(tmp_path / "out.txt"))
+
+        mock_sd.assert_called_once()
+        called_url = mock_sd.call_args.args[0]
+        assert called_url == real_url, (
+            f"Expected verbatim redirect URL '{real_url}', got '{called_url}'"
+        )
+        assert "hashmob.net" not in called_url or called_url == real_url
+
+
+class TestListAndDownloadOfficialWordlistsSkipExisting:
+    def test_skips_already_downloaded_in_all_branch(self, tmp_path, capsys):
+        wordlists_dir = tmp_path / "wordlists"
+        wordlists_dir.mkdir()
+        # Pre-create existing.txt with content so it passes the size>0 check
+        (wordlists_dir / "existing.txt").write_bytes(b"already downloaded")
+
+        api_data = [{"file_name": "existing.txt"}, {"file_name": "new.txt"}]
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json.return_value = api_data
+
+        mock_stdin = MagicMock()
+        mock_stdin.isatty.return_value = True
+
+        with patch("hate_crack.api.requests.get", return_value=mock_resp), \
+             patch("hate_crack.api.get_hcat_wordlists_dir", return_value=str(wordlists_dir)), \
+             patch("hate_crack.api.download_official_wordlist") as mock_dl, \
+             patch("hate_crack.api.sys.stdin", mock_stdin), \
+             patch("builtins.input", return_value="a"):
+            list_and_download_official_wordlists()
+
+        assert mock_dl.call_count == 1
+        called_filename = mock_dl.call_args.args[0]
+        assert called_filename == "new.txt"
+        captured = capsys.readouterr()
+        assert "Skipping existing.txt" in captured.out
