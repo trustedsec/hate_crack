@@ -30,6 +30,7 @@ def _sync_globals_to_main():
         "hcatHashFileOrig",
         "pipalPath",
         "debug_mode",
+        "hcatUsernamePrefix",
     ):
         if name in globals():
             setattr(_main, name, globals()[name])
