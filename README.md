@@ -45,7 +45,7 @@ Then customize configuration in `config.json` if needed (wordlist paths, API key
 ### 3. Install dependencies and hate_crack
 
 The easiest way is to run `make` (or `make install`), which auto-detects your OS and installs:
-- External dependencies (p7zip, transmission-daemon)
+- External dependencies (p7zip, transmission-daemon / transmission-remote)
 - Builds submodules (hashcat-utils, princeprocessor, and optionally omen)
 - Python dependencies via uv and a CLI shim at `~/.local/bin/hate_crack`
 
@@ -77,7 +77,7 @@ sudo apt-get install -y p7zip-full transmission-daemon
 
 macOS (Homebrew):
 ```bash
-brew install p7zip transmission
+brew install p7zip transmission-cli
 ```
 
 Then install the Python dependencies and CLI shim:
@@ -583,7 +583,7 @@ Set any of the following to enable live checks:
 - `HASHMOB_TEST_REAL=1` — live Hashmob connectivity/CLI menu check
 - `HASHVIEW_TEST_REAL=1` — live Hashview CLI menu check
 - `WEAKPASS_TEST_REAL=1` — live Weakpass CLI menu check
-- `HATE_CRACK_REQUIRE_DEPS=1` — fail if `7z` or `transmission-daemon` is missing
+- `HATE_CRACK_REQUIRE_DEPS=1` — fail if `7z`, `transmission-daemon`, or `transmission-remote` is missing
 
 ### Live Hashview Upload Test
 
