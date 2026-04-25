@@ -112,7 +112,7 @@ class TestTransmissionSession:
                 args = popen.call_args[0][0]
                 assert args[0] == "transmission-daemon"
                 assert "-f" in args
-                assert "--rpc-port" in args
+                assert "--port" in args
                 assert "12345" in args
                 assert "--no-auth" in args
                 assert "--download-dir" in args
