@@ -786,7 +786,11 @@ def fetch_all_weakpass_wordlists_multithreaded(total_pages=None, threads=10):
     return unique_wordlists
 
 
-def download_torrent_file(torrent_url, save_dir=None, wordlist_id=None):
+def fetch_torrent_metadata(torrent_url, save_dir=None, wordlist_id=None):
+    """Download the .torrent metadata file from Weakpass and return its local path.
+
+    Returns the path to the saved .torrent file, or None on failure.
+    """
     register_torrent_cleanup()
 
     if not save_dir:
@@ -913,53 +917,19 @@ def download_torrent_file(torrent_url, save_dir=None, wordlist_id=None):
             print(f"Could not decode response for debug: {e}")
         return None
 
-    if shutil.which("transmission-cli") is None:
-        print("[ERROR] transmission-cli is not installed or not in your PATH.")
-        print(
-            "Please install it with: brew install transmission-cli (on macOS) or your package manager."
-        )
-        print(
-            f"Torrent file saved at {local_filename}, but download will not start until transmission-cli is available."
-        )
-        return local_filename
-
-    def run_transmission(torrent_file, output_dir):
-        import subprocess
-
-        print(f"Starting transmission-cli for {torrent_file}...")
-        try:
-            pkg_dir = os.path.dirname(os.path.abspath(__file__))
-            project_root = os.path.abspath(os.path.join(pkg_dir, os.pardir))
-            kill_script = os.path.join(
-                project_root, "wordlists", "kill_transmission.sh"
-            )
-            cmd = ["transmission-cli", "-w", output_dir, torrent_file]
-            if os.path.isfile(kill_script):
-                cmd.extend(["-f", kill_script])
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-                universal_newlines=True,
-            )
-            if proc.stdout is not None:
-                for line in proc.stdout:
-                    print(line, end="")
-            proc.wait()
-            if proc.returncode != 0:
-                print(
-                    f"transmission-cli failed for {torrent_file} (exit {proc.returncode})"
-                )
-                return
-            else:
-                print(f"Download complete for {torrent_file}")
-        except Exception as e:
-            print(f"Error running transmission-cli: {e}")
-
-    run_transmission(local_filename, save_dir)
     return local_filename
+
+
+def download_torrent_file(torrent_url, save_dir=None, wordlist_id=None):
+    """Download and run a single Weakpass torrent. Kept for API compatibility."""
+    if save_dir is None:
+        save_dir = get_hcat_wordlists_dir()
+    meta = fetch_torrent_metadata(
+        torrent_url, save_dir=save_dir, wordlist_id=wordlist_id
+    )
+    if meta:
+        run_torrent_session([meta], save_dir)
+    return meta
 
 
 def weakpass_wordlist_menu(rank=-1):
@@ -1038,13 +1008,20 @@ def weakpass_wordlist_menu(rank=-1):
         if not indices:
             print("No valid selection.")
             return
+        torrent_files = []
         for idx in indices:
             entry = filtered_wordlists[idx - 1]
             torrent_url = entry.get("torrent_url")
             if not torrent_url:
                 print(f"[!] Missing torrent URL for selection {idx}")
                 continue
-            download_torrent_file(torrent_url, wordlist_id=entry.get("id"))
+            meta = fetch_torrent_metadata(
+                torrent_url, wordlist_id=entry.get("id")
+            )
+            if meta:
+                torrent_files.append(meta)
+        if torrent_files:
+            run_torrent_session(torrent_files, get_hcat_wordlists_dir())
     except KeyboardInterrupt:
         print("\nKeyboard interrupt: Returning to main menu...")
         return
@@ -2336,7 +2313,14 @@ def download_all_weakpass_torrents(
         if wl.get("torrent_url")
     ]
     print_fn(f"[i] Downloading {len(torrents)} torrents...")
+    torrent_files = []
     for tfile, wordlist_id in torrents:
-        print_fn(f"[i] Downloading: {tfile}")
-        download_torrent(tfile, wordlist_id=wordlist_id)
+        print_fn(f"[i] Fetching torrent metadata: {tfile}")
+        meta = download_torrent(tfile, wordlist_id=wordlist_id)
+        if meta:
+            torrent_files.append(meta)
+    if torrent_files:
+        run_torrent_session(
+            torrent_files, save_dir=get_hcat_wordlists_dir(), print_fn=print_fn
+        )
     print_fn("[i] All torrents processed.")
