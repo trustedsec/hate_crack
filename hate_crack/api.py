@@ -331,11 +331,92 @@ def register_torrent_cleanup():
     _TORRENT_CLEANUP_REGISTERED = True
 
 
-def fetch_all_weakpass_wordlists_multithreaded(total_pages=67, threads=10):
-    wordlists = []
+def fetch_all_weakpass_wordlists_multithreaded(total_pages=None, threads=10):
+    """Fetch all Weakpass wordlists. Auto-detects page count from the Inertia payload."""
+    headers = {"User-Agent": "Mozilla/5.0"}
+
+    def _fetch_page(page):
+        """Fetch a single page; return (entries, last_page_or_None)."""
+        url = f"https://weakpass.com/wordlists?page={page}"
+        r = requests.get(url, headers=headers, timeout=30)
+        soup = BeautifulSoup(r.text, "html.parser")
+        app_div = soup.find("div", id="app")
+        if not app_div or not app_div.has_attr("data-page"):
+            return [], None
+        data_page_val = app_div["data-page"]
+        if not isinstance(data_page_val, str):
+            data_page_val = str(data_page_val)
+        data = json.loads(data_page_val)
+        wordlists_raw = data.get("props", {}).get("wordlists", {})
+        last_page = None
+        if isinstance(wordlists_raw, dict):
+            # Check multiple possible locations for last_page
+            last_page = (
+                wordlists_raw.get("last_page")
+                or wordlists_raw.get("meta", {}).get("last_page")
+            )
+            if "data" in wordlists_raw:
+                wordlists_raw = wordlists_raw["data"]
+            else:
+                wordlists_raw = []
+        entries = [
+            {
+                "id": wl.get("id", ""),
+                "name": wl.get("name", ""),
+                "size": wl.get("size", ""),
+                "rank": wl.get("rank", ""),
+                "downloads": wl.get("downloaded", ""),
+                "torrent_url": wl.get("torrent_link", ""),
+            }
+            for wl in wordlists_raw
+        ]
+        return entries, last_page
+
+    # Determine total_pages via probe if not provided
+    if total_pages is None:
+        try:
+            entries1, detected = _fetch_page(1)
+            if detected:
+                total_pages = int(detected)
+                print(f"[i] Weakpass: {total_pages} pages detected")
+            elif entries1:
+                # last_page not in payload; fall back to sequential until empty
+                all_wordlists = list(entries1)
+                page = 2
+                while True:
+                    try:
+                        entries, _ = _fetch_page(page)
+                    except Exception as e:
+                        print(f"Error fetching page {page}: {e}")
+                        break
+                    if not entries:
+                        break
+                    all_wordlists.extend(entries)
+                    page += 1
+                # de-duplicate and return early
+                seen = set()
+                result = []
+                for wl in all_wordlists:
+                    if wl["name"] not in seen:
+                        result.append(wl)
+                        seen.add(wl["name"])
+                return result
+            else:
+                print("[!] Weakpass page 1 returned no results; falling back to 67 pages")
+                total_pages = 67
+                entries1 = []
+        except Exception as e:
+            print(f"[!] Weakpass probe failed ({e}); falling back to 67 pages")
+            total_pages = 67
+            entries1 = []
+    else:
+        entries1 = []
+
+    # Thread-pool fetch for pages 1..total_pages
+    # (If we already have entries1 from the probe, we skip page 1 in the pool)
+    wordlists = list(entries1)
     lock = threading.Lock()
     q = Queue()
-    headers = {"User-Agent": "Mozilla/5.0"}
 
     def worker():
         while True:
@@ -343,37 +424,15 @@ def fetch_all_weakpass_wordlists_multithreaded(total_pages=67, threads=10):
             if page is None:
                 break
             try:
-                url = f"https://weakpass.com/wordlists?page={page}"
-                r = requests.get(url, headers=headers, timeout=30)
-                soup = BeautifulSoup(r.text, "html.parser")
-                app_div = soup.find("div", id="app")
-                if not app_div or not app_div.has_attr("data-page"):
-                    q.task_done()
-                    continue
-                data_page_val = app_div["data-page"]
-                if not isinstance(data_page_val, str):
-                    data_page_val = str(data_page_val)
-                data = json.loads(data_page_val)
-                wordlists_data = data.get("props", {}).get("wordlists", {})
-                if isinstance(wordlists_data, dict) and "data" in wordlists_data:
-                    wordlists_data = wordlists_data["data"]
+                entries, _ = _fetch_page(page)
                 with lock:
-                    for wl in wordlists_data:
-                        wordlists.append(
-                            {
-                                "id": wl.get("id", ""),
-                                "name": wl.get("name", ""),
-                                "size": wl.get("size", ""),
-                                "rank": wl.get("rank", ""),
-                                "downloads": wl.get("downloaded", ""),
-                                "torrent_url": wl.get("torrent_link", ""),
-                            }
-                        )
+                    wordlists.extend(entries)
             except Exception as e:
                 print(f"Error fetching page {page}: {e}")
             q.task_done()
 
-    for page in range(1, total_pages + 1):
+    start_page = 2 if entries1 else 1
+    for page in range(start_page, total_pages + 1):
         q.put(page)
 
     threads_list = []
