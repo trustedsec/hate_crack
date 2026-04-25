@@ -381,7 +381,7 @@ class TestStreamedDownload:
 class TestHashmobBackoff:
     def test_gives_up_after_max_attempts(self, capsys):
         fn = MagicMock(side_effect=_Hashmob429)
-        with patch("time.sleep") as mock_sleep, \
+        with patch("hate_crack.api.time.sleep") as mock_sleep, \
              patch("hate_crack.api._hashmob_limiter.wait"):
             result = _with_hashmob_backoff(fn, max_attempts=3, base_delay=1, step=1, max_delay=10)
         assert result is False
@@ -400,7 +400,7 @@ class TestHashmobBackoff:
 
     def test_succeeds_after_retry(self):
         fn = MagicMock(side_effect=[_Hashmob429(), _Hashmob429(), True])
-        with patch("time.sleep") as mock_sleep, \
+        with patch("hate_crack.api.time.sleep") as mock_sleep, \
              patch("hate_crack.api._hashmob_limiter.wait"):
             result = _with_hashmob_backoff(fn, max_attempts=6, base_delay=1, step=1, max_delay=10)
         assert result is True
@@ -437,7 +437,6 @@ class TestHashmobWordlistRedirectBugFix:
         assert called_url == real_url, (
             f"Expected verbatim redirect URL '{real_url}', got '{called_url}'"
         )
-        assert "hashmob.net" not in called_url or called_url == real_url
 
 
 class TestListAndDownloadOfficialWordlistsSkipExisting:
