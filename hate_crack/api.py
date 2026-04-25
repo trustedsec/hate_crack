@@ -1008,6 +1008,7 @@ def weakpass_wordlist_menu(rank=-1):
         if not indices:
             print("No valid selection.")
             return
+        save_dir = get_hcat_wordlists_dir()
         torrent_files = []
         for idx in indices:
             entry = filtered_wordlists[idx - 1]
@@ -1015,13 +1016,13 @@ def weakpass_wordlist_menu(rank=-1):
             if not torrent_url:
                 print(f"[!] Missing torrent URL for selection {idx}")
                 continue
-            meta = fetch_torrent_metadata(
-                torrent_url, wordlist_id=entry.get("id")
-            )
+            meta = fetch_torrent_metadata(torrent_url, save_dir=save_dir, wordlist_id=entry.get("id"))
             if meta:
                 torrent_files.append(meta)
         if torrent_files:
-            run_torrent_session(torrent_files, get_hcat_wordlists_dir())
+            run_torrent_session(torrent_files, save_dir)
+        else:
+            print("[!] No torrent metadata files were fetched successfully.")
     except KeyboardInterrupt:
         print("\nKeyboard interrupt: Returning to main menu...")
         return
