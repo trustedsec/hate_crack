@@ -1,4 +1,5 @@
 import concurrent.futures
+import html
 import json
 import re
 import sys
@@ -669,7 +670,7 @@ def _get_weakpass_inertia_version(headers: dict) -> str | None:
         m = re.search(r'data-page="([^"]*)"', r.text)
         if not m:
             return None
-        raw = m.group(1).replace("&quot;", '"')
+        raw = html.unescape(m.group(1))
         data = json.loads(raw)
         version = data.get("version")
         if version:
@@ -712,12 +713,12 @@ def _fetch_weakpass_listing_page(page: int, headers: dict) -> tuple[list[dict], 
     return _extract_weakpass_entries(data)
 
 
-def _parse_weakpass_html_page(html: str) -> tuple[list[dict], int | None]:
-    m = re.search(r'data-page="([^"]*)"', html)
+def _parse_weakpass_html_page(page_html: str) -> tuple[list[dict], int | None]:
+    m = re.search(r'data-page="([^"]*)"', page_html)
     if not m:
         return [], None
     try:
-        data = json.loads(m.group(1).replace("&quot;", '"'))
+        data = json.loads(html.unescape(m.group(1)))
     except Exception:
         return [], None
     return _extract_weakpass_entries(data)
@@ -941,7 +942,7 @@ def fetch_torrent_metadata(torrent_url, save_dir=None, wordlist_id=None):
                 data_page_val = app_div["data-page"]
                 if not isinstance(data_page_val, str):
                     data_page_val = str(data_page_val)
-                data_page_val = data_page_val.replace("&quot;", '"')
+                data_page_val = html.unescape(data_page_val)
                 try:
                     data = json.loads(data_page_val)
                     wordlist = data.get("props", {}).get("wordlist")
