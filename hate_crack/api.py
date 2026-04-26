@@ -679,6 +679,75 @@ def _get_weakpass_inertia_version(headers: dict) -> str | None:
         return None
 
 
+def _fetch_weakpass_listing_page(page: int, headers: dict) -> tuple[list[dict], int | None]:
+    url = f"https://weakpass.com/wordlists?page={page}"
+    version = _get_weakpass_inertia_version(headers)
+    if version:
+        req_headers = {
+            **headers,
+            "X-Inertia": "true",
+            "X-Inertia-Version": version,
+            "X-Requested-With": "XMLHttpRequest",
+        }
+        r = requests.get(url, headers=req_headers, timeout=30)
+        if r.status_code == 409:
+            global _WEAKPASS_INERTIA_VERSION
+            _WEAKPASS_INERTIA_VERSION = None
+            r = requests.get(url, headers=headers, timeout=30)
+            if r.status_code != 200:
+                return [], None
+            return _parse_weakpass_html_page(r.text)
+        if r.status_code != 200:
+            return [], None
+        try:
+            data = r.json()
+        except Exception:
+            return [], None
+    else:
+        r = requests.get(url, headers=headers, timeout=30)
+        if r.status_code != 200:
+            return [], None
+        return _parse_weakpass_html_page(r.text)
+
+    return _extract_weakpass_entries(data)
+
+
+def _parse_weakpass_html_page(html: str) -> tuple[list[dict], int | None]:
+    m = re.search(r'data-page="([^"]*)"', html)
+    if not m:
+        return [], None
+    try:
+        data = json.loads(m.group(1).replace("&quot;", '"'))
+    except Exception:
+        return [], None
+    return _extract_weakpass_entries(data)
+
+
+def _extract_weakpass_entries(data: dict) -> tuple[list[dict], int | None]:
+    wordlists_raw = data.get("props", {}).get("wordlists", {})
+    last_page = None
+    if isinstance(wordlists_raw, dict):
+        last_page = (
+            wordlists_raw.get("last_page")
+            or wordlists_raw.get("meta", {}).get("last_page")
+        )
+        wordlists_raw = wordlists_raw.get("data", [])
+    if not isinstance(wordlists_raw, list):
+        return [], last_page
+    entries = [
+        {
+            "id": wl.get("id", ""),
+            "name": wl.get("name", ""),
+            "size": wl.get("size", ""),
+            "rank": wl.get("rank", ""),
+            "downloads": wl.get("downloaded", ""),
+            "torrent_url": wl.get("torrent_link", ""),
+        }
+        for wl in wordlists_raw
+    ]
+    return entries, last_page
+
+
 def fetch_all_weakpass_wordlists_multithreaded(total_pages=None, threads=10):
     """Fetch all Weakpass wordlists. Auto-detects page count from the Inertia payload."""
     headers = {"User-Agent": "Mozilla/5.0"}

@@ -806,3 +806,85 @@ class TestGetWeakpassInertiaVersion:
         with patch("hate_crack.api.requests.get", return_value=mock_resp):
             result = _api_mod._get_weakpass_inertia_version({"User-Agent": "test"})
         assert result is None
+
+
+class TestFetchWeakpassListingPage:
+    def setup_method(self):
+        _api_mod._WEAKPASS_INERTIA_VERSION = None
+
+    def _inertia_json(self, entries, last_page=1):
+        """Return the JSON dict that Inertia returns directly."""
+        return {
+            "props": {
+                "wordlists": {
+                    "data": entries,
+                    "last_page": last_page,
+                }
+            }
+        }
+
+    def _html_with_data_page(self, props_dict):
+        """Return HTML with data-page attribute encoding the given props."""
+        import json as _json
+        payload = _json.dumps({"props": props_dict}).replace('"', "&quot;")
+        return f'<div id="app" data-page="{payload}"></div>'
+
+    def test_uses_inertia_headers_when_version_available(self):
+        _api_mod._WEAKPASS_INERTIA_VERSION = "ver123"
+        entry = {"id": 1, "name": "test.txt", "torrent_link": "test.txt.7z.torrent",
+                 "size": 100, "rank": 5, "downloaded": 10}
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = self._inertia_json([entry], last_page=3)
+        with patch("hate_crack.api.requests.get", return_value=mock_resp) as mock_get:
+            entries, last_page = _api_mod._fetch_weakpass_listing_page(1, {"User-Agent": "t"})
+        sent_headers = mock_get.call_args[1]["headers"]
+        assert sent_headers.get("X-Inertia") == "true"
+        assert sent_headers.get("X-Inertia-Version") == "ver123"
+        assert sent_headers.get("X-Requested-With") == "XMLHttpRequest"
+        assert len(entries) == 1
+        assert entries[0]["name"] == "test.txt"
+        assert entries[0]["torrent_url"] == "test.txt.7z.torrent"
+        assert last_page == 3
+
+    def test_falls_back_to_html_parse_when_version_unavailable(self):
+        # _WEAKPASS_INERTIA_VERSION is None; preflight also fails
+        entry = {"id": 2, "name": "rock.txt", "torrent_link": "rock.txt.7z.torrent",
+                 "size": 200, "rank": 4, "downloaded": 5}
+        html = self._html_with_data_page({"wordlists": {"data": [entry], "last_page": 1}})
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = html
+        with patch("hate_crack.api._get_weakpass_inertia_version", return_value=None), \
+             patch("hate_crack.api.requests.get", return_value=mock_resp) as mock_get:
+            entries, last_page = _api_mod._fetch_weakpass_listing_page(1, {"User-Agent": "t"})
+        sent_headers = mock_get.call_args[1]["headers"]
+        assert "X-Inertia" not in sent_headers
+        assert len(entries) == 1
+        assert entries[0]["name"] == "rock.txt"
+
+    def test_clears_version_cache_and_retries_on_409(self):
+        _api_mod._WEAKPASS_INERTIA_VERSION = "stale_ver"
+        entry = {"id": 3, "name": "mini.txt", "torrent_link": "mini.txt.7z.torrent",
+                 "size": 50, "rank": 6, "downloaded": 1}
+        resp_409 = MagicMock()
+        resp_409.status_code = 409
+        html = self._html_with_data_page({"wordlists": {"data": [entry], "last_page": 1}})
+        resp_html = MagicMock()
+        resp_html.status_code = 200
+        resp_html.text = html
+        with patch("hate_crack.api.requests.get", side_effect=[resp_409, resp_html]):
+            entries, last_page = _api_mod._fetch_weakpass_listing_page(1, {"User-Agent": "t"})
+        assert _api_mod._WEAKPASS_INERTIA_VERSION is None  # cache cleared
+        assert len(entries) == 1
+        assert entries[0]["name"] == "mini.txt"
+
+    def test_returns_empty_on_non_200(self):
+        _api_mod._WEAKPASS_INERTIA_VERSION = "ver"
+        mock_resp = MagicMock()
+        mock_resp.status_code = 500
+        with patch("hate_crack.api.requests.get", return_value=mock_resp), \
+             patch("hate_crack.api._get_weakpass_inertia_version", return_value="ver"):
+            entries, last_page = _api_mod._fetch_weakpass_listing_page(1, {"User-Agent": "t"})
+        assert entries == []
+        assert last_page is None
