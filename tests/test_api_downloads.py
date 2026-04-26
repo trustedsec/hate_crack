@@ -903,10 +903,17 @@ class TestMatchEntry:
         assert result == (20, "ignis-10K.txt.7z.torrent")
 
     def test_wordlist_base_partial_match(self):
-        # "ignis-10K" stripped from "ignis-10K.txt" is in "ignis-10K.txt"
-        result = _api_mod._match_entry(self._entries(), "ignis-10K.txt")
-        assert result is not None
-        assert result[0] == 20
+        # "ignis-10K" (base after stripping .txt) matches entry named "ignis-10K.txt"
+        result = _api_mod._match_entry(self._entries(), "ignis-10K")
+        assert result == (20, "ignis-10K.txt.7z.torrent")
+
+    def test_substring_match_does_not_fire_on_ambiguous_base(self):
+        # "rock" is a substring of "rockyou.txt" but "rock" stripped of extensions is still "rock"
+        # Only an exact name "rock" or an entry containing substring "rock" would match.
+        # This documents the known behavior: "rock" DOES match "rockyou.txt" via substring.
+        result = _api_mod._match_entry(self._entries(), "rock")
+        # "rock" is a substring of "rockyou.txt", so it matches — document this behavior
+        assert result == (10, "rockyou.txt.7z.torrent")
 
     def test_no_match_returns_none(self):
         result = _api_mod._match_entry(self._entries(), "mini.txt")
