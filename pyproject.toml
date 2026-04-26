@@ -10,7 +10,6 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "requests>=2.31.0",
-    "beautifulsoup4>=4.12.0",
     "openpyxl>=3.0.0",
     "packaging>=21.0",
 ]
@@ -62,7 +61,7 @@ exclude = [
 unresolved-reference = "warn"
 # Optional deps (hashcat_rosetta) not always installed
 unresolved-import = "warn"
-# BeautifulSoup union types and module-level globals
+# Module-level globals and dynamic attribute access
 unresolved-attribute = "warn"
 invalid-argument-type = "warn"
 

@@ -12,7 +12,6 @@ from queue import Queue
 from typing import Callable, Optional, Tuple
 
 import requests  # type: ignore[import-untyped]
-from bs4 import BeautifulSoup
 
 from hate_crack.cli import orig_cwd
 from hate_crack.formatting import print_multicolumn_list
