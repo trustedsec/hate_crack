@@ -918,8 +918,8 @@ Interactive menu for downloading and managing wordlists from Weakpass.com via Bi
 -------------------------------------------------------------------
 ### Version History
 
-Version 2.10.0
-  - Transmission daemon now watches a dedicated temp directory (`/tmp/hate_crack/`) for new `.torrent` files; wordlist content still downloads to the configured wordlist directory
+Version 2.9.3
+  - Transmission daemon now watches `/tmp/hate_crack/` for new `.torrent` files; wordlist content still downloads to the configured wordlist directory
   - Suppressed `transmission-daemon` stdout/stderr so daemon log output no longer appears in the terminal
   - Increased watch-dir polling window to 30s to account for transmission's ~10s scan interval
   - Store downloaded `.torrent` files in `/tmp/hate_crack/` instead of `/tmp/` root
