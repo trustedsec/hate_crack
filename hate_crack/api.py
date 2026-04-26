@@ -347,7 +347,7 @@ class TransmissionSession:
     def add(self, torrent_path: str) -> int:
         before_ids = {e["id"] for e in self.list()}
         shutil.copy2(torrent_path, self._watch_dir)
-        deadline = time.monotonic() + 10.0
+        deadline = time.monotonic() + 30.0
         while time.monotonic() < deadline:
             after_entries = self.list()
             new_ids = [e["id"] for e in after_entries if e["id"] not in before_ids]
