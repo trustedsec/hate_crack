@@ -918,6 +918,10 @@ Interactive menu for downloading and managing wordlists from Weakpass.com via Bi
 -------------------------------------------------------------------
 ### Version History
 
+Version 2.9.3
+  - Routed `.torrent` metadata files through a daemon-watched temp directory instead of the wordlist directory; actual wordlist content still lands in the configured wordlist directory
+  - Suppressed `transmission-daemon` stdout/stderr so daemon log messages no longer appear in the terminal
+
 Version 2.5.0
   - Added tab autocomplete to all file and directory path prompts in the Wordlist Tools submenu (option 80)
   - Restored `hcatOptimizedWordlists` config key (directory for pre-optimized wordlists); defaults to `./optimized_wordlists`, falls back to `hcatWordlists` if not found
