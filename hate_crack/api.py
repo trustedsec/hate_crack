@@ -753,47 +753,10 @@ def fetch_all_weakpass_wordlists_multithreaded(total_pages=None, threads=10):
     """Fetch all Weakpass wordlists. Auto-detects page count from the Inertia payload."""
     headers = {"User-Agent": "Mozilla/5.0"}
 
-    def _fetch_page(page):
-        """Fetch a single page; return (entries, last_page_or_None)."""
-        url = f"https://weakpass.com/wordlists?page={page}"
-        r = requests.get(url, headers=headers, timeout=30)
-        soup = BeautifulSoup(r.text, "html.parser")
-        app_div = soup.find("div", id="app")
-        if not app_div or not app_div.has_attr("data-page"):
-            return [], None
-        data_page_val = app_div["data-page"]
-        if not isinstance(data_page_val, str):
-            data_page_val = str(data_page_val)
-        data = json.loads(data_page_val)
-        wordlists_raw = data.get("props", {}).get("wordlists", {})
-        last_page = None
-        if isinstance(wordlists_raw, dict):
-            # Check multiple possible locations for last_page
-            last_page = (
-                wordlists_raw.get("last_page")
-                or wordlists_raw.get("meta", {}).get("last_page")
-            )
-            if "data" in wordlists_raw:
-                wordlists_raw = wordlists_raw["data"]
-            else:
-                wordlists_raw = []
-        entries = [
-            {
-                "id": wl.get("id", ""),
-                "name": wl.get("name", ""),
-                "size": wl.get("size", ""),
-                "rank": wl.get("rank", ""),
-                "downloads": wl.get("downloaded", ""),
-                "torrent_url": wl.get("torrent_link", ""),
-            }
-            for wl in wordlists_raw
-        ]
-        return entries, last_page
-
     # Determine total_pages via probe if not provided
     if total_pages is None:
         try:
-            entries1, detected = _fetch_page(1)
+            entries1, detected = _fetch_weakpass_listing_page(1, headers)
             if detected:
                 total_pages = int(detected)
                 print(f"[i] Weakpass: {total_pages} pages detected")
@@ -803,7 +766,7 @@ def fetch_all_weakpass_wordlists_multithreaded(total_pages=None, threads=10):
                 page = 2
                 while True:
                     try:
-                        entries, _ = _fetch_page(page)
+                        entries, _ = _fetch_weakpass_listing_page(page, headers)
                     except Exception as e:
                         print(f"Error fetching page {page}: {e}")
                         break
@@ -842,7 +805,7 @@ def fetch_all_weakpass_wordlists_multithreaded(total_pages=None, threads=10):
             if page is None:
                 break
             try:
-                entries, _ = _fetch_page(page)
+                entries, _ = _fetch_weakpass_listing_page(page, headers)
                 with lock:
                     wordlists.extend(entries)
             except Exception as e:
