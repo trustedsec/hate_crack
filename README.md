@@ -918,6 +918,9 @@ Interactive menu for downloading and managing wordlists from Weakpass.com via Bi
 -------------------------------------------------------------------
 ### Version History
 
+Version 2.9.5
+  - Store downloaded `.torrent` files in `/tmp/hate_crack/` instead of `/tmp/` root
+
 Version 2.9.4
   - Fixed torrent add timeout: increased watch-dir polling window from 10s to 30s to give transmission's scanner (which runs every ~10s) enough time to pick up new .torrent files
 
