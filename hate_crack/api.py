@@ -1,5 +1,6 @@
 import concurrent.futures
 import json
+import re
 import sys
 import os
 import shutil
@@ -16,6 +17,7 @@ from hate_crack.cli import orig_cwd
 from hate_crack.formatting import print_multicolumn_list
 
 _TORRENT_CLEANUP_REGISTERED = False
+_WEAKPASS_INERTIA_VERSION: str | None = None
 
 
 class _RateLimiter:
@@ -656,6 +658,25 @@ def run_torrent_session(torrent_files, save_dir, *, print_fn=print) -> None:
     print_fn(
         f"[i] Torrent session complete: {completed} succeeded, {failed} failed."
     )
+
+
+def _get_weakpass_inertia_version(headers: dict) -> str | None:
+    global _WEAKPASS_INERTIA_VERSION
+    if _WEAKPASS_INERTIA_VERSION:
+        return _WEAKPASS_INERTIA_VERSION
+    try:
+        r = requests.get("https://weakpass.com/wordlists", headers=headers, timeout=30)
+        m = re.search(r'data-page="([^"]*)"', r.text)
+        if not m:
+            return None
+        raw = m.group(1).replace("&quot;", '"')
+        data = json.loads(raw)
+        version = data.get("version")
+        if version:
+            _WEAKPASS_INERTIA_VERSION = version
+        return version
+    except Exception:
+        return None
 
 
 def fetch_all_weakpass_wordlists_multithreaded(total_pages=None, threads=10):

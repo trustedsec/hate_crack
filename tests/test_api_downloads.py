@@ -3,6 +3,7 @@ import os
 
 import pytest
 from unittest.mock import MagicMock, patch
+import hate_crack.api as _api_mod
 
 from hate_crack.api import (
     check_7z,
@@ -767,3 +768,41 @@ class TestListAndDownloadOfficialWordlistsSkipExisting:
         assert called_filename == "new.txt"
         captured = capsys.readouterr()
         assert "Skipping existing.txt" in captured.out
+
+
+class TestGetWeakpassInertiaVersion:
+    def setup_method(self):
+        _api_mod._WEAKPASS_INERTIA_VERSION = None  # reset cache before each test
+
+    def _html(self, version):
+        return f'<div id="app" data-page="{{&quot;version&quot;:&quot;{version}&quot;,&quot;props&quot;:{{}}}}"></div>'
+
+    def test_returns_version_from_html(self):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = self._html("abc123def456")
+        with patch("hate_crack.api.requests.get", return_value=mock_resp):
+            result = _api_mod._get_weakpass_inertia_version({"User-Agent": "test"})
+        assert result == "abc123def456"
+
+    def test_caches_version_on_second_call(self):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = self._html("cached_ver")
+        with patch("hate_crack.api.requests.get", return_value=mock_resp) as mock_get:
+            _api_mod._get_weakpass_inertia_version({"User-Agent": "test"})
+            _api_mod._get_weakpass_inertia_version({"User-Agent": "test"})
+        assert mock_get.call_count == 1  # second call uses cache
+
+    def test_returns_none_on_network_error(self):
+        with patch("hate_crack.api.requests.get", side_effect=Exception("timeout")):
+            result = _api_mod._get_weakpass_inertia_version({"User-Agent": "test"})
+        assert result is None
+
+    def test_returns_none_when_version_absent(self):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = '<div id="app" data-page="{&quot;props&quot;:{}}"></div>'
+        with patch("hate_crack.api.requests.get", return_value=mock_resp):
+            result = _api_mod._get_weakpass_inertia_version({"User-Agent": "test"})
+        assert result is None
