@@ -927,9 +927,9 @@ def fetch_torrent_metadata(torrent_url, save_dir=None, wordlist_id=None):
     else:
         print(f"Failed to download a valid torrent file: {torrent_link}")
         try:
-            html = r2.content.decode(errors="replace")
+            response_body = r2.content.decode(errors="replace")
             print("--- Begin HTML Debug Output ---")
-            print(html[:2000])
+            print(response_body[:2000])
             print("--- End HTML Debug Output ---")
         except Exception as e:
             print(f"Could not decode response for debug: {e}")
