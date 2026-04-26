@@ -259,7 +259,6 @@ class TransmissionSession:
         self.startup_timeout = startup_timeout
         self.shutdown_timeout = shutdown_timeout
         self._cfg_dir = ""
-        self._watch_dir = ""
         self._port = 0
         self._rpc = ""
         self._proc = None
@@ -270,8 +269,6 @@ class TransmissionSession:
         import subprocess
 
         self._cfg_dir = tempfile.mkdtemp(prefix="hate_crack_transmission_")
-        self._watch_dir = os.path.join(self._cfg_dir, "watch")
-        os.makedirs(self._watch_dir, exist_ok=True)
         self._port = _pick_free_port()
         self._rpc = f"127.0.0.1:{self._port}"
         self._proc = subprocess.Popen(
@@ -288,8 +285,7 @@ class TransmissionSession:
                 "--download-dir",
                 self.save_dir,
                 "--no-portmap",
-                "--watch-dir",
-                self._watch_dir,
+                "--no-watch-dir",
             ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -345,22 +341,38 @@ class TransmissionSession:
         return None
 
     def add(self, torrent_path: str) -> int:
+        import re
+        import subprocess
+
         before_ids = {e["id"] for e in self.list()}
-        shutil.copy2(torrent_path, self._watch_dir)
-        deadline = time.monotonic() + 30.0
-        while time.monotonic() < deadline:
-            after_entries = self.list()
-            new_ids = [e["id"] for e in after_entries if e["id"] not in before_ids]
-            if new_ids:
-                return new_ids[0]
-            time.sleep(0.5)
+        result = subprocess.run(
+            [
+                "transmission-remote",
+                self._rpc,
+                "-a",
+                torrent_path,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        out = result.stdout or ""
+        m = re.search(r"Added torrent.*\n.*ID:\s*(\d+)", out)
+        if m:
+            return int(m.group(1))
+        m = re.search(r"torrent added\s*\(id\s+(\d+)\)", out, re.IGNORECASE)
+        if m:
+            return int(m.group(1))
+        after_entries = self.list()
+        new_ids = [e["id"] for e in after_entries if e["id"] not in before_ids]
+        if new_ids:
+            return new_ids[0]
         raise RuntimeError(f"Failed to add torrent: {torrent_path}")
 
     def list(self) -> list:
         import subprocess
 
         result = subprocess.run(
-            ["transmission-remote", self._rpc, "--no-auth", "-l"],
+            ["transmission-remote", self._rpc, "-l"],
             capture_output=True,
             text=True,
         )
@@ -417,7 +429,6 @@ class TransmissionSession:
             [
                 "transmission-remote",
                 self._rpc,
-                "--no-auth",
                 f"-t{torrent_id}",
                 "--info-files",
             ],
@@ -461,7 +472,6 @@ class TransmissionSession:
             [
                 "transmission-remote",
                 self._rpc,
-                "--no-auth",
                 f"-t{torrent_id}",
                 "--remove",
             ],

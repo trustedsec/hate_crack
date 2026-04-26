@@ -140,44 +140,41 @@ class TestTransmissionSession:
             with pytest.raises(RuntimeError, match="Transmission daemon failed"):
                 ts.__enter__()
 
-    def test_add_copies_to_watch_dir_and_returns_new_id(self, tmp_path):
+    def test_add_uses_transmission_remote_and_returns_new_id(self, tmp_path):
         ts = TransmissionSession(str(tmp_path))
         ts._rpc = "127.0.0.1:9999"
-        ts._watch_dir = str(tmp_path / "watch")
-        # Before: IDs 3 and 5. After first poll: ID 7 appears.
+        # Before: IDs 3 and 5. After add: ID 7 appears.
         list_calls = iter([
             [{"id": 3}, {"id": 5}],
             [{"id": 3}, {"id": 5}, {"id": 7}],
         ])
-        with patch("shutil.copy2"), patch.object(ts, "list", side_effect=list_calls), \
-                patch("time.sleep"), patch("time.monotonic", side_effect=[0.0, 1.0]):
+        run_result = MagicMock(returncode=0, stdout="", stderr="")
+        with patch("subprocess.run", return_value=run_result), \
+                patch.object(ts, "list", side_effect=list_calls):
             tid = ts.add("/tmp/foo.torrent")
         assert tid == 7
 
-    def test_add_polls_until_daemon_picks_up_torrent(self, tmp_path):
+    def test_add_parses_id_from_output(self, tmp_path):
         ts = TransmissionSession(str(tmp_path))
         ts._rpc = "127.0.0.1:9999"
-        ts._watch_dir = str(tmp_path / "watch")
-        # First two polls: no new ID. Third poll: ID 9 appears.
-        list_calls = iter([
-            [{"id": 1}],
-            [{"id": 1}],
-            [{"id": 1}],
-            [{"id": 1}, {"id": 9}],
-        ])
-        monotonic_vals = iter([0.0, 1.0, 2.0, 3.0, 4.0])
-        with patch("shutil.copy2"), patch.object(ts, "list", side_effect=list_calls), \
-                patch("time.sleep"), patch("time.monotonic", side_effect=monotonic_vals):
+        before_list = [{"id": 1}]
+        run_result = MagicMock(
+            returncode=0,
+            stdout="torrent added (id 42)\n",
+            stderr="",
+        )
+        with patch("subprocess.run", return_value=run_result), \
+                patch.object(ts, "list", return_value=before_list):
             tid = ts.add("/tmp/foo.torrent")
-        assert tid == 9
+        assert tid == 42
 
-    def test_add_raises_on_timeout(self, tmp_path):
+    def test_add_raises_when_torrent_not_added(self, tmp_path):
         ts = TransmissionSession(str(tmp_path))
         ts._rpc = "127.0.0.1:9999"
-        ts._watch_dir = str(tmp_path / "watch")
-        # list never returns a new ID; monotonic jumps past the 10s deadline.
-        with patch("shutil.copy2"), patch.object(ts, "list", return_value=[{"id": 1}]), \
-                patch("time.sleep"), patch("time.monotonic", side_effect=[0.0, 100.0]):
+        # list returns the same IDs before and after; output has no ID.
+        run_result = MagicMock(returncode=1, stdout="", stderr="error")
+        with patch("subprocess.run", return_value=run_result), \
+                patch.object(ts, "list", return_value=[{"id": 1}]):
             with pytest.raises(RuntimeError):
                 ts.add("/tmp/foo.torrent")
 
