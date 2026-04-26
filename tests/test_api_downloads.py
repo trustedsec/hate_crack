@@ -888,3 +888,35 @@ class TestFetchWeakpassListingPage:
             entries, last_page = _api_mod._fetch_weakpass_listing_page(1, {"User-Agent": "t"})
         assert entries == []
         assert last_page is None
+
+
+class TestMatchEntry:
+    def _entries(self):
+        return [
+            {"id": 10, "name": "rockyou.txt", "torrent_url": "rockyou.txt.7z.torrent"},
+            {"id": 20, "name": "ignis-10K.txt", "torrent_url": "ignis-10K.txt.7z.torrent"},
+            {"id": 30, "name": "hashmob.net_2025.micro.found", "torrent_url": "hashmob.net_2025.micro.found.7z.torrent"},
+        ]
+
+    def test_exact_name_match(self):
+        result = _api_mod._match_entry(self._entries(), "ignis-10K.txt")
+        assert result == (20, "ignis-10K.txt.7z.torrent")
+
+    def test_wordlist_base_partial_match(self):
+        # "ignis-10K" stripped from "ignis-10K.txt" is in "ignis-10K.txt"
+        result = _api_mod._match_entry(self._entries(), "ignis-10K.txt")
+        assert result is not None
+        assert result[0] == 20
+
+    def test_no_match_returns_none(self):
+        result = _api_mod._match_entry(self._entries(), "mini.txt")
+        assert result is None
+
+    def test_empty_entries_returns_none(self):
+        result = _api_mod._match_entry([], "rockyou.txt")
+        assert result is None
+
+    def test_filename_without_txt_extension_matches(self):
+        # "hashmob.net_2025.micro.found" has no .txt to strip; base == filename
+        result = _api_mod._match_entry(self._entries(), "hashmob.net_2025.micro.found")
+        assert result == (30, "hashmob.net_2025.micro.found.7z.torrent")

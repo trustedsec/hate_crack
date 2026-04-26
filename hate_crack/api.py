@@ -877,6 +877,17 @@ def fetch_all_weakpass_wordlists_multithreaded(total_pages=None, threads=10):
     return unique_wordlists
 
 
+def _match_entry(entries: list[dict], filename: str) -> tuple[int, str] | None:
+    wordlist_base = filename.replace(".torrent", "").replace(".7z", "").replace(".txt", "")
+    for wl in entries:
+        if wl.get("name") == filename or wordlist_base in wl.get("name", ""):
+            wl_id = wl.get("id")
+            torrent_link = wl.get("torrent_url", "")
+            if wl_id and torrent_link:
+                return (wl_id, torrent_link)
+    return None
+
+
 def fetch_torrent_metadata(torrent_url, save_dir=None, wordlist_id=None):
     """Download the .torrent metadata file from Weakpass and return its local path.
 
