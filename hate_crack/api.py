@@ -898,57 +898,17 @@ def fetch_torrent_metadata(torrent_url, save_dir=None, wordlist_id=None):
     elif wordlist_id:
         torrent_link = f"https://weakpass.com/download/{wordlist_id}/{torrent_url}"
     else:
-        wordlist_base = (
-            filename.replace(".torrent", "").replace(".7z", "").replace(".txt", "")
-        )
-        wordlist_uri = f"https://weakpass.com/wordlists/{wordlist_base}"
-        print(f"[+] Fetching wordlist page: {wordlist_uri}")
-        r = requests.get(wordlist_uri, headers=headers)
-        if r.status_code != 200:
-            print(f"[!] Failed to fetch wordlist page: {wordlist_uri}")
-            wordlist_uri = None
-        if r.status_code == 200:
-            soup = BeautifulSoup(r.text, "html.parser")
-            app_div = soup.find("div", id="app")
-            if not app_div or not app_div.has_attr("data-page"):
-                print(f"[!] Could not find app data on {wordlist_uri}")
-            else:
-                data_page_val = app_div["data-page"]
-                if not isinstance(data_page_val, str):
-                    data_page_val = str(data_page_val)
-                data_page_val = html.unescape(data_page_val)
-                try:
-                    data = json.loads(data_page_val)
-                    wordlist = data.get("props", {}).get("wordlist")
-                    resolved_id = None
-                    torrent_link_from_data = None
-                    if wordlist:
-                        resolved_id = wordlist.get("id")
-                        torrent_link_from_data = wordlist.get("torrent_link")
-                    else:
-                        wordlists = data.get("props", {}).get("wordlists")
-                        if isinstance(wordlists, dict) and "data" in wordlists:
-                            wordlists = wordlists["data"]
-                        if isinstance(wordlists, list):
-                            for wl in wordlists:
-                                if (
-                                    wl.get("torrent_link") == filename
-                                    or wl.get("name") == filename
-                                ):
-                                    resolved_id = wl.get("id")
-                                    torrent_link_from_data = wl.get("torrent_link")
-                                    break
-                                if wordlist_base in wl.get("name", ""):
-                                    resolved_id = wl.get("id")
-                                    torrent_link_from_data = wl.get("torrent_link")
-                                    break
-                    if torrent_link_from_data and resolved_id:
-                        if not torrent_link_from_data.startswith("http"):
-                            torrent_link = f"https://weakpass.com/download/{resolved_id}/{torrent_link_from_data}"
-                        else:
-                            torrent_link = torrent_link_from_data
-                except Exception as e:
-                    print(f"[!] Failed to parse data-page JSON: {e}")
+        entries, last_page = _fetch_weakpass_listing_page(1, headers)
+        match = _match_entry(entries, filename)
+        if not match and last_page and last_page > 1:
+            for page in range(2, last_page + 1):
+                entries, _ = _fetch_weakpass_listing_page(page, headers)
+                match = _match_entry(entries, filename)
+                if match:
+                    break
+        if match:
+            resolved_id, torrent_link_from_data = match
+            torrent_link = f"https://weakpass.com/download/{resolved_id}/{torrent_link_from_data}"
 
     if not torrent_link:
         torrent_link = f"https://weakpass.com/files/{filename}"
