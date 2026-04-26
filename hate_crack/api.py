@@ -571,9 +571,9 @@ def get_hcat_potfile_args():
 
 
 def cleanup_torrent_files(directory=None):
-    """Remove stray .torrent files left in the system temp directory on graceful exit."""
+    """Remove stray .torrent files left in the hate_crack temp directory on graceful exit."""
     if directory is None:
-        directory = tempfile.gettempdir()
+        directory = os.path.join(tempfile.gettempdir(), "hate_crack")
     try:
         for name in os.listdir(directory):
             if name.endswith(".torrent"):
@@ -784,7 +784,7 @@ def fetch_torrent_metadata(torrent_url, save_dir=None, wordlist_id=None):
     """
     register_torrent_cleanup()
 
-    torrent_dir = tempfile.gettempdir()
+    torrent_dir = os.path.join(tempfile.gettempdir(), "hate_crack")
     os.makedirs(torrent_dir, exist_ok=True)
     # Optionally include hashmob_api_key in headers if present
     headers = {
