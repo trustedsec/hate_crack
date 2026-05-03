@@ -358,17 +358,11 @@ This installs hooks defined in `prek.toml` using the pre-commit local-repo TOML 
 
 Note: prek 0.3.3 expects `repos = [...]` at the top level. The old `[hooks.<stage>] commands = [...]` format is not supported.
 
-### Arrow-Key Menu Navigation (Optional)
+### Arrow-Key Menu Navigation
 
-Install the `[tui]` extra to enable arrow-key menu navigation via `simple-term-menu`:
+Arrow-key menu navigation is enabled by default via the `simple-term-menu` dependency. When running in a terminal (TTY), menus render with arrow-key navigation and number-key shortcuts.
 
-```bash
-uv pip install '.[tui]'
-```
-
-When installed and running in a terminal (TTY), menus render with arrow-key navigation and number-key shortcuts. Without it, the classic numbered `print()` + `input()` menu is used.
-
-To force the plain numbered menu even when `simple-term-menu` is installed, set `HATE_CRACK_PLAIN_MENU=1`.
+To force the classic numbered `print()` + `input()` menu, set `HATE_CRACK_PLAIN_MENU=1`.
 
 ### Dev Dependencies
 
