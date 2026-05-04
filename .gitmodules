@@ -14,3 +14,7 @@
 	path = princeprocessor
 	url = https://github.com/hashcat/princeprocessor.git
 	ignore = dirty
+[submodule "pcfg_cracker"]
+	path = pcfg_cracker
+	url = https://github.com/lakiw/pcfg_cracker.git
+	ignore = dirty
