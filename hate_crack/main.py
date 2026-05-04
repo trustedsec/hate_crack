@@ -450,6 +450,9 @@ ollamaNumCtx = int(config_parser.get("ollamaNumCtx", 2048))
 
 omenTrainingList = config_parser.get("omenTrainingList", "rockyou.txt")
 omenMaxCandidates = int(config_parser.get("omenMaxCandidates", 1000000))
+pcfgRuleset = config_parser.get("pcfgRuleset", "DEFAULT")
+pcfgMaxCandidates = int(config_parser.get("pcfgMaxCandidates", 50000000))
+pcfgPrinceLingMaxCandidates = int(config_parser.get("pcfgPrinceLingMaxCandidates", 10000000))
 
 try:
     _cfg_optimized = config_parser["optimizedKernelAttacks"]
