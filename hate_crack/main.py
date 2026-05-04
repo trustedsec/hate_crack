@@ -2699,7 +2699,7 @@ def hcatPrinceLing(hcatHashType, hcatHashFile):
         try:
             subprocess.run(cmd, check=True)
             os.replace(tmp_path, cache_path)
-        except (subprocess.CalledProcessError, KeyboardInterrupt) as e:
+        except (subprocess.CalledProcessError, KeyboardInterrupt, OSError) as e:
             # Clean up partial tmp file
             if os.path.isfile(tmp_path):
                 try:

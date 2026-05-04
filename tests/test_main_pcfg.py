@@ -161,10 +161,8 @@ class TestHcatPrinceLing:
         def boom(*a, **kw):
             raise RuntimeError("hcatPrince exploded")
 
-        with patch("hate_crack.main.hcatPrince", side_effect=boom):
-            try:
-                main_module.hcatPrinceLing("0", str(tmp_path / "hashes.txt"))
-            except RuntimeError:
-                pass
+        with patch("hate_crack.main.hcatPrince", side_effect=boom), \
+             pytest.raises(RuntimeError):
+            main_module.hcatPrinceLing("0", str(tmp_path / "hashes.txt"))
 
         assert main_module.hcatPrinceBaseList == original
