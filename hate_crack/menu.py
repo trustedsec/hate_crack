@@ -1,10 +1,10 @@
 """Reusable interactive menu with optional arrow-key navigation.
 
-When ``simple-term-menu`` is installed AND stdout is a TTY, renders an
-arrow-key navigable menu.  Otherwise falls back to classic numbered
-``print()`` + ``input()`` selection.
+Default: classic numbered ``print()`` + ``input()`` selection (full number
+entry for all keys).
 
-Set ``HATE_CRACK_PLAIN_MENU=1`` to force the plain numbered menu.
+Set ``HATE_CRACK_ARROW_MENU=1`` to enable arrow-key navigation via
+``simple-term-menu`` (single-digit shortcut keys only; 10+ require arrows).
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ except ImportError:
 
 
 def _use_arrow_menu() -> bool:
-    if os.environ.get("HATE_CRACK_PLAIN_MENU", "") == "1":
+    if os.environ.get("HATE_CRACK_ARROW_MENU", "") != "1":
         return False
     if not _HAS_TERM_MENU:
         return False
@@ -34,15 +34,11 @@ def _arrow_menu(
     items: list[tuple[str, str]],
     title: str | None,
 ) -> str | None:
-    menu_entries = [f"[{key}] {label}" for key, label in items]
+    w = max(len(key) for key, _ in items)
+    menu_entries = [f"[{key:>{w}}] {label}" for key, label in items]
     shortcuts = [key for key, _ in items]
 
-    # Build shortcut_key_highlight_style so pressing a number jumps there
-    menu = TerminalMenu(
-        menu_entries,
-        title=title,
-        shortcut_key_highlight_style=("standout",),
-    )
+    menu = TerminalMenu(menu_entries, title=title)
     idx = menu.show()
     if idx is None:
         return None
@@ -53,8 +49,9 @@ def _numbered_menu(
     items: list[tuple[str, str]],
     prompt: str,
 ) -> str | None:
+    w = max(len(key) for key, _ in items)
     for key, label in items:
-        print(f"\t({key}) {label}")
+        print(f"\t[{key:>{w}}] {label}")
     choice = input(prompt).strip()
     if not choice:
         return None
