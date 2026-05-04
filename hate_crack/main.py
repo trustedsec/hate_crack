@@ -2654,6 +2654,70 @@ def hcatPCFG(hcatHashType, hcatHashFile):
         pcfg_proc.stdout.close()
 
 
+def hcatPrinceLing(hcatHashType, hcatHashFile):
+    """Mode B: prince_ling generates a wordlist (with cache+staleness check),
+    then we delegate to the existing hcatPrince attack with hcatPrinceBaseList
+    temporarily rebound to the cached wordlist.
+    """
+    global hcatPrinceBaseList
+    pcfg_root = os.path.join(hate_path, "pcfg_cracker")
+    prince_ling_script = os.path.join(pcfg_root, "prince_ling.py")
+    ruleset_dir = os.path.join(pcfg_root, "Rules", pcfgRuleset)
+    if not os.path.isfile(prince_ling_script):
+        print(f"prince_ling.py not found at {prince_ling_script}")
+        return
+    if not os.path.isdir(ruleset_dir):
+        print(f"PCFG ruleset not found: {ruleset_dir}")
+        return
+
+    cache_dir = hcatOptimizedWordlists if isinstance(hcatOptimizedWordlists, str) \
+        else str(hcatOptimizedWordlists)
+    os.makedirs(cache_dir, exist_ok=True)
+    cache_path = os.path.join(cache_dir, f"pcfg_prince_ling_{pcfgRuleset}.txt")
+    tmp_path = cache_path + ".tmp"
+
+    # Staleness check: regenerate iff ruleset dir mtime > cache mtime (strict)
+    needs_regen = True
+    if os.path.isfile(cache_path):
+        ruleset_mtime = os.path.getmtime(ruleset_dir)
+        cache_mtime = os.path.getmtime(cache_path)
+        if ruleset_mtime <= cache_mtime:
+            needs_regen = False
+
+    if needs_regen:
+        print(f"[*] Generating prince_ling wordlist -> {cache_path}")
+        cmd = [
+            "python3",
+            prince_ling_script,
+            "--rule",
+            pcfgRuleset,
+            "--output",
+            tmp_path,
+            "--size",
+            str(pcfgPrinceLingMaxCandidates),
+        ]
+        try:
+            subprocess.run(cmd, check=True)
+            os.replace(tmp_path, cache_path)
+        except (subprocess.CalledProcessError, KeyboardInterrupt) as e:
+            # Clean up partial tmp file
+            if os.path.isfile(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+            print(f"prince_ling generation failed: {e}")
+            return
+
+    # Delegate to existing PRINCE attack with rebound base list
+    original_base = hcatPrinceBaseList
+    hcatPrinceBaseList = [cache_path]
+    try:
+        hcatPrince(hcatHashType, hcatHashFile)
+    finally:
+        hcatPrinceBaseList = original_base
+
+
 def hcatPermute(hcatHashType, hcatHashFile, wordlist):
     global hcatProcess, hcatPermuteCount
     permute_path = os.path.join(hate_path, "hashcat-utils", "bin", "permute.bin")
