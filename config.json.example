@@ -29,6 +29,9 @@
   "ollamaNumCtx": 2048,
   "omenTrainingList": "rockyou.txt",
   "omenMaxCandidates": 50000000,
+  "pcfgRuleset": "DEFAULT",
+  "pcfgMaxCandidates": 50000000,
+  "pcfgPrinceLingMaxCandidates": 10000000,
   "check_for_updates": true,
   "optimizedKernelAttacks": [
     "hcatDictionary", "hcatQuickDictionary", "hcatBandrel", "hcatGoodMeasure",
@@ -36,7 +39,7 @@
     "hcatAdHocMask", "hcatMarkovBruteForce", "hcatFingerprint", "hcatCombination",
     "hcatCombinator3", "hcatCombinatorX", "hcatHybrid", "hcatYoloCombination",
     "hcatMiddleCombinator", "hcatThoroughCombinator", "hcatCombipow", "hcatPrince",
-    "hcatPermute"
+    "hcatPermute", "hcatPCFG", "hcatPrinceLing"
   ],
   "notify_enabled": false,
   "notify_pushover_token": "",

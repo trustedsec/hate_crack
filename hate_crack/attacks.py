@@ -400,6 +400,16 @@ def prince_attack(ctx: Any) -> None:
     ctx.hcatPrince(ctx.hcatHashType, ctx.hcatHashFile)
 
 
+def pcfg_attack(ctx: Any) -> None:
+    _notify.prompt_notify_for_attack("PCFG")
+    ctx.hcatPCFG(ctx.hcatHashType, ctx.hcatHashFile)
+
+
+def prince_ling_attack(ctx: Any) -> None:
+    _notify.prompt_notify_for_attack("PRINCE-LING")
+    ctx.hcatPrinceLing(ctx.hcatHashType, ctx.hcatHashFile)
+
+
 def yolo_combination(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("YOLO Combination")
     ctx.hcatYoloCombination(ctx.hcatHashType, ctx.hcatHashFile)

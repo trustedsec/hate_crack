@@ -450,6 +450,9 @@ ollamaNumCtx = int(config_parser.get("ollamaNumCtx", 2048))
 
 omenTrainingList = config_parser.get("omenTrainingList", "rockyou.txt")
 omenMaxCandidates = int(config_parser.get("omenMaxCandidates", 1000000))
+pcfgRuleset = config_parser.get("pcfgRuleset", "DEFAULT")
+pcfgMaxCandidates = int(config_parser.get("pcfgMaxCandidates", 50000000))
+pcfgPrinceLingMaxCandidates = int(config_parser.get("pcfgPrinceLingMaxCandidates", 10000000))
 
 try:
     _cfg_optimized = config_parser["optimizedKernelAttacks"]
@@ -712,6 +715,16 @@ if not SKIP_INIT:
             )
         except SystemExit:
             print("OMEN attacks will not be available.")
+
+        # Verify pcfg_cracker presence (optional, for PCFG attacks)
+        # pcfg_cracker is pure-Python; we just check the script files exist.
+        pcfg_guesser_script = os.path.join(hate_path, "pcfg_cracker", "pcfg_guesser.py")
+        pcfg_prince_ling_script = os.path.join(hate_path, "pcfg_cracker", "prince_ling.py")
+        if not os.path.isfile(pcfg_guesser_script) or not os.path.isfile(pcfg_prince_ling_script):
+            print("pcfg_cracker not found at " + os.path.join(hate_path, "pcfg_cracker"))
+            print("PCFG attacks will not be available. Run 'make' to fetch submodules.")
+        elif not shutil.which("python3"):
+            print("python3 not on PATH. PCFG attacks will not be available.")
 
     except Exception as e:
         print(f"Module initialization error: {e}")
@@ -2601,6 +2614,110 @@ def hcatPrince(hcatHashType, hcatHashFile):
             prince_proc.stdout.close()
 
 
+def hcatPCFG(hcatHashType, hcatHashFile):
+    """Mode A: pipe pcfg_guesser.py output into hashcat in stdin mode."""
+    pcfg_guesser_script = os.path.join(hate_path, "pcfg_cracker", "pcfg_guesser.py")
+    if not os.path.isfile(pcfg_guesser_script):
+        print(f"pcfg_guesser.py not found at {pcfg_guesser_script}")
+        return
+    pcfg_cmd = [
+        "python3",
+        pcfg_guesser_script,
+        "--rule",
+        pcfgRuleset,
+        "--limit",
+        str(pcfgMaxCandidates),
+    ]
+    hashcat_cmd = [
+        hcatBin,
+        "-m",
+        hcatHashType,
+        hcatHashFile,
+        "--session",
+        generate_session_id(),
+        "-o",
+        f"{hcatHashFile}.out",
+    ]
+    if _should_use_optimized_kernel("hcatPCFG"):
+        _insert_optimized_flag(hashcat_cmd)
+    hashcat_cmd.extend(shlex.split(hcatTuning))
+    _append_potfile_arg(hashcat_cmd)
+    pcfg_proc = subprocess.Popen(pcfg_cmd, stdout=subprocess.PIPE)
+    _run_hcat_cmd(
+        hashcat_cmd,
+        attack_name="PCFG",
+        hash_file=hcatHashFile,
+        stdin=pcfg_proc.stdout,
+        companion_procs=[pcfg_proc],
+    )
+    if pcfg_proc.stdout:
+        pcfg_proc.stdout.close()
+
+
+def hcatPrinceLing(hcatHashType, hcatHashFile):
+    """Mode B: prince_ling generates a wordlist (with cache+staleness check),
+    then we delegate to the existing hcatPrince attack with hcatPrinceBaseList
+    temporarily rebound to the cached wordlist.
+    """
+    global hcatPrinceBaseList
+    pcfg_root = os.path.join(hate_path, "pcfg_cracker")
+    prince_ling_script = os.path.join(pcfg_root, "prince_ling.py")
+    ruleset_dir = os.path.join(pcfg_root, "Rules", pcfgRuleset)
+    if not os.path.isfile(prince_ling_script):
+        print(f"prince_ling.py not found at {prince_ling_script}")
+        return
+    if not os.path.isdir(ruleset_dir):
+        print(f"PCFG ruleset not found: {ruleset_dir}")
+        return
+
+    cache_dir = hcatOptimizedWordlists if isinstance(hcatOptimizedWordlists, str) \
+        else str(hcatOptimizedWordlists)
+    os.makedirs(cache_dir, exist_ok=True)
+    cache_path = os.path.join(cache_dir, f"pcfg_prince_ling_{pcfgRuleset}.txt")
+    tmp_path = cache_path + ".tmp"
+
+    # Staleness check: regenerate iff ruleset dir mtime > cache mtime (strict)
+    needs_regen = True
+    if os.path.isfile(cache_path):
+        ruleset_mtime = os.path.getmtime(ruleset_dir)
+        cache_mtime = os.path.getmtime(cache_path)
+        if ruleset_mtime <= cache_mtime:
+            needs_regen = False
+
+    if needs_regen:
+        print(f"[*] Generating prince_ling wordlist -> {cache_path}")
+        cmd = [
+            "python3",
+            prince_ling_script,
+            "--rule",
+            pcfgRuleset,
+            "--output",
+            tmp_path,
+            "--size",
+            str(pcfgPrinceLingMaxCandidates),
+        ]
+        try:
+            subprocess.run(cmd, check=True)
+            os.replace(tmp_path, cache_path)
+        except (subprocess.CalledProcessError, KeyboardInterrupt, OSError) as e:
+            # Clean up partial tmp file
+            if os.path.isfile(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+            print(f"prince_ling generation failed: {e}")
+            return
+
+    # Delegate to existing PRINCE attack with rebound base list
+    original_base = hcatPrinceBaseList
+    hcatPrinceBaseList = [cache_path]
+    try:
+        hcatPrince(hcatHashType, hcatHashFile)
+    finally:
+        hcatPrinceBaseList = original_base
+
+
 def hcatPermute(hcatHashType, hcatHashFile, wordlist):
     global hcatProcess, hcatPermuteCount
     permute_path = os.path.join(hate_path, "hashcat-utils", "bin", "permute.bin")
@@ -3816,6 +3933,14 @@ def permute_crack():
     return _attacks.permute_crack(_attack_ctx())
 
 
+def pcfg_attack():
+    return _attacks.pcfg_attack(_attack_ctx())
+
+
+def prince_ling_attack():
+    return _attacks.prince_ling_attack(_attack_ctx())
+
+
 def wordlist_filter_len(infile: str, outfile: str, min_len: int, max_len: int) -> bool:
     """Filter wordlist keeping only words between min_len and max_len (inclusive)."""
     len_bin = os.path.join(hate_path, "hashcat-utils/bin/len.bin")
@@ -4250,6 +4375,8 @@ def get_main_menu_items():
         ("20", "Permutation Attack"),
         ("21", "Random Rules Attack"),
         ("22", "Combipow Passphrase Attack"),
+        ("23", "PCFG Attack"),
+        ("24", "PRINCE-LING Attack"),
         ("80", "Wordlist Tools"),
         ("81", "Rule File Tools"),
         ("82", "Notifications"),
@@ -4294,6 +4421,8 @@ def get_main_menu_options():
         "20": permute_crack,
         "21": generate_rules_crack,
         "22": combipow_crack,
+        "23": pcfg_attack,
+        "24": prince_ling_attack,
         "80": wordlist_tools_submenu,
         "81": rule_tools_submenu,
         "82": notifications_submenu,
