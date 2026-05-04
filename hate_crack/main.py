@@ -914,14 +914,17 @@ def _add_debug_mode_for_rules(cmd):
 
 
 # Sanitize filename for use as hashcat session name
-def generate_session_id():
+def generate_session_id(hash_file=None):
     """Sanitize the hashfile name for use as a hashcat session name
 
     Hashcat session names can only contain alphanumeric characters, hyphens, and underscores.
     This function removes the file extension and replaces problematic characters.
+
+    Args:
+        hash_file: Optional explicit path; falls back to the ``hcatHashFile`` global when omitted.
     """
     # Get just the filename without path
-    filename = os.path.basename(hcatHashFile)
+    filename = os.path.basename(hash_file if hash_file is not None else hcatHashFile)
     # Remove extension
     name_without_ext = os.path.splitext(filename)[0]
     # Replace any non-alphanumeric chars (except - and _) with underscore
@@ -2612,6 +2615,46 @@ def hcatPrince(hcatHashType, hcatHashFile):
         )
         if prince_proc.stdout:
             prince_proc.stdout.close()
+
+
+def hcatPCFG(hcatHashType, hcatHashFile):
+    """Mode A: pipe pcfg_guesser.py output into hashcat in stdin mode."""
+    pcfg_guesser_script = os.path.join(hate_path, "pcfg_cracker", "pcfg_guesser.py")
+    if not os.path.isfile(pcfg_guesser_script):
+        print(f"pcfg_guesser.py not found at {pcfg_guesser_script}")
+        return
+    pcfg_cmd = [
+        "python3",
+        pcfg_guesser_script,
+        "--rule",
+        pcfgRuleset,
+        "--limit",
+        str(pcfgMaxCandidates),
+    ]
+    hashcat_cmd = [
+        hcatBin,
+        "-m",
+        hcatHashType,
+        hcatHashFile,
+        "--session",
+        generate_session_id(hcatHashFile),
+        "-o",
+        f"{hcatHashFile}.out",
+    ]
+    if _should_use_optimized_kernel("hcatPCFG"):
+        _insert_optimized_flag(hashcat_cmd)
+    hashcat_cmd.extend(shlex.split(hcatTuning))
+    _append_potfile_arg(hashcat_cmd)
+    pcfg_proc = subprocess.Popen(pcfg_cmd, stdout=subprocess.PIPE)
+    _run_hcat_cmd(
+        hashcat_cmd,
+        attack_name="PCFG",
+        hash_file=hcatHashFile,
+        stdin=pcfg_proc.stdout,
+        companion_procs=[pcfg_proc],
+    )
+    if pcfg_proc.stdout:
+        pcfg_proc.stdout.close()
 
 
 def hcatPermute(hcatHashType, hcatHashFile, wordlist):
