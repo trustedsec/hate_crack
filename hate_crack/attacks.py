@@ -49,10 +49,10 @@ def _select_rules(ctx) -> list[str] | None:
         return [""]
 
     print("\nWhich rule(s) would you like to run?")
-    rule_entries = ["0. To run without any rules"]
-    rule_entries.extend([f"{i}. {file}" for i, file in enumerate(rule_files, start=1)])
-    rule_entries.append("98. YOLO...run all of the rules")
-    rule_entries.append("99. Back to Main Menu")
+    rule_entries = ["0) To run without any rules"]
+    rule_entries.extend([f"{i}) {file}" for i, file in enumerate(rule_files, start=1)])
+    rule_entries.append("98) YOLO...run all of the rules")
+    rule_entries.append("99) Back to Main Menu")
     max_rule_len = max((len(e) for e in rule_entries), default=26)
     print_multicolumn_list(
         "Available Rules",
@@ -76,7 +76,21 @@ def _select_rules(ctx) -> list[str] | None:
         if raw_choice.strip() == "99":
             return None
         if raw_choice != "":
-            rule_choice = raw_choice.split(",")
+            tokens = raw_choice.split(",")
+            expanded = []
+            for tok in tokens:
+                tok = tok.strip()
+                if "+" not in tok and "-" in tok:
+                    parts = tok.split("-", 1)
+                    try:
+                        start, end = int(parts[0]), int(parts[1])
+                        if start <= end:
+                            expanded.extend(str(i) for i in range(start, end + 1))
+                            continue
+                    except ValueError:
+                        pass
+                expanded.append(tok)
+            rule_choice = expanded
 
     if "99" in rule_choice:
         return None
@@ -101,7 +115,7 @@ def _select_rules(ctx) -> list[str] | None:
                 try:
                     rule_path = os.path.join(rules_dir, rule_files[int(choice) - 1])
                     selected_rules.append(f"-r {rule_path}")
-                except IndexError:
+                except (IndexError, ValueError):
                     continue
 
     return selected_rules
@@ -114,7 +128,7 @@ def quick_crack(ctx: Any) -> None:
 
     wordlist_files = ctx.list_wordlist_files(default_dir)
     wordlist_entries = [
-        f"{i}. {file}" for i, file in enumerate(wordlist_files, start=1)
+        f"{i}) {file}" for i, file in enumerate(wordlist_files, start=1)
     ]
     max_entry_len = max((len(e) for e in wordlist_entries), default=24)
     print_multicolumn_list(
@@ -508,7 +522,7 @@ def _omen_pick_training_wordlist(ctx: Any):
     """Show wordlist picker for OMEN training. Returns path or None."""
     wordlist_files = ctx.list_wordlist_files(ctx.hcatWordlists)
     if wordlist_files:
-        entries = [f"{i}. {f}" for i, f in enumerate(wordlist_files, start=1)]
+        entries = [f"{i}) {f}" for i, f in enumerate(wordlist_files, start=1)]
         max_len = max((len(e) for e in entries), default=24)
         print_multicolumn_list(
             "Training Wordlists",
@@ -593,8 +607,8 @@ def _markov_pick_training_source(ctx: Any):
     wordlist_files = ctx.list_wordlist_files(ctx.hcatWordlists)
     entries = []
     if has_cracked:
-        entries.append("0. Cracked passwords (current session)")
-    entries.extend([f"{i}. {f}" for i, f in enumerate(wordlist_files, start=1)])
+        entries.append("0) Cracked passwords (current session)")
+    entries.extend([f"{i}) {f}" for i, f in enumerate(wordlist_files, start=1)])
     if entries:
         max_len = max((len(e) for e in entries), default=24)
         print_multicolumn_list(
@@ -730,7 +744,7 @@ def generate_rules_crack(ctx: Any) -> None:
 
     wordlist_files = ctx.list_wordlist_files(ctx.hcatWordlists)
     wordlist_entries = [
-        f"{i}. {file}" for i, file in enumerate(wordlist_files, start=1)
+        f"{i}) {file}" for i, file in enumerate(wordlist_files, start=1)
     ]
     max_entry_len = max((len(e) for e in wordlist_entries), default=24)
     print_multicolumn_list(
