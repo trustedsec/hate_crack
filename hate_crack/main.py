@@ -716,6 +716,16 @@ if not SKIP_INIT:
         except SystemExit:
             print("OMEN attacks will not be available.")
 
+        # Verify pcfg_cracker presence (optional, for PCFG attacks)
+        # pcfg_cracker is pure-Python; we just check the script files exist.
+        pcfg_guesser_script = os.path.join(hate_path, "pcfg_cracker", "pcfg_guesser.py")
+        pcfg_prince_ling_script = os.path.join(hate_path, "pcfg_cracker", "prince_ling.py")
+        if not os.path.isfile(pcfg_guesser_script) or not os.path.isfile(pcfg_prince_ling_script):
+            print("pcfg_cracker not found at " + os.path.join(hate_path, "pcfg_cracker"))
+            print("PCFG attacks will not be available. Run 'make' to fetch submodules.")
+        elif not shutil.which("python3"):
+            print("python3 not on PATH. PCFG attacks will not be available.")
+
     except Exception as e:
         print(f"Module initialization error: {e}")
         if not shutil.which("hashcat") and not os.path.exists("/usr/bin/hashcat"):
