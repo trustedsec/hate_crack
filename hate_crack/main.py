@@ -3933,6 +3933,14 @@ def permute_crack():
     return _attacks.permute_crack(_attack_ctx())
 
 
+def pcfg_attack():
+    return _attacks.pcfg_attack(_attack_ctx())
+
+
+def prince_ling_attack():
+    return _attacks.prince_ling_attack(_attack_ctx())
+
+
 def wordlist_filter_len(infile: str, outfile: str, min_len: int, max_len: int) -> bool:
     """Filter wordlist keeping only words between min_len and max_len (inclusive)."""
     len_bin = os.path.join(hate_path, "hashcat-utils/bin/len.bin")
