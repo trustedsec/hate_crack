@@ -914,17 +914,14 @@ def _add_debug_mode_for_rules(cmd):
 
 
 # Sanitize filename for use as hashcat session name
-def generate_session_id(hash_file=None):
+def generate_session_id():
     """Sanitize the hashfile name for use as a hashcat session name
 
     Hashcat session names can only contain alphanumeric characters, hyphens, and underscores.
     This function removes the file extension and replaces problematic characters.
-
-    Args:
-        hash_file: Optional explicit path; falls back to the ``hcatHashFile`` global when omitted.
     """
     # Get just the filename without path
-    filename = os.path.basename(hash_file if hash_file is not None else hcatHashFile)
+    filename = os.path.basename(hcatHashFile)
     # Remove extension
     name_without_ext = os.path.splitext(filename)[0]
     # Replace any non-alphanumeric chars (except - and _) with underscore
@@ -2637,7 +2634,7 @@ def hcatPCFG(hcatHashType, hcatHashFile):
         hcatHashType,
         hcatHashFile,
         "--session",
-        generate_session_id(hcatHashFile),
+        generate_session_id(),
         "-o",
         f"{hcatHashFile}.out",
     ]

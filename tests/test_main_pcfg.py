@@ -33,7 +33,8 @@ class TestHcatPCFG:
                 self.stdout.close = MagicMock()
 
         with patch("hate_crack.main.subprocess.Popen", side_effect=FakeProc), \
-             patch("hate_crack.main._run_hcat_cmd") as mock_run:
+             patch("hate_crack.main._run_hcat_cmd") as mock_run, \
+             patch.object(hc_main, "generate_session_id", return_value="test_session"):
             hc_main.hcatPCFG("0", hash_file)
 
         # First Popen call is the pcfg_guesser producer
