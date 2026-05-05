@@ -644,14 +644,14 @@ class TestHashviewAPI:
         # Verify left file was created
         assert os.path.exists(result["output_file"])
 
-        # Verify left file contains only the original uncracked hashes
+        # Verify left file contains the full original hashlist (left + found)
         with open(result["output_file"], "r") as f:
             left_contents = f.read()
-        assert "found_hash1" not in left_contents, (
-            "Found hashes must NOT be written back into the left file"
+        assert "found_hash1" in left_contents, (
+            "Found hashes must be appended to the left file to reconstruct the full hashlist"
         )
-        assert "found_hash2" not in left_contents, (
-            "Found hashes must NOT be written back into the left file"
+        assert "found_hash2" in left_contents, (
+            "Found hashes must be appended to the left file to reconstruct the full hashlist"
         )
         assert "uncracked_hash1" in left_contents
         assert "uncracked_hash2" in left_contents
