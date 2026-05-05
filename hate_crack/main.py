@@ -1079,12 +1079,17 @@ def select_file_with_autocomplete(
         except IndexError:
             return None
 
+    def display_matches(substitution, matches, longest_match_length):
+        print()
+        for match in matches:
+            print(f"  {match}")
+        readline.redisplay()
+
     # Configure readline for tab completion
     readline.set_completer_delims(" \t\n;")
-    # Disable the "Display all X possibilities?" prompt
     try:
-        readline.parse_and_bind("set completion-query-items -1")
-    except Exception:
+        readline.set_completion_display_matches_hook(display_matches)
+    except AttributeError:
         pass
     try:
         readline.parse_and_bind("tab: complete")
@@ -4892,7 +4897,9 @@ def main():
             ("2", "Download wordlists from Weakpass"),
             ("3", "Download wordlists from Hashmob.net"),
             ("4", "Download rules from Hashmob.net"),
-            ("5", "Exit"),
+            ("5", "Wordlist Tools"),
+            ("6", "Rule File Tools"),
+            ("7", "Exit"),
         ]
         menu_loop = True
         while menu_loop:
@@ -4930,6 +4937,10 @@ def main():
                     sys.exit(0)
                 # Otherwise continue the menu loop
             elif choice == "5":
+                wordlist_tools_submenu()
+            elif choice == "6":
+                rule_tools_submenu()
+            elif choice == "7":
                 sys.exit(0)
             else:
                 if (

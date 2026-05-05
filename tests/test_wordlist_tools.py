@@ -330,13 +330,45 @@ class TestWordlistOptimize:
             f"{wl_a},{wl_b}",
             outdir,
         ]
-        with patch("hate_crack.attacks.os.path.isfile", return_value=True):
+        with (
+            patch("hate_crack.attacks.os.path.isfile", return_value=True),
+            patch("hate_crack.attacks.os.path.isdir", return_value=False),
+        ):
             wordlist_optimize(ctx)
         ctx.wordlist_optimize.assert_called_once_with(
             [str(wl_a), str(wl_b)], outdir
         )
         out = capsys.readouterr().out
         assert outdir in out
+
+    def test_directory_expansion(self, tmp_path, capsys):
+        ctx = _make_ctx()
+        wl_dir = str(tmp_path / "wls")
+        outdir = str(tmp_path / "out")
+        ctx.select_file_with_autocomplete.side_effect = [wl_dir, outdir]
+        ctx.list_wordlist_files.return_value = ["a.txt", "b.txt"]
+        with (
+            patch("hate_crack.attacks.os.path.isfile", return_value=False),
+            patch("hate_crack.attacks.os.path.isdir", return_value=True),
+        ):
+            wordlist_optimize(ctx)
+        ctx.wordlist_optimize.assert_called_once_with(
+            [os.path.join(wl_dir, "a.txt"), os.path.join(wl_dir, "b.txt")], outdir
+        )
+
+    def test_empty_directory_rejection(self, tmp_path, capsys):
+        ctx = _make_ctx()
+        wl_dir = str(tmp_path / "wls")
+        ctx.select_file_with_autocomplete.return_value = wl_dir
+        ctx.list_wordlist_files.return_value = []
+        with (
+            patch("hate_crack.attacks.os.path.isfile", return_value=False),
+            patch("hate_crack.attacks.os.path.isdir", return_value=True),
+        ):
+            wordlist_optimize(ctx)
+        out = capsys.readouterr().out
+        assert "No wordlist files found" in out
+        ctx.wordlist_optimize.assert_not_called()
 
     def test_empty_input_rejection(self, capsys):
         ctx = _make_ctx()
@@ -359,10 +391,13 @@ class TestWordlistOptimize:
         existing = tmp_path / "a.txt"
         existing.write_text("word\n")
         ctx.select_file_with_autocomplete.return_value = f"{existing},/nonexistent/missing.txt"
-        with patch("hate_crack.attacks.os.path.isfile", side_effect=lambda p: p == str(existing)):
+        with (
+            patch("hate_crack.attacks.os.path.isfile", side_effect=lambda p: p == str(existing)),
+            patch("hate_crack.attacks.os.path.isdir", return_value=False),
+        ):
             wordlist_optimize(ctx)
         out = capsys.readouterr().out
-        assert "Files not found" in out
+        assert "Not found" in out
         ctx.wordlist_optimize.assert_not_called()
 
     def test_empty_outdir_rejection(self, tmp_path, capsys):
@@ -370,7 +405,10 @@ class TestWordlistOptimize:
         wl = tmp_path / "a.txt"
         wl.write_text("word\n")
         ctx.select_file_with_autocomplete.side_effect = [str(wl), ""]
-        with patch("hate_crack.attacks.os.path.isfile", return_value=True):
+        with (
+            patch("hate_crack.attacks.os.path.isfile", return_value=True),
+            patch("hate_crack.attacks.os.path.isdir", return_value=False),
+        ):
             wordlist_optimize(ctx)
         out = capsys.readouterr().out
         assert "Output directory cannot be empty" in out
@@ -383,7 +421,10 @@ class TestWordlistOptimize:
         wl.write_text("word\n")
         outdir = str(tmp_path / "out")
         ctx.select_file_with_autocomplete.side_effect = [str(wl), outdir]
-        with patch("hate_crack.attacks.os.path.isfile", return_value=True):
+        with (
+            patch("hate_crack.attacks.os.path.isfile", return_value=True),
+            patch("hate_crack.attacks.os.path.isdir", return_value=False),
+        ):
             wordlist_optimize(ctx)
         out = capsys.readouterr().out
         assert "Optimization failed" in out
