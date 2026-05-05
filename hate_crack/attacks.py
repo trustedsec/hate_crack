@@ -1192,6 +1192,33 @@ def wordlist_shard(ctx: Any) -> None:
         print("[!] Shard failed.")
 
 
+def wordlist_optimize(ctx: Any) -> None:
+    """Prompt for input wordlists and output directory, then optimize."""
+    raw = ctx.select_file_with_autocomplete(
+        "\n[*] Enter input wordlist paths",
+        allow_multiple=True,
+        base_dir=ctx.hcatWordlists,
+    ).strip()
+    inputs = [p.strip() for p in raw.split(",") if p.strip()]
+    if not inputs:
+        print("[!] No input wordlists provided.")
+        return
+    missing = [p for p in inputs if not os.path.isfile(p)]
+    if missing:
+        print("[!] Files not found:")
+        for p in missing:
+            print(f"    {p}")
+        return
+    outdir = ctx.select_file_with_autocomplete("[*] Enter output directory path").strip()
+    if not outdir:
+        print("[!] Output directory cannot be empty.")
+        return
+    if ctx.wordlist_optimize(inputs, outdir):
+        print(f"\n[*] Optimized wordlists written to: {outdir}")
+    else:
+        print("[!] Optimization failed.")
+
+
 def wordlist_tools_submenu(ctx: Any) -> None:
     """Display the Wordlist Tools submenu and dispatch to the selected handler."""
     items = [
@@ -1202,6 +1229,7 @@ def wordlist_tools_submenu(ctx: Any) -> None:
         ("5", "Split by Length"),
         ("6", "Subtract Wordlist"),
         ("7", "Shard Wordlist"),
+        ("8", "Optimize Wordlists"),
         ("99", "Back to Main Menu"),
     ]
     while True:
@@ -1222,3 +1250,5 @@ def wordlist_tools_submenu(ctx: Any) -> None:
             wordlist_subtract_words(ctx)
         elif choice == "7":
             wordlist_shard(ctx)
+        elif choice == "8":
+            wordlist_optimize(ctx)
