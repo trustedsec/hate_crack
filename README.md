@@ -912,6 +912,10 @@ Interactive menu for downloading and managing wordlists from Weakpass.com via Bi
 -------------------------------------------------------------------
 ### Version History
 
+Version 2.10.1
+  - Bumped `HashcatRosetta` submodule to v0.2.0, dropping a vulnerable transitive `pytest` (< 9.0.3, GHSA tmpdir handling) from its requirements
+  - Added `click>=8.0.0` to runtime dependencies (now required by HashcatRosetta v0.2.0's formatting module)
+
 Version 2.9.3
   - Transmission daemon now watches `/tmp/hate_crack/` for new `.torrent` files; wordlist content still downloads to the configured wordlist directory
   - Suppressed `transmission-daemon` stdout/stderr so daemon log output no longer appears in the terminal
