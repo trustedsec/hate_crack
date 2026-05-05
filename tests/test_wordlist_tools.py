@@ -9,6 +9,7 @@ from hate_crack.attacks import (
     wordlist_filter_charclass_exclude,
     wordlist_filter_charclass_include,
     wordlist_filter_length,
+    wordlist_optimize,
     wordlist_shard,
     wordlist_split_by_length,
     wordlist_subtract_words,
@@ -26,6 +27,7 @@ def _make_ctx():
     ctx.wordlist_subtract.return_value = True
     ctx.wordlist_subtract_single.return_value = True
     ctx.wordlist_gate.return_value = True
+    ctx.wordlist_optimize.return_value = True
     return ctx
 
 
@@ -297,6 +299,13 @@ class TestWordlistToolsSubmenu:
             wordlist_tools_submenu(ctx)
         mock_fn.assert_called_once_with(ctx)
 
+    def test_submenu_dispatches_to_optimize(self):
+        ctx = _make_ctx()
+        with patch("hate_crack.attacks.wordlist_optimize") as mock_fn, \
+             patch("hate_crack.attacks.interactive_menu", side_effect=["8", "99"]):
+            wordlist_tools_submenu(ctx)
+        mock_fn.assert_called_once_with(ctx)
+
     def test_submenu_exits_on_99(self):
         ctx = _make_ctx()
         with patch("hate_crack.attacks.interactive_menu", return_value="99"):
@@ -306,3 +315,74 @@ class TestWordlistToolsSubmenu:
         ctx = _make_ctx()
         with patch("hate_crack.attacks.interactive_menu", return_value=None):
             wordlist_tools_submenu(ctx)
+
+
+class TestWordlistOptimize:
+    def test_happy_path(self, tmp_path, capsys):
+        ctx = _make_ctx()
+        wl_a = tmp_path / "a.txt"
+        wl_a.write_text("word1\n")
+        wl_b = tmp_path / "b.txt"
+        wl_b.write_text("word2\n")
+        outdir = str(tmp_path / "out")
+        ctx.select_file_with_autocomplete.side_effect = [
+            f"{wl_a},{wl_b}",
+            outdir,
+        ]
+        with patch("hate_crack.attacks.os.path.isfile", return_value=True):
+            wordlist_optimize(ctx)
+        ctx.wordlist_optimize.assert_called_once_with(
+            [str(wl_a), str(wl_b)], outdir
+        )
+        out = capsys.readouterr().out
+        assert outdir in out
+
+    def test_empty_input_rejection(self, capsys):
+        ctx = _make_ctx()
+        ctx.select_file_with_autocomplete.return_value = ","
+        wordlist_optimize(ctx)
+        out = capsys.readouterr().out
+        assert "No input wordlists provided" in out
+        ctx.wordlist_optimize.assert_not_called()
+
+    def test_blank_input_rejection(self, capsys):
+        ctx = _make_ctx()
+        ctx.select_file_with_autocomplete.return_value = ""
+        wordlist_optimize(ctx)
+        out = capsys.readouterr().out
+        assert "No input wordlists provided" in out
+        ctx.wordlist_optimize.assert_not_called()
+
+    def test_missing_file_rejection(self, tmp_path, capsys):
+        ctx = _make_ctx()
+        existing = tmp_path / "a.txt"
+        existing.write_text("word\n")
+        ctx.select_file_with_autocomplete.return_value = f"{existing},/nonexistent/missing.txt"
+        with patch("hate_crack.attacks.os.path.isfile", side_effect=lambda p: p == str(existing)):
+            wordlist_optimize(ctx)
+        out = capsys.readouterr().out
+        assert "Files not found" in out
+        ctx.wordlist_optimize.assert_not_called()
+
+    def test_empty_outdir_rejection(self, tmp_path, capsys):
+        ctx = _make_ctx()
+        wl = tmp_path / "a.txt"
+        wl.write_text("word\n")
+        ctx.select_file_with_autocomplete.side_effect = [str(wl), ""]
+        with patch("hate_crack.attacks.os.path.isfile", return_value=True):
+            wordlist_optimize(ctx)
+        out = capsys.readouterr().out
+        assert "Output directory cannot be empty" in out
+        ctx.wordlist_optimize.assert_not_called()
+
+    def test_failure_path(self, tmp_path, capsys):
+        ctx = _make_ctx()
+        ctx.wordlist_optimize.return_value = False
+        wl = tmp_path / "a.txt"
+        wl.write_text("word\n")
+        outdir = str(tmp_path / "out")
+        ctx.select_file_with_autocomplete.side_effect = [str(wl), outdir]
+        with patch("hate_crack.attacks.os.path.isfile", return_value=True):
+            wordlist_optimize(ctx)
+        out = capsys.readouterr().out
+        assert "Optimization failed" in out

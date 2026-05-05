@@ -4011,6 +4011,43 @@ def wordlist_gate(infile: str, outfile: str, mod: int, offset: int) -> bool:
     return result.returncode == 0
 
 
+def wordlist_optimize(input_wordlists: list[str], outdir: str) -> bool:
+    """Consolidate wordlists into per-length deduplicated files in outdir."""
+    import tempfile
+    os.makedirs(outdir, exist_ok=True)
+    for wl in input_wordlists:
+        if not os.path.isfile(wl):
+            print(f"[!] Skipping missing wordlist: {wl}")
+            continue
+        if not os.listdir(outdir):
+            if not wordlist_splitlen(wl, outdir):
+                return False
+            continue
+        with tempfile.TemporaryDirectory(prefix="hc_optimize_") as tmp:
+            if not wordlist_splitlen(wl, tmp):
+                return False
+            for fname in os.listdir(tmp):
+                src = os.path.join(tmp, fname)
+                dst = os.path.join(outdir, fname)
+                if not os.path.isfile(dst):
+                    shutil.copyfile(src, dst)
+                    continue
+                with tempfile.NamedTemporaryFile(
+                    delete=False, prefix="hc_optimize_", suffix=".out"
+                ) as out_fh:
+                    out_path = out_fh.name
+                try:
+                    if not wordlist_subtract_single(src, dst, out_path):
+                        return False
+                    if os.path.getsize(out_path) > 0:
+                        with open(dst, "ab") as df, open(out_path, "rb") as sf:
+                            df.write(sf.read())
+                finally:
+                    if os.path.isfile(out_path):
+                        os.remove(out_path)
+    return True
+
+
 def wordlist_tools_submenu():
     return _attacks.wordlist_tools_submenu(_attack_ctx())
 
