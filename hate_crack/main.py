@@ -4013,7 +4013,6 @@ def wordlist_gate(infile: str, outfile: str, mod: int, offset: int) -> bool:
 
 def wordlist_optimize(input_wordlists: list[str], outdir: str) -> bool:
     """Consolidate wordlists into per-length deduplicated files in outdir."""
-    import tempfile
     os.makedirs(outdir, exist_ok=True)
     for wl in input_wordlists:
         if not os.path.isfile(wl):
