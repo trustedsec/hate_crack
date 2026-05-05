@@ -1195,17 +1195,29 @@ def wordlist_shard(ctx: Any) -> None:
 def wordlist_optimize(ctx: Any) -> None:
     """Prompt for input wordlists and output directory, then optimize."""
     raw = ctx.select_file_with_autocomplete(
-        "\n[*] Enter input wordlist paths (comma-separated)",
+        "\n[*] Enter input wordlist paths (comma-separated files or directories)",
         base_dir=ctx.hcatWordlists,
     ).strip()
-    inputs = [p.strip() for p in raw.split(",") if p.strip()]
-    if not inputs:
+    raw_entries = [p.strip() for p in raw.split(",") if p.strip()]
+    if not raw_entries:
         print("[!] No input wordlists provided.")
         return
-    missing = [p for p in inputs if not os.path.isfile(p)]
-    if missing:
-        print("[!] Files not found:")
-        for p in missing:
+    inputs: list[str] = []
+    not_found: list[str] = []
+    for entry in raw_entries:
+        if os.path.isfile(entry):
+            inputs.append(entry)
+        elif os.path.isdir(entry):
+            files = [os.path.join(entry, f) for f in ctx.list_wordlist_files(entry)]
+            if not files:
+                print(f"[!] No wordlist files found in: {entry}")
+                return
+            inputs.extend(files)
+        else:
+            not_found.append(entry)
+    if not_found:
+        print("[!] Not found (not a file or directory):")
+        for p in not_found:
             print(f"    {p}")
         return
     outdir = ctx.select_file_with_autocomplete("[*] Enter output directory path").strip()
