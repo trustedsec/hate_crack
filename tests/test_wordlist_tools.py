@@ -416,7 +416,7 @@ class TestWordlistOptimizeWorker:
         outdir.mkdir()
 
         with patch("hate_crack.main.wordlist_splitlen", return_value=True) as mock_split, \
-             patch("hate_crack.main.wordlist_subtract_single") as mock_sub:
+             patch("hate_crack.main.wordlist_subtract") as mock_sub:
             result = worker([str(wl)], str(outdir))
 
         assert result is True
@@ -424,7 +424,7 @@ class TestWordlistOptimizeWorker:
         mock_sub.assert_not_called()
 
     # ------------------------------------------------------------------
-    # (b) merge-path: existing per-length file → subtract_single + append
+    # (b) merge-path: existing per-length file → wordlist_subtract + append
     # ------------------------------------------------------------------
     def test_merge_path_existing_length_file(self, tmp_path):
         worker = self._get_worker()
@@ -441,7 +441,7 @@ class TestWordlistOptimizeWorker:
 
         # The second call goes through the merge path for the tmp subdir.
         # wordlist_splitlen for wl_b produces "len5.txt" in a temp dir.
-        # wordlist_subtract_single produces a non-empty output → append.
+        # wordlist_subtract produces a non-empty output → append.
         new_words = b"word2\n"
 
         def fake_splitlen(infile: str, outdir_arg: str) -> bool:
@@ -449,14 +449,14 @@ class TestWordlistOptimizeWorker:
             (Path(outdir_arg) / "len5.txt").write_bytes(b"word2\n")
             return True
 
-        def fake_subtract(src: str, dst: str, out: str) -> bool:
-            # Simulate: the diff is "word2\n"
+        def fake_subtract(src: str, out: str, *remove_files: str) -> bool:
+            # Simulate: the diff is "word2\n" — write to outfile (second arg)
             with open(out, "wb") as f:
                 f.write(new_words)
             return True
 
         with patch("hate_crack.main.wordlist_splitlen", side_effect=fake_splitlen), \
-             patch("hate_crack.main.wordlist_subtract_single", side_effect=fake_subtract):
+             patch("hate_crack.main.wordlist_subtract", side_effect=fake_subtract):
             # outdir is already non-empty (len_file exists), so wl_b goes to merge path
             result = worker([str(wl_b)], str(outdir))
 
@@ -484,7 +484,7 @@ class TestWordlistOptimizeWorker:
             return True
 
         with patch("hate_crack.main.wordlist_splitlen", side_effect=fake_splitlen), \
-             patch("hate_crack.main.wordlist_subtract_single") as mock_sub:
+             patch("hate_crack.main.wordlist_subtract") as mock_sub:
             result = worker([str(wl_b)], str(outdir))
 
         assert result is True
@@ -508,7 +508,7 @@ class TestWordlistOptimizeWorker:
         assert result is False
 
     # ------------------------------------------------------------------
-    # (e) wordlist_subtract_single failure returns False
+    # (e) wordlist_subtract failure returns False
     # ------------------------------------------------------------------
     def test_subtract_failure_returns_false(self, tmp_path):
         worker = self._get_worker()
@@ -525,7 +525,7 @@ class TestWordlistOptimizeWorker:
             return True
 
         with patch("hate_crack.main.wordlist_splitlen", side_effect=fake_splitlen), \
-             patch("hate_crack.main.wordlist_subtract_single", return_value=False):
+             patch("hate_crack.main.wordlist_subtract", return_value=False):
             result = worker([str(wl_b)], str(outdir))
 
         assert result is False

@@ -4036,7 +4036,7 @@ def wordlist_optimize(input_wordlists: list[str], outdir: str) -> bool:
                 ) as out_fh:
                     out_path = out_fh.name
                 try:
-                    if not wordlist_subtract_single(src, dst, out_path):
+                    if not wordlist_subtract(src, out_path, dst):
                         return False
                     if os.path.getsize(out_path) > 0:
                         with open(dst, "ab") as df, open(out_path, "rb") as sf:
