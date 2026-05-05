@@ -358,17 +358,11 @@ This installs hooks defined in `prek.toml` using the pre-commit local-repo TOML 
 
 Note: prek 0.3.3 expects `repos = [...]` at the top level. The old `[hooks.<stage>] commands = [...]` format is not supported.
 
-### Arrow-Key Menu Navigation (Optional)
+### Arrow-Key Menu Navigation
 
-Install the `[tui]` extra to enable arrow-key menu navigation via `simple-term-menu`:
+Arrow-key menu navigation is enabled by default via the `simple-term-menu` dependency. When running in a terminal (TTY), menus render with arrow-key navigation and number-key shortcuts.
 
-```bash
-uv pip install '.[tui]'
-```
-
-When installed and running in a terminal (TTY), menus render with arrow-key navigation and number-key shortcuts. Without it, the classic numbered `print()` + `input()` menu is used.
-
-To force the plain numbered menu even when `simple-term-menu` is installed, set `HATE_CRACK_PLAIN_MENU=1`.
+To force the classic numbered `print()` + `input()` menu, set `HATE_CRACK_PLAIN_MENU=1`.
 
 ### Dev Dependencies
 
@@ -917,6 +911,12 @@ Interactive menu for downloading and managing wordlists from Weakpass.com via Bi
   
 -------------------------------------------------------------------
 ### Version History
+
+Version 2.9.3
+  - Transmission daemon now watches `/tmp/hate_crack/` for new `.torrent` files; wordlist content still downloads to the configured wordlist directory
+  - Suppressed `transmission-daemon` stdout/stderr so daemon log output no longer appears in the terminal
+  - Increased watch-dir polling window to 30s to account for transmission's ~10s scan interval
+  - Store downloaded `.torrent` files in `/tmp/hate_crack/` instead of `/tmp/` root
 
 Version 2.5.0
   - Added tab autocomplete to all file and directory path prompts in the Wordlist Tools submenu (option 80)

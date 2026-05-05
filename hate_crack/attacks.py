@@ -49,10 +49,10 @@ def _select_rules(ctx) -> list[str] | None:
         return [""]
 
     print("\nWhich rule(s) would you like to run?")
-    rule_entries = ["0. To run without any rules"]
-    rule_entries.extend([f"{i}. {file}" for i, file in enumerate(rule_files, start=1)])
-    rule_entries.append("98. YOLO...run all of the rules")
-    rule_entries.append("99. Back to Main Menu")
+    rule_entries = ["0) To run without any rules"]
+    rule_entries.extend([f"{i}) {file}" for i, file in enumerate(rule_files, start=1)])
+    rule_entries.append("98) YOLO...run all of the rules")
+    rule_entries.append("99) Back to Main Menu")
     max_rule_len = max((len(e) for e in rule_entries), default=26)
     print_multicolumn_list(
         "Available Rules",
@@ -76,7 +76,21 @@ def _select_rules(ctx) -> list[str] | None:
         if raw_choice.strip() == "99":
             return None
         if raw_choice != "":
-            rule_choice = raw_choice.split(",")
+            tokens = raw_choice.split(",")
+            expanded = []
+            for tok in tokens:
+                tok = tok.strip()
+                if "+" not in tok and "-" in tok:
+                    parts = tok.split("-", 1)
+                    try:
+                        start, end = int(parts[0]), int(parts[1])
+                        if start <= end:
+                            expanded.extend(str(i) for i in range(start, end + 1))
+                            continue
+                    except ValueError:
+                        pass
+                expanded.append(tok)
+            rule_choice = expanded
 
     if "99" in rule_choice:
         return None
@@ -101,7 +115,7 @@ def _select_rules(ctx) -> list[str] | None:
                 try:
                     rule_path = os.path.join(rules_dir, rule_files[int(choice) - 1])
                     selected_rules.append(f"-r {rule_path}")
-                except IndexError:
+                except (IndexError, ValueError):
                     continue
 
     return selected_rules
@@ -114,7 +128,7 @@ def quick_crack(ctx: Any) -> None:
 
     wordlist_files = ctx.list_wordlist_files(default_dir)
     wordlist_entries = [
-        f"{i}. {file}" for i, file in enumerate(wordlist_files, start=1)
+        f"{i}) {file}" for i, file in enumerate(wordlist_files, start=1)
     ]
     max_entry_len = max((len(e) for e in wordlist_entries), default=24)
     print_multicolumn_list(
@@ -400,6 +414,16 @@ def prince_attack(ctx: Any) -> None:
     ctx.hcatPrince(ctx.hcatHashType, ctx.hcatHashFile)
 
 
+def pcfg_attack(ctx: Any) -> None:
+    _notify.prompt_notify_for_attack("PCFG")
+    ctx.hcatPCFG(ctx.hcatHashType, ctx.hcatHashFile)
+
+
+def prince_ling_attack(ctx: Any) -> None:
+    _notify.prompt_notify_for_attack("PRINCE-LING")
+    ctx.hcatPrinceLing(ctx.hcatHashType, ctx.hcatHashFile)
+
+
 def yolo_combination(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("YOLO Combination")
     ctx.hcatYoloCombination(ctx.hcatHashType, ctx.hcatHashFile)
@@ -498,7 +522,7 @@ def _omen_pick_training_wordlist(ctx: Any):
     """Show wordlist picker for OMEN training. Returns path or None."""
     wordlist_files = ctx.list_wordlist_files(ctx.hcatWordlists)
     if wordlist_files:
-        entries = [f"{i}. {f}" for i, f in enumerate(wordlist_files, start=1)]
+        entries = [f"{i}) {f}" for i, f in enumerate(wordlist_files, start=1)]
         max_len = max((len(e) for e in entries), default=24)
         print_multicolumn_list(
             "Training Wordlists",
@@ -583,8 +607,8 @@ def _markov_pick_training_source(ctx: Any):
     wordlist_files = ctx.list_wordlist_files(ctx.hcatWordlists)
     entries = []
     if has_cracked:
-        entries.append("0. Cracked passwords (current session)")
-    entries.extend([f"{i}. {f}" for i, f in enumerate(wordlist_files, start=1)])
+        entries.append("0) Cracked passwords (current session)")
+    entries.extend([f"{i}) {f}" for i, f in enumerate(wordlist_files, start=1)])
     if entries:
         max_len = max((len(e) for e in entries), default=24)
         print_multicolumn_list(
@@ -720,7 +744,7 @@ def generate_rules_crack(ctx: Any) -> None:
 
     wordlist_files = ctx.list_wordlist_files(ctx.hcatWordlists)
     wordlist_entries = [
-        f"{i}. {file}" for i, file in enumerate(wordlist_files, start=1)
+        f"{i}) {file}" for i, file in enumerate(wordlist_files, start=1)
     ]
     max_entry_len = max((len(e) for e in wordlist_entries), default=24)
     print_multicolumn_list(
@@ -1168,6 +1192,44 @@ def wordlist_shard(ctx: Any) -> None:
         print("[!] Shard failed.")
 
 
+def wordlist_optimize(ctx: Any) -> None:
+    """Prompt for input wordlists and output directory, then optimize."""
+    raw = ctx.select_file_with_autocomplete(
+        "\n[*] Enter input wordlist paths (comma-separated files or directories)",
+        base_dir=ctx.hcatWordlists,
+    ).strip()
+    raw_entries = [p.strip() for p in raw.split(",") if p.strip()]
+    if not raw_entries:
+        print("[!] No input wordlists provided.")
+        return
+    inputs: list[str] = []
+    not_found: list[str] = []
+    for entry in raw_entries:
+        if os.path.isfile(entry):
+            inputs.append(entry)
+        elif os.path.isdir(entry):
+            files = [os.path.join(entry, f) for f in ctx.list_wordlist_files(entry)]
+            if not files:
+                print(f"[!] No wordlist files found in: {entry}")
+                return
+            inputs.extend(files)
+        else:
+            not_found.append(entry)
+    if not_found:
+        print("[!] Not found (not a file or directory):")
+        for p in not_found:
+            print(f"    {p}")
+        return
+    outdir = ctx.select_file_with_autocomplete("[*] Enter output directory path").strip()
+    if not outdir:
+        print("[!] Output directory cannot be empty.")
+        return
+    if ctx.wordlist_optimize(inputs, outdir):
+        print(f"\n[*] Optimized wordlists written to: {outdir}")
+    else:
+        print("[!] Optimization failed.")
+
+
 def wordlist_tools_submenu(ctx: Any) -> None:
     """Display the Wordlist Tools submenu and dispatch to the selected handler."""
     items = [
@@ -1178,6 +1240,7 @@ def wordlist_tools_submenu(ctx: Any) -> None:
         ("5", "Split by Length"),
         ("6", "Subtract Wordlist"),
         ("7", "Shard Wordlist"),
+        ("8", "Optimize Wordlists"),
         ("99", "Back to Main Menu"),
     ]
     while True:
@@ -1198,3 +1261,5 @@ def wordlist_tools_submenu(ctx: Any) -> None:
             wordlist_subtract_words(ctx)
         elif choice == "7":
             wordlist_shard(ctx)
+        elif choice == "8":
+            wordlist_optimize(ctx)

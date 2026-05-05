@@ -1,6 +1,7 @@
 import os
+import shutil
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -9,6 +10,7 @@ from hate_crack.attacks import (
     wordlist_filter_charclass_exclude,
     wordlist_filter_charclass_include,
     wordlist_filter_length,
+    wordlist_optimize,
     wordlist_shard,
     wordlist_split_by_length,
     wordlist_subtract_words,
@@ -26,6 +28,7 @@ def _make_ctx():
     ctx.wordlist_subtract.return_value = True
     ctx.wordlist_subtract_single.return_value = True
     ctx.wordlist_gate.return_value = True
+    ctx.wordlist_optimize.return_value = True
     return ctx
 
 
@@ -297,6 +300,13 @@ class TestWordlistToolsSubmenu:
             wordlist_tools_submenu(ctx)
         mock_fn.assert_called_once_with(ctx)
 
+    def test_submenu_dispatches_to_optimize(self):
+        ctx = _make_ctx()
+        with patch("hate_crack.attacks.wordlist_optimize") as mock_fn, \
+             patch("hate_crack.attacks.interactive_menu", side_effect=["8", "99"]):
+            wordlist_tools_submenu(ctx)
+        mock_fn.assert_called_once_with(ctx)
+
     def test_submenu_exits_on_99(self):
         ctx = _make_ctx()
         with patch("hate_crack.attacks.interactive_menu", return_value="99"):
@@ -306,3 +316,283 @@ class TestWordlistToolsSubmenu:
         ctx = _make_ctx()
         with patch("hate_crack.attacks.interactive_menu", return_value=None):
             wordlist_tools_submenu(ctx)
+
+
+class TestWordlistOptimize:
+    def test_happy_path(self, tmp_path, capsys):
+        ctx = _make_ctx()
+        wl_a = tmp_path / "a.txt"
+        wl_a.write_text("word1\n")
+        wl_b = tmp_path / "b.txt"
+        wl_b.write_text("word2\n")
+        outdir = str(tmp_path / "out")
+        ctx.select_file_with_autocomplete.side_effect = [
+            f"{wl_a},{wl_b}",
+            outdir,
+        ]
+        with (
+            patch("hate_crack.attacks.os.path.isfile", return_value=True),
+            patch("hate_crack.attacks.os.path.isdir", return_value=False),
+        ):
+            wordlist_optimize(ctx)
+        ctx.wordlist_optimize.assert_called_once_with(
+            [str(wl_a), str(wl_b)], outdir
+        )
+        out = capsys.readouterr().out
+        assert outdir in out
+
+    def test_directory_expansion(self, tmp_path, capsys):
+        ctx = _make_ctx()
+        wl_dir = str(tmp_path / "wls")
+        outdir = str(tmp_path / "out")
+        ctx.select_file_with_autocomplete.side_effect = [wl_dir, outdir]
+        ctx.list_wordlist_files.return_value = ["a.txt", "b.txt"]
+        with (
+            patch("hate_crack.attacks.os.path.isfile", return_value=False),
+            patch("hate_crack.attacks.os.path.isdir", return_value=True),
+        ):
+            wordlist_optimize(ctx)
+        ctx.wordlist_optimize.assert_called_once_with(
+            [os.path.join(wl_dir, "a.txt"), os.path.join(wl_dir, "b.txt")], outdir
+        )
+
+    def test_empty_directory_rejection(self, tmp_path, capsys):
+        ctx = _make_ctx()
+        wl_dir = str(tmp_path / "wls")
+        ctx.select_file_with_autocomplete.return_value = wl_dir
+        ctx.list_wordlist_files.return_value = []
+        with (
+            patch("hate_crack.attacks.os.path.isfile", return_value=False),
+            patch("hate_crack.attacks.os.path.isdir", return_value=True),
+        ):
+            wordlist_optimize(ctx)
+        out = capsys.readouterr().out
+        assert "No wordlist files found" in out
+        ctx.wordlist_optimize.assert_not_called()
+
+    def test_empty_input_rejection(self, capsys):
+        ctx = _make_ctx()
+        ctx.select_file_with_autocomplete.return_value = ","
+        wordlist_optimize(ctx)
+        out = capsys.readouterr().out
+        assert "No input wordlists provided" in out
+        ctx.wordlist_optimize.assert_not_called()
+
+    def test_blank_input_rejection(self, capsys):
+        ctx = _make_ctx()
+        ctx.select_file_with_autocomplete.return_value = ""
+        wordlist_optimize(ctx)
+        out = capsys.readouterr().out
+        assert "No input wordlists provided" in out
+        ctx.wordlist_optimize.assert_not_called()
+
+    def test_missing_file_rejection(self, tmp_path, capsys):
+        ctx = _make_ctx()
+        existing = tmp_path / "a.txt"
+        existing.write_text("word\n")
+        ctx.select_file_with_autocomplete.return_value = f"{existing},/nonexistent/missing.txt"
+        with (
+            patch("hate_crack.attacks.os.path.isfile", side_effect=lambda p: p == str(existing)),
+            patch("hate_crack.attacks.os.path.isdir", return_value=False),
+        ):
+            wordlist_optimize(ctx)
+        out = capsys.readouterr().out
+        assert "Not found" in out
+        ctx.wordlist_optimize.assert_not_called()
+
+    def test_empty_outdir_rejection(self, tmp_path, capsys):
+        ctx = _make_ctx()
+        wl = tmp_path / "a.txt"
+        wl.write_text("word\n")
+        ctx.select_file_with_autocomplete.side_effect = [str(wl), ""]
+        with (
+            patch("hate_crack.attacks.os.path.isfile", return_value=True),
+            patch("hate_crack.attacks.os.path.isdir", return_value=False),
+        ):
+            wordlist_optimize(ctx)
+        out = capsys.readouterr().out
+        assert "Output directory cannot be empty" in out
+        ctx.wordlist_optimize.assert_not_called()
+
+    def test_failure_path(self, tmp_path, capsys):
+        ctx = _make_ctx()
+        ctx.wordlist_optimize.return_value = False
+        wl = tmp_path / "a.txt"
+        wl.write_text("word\n")
+        outdir = str(tmp_path / "out")
+        ctx.select_file_with_autocomplete.side_effect = [str(wl), outdir]
+        with (
+            patch("hate_crack.attacks.os.path.isfile", return_value=True),
+            patch("hate_crack.attacks.os.path.isdir", return_value=False),
+        ):
+            wordlist_optimize(ctx)
+        out = capsys.readouterr().out
+        assert "Optimization failed" in out
+
+
+class TestWordlistOptimizeWorker:
+    """Tests for the wordlist_optimize worker function in hate_crack.main.
+
+    All binary-calling helpers (wordlist_splitlen, wordlist_subtract_single)
+    are mocked so no real binaries are required.
+    """
+
+    def _get_worker(self):
+        import importlib
+        import sys
+        # Import the module fresh; SKIP_INIT is already active via conftest.
+        mod = sys.modules.get("hate_crack.main")
+        if mod is None:
+            mod = importlib.import_module("hate_crack.main")
+        return mod.wordlist_optimize
+
+    # ------------------------------------------------------------------
+    # (a) fast-path: empty outdir → wordlist_splitlen called directly
+    # ------------------------------------------------------------------
+    def test_fast_path_empty_outdir(self, tmp_path):
+        worker = self._get_worker()
+        wl = tmp_path / "words.txt"
+        wl.write_text("word\n")
+        outdir = tmp_path / "out"
+        outdir.mkdir()
+
+        with patch("hate_crack.main.wordlist_splitlen", return_value=True) as mock_split, \
+             patch("hate_crack.main.wordlist_subtract") as mock_sub:
+            result = worker([str(wl)], str(outdir))
+
+        assert result is True
+        mock_split.assert_called_once_with(str(wl), str(outdir))
+        mock_sub.assert_not_called()
+
+    # ------------------------------------------------------------------
+    # (b) merge-path: existing per-length file → wordlist_subtract + append
+    # ------------------------------------------------------------------
+    def test_merge_path_existing_length_file(self, tmp_path):
+        worker = self._get_worker()
+        wl_a = tmp_path / "a.txt"
+        wl_a.write_text("word1\n")
+        wl_b = tmp_path / "b.txt"
+        wl_b.write_text("word2\n")
+        outdir = tmp_path / "out"
+        outdir.mkdir()
+
+        # After the first wordlist, outdir contains "len5.txt"
+        len_file = outdir / "len5.txt"
+        len_file.write_text("word1\n")
+
+        # The second call goes through the merge path for the tmp subdir.
+        # wordlist_splitlen for wl_b produces "len5.txt" in a temp dir.
+        # wordlist_subtract produces a non-empty output → append.
+        new_words = b"word2\n"
+
+        def fake_splitlen(infile: str, outdir_arg: str) -> bool:
+            # Write a len5.txt into wherever we are called to write to
+            (Path(outdir_arg) / "len5.txt").write_bytes(b"word2\n")
+            return True
+
+        def fake_subtract(src: str, out: str, *remove_files: str) -> bool:
+            # Simulate: the diff is "word2\n" — write to outfile (second arg)
+            with open(out, "wb") as f:
+                f.write(new_words)
+            return True
+
+        with patch("hate_crack.main.wordlist_splitlen", side_effect=fake_splitlen), \
+             patch("hate_crack.main.wordlist_subtract", side_effect=fake_subtract):
+            # outdir is already non-empty (len_file exists), so wl_b goes to merge path
+            result = worker([str(wl_b)], str(outdir))
+
+        assert result is True
+        # len5.txt should now contain the appended new words
+        contents = len_file.read_bytes()
+        assert b"word2\n" in contents
+
+    # ------------------------------------------------------------------
+    # (c) new length file in subsequent wordlist is just copied
+    # ------------------------------------------------------------------
+    def test_new_length_file_is_copied(self, tmp_path):
+        worker = self._get_worker()
+        wl_b = tmp_path / "b.txt"
+        wl_b.write_text("verylongword\n")
+        outdir = tmp_path / "out"
+        outdir.mkdir()
+
+        # Seed outdir with one length file (len5) so it is non-empty
+        (outdir / "len5.txt").write_text("hello\n")
+
+        # The second wordlist produces only "len12.txt" (no clash)
+        def fake_splitlen(infile: str, outdir_arg: str) -> bool:
+            (Path(outdir_arg) / "len12.txt").write_bytes(b"verylongword\n")
+            return True
+
+        with patch("hate_crack.main.wordlist_splitlen", side_effect=fake_splitlen), \
+             patch("hate_crack.main.wordlist_subtract") as mock_sub:
+            result = worker([str(wl_b)], str(outdir))
+
+        assert result is True
+        assert (outdir / "len12.txt").exists()
+        assert (outdir / "len12.txt").read_bytes() == b"verylongword\n"
+        mock_sub.assert_not_called()
+
+    # ------------------------------------------------------------------
+    # (d) wordlist_splitlen failure returns False
+    # ------------------------------------------------------------------
+    def test_splitlen_failure_returns_false(self, tmp_path):
+        worker = self._get_worker()
+        wl = tmp_path / "words.txt"
+        wl.write_text("word\n")
+        outdir = tmp_path / "out"
+        outdir.mkdir()
+
+        with patch("hate_crack.main.wordlist_splitlen", return_value=False):
+            result = worker([str(wl)], str(outdir))
+
+        assert result is False
+
+    # ------------------------------------------------------------------
+    # (e) wordlist_subtract failure returns False
+    # ------------------------------------------------------------------
+    def test_subtract_failure_returns_false(self, tmp_path):
+        worker = self._get_worker()
+        wl_b = tmp_path / "b.txt"
+        wl_b.write_text("word2\n")
+        outdir = tmp_path / "out"
+        outdir.mkdir()
+
+        # Seed outdir so it's non-empty and has a clashing length file
+        (outdir / "len5.txt").write_text("word1\n")
+
+        def fake_splitlen(infile: str, outdir_arg: str) -> bool:
+            (Path(outdir_arg) / "len5.txt").write_bytes(b"word2\n")
+            return True
+
+        with patch("hate_crack.main.wordlist_splitlen", side_effect=fake_splitlen), \
+             patch("hate_crack.main.wordlist_subtract", return_value=False):
+            result = worker([str(wl_b)], str(outdir))
+
+        assert result is False
+
+    # ------------------------------------------------------------------
+    # (f) missing input file is skipped and processing continues
+    # ------------------------------------------------------------------
+    def test_missing_input_skipped_processing_continues(self, tmp_path, capsys):
+        worker = self._get_worker()
+        good_wl = tmp_path / "good.txt"
+        good_wl.write_text("word\n")
+        missing = str(tmp_path / "nonexistent.txt")
+        outdir = tmp_path / "out"
+        outdir.mkdir()
+
+        call_count = {"n": 0}
+
+        def fake_splitlen(infile: str, outdir_arg: str) -> bool:
+            call_count["n"] += 1
+            return True
+
+        with patch("hate_crack.main.wordlist_splitlen", side_effect=fake_splitlen):
+            result = worker([missing, str(good_wl)], str(outdir))
+
+        assert result is True
+        # Only the good wordlist should have been processed
+        assert call_count["n"] == 1
+        out = capsys.readouterr().out
+        assert "Skipping" in out

@@ -2,10 +2,11 @@ import concurrent.futures
 import json
 import sys
 import os
+import shutil
+import tempfile
 import threading
 import time
 from queue import Queue
-import shutil
 from typing import Callable, Optional, Tuple
 
 import requests  # type: ignore[import-untyped]
@@ -266,7 +267,6 @@ class TransmissionSession:
     def __enter__(self):
         import atexit
         import subprocess
-        import tempfile
 
         self._cfg_dir = tempfile.mkdtemp(prefix="hate_crack_transmission_")
         self._port = _pick_free_port()
@@ -286,7 +286,9 @@ class TransmissionSession:
                 self.save_dir,
                 "--no-portmap",
                 "--no-watch-dir",
-            ]
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
         deadline = time.monotonic() + self.startup_timeout
         while time.monotonic() < deadline:
@@ -347,7 +349,6 @@ class TransmissionSession:
             [
                 "transmission-remote",
                 self._rpc,
-                "--no-auth",
                 "-a",
                 torrent_path,
             ],
@@ -371,7 +372,7 @@ class TransmissionSession:
         import subprocess
 
         result = subprocess.run(
-            ["transmission-remote", self._rpc, "--no-auth", "-l"],
+            ["transmission-remote", self._rpc, "-l"],
             capture_output=True,
             text=True,
         )
@@ -428,7 +429,6 @@ class TransmissionSession:
             [
                 "transmission-remote",
                 self._rpc,
-                "--no-auth",
                 f"-t{torrent_id}",
                 "--info-files",
             ],
@@ -472,7 +472,6 @@ class TransmissionSession:
             [
                 "transmission-remote",
                 self._rpc,
-                "--no-auth",
                 f"-t{torrent_id}",
                 "--remove",
             ],
@@ -582,9 +581,9 @@ def get_hcat_potfile_args():
 
 
 def cleanup_torrent_files(directory=None):
-    """Remove stray .torrent files from the wordlists directory on graceful exit."""
+    """Remove stray .torrent files left in the hate_crack temp directory on graceful exit."""
     if directory is None:
-        directory = get_hcat_wordlists_dir()
+        directory = os.path.join(tempfile.gettempdir(), "hate_crack")
     try:
         for name in os.listdir(directory):
             if name.endswith(".torrent"):
@@ -791,18 +790,12 @@ def fetch_torrent_metadata(torrent_url, save_dir=None, wordlist_id=None):
     """Download the .torrent metadata file from Weakpass and return its local path.
 
     Returns the path to the saved .torrent file, or None on failure.
+    The .torrent file is stored in the system temp directory, not the wordlist dir.
     """
     register_torrent_cleanup()
 
-    if not save_dir:
-        save_dir = get_hcat_wordlists_dir()
-    else:
-        save_dir = os.path.expanduser(save_dir)
-        if not os.path.isabs(save_dir):
-            save_dir = os.path.join(
-                os.path.dirname(os.path.abspath(__file__)), save_dir
-            )
-    os.makedirs(save_dir, exist_ok=True)
+    torrent_dir = os.path.join(tempfile.gettempdir(), "hate_crack")
+    os.makedirs(torrent_dir, exist_ok=True)
     # Optionally include hashmob_api_key in headers if present
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -899,7 +892,7 @@ def fetch_torrent_metadata(torrent_url, save_dir=None, wordlist_id=None):
     r2 = requests.get(torrent_link, headers=headers, stream=True)
     content_type = r2.headers.get("Content-Type", "")
     local_filename = os.path.join(
-        save_dir, filename if filename.endswith(".torrent") else filename + ".torrent"
+        torrent_dir, filename if filename.endswith(".torrent") else filename + ".torrent"
     )
     if r2.status_code == 200 and not content_type.startswith("text/html"):
         with open(local_filename, "wb") as f:
@@ -1428,13 +1421,19 @@ class HashviewAPI:
                         for line in f:
                             line = line.strip()
                             if line:
-                                parts = line.split(":", 1)  # Split on first colon
+                                parts = line.rsplit(":", 1)
                                 if len(parts) == 2:
                                     hash_part, clear_part = parts
                                     hf.write(hash_part + "\n")
                                     cf.write(clear_part + "\n")
                                     hashes_count += 1
                                     clears_count += 1
+
+                # Append found hashes to the left file to reconstruct the full hashlist
+                with open(output_abs, "a", encoding="utf-8") as lf:
+                    with open(found_hashes_file, "r", encoding="utf-8") as hf:
+                        for line in hf:
+                            lf.write(line)
 
                 print(
                     f"Split found file into {hashes_count} hashes and {clears_count} clears"

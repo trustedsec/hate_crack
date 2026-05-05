@@ -140,48 +140,41 @@ class TestTransmissionSession:
             with pytest.raises(RuntimeError, match="Transmission daemon failed"):
                 ts.__enter__()
 
-    def test_add_parses_id_from_stdout(self, tmp_path):
+    def test_add_uses_transmission_remote_and_returns_new_id(self, tmp_path):
         ts = TransmissionSession(str(tmp_path))
         ts._rpc = "127.0.0.1:9999"
-        result = MagicMock(
-            returncode=0, stdout="Added torrent foo.torrent\n  ID: 7\n", stderr=""
-        )
-        with patch("subprocess.run", return_value=result):
+        # Before: IDs 3 and 5. After add: ID 7 appears.
+        list_calls = iter([
+            [{"id": 3}, {"id": 5}],
+            [{"id": 3}, {"id": 5}, {"id": 7}],
+        ])
+        run_result = MagicMock(returncode=0, stdout="", stderr="")
+        with patch("subprocess.run", return_value=run_result), \
+                patch.object(ts, "list", side_effect=list_calls):
             tid = ts.add("/tmp/foo.torrent")
         assert tid == 7
 
-    def test_add_parses_lowercase_alt_format(self, tmp_path):
+    def test_add_parses_id_from_output(self, tmp_path):
         ts = TransmissionSession(str(tmp_path))
         ts._rpc = "127.0.0.1:9999"
-        result = MagicMock(
-            returncode=0, stdout="torrent added (id 42)\n", stderr=""
+        before_list = [{"id": 1}]
+        run_result = MagicMock(
+            returncode=0,
+            stdout="torrent added (id 42)\n",
+            stderr="",
         )
-        with patch("subprocess.run", return_value=result):
+        with patch("subprocess.run", return_value=run_result), \
+                patch.object(ts, "list", return_value=before_list):
             tid = ts.add("/tmp/foo.torrent")
         assert tid == 42
 
-    def test_add_falls_back_to_list(self, tmp_path):
+    def test_add_raises_when_torrent_not_added(self, tmp_path):
         ts = TransmissionSession(str(tmp_path))
         ts._rpc = "127.0.0.1:9999"
-        result = MagicMock(returncode=0, stdout="garbage output\n", stderr="")
-        # Before: IDs 3 and 5 exist. After: ID 7 appears as the newly added torrent.
-        list_calls = iter([
-            [{"id": 3}, {"id": 5}],   # before snapshot
-            [{"id": 3}, {"id": 5}, {"id": 7}],  # after snapshot
-        ])
-        with patch("subprocess.run", return_value=result), patch.object(
-            ts, "list", side_effect=list_calls
-        ):
-            tid = ts.add("/tmp/foo.torrent")
-        assert tid == 7
-
-    def test_add_raises_when_list_empty(self, tmp_path):
-        ts = TransmissionSession(str(tmp_path))
-        ts._rpc = "127.0.0.1:9999"
-        result = MagicMock(returncode=0, stdout="garbage\n", stderr="")
-        with patch("subprocess.run", return_value=result), patch.object(
-            ts, "list", return_value=[]
-        ):
+        # list returns the same IDs before and after; output has no ID.
+        run_result = MagicMock(returncode=1, stdout="", stderr="error")
+        with patch("subprocess.run", return_value=run_result), \
+                patch.object(ts, "list", return_value=[{"id": 1}]):
             with pytest.raises(RuntimeError):
                 ts.add("/tmp/foo.torrent")
 
