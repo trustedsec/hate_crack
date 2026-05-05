@@ -97,3 +97,45 @@ def test_docker_hashcat_cracks_simple_password(docker_image):
     assert run.returncode == 0, (
         f"Docker hashcat crack failed. stdout={run.stdout} stderr={run.stderr}"
     )
+
+
+@pytest.mark.timeout(300)
+def test_docker_torrent_downloads_wordlists(docker_image, tmp_path):
+    downloads_dir = tmp_path / "downloads"
+    downloads_dir.mkdir()
+
+    py_cmd = (
+        "from hate_crack.api import fetch_torrent_metadata, run_torrent_session; "
+        "t1 = fetch_torrent_metadata('ignis-10K.txt'); "
+        "t2 = fetch_torrent_metadata('hashmob.net_2025.micro.found'); "
+        "files = [f for f in (t1, t2) if f]; "
+        "run_torrent_session(files, '/downloads')"
+    )
+
+    try:
+        run = subprocess.run(
+            [
+                "docker", "run", "--rm",
+                "-v", f"{downloads_dir}:/downloads",
+                docker_image,
+                "bash", "-lc", f"/workspace/.venv/bin/python -c \"{py_cmd}\"",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+    except subprocess.TimeoutExpired as exc:
+        pytest.fail(f"Docker torrent test timed out after {exc.timeout}s")
+
+    assert run.returncode == 0, (
+        f"Torrent session failed. stdout={run.stdout} stderr={run.stderr}"
+    )
+
+    ignis10k = downloads_dir / "ignis-10K.txt"
+    micro = downloads_dir / "hashmob.net_2025.micro.found"
+    assert ignis10k.exists() and ignis10k.stat().st_size > 0, (
+        f"ignis-10K.txt missing/empty. stdout={run.stdout} stderr={run.stderr}"
+    )
+    assert micro.exists() and micro.stat().st_size > 0, (
+        f"hashmob.net_2025.micro.found missing/empty. stdout={run.stdout} stderr={run.stderr}"
+    )

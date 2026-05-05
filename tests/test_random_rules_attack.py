@@ -36,7 +36,7 @@ def cli():
 
 def test_generate_rules_crack_in_main_menu(cli):
     options = cli.get_main_menu_options()
-    assert "21" in options
+    assert "18" in options
 
 
 def test_generate_rules_crack_handler_calls_main(cli, tmp_path):

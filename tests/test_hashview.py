@@ -644,14 +644,20 @@ class TestHashviewAPI:
         # Verify left file was created
         assert os.path.exists(result["output_file"])
 
-        # Verify left file contains only the original uncracked hashes
+        # Verify left file contains the full original hashlist (left + found)
         with open(result["output_file"], "r") as f:
             left_contents = f.read()
-        assert "found_hash1" not in left_contents, (
-            "Found hashes must NOT be written back into the left file"
+        assert "found_hash1\n" in left_contents, (
+            "Found hashes must be appended as hash-only lines"
         )
-        assert "found_hash2" not in left_contents, (
-            "Found hashes must NOT be written back into the left file"
+        assert "found_password1" not in left_contents, (
+            "Plaintext passwords must not appear in the left file"
+        )
+        assert "found_hash2\n" in left_contents, (
+            "Found hashes must be appended as hash-only lines"
+        )
+        assert "found_password2" not in left_contents, (
+            "Plaintext passwords must not appear in the left file"
         )
         assert "uncracked_hash1" in left_contents
         assert "uncracked_hash2" in left_contents
@@ -676,6 +682,42 @@ class TestHashviewAPI:
             potfile_contents = f.read()
         assert "found_hash1:found_password1" in potfile_contents
         assert "found_hash2:found_password2" in potfile_contents
+
+    def test_download_left_rsplit_ntlmv2(self, api, tmp_path, monkeypatch):
+        """rsplit correctly extracts the full NTLMv2 hash (which contains colons) from a found line."""
+        potfile = str(tmp_path / "hashcat.potfile")
+        monkeypatch.setattr("hate_crack.api.get_hcat_potfile_path", lambda: potfile)
+
+        ntlmv2_hash = "alice::DOMAIN:aabbccdd:ntproofstr:blob"
+        ntlmv2_found_line = f"{ntlmv2_hash}:s3cr3t\n"
+
+        mock_left = Mock()
+        mock_left.content = b"some_other_hash\n"
+        mock_left.raise_for_status = Mock()
+        mock_left.headers = {"content-length": "0"}
+        mock_left.iter_content = lambda chunk_size=8192: iter([mock_left.content])
+
+        mock_found = Mock()
+        mock_found.content = ntlmv2_found_line.encode()
+        mock_found.raise_for_status = Mock()
+        mock_found.headers = {"content-length": "0"}
+        mock_found.iter_content = lambda chunk_size=8192: iter([mock_found.content])
+        mock_found.status_code = 200
+
+        api.session.get.side_effect = [mock_left, mock_found]
+
+        left_file = tmp_path / "left_1_2.txt"
+        api.download_left_hashes(1, 2, output_file=str(left_file))
+
+        with open(str(left_file), "r") as f:
+            contents = f.read()
+
+        assert ntlmv2_hash + "\n" in contents, (
+            "Full NTLMv2 hash (with colons) must be appended to the left file"
+        )
+        assert "s3cr3t" not in contents, (
+            "Plaintext password must not appear in the left file"
+        )
 
     def test_download_left_potfile_path_param_overrides_config(self, api, tmp_path):
         """Test that a passed-in potfile_path is used instead of re-reading config."""

@@ -450,6 +450,9 @@ ollamaNumCtx = int(config_parser.get("ollamaNumCtx", 2048))
 
 omenTrainingList = config_parser.get("omenTrainingList", "rockyou.txt")
 omenMaxCandidates = int(config_parser.get("omenMaxCandidates", 1000000))
+pcfgRuleset = config_parser.get("pcfgRuleset", "DEFAULT")
+pcfgMaxCandidates = int(config_parser.get("pcfgMaxCandidates", 50000000))
+pcfgPrinceLingMaxCandidates = int(config_parser.get("pcfgPrinceLingMaxCandidates", 10000000))
 
 try:
     _cfg_optimized = config_parser["optimizedKernelAttacks"]
@@ -712,6 +715,16 @@ if not SKIP_INIT:
             )
         except SystemExit:
             print("OMEN attacks will not be available.")
+
+        # Verify pcfg_cracker presence (optional, for PCFG attacks)
+        # pcfg_cracker is pure-Python; we just check the script files exist.
+        pcfg_guesser_script = os.path.join(hate_path, "pcfg_cracker", "pcfg_guesser.py")
+        pcfg_prince_ling_script = os.path.join(hate_path, "pcfg_cracker", "prince_ling.py")
+        if not os.path.isfile(pcfg_guesser_script) or not os.path.isfile(pcfg_prince_ling_script):
+            print("pcfg_cracker not found at " + os.path.join(hate_path, "pcfg_cracker"))
+            print("PCFG attacks will not be available. Run 'make' to fetch submodules.")
+        elif not shutil.which("python3"):
+            print("python3 not on PATH. PCFG attacks will not be available.")
 
     except Exception as e:
         print(f"Module initialization error: {e}")
@@ -1066,12 +1079,17 @@ def select_file_with_autocomplete(
         except IndexError:
             return None
 
+    def display_matches(substitution, matches, longest_match_length):
+        print()
+        for match in matches:
+            print(f"  {match}")
+        readline.redisplay()
+
     # Configure readline for tab completion
     readline.set_completer_delims(" \t\n;")
-    # Disable the "Display all X possibilities?" prompt
     try:
-        readline.parse_and_bind("set completion-query-items -1")
-    except Exception:
+        readline.set_completion_display_matches_hook(display_matches)
+    except AttributeError:
         pass
     try:
         readline.parse_and_bind("tab: complete")
@@ -2601,6 +2619,110 @@ def hcatPrince(hcatHashType, hcatHashFile):
             prince_proc.stdout.close()
 
 
+def hcatPCFG(hcatHashType, hcatHashFile):
+    """Mode A: pipe pcfg_guesser.py output into hashcat in stdin mode."""
+    pcfg_guesser_script = os.path.join(hate_path, "pcfg_cracker", "pcfg_guesser.py")
+    if not os.path.isfile(pcfg_guesser_script):
+        print(f"pcfg_guesser.py not found at {pcfg_guesser_script}")
+        return
+    pcfg_cmd = [
+        "python3",
+        pcfg_guesser_script,
+        "--rule",
+        pcfgRuleset,
+        "--limit",
+        str(pcfgMaxCandidates),
+    ]
+    hashcat_cmd = [
+        hcatBin,
+        "-m",
+        hcatHashType,
+        hcatHashFile,
+        "--session",
+        generate_session_id(),
+        "-o",
+        f"{hcatHashFile}.out",
+    ]
+    if _should_use_optimized_kernel("hcatPCFG"):
+        _insert_optimized_flag(hashcat_cmd)
+    hashcat_cmd.extend(shlex.split(hcatTuning))
+    _append_potfile_arg(hashcat_cmd)
+    pcfg_proc = subprocess.Popen(pcfg_cmd, stdout=subprocess.PIPE)
+    _run_hcat_cmd(
+        hashcat_cmd,
+        attack_name="PCFG",
+        hash_file=hcatHashFile,
+        stdin=pcfg_proc.stdout,
+        companion_procs=[pcfg_proc],
+    )
+    if pcfg_proc.stdout:
+        pcfg_proc.stdout.close()
+
+
+def hcatPrinceLing(hcatHashType, hcatHashFile):
+    """Mode B: prince_ling generates a wordlist (with cache+staleness check),
+    then we delegate to the existing hcatPrince attack with hcatPrinceBaseList
+    temporarily rebound to the cached wordlist.
+    """
+    global hcatPrinceBaseList
+    pcfg_root = os.path.join(hate_path, "pcfg_cracker")
+    prince_ling_script = os.path.join(pcfg_root, "prince_ling.py")
+    ruleset_dir = os.path.join(pcfg_root, "Rules", pcfgRuleset)
+    if not os.path.isfile(prince_ling_script):
+        print(f"prince_ling.py not found at {prince_ling_script}")
+        return
+    if not os.path.isdir(ruleset_dir):
+        print(f"PCFG ruleset not found: {ruleset_dir}")
+        return
+
+    cache_dir = hcatOptimizedWordlists if isinstance(hcatOptimizedWordlists, str) \
+        else str(hcatOptimizedWordlists)
+    os.makedirs(cache_dir, exist_ok=True)
+    cache_path = os.path.join(cache_dir, f"pcfg_prince_ling_{pcfgRuleset}.txt")
+    tmp_path = cache_path + ".tmp"
+
+    # Staleness check: regenerate iff ruleset dir mtime > cache mtime (strict)
+    needs_regen = True
+    if os.path.isfile(cache_path):
+        ruleset_mtime = os.path.getmtime(ruleset_dir)
+        cache_mtime = os.path.getmtime(cache_path)
+        if ruleset_mtime <= cache_mtime:
+            needs_regen = False
+
+    if needs_regen:
+        print(f"[*] Generating prince_ling wordlist -> {cache_path}")
+        cmd = [
+            "python3",
+            prince_ling_script,
+            "--rule",
+            pcfgRuleset,
+            "--output",
+            tmp_path,
+            "--size",
+            str(pcfgPrinceLingMaxCandidates),
+        ]
+        try:
+            subprocess.run(cmd, check=True)
+            os.replace(tmp_path, cache_path)
+        except (subprocess.CalledProcessError, KeyboardInterrupt, OSError) as e:
+            # Clean up partial tmp file
+            if os.path.isfile(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+            print(f"prince_ling generation failed: {e}")
+            return
+
+    # Delegate to existing PRINCE attack with rebound base list
+    original_base = hcatPrinceBaseList
+    hcatPrinceBaseList = [cache_path]
+    try:
+        hcatPrince(hcatHashType, hcatHashFile)
+    finally:
+        hcatPrinceBaseList = original_base
+
+
 def hcatPermute(hcatHashType, hcatHashFile, wordlist):
     global hcatProcess, hcatPermuteCount
     permute_path = os.path.join(hate_path, "hashcat-utils", "bin", "permute.bin")
@@ -3816,6 +3938,14 @@ def permute_crack():
     return _attacks.permute_crack(_attack_ctx())
 
 
+def pcfg_attack():
+    return _attacks.pcfg_attack(_attack_ctx())
+
+
+def prince_ling_attack():
+    return _attacks.prince_ling_attack(_attack_ctx())
+
+
 def wordlist_filter_len(infile: str, outfile: str, min_len: int, max_len: int) -> bool:
     """Filter wordlist keeping only words between min_len and max_len (inclusive)."""
     len_bin = os.path.join(hate_path, "hashcat-utils/bin/len.bin")
@@ -3884,6 +4014,42 @@ def wordlist_gate(infile: str, outfile: str, mod: int, offset: int) -> bool:
             [gate_bin, str(mod), str(offset)], stdin=fin, stdout=fout
         )
     return result.returncode == 0
+
+
+def wordlist_optimize(input_wordlists: list[str], outdir: str) -> bool:
+    """Consolidate wordlists into per-length deduplicated files in outdir."""
+    os.makedirs(outdir, exist_ok=True)
+    for wl in input_wordlists:
+        if not os.path.isfile(wl):
+            print(f"[!] Skipping missing wordlist: {wl}")
+            continue
+        if not os.listdir(outdir):
+            if not wordlist_splitlen(wl, outdir):
+                return False
+            continue
+        with tempfile.TemporaryDirectory(prefix="hc_optimize_") as tmp:
+            if not wordlist_splitlen(wl, tmp):
+                return False
+            for fname in os.listdir(tmp):
+                src = os.path.join(tmp, fname)
+                dst = os.path.join(outdir, fname)
+                if not os.path.isfile(dst):
+                    shutil.copyfile(src, dst)
+                    continue
+                with tempfile.NamedTemporaryFile(
+                    delete=False, prefix="hc_optimize_", suffix=".out"
+                ) as out_fh:
+                    out_path = out_fh.name
+                try:
+                    if not wordlist_subtract(src, out_path, dst):
+                        return False
+                    if os.path.getsize(out_path) > 0:
+                        with open(dst, "ab") as df, open(out_path, "rb") as sf:
+                            df.write(sf.read())
+                finally:
+                    if os.path.isfile(out_path):
+                        os.remove(out_path)
+    return True
 
 
 def wordlist_tools_submenu():
@@ -4240,16 +4406,18 @@ def get_main_menu_items():
         ("7", "Hybrid Attack"),
         ("8", "Pathwell Top 100 Mask Brute Force Crack"),
         ("9", "PRINCE Attack"),
-        ("13", "Bandrel Methodology"),
-        ("14", "Loopback Attack"),
-        ("15", "LLM Attack"),
-        ("16", "OMEN Attack"),
-        ("17", "Ad-hoc Mask Attack"),
-        ("18", "Markov Brute Force Attack"),
-        ("19", "N-gram Attack"),
-        ("20", "Permutation Attack"),
-        ("21", "Random Rules Attack"),
-        ("22", "Combipow Passphrase Attack"),
+        ("10", "Bandrel Methodology"),
+        ("11", "Loopback Attack"),
+        ("12", "LLM Attack"),
+        ("13", "OMEN Attack"),
+        ("14", "Ad-hoc Mask Attack"),
+        ("15", "Markov Brute Force Attack"),
+        ("16", "N-gram Attack"),
+        ("17", "Permutation Attack"),
+        ("18", "Random Rules Attack"),
+        ("19", "Combipow Passphrase Attack"),
+        ("20", "PCFG Attack"),
+        ("21", "PRINCE-LING Attack"),
         ("80", "Wordlist Tools"),
         ("81", "Rule File Tools"),
         ("82", "Notifications"),
@@ -4284,16 +4452,18 @@ def get_main_menu_options():
         "7": hybrid_crack,
         "8": pathwell_crack,
         "9": prince_attack,
-        "13": bandrel_method,
-        "14": loopback_attack,
-        "15": ollama_attack,
-        "16": omen_attack,
-        "17": adhoc_mask_crack,
-        "18": markov_brute_force,
-        "19": ngram_attack,
-        "20": permute_crack,
-        "21": generate_rules_crack,
-        "22": combipow_crack,
+        "10": bandrel_method,
+        "11": loopback_attack,
+        "12": ollama_attack,
+        "13": omen_attack,
+        "14": adhoc_mask_crack,
+        "15": markov_brute_force,
+        "16": ngram_attack,
+        "17": permute_crack,
+        "18": generate_rules_crack,
+        "19": combipow_crack,
+        "20": pcfg_attack,
+        "21": prince_ling_attack,
         "80": wordlist_tools_submenu,
         "81": rule_tools_submenu,
         "82": notifications_submenu,
@@ -4727,7 +4897,9 @@ def main():
             ("2", "Download wordlists from Weakpass"),
             ("3", "Download wordlists from Hashmob.net"),
             ("4", "Download rules from Hashmob.net"),
-            ("5", "Exit"),
+            ("5", "Wordlist Tools"),
+            ("6", "Rule File Tools"),
+            ("7", "Exit"),
         ]
         menu_loop = True
         while menu_loop:
@@ -4765,6 +4937,10 @@ def main():
                     sys.exit(0)
                 # Otherwise continue the menu loop
             elif choice == "5":
+                wordlist_tools_submenu()
+            elif choice == "6":
+                rule_tools_submenu()
+            elif choice == "7":
                 sys.exit(0)
             else:
                 if (
