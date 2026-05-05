@@ -1421,13 +1421,19 @@ class HashviewAPI:
                         for line in f:
                             line = line.strip()
                             if line:
-                                parts = line.split(":", 1)  # Split on first colon
+                                parts = line.rsplit(":", 1)
                                 if len(parts) == 2:
                                     hash_part, clear_part = parts
                                     hf.write(hash_part + "\n")
                                     cf.write(clear_part + "\n")
                                     hashes_count += 1
                                     clears_count += 1
+
+                # Append found hashes to the left file to reconstruct the full hashlist
+                with open(output_abs, "a", encoding="utf-8") as lf:
+                    with open(found_hashes_file, "r", encoding="utf-8") as hf:
+                        for line in hf:
+                            lf.write(line)
 
                 print(
                     f"Split found file into {hashes_count} hashes and {clears_count} clears"
