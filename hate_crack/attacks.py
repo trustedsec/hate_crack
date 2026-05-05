@@ -1196,7 +1196,6 @@ def wordlist_optimize(ctx: Any) -> None:
     """Prompt for input wordlists and output directory, then optimize."""
     raw = ctx.select_file_with_autocomplete(
         "\n[*] Enter input wordlist paths",
-        allow_multiple=True,
         base_dir=ctx.hcatWordlists,
     ).strip()
     inputs = [p.strip() for p in raw.split(",") if p.strip()]
