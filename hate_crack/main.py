@@ -1161,7 +1161,11 @@ def _write_field_sorted_unique(input_path, output_path, field_index, delimiter="
             open(output_path, "w") as dst,
         ):
             sort_proc = subprocess.Popen(
-                ["sort", "-u"], stdin=subprocess.PIPE, stdout=dst, text=True
+                ["sort", "-u"],
+                stdin=subprocess.PIPE,
+                stdout=dst,
+                text=True,
+                env={**os.environ, "LC_ALL": "C"},
             )
             for line in src:
                 line = line.rstrip("\n")
@@ -1542,7 +1546,10 @@ def hcatFingerprint(
             if expander_stdout is None:
                 raise RuntimeError("expander stdout pipe was not created")
             sort_proc = subprocess.Popen(
-                ["sort", "-u"], stdin=expander_stdout, stdout=dst
+                ["sort", "-u"],
+                stdin=expander_stdout,
+                stdout=dst,
+                env={**os.environ, "LC_ALL": "C"},
             )
             hcatProcess = sort_proc
             expander_stdout.close()
@@ -1553,6 +1560,12 @@ def hcatFingerprint(
                 print("Killing PID {0}...".format(str(sort_proc.pid)))
                 sort_proc.kill()
                 expander_proc.kill()
+        if lineCount(f"{hcatHashFile}.expanded") == 0:
+            print(
+                "[!] Skipping Fingerprint Attack: no candidates to expand "
+                "(no cracked passwords yet)."
+            )
+            break
         fingerprint_cmd = [
             hcatBin,
             "-m",
@@ -2987,7 +3000,10 @@ def hcatLMtoNT():
             stdout=subprocess.PIPE,
         )
         hcatProcess = subprocess.Popen(
-            ["sort", "-u"], stdin=combine_proc.stdout, stdout=combined_out
+            ["sort", "-u"],
+            stdin=combine_proc.stdout,
+            stdout=combined_out,
+            env={**os.environ, "LC_ALL": "C"},
         )
         combine_proc.stdout.close()
         try:
