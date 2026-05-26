@@ -1553,6 +1553,12 @@ def hcatFingerprint(
                 print("Killing PID {0}...".format(str(sort_proc.pid)))
                 sort_proc.kill()
                 expander_proc.kill()
+        if lineCount(f"{hcatHashFile}.expanded") == 0:
+            print(
+                "[!] Skipping Fingerprint Attack: no candidates to expand "
+                "(no cracked passwords yet)."
+            )
+            break
         fingerprint_cmd = [
             hcatBin,
             "-m",
