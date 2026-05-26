@@ -980,6 +980,47 @@ def _run_upgrade():
         raise SystemExit(1)
     repo_root = git_root_result.stdout.strip()
 
+    # Release tags live on main-side merge commits, so pulling on `dev` or
+    # any feature branch won't move HEAD onto the new tag — setuptools-scm
+    # then regenerates the version as e.g. 2.10.0.postN.devM and the update
+    # checker re-fires on next start, looping forever. Switch to main first.
+    branch_result = subprocess.run(
+        ["git", "symbolic-ref", "--short", "HEAD"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+    branch = branch_result.stdout.strip() if branch_result.returncode == 0 else ""
+
+    if branch and branch != "main":
+        status = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+        )
+        if status.stdout.strip():
+            print(
+                f"\n  Cannot auto-upgrade: uncommitted changes on '{branch}'."
+                "\n  Commit or stash them, then re-run."
+                "\n  Or upgrade manually: git checkout main && git pull && make install\n"
+            )
+            raise SystemExit(1)
+
+        print(f"\n  Switching from '{branch}' to 'main' to pick up the release tag...")
+        checkout = subprocess.run(
+            ["git", "checkout", "main"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+        )
+        if checkout.returncode != 0:
+            print(
+                f"\n  Failed to switch to main:\n  {checkout.stderr.strip()}\n"
+                "\n  Upgrade manually: git checkout main && git pull && make install\n"
+            )
+            raise SystemExit(1)
+
     import shutil
 
     uv = shutil.which("uv") or os.path.expanduser("~/.local/bin/uv")
