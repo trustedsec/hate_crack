@@ -912,6 +912,10 @@ Interactive menu for downloading and managing wordlists from Weakpass.com via Bi
 -------------------------------------------------------------------
 ### Version History
 
+Version 2.10.2
+  - Fingerprint Attack no longer launches hashcat against empty wordlists when no candidates exist; prints a "no candidates to expand" message and skips the attack (plus the secondary hybrid pass that previously fired six wasted hashcat sessions)
+  - Forced `LC_ALL=C` on every `sort -u` subprocess (fingerprint expander pipeline, `_write_field_sorted_unique`, LM-to-NT combinator dedupe) — fixes "sort: Illegal byte sequence" on macOS when cracked passwords contain non-UTF-8 bytes, which was silently emptying the fingerprint candidate list
+
 Version 2.10.1
   - Bumped `HashcatRosetta` submodule to v0.2.0, dropping a vulnerable transitive `pytest` (< 9.0.3, GHSA tmpdir handling) from its requirements
   - Added `click>=8.0.0` to runtime dependencies (now required by HashcatRosetta v0.2.0's formatting module)
