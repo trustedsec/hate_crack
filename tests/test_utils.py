@@ -191,7 +191,7 @@ def test_line_count_and_write_helpers(tmp_path, monkeypatch):
     )
 
     class FakePopen:
-        def __init__(self, args, stdin=None, stdout=None, text=None):
+        def __init__(self, args, stdin=None, stdout=None, text=None, **_kwargs):
             self.stdin = FakeStdin(self)
             self._stdout = stdout
             self._data = None
