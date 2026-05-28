@@ -188,7 +188,11 @@ def quick_crack(ctx: Any) -> None:
 
     for chain in selected_rules:
         ctx.hcatQuickDictionary(
-            ctx.hcatHashType, ctx.hcatHashFile, chain, wordlist_choice
+            ctx.hcatHashType,
+            ctx.hcatHashFile,
+            chain,
+            wordlist_choice,
+            attack_name="Quick Crack",
         )
 
 
@@ -213,6 +217,7 @@ def loopback_attack(ctx: Any) -> None:
             chain,
             empty_wordlist,
             loopback=True,
+            attack_name="Loopback",
         )
 
 
