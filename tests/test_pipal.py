@@ -46,6 +46,44 @@ def test_pipal_runs_and_parses_basewords(hc_module, tmp_path, capsys):
     assert "pass123" in content
 
 
+def test_pipal_passwords_file_is_newline_separated_with_hex(hc_module, tmp_path):
+    """HEX-encoded cracked passwords must not be glued to the next line.
+
+    Regression: binascii.unhexlify().decode() drops the trailing newline that
+    normal lines retain from password[-1], so HEX rows concatenated with the
+    next password in the .passwords file fed to pipal.
+    """
+    hc = hc_module
+    hc.hcatHashType = "0"
+    hc.pipal_count = 3
+    hc.hcatHashFile = str(tmp_path / "hashes")
+
+    out_path = tmp_path / "hashes.out"
+    out_path.write_text(
+        "hash1:password123\n"
+        "hash2:$HEX[70617373313233]\n"  # "pass123"
+        "hash3:letmein\n"
+    )
+
+    pipal_stub = tmp_path / "pipal_stub.py"
+    _write_executable(
+        pipal_stub,
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        "out = sys.argv[sys.argv.index('--output') + 1]\n"
+        "open(out, 'w').write('Top 3 base words\\n'\n"
+        "                    'pass123 1\\n'\n"
+        "                    'letmein 1\\n'\n"
+        "                    'welcome 1\\n')\n",
+    )
+    hc.pipalPath = str(pipal_stub)
+
+    hc.pipal()
+
+    passwords = (tmp_path / "hashes.passwords").read_text().splitlines()
+    assert passwords == ["password123", "pass123", "letmein"]
+
+
 def test_pipal_missing_out_returns_empty(hc_module, tmp_path, capsys):
     hc = hc_module
     hc.hcatHashType = "0"

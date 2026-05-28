@@ -4220,6 +4220,8 @@ def pipal():
                         clearTextPass = binascii.unhexlify(match.group(1)).decode(
                             "iso-8859-9"
                         )
+                    if not clearTextPass.endswith("\n"):
+                        clearTextPass += "\n"
                     pipalFile.write(clearTextPass)
                 pipalFile.close()
 
