@@ -1452,6 +1452,7 @@ def hcatQuickDictionary(
     loopback=False,
     use_potfile_path=True,
     potfile_path=None,
+    attack_name="Quick Crack",
 ):
     global hcatProcess
     cmd = [
@@ -1480,7 +1481,7 @@ def hcatQuickDictionary(
     )
     cmd = _add_debug_mode_for_rules(cmd)
     _debug_cmd(cmd)
-    _run_hcat_cmd(cmd, attack_name="Quick Dictionary", hash_file=hcatHashFile)
+    _run_hcat_cmd(cmd, attack_name=attack_name, hash_file=hcatHashFile)
 
 
 # Top Mask Attack
@@ -1642,7 +1643,7 @@ def hcatFingerprint(
 
 
 # Combinator Attack
-def hcatCombination(hcatHashType, hcatHashFile, wordlists=None):
+def hcatCombination(hcatHashType, hcatHashFile, wordlists=None, attack_name="Combinator"):
     global hcatCombinationCount
     global hcatProcess
 
@@ -1689,7 +1690,7 @@ def hcatCombination(hcatHashType, hcatHashFile, wordlists=None):
         _insert_optimized_flag(cmd)
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
-    _run_hcat_cmd(cmd, attack_name="Combination", hash_file=hcatHashFile)
+    _run_hcat_cmd(cmd, attack_name=attack_name, hash_file=hcatHashFile)
 
     hcatCombinationCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
@@ -1783,7 +1784,7 @@ def hcatCombinatorX(hcatHashType, hcatHashFile, wordlists, separator=None):
 
 
 # NgramX Attack - n-gram candidates from corpus file piped to hashcat
-def hcatNgramX(hcatHashType, hcatHashFile, corpus, group_size=3):
+def hcatNgramX(hcatHashType, hcatHashFile, corpus, group_size=3, attack_name="N-gram"):
     global hcatNgramXCount
     global hcatProcess
 
@@ -1806,7 +1807,7 @@ def hcatNgramX(hcatHashType, hcatHashFile, corpus, group_size=3):
         assert generator_proc.stdout is not None
         _run_hcat_cmd(
             hashcat_cmd,
-            attack_name="NgramX",
+            attack_name=attack_name,
             hash_file=hcatHashFile,
             stdin=generator_proc.stdout,
             companion_procs=[generator_proc],
@@ -2624,7 +2625,7 @@ def hcatCombipow(hcatHashType, hcatHashFile, wordlist, use_space_sep=True):
 
 
 # PRINCE Attack
-def hcatPrince(hcatHashType, hcatHashFile):
+def hcatPrince(hcatHashType, hcatHashFile, attack_name="PRINCE"):
     global hcatProcess
     prince_rules_dir = os.path.join(hate_path, "princeprocessor", "rules")
     prince_rule = get_rule_path("prince_optimized.rule", fallback_dir=prince_rules_dir)
@@ -2664,7 +2665,7 @@ def hcatPrince(hcatHashType, hcatHashFile):
         prince_proc = subprocess.Popen(prince_cmd, stdin=base, stdout=subprocess.PIPE)
         _run_hcat_cmd(
             hashcat_cmd,
-            attack_name="PRINCE",
+            attack_name=attack_name,
             hash_file=hcatHashFile,
             stdin=prince_proc.stdout,
             companion_procs=[prince_proc],
@@ -2772,7 +2773,7 @@ def hcatPrinceLing(hcatHashType, hcatHashFile):
     original_base = hcatPrinceBaseList
     hcatPrinceBaseList = [cache_path]
     try:
-        hcatPrince(hcatHashType, hcatHashFile)
+        hcatPrince(hcatHashType, hcatHashFile, attack_name="PRINCE-LING")
     finally:
         hcatPrinceBaseList = original_base
 

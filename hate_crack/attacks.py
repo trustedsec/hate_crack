@@ -213,6 +213,7 @@ def loopback_attack(ctx: Any) -> None:
             chain,
             empty_wordlist,
             loopback=True,
+            attack_name="Loopback",
         )
 
 
