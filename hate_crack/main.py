@@ -3757,15 +3757,18 @@ def hashview_api():
                                 )
                                 continue
 
-                        # List hashfiles for the customer
+                        # List hashfiles for the customer. Hashview has no
+                        # list-all route, so we enumerate by the session hash
+                        # type (the type of the hashes loaded in this session).
                         try:
                             customer_hashfiles = api_harness.get_customer_hashfiles(
-                                customer_id
+                                customer_id, hash_type=hcatHashType
                             )
 
                             if not customer_hashfiles:
                                 print(
-                                    f"\nNo hashfiles found for customer ID {customer_id}"
+                                    f"\nNo hashfiles of type {hcatHashType} found for "
+                                    f"customer ID {customer_id}"
                                 )
                                 continue
 
