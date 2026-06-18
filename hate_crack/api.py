@@ -1261,6 +1261,18 @@ class HashviewAPI:
             try:
                 files = self.get_hashfiles_by_type(ht)
             except Exception as e:
+                status = getattr(getattr(e, "response", None), "status_code", None)
+                if status == 404:
+                    # The /v1/hashfiles/hash_type route doesn't exist on this
+                    # server (e.g. Hashview main, or builds before 2026-06-08),
+                    # so no per-type sweep is possible. Stop after the first 404
+                    # instead of hammering the server with one request per type.
+                    if self.debug:
+                        print(
+                            "[DEBUG] get_all_customer_hashfiles: hash_type listing "
+                            "endpoint absent (404); aborting sweep"
+                        )
+                    break
                 if self.debug:
                     print(f"[DEBUG] get_all_customer_hashfiles: type {ht} failed: {e}")
                 continue

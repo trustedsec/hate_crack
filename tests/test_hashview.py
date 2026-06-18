@@ -118,6 +118,22 @@ class TestHashviewAPI:
         assert str(by_id[1]["hash_type"]) == "1000"  # first type seen wins
         assert str(by_id[3]["hash_type"]) == "5600"
 
+    def test_get_all_customer_hashfiles_aborts_on_404(self, api):
+        """A 404 means the listing endpoint is absent (e.g. Hashview main);
+        the sweep stops after the first request instead of probing every type."""
+        import requests
+
+        def _raise_404(ht):
+            resp = Mock()
+            resp.status_code = 404
+            raise requests.exceptions.HTTPError("404 Not Found", response=resp)
+
+        api.get_hashfiles_by_type = Mock(side_effect=_raise_404)
+        result = api.get_all_customer_hashfiles(1, hash_types=[1000, 5600, 3000])
+        assert result == []
+        # Stopped after the first 404, did not sweep all three types.
+        assert api.get_hashfiles_by_type.call_count == 1
+
     def test_get_all_customer_hashfiles_skips_failing_types(self, api):
         """A per-type query that errors is skipped, not fatal."""
 
