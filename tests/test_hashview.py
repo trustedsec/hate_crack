@@ -244,9 +244,11 @@ class TestHashviewAPI:
             assert content == b"hash1\nhash2\n"
             assert result["size"] == len(content)
 
-            # Verify auth headers were passed in the left hashes download call
+            # Verify auth headers were passed in the left hashes download call.
+            # The left download is the first GET (to /v1/hashfiles/<id>); the
+            # second GET is the best-effort found lookup that 404s here.
             call_args_list = api.session.get.call_args_list
-            left_call = [c for c in call_args_list if "left" in str(c)][0]
+            left_call = [c for c in call_args_list if "/v1/hashfiles/2" in str(c)][0]
             assert left_call.kwargs.get("headers") is not None
             auth_headers = left_call.kwargs.get("headers")
             assert "Cookie" in auth_headers or "uuid" in str(auth_headers)
@@ -450,6 +452,36 @@ class TestHashviewAPI:
         print("\n" + "=" * 60)
         print("✓ Option 2 (Create Job) is READY and WORKING!")
         print("=" * 60)
+
+    def test_start_job_uses_post(self, api):
+        """start_job must POST to /v1/jobs/start/<id> (the route is POST-only)."""
+        mock_response = Mock()
+        mock_response.json.return_value = {"status": 200, "msg": "Job started"}
+        mock_response.raise_for_status = Mock()
+        api.session.post.return_value = mock_response
+
+        result = api.start_job(42)
+
+        assert result["msg"] == "Job started"
+        api.session.post.assert_called_once_with(f"{HASHVIEW_URL}/v1/jobs/start/42")
+        api.session.get.assert_not_called()
+
+    def test_delete_job_uses_delete_verb(self, api):
+        """delete_job must use DELETE /v1/jobs/<id> (there is no /jobs/delete/)."""
+        mock_response = Mock()
+        mock_response.json.return_value = {"status": 200, "msg": "Job deleted"}
+        mock_response.raise_for_status = Mock()
+        api.session.delete.return_value = mock_response
+
+        result = api.delete_job(7)
+
+        assert result["msg"] == "Job deleted"
+        api.session.delete.assert_called_once_with(f"{HASHVIEW_URL}/v1/jobs/7")
+
+    def test_stop_job_not_supported(self, api):
+        """Hashview has no stop-job route, so stop_job raises NotImplementedError."""
+        with pytest.raises(NotImplementedError):
+            api.stop_job(7)
 
     def test_create_job_with_new_customer(self, api, test_hashfile):
         """Test creating a new customer and then creating a job (real API if possible)."""
