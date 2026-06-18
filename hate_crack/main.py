@@ -3759,34 +3759,45 @@ def hashview_api():
                                 continue
 
                         # List hashfiles for the customer. Hashview has no
-                        # list-all route, so we must enumerate by hash type.
-                        # Prefer the session hash type (set when a hashfile is
-                        # loaded); otherwise prompt, since None can't be queried.
-                        download_hash_type = hcatHashType
-                        if not download_hash_type:
-                            ht_input = input(
-                                "\nNo hash type loaded this session. Enter the hashcat "
-                                "hash-type to list (e.g. 1000 for NTLM), or Q to cancel: "
-                            ).strip()
-                            if ht_input.lower() == "q":
-                                cancel_download = True
-                                break
-                            if not ht_input.isdigit():
-                                print(
-                                    "\n✗ Error: Hash type must be a numeric hashcat mode."
-                                )
-                                continue
-                            download_hash_type = ht_input
-
+                        # list-all route, so we enumerate by sweeping the
+                        # per-type endpoint across common hashcat modes and
+                        # showing whatever the customer has uploaded.
                         try:
-                            customer_hashfiles = api_harness.get_customer_hashfiles(
-                                customer_id, hash_type=download_hash_type
+                            print(
+                                "\nScanning customer hashfiles across common hash types..."
                             )
+                            customer_hashfiles = api_harness.get_all_customer_hashfiles(
+                                customer_id
+                            )
+
+                            # Fallback: nothing among common types. The file may
+                            # use an uncommon mode, so let the user name it.
+                            if not customer_hashfiles:
+                                print(
+                                    f"\nNo hashfiles found for customer ID {customer_id} "
+                                    "among common hash types."
+                                )
+                                ht_input = input(
+                                    "Enter a specific hashcat hash-type to check "
+                                    "(e.g. 1000), or Q to cancel: "
+                                ).strip()
+                                if ht_input.lower() == "q":
+                                    cancel_download = True
+                                    break
+                                if not ht_input.isdigit():
+                                    print(
+                                        "\n✗ Error: Hash type must be a numeric hashcat mode."
+                                    )
+                                    continue
+                                customer_hashfiles = (
+                                    api_harness.get_customer_hashfiles(
+                                        customer_id, hash_type=ht_input
+                                    )
+                                )
 
                             if not customer_hashfiles:
                                 print(
-                                    f"\nNo hashfiles of type {download_hash_type} found "
-                                    f"for customer ID {customer_id}"
+                                    f"\nNo hashfiles found for customer ID {customer_id}"
                                 )
                                 continue
 

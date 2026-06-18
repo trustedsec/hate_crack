@@ -1211,6 +1211,75 @@ class HashviewAPI:
 
         return customer_hfs
 
+    # Curated set of hashcat modes commonly seen in engagements. Used to
+    # enumerate a customer's hashfiles by sweeping the per-type listing
+    # endpoint, since Hashview exposes no list-all route. Not exhaustive:
+    # uncommon types can still be queried explicitly via get_customer_hashfiles.
+    COMMON_HASH_TYPES = (
+        0,  # MD5
+        100,  # SHA1
+        1000,  # NTLM
+        3000,  # LM
+        1100,  # Domain Cached Credentials (DCC), MS Cache
+        2100,  # Domain Cached Credentials 2 (DCC2), MS Cache 2
+        5500,  # NetNTLMv1
+        5600,  # NetNTLMv2
+        7500,  # Kerberos 5 AS-REQ Pre-Auth (etype 23)
+        13100,  # Kerberos 5 TGS-REP (Kerberoasting, etype 23)
+        18200,  # Kerberos 5 AS-REP (AS-REP roasting, etype 23)
+        19600,  # Kerberos 5 TGS-REP (etype 17)
+        19700,  # Kerberos 5 TGS-REP (etype 18)
+        1800,  # sha512crypt $6$ (Linux)
+        500,  # md5crypt $1$ (Linux/Cisco)
+        7400,  # sha256crypt $5$
+        3200,  # bcrypt $2*$
+        1700,  # SHA512
+        1400,  # SHA256
+        160,  # HMAC-SHA1
+        13400,  # KeePass
+        9600,  # MS Office 2013
+        10500,  # PDF 1.4-1.6
+        11600,  # 7-Zip
+        16500,  # JWT
+        22000,  # WPA-PBKDF2-PMKID+EAPOL
+    )
+
+    def get_all_customer_hashfiles(self, customer_id, hash_types=None):
+        """Aggregate a customer's hashfiles across hash types (deduped by id).
+
+        Hashview has no list-all route, so this sweeps the per-type listing
+        endpoint (:meth:`get_hashfiles_by_type`) over ``hash_types`` and keeps
+        the files belonging to ``customer_id``. Defaults to
+        :attr:`COMMON_HASH_TYPES`; a file of an uncommon type not in the sweep
+        won't appear. The first hash type a file is seen under is retained as
+        its ``hash_type`` (mixed-type files are rare).
+        """
+        if hash_types is None:
+            hash_types = self.COMMON_HASH_TYPES
+        seen = {}
+        for ht in hash_types:
+            try:
+                files = self.get_hashfiles_by_type(ht)
+            except Exception as e:
+                if self.debug:
+                    print(f"[DEBUG] get_all_customer_hashfiles: type {ht} failed: {e}")
+                continue
+            for hf in files:
+                if int(hf.get("customer_id", 0)) != int(customer_id):
+                    continue
+                hf_id = hf.get("id")
+                if hf_id is None:
+                    continue
+                if not (hf.get("hashtype") or hf.get("hash_type")):
+                    hf["hash_type"] = str(ht)
+                seen.setdefault(int(hf_id), hf)
+        if self.debug:
+            print(
+                f"[DEBUG] get_all_customer_hashfiles({customer_id}): "
+                f"found {len(seen)} hashfiles across {len(hash_types)} types"
+            )
+        return list(seen.values())
+
     def get_customer_hashfiles_with_hashtype(self, customer_id, target_hashtype="1000"):
         """Return hashfiles for a customer that match the requested hashtype."""
         customer_hashfiles = self.get_customer_hashfiles(
