@@ -95,6 +95,41 @@ class TestHashviewAPI:
         result = api.get_customer_hashfiles(1)
         assert result == []
 
+    def test_get_all_customer_hashfiles_sweeps_and_dedupes(self, api):
+        """Aggregate sweeps per-type listings, filters by customer, dedupes by id."""
+        per_type = {
+            1000: [
+                {"id": 1, "customer_id": 1, "name": "ntlm.txt", "hash_type": 1000},
+                {"id": 2, "customer_id": 2, "name": "other.txt", "hash_type": 1000},
+            ],
+            5600: [
+                {"id": 3, "customer_id": 1, "name": "ntlmv2.txt", "hash_type": 5600},
+                # id 1 appears again under another type; must dedupe (first wins)
+                {"id": 1, "customer_id": 1, "name": "ntlm.txt", "hash_type": 5600},
+            ],
+        }
+        api.get_hashfiles_by_type = Mock(side_effect=lambda ht: per_type.get(int(ht), []))
+
+        result = api.get_all_customer_hashfiles(1, hash_types=[1000, 5600])
+
+        ids = sorted(hf["id"] for hf in result)
+        assert ids == [1, 3]  # customer 2 excluded, id 1 not duplicated
+        by_id = {hf["id"]: hf for hf in result}
+        assert str(by_id[1]["hash_type"]) == "1000"  # first type seen wins
+        assert str(by_id[3]["hash_type"]) == "5600"
+
+    def test_get_all_customer_hashfiles_skips_failing_types(self, api):
+        """A per-type query that errors is skipped, not fatal."""
+
+        def _by_type(ht):
+            if int(ht) == 1000:
+                raise RuntimeError("boom")
+            return [{"id": 9, "customer_id": 1, "name": "x", "hash_type": int(ht)}]
+
+        api.get_hashfiles_by_type = Mock(side_effect=_by_type)
+        result = api.get_all_customer_hashfiles(1, hash_types=[1000, 5600])
+        assert [hf["id"] for hf in result] == [9]
+
     def test_get_customer_hashfiles(self, api):
         """Filter the type-scoped hashfile list by customer_id (real API if possible)."""
         hashview_url, hashview_api_key = self._get_hashview_config()
