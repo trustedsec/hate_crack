@@ -3710,6 +3710,7 @@ def hashview_api():
             elif option_key == "download_hashes":
                 # Download left hashes
                 try:
+                    cancel_download = False
                     while True:
                         # First, list customers to help user select
                         customers_result = api_harness.list_customers()
@@ -3758,17 +3759,34 @@ def hashview_api():
                                 continue
 
                         # List hashfiles for the customer. Hashview has no
-                        # list-all route, so we enumerate by the session hash
-                        # type (the type of the hashes loaded in this session).
+                        # list-all route, so we must enumerate by hash type.
+                        # Prefer the session hash type (set when a hashfile is
+                        # loaded); otherwise prompt, since None can't be queried.
+                        download_hash_type = hcatHashType
+                        if not download_hash_type:
+                            ht_input = input(
+                                "\nNo hash type loaded this session. Enter the hashcat "
+                                "hash-type to list (e.g. 1000 for NTLM), or Q to cancel: "
+                            ).strip()
+                            if ht_input.lower() == "q":
+                                cancel_download = True
+                                break
+                            if not ht_input.isdigit():
+                                print(
+                                    "\n✗ Error: Hash type must be a numeric hashcat mode."
+                                )
+                                continue
+                            download_hash_type = ht_input
+
                         try:
                             customer_hashfiles = api_harness.get_customer_hashfiles(
-                                customer_id, hash_type=hcatHashType
+                                customer_id, hash_type=download_hash_type
                             )
 
                             if not customer_hashfiles:
                                 print(
-                                    f"\nNo hashfiles of type {hcatHashType} found for "
-                                    f"customer ID {customer_id}"
+                                    f"\nNo hashfiles of type {download_hash_type} found "
+                                    f"for customer ID {customer_id}"
                                 )
                                 continue
 
@@ -3819,6 +3837,10 @@ def hashview_api():
                                 continue
                             break
                         break
+
+                    # User cancelled at the hash-type prompt: back to the menu.
+                    if cancel_download:
+                        continue
 
                     # Set output filename automatically
                     output_file = f"left_{customer_id}_{hashfile_id}.txt"
