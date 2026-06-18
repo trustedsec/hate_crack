@@ -1304,26 +1304,29 @@ class HashviewAPI:
             return {}
 
     def stop_job(self, job_id):
-        url = f"{self.base_url}/v1/jobs/stop/{job_id}"
-        resp = self.session.get(url)
-        resp.raise_for_status()
-        return resp.json()
+        # Hashview exposes no "stop job" route (only add/get/start/delete).
+        # Deleting a job removes it regardless of Queued/Running state, which
+        # is the closest supported operation; use delete_job() instead.
+        raise NotImplementedError(
+            "Hashview has no stop-job endpoint; use delete_job() to remove a job."
+        )
 
     def delete_job(self, job_id):
-        url = f"{self.base_url}/v1/jobs/delete/{job_id}"
-        resp = self.session.get(url)
+        # Hashview deletes via DELETE /v1/jobs/<id> (there is no /jobs/delete/).
+        url = f"{self.base_url}/v1/jobs/{job_id}"
+        resp = self.session.delete(url)
         resp.raise_for_status()
         return resp.json()
 
     def start_job(self, job_id, priority=3, limit_recovered=False):
+        # /v1/jobs/start/<id> is POST-only; priority/limit_recovered come from
+        # the stored job record server-side, so they are validated here but not
+        # required by the endpoint.
         url = f"{self.base_url}/v1/jobs/start/{job_id}"
-        params = {}
         priority = int(priority)
         if priority < 1 or priority > 5:
             raise ValueError("priority must be an int between 1 and 5")
-        params["priority"] = priority
-        params["limit_recovered"] = bool(limit_recovered)
-        resp = self.session.get(url, params=params)
+        resp = self.session.post(url)
         resp.raise_for_status()
         return resp.json()
 
@@ -1332,7 +1335,9 @@ class HashviewAPI:
     ):
         import sys
 
-        url = f"{self.base_url}/v1/hashfiles/{hashfile_id}/left"
+        # Hashview's GET /v1/hashfiles/<id> returns exactly the uncracked
+        # ("left") ciphertexts for the hashfile (see v1_api_get_hashfile).
+        url = f"{self.base_url}/v1/hashfiles/{hashfile_id}"
         resp = self.session.get(url, headers=self._auth_headers(), stream=True)
         resp.raise_for_status()
         if output_file is None:
@@ -1371,7 +1376,10 @@ class HashviewAPI:
         found_file = os.path.join(out_dir, f"found_{customer_id}_{hashfile_id}.txt")
 
         try:
-            # Try to download the found file
+            # Best-effort: Hashview v0.8.3-dev exposes no bulk "found"/cracked
+            # export endpoint (only the single-hash POST /v1/search), so this
+            # request 404s against stock servers and the merge is skipped. It
+            # remains for forks/versions that expose a per-hashfile found dump.
             found_url = f"{self.base_url}/v1/hashfiles/{hashfile_id}/found"
             found_resp = self.session.get(
                 found_url, headers=self._auth_headers(), stream=True, timeout=30
