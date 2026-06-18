@@ -1127,7 +1127,7 @@ class HashviewAPI:
 
     def get_hashfile_details(self, hashfile_id):
         """Get hashfile details and hashtype for a given hashfile_id."""
-        url = f"{self.base_url}/v1/hashfiles/{hashfile_id}/hash_type"
+        url = f"{self.base_url}/v1/getHashType/{hashfile_id}"
         resp = self.session.get(url, headers=self._auth_headers())
         resp.raise_for_status()
         try:
@@ -1173,61 +1173,49 @@ class HashviewAPI:
             return {"customers": customers}
         return data
 
-    def list_hashfiles(self):
-        url = f"{self.base_url}/v1/hashfiles"
-        resp = self.session.get(url, headers=self._auth_headers())
-        resp.raise_for_status()
-        data = resp.json()
-        if "hashfiles" in data:
-            if isinstance(data["hashfiles"], str):
-                hashfiles = json.loads(data["hashfiles"])
-            else:
-                hashfiles = data["hashfiles"]
-            return hashfiles
-        return []
+    def get_customer_hashfiles(self, customer_id, hash_type=None):
+        """Return a customer's hashfiles of a given hash_type.
 
-    def get_customer_hashfiles(self, customer_id):
-        all_hashfiles = self.list_hashfiles()
+        Hashview exposes no "list all hashfiles" route; the only enumeration
+        endpoint is ``/v1/hashfiles/hash_type/<hash_type>`` (see
+        :meth:`get_hashfiles_by_type`), which already returns ``customer_id``
+        and ``hash_type`` per file. We query that and filter by customer.
+
+        ``hash_type`` is required to enumerate: without it there is no API
+        route to list a customer's files, so an empty list is returned.
+        """
+        if hash_type is None:
+            if self.debug:
+                print(
+                    "[DEBUG] get_customer_hashfiles: no hash_type given; Hashview "
+                    "has no list-all route, returning []"
+                )
+            return []
+
+        all_hashfiles = self.get_hashfiles_by_type(hash_type)
         customer_hfs = [
-            hf for hf in all_hashfiles if int(hf.get("customer_id", 0)) == customer_id
+            hf for hf in all_hashfiles if int(hf.get("customer_id", 0)) == int(customer_id)
         ]
+
+        # The type-scoped endpoint already returns the hash_type, but normalize
+        # the key so downstream callers can read either spelling.
+        for hf in customer_hfs:
+            if not (hf.get("hashtype") or hf.get("hash_type")):
+                hf["hash_type"] = str(hash_type)
 
         if self.debug:
             print(
-                f"[DEBUG] get_customer_hashfiles({customer_id}): found {len(customer_hfs)} hashfiles"
+                f"[DEBUG] get_customer_hashfiles({customer_id}, hash_type={hash_type}): "
+                f"found {len(customer_hfs)} hashfiles"
             )
-
-        # Fetch hash types for any hashfiles missing them
-        for hf in customer_hfs:
-            if not (hf.get("hashtype") or hf.get("hash_type")):
-                hf_id = hf.get("id")
-                if hf_id is not None:
-                    if self.debug:
-                        print(f"[DEBUG] Fetching hash_type for hashfile {hf_id}")
-                    try:
-                        details = self.get_hashfile_details(hf_id)
-                        hashtype = details.get("hashtype")
-                        if hashtype:
-                            hf["hash_type"] = hashtype
-                            if self.debug:
-                                print(
-                                    f"[DEBUG] Updated hashfile {hf_id} with hash_type={hashtype}"
-                                )
-                        elif self.debug:
-                            print(
-                                f"[DEBUG] No hashtype found in details for {hf_id}: {details}"
-                            )
-                    except Exception as e:
-                        if self.debug:
-                            print(
-                                f"[DEBUG] Exception fetching hash_type for {hf_id}: {e}"
-                            )
 
         return customer_hfs
 
     def get_customer_hashfiles_with_hashtype(self, customer_id, target_hashtype="1000"):
         """Return hashfiles for a customer that match the requested hashtype."""
-        customer_hashfiles = self.get_customer_hashfiles(customer_id)
+        customer_hashfiles = self.get_customer_hashfiles(
+            customer_id, hash_type=target_hashtype
+        )
         if not customer_hashfiles:
             return []
         target_str = str(target_hashtype)
@@ -1604,8 +1592,13 @@ def download_hashes_from_hashview(
     input_fn: Callable[[str], str] = input,
     print_fn: Callable[..., None] = print,
     potfile_path: Optional[str] = None,
+    hash_type: Optional[str] = None,
 ) -> Tuple[str, str]:
-    """Interactive Hashview download flow used by CLI."""
+    """Interactive Hashview download flow used by CLI.
+
+    ``hash_type`` is required to enumerate a customer's hashfiles, since
+    Hashview only exposes a per-hash-type listing endpoint.
+    """
     try:
         if not sys.stdin or not sys.stdin.isatty():
             print_fn("\nAvailable Customers:")
@@ -1663,7 +1656,9 @@ def download_hashes_from_hashview(
     else:
         customer_id = int(customer_raw)
     try:
-        customer_hashfiles = api_harness.get_customer_hashfiles(customer_id)
+        customer_hashfiles = api_harness.get_customer_hashfiles(
+            customer_id, hash_type=hash_type
+        )
         if customer_hashfiles:
             print_fn("\n" + "=" * 120)
             print_fn(f"Hashfiles for Customer ID {customer_id}:")

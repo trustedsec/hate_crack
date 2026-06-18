@@ -68,74 +68,56 @@ class TestHashviewAPI:
 
         # Cleanup
 
-    def test_list_hashfiles_success(self, api):
-        """Test successful hashfile listing with real API if possible, else mock."""
+    def test_get_hashfiles_by_type_success(self, api):
+        """The /v1/hashfiles/hash_type/<type> endpoint returns a list (real API if possible)."""
         hashview_url, hashview_api_key = self._get_hashview_config()
         if hashview_url and hashview_api_key:
             real_api = HashviewAPI(hashview_url, hashview_api_key)
-            result = real_api.list_hashfiles()
+            result = real_api.get_hashfiles_by_type("1000")
             assert isinstance(result, list)
-            # If there are no hashfiles, that's valid, but if present, check structure
             if result:
                 assert "name" in result[0]
         else:
             mock_response = Mock()
-            mock_response.json.return_value = {
-                "hashfiles": json.dumps(
-                    [
-                        {"id": 1, "customer_id": 1, "name": "hashfile1.txt"},
-                        {"id": 2, "customer_id": 2, "name": "hashfile2.txt"},
-                    ]
-                )
-            }
+            mock_response.json.return_value = [
+                {"id": 1, "customer_id": 1, "name": "hashfile1.txt", "hash_type": 1000},
+                {"id": 2, "customer_id": 2, "name": "hashfile2.txt", "hash_type": 1000},
+            ]
             mock_response.raise_for_status = Mock()
             api.session.get.return_value = mock_response
-            result = api.list_hashfiles()
+            result = api.get_hashfiles_by_type("1000")
             assert isinstance(result, list)
             assert len(result) == 2
             assert result[0]["name"] == "hashfile1.txt"
 
-    def test_list_hashfiles_empty(self, api):
-        """Test hashfile listing returns empty list if no hashfiles (real API if possible)."""
-        hashview_url, hashview_api_key = self._get_hashview_config()
-        if hashview_url and hashview_api_key:
-            real_api = HashviewAPI(hashview_url, hashview_api_key)
-            result = real_api.list_hashfiles()
-            # If there are no hashfiles, result should be []
-            if not result:
-                assert result == []
-            else:
-                assert isinstance(result, list)
-        else:
-            mock_response = Mock()
-            mock_response.json.return_value = {}
-            mock_response.raise_for_status = Mock()
-            api.session.get.return_value = mock_response
-            result = api.list_hashfiles()
-            assert result == []
+    def test_get_customer_hashfiles_requires_hash_type(self, api):
+        """Without a hash_type there is no Hashview list route, so we return []."""
+        result = api.get_customer_hashfiles(1)
+        assert result == []
 
     def test_get_customer_hashfiles(self, api):
-        """Test filtering hashfiles by customer_id (real API if possible)."""
+        """Filter the type-scoped hashfile list by customer_id (real API if possible)."""
         hashview_url, hashview_api_key = self._get_hashview_config()
         customer_id = os.environ.get("HASHVIEW_CUSTOMER_ID")
         if hashview_url and hashview_api_key and customer_id:
             real_api = HashviewAPI(hashview_url, hashview_api_key)
-            result = real_api.get_customer_hashfiles(int(customer_id))
+            result = real_api.get_customer_hashfiles(int(customer_id), hash_type="1000")
             assert isinstance(result, list)
             # If there are hashfiles, all should match customer_id
             if result:
                 assert all(hf["customer_id"] == int(customer_id) for hf in result)
         else:
-            api.list_hashfiles = Mock(
+            api.get_hashfiles_by_type = Mock(
                 return_value=[
                     {"id": 1, "customer_id": 1, "name": "hashfile1.txt"},
                     {"id": 2, "customer_id": 2, "name": "hashfile2.txt"},
                     {"id": 3, "customer_id": 1, "name": "hashfile3.txt"},
                 ]
             )
-            result = api.get_customer_hashfiles(1)
+            result = api.get_customer_hashfiles(1, hash_type="1000")
             assert len(result) == 2
             assert all(hf["customer_id"] == 1 for hf in result)
+            api.get_hashfiles_by_type.assert_called_once_with("1000")
 
     def test_display_customers_multicolumn_empty(self, api, capsys):
         """Test display_customers_multicolumn with no customers (mock only, as real API not needed)."""
