@@ -272,8 +272,14 @@ if _missing_keys:
     print(f"[config] Added {len(_missing_keys)} missing key(s) to {_config_path}")
     print(f"         Keys: {', '.join(_missing_keys)}")
 
-hashview_url = config_parser["hashview_url"]
-hashview_api_key = config_parser["hashview_api_key"]
+# Environment variables override config.json so the CLI can be pointed at a
+# different Hashview instance (e.g. a local docker stack for the live test
+# suite) without editing the persisted config. Empty/unset env vars fall back
+# to config.json.
+hashview_url = os.environ.get("HASHVIEW_URL") or config_parser["hashview_url"]
+hashview_api_key = (
+    os.environ.get("HASHVIEW_API_KEY") or config_parser["hashview_api_key"]
+)
 
 SKIP_INIT = os.environ.get("HATE_CRACK_SKIP_INIT") == "1"
 

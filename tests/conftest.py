@@ -42,3 +42,40 @@ def _isolate_notify_state():
     notify.clear_state_for_tests()
     yield
     notify.clear_state_for_tests()
+
+
+def pytest_configure(config):
+    """Spin up + seed a local Hashview docker stack for the live test suite.
+
+    No-op unless ``HASHVIEW_TEST_LOCAL=1``. When enabled, brings up the stack
+    from the hashview repo, seeds the DB, and exports the ``HASHVIEW_*`` env
+    vars the live tests (and the hate_crack CLI) read so they target the local
+    instance instead of whatever ``config.json`` points at.
+
+    This runs in ``pytest_configure`` — *before* collection — on purpose: the
+    live subprocess tests gate on ``HASHVIEW_TEST_REAL`` via ``@skipif``, which
+    is evaluated at collection time. A session fixture would set the env too
+    late and every live test would skip. On failure we deliberately leave
+    ``HASHVIEW_TEST_REAL`` unset so the live tests skip with their normal
+    reason rather than erroring. See ``tests/_hashview_local.py`` for config.
+    """
+    from tests import _hashview_local as hv
+
+    if not hv.enabled():
+        return
+    reason = hv.setup()
+    if reason is not None:
+        config.issue_config_time_warning(
+            pytest.PytestWarning(
+                f"HASHVIEW_TEST_LOCAL set but local stack unavailable "
+                f"({reason}); live Hashview tests will skip."
+            ),
+            stacklevel=2,
+        )
+
+
+def pytest_unconfigure(config):
+    from tests import _hashview_local as hv
+
+    if hv.enabled():
+        hv.teardown()
