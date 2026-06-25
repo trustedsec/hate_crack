@@ -272,8 +272,14 @@ if _missing_keys:
     print(f"[config] Added {len(_missing_keys)} missing key(s) to {_config_path}")
     print(f"         Keys: {', '.join(_missing_keys)}")
 
-hashview_url = config_parser["hashview_url"]
-hashview_api_key = config_parser["hashview_api_key"]
+# Environment variables override config.json so the CLI can be pointed at a
+# different Hashview instance (e.g. a local docker stack for the live test
+# suite) without editing the persisted config. Empty/unset env vars fall back
+# to config.json.
+hashview_url = os.environ.get("HASHVIEW_URL") or config_parser["hashview_url"]
+hashview_api_key = (
+    os.environ.get("HASHVIEW_API_KEY") or config_parser["hashview_api_key"]
+)
 
 SKIP_INIT = os.environ.get("HATE_CRACK_SKIP_INIT") == "1"
 
@@ -3710,6 +3716,7 @@ def hashview_api():
             elif option_key == "download_hashes":
                 # Download left hashes
                 try:
+                    cancel_download = False
                     while True:
                         # First, list customers to help user select
                         customers_result = api_harness.list_customers()
@@ -3757,24 +3764,31 @@ def hashview_api():
                                 )
                                 continue
 
-                        # List hashfiles for the customer
+                        # Try to list the customer's hashfiles for convenience.
+                        # This only works on Hashview servers that expose the
+                        # /v1/hashfiles/hash_type endpoint (v0.8.3-dev, added
+                        # 2026-06-08); on `main` or older builds there is no
+                        # hashfile-listing API, so we fall back to entering the
+                        # hashfile ID directly (look it up in the web UI).
+                        hashfile_map = {}
                         try:
-                            customer_hashfiles = api_harness.get_customer_hashfiles(
-                                customer_id
+                            print(
+                                "\nScanning customer hashfiles across common hash types..."
                             )
+                            customer_hashfiles = (
+                                api_harness.get_all_customer_hashfiles(customer_id)
+                            )
+                        except Exception as e:
+                            customer_hashfiles = []
+                            if debug_mode:
+                                print(f"[DEBUG] hashfile listing unavailable: {e}")
 
-                            if not customer_hashfiles:
-                                print(
-                                    f"\nNo hashfiles found for customer ID {customer_id}"
-                                )
-                                continue
-
+                        if customer_hashfiles:
                             print("\n" + "=" * 120)
                             print(f"Hashfiles for Customer ID {customer_id}:")
                             print("=" * 120)
                             print(f"{'ID':<10} {'Hash Type':<10} {'Name':<96}")
                             print("-" * 120)
-                            hashfile_map = {}
                             for hf in customer_hashfiles:
                                 hf_id = hf.get("id")
                                 hf_name = hf.get("name", "N/A")
@@ -3794,28 +3808,43 @@ def hashview_api():
                                 hashfile_map[int(hf_id)] = hf_type
                             print("=" * 120)
                             print(f"Total: {len(hashfile_map)} hashfile(s)")
-                        except Exception as e:
-                            print(f"\nWarning: Could not list hashfiles: {e}")
-                            continue
+                        else:
+                            print(
+                                "\nThis Hashview server has no hashfile-listing API "
+                                "(it lacks the /v1/hashfiles/hash_type endpoint), or "
+                                f"customer {customer_id} has no hashfiles of a common "
+                                "type. Look up the hashfile ID in the Hashview web UI "
+                                "and enter it below."
+                            )
 
                         while True:
+                            hashfile_id_input = input(
+                                "\nEnter hashfile ID (or Q to cancel): "
+                            ).strip()
+                            if hashfile_id_input.lower() == "q":
+                                cancel_download = True
+                                break
                             try:
-                                hashfile_id_input = input(
-                                    "\nEnter hashfile ID: "
-                                ).strip()
                                 hashfile_id = int(hashfile_id_input)
                             except ValueError:
                                 print(
                                     "\n✗ Error: Invalid ID entered. Please enter a numeric ID."
                                 )
                                 continue
-                            if hashfile_id not in hashfile_map:
+                            # Only restrict to the listed set when we actually
+                            # have a listing; otherwise accept any ID the user
+                            # read from the web UI.
+                            if hashfile_map and hashfile_id not in hashfile_map:
                                 print(
                                     "\n✗ Error: Hashfile ID not in the list. Please try again."
                                 )
                                 continue
                             break
                         break
+
+                    # User cancelled at the hash-type prompt: back to the menu.
+                    if cancel_download:
+                        continue
 
                     # Set output filename automatically
                     output_file = f"left_{customer_id}_{hashfile_id}.txt"

@@ -588,6 +588,31 @@ environment variable and provide valid credentials in `config.json`:
 HATE_CRACK_RUN_LIVE_TESTS=1 uv run pytest tests/test_upload_cracked_hashes.py -v
 ```
 
+### Live Hashview Tests Against a Local Docker Stack
+
+Instead of pointing the live tests at a remote Hashview server, you can have
+the suite spin up a local [Hashview](https://github.com/hashview/hashview)
+Docker stack, seed it, run the live tests against it, and tear it down. Set
+`HASHVIEW_TEST_LOCAL=1` and point `HASHVIEW_REPO` at a Hashview checkout:
+
+```bash
+HASHVIEW_TEST_LOCAL=1 HASHVIEW_REPO=~/projects/hashview \
+  HATE_CRACK_SKIP_INIT=1 uv run pytest tests/test_hashview_cli_subcommands_subprocess.py -v
+```
+
+This brings up `docker compose` in the Hashview repo, seeds an admin API key,
+a customer, a hashfile, and cracked "effective task" data, then exports the
+`HASHVIEW_*` env vars the tests read. Useful env vars:
+
+- `HASHVIEW_TEST_LOCAL=1` — enable the local stack (no-op otherwise)
+- `HASHVIEW_REPO=<path>` — Hashview checkout (default `~/projects/hashview`)
+- `HASHVIEW_KEEP=1` — leave containers running after the session (faster re-runs)
+- `HASHVIEW_LOCAL_PORT=5000` — host port the app is published on
+
+The hate_crack CLI honours the `HASHVIEW_URL` / `HASHVIEW_API_KEY` environment
+variables (overriding `config.json`), which is what lets the suite point the
+CLI at the local stack without editing your persisted config.
+
 ### End-to-End Install Tests (Local + Docker)
 
 Local uv tool install + script execution (uses a temporary HOME):
@@ -911,6 +936,11 @@ Interactive menu for downloading and managing wordlists from Weakpass.com via Bi
   
 -------------------------------------------------------------------
 ### Version History
+
+Version 2.10.6
+  - Fixed the Hashview integration calling API routes that don't exist in Hashview (verified against v0.8.3-dev), which 404'd as soon as a customer ID was entered ("Could not list hashfiles"). The customer→hashfile listing relied on a phantom `GET /v1/hashfiles` list-all route; it now enumerates via the real `GET /v1/hashfiles/hash_type/<type>` endpoint where available — the download flow sweeps common hashcat modes to display a customer's uploaded hashfiles. That listing route only exists on Hashview builds from 2026-06-08+ (the `v0.8.3-dev` branch); on `main`/older servers there is no hashfile-listing API at all, so the flow now degrades gracefully to entering the hashfile ID directly (looked up in the Hashview web UI) and resolving its type via `GET /v1/getHashType/<id>`. Additional client-side route fixes: hashfile hash-type lookup now uses `GET /v1/getHashType/<id>`; "left" (uncracked) hash download uses `GET /v1/hashfiles/<id>`; `delete_job` uses `DELETE /v1/jobs/<id>`; `start_job` uses `POST`. Hashview exposes no stop-job route, so `stop_job` now raises with guidance to use `delete_job`; and no bulk cracked-hash export exists, so the best-effort "found" merge degrades gracefully
+  - The Hashview CLI now honours `HASHVIEW_URL` / `HASHVIEW_API_KEY` environment variables as overrides for the `config.json` values, so the client can be pointed at a different Hashview instance (e.g. a local dev stack) without editing the persisted config
+  - Added an opt-in local Hashview integration-test harness: `HASHVIEW_TEST_LOCAL=1` (with `HASHVIEW_REPO=<path>`) spins up and seeds a local Hashview docker stack, runs the live Hashview tests against it, and tears it down (`HASHVIEW_KEEP=1` keeps it). This is what surfaced and verified the route fixes above against `v0.8.3-dev`. See the README testing section for details
 
 Version 2.10.5
   - Pipal analysis no longer corrupts its input when cracked passwords contain `$HEX[...]` rows. `binascii.unhexlify().decode()` returned the bytes without the trailing newline that normal rows inherit from `password[-1]`, so every HEX-encoded password got concatenated with the next one in the `.passwords` file fed to pipal (e.g. three cracks → two lines, one of them a bogus mashup). Pipal then under-counted entries and reported wrong top base words. The HEX branch now re-appends `\n` so each cracked password lands on its own line

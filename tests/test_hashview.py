@@ -68,74 +68,107 @@ class TestHashviewAPI:
 
         # Cleanup
 
-    def test_list_hashfiles_success(self, api):
-        """Test successful hashfile listing with real API if possible, else mock."""
+    def test_get_hashfiles_by_type_success(self, api):
+        """The /v1/hashfiles/hash_type/<type> endpoint returns a list (real API if possible)."""
         hashview_url, hashview_api_key = self._get_hashview_config()
         if hashview_url and hashview_api_key:
             real_api = HashviewAPI(hashview_url, hashview_api_key)
-            result = real_api.list_hashfiles()
+            result = real_api.get_hashfiles_by_type("1000")
             assert isinstance(result, list)
-            # If there are no hashfiles, that's valid, but if present, check structure
             if result:
                 assert "name" in result[0]
         else:
             mock_response = Mock()
-            mock_response.json.return_value = {
-                "hashfiles": json.dumps(
-                    [
-                        {"id": 1, "customer_id": 1, "name": "hashfile1.txt"},
-                        {"id": 2, "customer_id": 2, "name": "hashfile2.txt"},
-                    ]
-                )
-            }
+            mock_response.json.return_value = [
+                {"id": 1, "customer_id": 1, "name": "hashfile1.txt", "hash_type": 1000},
+                {"id": 2, "customer_id": 2, "name": "hashfile2.txt", "hash_type": 1000},
+            ]
             mock_response.raise_for_status = Mock()
             api.session.get.return_value = mock_response
-            result = api.list_hashfiles()
+            result = api.get_hashfiles_by_type("1000")
             assert isinstance(result, list)
             assert len(result) == 2
             assert result[0]["name"] == "hashfile1.txt"
 
-    def test_list_hashfiles_empty(self, api):
-        """Test hashfile listing returns empty list if no hashfiles (real API if possible)."""
-        hashview_url, hashview_api_key = self._get_hashview_config()
-        if hashview_url and hashview_api_key:
-            real_api = HashviewAPI(hashview_url, hashview_api_key)
-            result = real_api.list_hashfiles()
-            # If there are no hashfiles, result should be []
-            if not result:
-                assert result == []
-            else:
-                assert isinstance(result, list)
-        else:
-            mock_response = Mock()
-            mock_response.json.return_value = {}
-            mock_response.raise_for_status = Mock()
-            api.session.get.return_value = mock_response
-            result = api.list_hashfiles()
-            assert result == []
+    def test_get_customer_hashfiles_requires_hash_type(self, api):
+        """Without a hash_type there is no Hashview list route, so we return []."""
+        result = api.get_customer_hashfiles(1)
+        assert result == []
+
+    def test_get_all_customer_hashfiles_sweeps_and_dedupes(self, api):
+        """Aggregate sweeps per-type listings, filters by customer, dedupes by id."""
+        per_type = {
+            1000: [
+                {"id": 1, "customer_id": 1, "name": "ntlm.txt", "hash_type": 1000},
+                {"id": 2, "customer_id": 2, "name": "other.txt", "hash_type": 1000},
+            ],
+            5600: [
+                {"id": 3, "customer_id": 1, "name": "ntlmv2.txt", "hash_type": 5600},
+                # id 1 appears again under another type; must dedupe (first wins)
+                {"id": 1, "customer_id": 1, "name": "ntlm.txt", "hash_type": 5600},
+            ],
+        }
+        api.get_hashfiles_by_type = Mock(side_effect=lambda ht: per_type.get(int(ht), []))
+
+        result = api.get_all_customer_hashfiles(1, hash_types=[1000, 5600])
+
+        ids = sorted(hf["id"] for hf in result)
+        assert ids == [1, 3]  # customer 2 excluded, id 1 not duplicated
+        by_id = {hf["id"]: hf for hf in result}
+        assert str(by_id[1]["hash_type"]) == "1000"  # first type seen wins
+        assert str(by_id[3]["hash_type"]) == "5600"
+
+    def test_get_all_customer_hashfiles_aborts_on_404(self, api):
+        """A 404 means the listing endpoint is absent (e.g. Hashview main);
+        the sweep stops after the first request instead of probing every type."""
+        import requests
+
+        def _raise_404(ht):
+            resp = Mock()
+            resp.status_code = 404
+            raise requests.exceptions.HTTPError("404 Not Found", response=resp)
+
+        api.get_hashfiles_by_type = Mock(side_effect=_raise_404)
+        result = api.get_all_customer_hashfiles(1, hash_types=[1000, 5600, 3000])
+        assert result == []
+        # Stopped after the first 404, did not sweep all three types.
+        assert api.get_hashfiles_by_type.call_count == 1
+
+    def test_get_all_customer_hashfiles_skips_failing_types(self, api):
+        """A per-type query that errors is skipped, not fatal."""
+
+        def _by_type(ht):
+            if int(ht) == 1000:
+                raise RuntimeError("boom")
+            return [{"id": 9, "customer_id": 1, "name": "x", "hash_type": int(ht)}]
+
+        api.get_hashfiles_by_type = Mock(side_effect=_by_type)
+        result = api.get_all_customer_hashfiles(1, hash_types=[1000, 5600])
+        assert [hf["id"] for hf in result] == [9]
 
     def test_get_customer_hashfiles(self, api):
-        """Test filtering hashfiles by customer_id (real API if possible)."""
+        """Filter the type-scoped hashfile list by customer_id (real API if possible)."""
         hashview_url, hashview_api_key = self._get_hashview_config()
         customer_id = os.environ.get("HASHVIEW_CUSTOMER_ID")
         if hashview_url and hashview_api_key and customer_id:
             real_api = HashviewAPI(hashview_url, hashview_api_key)
-            result = real_api.get_customer_hashfiles(int(customer_id))
+            result = real_api.get_customer_hashfiles(int(customer_id), hash_type="1000")
             assert isinstance(result, list)
             # If there are hashfiles, all should match customer_id
             if result:
                 assert all(hf["customer_id"] == int(customer_id) for hf in result)
         else:
-            api.list_hashfiles = Mock(
+            api.get_hashfiles_by_type = Mock(
                 return_value=[
                     {"id": 1, "customer_id": 1, "name": "hashfile1.txt"},
                     {"id": 2, "customer_id": 2, "name": "hashfile2.txt"},
                     {"id": 3, "customer_id": 1, "name": "hashfile3.txt"},
                 ]
             )
-            result = api.get_customer_hashfiles(1)
+            result = api.get_customer_hashfiles(1, hash_type="1000")
             assert len(result) == 2
             assert all(hf["customer_id"] == 1 for hf in result)
+            api.get_hashfiles_by_type.assert_called_once_with("1000")
 
     def test_display_customers_multicolumn_empty(self, api, capsys):
         """Test display_customers_multicolumn with no customers (mock only, as real API not needed)."""
@@ -262,9 +295,15 @@ class TestHashviewAPI:
             assert content == b"hash1\nhash2\n"
             assert result["size"] == len(content)
 
-            # Verify auth headers were passed in the left hashes download call
+            # Verify auth headers were passed in the left hashes download call.
+            # The uncracked ("left") hashes come from GET /v1/hashfiles/<id>
+            # (the trailing /found call is a separate lookup).
             call_args_list = api.session.get.call_args_list
-            left_call = [c for c in call_args_list if "left" in str(c)][0]
+            left_call = [
+                c
+                for c in call_args_list
+                if "/v1/hashfiles/2" in str(c) and "found" not in str(c)
+            ][0]
             assert left_call.kwargs.get("headers") is not None
             auth_headers = left_call.kwargs.get("headers")
             assert "Cookie" in auth_headers or "uuid" in str(auth_headers)
@@ -468,6 +507,36 @@ class TestHashviewAPI:
         print("\n" + "=" * 60)
         print("✓ Option 2 (Create Job) is READY and WORKING!")
         print("=" * 60)
+
+    def test_start_job_uses_post(self, api):
+        """start_job must POST to /v1/jobs/start/<id> (the route is POST-only)."""
+        mock_response = Mock()
+        mock_response.json.return_value = {"status": 200, "msg": "Job started"}
+        mock_response.raise_for_status = Mock()
+        api.session.post.return_value = mock_response
+
+        result = api.start_job(42)
+
+        assert result["msg"] == "Job started"
+        api.session.post.assert_called_once_with(f"{HASHVIEW_URL}/v1/jobs/start/42")
+        api.session.get.assert_not_called()
+
+    def test_delete_job_uses_delete_verb(self, api):
+        """delete_job must use DELETE /v1/jobs/<id> (there is no /jobs/delete/)."""
+        mock_response = Mock()
+        mock_response.json.return_value = {"status": 200, "msg": "Job deleted"}
+        mock_response.raise_for_status = Mock()
+        api.session.delete.return_value = mock_response
+
+        result = api.delete_job(7)
+
+        assert result["msg"] == "Job deleted"
+        api.session.delete.assert_called_once_with(f"{HASHVIEW_URL}/v1/jobs/7")
+
+    def test_stop_job_not_supported(self, api):
+        """Hashview has no stop-job route, so stop_job raises NotImplementedError."""
+        with pytest.raises(NotImplementedError):
+            api.stop_job(7)
 
     def test_create_job_with_new_customer(self, api, test_hashfile):
         """Test creating a new customer and then creating a job (real API if possible)."""
