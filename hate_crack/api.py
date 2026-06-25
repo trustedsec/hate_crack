@@ -1344,7 +1344,10 @@ class HashviewAPI:
     ):
         import sys
 
-        url = f"{self.base_url}/v1/hashfiles/{hashfile_id}/left"
+        # Hashview's GET /v1/hashfiles/<id> streams exactly the still-uncracked
+        # ("left") hashes, one per line. The older /v1/hashfiles/<id>/left route
+        # no longer exists and 404s on current servers.
+        url = f"{self.base_url}/v1/hashfiles/{hashfile_id}"
         resp = self.session.get(url, headers=self._auth_headers(), stream=True)
         resp.raise_for_status()
         if output_file is None:
