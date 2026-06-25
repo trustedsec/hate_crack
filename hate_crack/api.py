@@ -1417,7 +1417,8 @@ class HashviewAPI:
         import sys
 
         # Hashview's GET /v1/hashfiles/<id> returns exactly the uncracked
-        # ("left") ciphertexts for the hashfile (see v1_api_get_hashfile).
+        # ("left") ciphertexts for the hashfile (see v1_api_get_hashfile). The
+        # older /v1/hashfiles/<id>/left route no longer exists and 404s.
         url = f"{self.base_url}/v1/hashfiles/{hashfile_id}"
         resp = self.session.get(url, headers=self._auth_headers(), stream=True)
         resp.raise_for_status()

@@ -296,10 +296,14 @@ class TestHashviewAPI:
             assert result["size"] == len(content)
 
             # Verify auth headers were passed in the left hashes download call.
-            # The left download is the first GET (to /v1/hashfiles/<id>); the
-            # second GET is the best-effort found lookup that 404s here.
+            # The uncracked ("left") hashes come from GET /v1/hashfiles/<id>
+            # (the trailing /found call is a separate lookup).
             call_args_list = api.session.get.call_args_list
-            left_call = [c for c in call_args_list if "/v1/hashfiles/2" in str(c)][0]
+            left_call = [
+                c
+                for c in call_args_list
+                if "/v1/hashfiles/2" in str(c) and "found" not in str(c)
+            ][0]
             assert left_call.kwargs.get("headers") is not None
             auth_headers = left_call.kwargs.get("headers")
             assert "Cookie" in auth_headers or "uuid" in str(auth_headers)

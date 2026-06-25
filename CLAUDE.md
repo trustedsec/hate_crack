@@ -35,7 +35,7 @@ uv run ruff format hate_crack
 make coverage
 ```
 
-**Test environment variables**: `HATE_CRACK_SKIP_INIT=1` skips binary/config validation (essential for worktrees without hashcat-utils). `HASHMOB_TEST_REAL=1`, `HASHVIEW_TEST_REAL=1`, `WEAKPASS_TEST_REAL=1` enable live API tests.
+**Test environment variables**: `HATE_CRACK_SKIP_INIT=1` skips binary/config validation (essential for worktrees without hashcat-utils). `HASHMOB_TEST_REAL=1`, `HASHVIEW_TEST_REAL=1`, `WEAKPASS_TEST_REAL=1` enable live API tests. `HASHVIEW_TEST_LOCAL=1` (with `HASHVIEW_REPO=<path>`, default `~/projects/hashview`) spins up a local Hashview docker stack, seeds it, and runs the live Hashview tests against it — orchestration in `tests/_hashview_local.py` (via `pytest_configure`), seeding in `tests/hashview_local_seed.py`. The CLI honours `HASHVIEW_URL` / `HASHVIEW_API_KEY` env vars as overrides for the `config.json` values (loaded in `main.py` ~line 275), which is what lets the suite point the CLI at the local stack.
 
 ## Git Hooks
 

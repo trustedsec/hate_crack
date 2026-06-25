@@ -588,6 +588,31 @@ environment variable and provide valid credentials in `config.json`:
 HATE_CRACK_RUN_LIVE_TESTS=1 uv run pytest tests/test_upload_cracked_hashes.py -v
 ```
 
+### Live Hashview Tests Against a Local Docker Stack
+
+Instead of pointing the live tests at a remote Hashview server, you can have
+the suite spin up a local [Hashview](https://github.com/hashview/hashview)
+Docker stack, seed it, run the live tests against it, and tear it down. Set
+`HASHVIEW_TEST_LOCAL=1` and point `HASHVIEW_REPO` at a Hashview checkout:
+
+```bash
+HASHVIEW_TEST_LOCAL=1 HASHVIEW_REPO=~/projects/hashview \
+  HATE_CRACK_SKIP_INIT=1 uv run pytest tests/test_hashview_cli_subcommands_subprocess.py -v
+```
+
+This brings up `docker compose` in the Hashview repo, seeds an admin API key,
+a customer, a hashfile, and cracked "effective task" data, then exports the
+`HASHVIEW_*` env vars the tests read. Useful env vars:
+
+- `HASHVIEW_TEST_LOCAL=1` — enable the local stack (no-op otherwise)
+- `HASHVIEW_REPO=<path>` — Hashview checkout (default `~/projects/hashview`)
+- `HASHVIEW_KEEP=1` — leave containers running after the session (faster re-runs)
+- `HASHVIEW_LOCAL_PORT=5000` — host port the app is published on
+
+The hate_crack CLI honours the `HASHVIEW_URL` / `HASHVIEW_API_KEY` environment
+variables (overriding `config.json`), which is what lets the suite point the
+CLI at the local stack without editing your persisted config.
+
 ### End-to-End Install Tests (Local + Docker)
 
 Local uv tool install + script execution (uses a temporary HOME):
