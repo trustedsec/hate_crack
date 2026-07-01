@@ -17,6 +17,15 @@ class TestHcatPCFG:
         hash_file = str(tmp_path / "hashes.txt")
         Path(hash_file).write_text("dummy")
 
+        # hcatPCFG resolves pcfg_guesser.py under the module global hate_path
+        # and bails early if it's missing. Pin hate_path to a tmp dir with a
+        # stub script so the test is hermetic — independent of the real
+        # pcfg_cracker submodule being checked out and of any hate_path value
+        # leaked by an earlier test (hate_crack.main is shared session-wide).
+        pcfg_dir = tmp_path / "pcfg_cracker"
+        pcfg_dir.mkdir()
+        (pcfg_dir / "pcfg_guesser.py").write_text("# stub")
+
         captured_calls = []
 
         class FakeProc:
@@ -27,6 +36,7 @@ class TestHcatPCFG:
 
         with patch("hate_crack.main.subprocess.Popen", side_effect=FakeProc), \
              patch("hate_crack.main._run_hcat_cmd") as mock_run, \
+             patch.object(main_module, "hate_path", str(tmp_path)), \
              patch.object(main_module, "hcatBin", "hashcat"), \
              patch.object(main_module, "hcatTuning", ""), \
              patch.object(main_module, "hcatPotfilePath", ""), \
