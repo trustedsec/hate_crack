@@ -986,10 +986,33 @@ def _run_upgrade():
         raise SystemExit(1)
     repo_root = git_root_result.stdout.strip()
 
+    # Fetch first so origin/main is present even on a stale clone that has
+    # never been fetched since the default branch was renamed master -> main.
+    # Without this, `git checkout main` on a master-only clone fails because
+    # there's no origin/main ref to auto-create a tracking branch from.
+    fetch_result = subprocess.run(
+        ["git", "fetch", "--tags", "origin"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+    if fetch_result.returncode != 0:
+        print(
+            f"\n  Failed to fetch from origin:\n  {fetch_result.stderr.strip()}\n"
+            "\n  Upgrade manually: git fetch --tags && git checkout main && git pull origin main && make install\n"
+        )
+        raise SystemExit(1)
+
     # Release tags live on main-side merge commits, so pulling on `dev` or
     # any feature branch won't move HEAD onto the new tag — setuptools-scm
     # then regenerates the version as e.g. 2.10.0.postN.devM and the update
     # checker re-fires on next start, looping forever. Switch to main first.
+    #
+    # Old clones made before the default branch was renamed master -> main
+    # sit on a local `master` whose upstream (branch.master.merge) still
+    # points at the now-deleted refs/heads/master. A bare `git pull` then
+    # fails with "no such ref was fetched". We migrate such clones to a
+    # local `main` tracking origin/main so future manual pulls also work.
     branch_result = subprocess.run(
         ["git", "symbolic-ref", "--short", "HEAD"],
         cwd=repo_root,
@@ -1009,13 +1032,16 @@ def _run_upgrade():
             print(
                 f"\n  Cannot auto-upgrade: uncommitted changes on '{branch}'."
                 "\n  Commit or stash them, then re-run."
-                "\n  Or upgrade manually: git checkout main && git pull && make install\n"
+                "\n  Or upgrade manually: git checkout main && git pull origin main && make install\n"
             )
             raise SystemExit(1)
 
         print(f"\n  Switching from '{branch}' to 'main' to pick up the release tag...")
         checkout = subprocess.run(
-            ["git", "checkout", "main"],
+            # -B creates/resets a local `main` pointing at origin/main so this
+            # works whether or not a local `main` already exists (e.g. a stale
+            # master-only clone that has never had a main branch).
+            ["git", "checkout", "-B", "main", "origin/main"],
             cwd=repo_root,
             capture_output=True,
             text=True,
@@ -1023,20 +1049,31 @@ def _run_upgrade():
         if checkout.returncode != 0:
             print(
                 f"\n  Failed to switch to main:\n  {checkout.stderr.strip()}\n"
-                "\n  Upgrade manually: git checkout main && git pull && make install\n"
+                "\n  Upgrade manually: git checkout main && git pull origin main && make install\n"
             )
             raise SystemExit(1)
+
+        # Repair the upstream so a later manual `git pull` consults
+        # origin/main rather than a dangling branch.master.merge ref.
+        subprocess.run(
+            ["git", "branch", "--set-upstream-to=origin/main", "main"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+        )
 
     import shutil
 
     uv = shutil.which("uv") or os.path.expanduser("~/.local/bin/uv")
 
     result = subprocess.run(
+        # `git pull origin main` is explicit so it never consults the possibly
+        # broken branch.<current>.merge config on a renamed clone.
         # git fetch --tags ensures new release tags are visible to setuptools-scm.
         # make install handles system deps and the CLI shim.
         # uv sync --reinstall-package forces setuptools-scm to regenerate the
         # version from the new tag so the version number updates correctly.
-        f"git pull && git fetch --tags && make install && {uv} sync --reinstall-package hate_crack",
+        f"git pull origin main && git fetch --tags && make install && {uv} sync --reinstall-package hate_crack",
         shell=True,
         cwd=repo_root,
     )
