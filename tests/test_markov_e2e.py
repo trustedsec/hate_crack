@@ -10,14 +10,18 @@ import pytest
 class TestMarkovE2E:
     """End-to-end tests for complete markov attack workflow."""
 
-    def test_markov_training_plain_text(self, tmp_path: Path) -> None:
+    def test_markov_training_plain_text(self, tmp_path: Path, monkeypatch) -> None:
         """Test markov training with plain text wordlist."""
         from hate_crack import main
 
-        # Setup paths
-        main.hate_path = Path(__file__).resolve().parents[1]
-        main.hcatHcstat2genBin = "hcstat2gen.bin"
-        bin_path = main.hate_path / "hashcat-utils" / "bin" / "hcstat2gen.bin"
+        # Setup paths. Use monkeypatch so these module globals are restored
+        # after the test — hate_crack.main is imported once and shared across
+        # the whole session, so a raw assignment here would leak into every
+        # later test (e.g. test_main_pcfg, which reads the ambient hate_path).
+        repo_root = Path(__file__).resolve().parents[1]
+        monkeypatch.setattr(main, "hate_path", repo_root)
+        monkeypatch.setattr(main, "hcatHcstat2genBin", "hcstat2gen.bin")
+        bin_path = repo_root / "hashcat-utils" / "bin" / "hcstat2gen.bin"
         if not bin_path.is_file():
             pytest.skip(f"hcstat2gen.bin not compiled: {bin_path}")
 
@@ -39,14 +43,16 @@ class TestMarkovE2E:
         assert hcstat2_path.exists(), ".hcstat2 file should be created"
         assert hcstat2_path.stat().st_size > 0, ".hcstat2 file should not be empty"
 
-    def test_markov_training_gzipped(self, tmp_path: Path) -> None:
+    def test_markov_training_gzipped(self, tmp_path: Path, monkeypatch) -> None:
         """Test markov training with gzipped wordlist."""
         from hate_crack import main
 
-        # Setup paths
-        main.hate_path = Path(__file__).resolve().parents[1]
-        main.hcatHcstat2genBin = "hcstat2gen.bin"
-        bin_path = main.hate_path / "hashcat-utils" / "bin" / "hcstat2gen.bin"
+        # Setup paths (monkeypatch so these session-shared module globals are
+        # restored after the test — see test_markov_training_plain_text).
+        repo_root = Path(__file__).resolve().parents[1]
+        monkeypatch.setattr(main, "hate_path", repo_root)
+        monkeypatch.setattr(main, "hcatHcstat2genBin", "hcstat2gen.bin")
+        bin_path = repo_root / "hashcat-utils" / "bin" / "hcstat2gen.bin"
         if not bin_path.is_file():
             pytest.skip(f"hcstat2gen.bin not compiled: {bin_path}")
 
