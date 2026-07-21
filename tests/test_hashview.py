@@ -196,6 +196,49 @@ class TestHashviewAPI:
         result = api.list_customers()
         assert result["customers"] == [{"id": 2, "name": "Beta"}]
 
+    def test_get_hashfile_details_md5_zero(self, api):
+        """hash_type 0 (MD5) is falsy; must not fall through to the envelope `type`."""
+        mock_resp = Mock()
+        mock_resp.json.return_value = {
+            "hash_type": 0,
+            "msg": "OK",
+            "status": 200,
+            "type": "message",
+        }
+        mock_resp.raise_for_status = Mock()
+        api.session.get.return_value = mock_resp
+
+        details = api.get_hashfile_details(42)
+        assert details["hashtype"] == 0
+
+    def test_get_hashfile_details_ntlm(self, api):
+        """Sanity: NTLM (1000) still parses from `hash_type`."""
+        mock_resp = Mock()
+        mock_resp.json.return_value = {
+            "hash_type": 1000,
+            "msg": "OK",
+            "status": 200,
+            "type": "message",
+        }
+        mock_resp.raise_for_status = Mock()
+        api.session.get.return_value = mock_resp
+
+        assert api.get_hashfile_details(7)["hashtype"] == 1000
+
+    def test_get_hashfile_hash_type_reads_hashfiles_key(self, api):
+        """Endpoint returns {hashfiles: [...]} objects; return their ids."""
+        mock_resp = Mock()
+        mock_resp.json.return_value = {
+            "status": 200,
+            "type": "message",
+            "msg": "OK",
+            "hashfiles": [{"id": 3, "name": "a"}, {"id": 9, "name": "b"}],
+        }
+        mock_resp.raise_for_status = Mock()
+        api.session.get.return_value = mock_resp
+
+        assert api.get_hashfile_hash_type(1000) == [3, 9]
+
     def test_upload_cracked_hashes_success(self, api, tmp_path):
         """Test uploading cracked hashes with valid lines (real API if possible)."""
         hashview_url, hashview_api_key = self._get_hashview_config()
