@@ -239,6 +239,60 @@ class TestHashviewAPI:
 
         assert api.get_hashfile_hash_type(1000) == [3, 9]
 
+    def test_list_rules_native_array(self, api):
+        """/v1/rules returns {rules: [...]} as a native JSON array."""
+        mock_resp = Mock()
+        mock_resp.json.return_value = {
+            "status": 200,
+            "rules": [{"id": 4, "name": "best64.rule", "size": 77}],
+        }
+        mock_resp.raise_for_status = Mock()
+        api.session.get.return_value = mock_resp
+
+        rules = api.list_rules()
+        assert rules == [{"id": 4, "name": "best64.rule", "size": 77}]
+
+    def test_download_rules_gunzips_to_plaintext(self, api, tmp_path):
+        """Rule download arrives gzip-compressed; saved file must be plaintext."""
+        import gzip
+
+        plaintext = b":\nc\nu\nsa\n"
+        mock_resp = Mock()
+        mock_resp.content = gzip.compress(plaintext)
+        mock_resp.headers = {}
+        mock_resp.raise_for_status = Mock()
+        api.session.get.return_value = mock_resp
+
+        out = os.path.join(str(tmp_path), "best64.rule")
+        result = api.download_rules(4, out)
+        assert result["output_file"] == out
+        with open(out, "rb") as f:
+            assert f.read() == plaintext
+
+    def test_download_rules_passes_plaintext_through(self, api, tmp_path):
+        """If the body is already plaintext (not gzip), save it unchanged."""
+        mock_resp = Mock()
+        mock_resp.content = b":\nc\nu\n"
+        mock_resp.headers = {}
+        mock_resp.raise_for_status = Mock()
+        api.session.get.return_value = mock_resp
+
+        out = os.path.join(str(tmp_path), "plain.rule")
+        api.download_rules(7, out)
+        with open(out, "rb") as f:
+            assert f.read() == b":\nc\nu\n"
+
+    def test_download_rules_raises_on_404(self, api, tmp_path):
+        """Unknown rule id is a real HTTP 404 -> raise_for_status propagates."""
+        from requests.exceptions import HTTPError
+
+        mock_resp = Mock()
+        mock_resp.raise_for_status = Mock(side_effect=HTTPError("404"))
+        api.session.get.return_value = mock_resp
+
+        with pytest.raises(HTTPError):
+            api.download_rules(99999999, os.path.join(str(tmp_path), "x.rule"))
+
     def test_upload_cracked_hashes_success(self, api, tmp_path):
         """Test uploading cracked hashes with valid lines (real API if possible)."""
         hashview_url, hashview_api_key = self._get_hashview_config()

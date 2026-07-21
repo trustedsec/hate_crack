@@ -3328,6 +3328,7 @@ def hashview_api():
                 )
             menu_options.append(("upload_wordlist", "Upload Wordlist"))
             menu_options.append(("download_wordlist", "Download Wordlist"))
+            menu_options.append(("download_rules", "Download Rule"))
             menu_options.append(
                 (
                     "download_hashes",
@@ -3547,6 +3548,62 @@ def hashview_api():
                     print(f"  File: {download_result['output_file']}")
                 except Exception as e:
                     print(f"\n✗ Error downloading wordlist: {str(e)}")
+
+            elif option_key == "download_rules":
+                # Download rule file
+                try:
+                    rules = api_harness.list_rules()
+                    rule_map = {}
+                    if rules:
+                        print("\n" + "=" * 100)
+                        print("Available Rules:")
+                        print("=" * 100)
+                        print(f"{'ID':<10} {'Name':<60} {'Size':>12}")
+                        print("-" * 100)
+                        for rule in rules:
+                            r_id = rule.get("id", "N/A")
+                            r_name = rule.get("name", "N/A")
+                            r_size = rule.get("size", "N/A")
+                            name = str(r_name)
+                            if len(name) > 60:
+                                name = name[:57] + "..."
+                            print(f"{r_id:<10} {name:<60} {r_size:>12}")
+                            if r_id != "N/A":
+                                try:
+                                    rule_map[int(r_id)] = str(r_name)
+                                except ValueError:
+                                    pass
+                        print("=" * 100)
+                    else:
+                        print("\nNo rules found.")
+                except Exception as e:
+                    print(f"\n✗ Error fetching rules: {str(e)}")
+                    continue
+
+                try:
+                    rules_id = int(input("\nEnter rule ID: "))
+                except ValueError:
+                    print("\n✗ Error: Invalid ID entered. Please enter a numeric ID.")
+                    continue
+
+                api_name = rule_map.get(rules_id)
+                prompt_suffix = (
+                    f" (API filename: {api_name})" if api_name else " (API filename)"
+                )
+                output_file = (
+                    input(
+                        f"Enter output file name{prompt_suffix} or press Enter to use API filename: "
+                    ).strip()
+                    or api_name
+                )
+                try:
+                    download_result = api_harness.download_rules(
+                        rules_id, output_file
+                    )
+                    print(f"\n✓ Success: Downloaded {download_result['size']} bytes")
+                    print(f"  File: {download_result['output_file']}")
+                except Exception as e:
+                    print(f"\n✗ Error downloading rule: {str(e)}")
 
             elif option_key == "upload_hashfile_job":
                 # Upload hashfile and create job
@@ -4758,6 +4815,19 @@ def main():
             help="Hash type for hashcat (e.g., 1000 for NTLM)",
         )
 
+        hv_download_rules = hashview_subparsers.add_parser(
+            "download-rules",
+            help="Download a rule file",
+        )
+        hv_download_rules.add_argument(
+            "--rules-id", required=True, type=int, help="Rule ID"
+        )
+        hv_download_rules.add_argument(
+            "--output",
+            default=None,
+            help="Output file name (default: rule_<id>.rule in the rules directory)",
+        )
+
         hv_upload_hashfile_job = hashview_subparsers.add_parser(
             "upload-hashfile-job",
             help="Upload a hashfile and create a job",
@@ -4794,6 +4864,7 @@ def main():
         "upload-cracked",
         "upload-wordlist",
         "download-hashes",
+        "download-rules",
         "upload-hashfile-job",
     ]
     has_hashview_flag = "--hashview" in argv
@@ -4926,6 +4997,15 @@ def main():
                 args.hashfile_id,
                 hash_type=args.hash_type,
                 potfile_path=hcatPotfilePath,
+            )
+            print(f"\n✓ Success: Downloaded {download_result['size']} bytes")
+            print(f"  File: {download_result['output_file']}")
+            sys.exit(0)
+
+        if args.hashview_command == "download-rules":
+            download_result = api_harness.download_rules(
+                args.rules_id,
+                args.output,
             )
             print(f"\n✓ Success: Downloaded {download_result['size']} bytes")
             print(f"  File: {download_result['output_file']}")
