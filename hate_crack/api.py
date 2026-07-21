@@ -1138,7 +1138,13 @@ class HashviewAPI:
             data = None
         hashtype = None
         if data:
-            hashtype = data.get("hashtype") or data.get("hash_type") or data.get("type")
+            # Prefer explicit hash-type keys by PRESENCE, not truthiness: MD5 is
+            # hash_type 0, which is falsy. Never fall back to `type` — that is
+            # the envelope tag ("message"), never a hash mode.
+            if "hash_type" in data:
+                hashtype = data["hash_type"]
+            elif "hashtype" in data:
+                hashtype = data["hashtype"]
             if self.debug:
                 print(
                     f"[DEBUG] get_hashfile_details({hashfile_id}): raw data={data}, hashtype={hashtype}"
@@ -1660,21 +1666,28 @@ class HashviewAPI:
     def get_hashfile_hash_type(self, hashtype_id):
         """
         Query /v1/hashfiles/hash_type/<int:hashtype_id> and return a list of file IDs.
+
+        The endpoint answers with an envelope ``{..., "hashfiles": [ {...} ]}``
+        (native JSON objects); we extract the ``id`` of each hashfile.
         """
         url = f"{self.base_url}/v1/hashfiles/hash_type/{hashtype_id}"
         resp = self.session.get(url)
         resp.raise_for_status()
         try:
             data = resp.json()
-            # Expecting a list of file IDs or a dict with a key containing them
+            # A bare list is tolerated for forward/backward compatibility.
             if isinstance(data, list):
-                return data
+                hashfiles = data
             elif isinstance(data, dict):
-                # Try common keys
-                for key in ("file_ids", "ids", "hashfile_ids"):
-                    if key in data and isinstance(data[key], list):
-                        return data[key]
-            return []
+                hashfiles = data.get("hashfiles") or []
+            else:
+                return []
+            ids = []
+            for hf in hashfiles:
+                hf_id = hf.get("id") if isinstance(hf, dict) else hf
+                if hf_id is not None:
+                    ids.append(hf_id)
+            return ids
         except Exception:
             return []
 
