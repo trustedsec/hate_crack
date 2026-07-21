@@ -176,6 +176,26 @@ class TestHashviewAPI:
         captured = capsys.readouterr()
         assert "No customers found" in captured.out
 
+    def test_list_customers_native_json_array(self, api):
+        """Server returns `users` as a native JSON array (issue #229, no double-decode)."""
+        mock_resp = Mock()
+        mock_resp.json.return_value = {"users": [{"id": 1, "name": "Acme"}]}
+        mock_resp.raise_for_status = Mock()
+        api.session.get.return_value = mock_resp
+
+        result = api.list_customers()
+        assert result["customers"] == [{"id": 1, "name": "Acme"}]
+
+    def test_list_customers_legacy_json_string(self, api):
+        """Older servers double-encode `users` as a JSON string; still supported."""
+        mock_resp = Mock()
+        mock_resp.json.return_value = {"users": json.dumps([{"id": 2, "name": "Beta"}])}
+        mock_resp.raise_for_status = Mock()
+        api.session.get.return_value = mock_resp
+
+        result = api.list_customers()
+        assert result["customers"] == [{"id": 2, "name": "Beta"}]
+
     def test_upload_cracked_hashes_success(self, api, tmp_path):
         """Test uploading cracked hashes with valid lines (real API if possible)."""
         hashview_url, hashview_api_key = self._get_hashview_config()

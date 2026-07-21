@@ -1169,7 +1169,11 @@ class HashviewAPI:
         resp.raise_for_status()
         data = resp.json()
         if "users" in data:
-            customers = json.loads(data["users"])
+            customers = data["users"]
+            # Newer servers return a native JSON array (issue #229); older ones
+            # double-encode it as a JSON string. Support both.
+            if isinstance(customers, str):
+                customers = json.loads(customers)
             return {"customers": customers}
         return data
 
