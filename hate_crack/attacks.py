@@ -124,9 +124,10 @@ def _select_rules(ctx) -> list[str] | None:
 def quick_crack(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("Quick Crack")
     wordlist_choice = None
+    list_dir = ctx.hcatWordlists
     default_dir = ctx.hcatOptimizedWordlists
 
-    wordlist_files = ctx.list_wordlist_files(default_dir)
+    wordlist_files = ctx.list_wordlist_files(list_dir)
     wordlist_entries = [
         f"{i}) {file}" for i, file in enumerate(wordlist_files, start=1)
     ]
@@ -139,7 +140,7 @@ def quick_crack(ctx: Any) -> None:
     )
 
     def path_completer(text, state):
-        base = default_dir
+        base = list_dir
         if not text:
             pattern = os.path.join(base, "*")
             matches = glob.glob(pattern)
@@ -169,7 +170,7 @@ def quick_crack(ctx: Any) -> None:
                 wordlist_choice = default_dir
             elif raw_choice.isdigit() and 1 <= int(raw_choice) <= len(wordlist_files):
                 chosen = os.path.join(
-                    default_dir, wordlist_files[int(raw_choice) - 1]
+                    list_dir, wordlist_files[int(raw_choice) - 1]
                 )
                 if os.path.exists(chosen):
                     wordlist_choice = chosen
