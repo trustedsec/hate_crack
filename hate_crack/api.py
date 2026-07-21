@@ -1644,6 +1644,57 @@ class HashviewAPI:
             return {"output_file": output_file, "size": os.path.getsize(output_file)}
         return {"output_file": output_file, "size": 0}
 
+    def list_rules(self):
+        """List available rule files from the Hashview API (/v1/rules)."""
+        endpoint = f"{self.base_url}/v1/rules"
+        response = self.session.get(endpoint, headers=self._auth_headers())
+        response.raise_for_status()
+        try:
+            data = response.json()
+        except Exception:
+            raise Exception(f"Invalid API response: {response.text}")
+        if isinstance(data, dict) and "rules" in data:
+            rules = data["rules"]
+            # Newer servers return a native JSON array (issue #229); tolerate a
+            # legacy double-encoded string as well.
+            if isinstance(rules, str):
+                rules = json.loads(rules)
+            return rules
+        elif isinstance(data, list):
+            return data
+        return []
+
+    def download_rules(self, rules_id, output_file=None):
+        """Download a rule file from the Hashview API (/v1/rules/<id>).
+
+        Rules are stored plaintext at rest and the server gzip-compresses them
+        on the fly, so the response body is gzip. We decompress before saving
+        so the file is directly usable with ``hashcat -r``. An unknown rule id
+        is a real HTTP 404, surfaced via ``raise_for_status``.
+        """
+        import gzip
+
+        url = f"{self.base_url}/v1/rules/{rules_id}"
+        resp = self.session.get(url, headers=self._auth_headers())
+        resp.raise_for_status()
+
+        content = resp.content
+        try:
+            content = gzip.decompress(content)
+        except (OSError, EOFError):
+            # Already plaintext (or a fork that serves uncompressed) — save as-is.
+            pass
+
+        if output_file is None:
+            output_file = f"rule_{rules_id}.rule"
+        if not os.path.isabs(output_file):
+            output_file = os.path.join(get_rules_dir(), output_file)
+        os.makedirs(os.path.dirname(output_file) or ".", exist_ok=True)
+
+        with open(output_file, "wb") as f:
+            f.write(content)
+        return {"output_file": output_file, "size": os.path.getsize(output_file)}
+
     def create_customer(self, name):
         url = f"{self.base_url}/v1/customers/add"
         headers = {"Content-Type": "application/json"}
