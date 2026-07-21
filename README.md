@@ -402,6 +402,7 @@ Menu options:
 - **(1) Upload Cracked Hashes** - Upload cracked results from current session to Hashview
 - **(2) Upload Wordlist** - Upload a wordlist file to Hashview
 - **(3) Download Wordlist** - Download a wordlist from Hashview
+- **Download Rule** - Download a rule file from Hashview (decompressed to plaintext, ready for `hashcat -r`)
 - **(4) Download Left Hashes** - Download remaining uncracked hashes (prompts to switch for cracking)
 - **(5) Download Found Hashes** - Download already-cracked hashes with cleartext passwords (for reference/analysis)
 - **(6) Upload Hashfile and Create Job** - Upload new hashfile and create a cracking job
@@ -423,6 +424,11 @@ hate_crack.py --hashview upload-cracked --file <output_file>.out --hash-type 100
 Upload a wordlist:
 ```bash
 hate_crack.py --hashview upload-wordlist --file <wordlist>.txt --name "My Wordlist"
+```
+
+Download a rule file (saved decompressed, ready for `hashcat -r`):
+```bash
+hate_crack.py --hashview download-rules --rules-id 4 --output best64.rule
 ```
 
 Download left hashes (uncracked hashes for cracking):

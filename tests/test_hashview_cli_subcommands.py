@@ -19,6 +19,13 @@ class DummyHashviewAPI:
         self.calls.append(("upload_wordlist_file", wordlist_path, wordlist_name))
         return {"msg": "Wordlist uploaded", "wordlist_id": 123}
 
+    def download_rules(self, rules_id, output_file=None):
+        self.calls.append(("download_rules", rules_id, output_file))
+        return {
+            "output_file": output_file or f"rule_{rules_id}.rule",
+            "size": 77,
+        }
+
     def download_left_hashes(self, customer_id, hashfile_id, output_file=None):
         self.calls.append(
             ("download_left_hashes", customer_id, hashfile_id, output_file)
@@ -109,6 +116,23 @@ def test_hashview_cli_upload_wordlist(_patch_hashview, monkeypatch, tmp_path, ca
     captured = capsys.readouterr()
     assert code == 0
     assert "Wordlist uploaded" in captured.out
+
+
+def test_hashview_cli_download_rules(_patch_hashview, monkeypatch, tmp_path, capsys):
+    code = _run_main_with_args(
+        monkeypatch,
+        [
+            "hashview",
+            "download-rules",
+            "--rules-id",
+            "4",
+            "--output",
+            str(tmp_path / "best64.rule"),
+        ],
+    )
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "Downloaded 77 bytes" in captured.out
 
 
 def test_hashview_cli_upload_hashfile_job(
