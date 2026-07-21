@@ -7,14 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
-## [2.10.9] - 2026-07-21
+## [2.10.10] - 2026-07-21
 
 ### Security
 
 - **Bumped the pinned dev/test dependency `pytest` from 9.0.2 to 9.0.3** to clear the
   vulnerable tmpdir-handling advisory GHSA-6w46-j5rx-g56g (affects pytest < 9.0.3;
   Dependabot alert #1). Development-scope test runner only — no runtime dependency change.
-  Both `pyproject.toml` and `uv.lock` are updated; the full test suite passes under 9.0.3.
+  The full test suite passes under 9.0.3. (`uv.lock` is gitignored, so only the
+  `pyproject.toml` pin is tracked.)
+
+## [2.10.9] - 2026-07-21
+
+### Fixed
+
+- **Quick Crack default wordlist stays on `hcatOptimizedWordlists`.** The numbered list and
+  tab-completion browse `hcatWordlists`, but pressing Enter still falls back to
+  `hcatOptimizedWordlists` as before.
 
 ## [2.10.8] - 2026-07-21
 
