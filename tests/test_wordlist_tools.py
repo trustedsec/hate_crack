@@ -213,25 +213,43 @@ class TestWordlistSubtractWords:
 
 
 class TestWordlistShard:
-    def test_calls_wordlist_gate_with_correct_args(self, tmp_path):
+    def test_writes_all_shards_with_part_numbers(self, tmp_path):
         ctx = _make_ctx()
         infile = tmp_path / "in.txt"
         infile.write_text("word1\nword2\nword3\n")
-        outfile = tmp_path / "shard.txt"
-        ctx.select_file_with_autocomplete.side_effect = [str(infile), str(outfile)]
-        with patch("builtins.input", side_effect=["3", "0"]):
+        outbase = tmp_path / "shard.txt"
+        ctx.select_file_with_autocomplete.side_effect = [str(infile), str(outbase)]
+        with patch("builtins.input", side_effect=["3"]):
             wordlist_shard(ctx)
-        ctx.wordlist_gate.assert_called_once_with(str(infile), str(outfile), 3, 0)
+        assert ctx.wordlist_gate.call_count == 3
+        calls = [c.args for c in ctx.wordlist_gate.call_args_list]
+        assert calls == [
+            (str(infile), f"{outbase}.001", 3, 0),
+            (str(infile), f"{outbase}.002", 3, 1),
+            (str(infile), f"{outbase}.003", 3, 2),
+        ]
 
-    def test_rejects_offset_gte_mod(self, tmp_path):
+    def test_pad_width_grows_with_shard_count(self, tmp_path):
         ctx = _make_ctx()
         infile = tmp_path / "in.txt"
         infile.write_text("word1\n")
-        outfile = tmp_path / "shard.txt"
-        ctx.select_file_with_autocomplete.side_effect = [str(infile), str(outfile)]
-        with patch("builtins.input", side_effect=["3", "3"]):
+        outbase = tmp_path / "shard.txt"
+        ctx.select_file_with_autocomplete.side_effect = [str(infile), str(outbase)]
+        with patch("builtins.input", side_effect=["1000"]):
             wordlist_shard(ctx)
-        ctx.wordlist_gate.assert_not_called()
+        first = ctx.wordlist_gate.call_args_list[0].args[1]
+        assert first == f"{outbase}.0001"
+
+    def test_stops_on_gate_failure(self, tmp_path):
+        ctx = _make_ctx()
+        ctx.wordlist_gate.side_effect = [True, False, True]
+        infile = tmp_path / "in.txt"
+        infile.write_text("word1\n")
+        outbase = tmp_path / "shard.txt"
+        ctx.select_file_with_autocomplete.side_effect = [str(infile), str(outbase)]
+        with patch("builtins.input", side_effect=["3"]):
+            wordlist_shard(ctx)
+        assert ctx.wordlist_gate.call_count == 2
 
     def test_rejects_nonexistent_infile(self, tmp_path):
         ctx = _make_ctx()
@@ -243,9 +261,9 @@ class TestWordlistShard:
         ctx = _make_ctx()
         infile = tmp_path / "in.txt"
         infile.write_text("word1\n")
-        outfile = tmp_path / "shard.txt"
-        ctx.select_file_with_autocomplete.side_effect = [str(infile), str(outfile)]
-        with patch("builtins.input", side_effect=["1", "0"]):
+        outbase = tmp_path / "shard.txt"
+        ctx.select_file_with_autocomplete.side_effect = [str(infile), str(outbase)]
+        with patch("builtins.input", side_effect=["1"]):
             wordlist_shard(ctx)
         ctx.wordlist_gate.assert_not_called()
 
