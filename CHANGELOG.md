@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [2.10.11] - 2026-07-23
+
+### Fixed
+
+- **Hashview cracked-hash uploads no longer choke on hashcat `$HEX[...]` plaintexts.**
+  hashcat emits `$HEX[...]` for recovered passwords containing leading/trailing
+  whitespace or non-UTF-8 bytes. `upload_cracked_hashes` forwarded those verbatim, so a
+  Hashview that verifies the plaintext against the hash rejected the entire batch with
+  `Plaintext for hash ... was found to be invalid.` The uploader now decodes `$HEX[...]`
+  to the exact bytes the server must re-hash — latin-1→UTF-8 for the UTF-16LE modes
+  (NTLM 1000, MSSQL 1731), raw bytes for the raw-byte modes (0/100/300/900/1400/1700) —
+  and keeps the `$HEX` wrapper verbatim when inlining would be unsafe (embedded CR/LF) so
+  a `$HEX`-aware server can still handle it. Verified end-to-end against an unpatched
+  Hashview.
+
+### Added
+
+- **Client-side validation of cracked hash:plaintext pairs before Hashview upload.**
+  `upload_cracked_hashes` now filters each pair against the declared hashcat mode: a
+  length check for wrong-width hashes, plus a plaintext recompute for the reproducible
+  fast modes (MD5, SHA1, MD4, NTLM, SHA2-256/512). Mismatched lines (e.g. a stray MD5
+  hash mixed into an NTLM list) are skipped with a per-line warning instead of failing
+  the whole upload server-side, and it raises clearly if nothing valid remains. Bundles a
+  pure-Python MD4 since OpenSSL 3 dropped it from `hashlib`. Opt out with `validate=False`.
+
 ## [2.10.10] - 2026-07-21
 
 ### Security
