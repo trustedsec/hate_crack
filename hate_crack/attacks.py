@@ -1173,29 +1173,35 @@ def wordlist_subtract_words(ctx: Any) -> None:
 
 
 def wordlist_shard(ctx: Any) -> None:
-    """Prompt for input/output paths, modulus, and offset, then shard the wordlist."""
+    """Prompt for input/output base path and shard count, then write all N part files."""
     infile = ctx.select_file_with_autocomplete(
         "\n[*] Enter path to input wordlist", base_dir=ctx.hcatWordlists
     ).strip()
     if not os.path.isfile(infile):
         print(f"[!] File not found: {infile}")
         return
-    outfile = ctx.select_file_with_autocomplete("[*] Enter path to output wordlist").strip()
-    if not outfile:
+    outbase = ctx.select_file_with_autocomplete(
+        "[*] Enter output base path (part numbers are appended, e.g. wl.001)"
+    ).strip()
+    if not outbase:
         print("[!] Output path cannot be empty.")
         return
-    mod = int(input("[*] Modulus (shard count, e.g. 4 for 4 shards): ").strip() or "0")
+    mod = int(input("[*] Shard count (e.g. 4 to split into 4 parts): ").strip() or "0")
     if mod < 2:
-        print("[!] Modulus must be at least 2.")
+        print("[!] Shard count must be at least 2.")
         return
-    offset = int(input("[*] Offset (shard index, 0-based, e.g. 0 for first shard): ").strip() or "0")
-    if offset >= mod:
-        print(f"[!] Offset must be less than modulus ({mod}).")
-        return
-    if ctx.wordlist_gate(infile, outfile, mod, offset):
-        print(f"\n[*] Shard written to: {outfile}")
-    else:
-        print("[!] Shard failed.")
+    width = max(3, len(str(mod)))
+    written = []
+    for offset in range(mod):
+        outfile = f"{outbase}.{offset + 1:0{width}d}"
+        if ctx.wordlist_gate(infile, outfile, mod, offset):
+            written.append(outfile)
+        else:
+            print(f"[!] Shard failed at part {offset + 1}: {outfile}")
+            return
+    print(f"\n[*] Wrote {len(written)} shard(s):")
+    for path in written:
+        print(f"    {path}")
 
 
 def wordlist_optimize(ctx: Any) -> None:
