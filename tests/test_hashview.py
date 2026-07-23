@@ -369,19 +369,26 @@ class TestHashviewAPI:
 
         result = api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
         assert result["imported"] == 1
-        # Only the valid NTLM line should have been sent
+        # Only the valid NTLM line should have been sent (body is bytes)
         sent = api.session.post.call_args.kwargs.get("data")
         if sent is None:
             sent = api.session.post.call_args.args[1]
-        assert "8846f7eaee8fb117ad06bdd830b7586c:password" in sent
-        assert "5f4dcc3b5aa765d61d8327deb882cf99" not in sent
+        assert isinstance(sent, bytes)
+        assert b"8846f7eaee8fb117ad06bdd830b7586c:password" in sent
+        assert b"5f4dcc3b5aa765d61d8327deb882cf99" not in sent
         out = capsys.readouterr().out
         assert "Skipped 1 line" in out
 
-    def test_upload_accepts_hex_ntlm(self, api, tmp_path):
-        """$HEX[...] NTLM plaintexts validate and are uploaded."""
+    def _sent_body(self, api):
+        sent = api.session.post.call_args.kwargs.get("data")
+        if sent is None:
+            sent = api.session.post.call_args.args[1]
+        return sent
+
+    def test_upload_decodes_hex_ntlm_ascii(self, api, tmp_path):
+        """$HEX[...] with trailing space is decoded to real bytes on the wire."""
         cracked_file = tmp_path / "cracked.txt"
-        # NTLM of "%032023RC$ " emitted by hashcat as $HEX[...]
+        # NTLM of "%032023RC$ " (trailing space) emitted by hashcat as $HEX[...]
         cracked_file.write_text(
             "c153ace1d5b148820dab48a8aa5aa02e:$HEX[2530333230323352432420]\n"
         )
@@ -392,6 +399,49 @@ class TestHashviewAPI:
 
         result = api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
         assert result["imported"] == 1
+        body = self._sent_body(api)
+        # The $HEX wrapper must be gone; the decoded plaintext (with its
+        # trailing space) is sent so a non-$HEX-aware Hashview verifies it.
+        assert b"$HEX[" not in body
+        assert b"c153ace1d5b148820dab48a8aa5aa02e:%032023RC$ " in body
+
+    def test_upload_decodes_hex_ntlm_highbyte(self, api, tmp_path):
+        """High-byte $HEX (0xA8) becomes UTF-8 so the server rebuilds U+00A8."""
+        cracked_file = tmp_path / "cracked.txt"
+        cracked_file.write_text(
+            "af70d9ee21294a74f6337b121e6c9624:$HEX[a833333531343136335777]\n"
+        )
+        mock_response = Mock()
+        mock_response.json.return_value = {"imported": 1}
+        mock_response.raise_for_status = Mock()
+        api.session.post.return_value = mock_response
+
+        api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
+        body = self._sent_body(api)
+        # 0xA8 -> latin-1 U+00A8 -> UTF-8 bytes C2 A8
+        assert b"af70d9ee21294a74f6337b121e6c9624:\xc2\xa833514163Ww" in body
+
+    def test_upload_keeps_hex_with_embedded_newline(self, api, tmp_path):
+        """$HEX encoding a newline can't be inlined; the wrapper is kept."""
+        cracked_file = tmp_path / "cracked.txt"
+        # NTLM("a\nb") — plaintext contains a literal newline
+        import hashlib as _h  # noqa
+
+        cracked_file.write_text(
+            "9c6d9b0dc5e5f4d8a4c8e0a1e0b1c2d3:$HEX[610a62]\n"
+        )
+        mock_response = Mock()
+        mock_response.json.return_value = {"imported": 1}
+        mock_response.raise_for_status = Mock()
+        api.session.post.return_value = mock_response
+
+        # validate=False so the (bogus) hash isn't dropped before we inspect wire
+        api.upload_cracked_hashes(
+            str(cracked_file), hash_type="1000", validate=False
+        )
+        body = self._sent_body(api)
+        assert b"$HEX[610a62]" in body  # kept verbatim, no raw newline injected
+        assert b"a\nb" not in body
 
     def test_upload_all_invalid_raises(self, api, tmp_path):
         """If validation drops every line, we raise instead of posting empty."""
