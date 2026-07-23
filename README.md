@@ -505,7 +505,9 @@ The Wordlist Tools submenu provides 7 wordlist preprocessing utilities backed by
 
 **Character class mask bits** (used by options 2 and 3): `1`=lowercase, `2`=uppercase, `4`=digit, `8`=symbol, `16`=other. Add values together: `7` = lowercase+uppercase+digit.
 
-**Sharding example**: to split a wordlist across 4 nodes, run option 7 with mod=4 and offset=0 on node 1, offset=1 on node 2, etc.
+**How sharding is meant to be used**: sharding splits one wordlist into N equal, non-overlapping parts so the work can be spread across multiple machines or GPUs. Each part is *interleaved* (every N-th line), so every shard is a representative sample of the whole list rather than a contiguous front/back chunk — no single node is stuck cracking only the low-probability tail.
+
+Run option 7 once, give it an input wordlist, an output base path, and a shard count (N). It writes all N parts in a single pass, named with zero-padded part numbers (`base.001`, `base.002`, … up to `base.00N`). Copy one part to each node and point that node's hashcat run at it. On a single-GPU system sharding gives no speedup, but a single part is still a fast, representative sample for a quick triage pass before committing to the full list.
 
 #### Automatic Update Checks
 
@@ -896,7 +898,7 @@ A submenu of wordlist preprocessing utilities using hashcat-utils binaries. All 
 | 4 | Extract Substring | Cut bytes from each word at a given offset and optional length (`cutb.bin`) |
 | 5 | Split by Length | Create per-length files in an output directory (`splitlen.bin`) |
 | 6 | Subtract Wordlist | Remove lines from a wordlist that appear in one or more remove files. Mode 1 uses `rli2.bin` (single file); mode 2 uses `rli.bin` (multiple files) |
-| 7 | Shard Wordlist | Extract every mod-th line at a given offset to create equal-sized shards (`gate.bin`) |
+| 7 | Shard Wordlist | Split a wordlist into N equal, interleaved parts in one run, written as `base.001`…`base.00N` for distributed cracking (`gate.bin`) |
 
 All binaries are in `hate_crack/hashcat-utils/bin/`.
 
