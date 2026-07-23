@@ -1109,13 +1109,11 @@ def _digest_for_type(hash_type: str, raw: bytes) -> Optional[str]:
     if ht == "1700":
         return hashlib.sha512(raw).hexdigest()
     if ht in ("900", "1000"):
-        # MD4 over the raw bytes; NTLM is MD4 over UTF-16LE of the password.
+        # MD4 over the raw bytes; NTLM is MD4 over UTF-16LE. hashcat forms the
+        # NTLM candidate by zero-extending each raw byte, which is exactly
+        # latin-1(bytes).encode("utf-16le") -- correct for arbitrary binary too.
         if ht == "1000":
-            try:
-                text = raw.decode("utf-8", "surrogateescape")
-                return _md4(text.encode("utf-16le", "surrogateescape"))
-            except Exception:
-                return None
+            return _md4(raw.decode("latin-1").encode("utf-16le"))
         return _md4(raw)
     return None
 
@@ -1137,6 +1135,41 @@ def _validate_cracked_pair(hash_type, hash_value, plaintext):
     if digest is not None and digest.lower() != hash_value.lower():
         return (False, f"plaintext does not match hash under mode {ht}")
     return (True, "")
+
+
+# Hashcat modes whose password bytes are UTF-16LE (zero-extended) rather than
+# raw bytes. These need the latin-1->UTF-8 re-encoding when decoding $HEX.
+_UTF16LE_MODES = {"1000", "1731"}
+# Modes whose password is hashed as raw bytes.
+_RAW_BYTE_MODES = {"0", "100", "300", "900", "1400", "1700"}
+
+
+def _wire_field_bytes(hash_type, plaintext: str) -> bytes:
+    """Return the on-the-wire bytes for a plaintext field.
+
+    Decodes hashcat's ``$HEX[...]`` wrapper to the exact bytes Hashview must
+    re-hash, so cracked passwords with whitespace/binary bytes import even
+    against a Hashview that does not itself understand ``$HEX[...]``. Falls back
+    to sending the ``$HEX[...]`` token verbatim when inlining would be unsafe
+    (embedded CR/LF would break the line-based upload) or the mode's byte
+    handling is unknown -- those rely on a $HEX-aware server.
+    """
+    if not (plaintext.startswith("$HEX[") and plaintext.endswith("]")):
+        return plaintext.encode("utf-8", "surrogateescape")
+    try:
+        raw = bytes.fromhex(plaintext[5:-1])
+    except ValueError:
+        return plaintext.encode("utf-8", "surrogateescape")
+    if b"\n" in raw or b"\r" in raw:
+        return plaintext.encode("utf-8", "surrogateescape")
+    ht = str(hash_type)
+    if ht in _UTF16LE_MODES:
+        # hashcat zero-extends raw bytes; send the latin-1 code points as UTF-8
+        # so the server reconstructs them before its own UTF-16LE encoding.
+        return raw.decode("latin-1").encode("utf-8")
+    if ht in _RAW_BYTE_MODES:
+        return raw
+    return plaintext.encode("utf-8", "surrogateescape")
 
 
 # Hashview Integration - Real API implementation matching hate_crack.py
@@ -1704,7 +1737,11 @@ class HashviewAPI:
                     if not ok:
                         skipped.append((lineno, hash_value, reason))
                         continue
-                valid_lines.append(f"{hash_value}:{plaintext}")
+                valid_lines.append(
+                    hash_value.encode("ascii", "ignore")
+                    + b":"
+                    + _wire_field_bytes(hash_type, plaintext)
+                )
 
         if skipped:
             print(
@@ -1722,9 +1759,9 @@ class HashviewAPI:
                 f"({len(skipped)} line(s) skipped by validation)."
             )
 
-        converted_content = "\n".join(valid_lines)
+        converted_content = b"\n".join(valid_lines)
         url = f"{self.base_url}/v1/hashes/import/{hash_type}"
-        headers = {"Content-Type": "text/plain"}
+        headers = {"Content-Type": "text/plain; charset=utf-8"}
         resp = self.session.post(url, data=converted_content, headers=headers)
         resp.raise_for_status()
         try:
