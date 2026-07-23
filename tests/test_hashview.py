@@ -379,6 +379,40 @@ class TestHashviewAPI:
         out = capsys.readouterr().out
         assert "Skipped 1 line" in out
 
+    def test_upload_surfaces_client_counts(self, api, tmp_path):
+        """upload_cracked_hashes reports uploaded/skipped even when the server
+        returns a bare OK with no counts of its own."""
+        cracked_file = tmp_path / "cracked.txt"
+        cracked_file.write_text(
+            "5f4dcc3b5aa765d61d8327deb882cf99:password\n"  # MD5 -> skipped
+            "8846f7eaee8fb117ad06bdd830b7586c:password\n"  # NTLM -> uploaded
+        )
+        mock_response = Mock()
+        mock_response.json.return_value = {"status": 200, "type": "message", "msg": "OK"}
+        mock_response.raise_for_status = Mock()
+        api.session.post.return_value = mock_response
+
+        result = api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
+        assert result["uploaded"] == 1
+        assert result["skipped"] == 1
+
+    def test_upload_preserves_server_counts(self, api, tmp_path):
+        """A Hashview that reports counts keeps them; client counts are added
+        without clobbering the server's."""
+        cracked_file = tmp_path / "cracked.txt"
+        cracked_file.write_text("8846f7eaee8fb117ad06bdd830b7586c:password\n")
+        mock_response = Mock()
+        mock_response.json.return_value = {
+            "msg": "OK", "count": 1, "verified": 1, "updated": 1, "unmatched": 0,
+        }
+        mock_response.raise_for_status = Mock()
+        api.session.post.return_value = mock_response
+
+        result = api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
+        assert result["updated"] == 1
+        assert result["verified"] == 1
+        assert result["uploaded"] == 1  # client count added alongside
+
     def _sent_body(self, api):
         sent = api.session.post.call_args.kwargs.get("data")
         if sent is None:

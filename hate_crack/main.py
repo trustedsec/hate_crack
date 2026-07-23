@@ -3445,8 +3445,30 @@ def hashview_api():
                     print(
                         f"\n✓ Success: {result.get('msg', 'Cracked hashes uploaded')}"
                     )
-                    if "count" in result:
-                        print(f"  Imported: {result['count']} hashes")
+                    if not isinstance(result, dict):
+                        result = {}
+                    # What this client sent (available regardless of server version).
+                    if "uploaded" in result:
+                        line = f"  Uploaded: {result['uploaded']} pair(s)"
+                        if result.get("skipped"):
+                            line += f" ({result['skipped']} skipped by validation)"
+                        print(line)
+                    # What the server actually did (newer Hashview reports these).
+                    if "verified" in result or "updated" in result or "count" in result:
+                        updated = result.get("updated", result.get("count"))
+                        print(f"  Newly cracked in Hashview: {updated}")
+                        if "verified" in result:
+                            print(f"  Verified: {result['verified']}")
+                        if result.get("unmatched"):
+                            print(
+                                "  Unmatched (already cracked or not in Hashview): "
+                                f"{result['unmatched']}"
+                            )
+                    else:
+                        print(
+                            "  (This Hashview did not report an import count; "
+                            "upgrade Hashview to see how many landed.)"
+                        )
                 except Exception as e:
                     print(f"\n✗ Error: {str(e)}")
                     import traceback

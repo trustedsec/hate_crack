@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [2.11.2] - 2026-07-23
+
+### Added
+
+- **Hashview cracked-hash upload now reports how many hashes landed.** After an upload the
+  CLI prints the number of pairs the client sent and how many it skipped by validation —
+  available regardless of the server version — and, against a Hashview that reports import
+  counts, also shows how many were newly cracked, verified, and left unmatched (already
+  cracked or not present). `upload_cracked_hashes` surfaces `uploaded`/`skipped` in its
+  return value alongside any server-provided counts. Previously the upload only printed
+  `✓ Success: OK` with no indication of how many hashes were accepted.
+
 ## [2.11.1] - 2026-07-23
 
 ### Fixed
