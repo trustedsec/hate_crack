@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [2.10.11] - 2026-07-23
+
+### Changed
+
+- **Shard Wordlist (Wordlist Tools option 7) now produces all shards in a single run.**
+  Instead of prompting for a modulus + offset and emitting one file per invocation, it
+  prompts for an output *base path* and a shard count (N), then writes all N interleaved
+  parts named with zero-padded part numbers (`base.001`…`base.00N`). This matches the
+  intended distributed-cracking workflow — split once, copy one part per node — without
+  re-running the tool for each offset. README usage docs updated accordingly.
+
 ## [2.10.10] - 2026-07-21
 
 ### Security
