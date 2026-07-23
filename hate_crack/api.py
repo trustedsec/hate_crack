@@ -1770,6 +1770,11 @@ class HashviewAPI:
                 raise Exception(
                     f"Hashview API Error: {json_response.get('msg', 'Unknown error')}"
                 )
+            # Surface what the client actually sent so the caller can report a
+            # count even against a Hashview that returns a bare {"msg": "OK"}.
+            if isinstance(json_response, dict):
+                json_response.setdefault("uploaded", len(valid_lines))
+                json_response.setdefault("skipped", len(skipped))
             return json_response
         except (json.JSONDecodeError, ValueError):
             raise Exception(f"Invalid API response: {resp.text[:200]}")
