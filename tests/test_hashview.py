@@ -353,6 +353,69 @@ class TestHashviewAPI:
             api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
         assert "Invalid API response" in str(excinfo.value)
 
+    def test_upload_skips_wrong_type_line(self, api, tmp_path, capsys):
+        """An MD5 line mixed into an NTLM upload is filtered client-side."""
+        cracked_file = tmp_path / "cracked.txt"
+        cracked_file.write_text(
+            # MD5("password") — invalid as NTLM, must be dropped
+            "5f4dcc3b5aa765d61d8327deb882cf99:password\n"
+            # genuine NTLM("password") — must be kept
+            "8846f7eaee8fb117ad06bdd830b7586c:password\n"
+        )
+        mock_response = Mock()
+        mock_response.json.return_value = {"imported": 1}
+        mock_response.raise_for_status = Mock()
+        api.session.post.return_value = mock_response
+
+        result = api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
+        assert result["imported"] == 1
+        # Only the valid NTLM line should have been sent
+        sent = api.session.post.call_args.kwargs.get("data")
+        if sent is None:
+            sent = api.session.post.call_args.args[1]
+        assert "8846f7eaee8fb117ad06bdd830b7586c:password" in sent
+        assert "5f4dcc3b5aa765d61d8327deb882cf99" not in sent
+        out = capsys.readouterr().out
+        assert "Skipped 1 line" in out
+
+    def test_upload_accepts_hex_ntlm(self, api, tmp_path):
+        """$HEX[...] NTLM plaintexts validate and are uploaded."""
+        cracked_file = tmp_path / "cracked.txt"
+        # NTLM of "%032023RC$ " emitted by hashcat as $HEX[...]
+        cracked_file.write_text(
+            "c153ace1d5b148820dab48a8aa5aa02e:$HEX[2530333230323352432420]\n"
+        )
+        mock_response = Mock()
+        mock_response.json.return_value = {"imported": 1}
+        mock_response.raise_for_status = Mock()
+        api.session.post.return_value = mock_response
+
+        result = api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
+        assert result["imported"] == 1
+
+    def test_upload_all_invalid_raises(self, api, tmp_path):
+        """If validation drops every line, we raise instead of posting empty."""
+        cracked_file = tmp_path / "cracked.txt"
+        cracked_file.write_text("5f4dcc3b5aa765d61d8327deb882cf99:password\n")
+        api.session.post.side_effect = AssertionError("should not POST")
+        with pytest.raises(Exception) as excinfo:
+            api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
+        assert "No valid hashes" in str(excinfo.value)
+
+    def test_upload_validation_can_be_disabled(self, api, tmp_path):
+        """validate=False restores the old permissive behaviour."""
+        cracked_file = tmp_path / "cracked.txt"
+        cracked_file.write_text("5f4dcc3b5aa765d61d8327deb882cf99:password\n")
+        mock_response = Mock()
+        mock_response.json.return_value = {"imported": 1}
+        mock_response.raise_for_status = Mock()
+        api.session.post.return_value = mock_response
+
+        result = api.upload_cracked_hashes(
+            str(cracked_file), hash_type="1000", validate=False
+        )
+        assert result["imported"] == 1
+
     def test_create_customer_success(self, api):
         """Test creating a customer (real API if possible)."""
         hashview_url, hashview_api_key = self._get_hashview_config()
