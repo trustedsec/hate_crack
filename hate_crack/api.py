@@ -1024,6 +1024,121 @@ def weakpass_wordlist_menu(rank=-1):
         print(f"Error: {e}")
 
 
+def _md4(data: bytes) -> str:
+    """Pure-Python MD4 (OpenSSL 3 dropped md4, so hashlib can't be relied on).
+
+    Used to compute NTLM digests for client-side plaintext validation.
+    """
+    import struct
+
+    def lrot(x, n):
+        x &= 0xFFFFFFFF
+        return ((x << n) | (x >> (32 - n))) & 0xFFFFFFFF
+
+    a, b, c, d = 0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476
+    msg = bytearray(data)
+    ml = len(data) * 8
+    msg.append(0x80)
+    while len(msg) % 64 != 56:
+        msg.append(0)
+    msg += struct.pack("<Q", ml)
+    for off in range(0, len(msg), 64):
+        X = list(struct.unpack("<16I", msg[off : off + 64]))
+        aa, bb, cc, dd = a, b, c, d
+        for i in (0, 4, 8, 12):
+            a = lrot(a + ((b & c) | (~b & d)) + X[i], 3)
+            d = lrot(d + ((a & b) | (~a & c)) + X[i + 1], 7)
+            c = lrot(c + ((d & a) | (~d & b)) + X[i + 2], 11)
+            b = lrot(b + ((c & d) | (~c & a)) + X[i + 3], 19)
+        for i in (0, 1, 2, 3):
+            a = lrot(a + ((b & c) | (b & d) | (c & d)) + X[i] + 0x5A827999, 3)
+            d = lrot(d + ((a & b) | (a & c) | (b & c)) + X[i + 4] + 0x5A827999, 5)
+            c = lrot(c + ((d & a) | (d & b) | (a & b)) + X[i + 8] + 0x5A827999, 9)
+            b = lrot(b + ((c & d) | (c & a) | (d & a)) + X[i + 12] + 0x5A827999, 13)
+        for i in (0, 2, 1, 3):
+            a = lrot(a + (b ^ c ^ d) + X[i] + 0x6ED9EBA1, 3)
+            d = lrot(d + (a ^ b ^ c) + X[i + 8] + 0x6ED9EBA1, 9)
+            c = lrot(c + (d ^ a ^ b) + X[i + 4] + 0x6ED9EBA1, 11)
+            b = lrot(b + (c ^ d ^ a) + X[i + 12] + 0x6ED9EBA1, 15)
+        a = (a + aa) & 0xFFFFFFFF
+        b = (b + bb) & 0xFFFFFFFF
+        c = (c + cc) & 0xFFFFFFFF
+        d = (d + dd) & 0xFFFFFFFF
+    return struct.pack("<4I", a, b, c, d).hex()
+
+
+# Expected hex-digest length (in chars) for each supported hashcat mode.
+# Option 1: cheap structural filter that catches wrong-width hashes.
+_HASH_HEX_LEN = {
+    "0": 32,  # MD5
+    "100": 40,  # SHA1
+    "900": 32,  # MD4
+    "1000": 32,  # NTLM
+    "1400": 64,  # SHA2-256
+    "1700": 128,  # SHA2-512
+    "3000": 16,  # LM (half)
+}
+
+
+def _decode_plaintext(plaintext: str) -> bytes:
+    """Decode a hashcat plaintext, expanding $HEX[...] to raw bytes."""
+    if plaintext.startswith("$HEX[") and plaintext.endswith("]"):
+        inner = plaintext[5:-1]
+        try:
+            return bytes.fromhex(inner)
+        except ValueError:
+            return plaintext.encode("utf-8", "surrogateescape")
+    return plaintext.encode("utf-8", "surrogateescape")
+
+
+def _digest_for_type(hash_type: str, raw: bytes) -> Optional[str]:
+    """Compute the digest of ``raw`` under ``hash_type``.
+
+    Returns None for hash types we can't verify client-side (salted,
+    iterated, or otherwise not reproducible from plaintext alone).
+    """
+    import hashlib
+
+    ht = str(hash_type)
+    if ht == "0":
+        return hashlib.md5(raw).hexdigest()
+    if ht == "100":
+        return hashlib.sha1(raw).hexdigest()
+    if ht == "1400":
+        return hashlib.sha256(raw).hexdigest()
+    if ht == "1700":
+        return hashlib.sha512(raw).hexdigest()
+    if ht in ("900", "1000"):
+        # MD4 over the raw bytes; NTLM is MD4 over UTF-16LE of the password.
+        if ht == "1000":
+            try:
+                text = raw.decode("utf-8", "surrogateescape")
+                return _md4(text.encode("utf-16le", "surrogateescape"))
+            except Exception:
+                return None
+        return _md4(raw)
+    return None
+
+
+def _validate_cracked_pair(hash_type, hash_value, plaintext):
+    """Return (ok, reason) for a single hash:plaintext pair.
+
+    ``ok`` False means the pair should be skipped. ``reason`` is a short
+    human-readable explanation for the warning. Unverifiable types pass.
+    """
+    ht = str(hash_type)
+    expected_len = _HASH_HEX_LEN.get(ht)
+    if expected_len is not None and len(hash_value) != expected_len:
+        return (
+            False,
+            f"wrong length ({len(hash_value)} chars, expected {expected_len} for mode {ht})",
+        )
+    digest = _digest_for_type(ht, _decode_plaintext(plaintext))
+    if digest is not None and digest.lower() != hash_value.lower():
+        return (False, f"plaintext does not match hash under mode {ht}")
+    return (True, "")
+
+
 # Hashview Integration - Real API implementation matching hate_crack.py
 class HashviewAPI:
     def _auth_headers(self):
@@ -1567,10 +1682,11 @@ class HashviewAPI:
             "combined_file": combined_file,
         }
 
-    def upload_cracked_hashes(self, file_path, hash_type="1000"):
+    def upload_cracked_hashes(self, file_path, hash_type="1000", *, validate=True):
         valid_lines = []
+        skipped = []
         with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-            for line in f:
+            for lineno, line in enumerate(f, 1):
                 line = line.strip()
                 if "31d6cfe0d16ae931b73c59d7e0c089c0" in line:
                     continue
@@ -1581,7 +1697,31 @@ class HashviewAPI:
                     break
                 hash_value = parts[0].strip()
                 plaintext = parts[1].strip()
+                if validate:
+                    ok, reason = _validate_cracked_pair(
+                        hash_type, hash_value, plaintext
+                    )
+                    if not ok:
+                        skipped.append((lineno, hash_value, reason))
+                        continue
                 valid_lines.append(f"{hash_value}:{plaintext}")
+
+        if skipped:
+            print(
+                f"⚠ Skipped {len(skipped)} line(s) that do not match hash mode "
+                f"{hash_type} (would be rejected by Hashview):"
+            )
+            for lineno, hash_value, reason in skipped[:10]:
+                print(f"    line {lineno}: {hash_value} — {reason}")
+            if len(skipped) > 10:
+                print(f"    ... and {len(skipped) - 10} more")
+
+        if not valid_lines:
+            raise Exception(
+                f"No valid hashes to upload for hash mode {hash_type} "
+                f"({len(skipped)} line(s) skipped by validation)."
+            )
+
         converted_content = "\n".join(valid_lines)
         url = f"{self.base_url}/v1/hashes/import/{hash_type}"
         headers = {"Content-Type": "text/plain"}
