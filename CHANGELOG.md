@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [2.11.3] - 2026-07-24
+
+### Fixed
+
+- **Rule file cleanup no longer errors out.** `rules_cleanup` (Rule File Tools → "Clean
+  rule file" / "Clean and optimize") invoked `cleanup-rules.bin` with no arguments, but the
+  binary requires a `mode` argument (`1` = CPU, `2` = GPU) and exits with usage text
+  otherwise — so cleanup always failed. It now passes the mode (defaulting to GPU) so the
+  cleanup actually runs.
+
 ## [2.11.2] - 2026-07-23
 
 ### Added

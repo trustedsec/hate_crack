@@ -4261,11 +4261,16 @@ def wordlist_tools_submenu():
     return _attacks.wordlist_tools_submenu(_attack_ctx())
 
 
-def rules_cleanup(infile: str, outfile: str) -> bool:
-    """Clean a rule file using cleanup-rules.bin. Returns True on success."""
+def rules_cleanup(infile: str, outfile: str, mode: int = 2) -> bool:
+    """Clean a rule file using cleanup-rules.bin. Returns True on success.
+
+    cleanup-rules.bin requires a ``mode`` argument (1 = CPU, 2 = GPU) and exits
+    with usage text if it is omitted. Defaults to GPU (2), which strips rules
+    hashcat cannot run on the GPU.
+    """
     cleanup_path = os.path.join(hate_path, "hashcat-utils", "bin", "cleanup-rules.bin")
     with open(infile, "rb") as fin, open(outfile, "wb") as fout:
-        result = subprocess.run([cleanup_path], stdin=fin, stdout=fout)
+        result = subprocess.run([cleanup_path, str(mode)], stdin=fin, stdout=fout)
     return result.returncode == 0
 
 

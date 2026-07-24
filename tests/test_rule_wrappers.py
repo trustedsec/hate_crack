@@ -34,6 +34,23 @@ class TestRulesCleanupWrapper:
         call_args = mock_run.call_args
         cmd = call_args[0][0]
         assert cmd[0].endswith("cleanup-rules.bin")
+        # cleanup-rules.bin requires a mode arg (1=CPU, 2=GPU) or it errors out
+        assert cmd[1] == "2"
+
+    def test_passes_custom_mode(self, tmp_path):
+        main = _load_main()
+        infile = tmp_path / "input.rule"
+        infile.write_text("l\n")
+        outfile = tmp_path / "output.rule"
+
+        fake_result = MagicMock()
+        fake_result.returncode = 0
+
+        with patch("subprocess.run", return_value=fake_result) as mock_run:
+            main.rules_cleanup(str(infile), str(outfile), mode=1)
+
+        cmd = mock_run.call_args[0][0]
+        assert cmd[1] == "1"
 
     def test_returns_false_on_nonzero_exit(self, tmp_path):
         main = _load_main()
