@@ -28,6 +28,39 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 - **Automatic model pulling.** hate_crack no longer pulls missing Ollama models; pull them
   yourself with `ollama pull <model>`.
 
+## [2.11.4] - 2026-07-24
+
+### Added
+
+- **CI now runs lint, type checks, and tests on every pull request and push to `main`.**
+  Previously these ran only in local `prek` pre-push hooks, so a commit pushed without hooks
+  installed (or with `--no-verify`) reached `main` unvalidated — and the auto-tag workflow
+  would then cut a release from it. The new `ci.yml` runs `ruff`, `ty`, and `pytest` on
+  Python 3.13, and tagging is gated on it passing.
+- **Dependabot configuration** for Python (`uv`) and GitHub Actions dependencies, weekly.
+  Action pins are updated automatically instead of drifting. Bumps use `chore` commit
+  prefixes so they never auto-cut a release.
+
+### Fixed
+
+- **Auto-tagged versions now actually get a GitHub release.** The tag was pushed using the
+  default `GITHUB_TOKEN`, and GitHub suppresses workflow triggers for `GITHUB_TOKEN`-created
+  events, so the tag-triggered release workflow never fired — `v2.11.3` was tagged with no
+  release to show for it. The auto-tag workflow now creates the release itself, idempotently.
+- **Breaking changes no longer ship as a minor bump.** The version logic matched the `!`
+  breaking-change marker but only ever bumped the minor version, and `BREAKING CHANGE:`
+  footers were invisible because only commit subjects were inspected. Both now correctly
+  trigger a major bump.
+- **Concurrent merges to `main` no longer collide.** Two merges in quick succession both
+  computed the same new tag and the second push failed; tagging is now serialized. A re-run
+  against an already-tagged commit is also a clean no-op instead of a hard error.
+- **`softprops/action-gh-release` is pinned to a real release** (`v2.6.2`) rather than an
+  arbitrary mid-development `master` commit, and all workflows now pin the same
+  `actions/checkout` version with accurate version comments.
+- **`ty` type error in the crack tailer.** `_read_new_lines` read `self._file_pos`
+  (`int | None`) while its only None-guard lived in the caller, so the position is now
+  passed in explicitly as an `int`. Behavior is unchanged.
+
 ## [2.11.3] - 2026-07-24
 
 ### Fixed

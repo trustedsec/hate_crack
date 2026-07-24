@@ -158,19 +158,21 @@ class CrackTailer(threading.Thread):
         except OSError:
             return
 
-        if self._file_pos is None:
+        pos = self._file_pos
+        if pos is None:
             self._file_pos = size
             return
 
-        if size < self._file_pos:
+        if size < pos:
             # File was truncated / rewritten — reset rather than read garbage.
-            self._file_pos = 0
+            pos = 0
             self._buffer = b""
+        self._file_pos = pos
 
-        if size == self._file_pos:
+        if size == pos:
             return
 
-        new_lines = self._read_new_lines(size)
+        new_lines = self._read_new_lines(pos, size)
         if not new_lines:
             return
 
@@ -187,15 +189,15 @@ class CrackTailer(threading.Thread):
             label = self._extract_username(line) or self.attack_name
             self._notify_crack(label, self.attack_name)
 
-    def _read_new_lines(self, size: int) -> list[bytes]:
-        """Read from ``self._file_pos`` up to ``size`` and return full lines.
+    def _read_new_lines(self, start: int, size: int) -> list[bytes]:
+        """Read from ``start`` up to ``size`` and return full lines.
 
         Incomplete trailing bytes are buffered for the next tick.
         """
         try:
             with open(self.out_path, "rb") as f:
-                f.seek(self._file_pos)
-                data = f.read(size - self._file_pos)
+                f.seek(start)
+                data = f.read(size - start)
         except OSError:
             return []
         self._file_pos = size

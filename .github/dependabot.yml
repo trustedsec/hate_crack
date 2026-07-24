@@ -1,0 +1,29 @@
+version: 2
+
+updates:
+  # Python dependencies (PEP 621 pyproject.toml + uv.lock).
+  # The native "uv" ecosystem is used instead of "pip" because it reads
+  # pyproject.toml and uv.lock directly (GA since 2025-03; security updates
+  # since 2025-12).
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    # "chore" deliberately does NOT match the feat|fix|perf patterns in
+    # .github/workflows/auto-tag.yml, so dependency PRs never auto-cut a tag.
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+
+  # GitHub Actions are SHA-pinned in .github/workflows; Dependabot keeps the
+  # pins current (and refreshes the trailing "# vN" comment).
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    # "chore(ci)" deliberately does NOT match the feat|fix|perf patterns in
+    # .github/workflows/auto-tag.yml, so dependency PRs never auto-cut a tag.
+    commit-message:
+      prefix: "chore(ci)"
