@@ -210,3 +210,113 @@ def test_api_timeout_reraised_as_domain_error():
                 "target", {"company": "X", "industry": "Y", "location": "Z"},
                 timeout=1.0,
             )
+
+
+# ---------------------------------------------------------------------------
+# research_target
+# ---------------------------------------------------------------------------
+
+
+def _patch_research_agent(industry, location):
+    """Patch client builders + AtomicAgent for a research call. No network."""
+    result = mock.MagicMock()
+    result.industry = industry
+    result.location = location
+
+    agent_instance = mock.MagicMock()
+    agent_instance.run.return_value = result
+
+    agent_cls = mock.MagicMock()
+    agent_cls.__getitem__.return_value.return_value = agent_instance
+
+    return (
+        mock.patch(
+            "hate_crack.llm.instructor.from_openai",
+            return_value=mock.MagicMock(spec=instructor.Instructor),
+        ),
+        mock.patch("hate_crack.llm.OpenAI"),
+        mock.patch("hate_crack.llm.AtomicAgent", agent_cls),
+        agent_cls,
+        agent_instance,
+    )
+
+
+def test_research_target_returns_fields_and_passes_company():
+    p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_research_agent(
+        "freight rail maintenance", "Omaha, Nebraska"
+    )
+    with p_instr, p_openai, p_agent:
+        out = llm.research_target(
+            "http://localhost:11434", "qwen2.5:32b", 2048, "Acme Rail Services"
+        )
+    assert out.industry == "freight rail maintenance"
+    assert out.location == "Omaha, Nebraska"
+    assert agent_instance.run.call_args[0][0].company == "Acme Rail Services"
+
+
+def test_research_target_uses_research_prompt_and_num_ctx():
+    p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_research_agent(
+        "x", "y"
+    )
+    with p_instr, p_openai, p_agent:
+        llm.research_target("http://localhost:11434", "qwen2.5:32b", 4096, "Acme")
+    config = agent_cls.__getitem__.return_value.call_args.kwargs["config"]
+    assert config.system_prompt_generator is llm._RESEARCH_PROMPT
+    assert config.model_api_parameters["extra_body"]["options"]["num_ctx"] == 4096
+
+
+def test_research_prompt_tells_model_to_return_empty_when_unsure():
+    rendered = llm._RESEARCH_PROMPT.generate_prompt().lower()
+    assert "empty string" in rendered
+    assert "no internet access" in rendered
+
+
+def test_research_target_strips_and_blanks_whitespace_only():
+    p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_research_agent(
+        "  healthcare  ", "   "
+    )
+    with p_instr, p_openai, p_agent:
+        out = llm.research_target("http://localhost:11434", "m", 2048, "Acme")
+    assert out.industry == "healthcare"
+    assert out.location == ""
+
+
+def test_research_target_caps_overlong_values():
+    p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_research_agent(
+        "A" * 500, "B" * (llm.MAX_RESEARCH_FIELD_LEN + 1)
+    )
+    with p_instr, p_openai, p_agent:
+        out = llm.research_target("http://localhost:11434", "m", 2048, "Acme")
+    assert len(out.industry) == llm.MAX_RESEARCH_FIELD_LEN
+    assert len(out.location) == llm.MAX_RESEARCH_FIELD_LEN
+
+
+def test_research_target_tolerates_non_string_fields():
+    p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_research_agent(
+        None, 42
+    )
+    with p_instr, p_openai, p_agent:
+        out = llm.research_target("http://localhost:11434", "m", 2048, "Acme")
+    assert out.industry == ""
+    assert out.location == ""
+
+
+def test_research_target_timeout_forwarded_and_translated():
+    p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_research_agent(
+        "x", "y"
+    )
+    agent_instance.run.side_effect = openai.APITimeoutError(
+        request=httpx.Request("POST", "http://localhost:11434/v1/chat/completions")
+    )
+    with p_instr, p_openai as openai_cls, p_agent:
+        with pytest.raises(llm.LLMTimeoutError):
+            llm.research_target(
+                "http://localhost:11434", "m", 2048, "Acme", timeout=7.5
+            )
+    assert openai_cls.call_args.kwargs["timeout"] == 7.5
+
+
+def test_clean_research_field_collapses_internal_whitespace():
+    assert llm.clean_research_field("commercial   \n construction") == (
+        "commercial construction"
+    )
