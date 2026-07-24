@@ -513,33 +513,45 @@ def bandrel_method(ctx: Any) -> None:
 def ollama_attack(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("LLM")
     print("\n\tLLM Attack")
-    company = input("Company name: ").strip()
-    industry = input("Industry: ").strip()
-    location = input("Location: ").strip()
-    target_info = {
-        "company": company,
-        "industry": industry,
-        "location": location,
-    }
-    ctx.hcatOllama(ctx.hcatHashType, ctx.hcatHashFile, "target", target_info)
+    print("\t1. Target info (company / industry / location)")
+    print("\t2. Wordlist (generate basewords from a sample wordlist)")
+    choice = input("\n\tSelect generation mode: ").strip()
+
+    if choice == "1":
+        company = input("Company name: ").strip()
+        industry = input("Industry: ").strip()
+        location = input("Location: ").strip()
+        ctx.hcatOllama(
+            ctx.hcatHashType,
+            ctx.hcatHashFile,
+            "target",
+            {"company": company, "industry": industry, "location": location},
+        )
+    elif choice == "2":
+        path = _omen_pick_training_wordlist(ctx, title="LLM Sample Wordlists")
+        if not path:
+            return
+        ctx.hcatOllama(ctx.hcatHashType, ctx.hcatHashFile, "wordlist", path)
+    else:
+        print("\t[!] Invalid selection.")
 
 
-def _omen_pick_training_wordlist(ctx: Any):
-    """Show wordlist picker for OMEN training. Returns path or None."""
+def _omen_pick_training_wordlist(ctx: Any, title: str = "Training Wordlists"):
+    """Show wordlist picker. Returns path or None."""
     wordlist_files = ctx.list_wordlist_files(ctx.hcatWordlists)
     if wordlist_files:
         entries = [f"{i}) {f}" for i, f in enumerate(wordlist_files, start=1)]
         max_len = max((len(e) for e in entries), default=24)
         print_multicolumn_list(
-            "Training Wordlists",
+            title,
             entries,
             min_col_width=max_len,
             max_col_width=max_len,
         )
     print("\tp. Enter a custom path")
-    sel = input("\n\tSelect wordlist for training: ").strip()
+    sel = input("\n\tSelect wordlist: ").strip()
     if sel.lower() == "p":
-        path = input("\n\tPath to training wordlist: ").strip()
+        path = input("\n\tPath to wordlist: ").strip()
         return path if path else None
     try:
         idx = int(sel)
