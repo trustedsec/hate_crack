@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [2.13.1] - 2026-07-24
+
+### Fixed
+
+- **`OLLAMA_HOST` values that include a scheme no longer produce a malformed URL**
+  (issue #119). The Ollama base URL was built as `"http://" + OLLAMA_HOST`, so a value in
+  the form Ollama's own tooling accepts — `http://box:11434` or
+  `https://ollama.example.com` — became `http://http://box:11434` and the LLM attack could
+  not connect. `http://` is now prepended only when no scheme is present, and trailing
+  slashes are stripped because callers append paths (`f"{ollamaUrl}/v1"`). Reaching a remote
+  Ollama over TLS works as a result. The bare `host:port` default is unchanged.
+
 ## [2.13.0] - 2026-07-24
 
 ### Added
