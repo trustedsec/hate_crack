@@ -459,17 +459,19 @@ Set Hashview credentials in `config.json`:
 
 #### Ollama Configuration
 
-The LLM Attack (option 12) uses Ollama to generate password candidates. Configure the model and context window in `config.json`:
+The LLM Attack (option 12) uses Ollama to generate password candidates. Configure the model, context window, and request timeout in `config.json`:
 
 ```json
 {
   "ollamaModel": "qwen2.5:32b",
-  "ollamaNumCtx": 2048
+  "ollamaNumCtx": 2048,
+  "ollamaTimeout": 300
 }
 ```
 
 - **`ollamaModel`** — The Ollama model used for candidate generation (default: `qwen2.5:32b`). The LLM attack uses structured (JSON) output, so choose a model with good tool/JSON support.
 - **`ollamaNumCtx`** — Context window size for the model (default: `2048`).
+- **`ollamaTimeout`** — Seconds to wait for a generation response before giving up (default: `300`). Raise this if a large model is still loading into VRAM on the first request, which can otherwise exceed the timeout; hate_crack prints the elapsed timeout and this setting's name when it fires.
 - The Ollama URL defaults to `http://localhost:11434` (override via the `OLLAMA_HOST` env var). Ensure Ollama is running and the model is pulled (`ollama pull qwen2.5:32b`) before using the LLM Attack — hate_crack no longer auto-pulls missing models.
 
 The attack offers two generation modes: **Target info** (company / industry / location) and **Wordlist** (derive denylist basewords from a sample wordlist).

@@ -36,7 +36,7 @@
 **Files:**
 - Modify: `pyproject.toml` (the `dependencies = [...]` array)
 
-- [ ] **Step 1: Add the dependency**
+- [x] **Step 1: Add the dependency**
 
 In `pyproject.toml`, change the `dependencies` array to add `atomic-agents`:
 
@@ -52,17 +52,17 @@ dependencies = [
 ]
 ```
 
-- [ ] **Step 2: Sync the environment**
+- [x] **Step 2: Sync the environment**
 
 Run: `cd /tmp/hate_crack-llm-atomic && uv sync --dev`
 Expected: resolves and installs `atomic-agents`, `instructor`, `openai`, `pydantic` (no errors).
 
-- [ ] **Step 3: Verify the imports load**
+- [x] **Step 3: Verify the imports load**
 
 Run: `cd /tmp/hate_crack-llm-atomic && uv run python -c "from atomic_agents import AtomicAgent, AgentConfig, BaseIOSchema; from atomic_agents.context import SystemPromptGenerator; import instructor; from openai import OpenAI; print('ok')"`
 Expected: prints `ok`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 cd /tmp/hate_crack-llm-atomic
@@ -83,7 +83,7 @@ wordlist mode → `{"sample": "<newline-joined sample passwords>"}`.
 - Create: `hate_crack/llm.py`
 - Test: `tests/test_llm.py`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/test_llm.py`:
 
@@ -190,12 +190,12 @@ def test_unknown_mode_raises():
         )
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cd /tmp/hate_crack-llm-atomic && HATE_CRACK_SKIP_INIT=1 uv run pytest tests/test_llm.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'hate_crack.llm'`.
 
-- [ ] **Step 3: Implement `hate_crack/llm.py`**
+- [x] **Step 3: Implement `hate_crack/llm.py`**
 
 Create `hate_crack/llm.py`:
 
@@ -336,17 +336,17 @@ def generate_candidates(
     return candidates
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cd /tmp/hate_crack-llm-atomic && HATE_CRACK_SKIP_INIT=1 uv run pytest tests/test_llm.py -v`
 Expected: PASS (5 passed).
 
-- [ ] **Step 5: Lint the new module**
+- [x] **Step 5: Lint the new module**
 
 Run: `cd /tmp/hate_crack-llm-atomic && uv run ruff check hate_crack/llm.py && uv run ty check hate_crack/llm.py`
 Expected: no errors.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /tmp/hate_crack-llm-atomic
@@ -368,13 +368,13 @@ validates + reads it and passes `{"sample": ...}` to `llm.generate_candidates`. 
 - Delete: `tests/test_pull_ollama_model.py`
 - Create: `tests/test_hcat_ollama.py`
 
-- [ ] **Step 1: Delete the obsolete test file**
+- [x] **Step 1: Delete the obsolete test file**
 
 Run: `cd /tmp/hate_crack-llm-atomic && git rm tests/test_pull_ollama_model.py`
 Expected: file staged for deletion. (It tests auto-pull, urllib payloads, and regex
 filtering — all removed by this refactor.)
 
-- [ ] **Step 2: Write the new failing orchestration tests**
+- [x] **Step 2: Write the new failing orchestration tests**
 
 Create `tests/test_hcat_ollama.py`:
 
@@ -522,12 +522,12 @@ def test_unknown_mode_prints_error(ollama_env, capsys):
     gen.assert_not_called()
 ```
 
-- [ ] **Step 3: Run the new tests to verify they fail**
+- [x] **Step 3: Run the new tests to verify they fail**
 
 Run: `cd /tmp/hate_crack-llm-atomic && HATE_CRACK_SKIP_INIT=1 uv run pytest tests/test_hcat_ollama.py -v`
 Expected: FAIL — `hate_crack.main` has no attribute `llm` / old `hcatOllama` still calls urllib.
 
-- [ ] **Step 4: Add the `llm` import in `main.py`**
+- [x] **Step 4: Add the `llm` import in `main.py`**
 
 Near the other `hate_crack` sub-module imports at the top of `hate_crack/main.py`, add:
 
@@ -537,13 +537,13 @@ from hate_crack import llm
 
 (Place it alongside the existing `from hate_crack import ...` imports. If there are none in that form, add `from . import llm` consistent with the module's import style.)
 
-- [ ] **Step 5: Delete `_pull_ollama_model`**
+- [x] **Step 5: Delete `_pull_ollama_model`**
 
 Remove the entire `_pull_ollama_model` function (the block starting at the
 `# Pull an Ollama model via the /api/pull streaming endpoint` comment through its
 `return True`, ~lines 2039-2073).
 
-- [ ] **Step 6: Replace the body of `hcatOllama`**
+- [x] **Step 6: Replace the body of `hcatOllama`**
 
 Replace the whole `hcatOllama` function (from `def hcatOllama(...)` through the end of
 its Step D loop) with:
@@ -677,7 +677,7 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
             return
 ```
 
-- [ ] **Step 7: Remove now-unused imports if orphaned**
+- [x] **Step 7: Remove now-unused imports if orphaned**
 
 Check whether `re` and `urllib` are still used elsewhere in `main.py`:
 
@@ -685,12 +685,12 @@ Run: `cd /tmp/hate_crack-llm-atomic && grep -n "urllib\.\|re\.\(sub\|match\|sear
 If `urllib.` no longer appears anywhere, remove its `import urllib.*` lines. If `re.` no
 longer appears, remove `import re`. (Leave them if still referenced.)
 
-- [ ] **Step 8: Run the orchestration tests**
+- [x] **Step 8: Run the orchestration tests**
 
 Run: `cd /tmp/hate_crack-llm-atomic && HATE_CRACK_SKIP_INIT=1 uv run pytest tests/test_hcat_ollama.py -v`
 Expected: PASS (9 passed).
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 cd /tmp/hate_crack-llm-atomic
@@ -706,7 +706,7 @@ git commit -m "refactor(llm): delegate candidate generation to llm module; drop 
 - Modify: `hate_crack/main.py:454`
 - Modify: `config.json.example:28`
 
-- [ ] **Step 1: Update the code fallback**
+- [x] **Step 1: Update the code fallback**
 
 In `hate_crack/main.py`, change line ~454:
 
@@ -714,7 +714,7 @@ In `hate_crack/main.py`, change line ~454:
 ollamaModel = config_parser.get("ollamaModel", "qwen2.5:32b")
 ```
 
-- [ ] **Step 2: Update the example config**
+- [x] **Step 2: Update the example config**
 
 In `config.json.example`, change the `ollamaModel` line:
 
@@ -722,12 +722,12 @@ In `config.json.example`, change the `ollamaModel` line:
   "ollamaModel": "qwen2.5:32b",
 ```
 
-- [ ] **Step 3: Verify the default loads**
+- [x] **Step 3: Verify the default loads**
 
 Run: `cd /tmp/hate_crack-llm-atomic && HATE_CRACK_SKIP_INIT=1 uv run python -c "import os; os.environ['HATE_CRACK_SKIP_INIT']='1'; from hate_crack import main; print(main.ollamaModel)"`
 Expected: prints a model string (`qwen2.5:32b` when no config overrides it).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 cd /tmp/hate_crack-llm-atomic
@@ -746,7 +746,7 @@ title so the LLM wordlist picker reuses it without duplicating logic.
 - Modify: `hate_crack/attacks.py` — `_omen_pick_training_wordlist` (~527) and `ollama_attack` (~513-524)
 - Modify: `tests/test_attacks_behavior.py` — `TestOllamaAttack` (~328-369)
 
-- [ ] **Step 1: Update the existing target-mode tests for the new prompt**
+- [x] **Step 1: Update the existing target-mode tests for the new prompt**
 
 In `tests/test_attacks_behavior.py`, every `ollama_attack` test now needs to select mode
 `"1"` (target) first. Replace the three `input` side-effect lists in `TestOllamaAttack`:
@@ -796,7 +796,7 @@ class TestOllamaAttack:
         assert ctx.hcatOllama.call_args[0][2] == "target"
 ```
 
-- [ ] **Step 2: Add a failing test for wordlist mode**
+- [x] **Step 2: Add a failing test for wordlist mode**
 
 Append to `TestOllamaAttack` in `tests/test_attacks_behavior.py`:
 
@@ -824,12 +824,12 @@ Append to `TestOllamaAttack` in `tests/test_attacks_behavior.py`:
 Check `_make_ctx` in this file provides a MagicMock ctx (it does — attributes auto-create).
 If `list_wordlist_files` needs a default, the test sets it explicitly above.
 
-- [ ] **Step 3: Run the ollama tests to verify the new ones fail**
+- [x] **Step 3: Run the ollama tests to verify the new ones fail**
 
 Run: `cd /tmp/hate_crack-llm-atomic && HATE_CRACK_SKIP_INIT=1 uv run pytest tests/test_attacks_behavior.py::TestOllamaAttack -v`
 Expected: the two new tests FAIL (old handler ignores the mode prompt / no wordlist path).
 
-- [ ] **Step 4: Generalize the wordlist picker**
+- [x] **Step 4: Generalize the wordlist picker**
 
 In `hate_crack/attacks.py`, change `_omen_pick_training_wordlist` to accept a title. Update
 its signature and the `print_multicolumn_list` call:
@@ -865,7 +865,7 @@ def _omen_pick_training_wordlist(ctx: Any, title: str = "Training Wordlists"):
 (The existing `omen_attack` call `ctx._omen_model_dir()`... uses `_omen_pick_training_wordlist(ctx)`
 with no title — still valid via the default.)
 
-- [ ] **Step 5: Rewrite `ollama_attack` with the mode prompt**
+- [x] **Step 5: Rewrite `ollama_attack` with the mode prompt**
 
 Replace `ollama_attack` in `hate_crack/attacks.py`:
 
@@ -896,12 +896,12 @@ def ollama_attack(ctx: Any) -> None:
         print("\t[!] Invalid selection.")
 ```
 
-- [ ] **Step 6: Run the ollama handler tests**
+- [x] **Step 6: Run the ollama handler tests**
 
 Run: `cd /tmp/hate_crack-llm-atomic && HATE_CRACK_SKIP_INIT=1 uv run pytest tests/test_attacks_behavior.py::TestOllamaAttack -v`
 Expected: PASS (6 passed).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 cd /tmp/hate_crack-llm-atomic
@@ -917,7 +917,7 @@ git commit -m "feat(llm): add wordlist (denylist) mode to LLM attack menu"
 - Modify: `README.md:460-473`
 - Modify: `CHANGELOG.md` (new entry after line 8)
 
-- [ ] **Step 1: Run the entire test suite**
+- [x] **Step 1: Run the entire test suite**
 
 Run: `cd /tmp/hate_crack-llm-atomic && HATE_CRACK_SKIP_INIT=1 uv run pytest -v`
 Expected: all pass. If `tests/test_ui_menu_options.py` (option 12 → `ollama_attack`) or
@@ -925,12 +925,12 @@ Expected: all pass. If `tests/test_ui_menu_options.py` (option 12 → `ollama_at
 both the option-12 mapping and the `hcatOllama` symbol still exist, so they should pass
 unchanged.
 
-- [ ] **Step 2: Lint**
+- [x] **Step 2: Lint**
 
 Run: `cd /tmp/hate_crack-llm-atomic && make lint`
 Expected: ruff + ty clean. Fix any unused-import / typing findings.
 
-- [ ] **Step 3: Update the README Ollama section**
+- [x] **Step 3: Update the README Ollama section**
 
 In `README.md`, replace the Ollama configuration block (lines ~464-473):
 
@@ -947,7 +947,7 @@ In `README.md`, replace the Ollama configuration block (lines ~464-473):
 - The Ollama URL defaults to `http://localhost:11434` (override via the `OLLAMA_HOST` env var). Ensure Ollama is running and the model is pulled (`ollama pull qwen2.5:32b`) before using the LLM Attack — hate_crack no longer auto-pulls missing models.
 ```
 
-- [ ] **Step 4: Add the CHANGELOG entry**
+- [x] **Step 4: Add the CHANGELOG entry**
 
 In `CHANGELOG.md`, insert after line 8 (before `## [2.11.3]`):
 
@@ -974,7 +974,7 @@ In `CHANGELOG.md`, insert after line 8 (before `## [2.11.3]`):
   yourself with `ollama pull <model>`.
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /tmp/hate_crack-llm-atomic
@@ -986,17 +986,17 @@ git commit -m "docs(llm): document Atomic Agents refactor, new default model, wo
 
 ### Task 7: Final verification
 
-- [ ] **Step 1: Full suite once more**
+- [x] **Step 1: Full suite once more**
 
 Run: `cd /tmp/hate_crack-llm-atomic && HATE_CRACK_SKIP_INIT=1 uv run pytest -v`
 Expected: all pass.
 
-- [ ] **Step 2: Lint once more**
+- [x] **Step 2: Lint once more**
 
 Run: `cd /tmp/hate_crack-llm-atomic && make lint`
 Expected: clean.
 
-- [ ] **Step 3: Confirm the branch is ready**
+- [x] **Step 3: Confirm the branch is ready**
 
 Run: `cd /tmp/hate_crack-llm-atomic && git log --oneline main..HEAD && git status`
 Expected: the task commits listed, clean working tree.

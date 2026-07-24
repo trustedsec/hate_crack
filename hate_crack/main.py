@@ -452,6 +452,7 @@ hcatDebugLogPath = os.path.expanduser(config_parser["hcatDebugLogPath"])
 ollamaUrl = "http://" + os.environ.get("OLLAMA_HOST", "localhost:11434")
 ollamaModel = config_parser.get("ollamaModel", "qwen2.5:32b")
 ollamaNumCtx = int(config_parser.get("ollamaNumCtx", 2048))
+ollamaTimeout = float(config_parser.get("ollamaTimeout", 300))
 
 omenTrainingList = config_parser.get("omenTrainingList", "rockyou.txt")
 omenMaxCandidates = int(config_parser.get("omenMaxCandidates", 1000000))
@@ -2072,8 +2073,20 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
     print(f"Generating password candidates via Ollama ({ollamaModel})...")
     try:
         candidates = llm.generate_candidates(
-            ollamaUrl, ollamaModel, ollamaNumCtx, mode, gen_context
+            ollamaUrl,
+            ollamaModel,
+            ollamaNumCtx,
+            mode,
+            gen_context,
+            timeout=ollamaTimeout,
         )
+    except llm.LLMTimeoutError:
+        print(f"Error: the Ollama request timed out after {ollamaTimeout:g} seconds.")
+        print(
+            f"The model ({ollamaModel}) may still be loading into VRAM. Retry, or "
+            'raise "ollamaTimeout" in config.json to wait longer.'
+        )
+        return
     except ValueError as e:
         # Defensive: mode is already validated above, but keep an explicit,
         # non-misleading message if generate_candidates ever rejects its input.

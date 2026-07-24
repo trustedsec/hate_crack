@@ -23,6 +23,15 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   menu: select the LLM attack (option 12), then choose "Wordlist" to derive basewords from
   a sample wordlist.
 
+### Fixed
+
+- **The LLM attack no longer hangs forever waiting on Ollama.** Generation requests are now
+  bounded by a configurable timeout (`ollamaTimeout` in `config.json`, default 300 seconds).
+  Previously, if Ollama accepted the connection but never replied — most commonly a large
+  model still loading into VRAM — hate_crack sat at a frozen prompt with no recourse but
+  Ctrl-C. When the timeout fires you now get a specific message naming the elapsed timeout
+  and the setting to raise, instead of a misleading "ensure Ollama is running" hint.
+
 ### Removed
 
 - **Automatic model pulling.** hate_crack no longer pulls missing Ollama models; pull them

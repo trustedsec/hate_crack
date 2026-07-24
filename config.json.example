@@ -27,6 +27,7 @@
   "hashmob_api_key": "",
   "ollamaModel": "qwen2.5:32b",
   "ollamaNumCtx": 2048,
+  "ollamaTimeout": 300,
   "omenTrainingList": "rockyou.txt",
   "omenMaxCandidates": 50000000,
   "pcfgRuleset": "DEFAULT",
