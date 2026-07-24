@@ -472,6 +472,7 @@ The LLM Attack (option 12) uses Ollama to generate password candidates. Configur
 - **`ollamaModel`** — The Ollama model used for candidate generation (default: `qwen2.5:32b`). The LLM attack uses structured (JSON) output, so choose a model with good tool/JSON support.
 - **`ollamaNumCtx`** — Context window size for the model (default: `2048`).
 - **`ollamaTimeout`** — Seconds to wait for a generation response before giving up (default: `300`). Raise this if a large model is still loading into VRAM on the first request, which can otherwise exceed the timeout; hate_crack prints the elapsed timeout and this setting's name when it fires.
+- **`ollamaMaxSampleLines`** — Maximum number of lines drawn from the source wordlist and included in the LLM prompt when using **Wordlist** mode (default: `500`). Lines are sampled evenly across the whole file so the prompt reflects the wordlist's full character range rather than just the head. Set to a larger value if the model has a big context window (`ollamaNumCtx`) and you want richer coverage; set it lower to reduce prompt size and generation latency. Values ≤ 0 are treated as 500.
 - The Ollama URL defaults to `http://localhost:11434` (override via the `OLLAMA_HOST` env var). Ensure Ollama is running and the model is pulled (`ollama pull qwen2.5:32b`) before using the LLM Attack — hate_crack no longer auto-pulls missing models.
 
 The attack offers two generation modes: **Target info** (company / industry / location) and **Wordlist** (derive denylist basewords from a sample wordlist).

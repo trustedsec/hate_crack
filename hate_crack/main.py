@@ -2073,6 +2073,9 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
             return
 
         cap = ollamaMaxSampleLines
+        # Defect 2: cap <= 0 is nonsense; treat it as "no cap" (default 500).
+        if cap <= 0:
+            cap = 500
         if total_usable <= cap:
             # No capping needed — collect all usable lines.
             try:
@@ -2087,21 +2090,22 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
                 return
             print(f"Loaded {len(sampled):,} passwords from wordlist.")
         else:
-            # Evenly-spaced stride across the file to cover its full pattern
-            # range without materialising all lines in memory.
-            stride = total_usable / cap
+            # Evenly-spaced sample: the k-th pick targets index floor(k * total / cap),
+            # which yields EXACTLY cap distinct indices spanning the full range for any
+            # 1 <= cap <= total_usable.
             try:
+                pick_set = {
+                    (k * total_usable) // cap for k in range(cap)
+                }
                 sampled = []
-                usable_idx = 0.0
-                next_pick = stride / 2  # start near centre of first bucket
+                usable_idx = 0
                 with open(wordlist_path, "r", errors="ignore") as f:
                     for raw in f:
                         w = _usable(raw)
                         if not w:
                             continue
-                        if usable_idx >= next_pick and len(sampled) < cap:
+                        if usable_idx in pick_set:
                             sampled.append(w)
-                            next_pick += stride
                         usable_idx += 1
             except Exception as e:
                 print(f"Error reading wordlist: {e}")

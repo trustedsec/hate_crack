@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import io
 import sys
-import threading
 import time
 from unittest import mock
 
@@ -18,35 +17,30 @@ from hate_crack.progress import spinner
 # ---------------------------------------------------------------------------
 
 
-def test_non_tty_prints_message(capsys: pytest.CaptureFixture[str]) -> None:
+def test_non_tty_prints_message(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """In a non-TTY environment the message is printed once and no thread runs."""
-    with mock.patch.object(sys, "stdout", wraps=sys.stdout) as m_stdout:
-        m_stdout.isatty.return_value = False  # type: ignore[attr-defined]
-        # Use actual capsys for the print capture but override isatty
-        original_isatty = sys.stdout.isatty
-        sys.stdout.isatty = lambda: False  # type: ignore[method-assign]
-        try:
-            with spinner("Working..."):
-                pass
-        finally:
-            sys.stdout.isatty = original_isatty  # type: ignore[method-assign]
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: False)
+
+    with spinner("Working..."):
+        pass
 
     captured = capsys.readouterr()
     assert "Working..." in captured.out
 
 
 def test_non_tty_no_extra_thread() -> None:
-    """Spinner in non-TTY context should not start a background thread."""
+    """Spinner in non-TTY context must never construct a Thread."""
     buf = io.StringIO()
     buf.isatty = lambda: False  # type: ignore[attr-defined]
 
-    threads_before = threading.active_count()
-    with mock.patch("sys.stdout", buf):
+    with mock.patch("sys.stdout", buf), mock.patch(
+        "hate_crack.progress.threading.Thread"
+    ) as mock_thread:
         with spinner("No threads please"):
-            peak = threading.active_count()
-    # The thread count during the body should not exceed baseline + 1
-    # (pytest itself may add threads; we just want no extra daemon spinner thread).
-    assert peak <= threads_before + 1
+            pass
+    mock_thread.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
