@@ -250,7 +250,7 @@ def test_stride_cap_one(env) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Defect 2: ZeroDivisionError guard — cap=0 falls back to 500
+# Invalid-cap guard — zero/negative ollamaMaxSampleLines falls back to 500
 # ---------------------------------------------------------------------------
 
 
@@ -338,3 +338,38 @@ def test_spinner_called_with_model_message(env, capsys):
     captured = capsys.readouterr()
     assert MODEL in captured.out
     assert "Generating password candidates via Ollama" in captured.out
+
+
+# ---------------------------------------------------------------------------
+# _usable_plaintext unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_usable_plaintext_blank_line():
+    """A blank line must return an empty string (discarded)."""
+    assert hc_main._usable_plaintext("") == ""
+
+
+def test_usable_plaintext_whitespace_only():
+    """A whitespace-only line must return an empty string (discarded)."""
+    assert hc_main._usable_plaintext("   \t  ") == ""
+
+
+def test_usable_plaintext_plain_password():
+    """A plain password line (no colon) is returned stripped."""
+    assert hc_main._usable_plaintext("hunter2\n") == "hunter2"
+
+
+def test_usable_plaintext_hash_colon_password():
+    """A hash:password line returns only the password portion."""
+    assert hc_main._usable_plaintext("aabbcc:hunter2") == "hunter2"
+
+
+def test_usable_plaintext_multiple_colons():
+    """A line with multiple colons splits only on the first colon."""
+    assert hc_main._usable_plaintext("aabbcc:p@ss:word") == "p@ss:word"
+
+
+def test_usable_plaintext_hash_colon_empty():
+    """A hash: line with no plaintext after the colon returns empty string."""
+    assert hc_main._usable_plaintext("aabbcc:") == ""

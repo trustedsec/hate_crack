@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import re
 import sys
 import time
 from unittest import mock
@@ -55,7 +56,7 @@ def test_tty_clears_line_on_exit() -> None:
 
     with mock.patch("sys.stdout", buf):
         with spinner("Testing..."):
-            time.sleep(0.05)  # let spinner tick at least once
+            pass  # no sleep needed — the finally block writes the escape regardless
 
     output = buf.getvalue()
     # Line clear sequence must be present somewhere after the spinner started.
@@ -63,18 +64,29 @@ def test_tty_clears_line_on_exit() -> None:
 
 
 def test_tty_shows_elapsed_seconds() -> None:
-    """The spinner should show at least a 0s counter in its output."""
+    """The spinner must render the elapsed-seconds counter in the expected format.
+
+    time.monotonic is patched so the test is deterministic regardless of
+    scheduling: the first call returns 0.0 (start), the second returns 3.0
+    (first tick), giving a stable "3s" label without sleeping.
+    """
     buf = io.StringIO()
     buf.isatty = lambda: True  # type: ignore[attr-defined]
 
-    with mock.patch("sys.stdout", buf):
+    # Patch monotonic: start=0.0, then 3.0 at the first tick, then keep
+    # returning 3.0 so stop_event.wait() ends quickly.
+    mono_values = iter([0.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0])
+
+    with mock.patch("sys.stdout", buf), mock.patch(
+        "hate_crack.progress.time.monotonic", side_effect=mono_values
+    ):
         with spinner("Counting..."):
-            time.sleep(0.25)  # enough time for several ticks
+            pass  # body exits immediately; the thread gets one tick then stops
 
     output = buf.getvalue()
-    # Should have written at least one elapsed counter like "0s" or "1s"
-    assert "s" in output
     assert "Counting..." in output
+    # At least one frame must match the "Ns" elapsed format (e.g. "3s").
+    assert re.search(r"\d+s", output), f"Expected elapsed counter in output: {output!r}"
 
 
 def test_tty_exception_still_clears_line() -> None:
@@ -100,3 +112,40 @@ def test_spinner_does_not_swallow_exception() -> None:
         with pytest.raises(RuntimeError, match="test error"):
             with spinner("Should propagate"):
                 raise RuntimeError("test error")
+
+
+# ---------------------------------------------------------------------------
+# Teardown robustness: line must be cleared even if join() is interrupted
+# ---------------------------------------------------------------------------
+
+
+def test_tty_clears_line_even_if_join_raises() -> None:
+    """Line-clear must happen even when thread.join() raises (e.g. DoubleInterrupt).
+
+    The fix moves the write("\033[2K\r") *before* thread.join() so an
+    exception during join cannot prevent the terminal from being cleaned up.
+    """
+    buf = io.StringIO()
+    buf.isatty = lambda: True  # type: ignore[attr-defined]
+
+    class FakeThread:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def start(self) -> None:
+            pass
+
+        def join(self, *args, **kwargs) -> None:
+            raise KeyboardInterrupt("simulated double Ctrl-C during join")
+
+    with mock.patch("hate_crack.progress.threading.Thread", FakeThread), mock.patch(
+        "sys.stdout", buf
+    ):
+        with pytest.raises(KeyboardInterrupt):
+            with spinner("Robust teardown"):
+                pass
+
+    output = buf.getvalue()
+    assert "\033[2K\r" in output, (
+        "Line-clear escape sequence must be written before join() is called"
+    )

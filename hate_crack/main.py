@@ -897,6 +897,23 @@ def _wordlist_path(path: str):
         yield path
 
 
+def _usable_plaintext(raw: str) -> str:
+    """Return the usable plaintext from a raw wordlist line, or empty string.
+
+    Blank/whitespace-only lines are discarded.  Lines in ``hash:password``
+    format (as produced by hashcat ``--show``) are split on the first colon
+    so only the plaintext portion is returned; lines with no colon are
+    returned as-is.  A ``hash:`` line whose plaintext is empty after
+    stripping returns an empty string and is therefore also discarded.
+    """
+    stripped = raw.strip()
+    if not stripped:
+        return ""
+    if ":" in stripped:
+        stripped = stripped.split(":", 1)[1]
+    return stripped
+
+
 def _add_debug_mode_for_rules(cmd):
     """Add debug mode arguments to hashcat command if rules are being used.
 
@@ -2053,27 +2070,18 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
         # stride-select across the whole file rather than taking a head slice.
         # A head-only sample misses the pattern variation across large wordlists
         # (e.g. rockyou.txt becomes more random further in).
-        def _usable(raw: str) -> str:
-            """Return the usable plaintext from a raw line, or empty string."""
-            stripped = raw.strip()
-            if not stripped:
-                return ""
-            if ":" in stripped:
-                stripped = stripped.split(":", 1)[1]
-            return stripped
-
         try:
             total_usable = 0
             with open(wordlist_path, "r", errors="ignore") as f:
                 for raw in f:
-                    if _usable(raw):
+                    if _usable_plaintext(raw):
                         total_usable += 1
         except Exception as e:
             print(f"Error reading wordlist: {e}")
             return
 
         cap = ollamaMaxSampleLines
-        # Defect 2: cap <= 0 is nonsense; treat it as "no cap" (default 500).
+        # Invalid cap (zero or negative): fall back to the built-in default of 500.
         if cap <= 0:
             cap = 500
         if total_usable <= cap:
@@ -2082,7 +2090,7 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
                 sampled: list[str] = []
                 with open(wordlist_path, "r", errors="ignore") as f:
                     for raw in f:
-                        w = _usable(raw)
+                        w = _usable_plaintext(raw)
                         if w:
                             sampled.append(w)
             except Exception as e:
@@ -2101,7 +2109,7 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
                 usable_idx = 0
                 with open(wordlist_path, "r", errors="ignore") as f:
                     for raw in f:
-                        w = _usable(raw)
+                        w = _usable_plaintext(raw)
                         if not w:
                             continue
                         if usable_idx in pick_set:
