@@ -2037,7 +2037,6 @@ def hcatBandrel(hcatHashType, hcatHashFile):
 
 # LLM Ollama Attack
 def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
-    global hcatProcess
     candidates_path = f"{hcatHashFile}.ollama_candidates"
 
     # Step A: normalize context into the dict generate_candidates expects.
