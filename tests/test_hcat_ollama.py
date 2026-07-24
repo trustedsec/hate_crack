@@ -77,6 +77,53 @@ def test_wordlist_mode_reads_file_and_passes_sample(ollama_env):
     assert "letmein" in ctx_data["sample"]
 
 
+def test_wordlist_mode_strips_hash_prefix(ollama_env):
+    # hash:password lines should contribute only the post-colon plaintext.
+    dump = ollama_env.tmp_path / "dump.txt"
+    dump.write_text("aad3b435:Winter2024\nnocolonline\n")
+    with ollama_globals(ollama_env.tmp_path), \
+         mock.patch("hate_crack.main.llm.generate_candidates",
+                    return_value=["x"]) as gen, \
+         mock.patch("subprocess.Popen", return_value=_make_proc()):
+        hc_main.hcatOllama("0", ollama_env.hash_file, "wordlist", str(dump))
+    sample = gen.call_args[0][4]["sample"]
+    assert "Winter2024" in sample
+    assert "aad3b435" not in sample
+    assert "nocolonline" in sample
+
+
+def test_per_rule_runs_hashcat_with_rule_flag(ollama_env):
+    rules_dir = str(ollama_env.tmp_path / "rules")
+    os.makedirs(rules_dir, exist_ok=True)
+    rule_file = os.path.join(rules_dir, "test.rule")
+    open(rule_file, "w").close()
+    calls = []
+
+    def track_popen(cmd, **kwargs):
+        calls.append(list(cmd))
+        return _make_proc()
+
+    with mock.patch.object(hc_main, "ollamaUrl", OLLAMA_URL), \
+         mock.patch.object(hc_main, "ollamaModel", MODEL), \
+         mock.patch.object(hc_main, "ollamaNumCtx", 2048), \
+         mock.patch.object(hc_main, "hcatBin", "/usr/bin/hashcat"), \
+         mock.patch.object(hc_main, "hcatTuning", ""), \
+         mock.patch.object(hc_main, "hcatPotfilePath", ""), \
+         mock.patch.object(hc_main, "rulesDirectory", rules_dir), \
+         mock.patch("hate_crack.main.generate_session_id", return_value="s"), \
+         mock.patch("hate_crack.main.llm.generate_candidates",
+                    return_value=["Password1"]), \
+         mock.patch("subprocess.Popen", side_effect=track_popen):
+        hc_main.hcatOllama("1000", ollama_env.hash_file, "target",
+                           {"company": "X", "industry": "Y", "location": "Z"})
+
+    # call 0 = plain wordlist run, call 1 = rule run
+    assert len(calls) == 2
+    rule_call = calls[1]
+    assert "-r" in rule_call
+    assert rule_file in rule_call
+
+
 def test_missing_wordlist_prints_error(ollama_env, capsys):
     with ollama_globals(ollama_env.tmp_path), \
          mock.patch("hate_crack.main.llm.generate_candidates") as gen:

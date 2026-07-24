@@ -2076,6 +2076,8 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
             ollamaUrl, ollamaModel, ollamaNumCtx, mode, gen_context
         )
     except ValueError as e:
+        # Defensive: mode is already validated above, but keep an explicit,
+        # non-misleading message if generate_candidates ever rejects its input.
         print(f"Error: {e}")
         return
     except Exception as e:
