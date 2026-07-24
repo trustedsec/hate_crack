@@ -10,7 +10,7 @@ import os
 from typing import Any
 
 
-def build_rule_chains(ctx: Any, rule_tokens):
+def build_rule_chains(ctx: Any, rule_tokens: list[str] | None) -> list[str]:
     """Convert CLI ``--rules`` tokens into hashcat ``-r`` chain strings.
 
     Each token becomes one attack pass. A token may chain multiple rule files
@@ -34,5 +34,7 @@ def build_rule_chains(ctx: Any, rule_tokens):
             if not os.path.isfile(path):
                 raise FileNotFoundError(name)
             chain = f"{chain} -r {path}".strip()
+        if not chain:
+            raise ValueError(f"Rule token {token!r} resolved to no rule files")
         chains.append(chain)
     return chains

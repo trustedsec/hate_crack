@@ -38,10 +38,18 @@ def test_build_rule_chains_chained_token(tmp_path):
 def test_build_rule_chains_multiple_tokens_are_separate_passes(tmp_path):
     ctx = _ctx_with_rules(tmp_path, "best64.rule", "d3ad0ne.rule")
     chains = ni.build_rule_chains(ctx, ["best64.rule", "d3ad0ne.rule"])
-    assert len(chains) == 2
+    a = os.path.join(ctx.rulesDirectory, "best64.rule")
+    b = os.path.join(ctx.rulesDirectory, "d3ad0ne.rule")
+    assert chains == [f"-r {a}", f"-r {b}"]
 
 
 def test_build_rule_chains_missing_file_raises(tmp_path):
     ctx = _ctx_with_rules(tmp_path)
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(FileNotFoundError, match="nope.rule"):
         ni.build_rule_chains(ctx, ["nope.rule"])
+
+
+def test_build_rule_chains_empty_token_raises(tmp_path):
+    ctx = _ctx_with_rules(tmp_path, "best64.rule")
+    with pytest.raises(ValueError):
+        ni.build_rule_chains(ctx, ["+"])
