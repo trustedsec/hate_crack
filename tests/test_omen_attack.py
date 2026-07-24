@@ -277,8 +277,10 @@ class TestOmenAttackHandler:
     def test_use_existing_model(self, tmp_path):
         ctx = self._make_ctx(tmp_path, model_valid=True)
         self._setup_rules_dir(tmp_path)
-        with patch("os.path.isfile", return_value=True), patch(
-            "builtins.input", side_effect=["1", "", "0"]
+        with (
+            patch("os.path.isfile", return_value=True),
+            patch("hate_crack.attacks.interactive_menu", return_value="1"),
+            patch("builtins.input", side_effect=["", "0"]),
         ):
             from hate_crack.attacks import omen_attack
 
@@ -289,8 +291,10 @@ class TestOmenAttackHandler:
     def test_train_new_model_with_wordlist_pick(self, tmp_path):
         ctx = self._make_ctx(tmp_path, model_valid=True)
         self._setup_rules_dir(tmp_path)
-        with patch("os.path.isfile", return_value=True), patch(
-            "builtins.input", side_effect=["2", "1", "", "0"]
+        with (
+            patch("os.path.isfile", return_value=True),
+            patch("hate_crack.attacks.interactive_menu", return_value="2"),
+            patch("builtins.input", side_effect=["1", "", "0"]),
         ):
             from hate_crack.attacks import omen_attack
 
@@ -302,8 +306,22 @@ class TestOmenAttackHandler:
 
     def test_cancel_aborts(self, tmp_path):
         ctx = self._make_ctx(tmp_path, model_valid=True)
-        with patch("os.path.isfile", return_value=True), patch(
-            "builtins.input", side_effect=["3"]
+        with (
+            patch("os.path.isfile", return_value=True),
+            patch("hate_crack.attacks.interactive_menu", return_value="99"),
+        ):
+            from hate_crack.attacks import omen_attack
+
+            omen_attack(ctx)
+        ctx.hcatOmenTrain.assert_not_called()
+        ctx.hcatOmen.assert_not_called()
+
+    def test_escape_cancels(self, tmp_path):
+        """None from interactive_menu (Escape) cancels the attack."""
+        ctx = self._make_ctx(tmp_path, model_valid=True)
+        with (
+            patch("os.path.isfile", return_value=True),
+            patch("hate_crack.attacks.interactive_menu", return_value=None),
         ):
             from hate_crack.attacks import omen_attack
 
@@ -348,8 +366,10 @@ class TestOmenAttackHandler:
     def test_rules_passed_to_hcatOmen(self, tmp_path):
         ctx = self._make_ctx(tmp_path, model_valid=True)
         self._setup_rules_dir(tmp_path, ["best64.rule"])
-        with patch("os.path.isfile", return_value=True), patch(
-            "builtins.input", side_effect=["1", "", "1"]
+        with (
+            patch("os.path.isfile", return_value=True),
+            patch("hate_crack.attacks.interactive_menu", return_value="1"),
+            patch("builtins.input", side_effect=["", "1"]),
         ):
             from hate_crack.attacks import omen_attack
 
@@ -361,8 +381,10 @@ class TestOmenAttackHandler:
     def test_multiple_rule_chains_spawn_multiple_calls(self, tmp_path):
         ctx = self._make_ctx(tmp_path, model_valid=True)
         self._setup_rules_dir(tmp_path, ["best64.rule", "dive.rule"])
-        with patch("os.path.isfile", return_value=True), patch(
-            "builtins.input", side_effect=["1", "", "1,2"]
+        with (
+            patch("os.path.isfile", return_value=True),
+            patch("hate_crack.attacks.interactive_menu", return_value="1"),
+            patch("builtins.input", side_effect=["", "1,2"]),
         ):
             from hate_crack.attacks import omen_attack
 
@@ -372,8 +394,10 @@ class TestOmenAttackHandler:
     def test_cancel_from_rules_aborts(self, tmp_path):
         ctx = self._make_ctx(tmp_path, model_valid=True)
         self._setup_rules_dir(tmp_path, ["best64.rule"])
-        with patch("os.path.isfile", return_value=True), patch(
-            "builtins.input", side_effect=["1", "", "99"]
+        with (
+            patch("os.path.isfile", return_value=True),
+            patch("hate_crack.attacks.interactive_menu", return_value="1"),
+            patch("builtins.input", side_effect=["", "99"]),
         ):
             from hate_crack.attacks import omen_attack
 
@@ -383,8 +407,10 @@ class TestOmenAttackHandler:
     def test_no_rules_passes_empty_chain(self, tmp_path):
         ctx = self._make_ctx(tmp_path, model_valid=True)
         self._setup_rules_dir(tmp_path, ["best64.rule"])
-        with patch("os.path.isfile", return_value=True), patch(
-            "builtins.input", side_effect=["1", "", "0"]
+        with (
+            patch("os.path.isfile", return_value=True),
+            patch("hate_crack.attacks.interactive_menu", return_value="1"),
+            patch("builtins.input", side_effect=["", "0"]),
         ):
             from hate_crack.attacks import omen_attack
 
