@@ -549,23 +549,30 @@ def ollama_attack(ctx: Any) -> None:
         elif choice == "3" and has_cracked:
             ctx.hcatOllama(ctx.hcatHashType, ctx.hcatHashFile, "cracked", out_path)
             return
+        else:
+            # Without this the menu just silently redraws and the user cannot
+            # tell a rejected key from a repainted prompt.
+            print("\t[!] Invalid selection.")
 
 
 def _omen_pick_training_wordlist(ctx: Any, title: str = "Training Wordlists"):
     """Show wordlist picker. Returns path or None (user cancelled with 'q')."""
     wordlist_files = ctx.list_wordlist_files(ctx.hcatWordlists)
+    # Print the grid once, outside the retry loop: a wordlists directory can
+    # hold dozens of entries, and repainting the whole thing after every typo
+    # buries the error message.
+    if wordlist_files:
+        entries = [f"{i}) {f}" for i, f in enumerate(wordlist_files, start=1)]
+        max_len = max((len(e) for e in entries), default=24)
+        print_multicolumn_list(
+            title,
+            entries,
+            min_col_width=max_len,
+            max_col_width=max_len,
+        )
+    print("\tp. Enter a custom path")
+    print("\tq. Cancel")
     while True:
-        if wordlist_files:
-            entries = [f"{i}) {f}" for i, f in enumerate(wordlist_files, start=1)]
-            max_len = max((len(e) for e in entries), default=24)
-            print_multicolumn_list(
-                title,
-                entries,
-                min_col_width=max_len,
-                max_col_width=max_len,
-            )
-        print("\tp. Enter a custom path")
-        print("\tq. Cancel")
         sel = input("\n\tSelect wordlist: ").strip()
         if sel.lower() == "q":
             return None
@@ -645,21 +652,22 @@ def _markov_pick_training_source(ctx: Any):
     has_cracked = os.path.isfile(out_path) and os.path.getsize(out_path) > 0
 
     wordlist_files = ctx.list_wordlist_files(ctx.hcatWordlists)
+    # Print the grid once, outside the retry loop — see _omen_pick_training_wordlist.
+    entries = []
+    if has_cracked:
+        entries.append("0) Cracked passwords (current session)")
+    entries.extend([f"{i}) {f}" for i, f in enumerate(wordlist_files, start=1)])
+    if entries:
+        max_len = max((len(e) for e in entries), default=24)
+        print_multicolumn_list(
+            "Markov Training Source",
+            entries,
+            min_col_width=max_len,
+            max_col_width=max_len,
+        )
+    print("\tp. Enter a custom path")
+    print("\tq. Cancel")
     while True:
-        entries = []
-        if has_cracked:
-            entries.append("0) Cracked passwords (current session)")
-        entries.extend([f"{i}) {f}" for i, f in enumerate(wordlist_files, start=1)])
-        if entries:
-            max_len = max((len(e) for e in entries), default=24)
-            print_multicolumn_list(
-                "Markov Training Source",
-                entries,
-                min_col_width=max_len,
-                max_col_width=max_len,
-            )
-        print("\tp. Enter a custom path")
-        print("\tq. Cancel")
         sel = input("\n\tSelect training source: ").strip()
         if sel.lower() == "q":
             return None
