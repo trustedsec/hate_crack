@@ -99,6 +99,22 @@ uv sync --dev
 HATE_CRACK_SKIP_INIT=1 uv run pytest -v
 ```
 
+`git worktree add` does NOT populate submodules, so a fresh worktree has no
+`hashcat-utils/bin/*.bin` and hate_crack refuses to start (`expander not found`).
+Tests are unaffected because `HATE_CRACK_SKIP_INIT=1` bypasses the binary checks,
+but **running the tool** in a worktree needs the submodules built first:
+
+```bash
+# Initializes all submodules and builds the bundled binaries.
+# Do this instead of hand-building: the target also handles the Apple Silicon
+# princeprocessor rename (src/ppAppleArm64.bin -> princeprocessor/pp64.bin).
+make submodules
+```
+
+Note that `git worktree remove` refuses a worktree containing submodules
+(`working trees containing submodules cannot be moved or removed`) - use
+`git worktree remove --force <path>` once you have built them.
+
 ### Rules
 
 1. **Always create a worktree** before making any file changes: `git worktree add /tmp/hate_crack-<task> -b <branch>`
