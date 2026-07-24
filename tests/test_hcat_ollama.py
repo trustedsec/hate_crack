@@ -228,3 +228,89 @@ def test_unknown_mode_prints_error(ollama_env, capsys):
     captured = capsys.readouterr()
     assert "Unknown LLM generation mode" in captured.out
     gen.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# cracked mode
+# ---------------------------------------------------------------------------
+
+
+def test_cracked_mode_samples_out_file(ollama_env):
+    """cracked mode reads <hashfile>.out and passes the plaintexts as the sample."""
+    with open(f"{ollama_env.hash_file}.out", "w") as f:
+        f.write("aad3b435:Summer2024!\nbbccddee:Acme2023\n")
+
+    with ollama_globals(ollama_env.tmp_path), \
+         mock.patch("hate_crack.main.llm.generate_candidates",
+                    return_value=["Winter2025!"]) as gen, \
+         mock.patch("subprocess.Popen", return_value=_make_proc()):
+        hc_main.hcatOllama("1000", ollama_env.hash_file, "cracked", None)
+
+    args = gen.call_args[0]
+    assert args[3] == "cracked"
+    sample = args[4]["sample"].splitlines()
+    assert sample == ["Summer2024!", "Acme2023"]
+    # Hash portions must not leak into the prompt.
+    assert "aad3b435" not in args[4]["sample"]
+
+
+def test_cracked_mode_accepts_explicit_path(ollama_env):
+    """An explicit path in context_data is honoured (what attacks.py passes)."""
+    out_path = f"{ollama_env.hash_file}.out"
+    with open(out_path, "w") as f:
+        f.write("hash:Falcons2024\n")
+
+    with ollama_globals(ollama_env.tmp_path), \
+         mock.patch("hate_crack.main.llm.generate_candidates",
+                    return_value=["Falcons2025"]) as gen, \
+         mock.patch("subprocess.Popen", return_value=_make_proc()):
+        hc_main.hcatOllama("1000", ollama_env.hash_file, "cracked", out_path)
+
+    assert "Falcons2024" in gen.call_args[0][4]["sample"]
+
+
+def test_cracked_mode_missing_out_file_prints_error(ollama_env, capsys):
+    with ollama_globals(ollama_env.tmp_path), \
+         mock.patch("hate_crack.main.llm.generate_candidates") as gen, \
+         mock.patch("subprocess.Popen") as popen:
+        hc_main.hcatOllama("0", ollama_env.hash_file, "cracked", None)
+    captured = capsys.readouterr()
+    assert "No cracked passwords found" in captured.out
+    gen.assert_not_called()
+    popen.assert_not_called()
+
+
+def test_cracked_mode_empty_out_file_prints_error(ollama_env, capsys):
+    """An existing but empty/blank .out must abort before calling the LLM."""
+    with open(f"{ollama_env.hash_file}.out", "w") as f:
+        f.write("\n   \n")
+
+    with ollama_globals(ollama_env.tmp_path), \
+         mock.patch("hate_crack.main.llm.generate_candidates") as gen, \
+         mock.patch("subprocess.Popen") as popen:
+        hc_main.hcatOllama("0", ollama_env.hash_file, "cracked", None)
+    captured = capsys.readouterr()
+    assert "No cracked passwords yet" in captured.out
+    gen.assert_not_called()
+    popen.assert_not_called()
+
+
+def test_cracked_mode_writes_candidates_to_separate_file(ollama_env):
+    """The candidate file must be distinct from the .out file it samples."""
+    out_path = f"{ollama_env.hash_file}.out"
+    with open(out_path, "w") as f:
+        f.write("hash:Summer2024!\n")
+
+    with ollama_globals(ollama_env.tmp_path), \
+         mock.patch("hate_crack.main.llm.generate_candidates",
+                    return_value=["Winter2025!"]), \
+         mock.patch("subprocess.Popen", return_value=_make_proc()):
+        hc_main.hcatOllama("1000", ollama_env.hash_file, "cracked", None)
+
+    candidates_path = f"{ollama_env.hash_file}.ollama_candidates"
+    assert candidates_path != out_path
+    with open(candidates_path) as f:
+        assert f.read().splitlines() == ["Winter2025!"]
+    # The sampled source file is untouched by candidate writing.
+    with open(out_path) as f:
+        assert f.read() == "hash:Summer2024!\n"

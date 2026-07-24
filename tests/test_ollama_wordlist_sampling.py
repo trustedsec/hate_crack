@@ -373,3 +373,89 @@ def test_usable_plaintext_multiple_colons():
 def test_usable_plaintext_hash_colon_empty():
     """A hash: line with no plaintext after the colon returns empty string."""
     assert hc_main._usable_plaintext("aabbcc:") == ""
+
+
+# ---------------------------------------------------------------------------
+# Shared sampling helper — used by both wordlist and cracked modes
+# ---------------------------------------------------------------------------
+
+
+def test_sample_helper_is_module_level():
+    """The sampling logic lives in one shared, module-level helper."""
+    assert callable(hc_main._sample_plaintext_file)
+
+
+def test_sample_helper_caps_and_labels_source(tmp_path, capsys):
+    src = tmp_path / "src.txt"
+    src.write_text("\n".join(f"p{i:04d}" for i in range(100)) + "\n")
+
+    sampled = hc_main._sample_plaintext_file(str(src), 10, source_label="cracked passwords")
+
+    assert sampled is not None
+    assert len(sampled) == 10
+    captured = capsys.readouterr()
+    assert "Sampled 10 of 100 passwords from cracked passwords." in captured.out
+
+
+def test_sample_helper_returns_none_on_read_error(tmp_path, capsys):
+    missing = tmp_path / "nope.txt"
+    with mock.patch("builtins.open", side_effect=OSError("boom")):
+        assert hc_main._sample_plaintext_file(str(missing), 10) is None
+    assert "Error reading wordlist: boom" in capsys.readouterr().out
+
+
+def test_sample_helper_empty_file_returns_empty_list(tmp_path):
+    src = tmp_path / "empty.txt"
+    src.write_text("\n\n")
+    assert hc_main._sample_plaintext_file(str(src), 10) == []
+
+
+def test_cracked_mode_uses_shared_sampling_helper(env):
+    """cracked mode must route through _sample_plaintext_file, not its own copy."""
+    out_path = env.hash_file + ".out"
+    with open(out_path, "w") as f:
+        f.write("hash:Summer2024!\n")
+
+    with _ollama_globals(env.tmp_path, max_sample=123), mock.patch.object(
+        hc_main, "_sample_plaintext_file", return_value=["Summer2024!"]
+    ) as sampler, mock.patch.object(
+        hc_main.llm, "generate_candidates", return_value=["Winter2025!"]
+    ), mock.patch("subprocess.Popen", return_value=_make_proc()):
+        hc_main.hcatOllama("0", env.hash_file, "cracked", None)
+
+    sampler.assert_called_once_with(
+        out_path, 123, source_label="cracked passwords"
+    )
+
+
+def test_wordlist_mode_uses_shared_sampling_helper(env):
+    wl = env.tmp_path / "wl.txt"
+    wl.write_text("alpha\n")
+
+    with _ollama_globals(env.tmp_path, max_sample=77), mock.patch.object(
+        hc_main, "_sample_plaintext_file", return_value=["alpha"]
+    ) as sampler, mock.patch.object(
+        hc_main.llm, "generate_candidates", return_value=["x"]
+    ), mock.patch("subprocess.Popen", return_value=_make_proc()):
+        hc_main.hcatOllama("0", env.hash_file, "wordlist", str(wl))
+
+    sampler.assert_called_once_with(str(wl), 77)
+
+
+def test_cracked_mode_caps_large_out_file(env, capsys):
+    """A large .out file gets the same evenly-spaced capping as a wordlist."""
+    out_path = env.hash_file + ".out"
+    with open(out_path, "w") as f:
+        f.write("\n".join(f"h{i}:pw{i:06d}" for i in range(1000)) + "\n")
+
+    with _ollama_globals(env.tmp_path, max_sample=25), mock.patch.object(
+        hc_main.llm, "generate_candidates", return_value=["x"]
+    ) as gen, mock.patch("subprocess.Popen", return_value=_make_proc()):
+        hc_main.hcatOllama("0", env.hash_file, "cracked", None)
+
+    sample_lines = gen.call_args[0][4]["sample"].splitlines()
+    assert len(sample_lines) == 25
+    indices = [int(w.replace("pw", "")) for w in sample_lines]
+    assert min(indices) < 100
+    assert max(indices) >= 900
+    assert "Sampled 25 of 1,000 passwords from cracked passwords." in capsys.readouterr().out

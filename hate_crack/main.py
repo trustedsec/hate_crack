@@ -2055,6 +2055,74 @@ def hcatBandrel(hcatHashType, hcatHashFile):
         _run_hcat_cmd(cmd, attack_name="Bandrel", hash_file=hcatHashFile)
 
 
+def _sample_plaintext_file(path, cap, source_label="wordlist"):
+    """Return an evenly-spaced sample of usable plaintexts from ``path``.
+
+    ``cap`` is the maximum number of lines to keep (values <= 0 fall back to the
+    built-in default of 500).  ``source_label`` is used only in the progress and
+    error messages so callers can say "wordlist" or "cracked passwords".
+
+    Returns a list of plaintexts (possibly empty when the file has no usable
+    lines), or ``None`` if the file could not be read — in which case an error
+    has already been printed.
+    """
+    # Two-pass evenly-spaced sample: first count usable lines so we can
+    # stride-select across the whole file rather than taking a head slice.
+    # A head-only sample misses the pattern variation across large wordlists
+    # (e.g. rockyou.txt becomes more random further in).
+    try:
+        total_usable = 0
+        with open(path, "r", errors="ignore") as f:
+            for raw in f:
+                if _usable_plaintext(raw):
+                    total_usable += 1
+    except Exception as e:
+        print(f"Error reading {source_label}: {e}")
+        return None
+
+    # Invalid cap (zero or negative): fall back to the built-in default of 500.
+    if cap <= 0:
+        cap = 500
+
+    if total_usable <= cap:
+        # No capping needed — collect all usable lines.
+        try:
+            sampled: list[str] = []
+            with open(path, "r", errors="ignore") as f:
+                for raw in f:
+                    w = _usable_plaintext(raw)
+                    if w:
+                        sampled.append(w)
+        except Exception as e:
+            print(f"Error reading {source_label}: {e}")
+            return None
+        print(f"Loaded {len(sampled):,} passwords from {source_label}.")
+        return sampled
+
+    # Evenly-spaced sample: the k-th pick targets index floor(k * total / cap),
+    # which yields EXACTLY cap distinct indices spanning the full range for any
+    # 1 <= cap <= total_usable.
+    try:
+        pick_set = {(k * total_usable) // cap for k in range(cap)}
+        sampled = []
+        usable_idx = 0
+        with open(path, "r", errors="ignore") as f:
+            for raw in f:
+                w = _usable_plaintext(raw)
+                if not w:
+                    continue
+                if usable_idx in pick_set:
+                    sampled.append(w)
+                usable_idx += 1
+    except Exception as e:
+        print(f"Error reading {source_label}: {e}")
+        return None
+    print(
+        f"Sampled {len(sampled):,} of {total_usable:,} passwords from {source_label}."
+    )
+    return sampled
+
+
 # LLM Ollama Attack
 def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
     candidates_path = f"{hcatHashFile}.ollama_candidates"
@@ -2066,60 +2134,29 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
             print(f"Error: Wordlist not found: {wordlist_path}")
             return
 
-        # Two-pass evenly-spaced sample: first count usable lines so we can
-        # stride-select across the whole file rather than taking a head slice.
-        # A head-only sample misses the pattern variation across large wordlists
-        # (e.g. rockyou.txt becomes more random further in).
-        try:
-            total_usable = 0
-            with open(wordlist_path, "r", errors="ignore") as f:
-                for raw in f:
-                    if _usable_plaintext(raw):
-                        total_usable += 1
-        except Exception as e:
-            print(f"Error reading wordlist: {e}")
+        sampled = _sample_plaintext_file(wordlist_path, ollamaMaxSampleLines)
+        if sampled is None:
+            return
+        gen_context = {"sample": "\n".join(sampled)}
+    elif mode == "cracked":
+        # context_data may carry an explicit path; default to this session's
+        # cracked-output file.
+        cracked_path = context_data or f"{hcatHashFile}.out"
+        if not os.path.isfile(cracked_path):
+            print(f"Error: No cracked passwords found: {cracked_path}")
             return
 
-        cap = ollamaMaxSampleLines
-        # Invalid cap (zero or negative): fall back to the built-in default of 500.
-        if cap <= 0:
-            cap = 500
-        if total_usable <= cap:
-            # No capping needed — collect all usable lines.
-            try:
-                sampled: list[str] = []
-                with open(wordlist_path, "r", errors="ignore") as f:
-                    for raw in f:
-                        w = _usable_plaintext(raw)
-                        if w:
-                            sampled.append(w)
-            except Exception as e:
-                print(f"Error reading wordlist: {e}")
-                return
-            print(f"Loaded {len(sampled):,} passwords from wordlist.")
-        else:
-            # Evenly-spaced sample: the k-th pick targets index floor(k * total / cap),
-            # which yields EXACTLY cap distinct indices spanning the full range for any
-            # 1 <= cap <= total_usable.
-            try:
-                pick_set = {
-                    (k * total_usable) // cap for k in range(cap)
-                }
-                sampled = []
-                usable_idx = 0
-                with open(wordlist_path, "r", errors="ignore") as f:
-                    for raw in f:
-                        w = _usable_plaintext(raw)
-                        if not w:
-                            continue
-                        if usable_idx in pick_set:
-                            sampled.append(w)
-                        usable_idx += 1
-            except Exception as e:
-                print(f"Error reading wordlist: {e}")
-                return
-            print(f"Sampled {len(sampled):,} of {total_usable:,} passwords from wordlist.")
-
+        sampled = _sample_plaintext_file(
+            cracked_path, ollamaMaxSampleLines, source_label="cracked passwords"
+        )
+        if sampled is None:
+            return
+        if not sampled:
+            print(
+                "Error: No cracked passwords yet — crack some hashes first, then "
+                "use this mode to generate more candidates in the same style."
+            )
+            return
         gen_context = {"sample": "\n".join(sampled)}
     elif mode == "target":
         gen_context = context_data

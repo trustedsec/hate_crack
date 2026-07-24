@@ -394,3 +394,65 @@ class TestOllamaAttack:
         with patch("builtins.input", side_effect=["2", "nonsense"]):
             ollama_attack(ctx)
         ctx.hcatOllama.assert_not_called()
+
+    def test_cracked_mode_offered_when_out_file_has_content(
+        self, tmp_path: Path, capsys
+    ) -> None:
+        hash_file = tmp_path / "hashes.txt"
+        hash_file.touch()
+        out_file = tmp_path / "hashes.txt.out"
+        out_file.write_text("hash:Summer2024!\n")
+        ctx = _make_ctx(hash_file=str(hash_file))
+
+        with patch("builtins.input", side_effect=["3"]):
+            ollama_attack(ctx)
+
+        assert "3. Cracked passwords" in capsys.readouterr().out
+        ctx.hcatOllama.assert_called_once_with(
+            ctx.hcatHashType, str(hash_file), "cracked", str(out_file)
+        )
+
+    def test_cracked_mode_not_offered_when_out_file_missing(
+        self, tmp_path: Path, capsys
+    ) -> None:
+        hash_file = tmp_path / "hashes.txt"
+        hash_file.touch()
+        ctx = _make_ctx(hash_file=str(hash_file))
+
+        with patch("builtins.input", side_effect=["3"]):
+            ollama_attack(ctx)
+
+        out = capsys.readouterr().out
+        assert "3. Cracked passwords" not in out
+        assert "No cracked passwords yet" in out
+        ctx.hcatOllama.assert_not_called()
+
+    def test_cracked_mode_not_offered_when_out_file_empty(
+        self, tmp_path: Path, capsys
+    ) -> None:
+        hash_file = tmp_path / "hashes.txt"
+        hash_file.touch()
+        (tmp_path / "hashes.txt.out").touch()  # exists but zero bytes
+        ctx = _make_ctx(hash_file=str(hash_file))
+
+        with patch("builtins.input", side_effect=["3"]):
+            ollama_attack(ctx)
+
+        out = capsys.readouterr().out
+        assert "3. Cracked passwords" not in out
+        assert "No cracked passwords yet" in out
+        ctx.hcatOllama.assert_not_called()
+
+    def test_target_and_wordlist_modes_unaffected_by_cracked_option(
+        self, tmp_path: Path
+    ) -> None:
+        """Existing modes still work when a cracked file is present."""
+        hash_file = tmp_path / "hashes.txt"
+        hash_file.touch()
+        (tmp_path / "hashes.txt.out").write_text("hash:Summer2024!\n")
+        ctx = _make_ctx(hash_file=str(hash_file))
+
+        with patch("builtins.input", side_effect=["1", "ACME", "tech", "NYC"]):
+            ollama_attack(ctx)
+
+        assert ctx.hcatOllama.call_args[0][2] == "target"
