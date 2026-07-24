@@ -5,13 +5,22 @@ to this module only through ``generate_candidates``.
 """
 
 import instructor
-from openai import OpenAI
+from openai import APITimeoutError, OpenAI
 from pydantic import Field
 
 from atomic_agents import AgentConfig, AtomicAgent, BaseIOSchema
 from atomic_agents.context import SystemPromptGenerator
 
 MAX_CANDIDATE_LEN = 128
+DEFAULT_TIMEOUT_SECONDS = 300.0
+
+
+class LLMTimeoutError(Exception):
+    """The LLM server accepted the request but did not respond in time.
+
+    Raised instead of ``openai.APITimeoutError`` so callers do not need to import
+    ``openai`` themselves.
+    """
 
 
 class GenerationInput(BaseIOSchema):
@@ -93,17 +102,23 @@ def generate_candidates(
     num_ctx: int,
     mode: str,
     context_data: dict,
+    timeout: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> list[str]:
     """Generate password candidates via an Ollama-backed AtomicAgent.
 
+    ``timeout`` is the number of seconds to wait for a generation response before
+    giving up; it bounds the whole request so a server that accepts the
+    connection but never replies (e.g. a large model still loading into VRAM)
+    cannot hang the caller forever.
+
     Returns a deduped, length-capped list of candidate strings (may be empty).
-    Raises ValueError for an unknown mode. Client/connection errors propagate to
-    the caller.
+    Raises ValueError for an unknown mode and LLMTimeoutError if the request
+    exceeds ``timeout``. Other client/connection errors propagate to the caller.
     """
     request = _build_request(mode, context_data)
 
     client = instructor.from_openai(
-        OpenAI(base_url=f"{url}/v1", api_key="ollama"),
+        OpenAI(base_url=f"{url}/v1", api_key="ollama", timeout=timeout),
         mode=instructor.Mode.JSON,
     )
     prompt_generator = _TARGET_PROMPT if mode == "target" else _WORDLIST_PROMPT
@@ -117,7 +132,12 @@ def generate_candidates(
         )
     )
 
-    result = agent.run(GenerationInput(request=request))
+    try:
+        result = agent.run(GenerationInput(request=request))
+    except APITimeoutError as e:
+        raise LLMTimeoutError(
+            f"no response from {url} within {timeout:g} seconds"
+        ) from e
 
     seen: set[str] = set()
     candidates: list[str] = []

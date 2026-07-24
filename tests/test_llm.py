@@ -3,7 +3,9 @@
 import os
 from unittest import mock
 
+import httpx
 import instructor
+import openai
 import pytest
 
 os.environ["HATE_CRACK_SKIP_INIT"] = "1"
@@ -94,8 +96,52 @@ def test_num_ctx_forwarded_via_model_api_parameters():
     assert config.model_api_parameters["extra_body"]["options"]["num_ctx"] == 4096
 
 
-def test_unknown_mode_raises():
-    with pytest.raises(ValueError):
+def test_build_request_rejects_unknown_mode():
+    """Unit test of _build_request's mode validation only — no agent involved."""
+    with pytest.raises(ValueError, match="Unknown LLM generation mode: bogus"):
+        llm._build_request("bogus", {})
+
+
+def test_generate_candidates_rejects_unknown_mode_before_building_client():
+    """generate_candidates surfaces _build_request's ValueError to its caller."""
+    with pytest.raises(ValueError, match="Unknown LLM generation mode: bogus"):
         llm.generate_candidates(
             "http://localhost:11434", "qwen2.5:32b", 2048, "bogus", {},
         )
+
+
+def test_timeout_forwarded_to_openai_client():
+    p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_agent(["x"])
+    with p_instr, p_openai as openai_cls, p_agent:
+        llm.generate_candidates(
+            "http://localhost:11434", "qwen2.5:32b", 2048,
+            "target", {"company": "X", "industry": "Y", "location": "Z"},
+            timeout=42.5,
+        )
+    assert openai_cls.call_args.kwargs["timeout"] == 42.5
+
+
+def test_default_timeout_used_when_omitted():
+    p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_agent(["x"])
+    with p_instr, p_openai as openai_cls, p_agent:
+        llm.generate_candidates(
+            "http://localhost:11434", "qwen2.5:32b", 2048,
+            "target", {"company": "X", "industry": "Y", "location": "Z"},
+        )
+    assert llm.DEFAULT_TIMEOUT_SECONDS == 300.0
+    assert openai_cls.call_args.kwargs["timeout"] == llm.DEFAULT_TIMEOUT_SECONDS
+
+
+def test_api_timeout_reraised_as_domain_error():
+    """openai.APITimeoutError is translated into llm.LLMTimeoutError."""
+    p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_agent(["x"])
+    agent_instance.run.side_effect = openai.APITimeoutError(
+        request=httpx.Request("POST", "http://localhost:11434/v1/chat/completions")
+    )
+    with p_instr, p_openai, p_agent:
+        with pytest.raises(llm.LLMTimeoutError):
+            llm.generate_candidates(
+                "http://localhost:11434", "qwen2.5:32b", 2048,
+                "target", {"company": "X", "industry": "Y", "location": "Z"},
+                timeout=1.0,
+            )

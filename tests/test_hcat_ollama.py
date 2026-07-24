@@ -179,6 +179,48 @@ def test_generation_error_reports_and_aborts(ollama_env, capsys):
     popen.assert_not_called()
 
 
+def test_timeout_error_reports_timeout_guidance(ollama_env, capsys):
+    with ollama_globals(ollama_env.tmp_path), \
+         mock.patch.object(hc_main, "ollamaTimeout", 300.0), \
+         mock.patch("hate_crack.main.llm.generate_candidates",
+                    side_effect=hc_main.llm.LLMTimeoutError("timed out")), \
+         mock.patch("subprocess.Popen") as popen:
+        hc_main.hcatOllama("0", ollama_env.hash_file, "target",
+                           {"company": "X", "industry": "Y", "location": "Z"})
+    captured = capsys.readouterr()
+    assert "timed out" in captured.out.lower()
+    assert "300" in captured.out
+    assert "ollamaTimeout" in captured.out
+    assert "Ensure Ollama is running" not in captured.out
+    popen.assert_not_called()
+    assert not os.path.isfile(f"{ollama_env.hash_file}.ollama_candidates")
+
+
+def test_value_error_reports_message_and_aborts(ollama_env, capsys):
+    """Covers the defensive `except ValueError` handler in hcatOllama."""
+    with ollama_globals(ollama_env.tmp_path), \
+         mock.patch("hate_crack.main.llm.generate_candidates",
+                    side_effect=ValueError("boom")), \
+         mock.patch("subprocess.Popen") as popen:
+        hc_main.hcatOllama("0", ollama_env.hash_file, "target",
+                           {"company": "X", "industry": "Y", "location": "Z"})
+    captured = capsys.readouterr()
+    assert "Error: boom" in captured.out
+    popen.assert_not_called()
+    assert not os.path.isfile(f"{ollama_env.hash_file}.ollama_candidates")
+
+
+def test_timeout_config_forwarded_to_generate_candidates(ollama_env):
+    with ollama_globals(ollama_env.tmp_path), \
+         mock.patch.object(hc_main, "ollamaTimeout", 77.0), \
+         mock.patch("hate_crack.main.llm.generate_candidates",
+                    return_value=["Password1"]) as gen, \
+         mock.patch("subprocess.Popen", return_value=_make_proc()):
+        hc_main.hcatOllama("0", ollama_env.hash_file, "target",
+                           {"company": "X", "industry": "Y", "location": "Z"})
+    assert gen.call_args.kwargs["timeout"] == 77.0
+
+
 def test_unknown_mode_prints_error(ollama_env, capsys):
     with ollama_globals(ollama_env.tmp_path), \
          mock.patch("hate_crack.main.llm.generate_candidates") as gen:
