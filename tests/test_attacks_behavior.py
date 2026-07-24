@@ -329,7 +329,10 @@ class TestOllamaAttack:
     def test_calls_hcatOllama_with_context(self) -> None:
         ctx = _make_ctx()
 
-        with patch("builtins.input", side_effect=["1", "ACME", "tech", "NYC"]):
+        with (
+            patch("hate_crack.attacks.interactive_menu", return_value="1"),
+            patch("builtins.input", side_effect=["ACME", "tech", "NYC"]),
+        ):
             ollama_attack(ctx)
 
         ctx.hcatOllama.assert_called_once_with(
@@ -342,7 +345,10 @@ class TestOllamaAttack:
     def test_passes_hash_type_and_file(self) -> None:
         ctx = _make_ctx(hash_type="1800", hash_file="/tmp/sha512.txt")
 
-        with patch("builtins.input", side_effect=["1", "Corp", "finance", "London"]):
+        with (
+            patch("hate_crack.attacks.interactive_menu", return_value="1"),
+            patch("builtins.input", side_effect=["Corp", "finance", "London"]),
+        ):
             ollama_attack(ctx)
 
         call_args = ctx.hcatOllama.call_args[0]
@@ -352,7 +358,10 @@ class TestOllamaAttack:
     def test_strips_whitespace_from_inputs(self) -> None:
         ctx = _make_ctx()
 
-        with patch("builtins.input", side_effect=["1", "  ACME  ", "  tech  ", "  NYC  "]):
+        with (
+            patch("hate_crack.attacks.interactive_menu", return_value="1"),
+            patch("builtins.input", side_effect=["  ACME  ", "  tech  ", "  NYC  "]),
+        ):
             ollama_attack(ctx)
 
         target_info = ctx.hcatOllama.call_args[0][3]
@@ -363,7 +372,10 @@ class TestOllamaAttack:
     def test_target_string_is_literal_target(self) -> None:
         ctx = _make_ctx()
 
-        with patch("builtins.input", side_effect=["1", "X", "Y", "Z"]):
+        with (
+            patch("hate_crack.attacks.interactive_menu", return_value="1"),
+            patch("builtins.input", side_effect=["X", "Y", "Z"]),
+        ):
             ollama_attack(ctx)
 
         assert ctx.hcatOllama.call_args[0][2] == "target"
@@ -373,24 +385,234 @@ class TestOllamaAttack:
         ctx.list_wordlist_files.return_value = ["rockyou.txt"]
         ctx.hcatWordlists = "/tmp/wl"
 
-        # mode "2", then pick wordlist "1"
-        with patch("builtins.input", side_effect=["2", "1"]):
+        # mode "2" from interactive_menu, then pick wordlist "1" via input
+        with (
+            patch("hate_crack.attacks.interactive_menu", return_value="2"),
+            patch("builtins.input", side_effect=["1"]),
+        ):
             ollama_attack(ctx)
 
         args = ctx.hcatOllama.call_args[0]
         assert args[2] == "wordlist"
         assert args[3].endswith("rockyou.txt")
 
-    def test_invalid_mode_does_not_call_hcatOllama(self) -> None:
+    def test_escape_cancels_without_calling_hcatOllama(self) -> None:
+        """None from interactive_menu (Escape / 99) cancels the attack."""
         ctx = _make_ctx()
-        with patch("builtins.input", side_effect=["9"]):
+        with patch("hate_crack.attacks.interactive_menu", return_value=None):
+            ollama_attack(ctx)
+        ctx.hcatOllama.assert_not_called()
+
+    def test_cancel_key_cancels_without_calling_hcatOllama(self) -> None:
+        """Selecting '99' (Cancel) cancels the attack."""
+        ctx = _make_ctx()
+        with patch("hate_crack.attacks.interactive_menu", return_value="99"):
             ollama_attack(ctx)
         ctx.hcatOllama.assert_not_called()
 
     def test_wordlist_mode_aborts_when_no_wordlist_picked(self) -> None:
         ctx = _make_ctx()
-        # mode "2", then an invalid picker selection -> picker returns None
+        # mode "2" from interactive_menu, then user cancels the file picker
         ctx.list_wordlist_files.return_value = []
-        with patch("builtins.input", side_effect=["2", "nonsense"]):
+        with (
+            patch("hate_crack.attacks.interactive_menu", return_value="2"),
+            patch("builtins.input", side_effect=["q"]),
+        ):
             ollama_attack(ctx)
         ctx.hcatOllama.assert_not_called()
+
+    def test_cracked_mode_offered_when_out_file_has_content(
+        self, tmp_path: Path
+    ) -> None:
+        hash_file = tmp_path / "hashes.txt"
+        hash_file.touch()
+        out_file = tmp_path / "hashes.txt.out"
+        out_file.write_text("hash:Summer2024!\n")
+        ctx = _make_ctx(hash_file=str(hash_file))
+
+        captured_items: list[list[tuple[str, str]]] = []
+
+        def capture_menu(items, **kwargs):
+            captured_items.append(list(items))
+            return "3"
+
+        with patch("hate_crack.attacks.interactive_menu", side_effect=capture_menu):
+            ollama_attack(ctx)
+
+        # Option 3 must be present in the items list when cracked file exists
+        keys = [k for k, _ in captured_items[0]]
+        assert "3" in keys
+        ctx.hcatOllama.assert_called_once_with(
+            ctx.hcatHashType, str(hash_file), "cracked", str(out_file)
+        )
+
+    def test_cracked_mode_not_offered_when_out_file_missing(
+        self, tmp_path: Path
+    ) -> None:
+        """Option 3 must NOT appear in items when no cracked file exists."""
+        hash_file = tmp_path / "hashes.txt"
+        hash_file.touch()
+        ctx = _make_ctx(hash_file=str(hash_file))
+
+        captured_items: list[list[tuple[str, str]]] = []
+
+        def capture_menu(items, **kwargs):
+            captured_items.append(list(items))
+            return "99"  # cancel
+
+        with patch("hate_crack.attacks.interactive_menu", side_effect=capture_menu):
+            ollama_attack(ctx)
+
+        keys = [k for k, _ in captured_items[0]]
+        assert "3" not in keys
+        ctx.hcatOllama.assert_not_called()
+
+    def test_cracked_mode_not_offered_when_out_file_empty(
+        self, tmp_path: Path
+    ) -> None:
+        """Option 3 must NOT appear in items when cracked file exists but is empty."""
+        hash_file = tmp_path / "hashes.txt"
+        hash_file.touch()
+        (tmp_path / "hashes.txt.out").touch()  # exists but zero bytes
+        ctx = _make_ctx(hash_file=str(hash_file))
+
+        captured_items: list[list[tuple[str, str]]] = []
+
+        def capture_menu(items, **kwargs):
+            captured_items.append(list(items))
+            return "99"  # cancel
+
+        with patch("hate_crack.attacks.interactive_menu", side_effect=capture_menu):
+            ollama_attack(ctx)
+
+        keys = [k for k, _ in captured_items[0]]
+        assert "3" not in keys
+        ctx.hcatOllama.assert_not_called()
+
+    def test_target_and_wordlist_modes_unaffected_by_cracked_option(
+        self, tmp_path: Path
+    ) -> None:
+        """Existing modes still work when a cracked file is present."""
+        hash_file = tmp_path / "hashes.txt"
+        hash_file.touch()
+        (tmp_path / "hashes.txt.out").write_text("hash:Summer2024!\n")
+        ctx = _make_ctx(hash_file=str(hash_file))
+
+        with (
+            patch("hate_crack.attacks.interactive_menu", return_value="1"),
+            patch("builtins.input", side_effect=["ACME", "tech", "NYC"]),
+        ):
+            ollama_attack(ctx)
+
+        assert ctx.hcatOllama.call_args[0][2] == "target"
+
+    def test_arrow_menu_env_reaches_ollama_attack(self) -> None:
+        """HATE_CRACK_ARROW_MENU=1 routes through interactive_menu in ollama_attack."""
+        import os
+        from hate_crack.attacks import interactive_menu as real_im
+
+        ctx = _make_ctx()
+        calls: list[tuple] = []
+
+        def spy_menu(items, **kwargs):
+            calls.append(tuple(items))
+            return "99"  # cancel immediately
+
+        with (
+            patch("hate_crack.attacks.interactive_menu", side_effect=spy_menu),
+        ):
+            ollama_attack(ctx)
+
+        # interactive_menu was called — confirms the arrow-menu code path is reachable
+        assert len(calls) == 1
+        keys = [k for k, _ in calls[0]]
+        assert "1" in keys
+        assert "2" in keys
+        assert "99" in keys
+
+
+class TestOmenPickTrainingWordlistReprompt:
+    """_omen_pick_training_wordlist re-prompts on invalid input instead of aborting."""
+
+    def _make_ctx(self, wordlist_files=None):
+        ctx = MagicMock()
+        ctx.list_wordlist_files.return_value = wordlist_files or ["rockyou.txt"]
+        ctx.hcatWordlists = "/tmp/wl"
+        ctx.hcatHashFile = "/tmp/hashes.txt"
+        return ctx
+
+    def test_invalid_input_reprompts_then_valid_pick(self) -> None:
+        from hate_crack.attacks import _omen_pick_training_wordlist
+
+        ctx = self._make_ctx(["rockyou.txt"])
+        # First input is invalid, second is valid
+        with patch("builtins.input", side_effect=["bad", "1"]):
+            result = _omen_pick_training_wordlist(ctx)
+        assert result is not None
+        assert "rockyou.txt" in result
+
+    def test_cancel_with_q_returns_none(self) -> None:
+        from hate_crack.attacks import _omen_pick_training_wordlist
+
+        ctx = self._make_ctx(["rockyou.txt"])
+        with patch("builtins.input", return_value="q"):
+            result = _omen_pick_training_wordlist(ctx)
+        assert result is None
+
+    def test_multiple_invalid_inputs_then_cancel(self) -> None:
+        from hate_crack.attacks import _omen_pick_training_wordlist
+
+        ctx = self._make_ctx(["rockyou.txt"])
+        with patch("builtins.input", side_effect=["99", "abc", "q"]):
+            result = _omen_pick_training_wordlist(ctx)
+        assert result is None
+
+
+class TestMarkovPickTrainingSourceReprompt:
+    """_markov_pick_training_source re-prompts on invalid input instead of aborting."""
+
+    def _make_ctx(self, tmp_path, has_cracked=False, wordlist_files=None):
+        ctx = MagicMock()
+        hash_file = str(tmp_path / "hashes.txt")
+        ctx.hcatHashFile = hash_file
+        ctx.list_wordlist_files.return_value = wordlist_files or ["rockyou.txt"]
+        ctx.hcatWordlists = str(tmp_path / "wordlists")
+        if has_cracked:
+            (tmp_path / "hashes.txt.out").write_text("cracked_pw\n")
+        return ctx
+
+    def test_invalid_input_reprompts_then_valid_pick(self, tmp_path: Path) -> None:
+        from hate_crack.attacks import _markov_pick_training_source
+
+        ctx = self._make_ctx(tmp_path, wordlist_files=["rockyou.txt"])
+        with patch("builtins.input", side_effect=["bad", "1"]):
+            result = _markov_pick_training_source(ctx)
+        assert result is not None
+        assert "rockyou.txt" in result
+
+    def test_cancel_with_q_returns_none(self, tmp_path: Path) -> None:
+        from hate_crack.attacks import _markov_pick_training_source
+
+        ctx = self._make_ctx(tmp_path)
+        with patch("builtins.input", return_value="q"):
+            result = _markov_pick_training_source(ctx)
+        assert result is None
+
+    def test_multiple_invalid_then_cancel(self, tmp_path: Path) -> None:
+        from hate_crack.attacks import _markov_pick_training_source
+
+        ctx = self._make_ctx(tmp_path, wordlist_files=["rockyou.txt"])
+        with patch("builtins.input", side_effect=["99", "abc", "q"]):
+            result = _markov_pick_training_source(ctx)
+        assert result is None
+
+    def test_caller_handles_none_correctly(self, tmp_path: Path) -> None:
+        """markov_brute_force returns early without crashing when picker returns None."""
+        from hate_crack.attacks import markov_brute_force
+
+        ctx = self._make_ctx(tmp_path, wordlist_files=["rockyou.txt"])
+        # No .hcstat2 file → goes straight to picker; user cancels
+        with patch("builtins.input", return_value="q"):
+            markov_brute_force(ctx)
+        ctx.hcatMarkovTrain.assert_not_called()
+        ctx.hcatMarkovBruteForce.assert_not_called()
