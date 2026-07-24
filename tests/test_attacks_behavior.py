@@ -329,7 +329,7 @@ class TestOllamaAttack:
     def test_calls_hcatOllama_with_context(self) -> None:
         ctx = _make_ctx()
 
-        with patch("builtins.input", side_effect=["ACME", "tech", "NYC"]):
+        with patch("builtins.input", side_effect=["1", "ACME", "tech", "NYC"]):
             ollama_attack(ctx)
 
         ctx.hcatOllama.assert_called_once_with(
@@ -342,7 +342,7 @@ class TestOllamaAttack:
     def test_passes_hash_type_and_file(self) -> None:
         ctx = _make_ctx(hash_type="1800", hash_file="/tmp/sha512.txt")
 
-        with patch("builtins.input", side_effect=["Corp", "finance", "London"]):
+        with patch("builtins.input", side_effect=["1", "Corp", "finance", "London"]):
             ollama_attack(ctx)
 
         call_args = ctx.hcatOllama.call_args[0]
@@ -352,7 +352,7 @@ class TestOllamaAttack:
     def test_strips_whitespace_from_inputs(self) -> None:
         ctx = _make_ctx()
 
-        with patch("builtins.input", side_effect=["  ACME  ", "  tech  ", "  NYC  "]):
+        with patch("builtins.input", side_effect=["1", "  ACME  ", "  tech  ", "  NYC  "]):
             ollama_attack(ctx)
 
         target_info = ctx.hcatOllama.call_args[0][3]
@@ -363,7 +363,34 @@ class TestOllamaAttack:
     def test_target_string_is_literal_target(self) -> None:
         ctx = _make_ctx()
 
-        with patch("builtins.input", side_effect=["X", "Y", "Z"]):
+        with patch("builtins.input", side_effect=["1", "X", "Y", "Z"]):
             ollama_attack(ctx)
 
         assert ctx.hcatOllama.call_args[0][2] == "target"
+
+    def test_wordlist_mode_calls_hcatOllama_with_path(self) -> None:
+        ctx = _make_ctx()
+        ctx.list_wordlist_files.return_value = ["rockyou.txt"]
+        ctx.hcatWordlists = "/tmp/wl"
+
+        # mode "2", then pick wordlist "1"
+        with patch("builtins.input", side_effect=["2", "1"]):
+            ollama_attack(ctx)
+
+        args = ctx.hcatOllama.call_args[0]
+        assert args[2] == "wordlist"
+        assert args[3].endswith("rockyou.txt")
+
+    def test_invalid_mode_does_not_call_hcatOllama(self) -> None:
+        ctx = _make_ctx()
+        with patch("builtins.input", side_effect=["9"]):
+            ollama_attack(ctx)
+        ctx.hcatOllama.assert_not_called()
+
+    def test_wordlist_mode_aborts_when_no_wordlist_picked(self) -> None:
+        ctx = _make_ctx()
+        # mode "2", then an invalid picker selection -> picker returns None
+        ctx.list_wordlist_files.return_value = []
+        with patch("builtins.input", side_effect=["2", "nonsense"]):
+            ollama_attack(ctx)
+        ctx.hcatOllama.assert_not_called()

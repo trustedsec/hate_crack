@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [2.12.0] - 2026-07-24
+
+### Changed
+
+- **LLM attack now uses the Atomic Agents framework** for structured (JSON) candidate
+  generation instead of raw HTTP + regex line-parsing. Candidate generation lives in the
+  new `hate_crack/llm.py` module.
+- **Default Ollama model is now `qwen2.5:32b`** (was `mistral`), chosen for reliable
+  structured-output adherence.
+
+### Added
+
+- **Wordlist (denylist) generation mode** for the LLM attack is now reachable from the
+  menu: select the LLM attack (option 12), then choose "Wordlist" to derive basewords from
+  a sample wordlist.
+
+### Fixed
+
+- **The LLM attack no longer hangs forever waiting on Ollama.** Generation requests are now
+  bounded by a configurable timeout (`ollamaTimeout` in `config.json`, default 300 seconds).
+  Previously, if Ollama accepted the connection but never replied — most commonly a large
+  model still loading into VRAM — hate_crack sat at a frozen prompt with no recourse but
+  Ctrl-C. When the timeout fires you now get a specific message naming the elapsed timeout
+  and the setting to raise, instead of a misleading "ensure Ollama is running" hint.
+
+### Removed
+
+- **Automatic model pulling.** hate_crack no longer pulls missing Ollama models; pull them
+  yourself with `ollama pull <model>`.
+
 ## [2.11.4] - 2026-07-24
 
 ### Added
