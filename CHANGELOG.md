@@ -22,9 +22,37 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 - **Wordlist (denylist) generation mode** for the LLM attack is now reachable from the
   menu: select the LLM attack (option 12), then choose "Wordlist" to derive basewords from
   a sample wordlist.
+- **Cracked-password generation mode** for the LLM attack. Once a session has recovered
+  plaintexts, option 3 feeds them back to the model, which infers the organization's own
+  password conventions and generates new candidates in that style. Offered only when
+  `<hashfile>.out` has content, and it uses a dedicated prompt that tells the model not to
+  re-emit passwords already cracked.
+- **Target research pre-fills the industry and location prompts.** In target mode, entering
+  the company name asks the local model to recall that organization's industry and location,
+  then offers them as editable defaults (Enter accepts, typing overrides). Values are
+  labelled as model guesses rather than verified OSINT, whitespace-collapsed, and capped at
+  80 characters. Research runs entirely against the configured local Ollama server, so the
+  client name is never sent to a third party. Any failure or timeout falls back to blank
+  prompts and never blocks the attack. Disable with `ollamaAutoResearch: false`.
+- **Live progress spinner** with an elapsed-seconds counter during Ollama generation, so a
+  model loading into VRAM is distinguishable from a hang. Automatically suppressed when
+  stdout is not a TTY.
+- **`ollamaMaxSampleLines`** (default 500) caps how many sample passwords are sent to the
+  model, for both wordlist and cracked-password modes.
 
 ### Fixed
 
+- **A large sample wordlist no longer stalls the LLM attack.** Wordlist mode read every line
+  into memory and pasted all of them into the prompt, so pointing it at `rockyou.txt`
+  materialized hundreds of megabytes and overran the model's context window — which looked
+  like a hang. The file is now streamed and evenly sampled across its whole length, and the
+  count actually used is reported (`Sampled 500 of 14,344,391 passwords from wordlist.`).
+- **`HATE_CRACK_ARROW_MENU=1` now works in the LLM and OMEN submenus.** They hand-rolled
+  `print()` + `input()` instead of the shared menu helper, so arrow-key navigation silently
+  did nothing there.
+- **A typo in a wordlist or generation-mode prompt no longer aborts the whole attack.** The
+  pickers and submenus re-prompt instead of dropping back to the main menu, and offer an
+  explicit cancel.
 - **The LLM attack no longer hangs forever waiting on Ollama.** Generation requests are now
   bounded by a configurable timeout (`ollamaTimeout` in `config.json`, default 300 seconds).
   Previously, if Ollama accepted the connection but never replied — most commonly a large

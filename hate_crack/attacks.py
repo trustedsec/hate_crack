@@ -7,6 +7,7 @@ from typing import Any
 from hate_crack import notify as _notify
 from hate_crack.api import download_hashmob_rules
 from hate_crack.formatting import print_multicolumn_list
+from hate_crack.llm import clean_research_field
 from hate_crack.menu import interactive_menu
 
 
@@ -510,35 +511,99 @@ def bandrel_method(ctx: Any) -> None:
     ctx.hcatBandrel(ctx.hcatHashType, ctx.hcatHashFile)
 
 
+def _research_target_suggestions(ctx: Any, company: str) -> dict[str, str]:
+    """Ask the local model for industry/location suggestions for *company*.
+
+    Returns a dict of cleaned suggestion strings (values may be ''). Research is
+    a convenience only, so any failure is swallowed here as well as in
+    ``hcatOllamaResearchTarget``: the operator still gets blank prompts and the
+    attack proceeds.
+    """
+    if not company:
+        return {}
+
+    try:
+        raw = ctx.hcatOllamaResearchTarget(company)
+    except Exception as e:
+        print(f"Note: target research unavailable ({e}) — enter the details manually.")
+        return {}
+
+    suggestions = {}
+    if isinstance(raw, dict):
+        for key in ("industry", "location"):
+            value = clean_research_field(raw.get(key, ""))
+            if value:
+                suggestions[key] = value
+
+    if suggestions:
+        print(
+            "\n[!] The values in parentheses below are the local model's GUESSES, "
+            "not verified OSINT."
+        )
+        print("    Press Enter to accept, or type your own value to override.")
+    return suggestions
+
+
+def _prompt_with_default(label: str, default: Any) -> str:
+    """Prompt for *label*, showing *default* in parentheses when there is one."""
+    suggestion = clean_research_field(default)
+    if suggestion:
+        return input(f"{label} ({suggestion}): ").strip() or suggestion
+    return input(f"{label}: ").strip()
+
+
 def ollama_attack(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("LLM")
-    print("\n\tLLM Attack")
-    print("\t1. Target info (company / industry / location)")
-    print("\t2. Wordlist (generate basewords from a sample wordlist)")
-    choice = input("\n\tSelect generation mode: ").strip()
+    # Cracked-password mode is only offered when this session actually has
+    # plaintexts to learn from, matching _markov_pick_training_source.
+    out_path = f"{ctx.hcatHashFile}.out"
+    has_cracked = os.path.isfile(out_path) and os.path.getsize(out_path) > 0
 
-    if choice == "1":
-        company = input("Company name: ").strip()
-        industry = input("Industry: ").strip()
-        location = input("Location: ").strip()
-        ctx.hcatOllama(
-            ctx.hcatHashType,
-            ctx.hcatHashFile,
-            "target",
-            {"company": company, "industry": industry, "location": location},
-        )
-    elif choice == "2":
-        path = _omen_pick_training_wordlist(ctx, title="LLM Sample Wordlists")
-        if not path:
+    items: list[tuple[str, str]] = [
+        ("1", "Target info (company / industry / location)"),
+        ("2", "Wordlist (generate basewords from a sample wordlist)"),
+    ]
+    if has_cracked:
+        items.append(("3", "Cracked passwords (current session)"))
+    items.append(("99", "Cancel"))
+
+    while True:
+        choice = interactive_menu(items, title="\nLLM Attack", prompt="\n\tSelect generation mode: ")
+        if choice is None or choice == "99":
             return
-        ctx.hcatOllama(ctx.hcatHashType, ctx.hcatHashFile, "wordlist", path)
-    else:
-        print("\t[!] Invalid selection.")
+        if choice == "1":
+            company = input("Company name: ").strip()
+            suggestions = _research_target_suggestions(ctx, company)
+            industry = _prompt_with_default("Industry", suggestions.get("industry"))
+            location = _prompt_with_default("Location", suggestions.get("location"))
+            ctx.hcatOllama(
+                ctx.hcatHashType,
+                ctx.hcatHashFile,
+                "target",
+                {"company": company, "industry": industry, "location": location},
+            )
+            return
+        elif choice == "2":
+            path = _omen_pick_training_wordlist(ctx, title="LLM Sample Wordlists")
+            if not path:
+                return
+            ctx.hcatOllama(ctx.hcatHashType, ctx.hcatHashFile, "wordlist", path)
+            return
+        elif choice == "3" and has_cracked:
+            ctx.hcatOllama(ctx.hcatHashType, ctx.hcatHashFile, "cracked", out_path)
+            return
+        else:
+            # Without this the menu just silently redraws and the user cannot
+            # tell a rejected key from a repainted prompt.
+            print("\t[!] Invalid selection.")
 
 
 def _omen_pick_training_wordlist(ctx: Any, title: str = "Training Wordlists"):
-    """Show wordlist picker. Returns path or None."""
+    """Show wordlist picker. Returns path or None (user cancelled with 'q')."""
     wordlist_files = ctx.list_wordlist_files(ctx.hcatWordlists)
+    # Print the grid once, outside the retry loop: a wordlists directory can
+    # hold dozens of entries, and repainting the whole thing after every typo
+    # buries the error message.
     if wordlist_files:
         entries = [f"{i}) {f}" for i, f in enumerate(wordlist_files, start=1)]
         max_len = max((len(e) for e in entries), default=24)
@@ -549,18 +614,21 @@ def _omen_pick_training_wordlist(ctx: Any, title: str = "Training Wordlists"):
             max_col_width=max_len,
         )
     print("\tp. Enter a custom path")
-    sel = input("\n\tSelect wordlist: ").strip()
-    if sel.lower() == "p":
-        path = input("\n\tPath to wordlist: ").strip()
-        return path if path else None
-    try:
-        idx = int(sel)
-        if 1 <= idx <= len(wordlist_files):
-            return os.path.join(ctx.hcatWordlists, wordlist_files[idx - 1])
-    except (ValueError, IndexError):
-        pass
-    print("\t[!] Invalid selection.")
-    return None
+    print("\tq. Cancel")
+    while True:
+        sel = input("\n\tSelect wordlist: ").strip()
+        if sel.lower() == "q":
+            return None
+        if sel.lower() == "p":
+            path = input("\n\tPath to wordlist: ").strip()
+            return path if path else None
+        try:
+            idx = int(sel)
+            if 1 <= idx <= len(wordlist_files):
+                return os.path.join(ctx.hcatWordlists, wordlist_files[idx - 1])
+        except (ValueError, IndexError):
+            pass
+        print("\t[!] Invalid selection.")
 
 
 def omen_attack(ctx: Any) -> None:
@@ -582,16 +650,20 @@ def omen_attack(ctx: Any) -> None:
         info = ctx._omen_model_info(model_dir)
         trained_with = info.get("training_file", "unknown") if info else "unknown"
         print(f"\n\tOMEN model found (trained with: {trained_with})")
-        print("\t1. Use existing model")
-        print("\t2. Train new model (overwrites existing)")
-        print("\t3. Cancel")
-        choice = input("\n\tChoice: ").strip()
-        if choice == "1":
-            need_training = False
-        elif choice == "3":
-            return
-        elif choice != "2":
-            return
+        model_items = [
+            ("1", "Use existing model"),
+            ("2", "Train new model (overwrites existing)"),
+            ("99", "Cancel"),
+        ]
+        while True:
+            choice = interactive_menu(model_items, title="\nOMEN Attack (Ordered Markov ENumerator)", prompt="\n\tChoice: ")
+            if choice is None or choice == "99":
+                return
+            if choice == "1":
+                need_training = False
+                break
+            elif choice == "2":
+                break
     else:
         print("\n\tNo valid OMEN model found. Training is required.")
 
@@ -618,11 +690,12 @@ def omen_attack(ctx: Any) -> None:
 
 
 def _markov_pick_training_source(ctx: Any):
-    """Prompt user to select markov training source. Returns file path or None."""
+    """Prompt user to select markov training source. Returns file path or None (user cancelled with 'q')."""
     out_path = f"{ctx.hcatHashFile}.out"
     has_cracked = os.path.isfile(out_path) and os.path.getsize(out_path) > 0
 
     wordlist_files = ctx.list_wordlist_files(ctx.hcatWordlists)
+    # Print the grid once, outside the retry loop — see _omen_pick_training_wordlist.
     entries = []
     if has_cracked:
         entries.append("0) Cracked passwords (current session)")
@@ -636,20 +709,23 @@ def _markov_pick_training_source(ctx: Any):
             max_col_width=max_len,
         )
     print("\tp. Enter a custom path")
-    sel = input("\n\tSelect training source: ").strip()
-    if sel == "0" and has_cracked:
-        return out_path
-    if sel.lower() == "p":
-        path = input("\n\tPath to training file: ").strip()
-        return path if path else None
-    try:
-        idx = int(sel)
-        if 1 <= idx <= len(wordlist_files):
-            return os.path.join(ctx.hcatWordlists, wordlist_files[idx - 1])
-    except (ValueError, IndexError):
-        pass
-    print("\t[!] Invalid selection.")
-    return None
+    print("\tq. Cancel")
+    while True:
+        sel = input("\n\tSelect training source: ").strip()
+        if sel.lower() == "q":
+            return None
+        if sel == "0" and has_cracked:
+            return out_path
+        if sel.lower() == "p":
+            path = input("\n\tPath to training file: ").strip()
+            return path if path else None
+        try:
+            idx = int(sel)
+            if 1 <= idx <= len(wordlist_files):
+                return os.path.join(ctx.hcatWordlists, wordlist_files[idx - 1])
+        except (ValueError, IndexError):
+            pass
+        print("\t[!] Invalid selection.")
 
 
 def adhoc_mask_crack(ctx: Any) -> None:
@@ -719,7 +795,7 @@ def combipow_crack(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("Combipow")
     wordlist = None
     while wordlist is None:
-        path = input("\n[*] Enter path to wordlist (max 63 lines recommended): ").strip()
+        path = input("\nEnter path to wordlist (max 63 lines recommended): ").strip()
         if not path:
             continue
         if not os.path.isfile(path):
@@ -737,7 +813,7 @@ def combipow_crack(ctx: Any) -> None:
                 f"[*] Warning: {line_count} lines will generate a large number of combinations."
             )
         wordlist = path
-    use_space_sep = input("[*] Add spaces between words? (Y/n): ").strip().lower() != "n"
+    use_space_sep = input("\nAdd spaces between words? (Y/n): ").strip().lower() != "n"
     ctx.hcatCombipow(ctx.hcatHashType, ctx.hcatHashFile, wordlist, use_space_sep)
 
 
@@ -837,7 +913,7 @@ def ngram_attack(ctx: Any) -> None:
         print("No corpus selected. Aborting ngram attack.")
         return
 
-    group_size_raw = input("\nEnter n-gram group size (default 3): ").strip()
+    group_size_raw = input("\nEnter n-gram group size (3): ").strip()
     try:
         group_size = int(group_size_raw) if group_size_raw else 3
     except ValueError:
@@ -1042,8 +1118,8 @@ def wordlist_filter_length(ctx: Any) -> None:
     if not outfile:
         print("[!] Output path cannot be empty.")
         return
-    min_len = int(input("[*] Minimum length: ").strip() or "0")
-    max_len = int(input("[*] Maximum length: ").strip() or "0")
+    min_len = int(input("Minimum length: ").strip() or "0")
+    max_len = int(input("Maximum length: ").strip() or "0")
     if ctx.wordlist_filter_len(infile, outfile, min_len, max_len):
         print(f"\n[*] Filtered wordlist written to: {outfile}")
     else:
@@ -1063,7 +1139,7 @@ def wordlist_filter_charclass_include(ctx: Any) -> None:
         print("[!] Output path cannot be empty.")
         return
     print("[*] Char class mask: 1=lowercase, 2=uppercase, 4=digit, 8=symbol (additive, e.g. 3=lower+upper)")
-    mask = int(input("[*] Enter mask value: ").strip() or "0")
+    mask = int(input("Mask value: ").strip() or "0")
     if ctx.wordlist_filter_req_include(infile, outfile, mask):
         print(f"\n[*] Filtered wordlist written to: {outfile}")
     else:
@@ -1083,7 +1159,7 @@ def wordlist_filter_charclass_exclude(ctx: Any) -> None:
         print("[!] Output path cannot be empty.")
         return
     print("[*] Char class mask: 1=lowercase, 2=uppercase, 4=digit, 8=symbol (additive)")
-    mask = int(input("[*] Enter mask value: ").strip() or "0")
+    mask = int(input("Mask value: ").strip() or "0")
     if ctx.wordlist_filter_req_exclude(infile, outfile, mask):
         print(f"\n[*] Filtered wordlist written to: {outfile}")
     else:
@@ -1102,8 +1178,8 @@ def wordlist_cut_substring(ctx: Any) -> None:
     if not outfile:
         print("[!] Output path cannot be empty.")
         return
-    offset = int(input("[*] Byte offset to start from: ").strip() or "0")
-    raw_length = input("[*] Length (leave blank for rest of line): ").strip()
+    offset = int(input("Byte offset to start from: ").strip() or "0")
+    raw_length = input("Length (leave blank for rest of line): ").strip()
     length = int(raw_length) if raw_length else None
     if ctx.wordlist_cutb(infile, outfile, offset, length):
         print(f"\n[*] Output written to: {outfile}")
@@ -1135,7 +1211,7 @@ def wordlist_subtract_words(ctx: Any) -> None:
     print("\n[*] Subtract mode:")
     print("    1. Single remove file (rli2 - faster for one file)")
     print("    2. Multiple remove files (rli)")
-    mode = input("[*] Choose mode (1/2): ").strip()
+    mode = input("Choose mode (1/2): ").strip()
 
     if mode == "1":
         infile = ctx.select_file_with_autocomplete(
@@ -1198,7 +1274,7 @@ def wordlist_shard(ctx: Any) -> None:
     if not outbase:
         print("[!] Output path cannot be empty.")
         return
-    mod = int(input("[*] Shard count (e.g. 4 to split into 4 parts): ").strip() or "0")
+    mod = int(input("Shard count (e.g. 4 to split into 4 parts): ").strip() or "0")
     if mod < 2:
         print("[!] Shard count must be at least 2.")
         return
