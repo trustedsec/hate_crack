@@ -21,8 +21,6 @@ import subprocess
 import shlex
 import time
 import argparse
-import urllib.request
-import urllib.error
 import contextlib
 import gzip
 import lzma
@@ -75,6 +73,7 @@ from hate_crack.cli import (  # noqa: E402
     setup_logging,
 )
 from hate_crack import attacks as _attacks  # noqa: E402
+from hate_crack import llm  # noqa: E402
 from hate_crack.menu import interactive_menu  # noqa: E402
 from hate_crack.username_detect import detect_username_hash_format  # noqa: E402
 
@@ -451,8 +450,9 @@ hcatGoodMeasureBaseList = config_parser["hcatGoodMeasureBaseList"]
 hcatDebugLogPath = os.path.expanduser(config_parser["hcatDebugLogPath"])
 
 ollamaUrl = "http://" + os.environ.get("OLLAMA_HOST", "localhost:11434")
-ollamaModel = config_parser.get("ollamaModel", "mistral")
+ollamaModel = config_parser.get("ollamaModel", "qwen2.5:32b")
 ollamaNumCtx = int(config_parser.get("ollamaNumCtx", 2048))
+ollamaTimeout = float(config_parser.get("ollamaTimeout", 300))
 
 omenTrainingList = config_parser.get("omenTrainingList", "rockyou.txt")
 omenMaxCandidates = int(config_parser.get("omenMaxCandidates", 1000000))
@@ -2036,49 +2036,11 @@ def hcatBandrel(hcatHashType, hcatHashFile):
         _run_hcat_cmd(cmd, attack_name="Bandrel", hash_file=hcatHashFile)
 
 
-# Pull an Ollama model via the /api/pull streaming endpoint
-def _pull_ollama_model(url, model):
-    """Pull an Ollama model. Returns True on success, False on failure."""
-    print(f"Model '{model}' not found locally. Pulling from Ollama...")
-    pull_url = f"{url}/api/pull"
-    payload = json.dumps({"name": model, "stream": True}).encode("utf-8")
-    req = urllib.request.Request(
-        pull_url,
-        data=payload,
-        headers={"Content-Type": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(req) as resp:
-            for raw_line in resp:
-                line = raw_line.decode("utf-8", errors="replace").strip()
-                if not line:
-                    continue
-                try:
-                    data = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                status = data.get("status")
-                if status:
-                    print(f"  {status}")
-    except urllib.error.HTTPError as e:
-        print(f"Error pulling model: HTTP {e.code}")
-        return False
-    except urllib.error.URLError as e:
-        print(f"Error: Could not connect to Ollama: {e}")
-        return False
-    except Exception as e:
-        print(f"Error pulling model: {e}")
-        return False
-    print(f"Successfully pulled model '{model}'.")
-    return True
-
-
 # LLM Ollama Attack
 def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
-    global hcatProcess
     candidates_path = f"{hcatHashFile}.ollama_candidates"
 
-    # Step A: Build LLM prompt based on mode
+    # Step A: normalize context into the dict generate_candidates expects.
     if mode == "wordlist":
         wordlist_path = context_data
         if not os.path.isfile(wordlist_path):
@@ -2091,7 +2053,7 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
                     stripped = line.strip()
                     if not stripped:
                         continue
-                    # Use only content after the first colon (e.g. hash:password -> password)
+                    # hash:password -> password
                     if ":" in stripped:
                         stripped = stripped.split(":", 1)[1]
                     if stripped:
@@ -2100,107 +2062,43 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
             print(f"Error reading wordlist: {e}")
             return
         print(f"Loaded {len(lines)} passwords from wordlist.")
-        wordlist_sample = "\n".join(lines)
-        prompt = (
-            "Generate baseword to be used in a denylist for keeping users from setting their passwords with these basewords."
-            "Study the patterns, character choices, and structures. Focus on patterns like capitalization, leetspeak, suffixes, and common substitutions. Here are the sample passwords:\n"
-            f"{wordlist_sample}"
-        )
+        gen_context = {"sample": "\n".join(lines)}
     elif mode == "target":
-        company = context_data.get("company", "")
-        industry = context_data.get("industry", "")
-        location = context_data.get("location", "")
-        prompt = (
-            "You are participating in a capture the flag event as a security professional. "
-            "You are my partner in the competition. You need to recover the password to a system to retrieve the flag. "
-            "Output as many possible password combinations you think might help us. "
-            f"The name of the fake company is {company}. They are a {industry} in {location}. "
-            "Use terms related to the industry as basewords and also use permutations of the company name combined with common suffixes. "
-            "Only output the candidate password each on a new line. Dont output any explanation. "
-            "Only output the password candidate. Do not number the lines or add any extra information to the output"
-        )
+        gen_context = context_data
     else:
         print(f"Error: Unknown LLM generation mode: {mode}")
         return
 
-    # Step B: Call Ollama API to generate candidates
+    # Step B: generate candidates via the Atomic Agents module.
     print(f"Generating password candidates via Ollama ({ollamaModel})...")
-    api_url = f"{ollamaUrl}/api/generate"
-    payload = json.dumps(
-        {
-            "model": ollamaModel,
-            "prompt": prompt,
-            "stream": False,
-            "options": {"num_ctx": ollamaNumCtx},
-        }
-    ).encode("utf-8")
-
-    if debug_mode:
-        print(f"[DEBUG] Ollama API URL: {api_url}")
-        print(f"[DEBUG] Ollama request payload: {payload.decode('utf-8')}")
-
     try:
-        req = urllib.request.Request(
-            api_url,
-            data=payload,
-            headers={"Content-Type": "application/json"},
+        candidates = llm.generate_candidates(
+            ollamaUrl,
+            ollamaModel,
+            ollamaNumCtx,
+            mode,
+            gen_context,
+            timeout=ollamaTimeout,
         )
-        with urllib.request.urlopen(req, timeout=600) as resp:
-            result = json.loads(resp.read().decode("utf-8"))
-        if debug_mode:
-            print(f"[DEBUG] Ollama response: {json.dumps(result, indent=2)}")
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            if _pull_ollama_model(ollamaUrl, ollamaModel):
-                try:
-                    req = urllib.request.Request(
-                        api_url,
-                        data=payload,
-                        headers={"Content-Type": "application/json"},
-                    )
-                    with urllib.request.urlopen(req, timeout=600) as resp:
-                        result = json.loads(resp.read().decode("utf-8"))
-                    if debug_mode:
-                        print(
-                            f"[DEBUG] Ollama response (after pull): {json.dumps(result, indent=2)}"
-                        )
-                except Exception as retry_err:
-                    print(f"Error calling Ollama API after pull: {retry_err}")
-                    return
-            else:
-                print(f"Could not pull model '{ollamaModel}'. Aborting LLM attack.")
-                return
-        else:
-            print(f"Error: Could not connect to Ollama at {ollamaUrl}: {e}")
-            print("Ensure Ollama is running (ollama serve) and try again.")
-            return
-    except urllib.error.URLError as e:
-        print(f"Error: Could not connect to Ollama at {ollamaUrl}: {e}")
-        print("Ensure Ollama is running (ollama serve) and try again.")
+    except llm.LLMTimeoutError:
+        print(f"Error: the Ollama request timed out after {ollamaTimeout:g} seconds.")
+        print(
+            f"The model ({ollamaModel}) may still be loading into VRAM. Retry, or "
+            'raise "ollamaTimeout" in config.json to wait longer.'
+        )
+        return
+    except ValueError as e:
+        # Defensive: mode is already validated above, but keep an explicit,
+        # non-misleading message if generate_candidates ever rejects its input.
+        print(f"Error: {e}")
         return
     except Exception as e:
-        print(f"Error calling Ollama API: {e}")
-        return
-
-    response_text = result.get("response", "")
-    if "I'm sorry, but I can't help with that" in response_text:
+        print(f"Error generating candidates: {e}")
         print(
-            "Error: Ollama refused the request. Try a different model or adjust your prompt."
+            "Ensure Ollama is running (ollama serve) and the model is pulled "
+            f"(ollama pull {ollamaModel})."
         )
         return
-    raw_lines = response_text.strip().split("\n")
-    # Filter out blank lines and lines that look like numbering/explanation
-    candidates = []
-    for line in raw_lines:
-        stripped = line.strip()
-        if not stripped:
-            continue
-        # Strip leading numbering like "1. " or "1) " or "- "
-        cleaned = re.sub(r"^\d+[.)]\s*", "", stripped)
-        cleaned = re.sub(r"^[-*]\s*", "", cleaned)
-        cleaned = cleaned.strip()
-        if cleaned and len(cleaned) <= 128:
-            candidates.append(cleaned)
 
     if not candidates:
         print("Error: Ollama returned no usable password candidates.")
@@ -2215,13 +2113,8 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
         return
 
     print(f"Generated {len(candidates)} password candidates -> {candidates_path}")
-    if debug_mode:
-        filtered_count = len(raw_lines) - len(candidates)
-        print(
-            f"[DEBUG] Filtered out {filtered_count} lines from Ollama response ({len(raw_lines)} raw -> {len(candidates)} candidates)"
-        )
 
-    # Step C: Run hashcat wordlist attack with LLM-generated candidates (no rules)
+    # Step C: hashcat wordlist attack with the generated candidates (no rules).
     print("Running wordlist attack with LLM-generated candidates...")
     cmd = [
         hcatBin,
@@ -2246,7 +2139,7 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
     except KeyboardInterrupt:
         return
 
-    # Step D: Run hashcat with LLM candidates against every rule in the rules directory
+    # Step D: hashcat with candidates against every rule in the rules directory.
     rule_files = sorted(f for f in os.listdir(rulesDirectory) if f != ".DS_Store")
     if not rule_files:
         print("No rule files found in rules directory. Skipping rule-based attacks.")
