@@ -7,21 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
-## [2.12.0] - 2026-07-24
-
-### Changed
-
-- **LLM attack now uses the Atomic Agents framework** for structured (JSON) candidate
-  generation instead of raw HTTP + regex line-parsing. Candidate generation lives in the
-  new `hate_crack/llm.py` module.
-- **Default Ollama model is now `qwen2.5:32b`** (was `mistral`), chosen for reliable
-  structured-output adherence.
+## [2.13.0] - 2026-07-24
 
 ### Added
 
-- **Wordlist (denylist) generation mode** for the LLM attack is now reachable from the
-  menu: select the LLM attack (option 12), then choose "Wordlist" to derive basewords from
-  a sample wordlist.
 - **Cracked-password generation mode** for the LLM attack. Once a session has recovered
   plaintexts, option 3 feeds them back to the model, which infers the organization's own
   password conventions and generates new candidates in that style. Offered only when
@@ -31,9 +20,9 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   the company name asks the local model to recall that organization's industry and location,
   then offers them as editable defaults (Enter accepts, typing overrides). Values are
   labelled as model guesses rather than verified OSINT, whitespace-collapsed, and capped at
-  80 characters. Research runs entirely against the configured local Ollama server, so the
-  client name is never sent to a third party. Any failure or timeout falls back to blank
-  prompts and never blocks the attack. Disable with `ollamaAutoResearch: false`.
+  80 characters. Research runs entirely against the local Ollama server, so the client name
+  is never sent to a third party. Any failure or timeout falls back to blank prompts and
+  never blocks the attack. Disable with `ollamaAutoResearch: false`.
 - **Live progress spinner** with an elapsed-seconds counter during Ollama generation, so a
   model loading into VRAM is distinguishable from a hang. Automatically suppressed when
   stdout is not a TTY.
@@ -53,6 +42,37 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 - **A typo in a wordlist or generation-mode prompt no longer aborts the whole attack.** The
   pickers and submenus re-prompt instead of dropping back to the main menu, and offer an
   explicit cancel.
+
+### Changed
+
+- **Interactive prompt formatting normalized** — the `[*] ` marker is no longer used on
+  input prompts (it denotes status output elsewhere), and default-value hints use a single
+  form.
+
+### Build
+
+- **Local `uv` Python pinned to 3.13** via `.python-version`. `requires-python = ">=3.13"`
+  meant a fresh worktree picked CPython 3.15.0a7 and failed to build pyo3 0.26 (via
+  `jiter`/`fastuuid`/`pydantic-core`). CI already pinned 3.13.
+
+## [2.12.0] - 2026-07-24
+
+### Changed
+
+- **LLM attack now uses the Atomic Agents framework** for structured (JSON) candidate
+  generation instead of raw HTTP + regex line-parsing. Candidate generation lives in the
+  new `hate_crack/llm.py` module.
+- **Default Ollama model is now `qwen2.5:32b`** (was `mistral`), chosen for reliable
+  structured-output adherence.
+
+### Added
+
+- **Wordlist (denylist) generation mode** for the LLM attack is now reachable from the
+  menu: select the LLM attack (option 12), then choose "Wordlist" to derive basewords from
+  a sample wordlist.
+
+### Fixed
+
 - **The LLM attack no longer hangs forever waiting on Ollama.** Generation requests are now
   bounded by a configurable timeout (`ollamaTimeout` in `config.json`, default 300 seconds).
   Previously, if Ollama accepted the connection but never replied — most commonly a large
