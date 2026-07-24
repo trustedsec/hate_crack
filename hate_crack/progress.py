@@ -59,12 +59,13 @@ def spinner(message: str) -> "Generator[None, None, None]":
         yield
     finally:
         stop_event.set()
-        # Clear the spinner line *before* joining so the terminal is left clean
-        # even if join() is interrupted by a second Ctrl-C (DoubleInterrupt).
-        # hate_crack's _sigint_handler raises DoubleInterrupt on a second SIGINT
-        # within 2 s, and join() can block up to _TICK_INTERVAL (0.12 s) — a
-        # narrow but real window.  Writing the escape sequence first ensures the
-        # line is always erased regardless of what happens to the join.
-        sys.stdout.write("\033[2K\r")
-        sys.stdout.flush()
-        thread.join()
+        # Clear *after* the join, so a thread sitting just past its is_set()
+        # check cannot repaint the line after we erase it.  The nested finally
+        # keeps that guarantee even when join() is interrupted: hate_crack's
+        # _sigint_handler raises DoubleInterrupt on a second SIGINT within 2 s,
+        # and join() can block up to _TICK_INTERVAL (0.12 s).
+        try:
+            thread.join()
+        finally:
+            sys.stdout.write("\033[2K\r")
+            sys.stdout.flush()
