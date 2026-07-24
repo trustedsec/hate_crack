@@ -795,7 +795,7 @@ def combipow_crack(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("Combipow")
     wordlist = None
     while wordlist is None:
-        path = input("\n[*] Enter path to wordlist (max 63 lines recommended): ").strip()
+        path = input("\nEnter path to wordlist (max 63 lines recommended): ").strip()
         if not path:
             continue
         if not os.path.isfile(path):
@@ -813,7 +813,7 @@ def combipow_crack(ctx: Any) -> None:
                 f"[*] Warning: {line_count} lines will generate a large number of combinations."
             )
         wordlist = path
-    use_space_sep = input("[*] Add spaces between words? (Y/n): ").strip().lower() != "n"
+    use_space_sep = input("\nAdd spaces between words? (Y/n): ").strip().lower() != "n"
     ctx.hcatCombipow(ctx.hcatHashType, ctx.hcatHashFile, wordlist, use_space_sep)
 
 
@@ -913,7 +913,7 @@ def ngram_attack(ctx: Any) -> None:
         print("No corpus selected. Aborting ngram attack.")
         return
 
-    group_size_raw = input("\nEnter n-gram group size (default 3): ").strip()
+    group_size_raw = input("\nEnter n-gram group size (3): ").strip()
     try:
         group_size = int(group_size_raw) if group_size_raw else 3
     except ValueError:
@@ -1118,8 +1118,8 @@ def wordlist_filter_length(ctx: Any) -> None:
     if not outfile:
         print("[!] Output path cannot be empty.")
         return
-    min_len = int(input("[*] Minimum length: ").strip() or "0")
-    max_len = int(input("[*] Maximum length: ").strip() or "0")
+    min_len = int(input("Minimum length: ").strip() or "0")
+    max_len = int(input("Maximum length: ").strip() or "0")
     if ctx.wordlist_filter_len(infile, outfile, min_len, max_len):
         print(f"\n[*] Filtered wordlist written to: {outfile}")
     else:
@@ -1139,7 +1139,7 @@ def wordlist_filter_charclass_include(ctx: Any) -> None:
         print("[!] Output path cannot be empty.")
         return
     print("[*] Char class mask: 1=lowercase, 2=uppercase, 4=digit, 8=symbol (additive, e.g. 3=lower+upper)")
-    mask = int(input("[*] Enter mask value: ").strip() or "0")
+    mask = int(input("Mask value: ").strip() or "0")
     if ctx.wordlist_filter_req_include(infile, outfile, mask):
         print(f"\n[*] Filtered wordlist written to: {outfile}")
     else:
@@ -1159,7 +1159,7 @@ def wordlist_filter_charclass_exclude(ctx: Any) -> None:
         print("[!] Output path cannot be empty.")
         return
     print("[*] Char class mask: 1=lowercase, 2=uppercase, 4=digit, 8=symbol (additive)")
-    mask = int(input("[*] Enter mask value: ").strip() or "0")
+    mask = int(input("Mask value: ").strip() or "0")
     if ctx.wordlist_filter_req_exclude(infile, outfile, mask):
         print(f"\n[*] Filtered wordlist written to: {outfile}")
     else:
@@ -1178,8 +1178,8 @@ def wordlist_cut_substring(ctx: Any) -> None:
     if not outfile:
         print("[!] Output path cannot be empty.")
         return
-    offset = int(input("[*] Byte offset to start from: ").strip() or "0")
-    raw_length = input("[*] Length (leave blank for rest of line): ").strip()
+    offset = int(input("Byte offset to start from: ").strip() or "0")
+    raw_length = input("Length (leave blank for rest of line): ").strip()
     length = int(raw_length) if raw_length else None
     if ctx.wordlist_cutb(infile, outfile, offset, length):
         print(f"\n[*] Output written to: {outfile}")
@@ -1211,7 +1211,7 @@ def wordlist_subtract_words(ctx: Any) -> None:
     print("\n[*] Subtract mode:")
     print("    1. Single remove file (rli2 - faster for one file)")
     print("    2. Multiple remove files (rli)")
-    mode = input("[*] Choose mode (1/2): ").strip()
+    mode = input("Choose mode (1/2): ").strip()
 
     if mode == "1":
         infile = ctx.select_file_with_autocomplete(
@@ -1274,7 +1274,7 @@ def wordlist_shard(ctx: Any) -> None:
     if not outbase:
         print("[!] Output path cannot be empty.")
         return
-    mod = int(input("[*] Shard count (e.g. 4 to split into 4 parts): ").strip() or "0")
+    mod = int(input("Shard count (e.g. 4 to split into 4 parts): ").strip() or "0")
     if mod < 2:
         print("[!] Shard count must be at least 2.")
         return
