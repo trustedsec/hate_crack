@@ -450,7 +450,7 @@ hcatGoodMeasureBaseList = config_parser["hcatGoodMeasureBaseList"]
 hcatDebugLogPath = os.path.expanduser(config_parser["hcatDebugLogPath"])
 
 ollamaUrl = "http://" + os.environ.get("OLLAMA_HOST", "localhost:11434")
-ollamaModel = config_parser.get("ollamaModel", "mistral")
+ollamaModel = config_parser.get("ollamaModel", "qwen2.5:32b")
 ollamaNumCtx = int(config_parser.get("ollamaNumCtx", 2048))
 
 omenTrainingList = config_parser.get("omenTrainingList", "rockyou.txt")
