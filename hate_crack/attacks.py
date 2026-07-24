@@ -515,6 +515,12 @@ def ollama_attack(ctx: Any) -> None:
     print("\n\tLLM Attack")
     print("\t1. Target info (company / industry / location)")
     print("\t2. Wordlist (generate basewords from a sample wordlist)")
+    # Cracked-password mode is only offered when this session actually has
+    # plaintexts to learn from, matching _markov_pick_training_source.
+    out_path = f"{ctx.hcatHashFile}.out"
+    has_cracked = os.path.isfile(out_path) and os.path.getsize(out_path) > 0
+    if has_cracked:
+        print("\t3. Cracked passwords (current session)")
     choice = input("\n\tSelect generation mode: ").strip()
 
     if choice == "1":
@@ -532,6 +538,10 @@ def ollama_attack(ctx: Any) -> None:
         if not path:
             return
         ctx.hcatOllama(ctx.hcatHashType, ctx.hcatHashFile, "wordlist", path)
+    elif choice == "3" and has_cracked:
+        ctx.hcatOllama(ctx.hcatHashType, ctx.hcatHashFile, "cracked", out_path)
+    elif choice == "3":
+        print("\t[!] No cracked passwords yet — crack some hashes first.")
     else:
         print("\t[!] Invalid selection.")
 

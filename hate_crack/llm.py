@@ -74,6 +74,37 @@ _WORDLIST_PROMPT = SystemPromptGenerator(
     ],
 )
 
+_CRACKED_PROMPT = SystemPromptGenerator(
+    background=[
+        "You are a security professional generating password candidates during an "
+        "authorized penetration test.",
+        "The passwords you are shown were already recovered from this specific "
+        "target organization, so they reveal that organization's real password "
+        "conventions.",
+    ],
+    steps=[
+        "Study the recovered plaintexts for the organization's conventions: "
+        "basewords, capitalization, seasons and months, years, separators, "
+        "suffixes, and leetspeak substitutions.",
+        "Infer the naming habits behind them (company and product names, local "
+        "sports teams, site or department names, keyboard walks).",
+        "Generate NEW candidates that follow the same conventions, varying the "
+        "basewords, years, and suffixes the organization clearly favours.",
+    ],
+    output_instructions=[
+        "Return only candidate passwords in the candidates list.",
+        "Do not repeat any password that appears in the input — those are already "
+        "cracked and retrying them is wasted work.",
+        "Do not include explanations, numbering, or duplicate entries.",
+    ],
+)
+
+_PROMPTS = {
+    "target": _TARGET_PROMPT,
+    "wordlist": _WORDLIST_PROMPT,
+    "cracked": _CRACKED_PROMPT,
+}
+
 
 def _build_request(mode: str, context_data: dict) -> str:
     """Build the natural-language request string for the given mode."""
@@ -92,6 +123,14 @@ def _build_request(mode: str, context_data: dict) -> str:
         return (
             "Here are sample passwords. Study their patterns and generate basewords "
             "for a denylist:\n" + sample
+        )
+    if mode == "cracked":
+        sample = context_data.get("sample", "")
+        return (
+            "These passwords were already cracked from the target organization. "
+            "Study the conventions they reveal and generate as many NEW password "
+            "candidates as you can that follow the same conventions. Do not repeat "
+            "any of these:\n" + sample
         )
     raise ValueError(f"Unknown LLM generation mode: {mode}")
 
@@ -121,7 +160,8 @@ def generate_candidates(
         OpenAI(base_url=f"{url}/v1", api_key="ollama", timeout=timeout),
         mode=instructor.Mode.JSON,
     )
-    prompt_generator = _TARGET_PROMPT if mode == "target" else _WORDLIST_PROMPT
+    # _build_request has already rejected unknown modes, so this lookup is safe.
+    prompt_generator = _PROMPTS[mode]
 
     agent = AtomicAgent[GenerationInput, PasswordCandidatesOutput](
         config=AgentConfig(

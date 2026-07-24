@@ -70,6 +70,71 @@ def test_wordlist_mode_includes_sample_in_request():
     assert "letmein" in run_arg.request
 
 
+def test_cracked_mode_includes_sample_in_request():
+    p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_agent(["Winter2025!"])
+    with p_instr, p_openai, p_agent:
+        out = llm.generate_candidates(
+            "http://localhost:11434",
+            "qwen2.5:32b",
+            2048,
+            "cracked",
+            {"sample": "Summer2024!\nAcme2023\nP@ssw0rd1"},
+        )
+    assert out == ["Winter2025!"]
+    run_arg = agent_instance.run.call_args[0][0]
+    assert "Acme2023" in run_arg.request
+    # The request must tell the model not to regenerate what is already cracked.
+    assert "NEW" in run_arg.request
+    assert "Do not repeat" in run_arg.request
+
+
+def test_cracked_mode_uses_its_own_prompt_not_the_denylist_one():
+    """cracked mode must select _CRACKED_PROMPT, never the denylist _WORDLIST_PROMPT."""
+    p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_agent(["x"])
+    with p_instr, p_openai, p_agent:
+        llm.generate_candidates(
+            "http://localhost:11434", "qwen2.5:32b", 2048,
+            "cracked", {"sample": "Summer2024!"},
+        )
+    config = agent_cls.__getitem__.return_value.call_args.kwargs["config"]
+    assert config.system_prompt_generator is llm._CRACKED_PROMPT
+    assert config.system_prompt_generator is not llm._WORDLIST_PROMPT
+
+
+def test_wordlist_mode_still_uses_wordlist_prompt():
+    p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_agent(["x"])
+    with p_instr, p_openai, p_agent:
+        llm.generate_candidates(
+            "http://localhost:11434", "qwen2.5:32b", 2048,
+            "wordlist", {"sample": "password"},
+        )
+    config = agent_cls.__getitem__.return_value.call_args.kwargs["config"]
+    assert config.system_prompt_generator is llm._WORDLIST_PROMPT
+
+
+def test_target_mode_still_uses_target_prompt():
+    p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_agent(["x"])
+    with p_instr, p_openai, p_agent:
+        llm.generate_candidates(
+            "http://localhost:11434", "qwen2.5:32b", 2048,
+            "target", {"company": "X", "industry": "Y", "location": "Z"},
+        )
+    config = agent_cls.__getitem__.return_value.call_args.kwargs["config"]
+    assert config.system_prompt_generator is llm._TARGET_PROMPT
+
+
+def test_cracked_prompt_is_offensive_not_denylist():
+    """_CRACKED_PROMPT's objective is candidate generation, not denylist building."""
+    rendered = llm._CRACKED_PROMPT.generate_prompt()
+    assert "denylist" not in rendered.lower()
+    assert "authorized penetration test" in rendered.lower()
+    assert "already recovered" in rendered.lower()
+
+
+def test_prompts_map_covers_every_supported_mode():
+    assert set(llm._PROMPTS) == {"target", "wordlist", "cracked"}
+
+
 def test_dedupes_and_caps_length():
     long_pw = "A" * 129
     p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_agent(
