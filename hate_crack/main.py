@@ -74,6 +74,7 @@ from hate_crack.cli import (  # noqa: E402
 )
 from hate_crack import attacks as _attacks  # noqa: E402
 from hate_crack import llm  # noqa: E402
+from hate_crack.progress import spinner  # noqa: E402
 from hate_crack.menu import interactive_menu  # noqa: E402
 from hate_crack.username_detect import detect_username_hash_format  # noqa: E402
 
@@ -453,6 +454,7 @@ ollamaUrl = "http://" + os.environ.get("OLLAMA_HOST", "localhost:11434")
 ollamaModel = config_parser.get("ollamaModel", "qwen2.5:32b")
 ollamaNumCtx = int(config_parser.get("ollamaNumCtx", 2048))
 ollamaTimeout = float(config_parser.get("ollamaTimeout", 300))
+ollamaMaxSampleLines = int(config_parser.get("ollamaMaxSampleLines", 500))
 
 omenTrainingList = config_parser.get("omenTrainingList", "rockyou.txt")
 omenMaxCandidates = int(config_parser.get("omenMaxCandidates", 1000000))
@@ -2046,23 +2048,67 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
         if not os.path.isfile(wordlist_path):
             print(f"Error: Wordlist not found: {wordlist_path}")
             return
-        lines = []
+
+        # Two-pass evenly-spaced sample: first count usable lines so we can
+        # stride-select across the whole file rather than taking a head slice.
+        # A head-only sample misses the pattern variation across large wordlists
+        # (e.g. rockyou.txt becomes more random further in).
+        def _usable(raw: str) -> str:
+            """Return the usable plaintext from a raw line, or empty string."""
+            stripped = raw.strip()
+            if not stripped:
+                return ""
+            if ":" in stripped:
+                stripped = stripped.split(":", 1)[1]
+            return stripped
+
         try:
+            total_usable = 0
             with open(wordlist_path, "r", errors="ignore") as f:
-                for line in f:
-                    stripped = line.strip()
-                    if not stripped:
-                        continue
-                    # hash:password -> password
-                    if ":" in stripped:
-                        stripped = stripped.split(":", 1)[1]
-                    if stripped:
-                        lines.append(stripped)
+                for raw in f:
+                    if _usable(raw):
+                        total_usable += 1
         except Exception as e:
             print(f"Error reading wordlist: {e}")
             return
-        print(f"Loaded {len(lines)} passwords from wordlist.")
-        gen_context = {"sample": "\n".join(lines)}
+
+        cap = ollamaMaxSampleLines
+        if total_usable <= cap:
+            # No capping needed — collect all usable lines.
+            try:
+                sampled: list[str] = []
+                with open(wordlist_path, "r", errors="ignore") as f:
+                    for raw in f:
+                        w = _usable(raw)
+                        if w:
+                            sampled.append(w)
+            except Exception as e:
+                print(f"Error reading wordlist: {e}")
+                return
+            print(f"Loaded {len(sampled):,} passwords from wordlist.")
+        else:
+            # Evenly-spaced stride across the file to cover its full pattern
+            # range without materialising all lines in memory.
+            stride = total_usable / cap
+            try:
+                sampled = []
+                usable_idx = 0.0
+                next_pick = stride / 2  # start near centre of first bucket
+                with open(wordlist_path, "r", errors="ignore") as f:
+                    for raw in f:
+                        w = _usable(raw)
+                        if not w:
+                            continue
+                        if usable_idx >= next_pick and len(sampled) < cap:
+                            sampled.append(w)
+                            next_pick += stride
+                        usable_idx += 1
+            except Exception as e:
+                print(f"Error reading wordlist: {e}")
+                return
+            print(f"Sampled {len(sampled):,} of {total_usable:,} passwords from wordlist.")
+
+        gen_context = {"sample": "\n".join(sampled)}
     elif mode == "target":
         gen_context = context_data
     else:
@@ -2070,16 +2116,16 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
         return
 
     # Step B: generate candidates via the Atomic Agents module.
-    print(f"Generating password candidates via Ollama ({ollamaModel})...")
     try:
-        candidates = llm.generate_candidates(
-            ollamaUrl,
-            ollamaModel,
-            ollamaNumCtx,
-            mode,
-            gen_context,
-            timeout=ollamaTimeout,
-        )
+        with spinner(f"Generating password candidates via Ollama ({ollamaModel})..."):
+            candidates = llm.generate_candidates(
+                ollamaUrl,
+                ollamaModel,
+                ollamaNumCtx,
+                mode,
+                gen_context,
+                timeout=ollamaTimeout,
+            )
     except llm.LLMTimeoutError:
         print(f"Error: the Ollama request timed out after {ollamaTimeout:g} seconds.")
         print(
