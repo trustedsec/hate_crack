@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Lint, type-check, and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          # tests/test_main_pcfg.py needs pcfg_cracker/pcfg_guesser.py on disk
+          submodules: true
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
+        with:
+          python-version: "3.13"
+          enable-cache: true
+          cache-dependency-glob: "**/uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Ruff
+        run: uv run ruff check hate_crack
+
+      - name: Ty
+        run: uv run ty check hate_crack
+
+      - name: Pytest
+        env:
+          HATE_CRACK_SKIP_INIT: "1"
+        run: uv run pytest -q
