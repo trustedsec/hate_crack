@@ -28,6 +28,7 @@
   "ollamaModel": "qwen2.5:32b",
   "ollamaNumCtx": 2048,
   "ollamaTimeout": 300,
+  "ollamaMaxSampleLines": 500,
   "omenTrainingList": "rockyou.txt",
   "omenMaxCandidates": 50000000,
   "pcfgRuleset": "DEFAULT",
