@@ -4,8 +4,6 @@ Isolates the atomic-agents / instructor dependency. The rest of hate_crack talks
 to this module only through ``generate_candidates``.
 """
 
-from typing import Any
-
 import instructor
 from openai import OpenAI
 from pydantic import Field
@@ -119,7 +117,7 @@ def generate_candidates(
         )
     )
 
-    result: Any = agent.run(GenerationInput(request=request))
+    result = agent.run(GenerationInput(request=request))
 
     seen: set[str] = set()
     candidates: list[str] = []
