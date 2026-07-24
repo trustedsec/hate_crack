@@ -111,7 +111,7 @@ def generate_candidates(
     prompt_generator = _TARGET_PROMPT if mode == "target" else _WORDLIST_PROMPT
 
     agent = AtomicAgent[GenerationInput, PasswordCandidatesOutput](
-        config=AgentConfig.model_construct(
+        config=AgentConfig(
             client=client,
             model=model,
             system_prompt_generator=prompt_generator,

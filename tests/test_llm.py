@@ -3,6 +3,7 @@
 import os
 from unittest import mock
 
+import instructor
 import pytest
 
 os.environ["HATE_CRACK_SKIP_INIT"] = "1"
@@ -25,7 +26,7 @@ def _patch_agent(candidates):
     agent_cls.__getitem__.return_value.return_value = agent_instance
 
     return (
-        mock.patch("hate_crack.llm.instructor"),
+        mock.patch("hate_crack.llm.instructor.from_openai", return_value=mock.MagicMock(spec=instructor.Instructor)),
         mock.patch("hate_crack.llm.OpenAI"),
         mock.patch("hate_crack.llm.AtomicAgent", agent_cls),
         agent_cls,
