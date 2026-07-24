@@ -386,3 +386,11 @@ class TestOllamaAttack:
         with patch("builtins.input", side_effect=["9"]):
             ollama_attack(ctx)
         ctx.hcatOllama.assert_not_called()
+
+    def test_wordlist_mode_aborts_when_no_wordlist_picked(self) -> None:
+        ctx = _make_ctx()
+        # mode "2", then an invalid picker selection -> picker returns None
+        ctx.list_wordlist_files.return_value = []
+        with patch("builtins.input", side_effect=["2", "nonsense"]):
+            ollama_attack(ctx)
+        ctx.hcatOllama.assert_not_called()
