@@ -455,6 +455,7 @@ ollamaModel = config_parser.get("ollamaModel", "qwen2.5:32b")
 ollamaNumCtx = int(config_parser.get("ollamaNumCtx", 2048))
 ollamaTimeout = float(config_parser.get("ollamaTimeout", 300))
 ollamaMaxSampleLines = int(config_parser.get("ollamaMaxSampleLines", 500))
+ollamaAutoResearch = bool(config_parser.get("ollamaAutoResearch", True))
 
 omenTrainingList = config_parser.get("omenTrainingList", "rockyou.txt")
 omenMaxCandidates = int(config_parser.get("omenMaxCandidates", 1000000))
@@ -2121,6 +2122,43 @@ def _sample_plaintext_file(path, cap, source_label="wordlist"):
         f"Sampled {len(sampled):,} of {total_usable:,} passwords from {source_label}."
     )
     return sampled
+
+
+def hcatOllamaResearchTarget(company):
+    """Ask the local Ollama model what it knows about *company*.
+
+    Returns a dict with "industry" and "location" keys; either value may be an
+    empty string when the model is not confident or the request failed. Never
+    raises: research is a convenience, so any failure degrades to empty
+    suggestions (blank prompts) rather than blocking the attack.
+
+    Uses only the configured local Ollama server — the company name is never
+    sent to a third-party service.
+    """
+    blank = {"industry": "", "location": ""}
+    if not ollamaAutoResearch or not company:
+        return blank
+
+    try:
+        with spinner(f"Researching {company} via Ollama ({ollamaModel})..."):
+            result = llm.research_target(
+                ollamaUrl,
+                ollamaModel,
+                ollamaNumCtx,
+                company,
+                timeout=ollamaTimeout,
+            )
+    except llm.LLMTimeoutError:
+        print(
+            f"Note: target research timed out after {ollamaTimeout:g} seconds — "
+            "enter the details manually."
+        )
+        return blank
+    except Exception as e:
+        print(f"Note: target research unavailable ({e}) — enter the details manually.")
+        return blank
+
+    return {"industry": result.industry, "location": result.location}
 
 
 # LLM Ollama Attack

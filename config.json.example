@@ -29,6 +29,7 @@
   "ollamaNumCtx": 2048,
   "ollamaTimeout": 300,
   "ollamaMaxSampleLines": 500,
+  "ollamaAutoResearch": true,
   "omenTrainingList": "rockyou.txt",
   "omenMaxCandidates": 50000000,
   "pcfgRuleset": "DEFAULT",

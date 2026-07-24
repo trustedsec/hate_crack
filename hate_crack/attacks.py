@@ -7,6 +7,7 @@ from typing import Any
 from hate_crack import notify as _notify
 from hate_crack.api import download_hashmob_rules
 from hate_crack.formatting import print_multicolumn_list
+from hate_crack.llm import clean_research_field
 from hate_crack.menu import interactive_menu
 
 
@@ -510,6 +511,47 @@ def bandrel_method(ctx: Any) -> None:
     ctx.hcatBandrel(ctx.hcatHashType, ctx.hcatHashFile)
 
 
+def _research_target_suggestions(ctx: Any, company: str) -> dict[str, str]:
+    """Ask the local model for industry/location suggestions for *company*.
+
+    Returns a dict of cleaned suggestion strings (values may be ''). Research is
+    a convenience only, so any failure is swallowed here as well as in
+    ``hcatOllamaResearchTarget``: the operator still gets blank prompts and the
+    attack proceeds.
+    """
+    if not company:
+        return {}
+
+    try:
+        raw = ctx.hcatOllamaResearchTarget(company)
+    except Exception as e:
+        print(f"Note: target research unavailable ({e}) — enter the details manually.")
+        return {}
+
+    suggestions = {}
+    if isinstance(raw, dict):
+        for key in ("industry", "location"):
+            value = clean_research_field(raw.get(key, ""))
+            if value:
+                suggestions[key] = value
+
+    if suggestions:
+        print(
+            "\n[!] The values in parentheses below are the local model's GUESSES, "
+            "not verified OSINT."
+        )
+        print("    Press Enter to accept, or type your own value to override.")
+    return suggestions
+
+
+def _prompt_with_default(label: str, default: Any) -> str:
+    """Prompt for *label*, showing *default* in parentheses when there is one."""
+    suggestion = clean_research_field(default)
+    if suggestion:
+        return input(f"{label} ({suggestion}): ").strip() or suggestion
+    return input(f"{label}: ").strip()
+
+
 def ollama_attack(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("LLM")
     # Cracked-password mode is only offered when this session actually has
@@ -531,8 +573,9 @@ def ollama_attack(ctx: Any) -> None:
             return
         if choice == "1":
             company = input("Company name: ").strip()
-            industry = input("Industry: ").strip()
-            location = input("Location: ").strip()
+            suggestions = _research_target_suggestions(ctx, company)
+            industry = _prompt_with_default("Industry", suggestions.get("industry"))
+            location = _prompt_with_default("Location", suggestions.get("location"))
             ctx.hcatOllama(
                 ctx.hcatHashType,
                 ctx.hcatHashFile,
