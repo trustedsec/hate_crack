@@ -3,6 +3,7 @@
 This module owns the allowlist/blocklist of hash modes and the regex-based
 per-line validation used to decide whether to pass ``--username`` to hashcat.
 """
+
 from __future__ import annotations
 
 import re
@@ -11,39 +12,59 @@ from typing import Final
 # Modes where bare hashes are the normal input AND files commonly carry a
 # ``username:`` prefix. Value is the expected hex length of the hash field.
 USERNAME_HASH_MODES: Final[dict[str, int]] = {
-    "0":    32,   # MD5
-    "10":   32,   # md5($pass.$salt)
-    "20":   32,   # md5($salt.$pass)
-    "30":   32,   # md5(unicode($pass).$salt)
-    "40":   32,   # md5($salt.unicode($pass))
-    "50":   32,   # HMAC-MD5
-    "60":   32,   # HMAC-MD5(key=$pass)
-    "100":  40,   # SHA1
-    "101":  40,   # nsldap/SHA1(Base64)
-    "110":  40,   # sha1($pass.$salt)
-    "120":  40,   # sha1($salt.$pass)
-    "130":  40,   # sha1(unicode($pass).$salt)
-    "140":  40,   # sha1($salt.unicode($pass))
-    "150":  40,   # HMAC-SHA1
-    "160":  40,   # HMAC-SHA1(key=$pass)
-    "900":  32,   # MD4
-    "1000": 32,   # NTLM bare
-    "1400": 64,   # SHA2-256
-    "1410": 64, "1420": 64, "1430": 64, "1440": 64, "1450": 64, "1460": 64,
+    "0": 32,  # MD5
+    "10": 32,  # md5($pass.$salt)
+    "20": 32,  # md5($salt.$pass)
+    "30": 32,  # md5(unicode($pass).$salt)
+    "40": 32,  # md5($salt.unicode($pass))
+    "50": 32,  # HMAC-MD5
+    "60": 32,  # HMAC-MD5(key=$pass)
+    "100": 40,  # SHA1
+    "101": 40,  # nsldap/SHA1(Base64)
+    "110": 40,  # sha1($pass.$salt)
+    "120": 40,  # sha1($salt.$pass)
+    "130": 40,  # sha1(unicode($pass).$salt)
+    "140": 40,  # sha1($salt.unicode($pass))
+    "150": 40,  # HMAC-SHA1
+    "160": 40,  # HMAC-SHA1(key=$pass)
+    "900": 32,  # MD4
+    "1000": 32,  # NTLM bare
+    "1400": 64,  # SHA2-256
+    "1410": 64,
+    "1420": 64,
+    "1430": 64,
+    "1440": 64,
+    "1450": 64,
+    "1460": 64,
     "1700": 128,  # SHA2-512
-    "1710": 128, "1720": 128, "1730": 128, "1740": 128, "1750": 128, "1760": 128,
-    "3000": 16,   # LM (single half)
+    "1710": 128,
+    "1720": 128,
+    "1730": 128,
+    "1740": 128,
+    "1750": 128,
+    "1760": 128,
+    "3000": 16,  # LM (single half)
 }
 
 # Modes explicitly excluded even if they appear in allowlist (they don't, but
 # this constant is the documentation of the intentional blocklist). Binary
 # formats, IKE-PSK, and NetNTLM (already preprocessed elsewhere).
-USERNAME_DETECT_BLOCKLIST: Final[frozenset[str]] = frozenset({
-    "2500", "22000", "2501", "16800", "16801", "22001",  # WPA variants (binary)
-    "5300", "5400",                                       # IKE-PSK
-    "5500", "5600",                                       # NetNTLM (own preprocess)
-    "1800", "3200",                                       # non-hex hash formats
-})
+USERNAME_DETECT_BLOCKLIST: Final[frozenset[str]] = frozenset(
+    {
+        "2500",
+        "22000",
+        "2501",
+        "16800",
+        "16801",
+        "22001",  # WPA variants (binary)
+        "5300",
+        "5400",  # IKE-PSK
+        "5500",
+        "5600",  # NetNTLM (own preprocess)
+        "1800",
+        "3200",  # non-hex hash formats
+    }
+)
 
 
 def detect_username_hash_format(
