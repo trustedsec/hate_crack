@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [2.14.3] - 2026-07-25
+
+### Added
+
+- **Private-key commit gate.** `prek.toml` now runs the `detect-private-key`
+  hook at the pre-commit stage. The repo previously had no secret-scanning gate
+  of any kind — bandit only covers `hate_crack/`, so nothing inspected config
+  files, docs, or test fixtures for committed key material.
+
+### Removed
+
+- **Local agent tooling is no longer published.** `CLAUDE.md`, `.claude/`,
+  `docs/plans/`, and `docs/superpowers/` were development aids rather than part
+  of the shipped project. They are now gitignored and were removed from the
+  repository, including from its history.
+- **`audit-docs` post-commit hook.** Dropped from `prek.toml` along with the
+  `.claude/audit-docs.sh` script it invoked.
+
 ## [2.14.2] - 2026-07-25
 
 ### Fixed

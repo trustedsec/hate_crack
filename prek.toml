@@ -77,3 +77,8 @@ id = "check-merge-conflict"
 [[repos.hooks]]
 id = "check-added-large-files"
 args = ["--maxkb=1024"]
+
+# Blocks committing PEM/OpenSSH private keys. The repo had no secret-scanning
+# gate at all before this; bandit only covers hate_crack/.
+[[repos.hooks]]
+id = "detect-private-key"
