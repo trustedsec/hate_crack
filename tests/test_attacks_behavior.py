@@ -532,7 +532,7 @@ class TestOllamaAttack:
 
 
 class TestOmenPickTrainingWordlistReprompt:
-    """_omen_pick_training_wordlist re-prompts on invalid input instead of aborting."""
+    """_pick_training_wordlist re-prompts on invalid input instead of aborting."""
 
     def _make_ctx(self, wordlist_files=None):
         ctx = MagicMock()
@@ -542,29 +542,29 @@ class TestOmenPickTrainingWordlistReprompt:
         return ctx
 
     def test_invalid_input_reprompts_then_valid_pick(self) -> None:
-        from hate_crack.attacks import _omen_pick_training_wordlist
+        from hate_crack.attacks import _pick_training_wordlist
 
         ctx = self._make_ctx(["rockyou.txt"])
         # First input is invalid, second is valid
         with patch("builtins.input", side_effect=["bad", "1"]):
-            result = _omen_pick_training_wordlist(ctx)
+            result = _pick_training_wordlist(ctx)
         assert result is not None
         assert "rockyou.txt" in result
 
     def test_cancel_with_q_returns_none(self) -> None:
-        from hate_crack.attacks import _omen_pick_training_wordlist
+        from hate_crack.attacks import _pick_training_wordlist
 
         ctx = self._make_ctx(["rockyou.txt"])
         with patch("builtins.input", return_value="q"):
-            result = _omen_pick_training_wordlist(ctx)
+            result = _pick_training_wordlist(ctx)
         assert result is None
 
     def test_multiple_invalid_inputs_then_cancel(self) -> None:
-        from hate_crack.attacks import _omen_pick_training_wordlist
+        from hate_crack.attacks import _pick_training_wordlist
 
         ctx = self._make_ctx(["rockyou.txt"])
         with patch("builtins.input", side_effect=["99", "abc", "q"]):
-            result = _omen_pick_training_wordlist(ctx)
+            result = _pick_training_wordlist(ctx)
         assert result is None
 
 

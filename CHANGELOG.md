@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [2.14.2] - 2026-07-25
+
+### Fixed
+
+- **Pipal base-word parsing.** `pipal()` built one rigid regex that required
+  *exactly* `pipal_count` consecutive base-word lines, so any cracked set with
+  fewer unique base words than `pipal_count` (default 10 — the common case on
+  small cracks) matched nothing and returned no base words. The `Top N base
+  words` section is now parsed line by line, returning up to `pipal_count`
+  words and stopping at the end of the section.
+- **Shell-safe pipal invocation.** The pipal subprocess is now spawned with
+  list-form arguments instead of a `shell=True` formatted string, so hash-file
+  paths containing shell metacharacters can no longer be interpreted as
+  commands.
+
+### Changed
+
+- Renamed the internal `_omen_pick_training_wordlist` helper to
+  `_pick_training_wordlist`, since it is shared by the OMEN, Markov-adjacent,
+  and LLM (wordlist mode) attacks rather than being OMEN-specific.
+
 ## [2.14.1] - 2026-07-25
 
 ### Fixed

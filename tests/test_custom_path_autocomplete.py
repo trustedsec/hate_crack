@@ -41,7 +41,7 @@ class TestOmenCustomPath:
         ctx = _make_ctx()
         ctx.select_file_with_autocomplete.return_value = "/data/custom.txt"
         with patch("builtins.input", side_effect=["p"]):
-            result = attacks._omen_pick_training_wordlist(ctx)
+            result = attacks._pick_training_wordlist(ctx)
         ctx.select_file_with_autocomplete.assert_called_once()
         assert result == "/data/custom.txt"
 
@@ -50,7 +50,7 @@ class TestOmenCustomPath:
         ctx = _make_ctx()
         ctx.select_file_with_autocomplete.return_value = None
         with patch("builtins.input", side_effect=["p"]):
-            result = attacks._omen_pick_training_wordlist(ctx)
+            result = attacks._pick_training_wordlist(ctx)
         assert result is None
 
 
