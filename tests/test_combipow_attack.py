@@ -66,7 +66,8 @@ class TestCombipowCrack:
         ctx = _make_ctx()
         wl = tmp_path / "words.txt"
         wl.write_text("correct\nhorse\nbattery\n")
-        with patch("builtins.input", side_effect=[str(wl), ""]):
+        ctx.select_file_with_autocomplete.side_effect = [str(wl)]
+        with patch("builtins.input", side_effect=[""]):
             attacks.combipow_crack(ctx)
         ctx.hcatCombipow.assert_called_once()
         call_args = ctx.hcatCombipow.call_args
@@ -75,12 +76,23 @@ class TestCombipowCrack:
         )
         assert use_space is True
 
+    def test_wordlist_path_uses_autocomplete_not_input(self, tmp_path):
+        attacks = _load_attacks()
+        ctx = _make_ctx()
+        wl = tmp_path / "words.txt"
+        wl.write_text("correct\nhorse\n")
+        ctx.select_file_with_autocomplete.side_effect = [str(wl)]
+        with patch("builtins.input", side_effect=[""]):
+            attacks.combipow_crack(ctx)
+        ctx.select_file_with_autocomplete.assert_called_once()
+
     def test_calls_hcatCombipow_without_space_sep(self, tmp_path):
         attacks = _load_attacks()
         ctx = _make_ctx()
         wl = tmp_path / "words.txt"
         wl.write_text("correct\nhorse\nbattery\n")
-        with patch("builtins.input", side_effect=[str(wl), "n"]):
+        ctx.select_file_with_autocomplete.side_effect = [str(wl)]
+        with patch("builtins.input", side_effect=["n"]):
             attacks.combipow_crack(ctx)
         ctx.hcatCombipow.assert_called_once()
         call_args = ctx.hcatCombipow.call_args
@@ -94,7 +106,8 @@ class TestCombipowCrack:
         ctx = _make_ctx()
         wl = tmp_path / "words.txt"
         wl.write_text("\n".join(f"word{i}" for i in range(64)) + "\n")
-        with patch("builtins.input", return_value=str(wl)):
+        ctx.select_file_with_autocomplete.side_effect = [str(wl)]
+        with patch("builtins.input", side_effect=[]):
             attacks.combipow_crack(ctx)
         ctx.hcatCombipow.assert_not_called()
 
@@ -103,7 +116,8 @@ class TestCombipowCrack:
         ctx = _make_ctx()
         wl = tmp_path / "words.txt"
         wl.write_text("\n".join(f"word{i}" for i in range(63)) + "\n")
-        with patch("builtins.input", side_effect=[str(wl), ""]):
+        ctx.select_file_with_autocomplete.side_effect = [str(wl)]
+        with patch("builtins.input", side_effect=[""]):
             attacks.combipow_crack(ctx)
         ctx.hcatCombipow.assert_called_once()
 
@@ -112,7 +126,8 @@ class TestCombipowCrack:
         ctx = _make_ctx()
         wl = tmp_path / "words.txt"
         wl.write_text("test\n")
-        with patch("builtins.input", side_effect=["/nonexistent.txt", str(wl), ""]):
+        ctx.select_file_with_autocomplete.side_effect = ["/nonexistent.txt", str(wl)]
+        with patch("builtins.input", side_effect=[""]):
             attacks.combipow_crack(ctx)
         ctx.hcatCombipow.assert_called_once()
 
@@ -121,7 +136,8 @@ class TestCombipowCrack:
         ctx = _make_ctx(hash_type="3200", hash_file="/tmp/bcrypt.txt")
         wl = tmp_path / "words.txt"
         wl.write_text("word1\nword2\n")
-        with patch("builtins.input", side_effect=[str(wl), ""]):
+        ctx.select_file_with_autocomplete.side_effect = [str(wl)]
+        with patch("builtins.input", side_effect=[""]):
             attacks.combipow_crack(ctx)
         ctx.hcatCombipow.assert_called_once()
         args = ctx.hcatCombipow.call_args[0]
@@ -134,7 +150,8 @@ class TestCombipowCrack:
         ctx = _make_ctx()
         wl = tmp_path / "words.txt"
         wl.write_text("\n".join(f"word{i}" for i in range(31)) + "\n")
-        with patch("builtins.input", side_effect=[str(wl), ""]):
+        ctx.select_file_with_autocomplete.side_effect = [str(wl)]
+        with patch("builtins.input", side_effect=[""]):
             attacks.combipow_crack(ctx)
         captured = capsys.readouterr()
         assert "large" in captured.out.lower() or "warning" in captured.out.lower()
