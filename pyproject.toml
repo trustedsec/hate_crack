@@ -50,6 +50,23 @@ exclude = [
     "rules",
 ]
 
+[tool.bandit]
+# hate_crack shells out to hashcat and its helper binaries extensively, so the
+# scan produces many low-severity subprocess/shlex findings. These are reviewed
+# and captured in .bandit-baseline.json; CI compares against that baseline so
+# only NEW findings fail the build (mirrors the hashview approach). Scan the
+# first-party package only — bundled third-party trees are excluded.
+exclude_dirs = [
+    "tests",
+    ".venv",
+    "build",
+    "dist",
+    "PACK",
+    "hashcat-utils",
+    "omen",
+    "princeprocessor",
+]
+
 [tool.ty.src]
 exclude = [
     "build/",

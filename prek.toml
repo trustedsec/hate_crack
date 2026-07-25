@@ -11,6 +11,15 @@ pass_filenames = false
 always_run = true
 
 [[repos.hooks]]
+id = "ruff-format"
+name = "ruff-format"
+entry = "uv run ruff format --check hate_crack"
+language = "system"
+stages = ["pre-push"]
+pass_filenames = false
+always_run = true
+
+[[repos.hooks]]
 id = "ty"
 name = "ty"
 entry = "uv run ty check hate_crack"
@@ -38,6 +47,15 @@ pass_filenames = false
 always_run = true
 
 [[repos.hooks]]
+id = "bandit"
+name = "bandit security scan (vs baseline)"
+entry = "uvx --from 'bandit[toml]==1.9.4' bandit -r hate_crack -c pyproject.toml -b .bandit-baseline.json -q"
+language = "system"
+stages = ["pre-push"]
+pass_filenames = false
+always_run = true
+
+[[repos.hooks]]
 id = "audit-docs"
 name = "audit-docs"
 entry = "bash .claude/audit-docs.sh HEAD"
@@ -45,3 +63,26 @@ language = "system"
 stages = ["post-commit"]
 pass_filenames = false
 always_run = true
+
+# General hygiene hooks (mirrors hashview's .pre-commit-config.yaml). These run
+# at the pre-commit stage, so `prek install` must include `--hook-type pre-commit`
+# (see CLAUDE.md). Auto-fixers modify files in place; re-stage and commit again.
+[[repos]]
+repo = "https://github.com/pre-commit/pre-commit-hooks"
+rev = "v5.0.0"
+
+[[repos.hooks]]
+id = "trailing-whitespace"
+
+[[repos.hooks]]
+id = "end-of-file-fixer"
+
+[[repos.hooks]]
+id = "check-yaml"
+
+[[repos.hooks]]
+id = "check-merge-conflict"
+
+[[repos.hooks]]
+id = "check-added-large-files"
+args = ["--maxkb=1024"]
