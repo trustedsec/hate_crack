@@ -28,12 +28,24 @@ uv run ty check hate_crack
 # Both lint checks
 make lint
 
-# Format
+# Format (write) and format check (CI gate)
 uv run ruff format hate_crack
+uv run ruff format --check hate_crack
+
+# Security gates (mirrors CI)
+uvx --from 'bandit[toml]==1.9.4' bandit -r hate_crack -c pyproject.toml -b .bandit-baseline.json
+uv run --with pip-audit==2.10.0 pip-audit --ignore-vuln PYSEC-2026-2447
 
 # Coverage
 make coverage
 ```
+
+**CI** (`.github/workflows/ci.yml`) runs three jobs on push/PR: **checks** (ruff
+lint, `ruff format --check`, ty, pytest), **bandit** (SAST vs
+`.bandit-baseline.json` — only new findings fail), and **pip-audit** (dependency
+CVEs; `PYSEC-2026-2447`/diskcache is ignored until an upstream fix ships).
+Regenerate the bandit baseline after intentionally adding flagged code with:
+`uvx --from 'bandit[toml]==1.9.4' bandit -r hate_crack -c pyproject.toml -f json -o .bandit-baseline.json`.
 
 **Test environment variables**: `HATE_CRACK_SKIP_INIT=1` skips binary/config validation (essential for worktrees without hashcat-utils). `HASHMOB_TEST_REAL=1`, `HASHVIEW_TEST_REAL=1`, `WEAKPASS_TEST_REAL=1` enable live API tests. `HASHVIEW_TEST_LOCAL=1` (with `HASHVIEW_REPO=<path>`, default `~/projects/hashview`) spins up a local Hashview docker stack, seeds it, and runs the live Hashview tests against it — orchestration in `tests/_hashview_local.py` (via `pytest_configure`), seeding in `tests/hashview_local_seed.py`. The CLI honours `HASHVIEW_URL` / `HASHVIEW_API_KEY` env vars as overrides for the `config.json` values (loaded in `main.py` ~line 275), which is what lets the suite point the CLI at the local stack.
 
@@ -42,7 +54,7 @@ make coverage
 Git hooks are managed by [prek](https://github.com/j178/prek) (v0.3.3+). Install with:
 
 ```bash
-prek install --hook-type pre-push --hook-type post-commit
+prek install --hook-type pre-push --hook-type post-commit --hook-type pre-commit
 ```
 
 Hooks are defined in `prek.toml` using the pre-commit local-repo schema (TOML, not YAML):
@@ -61,8 +73,9 @@ always_run = true
 ```
 
 Active hooks:
-- **pre-push**: ruff, ty, pytest, pytest-lima
+- **pre-push**: ruff, ruff-format, ty, pytest, pytest-lima, bandit
 - **post-commit**: audit-docs
+- **pre-commit**: trailing-whitespace, end-of-file-fixer, check-yaml, check-merge-conflict, check-added-large-files (from the `pre-commit/pre-commit-hooks` remote repo; auto-fixers modify files in place — re-stage and re-commit)
 
 **Note**: prek 0.3.3 expects `repos = [...]` at the top level. The old `[hooks.<stage>] commands = [...]` format is not supported and will fail with `missing field 'repos'`.
 
