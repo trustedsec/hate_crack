@@ -1,8 +1,10 @@
 import os
+import sys
 from types import SimpleNamespace
 
 import pytest
 
+import hate_crack.main as hc_main
 from hate_crack import noninteractive as ni
 
 
@@ -161,3 +163,55 @@ def test_dispatch_quick_multiple_rules_runs_each_as_separate_pass(tmp_path):
         f"-r {os.path.join(ctx.rulesDirectory, 'best64.rule')}",
         f"-r {os.path.join(ctx.rulesDirectory, 'd3ad0ne.rule')}",
     ]
+
+
+def _run_main(monkeypatch, argv):
+    monkeypatch.setattr(sys, "argv", ["hate_crack.py"] + argv)
+    with pytest.raises(SystemExit) as excinfo:
+        hc_main.main()
+    return excinfo.value.code
+
+
+def _make_ntlm_hashfile(tmp_path):
+    # Bare 32-hex NTLM hash: exercises the non-pwdump preprocessing branch.
+    hf = tmp_path / "hashes.txt"
+    hf.write_text("aad3b435b51404eeaad3b435b51404ee\n")
+    return hf
+
+
+def test_main_quick_dispatches_without_prompting(monkeypatch, tmp_path):
+    hf = _make_ntlm_hashfile(tmp_path)
+    wl = tmp_path / "rockyou.txt"
+    wl.write_text("password\n")
+    calls = []
+    monkeypatch.setattr(
+        hc_main, "hcatQuickDictionary", lambda *a, **k: calls.append((a, k))
+    )
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("prompted")),
+    )
+    code = _run_main(monkeypatch, ["quick", str(hf), "1000", "--wordlist", str(wl)])
+    assert code == 0
+    assert len(calls) == 1
+
+
+def test_main_brute_dispatches(monkeypatch, tmp_path):
+    hf = _make_ntlm_hashfile(tmp_path)
+    calls = []
+    monkeypatch.setattr(hc_main, "hcatBruteForce", lambda *a, **k: calls.append(a))
+    code = _run_main(
+        monkeypatch, ["brute", str(hf), "1000", "--min", "1", "--max", "8"]
+    )
+    assert code == 0
+    assert calls[0][2] == 1 and calls[0][3] == 8
+
+
+def test_main_quick_bad_hashtype_errors(monkeypatch, tmp_path):
+    hf = _make_ntlm_hashfile(tmp_path)
+    wl = tmp_path / "w.txt"
+    wl.write_text("x\n")
+    code = _run_main(
+        monkeypatch, ["quick", str(hf), "notanumber", "--wordlist", str(wl)]
+    )
+    assert code != 0

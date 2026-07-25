@@ -86,3 +86,60 @@ def run_noninteractive(ctx: Any, args: Any) -> int:
 
     print(f"Error: unknown non-interactive command: {command}")
     return 2
+
+
+ATTACK_COMMANDS = ("quick", "dict", "brute", "topmask")
+
+
+def add_attack_subparsers(subparsers) -> None:
+    """Register the non-interactive attack subcommands on an argparse
+    subparsers object (the same one used for ``hashview``).
+
+    Each subcommand carries its own required ``hashfile`` + ``hashtype``
+    positionals plus attack-specific flags.
+    """
+
+    def _add_target(p):
+        p.add_argument("hashfile", help="Path to hash file to crack")
+        p.add_argument("hashtype", help="Hashcat hash type (e.g. 1000 for NTLM)")
+
+    quick = subparsers.add_parser(
+        "quick", help="Non-interactive quick crack (single wordlist + optional rules)"
+    )
+    _add_target(quick)
+    quick.add_argument("--wordlist", required=True, help="Path to wordlist file")
+    quick.add_argument(
+        "--rules",
+        nargs="*",
+        default=[],
+        metavar="RULE",
+        help="Rule filename(s) from the rules directory. Chain with '+' "
+        "(e.g. best64.rule+d3ad0ne.rule). Omit to run without rules.",
+    )
+
+    dictp = subparsers.add_parser(
+        "dict",
+        help="Non-interactive dictionary methodology (uses configured wordlists)",
+    )
+    _add_target(dictp)
+
+    brute = subparsers.add_parser(
+        "brute", help="Non-interactive brute force (mask) attack"
+    )
+    _add_target(brute)
+    brute.add_argument(
+        "--min", type=int, default=1, dest="min_len", help="Minimum length (default 1)"
+    )
+    brute.add_argument(
+        "--max", type=int, default=7, dest="max_len", help="Maximum length (default 7)"
+    )
+
+    topmask = subparsers.add_parser("topmask", help="Non-interactive top-mask attack")
+    _add_target(topmask)
+    topmask.add_argument(
+        "--target-time",
+        type=int,
+        default=4,
+        dest="target_time",
+        help="Target completion time in hours (default 4)",
+    )
