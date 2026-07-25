@@ -362,6 +362,23 @@ else:
             hcatPotfilePath = os.path.join(hate_path, hcatPotfilePath)
 
 
+def _normalize_ollama_url(host: str) -> str:
+    """Turn an ``OLLAMA_HOST`` value into a usable base URL.
+
+    Ollama's own tooling accepts both a bare ``host:port`` and a full URL, so
+    accept either.  Only prepend ``http://`` when no scheme is present;
+    unconditionally prepending it produced URLs like
+    ``http://https://ollama.example.com``.  Trailing slashes are stripped
+    because callers append paths (``f"{ollamaUrl}/v1"``).
+    """
+    host = (host or "").strip()
+    if not host:
+        return "http://localhost:11434"
+    if "://" not in host:
+        host = "http://" + host
+    return host.rstrip("/")
+
+
 def _maybe_append_username_flag(cmd):
     """Append --username if the active hash file has user:hash format and
     the flag isn't already present (from hcatTuning or elsewhere)."""
@@ -451,7 +468,7 @@ hcatGoodMeasureBaseList = config_parser["hcatGoodMeasureBaseList"]
 
 hcatDebugLogPath = os.path.expanduser(config_parser["hcatDebugLogPath"])
 
-ollamaUrl = "http://" + os.environ.get("OLLAMA_HOST", "localhost:11434")
+ollamaUrl = _normalize_ollama_url(os.environ.get("OLLAMA_HOST", "localhost:11434"))
 ollamaModel = config_parser.get("ollamaModel", "qwen2.5:32b")
 ollamaNumCtx = int(config_parser.get("ollamaNumCtx", 2048))
 ollamaTimeout = float(config_parser.get("ollamaTimeout", 300))
