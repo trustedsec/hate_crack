@@ -74,6 +74,7 @@ from hate_crack.cli import (  # noqa: E402
 )
 from hate_crack import attacks as _attacks  # noqa: E402
 from hate_crack import llm  # noqa: E402
+from hate_crack import noninteractive as _noninteractive  # noqa: E402
 from hate_crack.progress import spinner  # noqa: E402
 from hate_crack.menu import interactive_menu  # noqa: E402
 from hate_crack.username_detect import detect_username_hash_format  # noqa: E402
@@ -760,6 +761,7 @@ hcatGenerateRulesCount = 0
 hcatPermuteCount = 0
 hcatProcess: subprocess.Popen[Any] | None = None
 debug_mode = False
+non_interactive = False
 hcatUsernamePrefix: bool = False
 
 
@@ -4058,6 +4060,15 @@ def hashview_api():
         print(f"\nError connecting to Hashview: {str(e)}")
 
 
+def _auto_input(prompt, default=""):
+    """input() wrapper that returns the default without prompting when running
+    in non-interactive (scripted) mode. In interactive mode this is identical
+    to ``input(prompt) or default``."""
+    if non_interactive:
+        return default
+    return input(prompt) or default
+
+
 def _attack_ctx():
     ctx = sys.modules.get(__name__)
     if ctx is None:
@@ -4729,6 +4740,7 @@ def main():
     global hcatHashFileOrig
     global lmHashesFound
     global debug_mode
+    global non_interactive
     global hashview_url, hashview_api_key
     global hcatPath, hcatBin, hcatWordlists, hcatOptimizedWordlists, rulesDirectory
     global pipalPath, maxruntime, bandrelbasewords
@@ -4738,6 +4750,7 @@ def main():
 
     # Initialize global variables
     hcatHashFile = None
+    non_interactive = False
     hcatHashType = None
     hcatHashFileOrig = None
 
@@ -4824,6 +4837,7 @@ def main():
             return parser, hashview_parser
 
         subparsers = parser.add_subparsers(dest="command")
+        _noninteractive.add_attack_subparsers(subparsers)
 
         hashview_parser = subparsers.add_parser(
             "hashview", help="Hashview menu actions"
@@ -4950,7 +4964,8 @@ def main():
         else:
             argv = argv_temp  # Fallback if subcommand not found
 
-    use_subcommand_parser = "hashview" in argv
+    has_attack_subcommand = bool(argv) and argv[0] in _noninteractive.ATTACK_COMMANDS
+    use_subcommand_parser = "hashview" in argv or has_attack_subcommand
     parser, hashview_parser = _build_parser(
         include_positional=not use_subcommand_parser,
         include_subcommands=use_subcommand_parser,
@@ -4959,6 +4974,8 @@ def main():
 
     global debug_mode
     debug_mode = args.debug
+    if getattr(args, "command", None) in _noninteractive.ATTACK_COMMANDS:
+        non_interactive = True
 
     # CLI flags override config file.
     if getattr(args, "no_potfile_path", False):
@@ -5257,8 +5274,8 @@ def main():
                         f"Detected {computer_count} computer account(s)"
                         " (usernames ending with $)."
                     )
-                    filter_choice = (
-                        input("Would you like to ignore computer accounts? (Y) ") or "Y"
+                    filter_choice = _auto_input(
+                        "Would you like to ignore computer accounts? (Y) ", "Y"
                     )
                     if filter_choice.upper() == "Y":
                         filtered_path = f"{hcatHashFile}.filtered"
@@ -5280,12 +5297,10 @@ def main():
                     )
                 ) or (lineCount(hcatHashFile + ".lm") > 1):
                     lmHashesFound = True
-                    lmChoice = (
-                        input(
-                            "LM hashes identified. Would you like to brute force"
-                            " the LM hashes first? (Y) "
-                        )
-                        or "Y"
+                    lmChoice = _auto_input(
+                        "LM hashes identified. Would you like to brute force"
+                        " the LM hashes first? (Y) ",
+                        "Y",
                     )
                     if lmChoice.upper() == "Y":
                         hcatLMtoNT()
@@ -5331,8 +5346,8 @@ def main():
                     f"Detected {computer_count} computer account(s)"
                     " (usernames ending with $)."
                 )
-                filter_choice = (
-                    input("Would you like to ignore computer accounts? (Y) ") or "Y"
+                filter_choice = _auto_input(
+                    "Would you like to ignore computer accounts? (Y) ", "Y"
                 )
                 if filter_choice.upper() == "Y":
                     filtered_path = f"{hcatHashFile}.filtered"
@@ -5410,6 +5425,9 @@ def main():
             )
         else:
             print("No hashes found in POT file.")
+
+    if non_interactive:
+        sys.exit(_noninteractive.run_noninteractive(_attack_ctx(), args))
 
     # Display Options
     try:
