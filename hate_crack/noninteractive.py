@@ -38,3 +38,51 @@ def build_rule_chains(ctx: Any, rule_tokens: list[str] | None) -> list[str]:
             raise ValueError(f"Rule token {token!r} resolved to no rule files")
         chains.append(chain)
     return chains
+
+
+def run_noninteractive(ctx: Any, args: Any) -> int:
+    """Run a non-interactive attack. Returns a process exit code.
+
+    ``ctx`` is the main module (live ``hcat*`` functions, ``rulesDirectory``,
+    ``resolve_path``, ``hcatHashType``/``hcatHashFile`` already set by the
+    preprocessing block in ``main()``). ``args`` is the parsed subparser
+    namespace whose ``command`` selects the attack.
+    """
+    command = args.command
+
+    if command == "quick":
+        wordlist = ctx.resolve_path(args.wordlist)
+        if not wordlist or not os.path.isfile(wordlist):
+            print(f"Error: wordlist not found: {args.wordlist}")
+            return 1
+        try:
+            chains = build_rule_chains(ctx, args.rules)
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"Error: invalid --rules value: {exc}")
+            return 1
+        for chain in chains:
+            ctx.hcatQuickDictionary(
+                ctx.hcatHashType,
+                ctx.hcatHashFile,
+                chain,
+                wordlist,
+                attack_name="Quick Crack",
+            )
+        return 0
+
+    if command == "dict":
+        ctx.hcatDictionary(ctx.hcatHashType, ctx.hcatHashFile)
+        return 0
+
+    if command == "brute":
+        ctx.hcatBruteForce(
+            ctx.hcatHashType, ctx.hcatHashFile, args.min_len, args.max_len
+        )
+        return 0
+
+    if command == "topmask":
+        ctx.hcatTopMask(ctx.hcatHashType, ctx.hcatHashFile, args.target_time * 3600)
+        return 0
+
+    print(f"Error: unknown non-interactive command: {command}")
+    return 2
