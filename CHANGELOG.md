@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [2.14.2] - 2026-07-25
+
+### Changed
+
+- Renamed the internal `_omen_pick_training_wordlist` helper to
+  `_pick_training_wordlist`, since it is shared by the OMEN, Markov-adjacent,
+  and LLM (wordlist mode) attacks rather than being OMEN-specific.
+
 ## [2.14.1] - 2026-07-25
 
 ### Fixed
