@@ -129,7 +129,9 @@ def _streamed_download(
             allow_redirects=allow_redirects,
         ) as r:
             r.raise_for_status()
-            return _stream_response_to_file(r, dest_path, label=label, show_progress=show_progress)
+            return _stream_response_to_file(
+                r, dest_path, label=label, show_progress=show_progress
+            )
     except KeyboardInterrupt:
         raise
     except Exception as e:
@@ -407,8 +409,10 @@ class TransmissionSession:
                     percent_done = 0.0
                 # Status is tokens[7] (best-effort); name is the rest.
                 status = tokens[7] if len(tokens) > 8 else ""
-                name = " ".join(tokens[8:]) if len(tokens) > 8 else (
-                    tokens[-1] if len(tokens) > 1 else ""
+                name = (
+                    " ".join(tokens[8:])
+                    if len(tokens) > 8
+                    else (tokens[-1] if len(tokens) > 1 else "")
                 )
                 entries.append(
                     {
@@ -486,10 +490,7 @@ class TransmissionSession:
             if not entries:
                 break
             for entry in entries:
-                if (
-                    entry["percent_done"] >= 100.0
-                    and entry["id"] not in completed_ids
-                ):
+                if entry["percent_done"] >= 100.0 and entry["id"] not in completed_ids:
                     completed_ids.add(entry["id"])
                     file_name = self.info_file(entry["id"])
                     on_complete(entry["id"], file_name)
@@ -627,9 +628,7 @@ def run_torrent_session(torrent_files, save_dir, *, print_fn=print) -> None:
             failed += 1
             return
         abs_path = (
-            file_path
-            if os.path.isabs(file_path)
-            else os.path.join(save_dir, file_path)
+            file_path if os.path.isabs(file_path) else os.path.join(save_dir, file_path)
         )
         if abs_path.endswith(".7z"):
             ok = extract_with_7z(abs_path, save_dir, remove_archive=True)
@@ -653,9 +652,7 @@ def run_torrent_session(torrent_files, save_dir, *, print_fn=print) -> None:
     except KeyboardInterrupt:
         print_fn("\n[!] Torrent download interrupted.")
         raise
-    print_fn(
-        f"[i] Torrent session complete: {completed} succeeded, {failed} failed."
-    )
+    print_fn(f"[i] Torrent session complete: {completed} succeeded, {failed} failed.")
 
 
 def fetch_all_weakpass_wordlists_multithreaded(total_pages=None, threads=10):
@@ -678,10 +675,9 @@ def fetch_all_weakpass_wordlists_multithreaded(total_pages=None, threads=10):
         last_page = None
         if isinstance(wordlists_raw, dict):
             # Check multiple possible locations for last_page
-            last_page = (
-                wordlists_raw.get("last_page")
-                or wordlists_raw.get("meta", {}).get("last_page")
-            )
+            last_page = wordlists_raw.get("last_page") or wordlists_raw.get(
+                "meta", {}
+            ).get("last_page")
             if "data" in wordlists_raw:
                 wordlists_raw = wordlists_raw["data"]
             else:
@@ -729,7 +725,9 @@ def fetch_all_weakpass_wordlists_multithreaded(total_pages=None, threads=10):
                         seen.add(wl["name"])
                 return result
             else:
-                print("[!] Weakpass page 1 returned no results; falling back to 67 pages")
+                print(
+                    "[!] Weakpass page 1 returned no results; falling back to 67 pages"
+                )
                 total_pages = 67
                 entries1 = []
         except Exception as e:
@@ -892,7 +890,8 @@ def fetch_torrent_metadata(torrent_url, save_dir=None, wordlist_id=None):
     r2 = requests.get(torrent_link, headers=headers, stream=True)
     content_type = r2.headers.get("Content-Type", "")
     local_filename = os.path.join(
-        torrent_dir, filename if filename.endswith(".torrent") else filename + ".torrent"
+        torrent_dir,
+        filename if filename.endswith(".torrent") else filename + ".torrent",
     )
     if r2.status_code == 200 and not content_type.startswith("text/html"):
         with open(local_filename, "wb") as f:
@@ -1010,7 +1009,9 @@ def weakpass_wordlist_menu(rank=-1):
             if not torrent_url:
                 print(f"[!] Missing torrent URL for selection {idx}")
                 continue
-            meta = fetch_torrent_metadata(torrent_url, save_dir=save_dir, wordlist_id=entry.get("id"))
+            meta = fetch_torrent_metadata(
+                torrent_url, save_dir=save_dir, wordlist_id=entry.get("id")
+            )
             if meta:
                 torrent_files.append(meta)
         if torrent_files:
@@ -1352,7 +1353,9 @@ class HashviewAPI:
 
         all_hashfiles = self.get_hashfiles_by_type(hash_type)
         customer_hfs = [
-            hf for hf in all_hashfiles if int(hf.get("customer_id", 0)) == int(customer_id)
+            hf
+            for hf in all_hashfiles
+            if int(hf.get("customer_id", 0)) == int(customer_id)
         ]
 
         # The type-scoped endpoint already returns the hash_type, but normalize
@@ -1570,7 +1573,12 @@ class HashviewAPI:
         return resp.json()
 
     def download_left_hashes(
-        self, customer_id, hashfile_id, output_file=None, hash_type=None, potfile_path=None
+        self,
+        customer_id,
+        hashfile_id,
+        output_file=None,
+        hash_type=None,
+        potfile_path=None,
     ):
         import sys
 
@@ -1676,7 +1684,11 @@ class HashviewAPI:
                 )
 
                 # Append found hash:clear pairs to the potfile
-                resolved_potfile = potfile_path if potfile_path is not None else get_hcat_potfile_path()
+                resolved_potfile = (
+                    potfile_path
+                    if potfile_path is not None
+                    else get_hcat_potfile_path()
+                )
                 if resolved_potfile:
                     appended = 0
                     with open(resolved_potfile, "a", encoding="utf-8") as pf:
@@ -1810,7 +1822,9 @@ class HashviewAPI:
                     r"filename=\"?([^\";]+)\"?", content_disp, re.IGNORECASE
                 )
                 output_file = (
-                    os.path.basename(match.group(1)) if match else f"wordlist_{wordlist_id}.gz"
+                    os.path.basename(match.group(1))
+                    if match
+                    else f"wordlist_{wordlist_id}.gz"
                 )
 
         if not os.path.isabs(output_file):
@@ -2155,7 +2169,9 @@ def download_hashmob_wordlist(file_name, out_path):
 
     def _attempt():
         _hashmob_limiter.wait()
-        with requests.get(url, headers=headers, stream=True, timeout=60, allow_redirects=True) as r:
+        with requests.get(
+            url, headers=headers, stream=True, timeout=60, allow_redirects=True
+        ) as r:
             if r.status_code == 429:
                 raise _Hashmob429()
             r.raise_for_status()
@@ -2171,7 +2187,9 @@ def download_hashmob_wordlist(file_name, out_path):
                     real_url = match.group(1)
                     print(f"Found meta refresh redirect to: {real_url}")
                     return _streamed_download(real_url, out_path, label=file_name)
-                print("Error: Received HTML instead of file. Possible permission or quota issue.")
+                print(
+                    "Error: Received HTML instead of file. Possible permission or quota issue."
+                )
                 return False
             return _stream_response_to_file(r, out_path, label=file_name)
 
@@ -2281,19 +2299,31 @@ def download_hashmob_rule(file_name, out_path):
         print(
             f"[i] Hashmob rule not in pinned URL list, using public prefix: {file_name}"
         )
-        primary_url = f"https://www.hashmob.net/api/v2/downloads/research/rules/{file_name}"
+        primary_url = (
+            f"https://www.hashmob.net/api/v2/downloads/research/rules/{file_name}"
+        )
     alt_url = f"https://hashmob.net/api/v2/downloads/research/official/hashmob_rules/{file_name}"
     api_key = get_hashmob_api_key()
     headers = {"api-key": api_key} if api_key else {}
 
     def _attempt():
         _hashmob_limiter.wait()
-        with requests.get(primary_url, headers=headers, stream=True, timeout=60, allow_redirects=True) as r:
+        with requests.get(
+            primary_url, headers=headers, stream=True, timeout=60, allow_redirects=True
+        ) as r:
             if r.status_code == 429:
                 raise _Hashmob429()
             if r.status_code == 404 and alt_url:
-                print(f"[i] Hashmob rule not found at primary URL, trying fallback: {alt_url}")
-                with requests.get(alt_url, headers=headers, stream=True, timeout=60, allow_redirects=True) as r2:
+                print(
+                    f"[i] Hashmob rule not found at primary URL, trying fallback: {alt_url}"
+                )
+                with requests.get(
+                    alt_url,
+                    headers=headers,
+                    stream=True,
+                    timeout=60,
+                    allow_redirects=True,
+                ) as r2:
                     if r2.status_code == 429:
                         raise _Hashmob429()
                     r2.raise_for_status()
@@ -2554,9 +2584,7 @@ def download_official_wordlist(file_name, out_path):
     out_path = sanitize_filename(file_name)
     dest_dir = get_hcat_wordlists_dir()
     archive_path = (
-        os.path.join(dest_dir, out_path)
-        if not os.path.isabs(out_path)
-        else out_path
+        os.path.join(dest_dir, out_path) if not os.path.isabs(out_path) else out_path
     )
     os.makedirs(os.path.dirname(archive_path), exist_ok=True)
     ok = _streamed_download(url, archive_path, label=file_name)

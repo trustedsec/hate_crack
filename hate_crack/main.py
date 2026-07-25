@@ -479,7 +479,9 @@ omenTrainingList = config_parser.get("omenTrainingList", "rockyou.txt")
 omenMaxCandidates = int(config_parser.get("omenMaxCandidates", 1000000))
 pcfgRuleset = config_parser.get("pcfgRuleset", "DEFAULT")
 pcfgMaxCandidates = int(config_parser.get("pcfgMaxCandidates", 50000000))
-pcfgPrinceLingMaxCandidates = int(config_parser.get("pcfgPrinceLingMaxCandidates", 10000000))
+pcfgPrinceLingMaxCandidates = int(
+    config_parser.get("pcfgPrinceLingMaxCandidates", 10000000)
+)
 
 try:
     _cfg_optimized = config_parser["optimizedKernelAttacks"]
@@ -746,9 +748,15 @@ if not SKIP_INIT:
         # Verify pcfg_cracker presence (optional, for PCFG attacks)
         # pcfg_cracker is pure-Python; we just check the script files exist.
         pcfg_guesser_script = os.path.join(hate_path, "pcfg_cracker", "pcfg_guesser.py")
-        pcfg_prince_ling_script = os.path.join(hate_path, "pcfg_cracker", "prince_ling.py")
-        if not os.path.isfile(pcfg_guesser_script) or not os.path.isfile(pcfg_prince_ling_script):
-            print("pcfg_cracker not found at " + os.path.join(hate_path, "pcfg_cracker"))
+        pcfg_prince_ling_script = os.path.join(
+            hate_path, "pcfg_cracker", "prince_ling.py"
+        )
+        if not os.path.isfile(pcfg_guesser_script) or not os.path.isfile(
+            pcfg_prince_ling_script
+        ):
+            print(
+                "pcfg_cracker not found at " + os.path.join(hate_path, "pcfg_cracker")
+            )
             print("PCFG attacks will not be available. Run 'make' to fetch submodules.")
         elif not shutil.which("python3"):
             print("python3 not on PATH. PCFG attacks will not be available.")
@@ -2818,8 +2826,11 @@ def hcatPrinceLing(hcatHashType, hcatHashFile):
         print(f"PCFG ruleset not found: {ruleset_dir}")
         return
 
-    cache_dir = hcatOptimizedWordlists if isinstance(hcatOptimizedWordlists, str) \
+    cache_dir = (
+        hcatOptimizedWordlists
+        if isinstance(hcatOptimizedWordlists, str)
         else str(hcatOptimizedWordlists)
+    )
     os.makedirs(cache_dir, exist_ok=True)
     cache_path = os.path.join(cache_dir, f"pcfg_prince_ling_{pcfgRuleset}.txt")
     tmp_path = cache_path + ".tmp"
@@ -3664,9 +3675,7 @@ def hashview_api():
                     or api_name
                 )
                 try:
-                    download_result = api_harness.download_rules(
-                        rules_id, output_file
-                    )
+                    download_result = api_harness.download_rules(rules_id, output_file)
                     print(f"\n✓ Success: Downloaded {download_result['size']} bytes")
                     print(f"  File: {download_result['output_file']}")
                 except Exception as e:
@@ -3936,8 +3945,8 @@ def hashview_api():
                             print(
                                 "\nScanning customer hashfiles across common hash types..."
                             )
-                            customer_hashfiles = (
-                                api_harness.get_all_customer_hashfiles(customer_id)
+                            customer_hashfiles = api_harness.get_all_customer_hashfiles(
+                                customer_id
                             )
                         except Exception as e:
                             customer_hashfiles = []
@@ -4981,9 +4990,7 @@ def main():
         else:
             argv = argv_temp  # Fallback if subcommand not found
 
-    has_attack_subcommand = any(
-        arg in _noninteractive.ATTACK_COMMANDS for arg in argv
-    )
+    has_attack_subcommand = any(arg in _noninteractive.ATTACK_COMMANDS for arg in argv)
     use_subcommand_parser = "hashview" in argv or has_attack_subcommand
     parser, hashview_parser = _build_parser(
         include_positional=not use_subcommand_parser,
