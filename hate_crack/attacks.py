@@ -592,7 +592,7 @@ def ollama_attack(ctx: Any) -> None:
             )
             return
         elif choice == "2":
-            path = _omen_pick_training_wordlist(ctx, title="LLM Sample Wordlists")
+            path = _pick_training_wordlist(ctx, title="LLM Sample Wordlists")
             if not path:
                 return
             ctx.hcatOllama(ctx.hcatHashType, ctx.hcatHashFile, "wordlist", path)
@@ -606,7 +606,7 @@ def ollama_attack(ctx: Any) -> None:
             print("\t[!] Invalid selection.")
 
 
-def _omen_pick_training_wordlist(ctx: Any, title: str = "Training Wordlists"):
+def _pick_training_wordlist(ctx: Any, title: str = "Training Wordlists"):
     """Show wordlist picker. Returns path or None (user cancelled with 'q')."""
     wordlist_files = ctx.list_wordlist_files(ctx.hcatWordlists)
     # Print the grid once, outside the retry loop: a wordlists directory can
@@ -682,7 +682,7 @@ def omen_attack(ctx: Any) -> None:
         print("\n\tNo valid OMEN model found. Training is required.")
 
     if need_training:
-        training_file = _omen_pick_training_wordlist(ctx)
+        training_file = _pick_training_wordlist(ctx)
         if not training_file:
             return
         if not ctx.hcatOmenTrain(training_file):
@@ -709,7 +709,7 @@ def _markov_pick_training_source(ctx: Any):
     has_cracked = os.path.isfile(out_path) and os.path.getsize(out_path) > 0
 
     wordlist_files = ctx.list_wordlist_files(ctx.hcatWordlists)
-    # Print the grid once, outside the retry loop — see _omen_pick_training_wordlist.
+    # Print the grid once, outside the retry loop — see _pick_training_wordlist.
     entries = []
     if has_cracked:
         entries.append("0) Cracked passwords (current session)")
