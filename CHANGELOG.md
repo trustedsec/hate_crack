@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [2.14.0] - 2026-07-24
+
+### Added
+
+- **Non-interactive attack subcommands** for scripting (issue #17). Launch a
+  single attack without the menu: `quick` (wordlist + optional `--rules`),
+  `dict` (configured-wordlist methodology), `brute` (`--min`/`--max`), and
+  `topmask` (`--target-time`). Preprocessing prompts auto-accept their
+  defaults, and the process returns a clean exit code (0 on success, non-zero
+  on a bad hash file, hash type, wordlist, or rule name).
+
 ## [2.13.1] - 2026-07-24
 
 ### Fixed

@@ -159,6 +159,30 @@ You can also use Python directly:
 python hate_crack.py
 ```
 
+### Non-interactive / scripted usage
+
+For automation you can launch a single attack directly, bypassing the menu. The attack name is the first argument, followed by the hash file and hashcat hash type. Preprocessing prompts (computer-account filtering, LM-first brute force, duplicate-account dedup) auto-accept their defaults in this mode. The process exits `0` on success and non-zero on error (missing hash file, non-numeric hash type, missing wordlist, or an unknown rule filename).
+
+```bash
+# Quick crack: one wordlist + optional rule(s) from the rules directory
+hate_crack quick hashes.txt 1000 --wordlist rockyou.txt --rules best64.rule
+
+# Chain two rules in a single run
+hate_crack quick hashes.txt 1000 --wordlist rockyou.txt --rules best64.rule+d3ad0ne.rule
+
+# Run two rules as two separate passes
+hate_crack quick hashes.txt 1000 --wordlist rockyou.txt --rules best64.rule d3ad0ne.rule
+
+# Canned dictionary methodology (uses your configured wordlists)
+hate_crack dict hashes.txt 1000
+
+# Brute force lengths 1-8
+hate_crack brute hashes.txt 1000 --min 1 --max 8
+
+# Top-mask attack targeting ~4 hours
+hate_crack topmask hashes.txt 1000 --target-time 4
+```
+
 -------------------------------------------------------------------
 ## Troubleshooting
 
