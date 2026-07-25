@@ -134,3 +134,30 @@ def test_dispatch_topmask_converts_hours_to_seconds(tmp_path):
     args = SimpleNamespace(command="topmask", target_time=4)
     assert ni.run_noninteractive(ctx, args) == 0
     assert ctx.calls[0] == ("hcatTopMask", ("1000", ctx.hcatHashFile, 4 * 3600), {})
+
+
+def test_dispatch_unknown_command_returns_2(tmp_path):
+    ctx = _spy_ctx(tmp_path)
+    args = SimpleNamespace(command="bogus")
+    assert ni.run_noninteractive(ctx, args) == 2
+    assert ctx.calls == []
+
+
+def test_dispatch_quick_multiple_rules_runs_each_as_separate_pass(tmp_path):
+    rules = tmp_path / "rules"
+    rules.mkdir()
+    (rules / "best64.rule").write_text(":\n")
+    (rules / "d3ad0ne.rule").write_text(":\n")
+    wl = tmp_path / "rockyou.txt"
+    wl.write_text("password\n")
+    ctx = _spy_ctx(tmp_path)
+    args = SimpleNamespace(
+        command="quick", wordlist=str(wl), rules=["best64.rule", "d3ad0ne.rule"]
+    )
+    assert ni.run_noninteractive(ctx, args) == 0
+    assert len(ctx.calls) == 2
+    chains = [c[1][2] for c in ctx.calls]
+    assert chains == [
+        f"-r {os.path.join(ctx.rulesDirectory, 'best64.rule')}",
+        f"-r {os.path.join(ctx.rulesDirectory, 'd3ad0ne.rule')}",
+    ]
