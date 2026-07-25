@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [2.14.1] - 2026-07-25
+
+### Fixed
+
+- **Tab completion on custom file-path prompts.** The `p. Enter a custom path`
+  branches of the OMEN and Markov training pickers, the combipow wordlist
+  prompt, and the rule cleanup/optimize output-path prompts used a bare
+  `input()` with no readline completer, so TAB did nothing. They now route
+  through `select_file_with_autocomplete` for consistent path autocompletion.
+- **Stale completer leak.** `select_file_with_autocomplete` and the
+  `_configure_readline`-based pickers now drop the path completer after a
+  selection, so later numeric-menu and y/n prompts no longer inherit file-path
+  tab completion.
+
 ## [2.14.0] - 2026-07-24
 
 ### Added

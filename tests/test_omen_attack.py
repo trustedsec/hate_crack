@@ -355,12 +355,14 @@ class TestOmenAttackHandler:
     def test_custom_path_for_training(self, tmp_path):
         ctx = self._make_ctx(tmp_path, model_valid=False)
         self._setup_rules_dir(tmp_path)
+        ctx.select_file_with_autocomplete.return_value = "/custom/wordlist.txt"
         with patch("os.path.isfile", return_value=True), patch(
-            "builtins.input", side_effect=["p", "/custom/wordlist.txt", "", "0"]
+            "builtins.input", side_effect=["p", "", "0"]
         ):
             from hate_crack.attacks import omen_attack
 
             omen_attack(ctx)
+        ctx.select_file_with_autocomplete.assert_called_once()
         ctx.hcatOmenTrain.assert_called_once_with("/custom/wordlist.txt")
 
     def test_rules_passed_to_hcatOmen(self, tmp_path):

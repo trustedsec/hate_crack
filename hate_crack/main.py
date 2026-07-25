@@ -1238,7 +1238,12 @@ def select_file_with_autocomplete(
         full_prompt += f" (default: {default})"
     full_prompt += ": "
 
-    result = input(full_prompt).strip()
+    try:
+        result = input(full_prompt).strip()
+    finally:
+        # Drop the path completer so later plain prompts (numeric menus, y/n)
+        # don't inherit stale file-path tab completion.
+        readline.set_completer(None)
     if not result and base_dir:
         result = base_dir
 
