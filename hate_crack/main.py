@@ -4964,7 +4964,9 @@ def main():
         else:
             argv = argv_temp  # Fallback if subcommand not found
 
-    has_attack_subcommand = bool(argv) and argv[0] in _noninteractive.ATTACK_COMMANDS
+    has_attack_subcommand = any(
+        arg in _noninteractive.ATTACK_COMMANDS for arg in argv
+    )
     use_subcommand_parser = "hashview" in argv or has_attack_subcommand
     parser, hashview_parser = _build_parser(
         include_positional=not use_subcommand_parser,
@@ -5370,12 +5372,10 @@ def main():
                     f"Detected {duplicates} duplicate account(s) out of"
                     f" {total} total NetNTLM hashes."
                 )
-                dedup_choice = (
-                    input(
-                        "Would you like to ignore duplicate accounts"
-                        " (keep first occurrence only)? (Y) "
-                    )
-                    or "Y"
+                dedup_choice = _auto_input(
+                    "Would you like to ignore duplicate accounts"
+                    " (keep first occurrence only)? (Y) ",
+                    "Y",
                 )
                 if dedup_choice.upper() == "Y":
                     hcatHashFileOrig = hcatHashFile

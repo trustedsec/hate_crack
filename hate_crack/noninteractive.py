@@ -9,6 +9,8 @@ the same pattern ``attacks.py`` uses). See
 import os
 from typing import Any
 
+ATTACK_COMMANDS = ("quick", "dict", "brute", "topmask")
+
 
 def build_rule_chains(ctx: Any, rule_tokens: list[str] | None) -> list[str]:
     """Convert CLI ``--rules`` tokens into hashcat ``-r`` chain strings.
@@ -56,7 +58,7 @@ def run_noninteractive(ctx: Any, args: Any) -> int:
             print(f"Error: wordlist not found: {args.wordlist}")
             return 1
         try:
-            chains = build_rule_chains(ctx, args.rules)
+            chains = build_rule_chains(ctx, args.rule_files)
         except (FileNotFoundError, ValueError) as exc:
             print(f"Error: invalid --rules value: {exc}")
             return 1
@@ -88,9 +90,6 @@ def run_noninteractive(ctx: Any, args: Any) -> int:
     return 2
 
 
-ATTACK_COMMANDS = ("quick", "dict", "brute", "topmask")
-
-
 def add_attack_subparsers(subparsers) -> None:
     """Register the non-interactive attack subcommands on an argparse
     subparsers object (the same one used for ``hashview``).
@@ -112,6 +111,7 @@ def add_attack_subparsers(subparsers) -> None:
         "--rules",
         nargs="*",
         default=[],
+        dest="rule_files",
         metavar="RULE",
         help="Rule filename(s) from the rules directory. Chain with '+' "
         "(e.g. best64.rule+d3ad0ne.rule). Omit to run without rules.",

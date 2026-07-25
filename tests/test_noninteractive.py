@@ -87,7 +87,7 @@ def test_dispatch_quick_calls_quick_dictionary(tmp_path):
     wl = tmp_path / "rockyou.txt"
     wl.write_text("password\n")
     ctx = _spy_ctx(tmp_path)
-    args = SimpleNamespace(command="quick", wordlist=str(wl), rules=["best64.rule"])
+    args = SimpleNamespace(command="quick", wordlist=str(wl), rule_files=["best64.rule"])
     code = ni.run_noninteractive(ctx, args)
     assert code == 0
     assert [c[0] for c in ctx.calls] == ["hcatQuickDictionary"]
@@ -101,7 +101,7 @@ def test_dispatch_quick_calls_quick_dictionary(tmp_path):
 def test_dispatch_quick_missing_wordlist_returns_1(tmp_path):
     (tmp_path / "rules").mkdir()
     ctx = _spy_ctx(tmp_path)
-    args = SimpleNamespace(command="quick", wordlist=str(tmp_path / "nope.txt"), rules=[])
+    args = SimpleNamespace(command="quick", wordlist=str(tmp_path / "nope.txt"), rule_files=[])
     assert ni.run_noninteractive(ctx, args) == 1
     assert ctx.calls == []
 
@@ -111,7 +111,7 @@ def test_dispatch_quick_unknown_rule_returns_1(tmp_path):
     wl = tmp_path / "rockyou.txt"
     wl.write_text("password\n")
     ctx = _spy_ctx(tmp_path)
-    args = SimpleNamespace(command="quick", wordlist=str(wl), rules=["ghost.rule"])
+    args = SimpleNamespace(command="quick", wordlist=str(wl), rule_files=["ghost.rule"])
     assert ni.run_noninteractive(ctx, args) == 1
     assert ctx.calls == []
 
@@ -154,7 +154,7 @@ def test_dispatch_quick_multiple_rules_runs_each_as_separate_pass(tmp_path):
     wl.write_text("password\n")
     ctx = _spy_ctx(tmp_path)
     args = SimpleNamespace(
-        command="quick", wordlist=str(wl), rules=["best64.rule", "d3ad0ne.rule"]
+        command="quick", wordlist=str(wl), rule_files=["best64.rule", "d3ad0ne.rule"]
     )
     assert ni.run_noninteractive(ctx, args) == 0
     assert len(ctx.calls) == 2
@@ -215,3 +215,41 @@ def test_main_quick_bad_hashtype_errors(monkeypatch, tmp_path):
         monkeypatch, ["quick", str(hf), "notanumber", "--wordlist", str(wl)]
     )
     assert code != 0
+
+
+def test_main_quick_with_rules_dispatches(monkeypatch, tmp_path):
+    hf = _make_ntlm_hashfile(tmp_path)
+    wl = tmp_path / "rockyou.txt"
+    wl.write_text("password\n")
+    rules_dir = tmp_path / "rules"
+    rules_dir.mkdir()
+    (rules_dir / "best64.rule").write_text(":\n")
+    monkeypatch.setattr(hc_main, "rulesDirectory", str(rules_dir))
+    calls = []
+    monkeypatch.setattr(
+        hc_main, "hcatQuickDictionary", lambda *a, **k: calls.append(a)
+    )
+    code = _run_main(
+        monkeypatch,
+        ["quick", str(hf), "1000", "--wordlist", str(wl), "--rules", "best64.rule"],
+    )
+    assert code == 0
+    assert len(calls) == 1
+    # the rule chain (4th positional arg) must reference best64.rule
+    assert "best64.rule" in calls[0][2]
+
+
+def test_main_debug_flag_before_subcommand(monkeypatch, tmp_path):
+    hf = _make_ntlm_hashfile(tmp_path)
+    wl = tmp_path / "w.txt"
+    wl.write_text("x\n")
+    calls = []
+    monkeypatch.setattr(
+        hc_main, "hcatQuickDictionary", lambda *a, **k: calls.append(a)
+    )
+    code = _run_main(
+        monkeypatch,
+        ["--debug", "quick", str(hf), "1000", "--wordlist", str(wl)],
+    )
+    assert code == 0
+    assert len(calls) == 1
