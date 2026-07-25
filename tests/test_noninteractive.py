@@ -167,6 +167,10 @@ def test_dispatch_quick_multiple_rules_runs_each_as_separate_pass(tmp_path):
 
 def _run_main(monkeypatch, argv):
     monkeypatch.setattr(sys, "argv", ["hate_crack.py"] + argv)
+    # main()'s pre-dispatch potfile-recovery step shells out to the real hashcat
+    # binary, which is absent in CI. Stub it — these tests exercise dispatch
+    # routing and prompt suppression, not potfile recovery.
+    monkeypatch.setattr(hc_main, "_run_hashcat_show", lambda *a, **k: None)
     with pytest.raises(SystemExit) as excinfo:
         hc_main.main()
     return excinfo.value.code
