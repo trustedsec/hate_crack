@@ -170,9 +170,7 @@ def quick_crack(ctx: Any) -> None:
             if raw_choice == "":
                 wordlist_choice = default_dir
             elif raw_choice.isdigit() and 1 <= int(raw_choice) <= len(wordlist_files):
-                chosen = os.path.join(
-                    list_dir, wordlist_files[int(raw_choice) - 1]
-                )
+                chosen = os.path.join(list_dir, wordlist_files[int(raw_choice) - 1])
                 if os.path.exists(chosen):
                     wordlist_choice = chosen
                     print(wordlist_choice)
@@ -250,9 +248,7 @@ def extensive_crack(ctx: Any) -> None:
         ctx.hcatGoodMeasure(ctx.hcatHashType, ctx.hcatHashFile)
         ctx.hcatRecycle(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatExtraCount)
     cracked_after = ctx.lineCount(out_path) if os.path.exists(out_path) else 0
-    _notify.notify_job_done(
-        "Extensive Crack", cracked_after, ctx.hcatHashFile
-    )
+    _notify.notify_job_done("Extensive Crack", cracked_after, ctx.hcatHashFile)
     # Note: ``cracked_before`` is tracked for potential future per-orchestrator
     # delta reporting, but today the notify message uses the absolute count
     # because that matches what single-attack notifications already report.
@@ -308,7 +304,9 @@ def combinator_crack(ctx: Any) -> None:
     print("\n" + "=" * 60)
     print("COMBINATOR ATTACK")
     print("=" * 60)
-    print("Combines 2-8 wordlists. 2 uses hashcat native mode; 3+ use external binaries.")
+    print(
+        "Combines 2-8 wordlists. 2 uses hashcat native mode; 3+ use external binaries."
+    )
     print("=" * 60)
 
     use_default = (
@@ -318,7 +316,9 @@ def combinator_crack(ctx: Any) -> None:
     if use_default != "n":
         base = ctx.hcatCombinationWordlist
         wordlists = base if isinstance(base, list) else [base]
-        wordlists = [ctx._resolve_wordlist_path(wl, ctx.hcatWordlists) for wl in wordlists]
+        wordlists = [
+            ctx._resolve_wordlist_path(wl, ctx.hcatWordlists) for wl in wordlists
+        ]
         if len(wordlists) < 2:
             print("\n[!] Config does not have at least 2 wordlists.")
             print("Set hcatCombinationWordlist to a list of 2+ paths in config.json.")
@@ -332,14 +332,18 @@ def combinator_crack(ctx: Any) -> None:
             print("\n[!] Combinator attack requires at least 2 wordlists.")
             print("Aborting combinator attack.")
             return
-        separator = input("\nEnter separator between words (leave blank for none): ").strip()
+        separator = input(
+            "\nEnter separator between words (leave blank for none): "
+        ).strip()
 
     if len(wordlists) == 2 and not separator:
         ctx.hcatCombination(ctx.hcatHashType, ctx.hcatHashFile, wordlists)
     elif len(wordlists) == 3 and not separator:
         ctx.hcatCombinator3(ctx.hcatHashType, ctx.hcatHashFile, wordlists)
     else:
-        ctx.hcatCombinatorX(ctx.hcatHashType, ctx.hcatHashFile, wordlists, separator or None)
+        ctx.hcatCombinatorX(
+            ctx.hcatHashType, ctx.hcatHashFile, wordlists, separator or None
+        )
 
 
 def hybrid_crack(ctx: Any) -> None:
@@ -568,7 +572,9 @@ def ollama_attack(ctx: Any) -> None:
     items.append(("99", "Cancel"))
 
     while True:
-        choice = interactive_menu(items, title="\nLLM Attack", prompt="\n\tSelect generation mode: ")
+        choice = interactive_menu(
+            items, title="\nLLM Attack", prompt="\n\tSelect generation mode: "
+        )
         if choice is None or choice == "99":
             return
         if choice == "1":
@@ -656,7 +662,11 @@ def omen_attack(ctx: Any) -> None:
             ("99", "Cancel"),
         ]
         while True:
-            choice = interactive_menu(model_items, title="\nOMEN Attack (Ordered Markov ENumerator)", prompt="\n\tChoice: ")
+            choice = interactive_menu(
+                model_items,
+                title="\nOMEN Attack (Ordered Markov ENumerator)",
+                prompt="\n\tChoice: ",
+            )
             if choice is None or choice == "99":
                 return
             if choice == "1":
@@ -801,7 +811,7 @@ def combipow_crack(ctx: Any) -> None:
         if not os.path.isfile(path):
             print(f"[!] File not found: {path}")
             continue
-        with (gzip.open(path, "rb") if path.endswith(".gz") else open(path, "rb")) as fh:
+        with gzip.open(path, "rb") if path.endswith(".gz") else open(path, "rb") as fh:
             line_count = sum(1 for _ in fh)
         if line_count > 63:
             print(
@@ -823,7 +833,9 @@ def generate_rules_crack(ctx: Any) -> None:
     print("RANDOM RULES ATTACK")
     print("=" * 60)
     print("Generates random hashcat mutation rules and applies them to a wordlist.")
-    print("Use when known rulesets are exhausted - a chaos mode for rule-space exploration.")
+    print(
+        "Use when known rulesets are exhausted - a chaos mode for rule-space exploration."
+    )
     print("=" * 60)
 
     raw_count = input("\nNumber of random rules to generate (65536): ").strip()
@@ -893,7 +905,9 @@ def generate_rules_crack(ctx: Any) -> None:
         except ValueError:
             print("Please enter a valid number.")
 
-    ctx.hcatGenerateRules(ctx.hcatHashType, ctx.hcatHashFile, rule_count, wordlist_choice)
+    ctx.hcatGenerateRules(
+        ctx.hcatHashType, ctx.hcatHashFile, rule_count, wordlist_choice
+    )
 
 
 def ngram_attack(ctx: Any) -> None:
@@ -929,7 +943,9 @@ def permute_crack(ctx: Any) -> None:
     print("PERMUTATION ATTACK")
     print("=" * 60)
     print("Generates ALL character permutations of each word in a targeted wordlist.")
-    print("WARNING: Scales as N! per word. Only practical for words up to ~8 characters.")
+    print(
+        "WARNING: Scales as N! per word. Only practical for words up to ~8 characters."
+    )
     print("Best for: short targeted wordlists (names, abbreviations, known fragments).")
     print("=" * 60)
 
@@ -955,9 +971,7 @@ def permute_crack(ctx: Any) -> None:
 
     wordlist_path = None
     while wordlist_path is None:
-        raw = input(
-            "\nEnter path to a wordlist FILE (tab to autocomplete): "
-        ).strip()
+        raw = input("\nEnter path to a wordlist FILE (tab to autocomplete): ").strip()
         if not raw:
             continue
         if not os.path.exists(raw):
@@ -969,7 +983,6 @@ def permute_crack(ctx: Any) -> None:
         wordlist_path = raw
 
     ctx.hcatPermute(ctx.hcatHashType, ctx.hcatHashFile, wordlist_path)
-
 
 
 def combinator_submenu(ctx: Any) -> None:
@@ -1114,7 +1127,9 @@ def wordlist_filter_length(ctx: Any) -> None:
     if not os.path.isfile(infile):
         print(f"[!] File not found: {infile}")
         return
-    outfile = ctx.select_file_with_autocomplete("[*] Enter path to output wordlist").strip()
+    outfile = ctx.select_file_with_autocomplete(
+        "[*] Enter path to output wordlist"
+    ).strip()
     if not outfile:
         print("[!] Output path cannot be empty.")
         return
@@ -1134,11 +1149,15 @@ def wordlist_filter_charclass_include(ctx: Any) -> None:
     if not os.path.isfile(infile):
         print(f"[!] File not found: {infile}")
         return
-    outfile = ctx.select_file_with_autocomplete("[*] Enter path to output wordlist").strip()
+    outfile = ctx.select_file_with_autocomplete(
+        "[*] Enter path to output wordlist"
+    ).strip()
     if not outfile:
         print("[!] Output path cannot be empty.")
         return
-    print("[*] Char class mask: 1=lowercase, 2=uppercase, 4=digit, 8=symbol (additive, e.g. 3=lower+upper)")
+    print(
+        "[*] Char class mask: 1=lowercase, 2=uppercase, 4=digit, 8=symbol (additive, e.g. 3=lower+upper)"
+    )
     mask = int(input("Mask value: ").strip() or "0")
     if ctx.wordlist_filter_req_include(infile, outfile, mask):
         print(f"\n[*] Filtered wordlist written to: {outfile}")
@@ -1154,7 +1173,9 @@ def wordlist_filter_charclass_exclude(ctx: Any) -> None:
     if not os.path.isfile(infile):
         print(f"[!] File not found: {infile}")
         return
-    outfile = ctx.select_file_with_autocomplete("[*] Enter path to output wordlist").strip()
+    outfile = ctx.select_file_with_autocomplete(
+        "[*] Enter path to output wordlist"
+    ).strip()
     if not outfile:
         print("[!] Output path cannot be empty.")
         return
@@ -1174,7 +1195,9 @@ def wordlist_cut_substring(ctx: Any) -> None:
     if not os.path.isfile(infile):
         print(f"[!] File not found: {infile}")
         return
-    outfile = ctx.select_file_with_autocomplete("[*] Enter path to output wordlist").strip()
+    outfile = ctx.select_file_with_autocomplete(
+        "[*] Enter path to output wordlist"
+    ).strip()
     if not outfile:
         print("[!] Output path cannot be empty.")
         return
@@ -1195,7 +1218,9 @@ def wordlist_split_by_length(ctx: Any) -> None:
     if not os.path.isfile(infile):
         print(f"[!] File not found: {infile}")
         return
-    outdir = ctx.select_file_with_autocomplete("[*] Enter output directory path").strip()
+    outdir = ctx.select_file_with_autocomplete(
+        "[*] Enter output directory path"
+    ).strip()
     if not outdir:
         print("[!] Output directory cannot be empty.")
         return
@@ -1226,7 +1251,9 @@ def wordlist_subtract_words(ctx: Any) -> None:
         if not os.path.isfile(remove_file):
             print(f"[!] File not found: {remove_file}")
             return
-        outfile = ctx.select_file_with_autocomplete("[*] Enter path to output wordlist").strip()
+        outfile = ctx.select_file_with_autocomplete(
+            "[*] Enter path to output wordlist"
+        ).strip()
         if not outfile:
             print("[!] Output path cannot be empty.")
             return
@@ -1241,12 +1268,16 @@ def wordlist_subtract_words(ctx: Any) -> None:
         if not os.path.isfile(infile):
             print(f"[!] File not found: {infile}")
             return
-        outfile = ctx.select_file_with_autocomplete("[*] Enter path to output wordlist").strip()
+        outfile = ctx.select_file_with_autocomplete(
+            "[*] Enter path to output wordlist"
+        ).strip()
         if not outfile:
             print("[!] Output path cannot be empty.")
             return
         raw = ctx.select_file_with_autocomplete(
-            "[*] Enter remove file paths", allow_multiple=True, base_dir=ctx.hcatWordlists
+            "[*] Enter remove file paths",
+            allow_multiple=True,
+            base_dir=ctx.hcatWordlists,
         ).strip()
         remove_files = [r.strip() for r in raw.split(",") if r.strip()]
         if not remove_files:
@@ -1320,7 +1351,9 @@ def wordlist_optimize(ctx: Any) -> None:
         for p in not_found:
             print(f"    {p}")
         return
-    outdir = ctx.select_file_with_autocomplete("[*] Enter output directory path").strip()
+    outdir = ctx.select_file_with_autocomplete(
+        "[*] Enter output directory path"
+    ).strip()
     if not outdir:
         print("[!] Output directory cannot be empty.")
         return
