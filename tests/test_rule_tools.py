@@ -26,7 +26,8 @@ class TestRuleCleanupHandler:
         infile = tmp_path / "test.rule"
         infile.write_text("l\nu\n")
         outfile = tmp_path / "clean.rule"
-        with patch("builtins.input", side_effect=[str(infile), str(outfile)]):
+        ctx.select_file_with_autocomplete.return_value = str(outfile)
+        with patch("builtins.input", side_effect=[str(infile)]):
             rule_cleanup_handler(ctx)
         ctx.rules_cleanup.assert_called_once_with(str(infile), str(outfile))
 
@@ -40,7 +41,8 @@ class TestRuleCleanupHandler:
         ctx = _make_ctx()
         infile = tmp_path / "test.rule"
         infile.write_text("l\n")
-        with patch("builtins.input", side_effect=[str(infile), ""]):
+        ctx.select_file_with_autocomplete.return_value = ""
+        with patch("builtins.input", side_effect=[str(infile)]):
             rule_cleanup_handler(ctx)
         ctx.rules_cleanup.assert_not_called()
 
@@ -49,7 +51,8 @@ class TestRuleCleanupHandler:
         infile = tmp_path / "test.rule"
         infile.write_text("l\n")
         outfile = tmp_path / "clean.rule"
-        with patch("builtins.input", side_effect=[str(infile), str(outfile)]):
+        ctx.select_file_with_autocomplete.return_value = str(outfile)
+        with patch("builtins.input", side_effect=[str(infile)]):
             rule_cleanup_handler(ctx)
         assert "[+] Done." in capsys.readouterr().out
 
@@ -59,7 +62,8 @@ class TestRuleCleanupHandler:
         infile = tmp_path / "test.rule"
         infile.write_text("l\n")
         outfile = tmp_path / "clean.rule"
-        with patch("builtins.input", side_effect=[str(infile), str(outfile)]):
+        ctx.select_file_with_autocomplete.return_value = str(outfile)
+        with patch("builtins.input", side_effect=[str(infile)]):
             rule_cleanup_handler(ctx)
         assert "[!] Cleanup failed." in capsys.readouterr().out
 
@@ -70,7 +74,8 @@ class TestRuleOptimizeHandler:
         infile = tmp_path / "test.rule"
         infile.write_text("l\nu\n")
         outfile = tmp_path / "optimized.rule"
-        with patch("builtins.input", side_effect=[str(infile), str(outfile)]):
+        ctx.select_file_with_autocomplete.return_value = str(outfile)
+        with patch("builtins.input", side_effect=[str(infile)]):
             rule_optimize_handler(ctx)
         ctx.rules_optimize.assert_called_once_with(str(infile), str(outfile))
 
@@ -84,7 +89,8 @@ class TestRuleOptimizeHandler:
         ctx = _make_ctx()
         infile = tmp_path / "test.rule"
         infile.write_text("l\n")
-        with patch("builtins.input", side_effect=[str(infile), ""]):
+        ctx.select_file_with_autocomplete.return_value = ""
+        with patch("builtins.input", side_effect=[str(infile)]):
             rule_optimize_handler(ctx)
         ctx.rules_optimize.assert_not_called()
 
@@ -93,7 +99,8 @@ class TestRuleOptimizeHandler:
         infile = tmp_path / "test.rule"
         infile.write_text("l\n")
         outfile = tmp_path / "optimized.rule"
-        with patch("builtins.input", side_effect=[str(infile), str(outfile)]):
+        ctx.select_file_with_autocomplete.return_value = str(outfile)
+        with patch("builtins.input", side_effect=[str(infile)]):
             rule_optimize_handler(ctx)
         assert "[+] Done." in capsys.readouterr().out
 
@@ -103,7 +110,8 @@ class TestRuleOptimizeHandler:
         infile = tmp_path / "test.rule"
         infile.write_text("l\n")
         outfile = tmp_path / "optimized.rule"
-        with patch("builtins.input", side_effect=[str(infile), str(outfile)]):
+        ctx.select_file_with_autocomplete.return_value = str(outfile)
+        with patch("builtins.input", side_effect=[str(infile)]):
             rule_optimize_handler(ctx)
         assert "[!] Optimize failed." in capsys.readouterr().out
 
@@ -114,7 +122,8 @@ class TestRuleCleanupAndOptimize:
         infile = tmp_path / "test.rule"
         infile.write_text("l\nu\n")
         outfile = tmp_path / "final.rule"
-        with patch("builtins.input", side_effect=[str(infile), str(outfile)]):
+        ctx.select_file_with_autocomplete.return_value = str(outfile)
+        with patch("builtins.input", side_effect=[str(infile)]):
             rule_cleanup_and_optimize_handler(ctx)
         ctx.rules_cleanup.assert_called_once()
         ctx.rules_optimize.assert_called_once()
@@ -125,7 +134,8 @@ class TestRuleCleanupAndOptimize:
         infile = tmp_path / "test.rule"
         infile.write_text("l\n")
         outfile = tmp_path / "out.rule"
-        with patch("builtins.input", side_effect=[str(infile), str(outfile)]):
+        ctx.select_file_with_autocomplete.return_value = str(outfile)
+        with patch("builtins.input", side_effect=[str(infile)]):
             rule_cleanup_and_optimize_handler(ctx)
         ctx.rules_optimize.assert_not_called()
 
@@ -139,7 +149,8 @@ class TestRuleCleanupAndOptimize:
         ctx = _make_ctx()
         infile = tmp_path / "test.rule"
         infile.write_text("l\n")
-        with patch("builtins.input", side_effect=[str(infile), ""]):
+        ctx.select_file_with_autocomplete.return_value = ""
+        with patch("builtins.input", side_effect=[str(infile)]):
             rule_cleanup_and_optimize_handler(ctx)
         ctx.rules_cleanup.assert_not_called()
 
@@ -155,7 +166,8 @@ class TestRuleCleanupAndOptimize:
         infile = tmp_path / "test.rule"
         infile.write_text("l\n")
         outfile = tmp_path / "final.rule"
-        with patch("builtins.input", side_effect=[str(infile), str(outfile)]):
+        ctx.select_file_with_autocomplete.return_value = str(outfile)
+        with patch("builtins.input", side_effect=[str(infile)]):
             rule_cleanup_and_optimize_handler(ctx)
         assert captured_tmp, "rules_cleanup should have been called"
         assert not os.path.exists(captured_tmp[0]), "temp file should be cleaned up"
@@ -172,7 +184,8 @@ class TestRuleCleanupAndOptimize:
         infile = tmp_path / "test.rule"
         infile.write_text("l\n")
         outfile = tmp_path / "out.rule"
-        with patch("builtins.input", side_effect=[str(infile), str(outfile)]):
+        ctx.select_file_with_autocomplete.return_value = str(outfile)
+        with patch("builtins.input", side_effect=[str(infile)]):
             rule_cleanup_and_optimize_handler(ctx)
         if captured_tmp:
             assert not os.path.exists(captured_tmp[0]), "temp file should be cleaned up"
@@ -182,7 +195,8 @@ class TestRuleCleanupAndOptimize:
         infile = tmp_path / "test.rule"
         infile.write_text("l\n")
         outfile = tmp_path / "final.rule"
-        with patch("builtins.input", side_effect=[str(infile), str(outfile)]):
+        ctx.select_file_with_autocomplete.return_value = str(outfile)
+        with patch("builtins.input", side_effect=[str(infile)]):
             rule_cleanup_and_optimize_handler(ctx)
         assert "[+] Done." in capsys.readouterr().out
 

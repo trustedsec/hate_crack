@@ -21,8 +21,6 @@ import subprocess
 import shlex
 import time
 import argparse
-import urllib.request
-import urllib.error
 import contextlib
 import gzip
 import lzma
@@ -75,6 +73,9 @@ from hate_crack.cli import (  # noqa: E402
     setup_logging,
 )
 from hate_crack import attacks as _attacks  # noqa: E402
+from hate_crack import llm  # noqa: E402
+from hate_crack import noninteractive as _noninteractive  # noqa: E402
+from hate_crack.progress import spinner  # noqa: E402
 from hate_crack.menu import interactive_menu  # noqa: E402
 from hate_crack.username_detect import detect_username_hash_format  # noqa: E402
 
@@ -361,6 +362,23 @@ else:
             hcatPotfilePath = os.path.join(hate_path, hcatPotfilePath)
 
 
+def _normalize_ollama_url(host: str) -> str:
+    """Turn an ``OLLAMA_HOST`` value into a usable base URL.
+
+    Ollama's own tooling accepts both a bare ``host:port`` and a full URL, so
+    accept either.  Only prepend ``http://`` when no scheme is present;
+    unconditionally prepending it produced URLs like
+    ``http://https://ollama.example.com``.  Trailing slashes are stripped
+    because callers append paths (``f"{ollamaUrl}/v1"``).
+    """
+    host = (host or "").strip()
+    if not host:
+        return "http://localhost:11434"
+    if "://" not in host:
+        host = "http://" + host
+    return host.rstrip("/")
+
+
 def _maybe_append_username_flag(cmd):
     """Append --username if the active hash file has user:hash format and
     the flag isn't already present (from hcatTuning or elsewhere)."""
@@ -450,15 +468,20 @@ hcatGoodMeasureBaseList = config_parser["hcatGoodMeasureBaseList"]
 
 hcatDebugLogPath = os.path.expanduser(config_parser["hcatDebugLogPath"])
 
-ollamaUrl = "http://" + os.environ.get("OLLAMA_HOST", "localhost:11434")
-ollamaModel = config_parser.get("ollamaModel", "mistral")
+ollamaUrl = _normalize_ollama_url(os.environ.get("OLLAMA_HOST", "localhost:11434"))
+ollamaModel = config_parser.get("ollamaModel", "qwen2.5:32b")
 ollamaNumCtx = int(config_parser.get("ollamaNumCtx", 2048))
+ollamaTimeout = float(config_parser.get("ollamaTimeout", 300))
+ollamaMaxSampleLines = int(config_parser.get("ollamaMaxSampleLines", 500))
+ollamaAutoResearch = bool(config_parser.get("ollamaAutoResearch", True))
 
 omenTrainingList = config_parser.get("omenTrainingList", "rockyou.txt")
 omenMaxCandidates = int(config_parser.get("omenMaxCandidates", 1000000))
 pcfgRuleset = config_parser.get("pcfgRuleset", "DEFAULT")
 pcfgMaxCandidates = int(config_parser.get("pcfgMaxCandidates", 50000000))
-pcfgPrinceLingMaxCandidates = int(config_parser.get("pcfgPrinceLingMaxCandidates", 10000000))
+pcfgPrinceLingMaxCandidates = int(
+    config_parser.get("pcfgPrinceLingMaxCandidates", 10000000)
+)
 
 try:
     _cfg_optimized = config_parser["optimizedKernelAttacks"]
@@ -725,9 +748,15 @@ if not SKIP_INIT:
         # Verify pcfg_cracker presence (optional, for PCFG attacks)
         # pcfg_cracker is pure-Python; we just check the script files exist.
         pcfg_guesser_script = os.path.join(hate_path, "pcfg_cracker", "pcfg_guesser.py")
-        pcfg_prince_ling_script = os.path.join(hate_path, "pcfg_cracker", "prince_ling.py")
-        if not os.path.isfile(pcfg_guesser_script) or not os.path.isfile(pcfg_prince_ling_script):
-            print("pcfg_cracker not found at " + os.path.join(hate_path, "pcfg_cracker"))
+        pcfg_prince_ling_script = os.path.join(
+            hate_path, "pcfg_cracker", "prince_ling.py"
+        )
+        if not os.path.isfile(pcfg_guesser_script) or not os.path.isfile(
+            pcfg_prince_ling_script
+        ):
+            print(
+                "pcfg_cracker not found at " + os.path.join(hate_path, "pcfg_cracker")
+            )
             print("PCFG attacks will not be available. Run 'make' to fetch submodules.")
         elif not shutil.which("python3"):
             print("python3 not on PATH. PCFG attacks will not be available.")
@@ -757,6 +786,7 @@ hcatGenerateRulesCount = 0
 hcatPermuteCount = 0
 hcatProcess: subprocess.Popen[Any] | None = None
 debug_mode = False
+non_interactive = False
 hcatUsernamePrefix: bool = False
 
 
@@ -893,6 +923,23 @@ def _wordlist_path(path: str):
                 pass
     else:
         yield path
+
+
+def _usable_plaintext(raw: str) -> str:
+    """Return the usable plaintext from a raw wordlist line, or empty string.
+
+    Blank/whitespace-only lines are discarded.  Lines in ``hash:password``
+    format (as produced by hashcat ``--show``) are split on the first colon
+    so only the plaintext portion is returned; lines with no colon are
+    returned as-is.  A ``hash:`` line whose plaintext is empty after
+    stripping returns an empty string and is therefore also discarded.
+    """
+    stripped = raw.strip()
+    if not stripped:
+        return ""
+    if ":" in stripped:
+        stripped = stripped.split(":", 1)[1]
+    return stripped
 
 
 def _add_debug_mode_for_rules(cmd):
@@ -1191,7 +1238,12 @@ def select_file_with_autocomplete(
         full_prompt += f" (default: {default})"
     full_prompt += ": "
 
-    result = input(full_prompt).strip()
+    try:
+        result = input(full_prompt).strip()
+    finally:
+        # Drop the path completer so later plain prompts (numeric menus, y/n)
+        # don't inherit stale file-path tab completion.
+        readline.set_completer(None)
     if not result and base_dir:
         result = base_dir
 
@@ -2036,171 +2088,182 @@ def hcatBandrel(hcatHashType, hcatHashFile):
         _run_hcat_cmd(cmd, attack_name="Bandrel", hash_file=hcatHashFile)
 
 
-# Pull an Ollama model via the /api/pull streaming endpoint
-def _pull_ollama_model(url, model):
-    """Pull an Ollama model. Returns True on success, False on failure."""
-    print(f"Model '{model}' not found locally. Pulling from Ollama...")
-    pull_url = f"{url}/api/pull"
-    payload = json.dumps({"name": model, "stream": True}).encode("utf-8")
-    req = urllib.request.Request(
-        pull_url,
-        data=payload,
-        headers={"Content-Type": "application/json"},
-    )
+def _sample_plaintext_file(path, cap, source_label="wordlist"):
+    """Return an evenly-spaced sample of usable plaintexts from ``path``.
+
+    ``cap`` is the maximum number of lines to keep (values <= 0 fall back to the
+    built-in default of 500).  ``source_label`` is used only in the progress and
+    error messages so callers can say "wordlist" or "cracked passwords".
+
+    Returns a list of plaintexts (possibly empty when the file has no usable
+    lines), or ``None`` if the file could not be read — in which case an error
+    has already been printed.
+    """
+    # Two-pass evenly-spaced sample: first count usable lines so we can
+    # stride-select across the whole file rather than taking a head slice.
+    # A head-only sample misses the pattern variation across large wordlists
+    # (e.g. rockyou.txt becomes more random further in).
     try:
-        with urllib.request.urlopen(req) as resp:
-            for raw_line in resp:
-                line = raw_line.decode("utf-8", errors="replace").strip()
-                if not line:
-                    continue
-                try:
-                    data = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                status = data.get("status")
-                if status:
-                    print(f"  {status}")
-    except urllib.error.HTTPError as e:
-        print(f"Error pulling model: HTTP {e.code}")
-        return False
-    except urllib.error.URLError as e:
-        print(f"Error: Could not connect to Ollama: {e}")
-        return False
+        total_usable = 0
+        with open(path, "r", errors="ignore") as f:
+            for raw in f:
+                if _usable_plaintext(raw):
+                    total_usable += 1
     except Exception as e:
-        print(f"Error pulling model: {e}")
-        return False
-    print(f"Successfully pulled model '{model}'.")
-    return True
+        print(f"Error reading {source_label}: {e}")
+        return None
+
+    # Invalid cap (zero or negative): fall back to the built-in default of 500.
+    if cap <= 0:
+        cap = 500
+
+    if total_usable <= cap:
+        # No capping needed — collect all usable lines.
+        try:
+            sampled: list[str] = []
+            with open(path, "r", errors="ignore") as f:
+                for raw in f:
+                    w = _usable_plaintext(raw)
+                    if w:
+                        sampled.append(w)
+        except Exception as e:
+            print(f"Error reading {source_label}: {e}")
+            return None
+        print(f"Loaded {len(sampled):,} passwords from {source_label}.")
+        return sampled
+
+    # Evenly-spaced sample: the k-th pick targets index floor(k * total / cap),
+    # which yields EXACTLY cap distinct indices spanning the full range for any
+    # 1 <= cap <= total_usable.
+    try:
+        pick_set = {(k * total_usable) // cap for k in range(cap)}
+        sampled = []
+        usable_idx = 0
+        with open(path, "r", errors="ignore") as f:
+            for raw in f:
+                w = _usable_plaintext(raw)
+                if not w:
+                    continue
+                if usable_idx in pick_set:
+                    sampled.append(w)
+                usable_idx += 1
+    except Exception as e:
+        print(f"Error reading {source_label}: {e}")
+        return None
+    print(
+        f"Sampled {len(sampled):,} of {total_usable:,} passwords from {source_label}."
+    )
+    return sampled
+
+
+def hcatOllamaResearchTarget(company):
+    """Ask the local Ollama model what it knows about *company*.
+
+    Returns a dict with "industry" and "location" keys; either value may be an
+    empty string when the model is not confident or the request failed. Never
+    raises: research is a convenience, so any failure degrades to empty
+    suggestions (blank prompts) rather than blocking the attack.
+
+    Uses only the configured local Ollama server — the company name is never
+    sent to a third-party service.
+    """
+    blank = {"industry": "", "location": ""}
+    if not ollamaAutoResearch or not company:
+        return blank
+
+    try:
+        with spinner(f"Researching {company} via Ollama ({ollamaModel})..."):
+            result = llm.research_target(
+                ollamaUrl,
+                ollamaModel,
+                ollamaNumCtx,
+                company,
+                timeout=ollamaTimeout,
+            )
+    except llm.LLMTimeoutError:
+        print(
+            f"Note: target research timed out after {ollamaTimeout:g} seconds — "
+            "enter the details manually."
+        )
+        return blank
+    except Exception as e:
+        print(f"Note: target research unavailable ({e}) — enter the details manually.")
+        return blank
+
+    return {"industry": result.industry, "location": result.location}
 
 
 # LLM Ollama Attack
 def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
-    global hcatProcess
     candidates_path = f"{hcatHashFile}.ollama_candidates"
 
-    # Step A: Build LLM prompt based on mode
+    # Step A: normalize context into the dict generate_candidates expects.
     if mode == "wordlist":
         wordlist_path = context_data
         if not os.path.isfile(wordlist_path):
             print(f"Error: Wordlist not found: {wordlist_path}")
             return
-        lines = []
-        try:
-            with open(wordlist_path, "r", errors="ignore") as f:
-                for line in f:
-                    stripped = line.strip()
-                    if not stripped:
-                        continue
-                    # Use only content after the first colon (e.g. hash:password -> password)
-                    if ":" in stripped:
-                        stripped = stripped.split(":", 1)[1]
-                    if stripped:
-                        lines.append(stripped)
-        except Exception as e:
-            print(f"Error reading wordlist: {e}")
+
+        sampled = _sample_plaintext_file(wordlist_path, ollamaMaxSampleLines)
+        if sampled is None:
             return
-        print(f"Loaded {len(lines)} passwords from wordlist.")
-        wordlist_sample = "\n".join(lines)
-        prompt = (
-            "Generate baseword to be used in a denylist for keeping users from setting their passwords with these basewords."
-            "Study the patterns, character choices, and structures. Focus on patterns like capitalization, leetspeak, suffixes, and common substitutions. Here are the sample passwords:\n"
-            f"{wordlist_sample}"
+        gen_context = {"sample": "\n".join(sampled)}
+    elif mode == "cracked":
+        # context_data may carry an explicit path; default to this session's
+        # cracked-output file.
+        cracked_path = context_data or f"{hcatHashFile}.out"
+        if not os.path.isfile(cracked_path):
+            print(f"Error: No cracked passwords found: {cracked_path}")
+            return
+
+        sampled = _sample_plaintext_file(
+            cracked_path, ollamaMaxSampleLines, source_label="cracked passwords"
         )
+        if sampled is None:
+            return
+        if not sampled:
+            print(
+                "Error: No cracked passwords yet — crack some hashes first, then "
+                "use this mode to generate more candidates in the same style."
+            )
+            return
+        gen_context = {"sample": "\n".join(sampled)}
     elif mode == "target":
-        company = context_data.get("company", "")
-        industry = context_data.get("industry", "")
-        location = context_data.get("location", "")
-        prompt = (
-            "You are participating in a capture the flag event as a security professional. "
-            "You are my partner in the competition. You need to recover the password to a system to retrieve the flag. "
-            "Output as many possible password combinations you think might help us. "
-            f"The name of the fake company is {company}. They are a {industry} in {location}. "
-            "Use terms related to the industry as basewords and also use permutations of the company name combined with common suffixes. "
-            "Only output the candidate password each on a new line. Dont output any explanation. "
-            "Only output the password candidate. Do not number the lines or add any extra information to the output"
-        )
+        gen_context = context_data
     else:
         print(f"Error: Unknown LLM generation mode: {mode}")
         return
 
-    # Step B: Call Ollama API to generate candidates
-    print(f"Generating password candidates via Ollama ({ollamaModel})...")
-    api_url = f"{ollamaUrl}/api/generate"
-    payload = json.dumps(
-        {
-            "model": ollamaModel,
-            "prompt": prompt,
-            "stream": False,
-            "options": {"num_ctx": ollamaNumCtx},
-        }
-    ).encode("utf-8")
-
-    if debug_mode:
-        print(f"[DEBUG] Ollama API URL: {api_url}")
-        print(f"[DEBUG] Ollama request payload: {payload.decode('utf-8')}")
-
+    # Step B: generate candidates via the Atomic Agents module.
     try:
-        req = urllib.request.Request(
-            api_url,
-            data=payload,
-            headers={"Content-Type": "application/json"},
+        with spinner(f"Generating password candidates via Ollama ({ollamaModel})..."):
+            candidates = llm.generate_candidates(
+                ollamaUrl,
+                ollamaModel,
+                ollamaNumCtx,
+                mode,
+                gen_context,
+                timeout=ollamaTimeout,
+            )
+    except llm.LLMTimeoutError:
+        print(f"Error: the Ollama request timed out after {ollamaTimeout:g} seconds.")
+        print(
+            f"The model ({ollamaModel}) may still be loading into VRAM. Retry, or "
+            'raise "ollamaTimeout" in config.json to wait longer.'
         )
-        with urllib.request.urlopen(req, timeout=600) as resp:
-            result = json.loads(resp.read().decode("utf-8"))
-        if debug_mode:
-            print(f"[DEBUG] Ollama response: {json.dumps(result, indent=2)}")
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            if _pull_ollama_model(ollamaUrl, ollamaModel):
-                try:
-                    req = urllib.request.Request(
-                        api_url,
-                        data=payload,
-                        headers={"Content-Type": "application/json"},
-                    )
-                    with urllib.request.urlopen(req, timeout=600) as resp:
-                        result = json.loads(resp.read().decode("utf-8"))
-                    if debug_mode:
-                        print(
-                            f"[DEBUG] Ollama response (after pull): {json.dumps(result, indent=2)}"
-                        )
-                except Exception as retry_err:
-                    print(f"Error calling Ollama API after pull: {retry_err}")
-                    return
-            else:
-                print(f"Could not pull model '{ollamaModel}'. Aborting LLM attack.")
-                return
-        else:
-            print(f"Error: Could not connect to Ollama at {ollamaUrl}: {e}")
-            print("Ensure Ollama is running (ollama serve) and try again.")
-            return
-    except urllib.error.URLError as e:
-        print(f"Error: Could not connect to Ollama at {ollamaUrl}: {e}")
-        print("Ensure Ollama is running (ollama serve) and try again.")
+        return
+    except ValueError as e:
+        # Defensive: mode is already validated above, but keep an explicit,
+        # non-misleading message if generate_candidates ever rejects its input.
+        print(f"Error: {e}")
         return
     except Exception as e:
-        print(f"Error calling Ollama API: {e}")
-        return
-
-    response_text = result.get("response", "")
-    if "I'm sorry, but I can't help with that" in response_text:
+        print(f"Error generating candidates: {e}")
         print(
-            "Error: Ollama refused the request. Try a different model or adjust your prompt."
+            "Ensure Ollama is running (ollama serve) and the model is pulled "
+            f"(ollama pull {ollamaModel})."
         )
         return
-    raw_lines = response_text.strip().split("\n")
-    # Filter out blank lines and lines that look like numbering/explanation
-    candidates = []
-    for line in raw_lines:
-        stripped = line.strip()
-        if not stripped:
-            continue
-        # Strip leading numbering like "1. " or "1) " or "- "
-        cleaned = re.sub(r"^\d+[.)]\s*", "", stripped)
-        cleaned = re.sub(r"^[-*]\s*", "", cleaned)
-        cleaned = cleaned.strip()
-        if cleaned and len(cleaned) <= 128:
-            candidates.append(cleaned)
 
     if not candidates:
         print("Error: Ollama returned no usable password candidates.")
@@ -2215,13 +2278,8 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
         return
 
     print(f"Generated {len(candidates)} password candidates -> {candidates_path}")
-    if debug_mode:
-        filtered_count = len(raw_lines) - len(candidates)
-        print(
-            f"[DEBUG] Filtered out {filtered_count} lines from Ollama response ({len(raw_lines)} raw -> {len(candidates)} candidates)"
-        )
 
-    # Step C: Run hashcat wordlist attack with LLM-generated candidates (no rules)
+    # Step C: hashcat wordlist attack with the generated candidates (no rules).
     print("Running wordlist attack with LLM-generated candidates...")
     cmd = [
         hcatBin,
@@ -2246,7 +2304,7 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
     except KeyboardInterrupt:
         return
 
-    # Step D: Run hashcat with LLM candidates against every rule in the rules directory
+    # Step D: hashcat with candidates against every rule in the rules directory.
     rule_files = sorted(f for f in os.listdir(rulesDirectory) if f != ".DS_Store")
     if not rule_files:
         print("No rule files found in rules directory. Skipping rule-based attacks.")
@@ -2773,8 +2831,11 @@ def hcatPrinceLing(hcatHashType, hcatHashFile):
         print(f"PCFG ruleset not found: {ruleset_dir}")
         return
 
-    cache_dir = hcatOptimizedWordlists if isinstance(hcatOptimizedWordlists, str) \
+    cache_dir = (
+        hcatOptimizedWordlists
+        if isinstance(hcatOptimizedWordlists, str)
         else str(hcatOptimizedWordlists)
+    )
     os.makedirs(cache_dir, exist_ok=True)
     cache_path = os.path.join(cache_dir, f"pcfg_prince_ling_{pcfgRuleset}.txt")
     tmp_path = cache_path + ".tmp"
@@ -3619,9 +3680,7 @@ def hashview_api():
                     or api_name
                 )
                 try:
-                    download_result = api_harness.download_rules(
-                        rules_id, output_file
-                    )
+                    download_result = api_harness.download_rules(rules_id, output_file)
                     print(f"\n✓ Success: Downloaded {download_result['size']} bytes")
                     print(f"  File: {download_result['output_file']}")
                 except Exception as e:
@@ -3891,8 +3950,8 @@ def hashview_api():
                             print(
                                 "\nScanning customer hashfiles across common hash types..."
                             )
-                            customer_hashfiles = (
-                                api_harness.get_all_customer_hashfiles(customer_id)
+                            customer_hashfiles = api_harness.get_all_customer_hashfiles(
+                                customer_id
                             )
                         except Exception as e:
                             customer_hashfiles = []
@@ -4030,6 +4089,15 @@ def hashview_api():
         return
     except Exception as e:
         print(f"\nError connecting to Hashview: {str(e)}")
+
+
+def _auto_input(prompt, default=""):
+    """input() wrapper that returns the default without prompting when running
+    in non-interactive (scripted) mode. In interactive mode this is identical
+    to ``input(prompt) or default``."""
+    if non_interactive:
+        return default
+    return input(prompt) or default
 
 
 def _attack_ctx():
@@ -4375,15 +4443,18 @@ def pipal():
                     pipalFile.write(clearTextPass)
                 pipalFile.close()
 
-            pipalProcess = subprocess.Popen(
-                "{pipal_path} {pipal_file} -t {pipal_count} --output {pipal_out}".format(
-                    pipal_path=pipalPath,
-                    pipal_file=hcatHashFilePipal + ".passwords",
-                    pipal_out=hcatHashFilePipal + ".pipal",
-                    pipal_count=pipal_count,
-                ),
-                shell=True,
-            )
+            # List-form Popen (no shell=True) so paths/filenames containing
+            # shell metacharacters can't be interpreted as commands. shlex.split
+            # on pipalPath still allows an interpreter prefix (e.g. "ruby
+            # /opt/pipal/pipal.rb") to be configured.
+            pipal_cmd = shlex.split(pipalPath) + [
+                hcatHashFilePipal + ".passwords",
+                "-t",
+                str(pipal_count),
+                "--output",
+                hcatHashFilePipal + ".pipal",
+            ]
+            pipalProcess = subprocess.Popen(pipal_cmd)
             try:
                 pipalProcess.wait()
             except KeyboardInterrupt:
@@ -4406,25 +4477,31 @@ def pipal():
                     print(pipalfile.read())
                 print("\n--- Pipal Output End ---\n")
             with open(hcatHashFilePipal + ".pipal") as pipalfile:
-                pipal_content = pipalfile.readlines()
-                raw_pipal = "\n".join(pipal_content)
-                raw_pipal = re.sub("\n+", "\n", raw_pipal)
-                raw_regex = r"Top [0-9]+ base words\n"
-                for word in range(pipal_count):
-                    raw_regex += r"(\S+).*\n"
-                basewords_re = re.compile(raw_regex)
-                results = re.search(basewords_re, raw_pipal)
+                pipal_content = pipalfile.read()
+                # Parse the "Top N base words" section line by line rather than
+                # with one rigid regex.  The old approach required *exactly*
+                # pipal_count baseword lines, so any cracked set with fewer
+                # unique base words than pipal_count (the common case on small
+                # cracks) matched nothing and returned []. Collect up to
+                # pipal_count base words and stop at the end of the section.
                 top_basewords = []
-                if results:
-                    if results.lastindex is not None:
-                        for i in range(1, results.lastindex + 1):
-                            if i is not None:
-                                top_basewords.append(results.group(i))
-                    else:
-                        pass
-                    return top_basewords
-                else:
-                    return []
+                in_section = False
+                for line in pipal_content.splitlines():
+                    if re.match(r"\s*Top\s+[0-9]+\s+base words", line):
+                        in_section = True
+                        continue
+                    if in_section:
+                        if not line.strip():
+                            # blank line terminates the base words section
+                            break
+                        # Capture the base word (first token); tolerate both
+                        # "word = 5 (5%)" and "word 5" separators.
+                        match = re.match(r"\s*(\S+)", line)
+                        if match:
+                            top_basewords.append(match.group(1))
+                            if len(top_basewords) >= pipal_count:
+                                break
+                return top_basewords
         else:
             print("No hashes were cracked :(")
             return []
@@ -4703,6 +4780,7 @@ def main():
     global hcatHashFileOrig
     global lmHashesFound
     global debug_mode
+    global non_interactive
     global hashview_url, hashview_api_key
     global hcatPath, hcatBin, hcatWordlists, hcatOptimizedWordlists, rulesDirectory
     global pipalPath, maxruntime, bandrelbasewords
@@ -4712,6 +4790,7 @@ def main():
 
     # Initialize global variables
     hcatHashFile = None
+    non_interactive = False
     hcatHashType = None
     hcatHashFileOrig = None
 
@@ -4798,6 +4877,7 @@ def main():
             return parser, hashview_parser
 
         subparsers = parser.add_subparsers(dest="command")
+        _noninteractive.add_attack_subparsers(subparsers)
 
         hashview_parser = subparsers.add_parser(
             "hashview", help="Hashview menu actions"
@@ -4924,7 +5004,8 @@ def main():
         else:
             argv = argv_temp  # Fallback if subcommand not found
 
-    use_subcommand_parser = "hashview" in argv
+    has_attack_subcommand = any(arg in _noninteractive.ATTACK_COMMANDS for arg in argv)
+    use_subcommand_parser = "hashview" in argv or has_attack_subcommand
     parser, hashview_parser = _build_parser(
         include_positional=not use_subcommand_parser,
         include_subcommands=use_subcommand_parser,
@@ -4933,6 +5014,8 @@ def main():
 
     global debug_mode
     debug_mode = args.debug
+    if getattr(args, "command", None) in _noninteractive.ATTACK_COMMANDS:
+        non_interactive = True
 
     # CLI flags override config file.
     if getattr(args, "no_potfile_path", False):
@@ -5231,8 +5314,8 @@ def main():
                         f"Detected {computer_count} computer account(s)"
                         " (usernames ending with $)."
                     )
-                    filter_choice = (
-                        input("Would you like to ignore computer accounts? (Y) ") or "Y"
+                    filter_choice = _auto_input(
+                        "Would you like to ignore computer accounts? (Y) ", "Y"
                     )
                     if filter_choice.upper() == "Y":
                         filtered_path = f"{hcatHashFile}.filtered"
@@ -5254,12 +5337,10 @@ def main():
                     )
                 ) or (lineCount(hcatHashFile + ".lm") > 1):
                     lmHashesFound = True
-                    lmChoice = (
-                        input(
-                            "LM hashes identified. Would you like to brute force"
-                            " the LM hashes first? (Y) "
-                        )
-                        or "Y"
+                    lmChoice = _auto_input(
+                        "LM hashes identified. Would you like to brute force"
+                        " the LM hashes first? (Y) ",
+                        "Y",
                     )
                     if lmChoice.upper() == "Y":
                         hcatLMtoNT()
@@ -5305,8 +5386,8 @@ def main():
                     f"Detected {computer_count} computer account(s)"
                     " (usernames ending with $)."
                 )
-                filter_choice = (
-                    input("Would you like to ignore computer accounts? (Y) ") or "Y"
+                filter_choice = _auto_input(
+                    "Would you like to ignore computer accounts? (Y) ", "Y"
                 )
                 if filter_choice.upper() == "Y":
                     filtered_path = f"{hcatHashFile}.filtered"
@@ -5329,12 +5410,10 @@ def main():
                     f"Detected {duplicates} duplicate account(s) out of"
                     f" {total} total NetNTLM hashes."
                 )
-                dedup_choice = (
-                    input(
-                        "Would you like to ignore duplicate accounts"
-                        " (keep first occurrence only)? (Y) "
-                    )
-                    or "Y"
+                dedup_choice = _auto_input(
+                    "Would you like to ignore duplicate accounts"
+                    " (keep first occurrence only)? (Y) ",
+                    "Y",
                 )
                 if dedup_choice.upper() == "Y":
                     hcatHashFileOrig = hcatHashFile
@@ -5384,6 +5463,9 @@ def main():
             )
         else:
             print("No hashes found in POT file.")
+
+    if non_interactive:
+        sys.exit(_noninteractive.run_noninteractive(_attack_ctx(), args))
 
     # Display Options
     try:

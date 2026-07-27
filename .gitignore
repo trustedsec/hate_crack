@@ -19,3 +19,9 @@ research/
 4_char_all
 all_hashes.enabled
 some_histories
+
+# Local agent tooling and instructions - intentionally not published
+CLAUDE.md
+.claude/
+docs/plans/
+docs/superpowers/

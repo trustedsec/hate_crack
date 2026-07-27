@@ -7,6 +7,160 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [2.14.3] - 2026-07-25
+
+### Added
+
+- **Private-key commit gate.** `prek.toml` now runs the `detect-private-key`
+  hook at the pre-commit stage. The repo previously had no secret-scanning gate
+  of any kind — bandit only covers `hate_crack/`, so nothing inspected config
+  files, docs, or test fixtures for committed key material.
+
+### Removed
+
+- **Local agent tooling is no longer published.** `CLAUDE.md`, `.claude/`,
+  `docs/plans/`, and `docs/superpowers/` were development aids rather than part
+  of the shipped project. They are now gitignored and were removed from the
+  repository, including from its history.
+- **`audit-docs` post-commit hook.** Dropped from `prek.toml` along with the
+  `.claude/audit-docs.sh` script it invoked.
+
+## [2.14.2] - 2026-07-25
+
+### Fixed
+
+- **Pipal base-word parsing.** `pipal()` built one rigid regex that required
+  *exactly* `pipal_count` consecutive base-word lines, so any cracked set with
+  fewer unique base words than `pipal_count` (default 10 — the common case on
+  small cracks) matched nothing and returned no base words. The `Top N base
+  words` section is now parsed line by line, returning up to `pipal_count`
+  words and stopping at the end of the section.
+- **Shell-safe pipal invocation.** The pipal subprocess is now spawned with
+  list-form arguments instead of a `shell=True` formatted string, so hash-file
+  paths containing shell metacharacters can no longer be interpreted as
+  commands.
+
+### Changed
+
+- Renamed the internal `_omen_pick_training_wordlist` helper to
+  `_pick_training_wordlist`, since it is shared by the OMEN, Markov-adjacent,
+  and LLM (wordlist mode) attacks rather than being OMEN-specific.
+
+## [2.14.1] - 2026-07-25
+
+### Fixed
+
+- **Tab completion on custom file-path prompts.** The `p. Enter a custom path`
+  branches of the OMEN and Markov training pickers, the combipow wordlist
+  prompt, and the rule cleanup/optimize output-path prompts used a bare
+  `input()` with no readline completer, so TAB did nothing. They now route
+  through `select_file_with_autocomplete` for consistent path autocompletion.
+- **Stale completer leak.** `select_file_with_autocomplete` and the
+  `_configure_readline`-based pickers now drop the path completer after a
+  selection, so later numeric-menu and y/n prompts no longer inherit file-path
+  tab completion.
+
+## [2.14.0] - 2026-07-24
+
+### Added
+
+- **Non-interactive attack subcommands** for scripting (issue #17). Launch a
+  single attack without the menu: `quick` (wordlist + optional `--rules`),
+  `dict` (configured-wordlist methodology), `brute` (`--min`/`--max`), and
+  `topmask` (`--target-time`). Preprocessing prompts auto-accept their
+  defaults, and the process returns a clean exit code (0 on success, non-zero
+  on a bad hash file, hash type, wordlist, or rule name).
+
+## [2.13.1] - 2026-07-24
+
+### Fixed
+
+- **`OLLAMA_HOST` values that include a scheme no longer produce a malformed URL**
+  (issue #119). The Ollama base URL was built as `"http://" + OLLAMA_HOST`, so a value in
+  the form Ollama's own tooling accepts — `http://box:11434` or
+  `https://ollama.example.com` — became `http://http://box:11434` and the LLM attack could
+  not connect. `http://` is now prepended only when no scheme is present, and trailing
+  slashes are stripped because callers append paths (`f"{ollamaUrl}/v1"`). Reaching a remote
+  Ollama over TLS works as a result. The bare `host:port` default is unchanged.
+
+## [2.13.0] - 2026-07-24
+
+### Added
+
+- **Cracked-password generation mode** for the LLM attack. Once a session has recovered
+  plaintexts, option 3 feeds them back to the model, which infers the organization's own
+  password conventions and generates new candidates in that style. Offered only when
+  `<hashfile>.out` has content, and it uses a dedicated prompt that tells the model not to
+  re-emit passwords already cracked.
+- **Target research pre-fills the industry and location prompts.** In target mode, entering
+  the company name asks the local model to recall that organization's industry and location,
+  then offers them as editable defaults (Enter accepts, typing overrides). Values are
+  labelled as model guesses rather than verified OSINT, whitespace-collapsed, and capped at
+  80 characters. Research runs entirely against the local Ollama server, so the client name
+  is never sent to a third party. Any failure or timeout falls back to blank prompts and
+  never blocks the attack. Disable with `ollamaAutoResearch: false`.
+- **Live progress spinner** with an elapsed-seconds counter during Ollama generation, so a
+  model loading into VRAM is distinguishable from a hang. Automatically suppressed when
+  stdout is not a TTY.
+- **`ollamaMaxSampleLines`** (default 500) caps how many sample passwords are sent to the
+  model, for both wordlist and cracked-password modes.
+
+### Fixed
+
+- **A large sample wordlist no longer stalls the LLM attack.** Wordlist mode read every line
+  into memory and pasted all of them into the prompt, so pointing it at `rockyou.txt`
+  materialized hundreds of megabytes and overran the model's context window — which looked
+  like a hang. The file is now streamed and evenly sampled across its whole length, and the
+  count actually used is reported (`Sampled 500 of 14,344,391 passwords from wordlist.`).
+- **`HATE_CRACK_ARROW_MENU=1` now works in the LLM and OMEN submenus.** They hand-rolled
+  `print()` + `input()` instead of the shared menu helper, so arrow-key navigation silently
+  did nothing there.
+- **A typo in a wordlist or generation-mode prompt no longer aborts the whole attack.** The
+  pickers and submenus re-prompt instead of dropping back to the main menu, and offer an
+  explicit cancel.
+
+### Changed
+
+- **Interactive prompt formatting normalized** — the `[*] ` marker is no longer used on
+  input prompts (it denotes status output elsewhere), and default-value hints use a single
+  form.
+
+### Build
+
+- **Local `uv` Python pinned to 3.13** via `.python-version`. `requires-python = ">=3.13"`
+  meant a fresh worktree picked CPython 3.15.0a7 and failed to build pyo3 0.26 (via
+  `jiter`/`fastuuid`/`pydantic-core`). CI already pinned 3.13.
+
+## [2.12.0] - 2026-07-24
+
+### Changed
+
+- **LLM attack now uses the Atomic Agents framework** for structured (JSON) candidate
+  generation instead of raw HTTP + regex line-parsing. Candidate generation lives in the
+  new `hate_crack/llm.py` module.
+- **Default Ollama model is now `qwen2.5:32b`** (was `mistral`), chosen for reliable
+  structured-output adherence.
+
+### Added
+
+- **Wordlist (denylist) generation mode** for the LLM attack is now reachable from the
+  menu: select the LLM attack (option 12), then choose "Wordlist" to derive basewords from
+  a sample wordlist.
+
+### Fixed
+
+- **The LLM attack no longer hangs forever waiting on Ollama.** Generation requests are now
+  bounded by a configurable timeout (`ollamaTimeout` in `config.json`, default 300 seconds).
+  Previously, if Ollama accepted the connection but never replied — most commonly a large
+  model still loading into VRAM — hate_crack sat at a frozen prompt with no recourse but
+  Ctrl-C. When the timeout fires you now get a specific message naming the elapsed timeout
+  and the setting to raise, instead of a misleading "ensure Ollama is running" hint.
+
+### Removed
+
+- **Automatic model pulling.** hate_crack no longer pulls missing Ollama models; pull them
+  yourself with `ollama pull <model>`.
+
 ## [2.11.4] - 2026-07-24
 
 ### Added
