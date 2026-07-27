@@ -40,7 +40,11 @@ jobs:
         run: uv run ruff format --check hate_crack
 
       - name: Ty
-        run: uv run ty check hate_crack
+        # ty 0.0.63 fails CI on warning-level diagnostics by default;
+        # keep the pre-0.0.63 behaviour of failing only on errors so the
+        # rules already downgraded to "warn" in [tool.ty.rules] stay
+        # non-blocking.
+        run: uv run ty check --exit-zero-on-warning hate_crack
 
       - name: Pytest
         env:

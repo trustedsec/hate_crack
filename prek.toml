@@ -22,7 +22,7 @@ always_run = true
 [[repos.hooks]]
 id = "ty"
 name = "ty"
-entry = "uv run ty check hate_crack"
+entry = "uv run ty check --exit-zero-on-warning hate_crack"
 language = "system"
 stages = ["pre-push"]
 pass_filenames = false
