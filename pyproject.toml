@@ -50,6 +50,12 @@ exclude = [
     "rules",
 ]
 
+[tool.ruff.lint]
+# Pin to the pre-0.16.0 default rule set so future ruff bumps stay
+# behaviour-neutral. Broadening the ruleset is a separate cleanup, not
+# a dep-bump side effect.
+select = ["E4", "E7", "E9", "F"]
+
 [tool.bandit]
 # hate_crack shells out to hashcat and its helper binaries extensively, so the
 # scan produces many low-severity subprocess/shlex findings. These are reviewed
