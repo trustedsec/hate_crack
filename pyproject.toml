@@ -50,6 +50,12 @@ exclude = [
     "rules",
 ]
 
+[tool.ruff.lint]
+# Pin to the pre-0.16.0 default rule set so future ruff bumps stay
+# behaviour-neutral. Broadening the ruleset is a separate cleanup, not
+# a dep-bump side effect.
+select = ["E4", "E7", "E9", "F"]
+
 [tool.bandit]
 # hate_crack shells out to hashcat and its helper binaries extensively, so the
 # scan produces many low-severity subprocess/shlex findings. These are reviewed
@@ -103,7 +109,7 @@ testpaths = [
 [dependency-groups]
 dev = [
     "ty==0.0.63",
-    "ruff==0.15.1",
+    "ruff==0.16.0",
     "pytest==9.0.3",
     "pytest-cov==7.1.0",
     "pytest-timeout>=2.4.0",
