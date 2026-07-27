@@ -93,6 +93,13 @@ unresolved-import = "warn"
 # BeautifulSoup union types and module-level globals
 unresolved-attribute = "warn"
 invalid-argument-type = "warn"
+# ty 0.0.63 tightened these to error for the same legacy pattern
+# (module-level `hcatHashFile = None` etc. in main.py, later used as
+# strings). Downgrade to warn to match the rest.
+unsupported-operator = "warn"
+no-matching-overload = "warn"
+invalid-assignment = "warn"
+unresolved-global = "warn"
 
 [tool.pytest.ini_options]
 testpaths = [
@@ -101,7 +108,7 @@ testpaths = [
 
 [dependency-groups]
 dev = [
-    "ty==0.0.17",
+    "ty==0.0.63",
     "ruff==0.16.0",
     "pytest==9.0.3",
     "pytest-cov==7.1.0",
