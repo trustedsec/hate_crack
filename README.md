@@ -1,8 +1,8 @@
 ```
-  ___ ___         __             _________                       __    
+  ___ ___         __             _________                       __
  /   |   \_____ _/  |_  ____     \_   ___ \____________    ____ |  | __
 /    ~    \__  \\   __\/ __ \    /    \  \/\_  __ \__  \ _/ ___\|  |/ /
-\    Y    // __ \|  | \  ___/    \     \____|  | \// __ \\  \___|    < 
+\    Y    // __ \|  | \  ___/    \     \____|  | \// __ \\  \___|    <
  \___|_  /(____  /__|  \___  >____\______  /|__|  (____  /\___  >__|_ \
        \/      \/          \/_____/      \/            \/     \/     \/
 ```
@@ -27,7 +27,7 @@ Or download a pre-built binary from https://hashcat.net/hashcat/ and set `hcatPa
 
 ### 2. Download hate_crack
 
-Clone with submodules (required for hashcat-utils, princeprocessor, and optionally omen):
+Clone with submodules (required for hashcat-utils, princeprocessor, pcfg_cracker, and optionally omen):
 
 ```bash
 git clone --recurse-submodules https://github.com/trustedsec/hate_crack.git
@@ -46,7 +46,7 @@ Then customize configuration in `config.json` if needed (wordlist paths, API key
 
 The easiest way is to run `make` (or `make install`), which auto-detects your OS and installs:
 - External dependencies (p7zip, transmission-daemon / transmission-remote)
-- Builds submodules (hashcat-utils, princeprocessor, and optionally omen)
+- Builds submodules (hashcat-utils, princeprocessor, pcfg_cracker, and optionally omen)
 - Python dependencies via uv and a CLI shim at `~/.local/bin/hate_crack`
 
 ```bash
@@ -96,6 +96,12 @@ Core logic is now split into modules under `hate_crack/`:
 - `hate_crack/api.py`: Hashview, Weakpass, and Hashmob integrations (downloads/menus/helpers).
 - `hate_crack/attacks.py`: menu attack handlers.
 - `hate_crack/hashmob_wordlist.py`: Hashmob wordlist utilities (thin wrapper; calls into api.py).
+- `hate_crack/llm.py`: structured (JSON) LLM candidate generation via Atomic Agents.
+- `hate_crack/menu.py`: shared menu renderer, including optional arrow-key navigation.
+- `hate_crack/noninteractive.py`: dispatcher for the scripted attack subcommands.
+- `hate_crack/notify/`: notification package (Pushover backend, per-crack tailer).
+- `hate_crack/username_detect.py`: detects `username:hash` input files to decide on hashcat's `--username`.
+- `hate_crack/formatting.py`, `hate_crack/progress.py`: output formatting and progress display helpers.
 - `hate_crack/main.py`: main CLI implementation.
 
 The top-level `hate_crack.py` remains the main entry point and orchestrates these modules.
@@ -143,7 +149,7 @@ Config is also searched in:
 - The repo root and package directory
 - `~/hate_crack`, `~/hate-crack`, or `~/.hate_crack`
 
-**Note:** The `hcatPath` in `config.json` is for the hashcat binary location only (optional if hashcat is in PATH). Hate_crack assets (hashcat-utils, princeprocessor, omen) are loaded from the repository directory and bundled automatically by `make install`.
+**Note:** The `hcatPath` in `config.json` is for the hashcat binary location only (optional if hashcat is in PATH). Hate_crack assets (hashcat-utils, princeprocessor, pcfg_cracker, omen) are loaded from the repository directory and bundled automatically by `make install`.
 
 ### Run as a script
 The script uses a `uv` shebang. Make it executable and run:
@@ -157,6 +163,30 @@ You can also use Python directly:
 
 ```bash
 python hate_crack.py
+```
+
+### Non-interactive / scripted usage
+
+For automation you can launch a single attack directly, bypassing the menu. The attack name is the first argument, followed by the hash file and hashcat hash type. Preprocessing prompts (computer-account filtering, LM-first brute force, duplicate-account dedup) auto-accept their defaults in this mode. The process exits `0` on success and non-zero on error (missing hash file, non-numeric hash type, missing wordlist, or an unknown rule filename).
+
+```bash
+# Quick crack: one wordlist + optional rule(s) from the rules directory
+hate_crack quick hashes.txt 1000 --wordlist rockyou.txt --rules best64.rule
+
+# Chain two rules in a single run
+hate_crack quick hashes.txt 1000 --wordlist rockyou.txt --rules best64.rule+d3ad0ne.rule
+
+# Run two rules as two separate passes
+hate_crack quick hashes.txt 1000 --wordlist rockyou.txt --rules best64.rule d3ad0ne.rule
+
+# Canned dictionary methodology (uses your configured wordlists)
+hate_crack dict hashes.txt 1000
+
+# Brute force lengths 1-8
+hate_crack brute hashes.txt 1000 --min 1 --max 8
+
+# Top-mask attack targeting ~4 hours
+hate_crack topmask hashes.txt 1000 --target-time 4
 ```
 
 -------------------------------------------------------------------
@@ -358,17 +388,11 @@ This installs hooks defined in `prek.toml` using the pre-commit local-repo TOML 
 
 Note: prek 0.3.3 expects `repos = [...]` at the top level. The old `[hooks.<stage>] commands = [...]` format is not supported.
 
-### Arrow-Key Menu Navigation (Optional)
+### Arrow-Key Menu Navigation
 
-Install the `[tui]` extra to enable arrow-key menu navigation via `simple-term-menu`:
+Arrow-key menu navigation is enabled by default via the `simple-term-menu` dependency. When running in a terminal (TTY), menus render with arrow-key navigation and number-key shortcuts.
 
-```bash
-uv pip install '.[tui]'
-```
-
-When installed and running in a terminal (TTY), menus render with arrow-key navigation and number-key shortcuts. Without it, the classic numbered `print()` + `input()` menu is used.
-
-To force the plain numbered menu even when `simple-term-menu` is installed, set `HATE_CRACK_PLAIN_MENU=1`.
+To force the classic numbered `print()` + `input()` menu, set `HATE_CRACK_PLAIN_MENU=1`.
 
 ### Dev Dependencies
 
@@ -408,6 +432,7 @@ Menu options:
 - **(1) Upload Cracked Hashes** - Upload cracked results from current session to Hashview
 - **(2) Upload Wordlist** - Upload a wordlist file to Hashview
 - **(3) Download Wordlist** - Download a wordlist from Hashview
+- **Download Rule** - Download a rule file from Hashview (decompressed to plaintext, ready for `hashcat -r`)
 - **(4) Download Left Hashes** - Download remaining uncracked hashes (prompts to switch for cracking)
 - **(5) Download Found Hashes** - Download already-cracked hashes with cleartext passwords (for reference/analysis)
 - **(6) Upload Hashfile and Create Job** - Upload new hashfile and create a cracking job
@@ -429,6 +454,11 @@ hate_crack.py --hashview upload-cracked --file <output_file>.out --hash-type 100
 Upload a wordlist:
 ```bash
 hate_crack.py --hashview upload-wordlist --file <wordlist>.txt --name "My Wordlist"
+```
+
+Download a rule file (saved decompressed, ready for `hashcat -r`):
+```bash
+hate_crack.py --hashview download-rules --rules-id 4 --output best64.rule
 ```
 
 Download left hashes (uncracked hashes for cracking):
@@ -459,18 +489,65 @@ Set Hashview credentials in `config.json`:
 
 #### Ollama Configuration
 
-The LLM Attack (option 15) uses Ollama to generate password candidates. Configure the model and context window in `config.json`:
+The LLM Attack (option 12) uses Ollama to generate password candidates. Configure the model, context window, and request timeout in `config.json`:
 
 ```json
 {
-  "ollamaModel": "mistral",
-  "ollamaNumCtx": 2048
+  "ollamaModel": "qwen2.5:32b",
+  "ollamaNumCtx": 2048,
+  "ollamaTimeout": 300
 }
 ```
 
-- **`ollamaModel`** — The Ollama model to use for candidate generation (default: `mistral`).
+- **`ollamaModel`** — The Ollama model used for candidate generation (default: `qwen2.5:32b`). The LLM attack uses structured (JSON) output, so choose a model with good tool/JSON support.
 - **`ollamaNumCtx`** — Context window size for the model (default: `2048`).
-- The Ollama URL defaults to `http://localhost:11434`. Ensure Ollama is running before using the LLM Attack.
+- **`ollamaTimeout`** — Seconds to wait for a generation response before giving up (default: `300`). Raise this if a large model is still loading into VRAM on the first request, which can otherwise exceed the timeout; hate_crack prints the elapsed timeout and this setting's name when it fires.
+- **`ollamaMaxSampleLines`** — Maximum number of lines drawn from the source file and included in the LLM prompt when using **Wordlist** or **Cracked passwords** mode (default: `500`). Lines are sampled evenly across the whole file so the prompt reflects the wordlist's full character range rather than just the head. Set to a larger value if the model has a big context window (`ollamaNumCtx`) and you want richer coverage; set it lower to reduce prompt size and generation latency. Values ≤ 0 are treated as 500.
+- **`ollamaAutoResearch`** — When `true` (default), **Target info** mode asks the local model to suggest the industry and location as soon as you have typed the company name, and offers them as editable prompt defaults. Set to `false` to always get blank prompts (useful with a slow model, since research costs one extra round-trip before the attack starts).
+- The Ollama URL defaults to `http://localhost:11434` (override via the `OLLAMA_HOST` env var). Ensure Ollama is running and the model is pulled (`ollama pull qwen2.5:32b`) before using the LLM Attack — hate_crack no longer auto-pulls missing models.
+
+The attack offers three generation modes:
+
+1. **Target info** — company / industry / location; the model derives candidates from those details.
+
+   After you type the company name, hate_crack asks the same local model what it already knows about that organization and pre-fills the **Industry** and **Location** prompts with the answers, shown in parentheses:
+
+   ```
+   Company name: Acme Rail Services
+
+   [!] The values in parentheses below are the local model's GUESSES, not verified OSINT.
+       Press Enter to accept, or type your own value to override.
+   Industry (freight rail maintenance):
+   Location (Omaha, Nebraska):
+   ```
+
+   Press Enter to accept a suggestion or type over it. These values are the model's recollection, **not OSINT** — treat them as a starting point, not intelligence about the client. The lookup uses only the local Ollama server, so the client name never leaves the host; there are no web or third-party API calls. If the model does not recognize the organization (the common case for small clients), it returns nothing and you get plain blank prompts:
+
+   ```
+   Company name: Acme Rail Services
+   Industry:
+   Location:
+   ```
+
+   A research failure — timeout, Ollama not running, empty answer — never blocks the attack; it just falls back to blank prompts. Set `ollamaAutoResearch` to `false` to skip research entirely.
+2. **Wordlist** — derive basewords from a sample wordlist.
+3. **Cracked passwords** — feed the plaintexts already recovered this session (`<hashfile>.out`) back to the model so it can infer the target organization's own password conventions (basewords, seasons, years, suffixes, leetspeak) and generate *new* candidates in the same style. This option is only listed once at least one hash has been cracked; the sample is capped by `ollamaMaxSampleLines` exactly like Wordlist mode.
+
+#### PCFG Configuration
+
+The PCFG Attack (option 20) and PRINCE-LING Attack (option 21) use the `pcfg_cracker` submodule. Configure them in `config.json`:
+
+```json
+{
+  "pcfgRuleset": "DEFAULT",
+  "pcfgMaxCandidates": 50000000,
+  "pcfgPrinceLingMaxCandidates": 10000000
+}
+```
+
+- **`pcfgRuleset`** — Name of the trained grammar to use (default: `DEFAULT`), resolved to `pcfg_cracker/Rules/<name>/`. Train your own with pcfg_cracker's `trainer.py` and set this to the ruleset name.
+- **`pcfgMaxCandidates`** — Maximum candidates `pcfg_guesser.py` emits for the PCFG attack (default: `50000000`).
+- **`pcfgPrinceLingMaxCandidates`** — Maximum base words `prince_ling.py` writes into the cached PRINCE base wordlist (default: `10000000`).
 
 ### Notifications (menu option 82)
 
@@ -505,7 +582,9 @@ The Wordlist Tools submenu provides 7 wordlist preprocessing utilities backed by
 
 **Character class mask bits** (used by options 2 and 3): `1`=lowercase, `2`=uppercase, `4`=digit, `8`=symbol, `16`=other. Add values together: `7` = lowercase+uppercase+digit.
 
-**Sharding example**: to split a wordlist across 4 nodes, run option 7 with mod=4 and offset=0 on node 1, offset=1 on node 2, etc.
+**How sharding is meant to be used**: sharding splits one wordlist into N equal, non-overlapping parts so the work can be spread across multiple machines or GPUs. Each part is *interleaved* (every N-th line), so every shard is a representative sample of the whole list rather than a contiguous front/back chunk — no single node is stuck cracking only the low-probability tail.
+
+Run option 7 once, give it an input wordlist, an output base path, and a shard count (N). It writes all N parts in a single pass, named with zero-padded part numbers (`base.001`, `base.002`, … up to `base.00N`). Copy one part to each node and point that node's hashcat run at it. On a single-GPU system sharding gives no speedup, but a single part is still a fast, representative sample for a quick triage pass before committing to the full list.
 
 #### Automatic Update Checks
 
@@ -549,10 +628,10 @@ $ hashcat --help |grep -i ntlm
 ```
 $ ./hate_crack.py <hash file> 1000
 
-  ___ ___         __             _________                       __    
+  ___ ___         __             _________                       __
  /   |   \_____ _/  |_  ____     \_   ___ \____________    ____ |  | __
 /    ~    \__  \\   __\/ __ \    /    \  \/\_  __ \__  \ _/ ___\|  |/ /
-\    Y    // __ \|  | \  ___/    \     \____|  | \// __ \\  \___|    < 
+\    Y    // __ \|  | \  ___/    \     \____|  | \// __ \\  \___|    <
  \___|_  /(____  /__|  \___  >____\______  /|__|  (____  /\___  >__|_ \
        \/      \/          \/_____/      \/            \/     \/     \/
                           Version 2.0
@@ -593,6 +672,31 @@ environment variable and provide valid credentials in `config.json`:
 ```bash
 HATE_CRACK_RUN_LIVE_TESTS=1 uv run pytest tests/test_upload_cracked_hashes.py -v
 ```
+
+### Live Hashview Tests Against a Local Docker Stack
+
+Instead of pointing the live tests at a remote Hashview server, you can have
+the suite spin up a local [Hashview](https://github.com/hashview/hashview)
+Docker stack, seed it, run the live tests against it, and tear it down. Set
+`HASHVIEW_TEST_LOCAL=1` and point `HASHVIEW_REPO` at a Hashview checkout:
+
+```bash
+HASHVIEW_TEST_LOCAL=1 HASHVIEW_REPO=~/projects/hashview \
+  HATE_CRACK_SKIP_INIT=1 uv run pytest tests/test_hashview_cli_subcommands_subprocess.py -v
+```
+
+This brings up `docker compose` in the Hashview repo, seeds an admin API key,
+a customer, a hashfile, and cracked "effective task" data, then exports the
+`HASHVIEW_*` env vars the tests read. Useful env vars:
+
+- `HASHVIEW_TEST_LOCAL=1` — enable the local stack (no-op otherwise)
+- `HASHVIEW_REPO=<path>` — Hashview checkout (default `~/projects/hashview`)
+- `HASHVIEW_KEEP=1` — leave containers running after the session (faster re-runs)
+- `HASHVIEW_LOCAL_PORT=5000` — host port the app is published on
+
+The hate_crack CLI honours the `HASHVIEW_URL` / `HASHVIEW_API_KEY` environment
+variables (overriding `config.json`), which is what lets the suite point the
+CLI at the local stack without editing your persisted config.
 
 ### End-to-End Install Tests (Local + Docker)
 
@@ -648,20 +752,22 @@ All tests use mocked API calls, so they can run without connectivity to a Hashvi
   (7) Hybrid Attack
   (8) Pathwell Top 100 Mask Brute Force Crack
   (9) PRINCE Attack
-  (13) Bandrel Methodology
-  (14) Loopback Attack
-  (15) LLM Attack
-  (16) OMEN Attack
-  (17) Ad-hoc Mask Attack
-  (18) Markov Brute Force Attack
-  (19) N-gram Attack
-  (20) Permutation Attack
-  (21) Random Rules Attack
-  (22) Combipow Passphrase Attack
+  (10) Bandrel Methodology
+  (11) Loopback Attack
+  (12) LLM Attack
+  (13) OMEN Attack
+  (14) Ad-hoc Mask Attack
+  (15) Markov Brute Force Attack
+  (16) N-gram Attack
+  (17) Permutation Attack
+  (18) Random Rules Attack
+  (19) Combipow Passphrase Attack
+  (20) PCFG Attack
+  (21) PRINCE-LING Attack
 
   (80) Wordlist Tools
-
   (81) Rule File Tools
+  (82) Notifications
 
   (90) Download rules from Hashmob.net
   (91) Analyze Hashcat Rules
@@ -676,6 +782,10 @@ All tests use mocked API calls, so they can run without connectivity to a Hashvi
 
 Select a task:
 ```
+
+Option `94 — Hashview API` is only listed when `hashview_api_key` is set in `config.json`.
+
+The YOLO, Middle, and Thorough Combinator attacks were previously at keys 10-12. They now live in the Combinator Attacks submenu (option 6) along with Combinator3 and CombinatorX.
 -------------------------------------------------------------------
 #### Quick Crack
 Runs a dictionary attack against wordlists in your `hcatOptimizedWordlists` directory (falls back to `hcatWordlists` if not configured) and optionally applies rules. Multiple rules can be selected by comma-separated list, and chains can be created with the '+' symbol. Pressing Enter at the wordlist prompt uses the configured optimized wordlists directory as the default.
@@ -689,9 +799,9 @@ Which rule(s) would you like to run?
 (99) YOLO...run all of the rules
 Enter Comma separated list of rules you would like to run. To run rules chained use the + symbol.
 For example 1+1 will run best64.rule chained twice and 1,2 would run best64.rule and then d3ad0ne.rule sequentially.
-Choose wisely: 
+Choose wisely:
 ```
- 
+
 
 
 
@@ -708,7 +818,7 @@ Runs several attack methods provided by Martin Bos (formerly known as pure_hate)
   * Hybrid Attack
   * Extra - Just For Good Measure
     - Runs a dictionary attack using `rockyou.txt` with chained `combinator.rule` and `InsidePro-PasswordsPro.rule` rules
-    
+
 #### Brute Force Attack
 Brute forces all characters with the choice of a minimum and maximum password length.
 
@@ -790,9 +900,12 @@ Uses hashcat's loopback mode to feed cracked passwords from the current session 
 #### LLM Attack
 Uses a local Ollama instance to generate password candidates for a capture-the-flag scenario. Prompts for the fake company name, industry, and location, then sends these details to the configured LLM model to produce likely password candidates using industry terms and company name permutations. The generated candidates are fed into a hashcat wordlist+rules attack.
 
-* Requires a running Ollama instance (default: `http://localhost:11434`)
-* Configurable model and context window via `config.json` (see Ollama Configuration below)
-* Prompts for target company name, industry, and location
+* Requires a running Ollama instance (default: `http://localhost:11434`, override with `OLLAMA_HOST`) with the model already pulled — hate_crack does not auto-pull
+* Candidate generation uses structured (JSON) output via Atomic Agents, so pick a model with good schema adherence (default: `qwen2.5:32b`)
+* Configurable model, context window, request timeout, and sample size via `config.json` (see Ollama Configuration below)
+* Prompts for target company name, industry, and location. The industry and location prompts are pre-filled with the local model's guesses about the named organization (editable, and clearly labelled as guesses rather than verified OSINT); disable with `ollamaAutoResearch: false`
+* Alternatively derives basewords from a sample **wordlist**, or from the **cracked passwords** of the current session (`<hashfile>.out`) so the model mirrors the target organization's own password conventions and produces new candidates in that style (only offered once something has been cracked)
+* A live spinner with an elapsed-seconds counter runs during generation, and requests are bounded by `ollamaTimeout` so a model stuck loading into VRAM reports a timeout instead of hanging
 
 #### OMEN Attack
 Uses the Ordered Markov ENumerator (OMEN) to train a statistical password model from a wordlist and generate password candidates. This attack learns patterns from known passwords and generates new candidates based on those patterns.
@@ -835,6 +948,14 @@ Generates password candidates using Markov chain statistical models. Similar to 
 * Markov table persists with hash file (filename.out.hcstat2) for fast subsequent runs
 * Faster than OMEN for general-purpose brute forcing
 
+#### N-gram Attack
+Generates n-gram candidates from a corpus file using `ngramX.bin` from hashcat-utils and pipes them into hashcat.
+
+* Prompts for a corpus file with tab completion, defaulting to the configured wordlist directory
+* Prompts for an n-gram group size (default 3)
+* Gzip-compressed corpus files are auto-detected and decompressed on the fly
+* Useful when you have target-relevant prose (scraped site copy, leaked documents, internal wiki exports) rather than a password list
+
 #### Permutation Attack
 Generates all character permutations of each word in a targeted wordlist and pipes them to hashcat via `permute.bin` from hashcat-utils.
 
@@ -860,6 +981,23 @@ Generates all unique non-empty subset combinations from a short wordlist using `
 * Aborts with a clear message if the wordlist exceeds 63 lines (hard limit)
 * Candidates are piped directly to hashcat stdin
 
+#### PCFG Attack
+Uses [pcfg_cracker](https://github.com/lakiw/pcfg_cracker) to generate candidates from a Probabilistic Context-Free Grammar, piping `pcfg_guesser.py` output directly into hashcat's stdin mode. A PCFG models password *structure* (baseword + digits + symbol, capitalization habits, keyboard walks) with learned probabilities, so candidates come out roughly in descending likelihood order.
+
+* Requires the `pcfg_cracker` submodule. Presence is checked at startup and reported non-fatally: if it is missing, the PCFG attacks are simply unavailable. Run `make` to fetch it.
+* Uses the trained grammar named by `pcfgRuleset` in `config.json` (default `DEFAULT`), read from `pcfg_cracker/Rules/<name>/`
+* Candidate count is capped by `pcfgMaxCandidates` (default 50,000,000)
+* hate_crack does not wrap grammar training. To build a grammar from a target-specific password set, run pcfg_cracker's own `trainer.py` and point `pcfgRuleset` at the resulting ruleset name
+
+#### PRINCE-LING Attack
+Uses pcfg_cracker's `prince_ling.py` to derive an optimized PRINCE base wordlist from a trained grammar, then hands it to the existing PRINCE attack. PRINCE-LING picks base words the grammar says are actually productive, so the PRINCE combination space is far less wasteful than pointing PRINCE at a generic wordlist.
+
+* Requires the `pcfg_cracker` submodule and a trained ruleset directory, same as the PCFG attack
+* The generated wordlist is cached at `<hcatOptimizedWordlists>/pcfg_prince_ling_<ruleset>.txt` and reused across sessions
+* Regenerates only when the ruleset directory is newer than the cached wordlist, so retraining a grammar invalidates the cache automatically
+* Generation is written to a temporary file and atomically moved into place; a failed or interrupted run cleans up its partial file and leaves any existing cache intact
+* Base wordlist size is capped by `pcfgPrinceLingMaxCandidates` (default 10,000,000)
+
 #### Wordlist Tools (option 80)
 A submenu of wordlist preprocessing utilities using hashcat-utils binaries. All tools read from and write to files on disk. All file and directory path prompts support tab completion.
 
@@ -871,7 +1009,7 @@ A submenu of wordlist preprocessing utilities using hashcat-utils binaries. All 
 | 4 | Extract Substring | Cut bytes from each word at a given offset and optional length (`cutb.bin`) |
 | 5 | Split by Length | Create per-length files in an output directory (`splitlen.bin`) |
 | 6 | Subtract Wordlist | Remove lines from a wordlist that appear in one or more remove files. Mode 1 uses `rli2.bin` (single file); mode 2 uses `rli.bin` (multiple files) |
-| 7 | Shard Wordlist | Extract every mod-th line at a given offset to create equal-sized shards (`gate.bin`) |
+| 7 | Shard Wordlist | Split a wordlist into N equal, interleaved parts in one run, written as `base.001`…`base.00N` for distributed cracking (`gate.bin`) |
 
 All binaries are in `hate_crack/hashcat-utils/bin/`.
 
@@ -914,83 +1052,8 @@ Interactive menu for downloading and managing wordlists from Weakpass.com via Bi
 * Download specific wordlists or entire collections
 * Automatic extraction of compressed archives
 * Progress tracking for torrent downloads
-  
+
 -------------------------------------------------------------------
 ### Version History
 
-Version 2.9.3
-  - Transmission daemon now watches `/tmp/hate_crack/` for new `.torrent` files; wordlist content still downloads to the configured wordlist directory
-  - Suppressed `transmission-daemon` stdout/stderr so daemon log output no longer appears in the terminal
-  - Increased watch-dir polling window to 30s to account for transmission's ~10s scan interval
-  - Store downloaded `.torrent` files in `/tmp/hate_crack/` instead of `/tmp/` root
-
-Version 2.5.0
-  - Added tab autocomplete to all file and directory path prompts in the Wordlist Tools submenu (option 80)
-  - Restored `hcatOptimizedWordlists` config key (directory for pre-optimized wordlists); defaults to `./optimized_wordlists`, falls back to `hcatWordlists` if not found
-  - Quick Crack now defaults to `hcatOptimizedWordlists` instead of `hcatWordlists`
-
-Version 2.0+
-  - Added Random Rules Attack (option 20) using `generate-rules.bin` to generate random mutation rules (#87)
-  - Added Ad-hoc Mask Attack (option 17) for user-typed hashcat masks with optional custom character sets
-  - Added Markov Brute Force Attack (option 18) using `hcstat2` statistical tables for password generation
-  - Consolidated Combinator Attacks (formerly options 10/11/12) into interactive submenu under option 6
-  - Markov attack supports training from cracked passwords or any wordlist, with table reuse/regeneration menu
-  - Fixed OMEN attack failing silently when model files were incomplete or enumNG errors occurred
-  - OMEN attack now validates all 5 required model files, captures enumNG stderr, and provides a train/use/cancel menu with wordlist picker
-  - Filtered `.7z`, `.torrent`, and `.out` files from wordlist selection menus (#80)
-  - Parallelized Hashmob rule downloads using a thread pool with success/failure summary (#81)
-  - Added dynamic optimized kernel (`-O`) flag per attack type via `optimizedKernelAttacks` config (#82)
-  - Replaced `uv tool install` with a bash shim for reliable config and asset resolution from any working directory
-  - Fixed config resolution to search the repo root and package directory in addition to CWD
-  - Fixed bare NTLM hash detection failing when hash files contain leading blank lines, BOM characters, or null bytes from UTF-16 encoding
-  - Improved error message for unrecognized hash formats to show the actual first-line content and list expected formats
-  - Fixed rule file path construction in Quick Crack and Loopback Attack using `os.path.join()` instead of string concatenation
-  - Added automatic update checks on startup (check_for_updates config option)
-  - Added `packaging` dependency for version comparison
-  - Added OMEN Attack (option 16) using statistical model-based password generation
-  - Added OMEN configuration keys (omenTrainingList, omenMaxCandidates)
-  - Added LLM Attack (option 15) using Ollama for AI-generated password candidates
-  - Added Ollama configuration keys (ollamaModel, ollamaNumCtx)
-  - Auto-versioning via setuptools-scm from git tags
-
-Version 2.0
-  Modularized codebase into CLI/API/attacks modules
-  Unified CLI options with config overrides (hashview, hashcat, wordlists, pipal)
-  Added Hashview API integration
-  Added Weakpass torrent download helpers and Hashmob download wrapper
-  Improved test coverage and snapshot-based menu validation
-  Updated documentation and versioning
-
-Version 1.9
-  Revamped the hate_crack output to increase processing speed exponentially combine_ntlm_output function for combining
-  Introducing New Attack mode "Bandrel Methodology"
-  Updated pipal function to output top x number of basewords
-     
-Version 1.08
-  Added a Pipal menu Option to analyze hashes. https://github.com/digininja/pipal
-
-Version 1.07
-  Minor bug fixes with pwdump formating and unhexify function
-
-Version 1.06
-  Updated the quick crack and recylcing functions to use user customizable rules.
-
-Version 1.05
-  Abstraction of rockyou.txt so that you can use whatever dictionary that you would like to specified in the config.json
-  Minor change the quickcrack that allows you to specify 0 for number of times best64 is chained
-
-Version 1.04
-  Two new attacks Middle Combinator and Thorough Combinator
-
-Version 1.03
-  Introduction of new feature to use session files for multiple concurrent sessions of hate_crack
-  Minor bug fix
-
-Version 1.02
-  Introduction of new feature to export the output of pwdump formated NTDS outputs to excel with clear-text passwords
-
-Version 1.01
-  Minor bug fixes
-
-Version 1.00
-  Initial public release
+The full, per-release changelog now lives in [CHANGELOG.md](CHANGELOG.md).

@@ -191,7 +191,7 @@ def test_line_count_and_write_helpers(tmp_path, monkeypatch):
     )
 
     class FakePopen:
-        def __init__(self, args, stdin=None, stdout=None, text=None):
+        def __init__(self, args, stdin=None, stdout=None, text=None, **_kwargs):
             self.stdin = FakeStdin(self)
             self._stdout = stdout
             self._data = None
@@ -226,7 +226,7 @@ def test_get_customer_hashfiles_with_hashtype_filters(monkeypatch):
     monkeypatch.setattr(
         hv,
         "get_customer_hashfiles",
-        lambda customer_id: [
+        lambda customer_id, hash_type=None: [
             {"customer_id": customer_id, "hashtype": "1000"},
             {"customer_id": customer_id, "hash_type": "0"},
         ],

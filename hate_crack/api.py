@@ -131,7 +131,9 @@ def _streamed_download(
             allow_redirects=allow_redirects,
         ) as r:
             r.raise_for_status()
-            return _stream_response_to_file(r, dest_path, label=label, show_progress=show_progress)
+            return _stream_response_to_file(
+                r, dest_path, label=label, show_progress=show_progress
+            )
     except KeyboardInterrupt:
         raise
     except Exception as e:
@@ -409,8 +411,10 @@ class TransmissionSession:
                     percent_done = 0.0
                 # Status is tokens[7] (best-effort); name is the rest.
                 status = tokens[7] if len(tokens) > 8 else ""
-                name = " ".join(tokens[8:]) if len(tokens) > 8 else (
-                    tokens[-1] if len(tokens) > 1 else ""
+                name = (
+                    " ".join(tokens[8:])
+                    if len(tokens) > 8
+                    else (tokens[-1] if len(tokens) > 1 else "")
                 )
                 entries.append(
                     {
@@ -488,10 +492,7 @@ class TransmissionSession:
             if not entries:
                 break
             for entry in entries:
-                if (
-                    entry["percent_done"] >= 100.0
-                    and entry["id"] not in completed_ids
-                ):
+                if entry["percent_done"] >= 100.0 and entry["id"] not in completed_ids:
                     completed_ids.add(entry["id"])
                     file_name = self.info_file(entry["id"])
                     on_complete(entry["id"], file_name)
@@ -629,9 +630,7 @@ def run_torrent_session(torrent_files, save_dir, *, print_fn=print) -> None:
             failed += 1
             return
         abs_path = (
-            file_path
-            if os.path.isabs(file_path)
-            else os.path.join(save_dir, file_path)
+            file_path if os.path.isabs(file_path) else os.path.join(save_dir, file_path)
         )
         if abs_path.endswith(".7z"):
             ok = extract_with_7z(abs_path, save_dir, remove_archive=True)
@@ -655,9 +654,7 @@ def run_torrent_session(torrent_files, save_dir, *, print_fn=print) -> None:
     except KeyboardInterrupt:
         print_fn("\n[!] Torrent download interrupted.")
         raise
-    print_fn(
-        f"[i] Torrent session complete: {completed} succeeded, {failed} failed."
-    )
+    print_fn(f"[i] Torrent session complete: {completed} succeeded, {failed} failed.")
 
 
 def _get_weakpass_inertia_version(headers: dict) -> str | None:
@@ -679,7 +676,9 @@ def _get_weakpass_inertia_version(headers: dict) -> str | None:
         return None
 
 
-def _fetch_weakpass_listing_page(page: int, headers: dict) -> tuple[list[dict], int | None]:
+def _fetch_weakpass_listing_page(
+    page: int, headers: dict
+) -> tuple[list[dict], int | None]:
     url = f"https://weakpass.com/wordlists?page={page}"
     version = _get_weakpass_inertia_version(headers)
     if version:
@@ -727,9 +726,8 @@ def _extract_weakpass_entries(data: dict) -> tuple[list[dict], int | None]:
     wordlists_raw = data.get("props", {}).get("wordlists", {})
     last_page = None
     if isinstance(wordlists_raw, dict):
-        last_page = (
-            wordlists_raw.get("last_page")
-            or wordlists_raw.get("meta", {}).get("last_page")
+        last_page = wordlists_raw.get("last_page") or wordlists_raw.get("meta", {}).get(
+            "last_page"
         )
         wordlists_raw = wordlists_raw.get("data", [])
     if not isinstance(wordlists_raw, list):
@@ -782,7 +780,9 @@ def fetch_all_weakpass_wordlists_multithreaded(total_pages=None, threads=10):
                         seen.add(wl["name"])
                 return result
             else:
-                print("[!] Weakpass page 1 returned no results; falling back to 67 pages")
+                print(
+                    "[!] Weakpass page 1 returned no results; falling back to 67 pages"
+                )
                 total_pages = 67
                 entries1 = []
         except Exception as e:
@@ -840,7 +840,9 @@ def fetch_all_weakpass_wordlists_multithreaded(total_pages=None, threads=10):
 
 
 def _match_entry(entries: list[dict], filename: str) -> tuple[int, str] | None:
-    wordlist_base = filename.replace(".torrent", "").replace(".7z", "").replace(".txt", "")
+    wordlist_base = (
+        filename.replace(".torrent", "").replace(".7z", "").replace(".txt", "")
+    )
     for wl in entries:
         if wl.get("name") == filename or wordlist_base in wl.get("name", ""):
             wl_id = wl.get("id")
@@ -907,7 +909,9 @@ def fetch_torrent_metadata(torrent_url, save_dir=None, wordlist_id=None):
                     break
         if match:
             resolved_id, torrent_link_from_data = match
-            torrent_link = f"https://weakpass.com/download/{resolved_id}/{torrent_link_from_data}"
+            torrent_link = (
+                f"https://weakpass.com/download/{resolved_id}/{torrent_link_from_data}"
+            )
 
     if not torrent_link:
         torrent_link = f"https://weakpass.com/files/{filename}"
@@ -916,7 +920,8 @@ def fetch_torrent_metadata(torrent_url, save_dir=None, wordlist_id=None):
     r2 = requests.get(torrent_link, headers=headers, stream=True)
     content_type = r2.headers.get("Content-Type", "")
     local_filename = os.path.join(
-        torrent_dir, filename if filename.endswith(".torrent") else filename + ".torrent"
+        torrent_dir,
+        filename if filename.endswith(".torrent") else filename + ".torrent",
     )
     if r2.status_code == 200 and not content_type.startswith("text/html"):
         with open(local_filename, "wb") as f:
@@ -1034,7 +1039,9 @@ def weakpass_wordlist_menu(rank=-1):
             if not torrent_url:
                 print(f"[!] Missing torrent URL for selection {idx}")
                 continue
-            meta = fetch_torrent_metadata(torrent_url, save_dir=save_dir, wordlist_id=entry.get("id"))
+            meta = fetch_torrent_metadata(
+                torrent_url, save_dir=save_dir, wordlist_id=entry.get("id")
+            )
             if meta:
                 torrent_files.append(meta)
         if torrent_files:
@@ -1046,6 +1053,154 @@ def weakpass_wordlist_menu(rank=-1):
         return
     except Exception as e:
         print(f"Error: {e}")
+
+
+def _md4(data: bytes) -> str:
+    """Pure-Python MD4 (OpenSSL 3 dropped md4, so hashlib can't be relied on).
+
+    Used to compute NTLM digests for client-side plaintext validation.
+    """
+    import struct
+
+    def lrot(x, n):
+        x &= 0xFFFFFFFF
+        return ((x << n) | (x >> (32 - n))) & 0xFFFFFFFF
+
+    a, b, c, d = 0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476
+    msg = bytearray(data)
+    ml = len(data) * 8
+    msg.append(0x80)
+    while len(msg) % 64 != 56:
+        msg.append(0)
+    msg += struct.pack("<Q", ml)
+    for off in range(0, len(msg), 64):
+        X = list(struct.unpack("<16I", msg[off : off + 64]))
+        aa, bb, cc, dd = a, b, c, d
+        for i in (0, 4, 8, 12):
+            a = lrot(a + ((b & c) | (~b & d)) + X[i], 3)
+            d = lrot(d + ((a & b) | (~a & c)) + X[i + 1], 7)
+            c = lrot(c + ((d & a) | (~d & b)) + X[i + 2], 11)
+            b = lrot(b + ((c & d) | (~c & a)) + X[i + 3], 19)
+        for i in (0, 1, 2, 3):
+            a = lrot(a + ((b & c) | (b & d) | (c & d)) + X[i] + 0x5A827999, 3)
+            d = lrot(d + ((a & b) | (a & c) | (b & c)) + X[i + 4] + 0x5A827999, 5)
+            c = lrot(c + ((d & a) | (d & b) | (a & b)) + X[i + 8] + 0x5A827999, 9)
+            b = lrot(b + ((c & d) | (c & a) | (d & a)) + X[i + 12] + 0x5A827999, 13)
+        for i in (0, 2, 1, 3):
+            a = lrot(a + (b ^ c ^ d) + X[i] + 0x6ED9EBA1, 3)
+            d = lrot(d + (a ^ b ^ c) + X[i + 8] + 0x6ED9EBA1, 9)
+            c = lrot(c + (d ^ a ^ b) + X[i + 4] + 0x6ED9EBA1, 11)
+            b = lrot(b + (c ^ d ^ a) + X[i + 12] + 0x6ED9EBA1, 15)
+        a = (a + aa) & 0xFFFFFFFF
+        b = (b + bb) & 0xFFFFFFFF
+        c = (c + cc) & 0xFFFFFFFF
+        d = (d + dd) & 0xFFFFFFFF
+    return struct.pack("<4I", a, b, c, d).hex()
+
+
+# Expected hex-digest length (in chars) for each supported hashcat mode.
+# Option 1: cheap structural filter that catches wrong-width hashes.
+_HASH_HEX_LEN = {
+    "0": 32,  # MD5
+    "100": 40,  # SHA1
+    "900": 32,  # MD4
+    "1000": 32,  # NTLM
+    "1400": 64,  # SHA2-256
+    "1700": 128,  # SHA2-512
+    "3000": 16,  # LM (half)
+}
+
+
+def _decode_plaintext(plaintext: str) -> bytes:
+    """Decode a hashcat plaintext, expanding $HEX[...] to raw bytes."""
+    if plaintext.startswith("$HEX[") and plaintext.endswith("]"):
+        inner = plaintext[5:-1]
+        try:
+            return bytes.fromhex(inner)
+        except ValueError:
+            return plaintext.encode("utf-8", "surrogateescape")
+    return plaintext.encode("utf-8", "surrogateescape")
+
+
+def _digest_for_type(hash_type: str, raw: bytes) -> Optional[str]:
+    """Compute the digest of ``raw`` under ``hash_type``.
+
+    Returns None for hash types we can't verify client-side (salted,
+    iterated, or otherwise not reproducible from plaintext alone).
+    """
+    import hashlib
+
+    ht = str(hash_type)
+    if ht == "0":
+        return hashlib.md5(raw).hexdigest()
+    if ht == "100":
+        return hashlib.sha1(raw).hexdigest()
+    if ht == "1400":
+        return hashlib.sha256(raw).hexdigest()
+    if ht == "1700":
+        return hashlib.sha512(raw).hexdigest()
+    if ht in ("900", "1000"):
+        # MD4 over the raw bytes; NTLM is MD4 over UTF-16LE. hashcat forms the
+        # NTLM candidate by zero-extending each raw byte, which is exactly
+        # latin-1(bytes).encode("utf-16le") -- correct for arbitrary binary too.
+        if ht == "1000":
+            return _md4(raw.decode("latin-1").encode("utf-16le"))
+        return _md4(raw)
+    return None
+
+
+def _validate_cracked_pair(hash_type, hash_value, plaintext):
+    """Return (ok, reason) for a single hash:plaintext pair.
+
+    ``ok`` False means the pair should be skipped. ``reason`` is a short
+    human-readable explanation for the warning. Unverifiable types pass.
+    """
+    ht = str(hash_type)
+    expected_len = _HASH_HEX_LEN.get(ht)
+    if expected_len is not None and len(hash_value) != expected_len:
+        return (
+            False,
+            f"wrong length ({len(hash_value)} chars, expected {expected_len} for mode {ht})",
+        )
+    digest = _digest_for_type(ht, _decode_plaintext(plaintext))
+    if digest is not None and digest.lower() != hash_value.lower():
+        return (False, f"plaintext does not match hash under mode {ht}")
+    return (True, "")
+
+
+# Hashcat modes whose password bytes are UTF-16LE (zero-extended) rather than
+# raw bytes. These need the latin-1->UTF-8 re-encoding when decoding $HEX.
+_UTF16LE_MODES = {"1000", "1731"}
+# Modes whose password is hashed as raw bytes.
+_RAW_BYTE_MODES = {"0", "100", "300", "900", "1400", "1700"}
+
+
+def _wire_field_bytes(hash_type, plaintext: str) -> bytes:
+    """Return the on-the-wire bytes for a plaintext field.
+
+    Decodes hashcat's ``$HEX[...]`` wrapper to the exact bytes Hashview must
+    re-hash, so cracked passwords with whitespace/binary bytes import even
+    against a Hashview that does not itself understand ``$HEX[...]``. Falls back
+    to sending the ``$HEX[...]`` token verbatim when inlining would be unsafe
+    (embedded CR/LF would break the line-based upload) or the mode's byte
+    handling is unknown -- those rely on a $HEX-aware server.
+    """
+    if not (plaintext.startswith("$HEX[") and plaintext.endswith("]")):
+        return plaintext.encode("utf-8", "surrogateescape")
+    try:
+        raw = bytes.fromhex(plaintext[5:-1])
+    except ValueError:
+        return plaintext.encode("utf-8", "surrogateescape")
+    if b"\n" in raw or b"\r" in raw:
+        return plaintext.encode("utf-8", "surrogateescape")
+    ht = str(hash_type)
+    if ht in _UTF16LE_MODES:
+        # hashcat zero-extends raw bytes; send the latin-1 code points as UTF-8
+        # so the server reconstructs them before its own UTF-16LE encoding.
+        return raw.decode("latin-1").encode("utf-8")
+    if ht in _RAW_BYTE_MODES:
+        return raw
+    return plaintext.encode("utf-8", "surrogateescape")
 
 
 # Hashview Integration - Real API implementation matching hate_crack.py
@@ -1151,7 +1306,7 @@ class HashviewAPI:
 
     def get_hashfile_details(self, hashfile_id):
         """Get hashfile details and hashtype for a given hashfile_id."""
-        url = f"{self.base_url}/v1/hashfiles/{hashfile_id}/hash_type"
+        url = f"{self.base_url}/v1/getHashType/{hashfile_id}"
         resp = self.session.get(url, headers=self._auth_headers())
         resp.raise_for_status()
         try:
@@ -1162,7 +1317,13 @@ class HashviewAPI:
             data = None
         hashtype = None
         if data:
-            hashtype = data.get("hashtype") or data.get("hash_type") or data.get("type")
+            # Prefer explicit hash-type keys by PRESENCE, not truthiness: MD5 is
+            # hash_type 0, which is falsy. Never fall back to `type` — that is
+            # the envelope tag ("message"), never a hash mode.
+            if "hash_type" in data:
+                hashtype = data["hash_type"]
+            elif "hashtype" in data:
+                hashtype = data["hashtype"]
             if self.debug:
                 print(
                     f"[DEBUG] get_hashfile_details({hashfile_id}): raw data={data}, hashtype={hashtype}"
@@ -1193,65 +1354,140 @@ class HashviewAPI:
         resp.raise_for_status()
         data = resp.json()
         if "users" in data:
-            customers = json.loads(data["users"])
+            customers = data["users"]
+            # Newer servers return a native JSON array (issue #229); older ones
+            # double-encode it as a JSON string. Support both.
+            if isinstance(customers, str):
+                customers = json.loads(customers)
             return {"customers": customers}
         return data
 
-    def list_hashfiles(self):
-        url = f"{self.base_url}/v1/hashfiles"
-        resp = self.session.get(url, headers=self._auth_headers())
-        resp.raise_for_status()
-        data = resp.json()
-        if "hashfiles" in data:
-            if isinstance(data["hashfiles"], str):
-                hashfiles = json.loads(data["hashfiles"])
-            else:
-                hashfiles = data["hashfiles"]
-            return hashfiles
-        return []
+    def get_customer_hashfiles(self, customer_id, hash_type=None):
+        """Return a customer's hashfiles of a given hash_type.
 
-    def get_customer_hashfiles(self, customer_id):
-        all_hashfiles = self.list_hashfiles()
+        Hashview exposes no "list all hashfiles" route; the only enumeration
+        endpoint is ``/v1/hashfiles/hash_type/<hash_type>`` (see
+        :meth:`get_hashfiles_by_type`), which already returns ``customer_id``
+        and ``hash_type`` per file. We query that and filter by customer.
+
+        ``hash_type`` is required to enumerate: without it there is no API
+        route to list a customer's files, so an empty list is returned.
+        """
+        if hash_type is None:
+            if self.debug:
+                print(
+                    "[DEBUG] get_customer_hashfiles: no hash_type given; Hashview "
+                    "has no list-all route, returning []"
+                )
+            return []
+
+        all_hashfiles = self.get_hashfiles_by_type(hash_type)
         customer_hfs = [
-            hf for hf in all_hashfiles if int(hf.get("customer_id", 0)) == customer_id
+            hf
+            for hf in all_hashfiles
+            if int(hf.get("customer_id", 0)) == int(customer_id)
         ]
+
+        # The type-scoped endpoint already returns the hash_type, but normalize
+        # the key so downstream callers can read either spelling.
+        for hf in customer_hfs:
+            if not (hf.get("hashtype") or hf.get("hash_type")):
+                hf["hash_type"] = str(hash_type)
 
         if self.debug:
             print(
-                f"[DEBUG] get_customer_hashfiles({customer_id}): found {len(customer_hfs)} hashfiles"
+                f"[DEBUG] get_customer_hashfiles({customer_id}, hash_type={hash_type}): "
+                f"found {len(customer_hfs)} hashfiles"
             )
-
-        # Fetch hash types for any hashfiles missing them
-        for hf in customer_hfs:
-            if not (hf.get("hashtype") or hf.get("hash_type")):
-                hf_id = hf.get("id")
-                if hf_id is not None:
-                    if self.debug:
-                        print(f"[DEBUG] Fetching hash_type for hashfile {hf_id}")
-                    try:
-                        details = self.get_hashfile_details(hf_id)
-                        hashtype = details.get("hashtype")
-                        if hashtype:
-                            hf["hash_type"] = hashtype
-                            if self.debug:
-                                print(
-                                    f"[DEBUG] Updated hashfile {hf_id} with hash_type={hashtype}"
-                                )
-                        elif self.debug:
-                            print(
-                                f"[DEBUG] No hashtype found in details for {hf_id}: {details}"
-                            )
-                    except Exception as e:
-                        if self.debug:
-                            print(
-                                f"[DEBUG] Exception fetching hash_type for {hf_id}: {e}"
-                            )
 
         return customer_hfs
 
+    # Curated set of hashcat modes commonly seen in engagements. Used to
+    # enumerate a customer's hashfiles by sweeping the per-type listing
+    # endpoint, since Hashview exposes no list-all route. Not exhaustive:
+    # uncommon types can still be queried explicitly via get_customer_hashfiles.
+    COMMON_HASH_TYPES = (
+        0,  # MD5
+        100,  # SHA1
+        1000,  # NTLM
+        3000,  # LM
+        1100,  # Domain Cached Credentials (DCC), MS Cache
+        2100,  # Domain Cached Credentials 2 (DCC2), MS Cache 2
+        5500,  # NetNTLMv1
+        5600,  # NetNTLMv2
+        7500,  # Kerberos 5 AS-REQ Pre-Auth (etype 23)
+        13100,  # Kerberos 5 TGS-REP (Kerberoasting, etype 23)
+        18200,  # Kerberos 5 AS-REP (AS-REP roasting, etype 23)
+        19600,  # Kerberos 5 TGS-REP (etype 17)
+        19700,  # Kerberos 5 TGS-REP (etype 18)
+        1800,  # sha512crypt $6$ (Linux)
+        500,  # md5crypt $1$ (Linux/Cisco)
+        7400,  # sha256crypt $5$
+        3200,  # bcrypt $2*$
+        1700,  # SHA512
+        1400,  # SHA256
+        160,  # HMAC-SHA1
+        13400,  # KeePass
+        9600,  # MS Office 2013
+        10500,  # PDF 1.4-1.6
+        11600,  # 7-Zip
+        16500,  # JWT
+        22000,  # WPA-PBKDF2-PMKID+EAPOL
+    )
+
+    def get_all_customer_hashfiles(self, customer_id, hash_types=None):
+        """Aggregate a customer's hashfiles across hash types (deduped by id).
+
+        Hashview has no list-all route, so this sweeps the per-type listing
+        endpoint (:meth:`get_hashfiles_by_type`) over ``hash_types`` and keeps
+        the files belonging to ``customer_id``. Defaults to
+        :attr:`COMMON_HASH_TYPES`; a file of an uncommon type not in the sweep
+        won't appear. The first hash type a file is seen under is retained as
+        its ``hash_type`` (mixed-type files are rare).
+        """
+        if hash_types is None:
+            hash_types = self.COMMON_HASH_TYPES
+        seen = {}
+        for ht in hash_types:
+            try:
+                files = self.get_hashfiles_by_type(ht)
+            except Exception as e:
+                status = getattr(getattr(e, "response", None), "status_code", None)
+                if status == 404:
+                    # The /v1/hashfiles/hash_type route doesn't exist on this
+                    # server (e.g. Hashview main, or builds before 2026-06-08),
+                    # so no per-type sweep is possible. Stop after the first 404
+                    # instead of hammering the server with one request per type.
+                    if self.debug:
+                        print(
+                            "[DEBUG] get_all_customer_hashfiles: hash_type listing "
+                            "endpoint absent (404); aborting sweep"
+                        )
+                    break
+                if self.debug:
+                    print(f"[DEBUG] get_all_customer_hashfiles: type {ht} failed: {e}")
+                continue
+            for hf in files:
+                if int(hf.get("customer_id", 0)) != int(customer_id):
+                    continue
+                hf_id = hf.get("id")
+                if hf_id is None:
+                    continue
+                if not (hf.get("hashtype") or hf.get("hash_type")):
+                    hf["hash_type"] = str(ht)
+                seen.setdefault(int(hf_id), hf)
+        if self.debug:
+            print(
+                f"[DEBUG] get_all_customer_hashfiles({customer_id}): "
+                f"found {len(seen)} hashfiles across {len(hash_types)} types"
+            )
+        return list(seen.values())
+
     def get_customer_hashfiles_with_hashtype(self, customer_id, target_hashtype="1000"):
         """Return hashfiles for a customer that match the requested hashtype."""
-        customer_hashfiles = self.get_customer_hashfiles(customer_id)
+        customer_hashfiles = self.get_customer_hashfiles(
+            customer_id, hash_type=target_hashtype
+        )
         if not customer_hashfiles:
             return []
         target_str = str(target_hashtype)
@@ -1340,35 +1576,46 @@ class HashviewAPI:
             return {}
 
     def stop_job(self, job_id):
-        url = f"{self.base_url}/v1/jobs/stop/{job_id}"
-        resp = self.session.get(url)
-        resp.raise_for_status()
-        return resp.json()
+        # Hashview exposes no "stop job" route (only add/get/start/delete).
+        # Deleting a job removes it regardless of Queued/Running state, which
+        # is the closest supported operation; use delete_job() instead.
+        raise NotImplementedError(
+            "Hashview has no stop-job endpoint; use delete_job() to remove a job."
+        )
 
     def delete_job(self, job_id):
-        url = f"{self.base_url}/v1/jobs/delete/{job_id}"
-        resp = self.session.get(url)
+        # Hashview deletes via DELETE /v1/jobs/<id> (there is no /jobs/delete/).
+        url = f"{self.base_url}/v1/jobs/{job_id}"
+        resp = self.session.delete(url)
         resp.raise_for_status()
         return resp.json()
 
     def start_job(self, job_id, priority=3, limit_recovered=False):
+        # /v1/jobs/start/<id> is POST-only; priority/limit_recovered come from
+        # the stored job record server-side, so they are validated here but not
+        # required by the endpoint.
         url = f"{self.base_url}/v1/jobs/start/{job_id}"
-        params = {}
         priority = int(priority)
         if priority < 1 or priority > 5:
             raise ValueError("priority must be an int between 1 and 5")
-        params["priority"] = priority
-        params["limit_recovered"] = bool(limit_recovered)
-        resp = self.session.get(url, params=params)
+        resp = self.session.post(url)
         resp.raise_for_status()
         return resp.json()
 
     def download_left_hashes(
-        self, customer_id, hashfile_id, output_file=None, hash_type=None, potfile_path=None
+        self,
+        customer_id,
+        hashfile_id,
+        output_file=None,
+        hash_type=None,
+        potfile_path=None,
     ):
         import sys
 
-        url = f"{self.base_url}/v1/hashfiles/{hashfile_id}/left"
+        # Hashview's GET /v1/hashfiles/<id> returns exactly the uncracked
+        # ("left") ciphertexts for the hashfile (see v1_api_get_hashfile). The
+        # older /v1/hashfiles/<id>/left route no longer exists and 404s.
+        url = f"{self.base_url}/v1/hashfiles/{hashfile_id}"
         resp = self.session.get(url, headers=self._auth_headers(), stream=True)
         resp.raise_for_status()
         if output_file is None:
@@ -1407,7 +1654,10 @@ class HashviewAPI:
         found_file = os.path.join(out_dir, f"found_{customer_id}_{hashfile_id}.txt")
 
         try:
-            # Try to download the found file
+            # Best-effort: Hashview v0.8.3-dev exposes no bulk "found"/cracked
+            # export endpoint (only the single-hash POST /v1/search), so this
+            # request 404s against stock servers and the merge is skipped. It
+            # remains for forks/versions that expose a per-hashfile found dump.
             found_url = f"{self.base_url}/v1/hashfiles/{hashfile_id}/found"
             found_resp = self.session.get(
                 found_url, headers=self._auth_headers(), stream=True, timeout=30
@@ -1445,7 +1695,7 @@ class HashviewAPI:
                         for line in f:
                             line = line.strip()
                             if line:
-                                parts = line.split(":", 1)  # Split on first colon
+                                parts = line.rsplit(":", 1)
                                 if len(parts) == 2:
                                     hash_part, clear_part = parts
                                     hf.write(hash_part + "\n")
@@ -1453,12 +1703,22 @@ class HashviewAPI:
                                     hashes_count += 1
                                     clears_count += 1
 
+                # Append found hashes to the left file to reconstruct the full hashlist
+                with open(output_abs, "a", encoding="utf-8") as lf:
+                    with open(found_hashes_file, "r", encoding="utf-8") as hf:
+                        for line in hf:
+                            lf.write(line)
+
                 print(
                     f"Split found file into {hashes_count} hashes and {clears_count} clears"
                 )
 
                 # Append found hash:clear pairs to the potfile
-                resolved_potfile = potfile_path if potfile_path is not None else get_hcat_potfile_path()
+                resolved_potfile = (
+                    potfile_path
+                    if potfile_path is not None
+                    else get_hcat_potfile_path()
+                )
                 if resolved_potfile:
                     appended = 0
                     with open(resolved_potfile, "a", encoding="utf-8") as pf:
@@ -1497,10 +1757,11 @@ class HashviewAPI:
             "combined_file": combined_file,
         }
 
-    def upload_cracked_hashes(self, file_path, hash_type="1000"):
+    def upload_cracked_hashes(self, file_path, hash_type="1000", *, validate=True):
         valid_lines = []
+        skipped = []
         with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-            for line in f:
+            for lineno, line in enumerate(f, 1):
                 line = line.strip()
                 if "31d6cfe0d16ae931b73c59d7e0c089c0" in line:
                     continue
@@ -1511,10 +1772,38 @@ class HashviewAPI:
                     break
                 hash_value = parts[0].strip()
                 plaintext = parts[1].strip()
-                valid_lines.append(f"{hash_value}:{plaintext}")
-        converted_content = "\n".join(valid_lines)
+                if validate:
+                    ok, reason = _validate_cracked_pair(
+                        hash_type, hash_value, plaintext
+                    )
+                    if not ok:
+                        skipped.append((lineno, hash_value, reason))
+                        continue
+                valid_lines.append(
+                    hash_value.encode("ascii", "ignore")
+                    + b":"
+                    + _wire_field_bytes(hash_type, plaintext)
+                )
+
+        if skipped:
+            print(
+                f"⚠ Skipped {len(skipped)} line(s) that do not match hash mode "
+                f"{hash_type} (would be rejected by Hashview):"
+            )
+            for lineno, hash_value, reason in skipped[:10]:
+                print(f"    line {lineno}: {hash_value} — {reason}")
+            if len(skipped) > 10:
+                print(f"    ... and {len(skipped) - 10} more")
+
+        if not valid_lines:
+            raise Exception(
+                f"No valid hashes to upload for hash mode {hash_type} "
+                f"({len(skipped)} line(s) skipped by validation)."
+            )
+
+        converted_content = b"\n".join(valid_lines)
         url = f"{self.base_url}/v1/hashes/import/{hash_type}"
-        headers = {"Content-Type": "text/plain"}
+        headers = {"Content-Type": "text/plain; charset=utf-8"}
         resp = self.session.post(url, data=converted_content, headers=headers)
         resp.raise_for_status()
         try:
@@ -1523,6 +1812,11 @@ class HashviewAPI:
                 raise Exception(
                     f"Hashview API Error: {json_response.get('msg', 'Unknown error')}"
                 )
+            # Surface what the client actually sent so the caller can report a
+            # count even against a Hashview that returns a bare {"msg": "OK"}.
+            if isinstance(json_response, dict):
+                json_response.setdefault("uploaded", len(valid_lines))
+                json_response.setdefault("skipped", len(skipped))
             return json_response
         except (json.JSONDecodeError, ValueError):
             raise Exception(f"Invalid API response: {resp.text[:200]}")
@@ -1558,7 +1852,9 @@ class HashviewAPI:
                     r"filename=\"?([^\";]+)\"?", content_disp, re.IGNORECASE
                 )
                 output_file = (
-                    os.path.basename(match.group(1)) if match else f"wordlist_{wordlist_id}.gz"
+                    os.path.basename(match.group(1))
+                    if match
+                    else f"wordlist_{wordlist_id}.gz"
                 )
 
         if not os.path.isabs(output_file):
@@ -1573,6 +1869,57 @@ class HashviewAPI:
         if ok:
             return {"output_file": output_file, "size": os.path.getsize(output_file)}
         return {"output_file": output_file, "size": 0}
+
+    def list_rules(self):
+        """List available rule files from the Hashview API (/v1/rules)."""
+        endpoint = f"{self.base_url}/v1/rules"
+        response = self.session.get(endpoint, headers=self._auth_headers())
+        response.raise_for_status()
+        try:
+            data = response.json()
+        except Exception:
+            raise Exception(f"Invalid API response: {response.text}")
+        if isinstance(data, dict) and "rules" in data:
+            rules = data["rules"]
+            # Newer servers return a native JSON array (issue #229); tolerate a
+            # legacy double-encoded string as well.
+            if isinstance(rules, str):
+                rules = json.loads(rules)
+            return rules
+        elif isinstance(data, list):
+            return data
+        return []
+
+    def download_rules(self, rules_id, output_file=None):
+        """Download a rule file from the Hashview API (/v1/rules/<id>).
+
+        Rules are stored plaintext at rest and the server gzip-compresses them
+        on the fly, so the response body is gzip. We decompress before saving
+        so the file is directly usable with ``hashcat -r``. An unknown rule id
+        is a real HTTP 404, surfaced via ``raise_for_status``.
+        """
+        import gzip
+
+        url = f"{self.base_url}/v1/rules/{rules_id}"
+        resp = self.session.get(url, headers=self._auth_headers())
+        resp.raise_for_status()
+
+        content = resp.content
+        try:
+            content = gzip.decompress(content)
+        except (OSError, EOFError):
+            # Already plaintext (or a fork that serves uncompressed) — save as-is.
+            pass
+
+        if output_file is None:
+            output_file = f"rule_{rules_id}.rule"
+        if not os.path.isabs(output_file):
+            output_file = os.path.join(get_rules_dir(), output_file)
+        os.makedirs(os.path.dirname(output_file) or ".", exist_ok=True)
+
+        with open(output_file, "wb") as f:
+            f.write(content)
+        return {"output_file": output_file, "size": os.path.getsize(output_file)}
 
     def create_customer(self, name):
         url = f"{self.base_url}/v1/customers/add"
@@ -1596,21 +1943,28 @@ class HashviewAPI:
     def get_hashfile_hash_type(self, hashtype_id):
         """
         Query /v1/hashfiles/hash_type/<int:hashtype_id> and return a list of file IDs.
+
+        The endpoint answers with an envelope ``{..., "hashfiles": [ {...} ]}``
+        (native JSON objects); we extract the ``id`` of each hashfile.
         """
         url = f"{self.base_url}/v1/hashfiles/hash_type/{hashtype_id}"
         resp = self.session.get(url)
         resp.raise_for_status()
         try:
             data = resp.json()
-            # Expecting a list of file IDs or a dict with a key containing them
+            # A bare list is tolerated for forward/backward compatibility.
             if isinstance(data, list):
-                return data
+                hashfiles = data
             elif isinstance(data, dict):
-                # Try common keys
-                for key in ("file_ids", "ids", "hashfile_ids"):
-                    if key in data and isinstance(data[key], list):
-                        return data[key]
-            return []
+                hashfiles = data.get("hashfiles") or []
+            else:
+                return []
+            ids = []
+            for hf in hashfiles:
+                hf_id = hf.get("id") if isinstance(hf, dict) else hf
+                if hf_id is not None:
+                    ids.append(hf_id)
+            return ids
         except Exception:
             return []
 
@@ -1622,8 +1976,13 @@ def download_hashes_from_hashview(
     input_fn: Callable[[str], str] = input,
     print_fn: Callable[..., None] = print,
     potfile_path: Optional[str] = None,
+    hash_type: Optional[str] = None,
 ) -> Tuple[str, str]:
-    """Interactive Hashview download flow used by CLI."""
+    """Interactive Hashview download flow used by CLI.
+
+    ``hash_type`` is required to enumerate a customer's hashfiles, since
+    Hashview only exposes a per-hash-type listing endpoint.
+    """
     try:
         if not sys.stdin or not sys.stdin.isatty():
             print_fn("\nAvailable Customers:")
@@ -1681,7 +2040,9 @@ def download_hashes_from_hashview(
     else:
         customer_id = int(customer_raw)
     try:
-        customer_hashfiles = api_harness.get_customer_hashfiles(customer_id)
+        customer_hashfiles = api_harness.get_customer_hashfiles(
+            customer_id, hash_type=hash_type
+        )
         if customer_hashfiles:
             print_fn("\n" + "=" * 120)
             print_fn(f"Hashfiles for Customer ID {customer_id}:")
@@ -1838,7 +2199,9 @@ def download_hashmob_wordlist(file_name, out_path):
 
     def _attempt():
         _hashmob_limiter.wait()
-        with requests.get(url, headers=headers, stream=True, timeout=60, allow_redirects=True) as r:
+        with requests.get(
+            url, headers=headers, stream=True, timeout=60, allow_redirects=True
+        ) as r:
             if r.status_code == 429:
                 raise _Hashmob429()
             r.raise_for_status()
@@ -1854,7 +2217,9 @@ def download_hashmob_wordlist(file_name, out_path):
                     real_url = match.group(1)
                     print(f"Found meta refresh redirect to: {real_url}")
                     return _streamed_download(real_url, out_path, label=file_name)
-                print("Error: Received HTML instead of file. Possible permission or quota issue.")
+                print(
+                    "Error: Received HTML instead of file. Possible permission or quota issue."
+                )
                 return False
             return _stream_response_to_file(r, out_path, label=file_name)
 
@@ -1964,19 +2329,31 @@ def download_hashmob_rule(file_name, out_path):
         print(
             f"[i] Hashmob rule not in pinned URL list, using public prefix: {file_name}"
         )
-        primary_url = f"https://www.hashmob.net/api/v2/downloads/research/rules/{file_name}"
+        primary_url = (
+            f"https://www.hashmob.net/api/v2/downloads/research/rules/{file_name}"
+        )
     alt_url = f"https://hashmob.net/api/v2/downloads/research/official/hashmob_rules/{file_name}"
     api_key = get_hashmob_api_key()
     headers = {"api-key": api_key} if api_key else {}
 
     def _attempt():
         _hashmob_limiter.wait()
-        with requests.get(primary_url, headers=headers, stream=True, timeout=60, allow_redirects=True) as r:
+        with requests.get(
+            primary_url, headers=headers, stream=True, timeout=60, allow_redirects=True
+        ) as r:
             if r.status_code == 429:
                 raise _Hashmob429()
             if r.status_code == 404 and alt_url:
-                print(f"[i] Hashmob rule not found at primary URL, trying fallback: {alt_url}")
-                with requests.get(alt_url, headers=headers, stream=True, timeout=60, allow_redirects=True) as r2:
+                print(
+                    f"[i] Hashmob rule not found at primary URL, trying fallback: {alt_url}"
+                )
+                with requests.get(
+                    alt_url,
+                    headers=headers,
+                    stream=True,
+                    timeout=60,
+                    allow_redirects=True,
+                ) as r2:
                     if r2.status_code == 429:
                         raise _Hashmob429()
                     r2.raise_for_status()
@@ -2237,9 +2614,7 @@ def download_official_wordlist(file_name, out_path):
     out_path = sanitize_filename(file_name)
     dest_dir = get_hcat_wordlists_dir()
     archive_path = (
-        os.path.join(dest_dir, out_path)
-        if not os.path.isabs(out_path)
-        else out_path
+        os.path.join(dest_dir, out_path) if not os.path.isabs(out_path) else out_path
     )
     os.makedirs(os.path.dirname(archive_path), exist_ok=True)
     ok = _streamed_download(url, archive_path, label=file_name)

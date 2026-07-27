@@ -21,8 +21,6 @@ import subprocess
 import shlex
 import time
 import argparse
-import urllib.request
-import urllib.error
 import contextlib
 import gzip
 import lzma
@@ -75,6 +73,9 @@ from hate_crack.cli import (  # noqa: E402
     setup_logging,
 )
 from hate_crack import attacks as _attacks  # noqa: E402
+from hate_crack import llm  # noqa: E402
+from hate_crack import noninteractive as _noninteractive  # noqa: E402
+from hate_crack.progress import spinner  # noqa: E402
 from hate_crack.menu import interactive_menu  # noqa: E402
 from hate_crack.username_detect import detect_username_hash_format  # noqa: E402
 
@@ -272,8 +273,14 @@ if _missing_keys:
     print(f"[config] Added {len(_missing_keys)} missing key(s) to {_config_path}")
     print(f"         Keys: {', '.join(_missing_keys)}")
 
-hashview_url = config_parser["hashview_url"]
-hashview_api_key = config_parser["hashview_api_key"]
+# Environment variables override config.json so the CLI can be pointed at a
+# different Hashview instance (e.g. a local docker stack for the live test
+# suite) without editing the persisted config. Empty/unset env vars fall back
+# to config.json.
+hashview_url = os.environ.get("HASHVIEW_URL") or config_parser["hashview_url"]
+hashview_api_key = (
+    os.environ.get("HASHVIEW_API_KEY") or config_parser["hashview_api_key"]
+)
 
 SKIP_INIT = os.environ.get("HATE_CRACK_SKIP_INIT") == "1"
 
@@ -353,6 +360,23 @@ else:
         hcatPotfilePath = os.path.expanduser(_raw_pot)
         if not os.path.isabs(hcatPotfilePath):
             hcatPotfilePath = os.path.join(hate_path, hcatPotfilePath)
+
+
+def _normalize_ollama_url(host: str) -> str:
+    """Turn an ``OLLAMA_HOST`` value into a usable base URL.
+
+    Ollama's own tooling accepts both a bare ``host:port`` and a full URL, so
+    accept either.  Only prepend ``http://`` when no scheme is present;
+    unconditionally prepending it produced URLs like
+    ``http://https://ollama.example.com``.  Trailing slashes are stripped
+    because callers append paths (``f"{ollamaUrl}/v1"``).
+    """
+    host = (host or "").strip()
+    if not host:
+        return "http://localhost:11434"
+    if "://" not in host:
+        host = "http://" + host
+    return host.rstrip("/")
 
 
 def _maybe_append_username_flag(cmd):
@@ -444,12 +468,20 @@ hcatGoodMeasureBaseList = config_parser["hcatGoodMeasureBaseList"]
 
 hcatDebugLogPath = os.path.expanduser(config_parser["hcatDebugLogPath"])
 
-ollamaUrl = "http://" + os.environ.get("OLLAMA_HOST", "localhost:11434")
-ollamaModel = config_parser.get("ollamaModel", "mistral")
+ollamaUrl = _normalize_ollama_url(os.environ.get("OLLAMA_HOST", "localhost:11434"))
+ollamaModel = config_parser.get("ollamaModel", "qwen2.5:32b")
 ollamaNumCtx = int(config_parser.get("ollamaNumCtx", 2048))
+ollamaTimeout = float(config_parser.get("ollamaTimeout", 300))
+ollamaMaxSampleLines = int(config_parser.get("ollamaMaxSampleLines", 500))
+ollamaAutoResearch = bool(config_parser.get("ollamaAutoResearch", True))
 
 omenTrainingList = config_parser.get("omenTrainingList", "rockyou.txt")
 omenMaxCandidates = int(config_parser.get("omenMaxCandidates", 1000000))
+pcfgRuleset = config_parser.get("pcfgRuleset", "DEFAULT")
+pcfgMaxCandidates = int(config_parser.get("pcfgMaxCandidates", 50000000))
+pcfgPrinceLingMaxCandidates = int(
+    config_parser.get("pcfgPrinceLingMaxCandidates", 10000000)
+)
 
 try:
     _cfg_optimized = config_parser["optimizedKernelAttacks"]
@@ -713,6 +745,22 @@ if not SKIP_INIT:
         except SystemExit:
             print("OMEN attacks will not be available.")
 
+        # Verify pcfg_cracker presence (optional, for PCFG attacks)
+        # pcfg_cracker is pure-Python; we just check the script files exist.
+        pcfg_guesser_script = os.path.join(hate_path, "pcfg_cracker", "pcfg_guesser.py")
+        pcfg_prince_ling_script = os.path.join(
+            hate_path, "pcfg_cracker", "prince_ling.py"
+        )
+        if not os.path.isfile(pcfg_guesser_script) or not os.path.isfile(
+            pcfg_prince_ling_script
+        ):
+            print(
+                "pcfg_cracker not found at " + os.path.join(hate_path, "pcfg_cracker")
+            )
+            print("PCFG attacks will not be available. Run 'make' to fetch submodules.")
+        elif not shutil.which("python3"):
+            print("python3 not on PATH. PCFG attacks will not be available.")
+
     except Exception as e:
         print(f"Module initialization error: {e}")
         if not shutil.which("hashcat") and not os.path.exists("/usr/bin/hashcat"):
@@ -738,6 +786,7 @@ hcatGenerateRulesCount = 0
 hcatPermuteCount = 0
 hcatProcess: subprocess.Popen[Any] | None = None
 debug_mode = False
+non_interactive = False
 hcatUsernamePrefix: bool = False
 
 
@@ -876,6 +925,23 @@ def _wordlist_path(path: str):
         yield path
 
 
+def _usable_plaintext(raw: str) -> str:
+    """Return the usable plaintext from a raw wordlist line, or empty string.
+
+    Blank/whitespace-only lines are discarded.  Lines in ``hash:password``
+    format (as produced by hashcat ``--show``) are split on the first colon
+    so only the plaintext portion is returned; lines with no colon are
+    returned as-is.  A ``hash:`` line whose plaintext is empty after
+    stripping returns an empty string and is therefore also discarded.
+    """
+    stripped = raw.strip()
+    if not stripped:
+        return ""
+    if ":" in stripped:
+        stripped = stripped.split(":", 1)[1]
+    return stripped
+
+
 def _add_debug_mode_for_rules(cmd):
     """Add debug mode arguments to hashcat command if rules are being used.
 
@@ -967,16 +1033,94 @@ def _run_upgrade():
         raise SystemExit(1)
     repo_root = git_root_result.stdout.strip()
 
+    # Fetch first so origin/main is present even on a stale clone that has
+    # never been fetched since the default branch was renamed master -> main.
+    # Without this, `git checkout main` on a master-only clone fails because
+    # there's no origin/main ref to auto-create a tracking branch from.
+    fetch_result = subprocess.run(
+        ["git", "fetch", "--tags", "origin"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+    if fetch_result.returncode != 0:
+        print(
+            f"\n  Failed to fetch from origin:\n  {fetch_result.stderr.strip()}\n"
+            "\n  Upgrade manually: git fetch --tags && git checkout main && git pull origin main && make install\n"
+        )
+        raise SystemExit(1)
+
+    # Release tags live on main-side merge commits, so pulling on `dev` or
+    # any feature branch won't move HEAD onto the new tag — setuptools-scm
+    # then regenerates the version as e.g. 2.10.0.postN.devM and the update
+    # checker re-fires on next start, looping forever. Switch to main first.
+    #
+    # Old clones made before the default branch was renamed master -> main
+    # sit on a local `master` whose upstream (branch.master.merge) still
+    # points at the now-deleted refs/heads/master. A bare `git pull` then
+    # fails with "no such ref was fetched". We migrate such clones to a
+    # local `main` tracking origin/main so future manual pulls also work.
+    branch_result = subprocess.run(
+        ["git", "symbolic-ref", "--short", "HEAD"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+    branch = branch_result.stdout.strip() if branch_result.returncode == 0 else ""
+
+    if branch and branch != "main":
+        status = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+        )
+        if status.stdout.strip():
+            print(
+                f"\n  Cannot auto-upgrade: uncommitted changes on '{branch}'."
+                "\n  Commit or stash them, then re-run."
+                "\n  Or upgrade manually: git checkout main && git pull origin main && make install\n"
+            )
+            raise SystemExit(1)
+
+        print(f"\n  Switching from '{branch}' to 'main' to pick up the release tag...")
+        checkout = subprocess.run(
+            # -B creates/resets a local `main` pointing at origin/main so this
+            # works whether or not a local `main` already exists (e.g. a stale
+            # master-only clone that has never had a main branch).
+            ["git", "checkout", "-B", "main", "origin/main"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+        )
+        if checkout.returncode != 0:
+            print(
+                f"\n  Failed to switch to main:\n  {checkout.stderr.strip()}\n"
+                "\n  Upgrade manually: git checkout main && git pull origin main && make install\n"
+            )
+            raise SystemExit(1)
+
+        # Repair the upstream so a later manual `git pull` consults
+        # origin/main rather than a dangling branch.master.merge ref.
+        subprocess.run(
+            ["git", "branch", "--set-upstream-to=origin/main", "main"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+        )
+
     import shutil
 
     uv = shutil.which("uv") or os.path.expanduser("~/.local/bin/uv")
 
     result = subprocess.run(
+        # `git pull origin main` is explicit so it never consults the possibly
+        # broken branch.<current>.merge config on a renamed clone.
         # git fetch --tags ensures new release tags are visible to setuptools-scm.
         # make install handles system deps and the CLI shim.
         # uv sync --reinstall-package forces setuptools-scm to regenerate the
         # version from the new tag so the version number updates correctly.
-        f"git pull && git fetch --tags && make install && {uv} sync --reinstall-package hate_crack",
+        f"git pull origin main && git fetch --tags && make install && {uv} sync --reinstall-package hate_crack",
         shell=True,
         cwd=repo_root,
     )
@@ -1066,12 +1210,17 @@ def select_file_with_autocomplete(
         except IndexError:
             return None
 
+    def display_matches(substitution, matches, longest_match_length):
+        print()
+        for match in matches:
+            print(f"  {match}")
+        readline.redisplay()
+
     # Configure readline for tab completion
     readline.set_completer_delims(" \t\n;")
-    # Disable the "Display all X possibilities?" prompt
     try:
-        readline.parse_and_bind("set completion-query-items -1")
-    except Exception:
+        readline.set_completion_display_matches_hook(display_matches)
+    except AttributeError:
         pass
     try:
         readline.parse_and_bind("tab: complete")
@@ -1089,7 +1238,12 @@ def select_file_with_autocomplete(
         full_prompt += f" (default: {default})"
     full_prompt += ": "
 
-    result = input(full_prompt).strip()
+    try:
+        result = input(full_prompt).strip()
+    finally:
+        # Drop the path completer so later plain prompts (numeric menus, y/n)
+        # don't inherit stale file-path tab completion.
+        readline.set_completer(None)
     if not result and base_dir:
         result = base_dir
 
@@ -1143,7 +1297,11 @@ def _write_field_sorted_unique(input_path, output_path, field_index, delimiter="
             open(output_path, "w") as dst,
         ):
             sort_proc = subprocess.Popen(
-                ["sort", "-u"], stdin=subprocess.PIPE, stdout=dst, text=True
+                ["sort", "-u"],
+                stdin=subprocess.PIPE,
+                stdout=dst,
+                text=True,
+                env={**os.environ, "LC_ALL": "C"},
             )
             for line in src:
                 line = line.rstrip("\n")
@@ -1389,6 +1547,7 @@ def hcatQuickDictionary(
     loopback=False,
     use_potfile_path=True,
     potfile_path=None,
+    attack_name="Quick Dictionary",
 ):
     global hcatProcess
     cmd = [
@@ -1417,7 +1576,7 @@ def hcatQuickDictionary(
     )
     cmd = _add_debug_mode_for_rules(cmd)
     _debug_cmd(cmd)
-    _run_hcat_cmd(cmd, attack_name="Quick Dictionary", hash_file=hcatHashFile)
+    _run_hcat_cmd(cmd, attack_name=attack_name, hash_file=hcatHashFile)
 
 
 # Top Mask Attack
@@ -1524,7 +1683,10 @@ def hcatFingerprint(
             if expander_stdout is None:
                 raise RuntimeError("expander stdout pipe was not created")
             sort_proc = subprocess.Popen(
-                ["sort", "-u"], stdin=expander_stdout, stdout=dst
+                ["sort", "-u"],
+                stdin=expander_stdout,
+                stdout=dst,
+                env={**os.environ, "LC_ALL": "C"},
             )
             hcatProcess = sort_proc
             expander_stdout.close()
@@ -1535,6 +1697,12 @@ def hcatFingerprint(
                 print("Killing PID {0}...".format(str(sort_proc.pid)))
                 sort_proc.kill()
                 expander_proc.kill()
+        if lineCount(f"{hcatHashFile}.expanded") == 0:
+            print(
+                "[!] Skipping Fingerprint Attack: no candidates to expand "
+                "(no cracked passwords yet)."
+            )
+            break
         fingerprint_cmd = [
             hcatBin,
             "-m",
@@ -1617,7 +1785,7 @@ def hcatCombination(hcatHashType, hcatHashFile, wordlists=None):
         _insert_optimized_flag(cmd)
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
-    _run_hcat_cmd(cmd, attack_name="Combination", hash_file=hcatHashFile)
+    _run_hcat_cmd(cmd, attack_name="Combinator", hash_file=hcatHashFile)
 
     hcatCombinationCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
@@ -1653,7 +1821,7 @@ def hcatCombinator3(hcatHashType, hcatHashFile, wordlists):
         assert generator_proc.stdout is not None
         _run_hcat_cmd(
             hashcat_cmd,
-            attack_name="Combinator3",
+            attack_name="Combinator",
             hash_file=hcatHashFile,
             stdin=generator_proc.stdout,
             companion_procs=[generator_proc],
@@ -1699,7 +1867,7 @@ def hcatCombinatorX(hcatHashType, hcatHashFile, wordlists, separator=None):
         assert generator_proc.stdout is not None
         _run_hcat_cmd(
             hashcat_cmd,
-            attack_name="CombinatorX",
+            attack_name="Combinator",
             hash_file=hcatHashFile,
             stdin=generator_proc.stdout,
             companion_procs=[generator_proc],
@@ -1734,7 +1902,7 @@ def hcatNgramX(hcatHashType, hcatHashFile, corpus, group_size=3):
         assert generator_proc.stdout is not None
         _run_hcat_cmd(
             hashcat_cmd,
-            attack_name="NgramX",
+            attack_name="N-gram",
             hash_file=hcatHashFile,
             stdin=generator_proc.stdout,
             companion_procs=[generator_proc],
@@ -1920,171 +2088,182 @@ def hcatBandrel(hcatHashType, hcatHashFile):
         _run_hcat_cmd(cmd, attack_name="Bandrel", hash_file=hcatHashFile)
 
 
-# Pull an Ollama model via the /api/pull streaming endpoint
-def _pull_ollama_model(url, model):
-    """Pull an Ollama model. Returns True on success, False on failure."""
-    print(f"Model '{model}' not found locally. Pulling from Ollama...")
-    pull_url = f"{url}/api/pull"
-    payload = json.dumps({"name": model, "stream": True}).encode("utf-8")
-    req = urllib.request.Request(
-        pull_url,
-        data=payload,
-        headers={"Content-Type": "application/json"},
-    )
+def _sample_plaintext_file(path, cap, source_label="wordlist"):
+    """Return an evenly-spaced sample of usable plaintexts from ``path``.
+
+    ``cap`` is the maximum number of lines to keep (values <= 0 fall back to the
+    built-in default of 500).  ``source_label`` is used only in the progress and
+    error messages so callers can say "wordlist" or "cracked passwords".
+
+    Returns a list of plaintexts (possibly empty when the file has no usable
+    lines), or ``None`` if the file could not be read — in which case an error
+    has already been printed.
+    """
+    # Two-pass evenly-spaced sample: first count usable lines so we can
+    # stride-select across the whole file rather than taking a head slice.
+    # A head-only sample misses the pattern variation across large wordlists
+    # (e.g. rockyou.txt becomes more random further in).
     try:
-        with urllib.request.urlopen(req) as resp:
-            for raw_line in resp:
-                line = raw_line.decode("utf-8", errors="replace").strip()
-                if not line:
-                    continue
-                try:
-                    data = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                status = data.get("status")
-                if status:
-                    print(f"  {status}")
-    except urllib.error.HTTPError as e:
-        print(f"Error pulling model: HTTP {e.code}")
-        return False
-    except urllib.error.URLError as e:
-        print(f"Error: Could not connect to Ollama: {e}")
-        return False
+        total_usable = 0
+        with open(path, "r", errors="ignore") as f:
+            for raw in f:
+                if _usable_plaintext(raw):
+                    total_usable += 1
     except Exception as e:
-        print(f"Error pulling model: {e}")
-        return False
-    print(f"Successfully pulled model '{model}'.")
-    return True
+        print(f"Error reading {source_label}: {e}")
+        return None
+
+    # Invalid cap (zero or negative): fall back to the built-in default of 500.
+    if cap <= 0:
+        cap = 500
+
+    if total_usable <= cap:
+        # No capping needed — collect all usable lines.
+        try:
+            sampled: list[str] = []
+            with open(path, "r", errors="ignore") as f:
+                for raw in f:
+                    w = _usable_plaintext(raw)
+                    if w:
+                        sampled.append(w)
+        except Exception as e:
+            print(f"Error reading {source_label}: {e}")
+            return None
+        print(f"Loaded {len(sampled):,} passwords from {source_label}.")
+        return sampled
+
+    # Evenly-spaced sample: the k-th pick targets index floor(k * total / cap),
+    # which yields EXACTLY cap distinct indices spanning the full range for any
+    # 1 <= cap <= total_usable.
+    try:
+        pick_set = {(k * total_usable) // cap for k in range(cap)}
+        sampled = []
+        usable_idx = 0
+        with open(path, "r", errors="ignore") as f:
+            for raw in f:
+                w = _usable_plaintext(raw)
+                if not w:
+                    continue
+                if usable_idx in pick_set:
+                    sampled.append(w)
+                usable_idx += 1
+    except Exception as e:
+        print(f"Error reading {source_label}: {e}")
+        return None
+    print(
+        f"Sampled {len(sampled):,} of {total_usable:,} passwords from {source_label}."
+    )
+    return sampled
+
+
+def hcatOllamaResearchTarget(company):
+    """Ask the local Ollama model what it knows about *company*.
+
+    Returns a dict with "industry" and "location" keys; either value may be an
+    empty string when the model is not confident or the request failed. Never
+    raises: research is a convenience, so any failure degrades to empty
+    suggestions (blank prompts) rather than blocking the attack.
+
+    Uses only the configured local Ollama server — the company name is never
+    sent to a third-party service.
+    """
+    blank = {"industry": "", "location": ""}
+    if not ollamaAutoResearch or not company:
+        return blank
+
+    try:
+        with spinner(f"Researching {company} via Ollama ({ollamaModel})..."):
+            result = llm.research_target(
+                ollamaUrl,
+                ollamaModel,
+                ollamaNumCtx,
+                company,
+                timeout=ollamaTimeout,
+            )
+    except llm.LLMTimeoutError:
+        print(
+            f"Note: target research timed out after {ollamaTimeout:g} seconds — "
+            "enter the details manually."
+        )
+        return blank
+    except Exception as e:
+        print(f"Note: target research unavailable ({e}) — enter the details manually.")
+        return blank
+
+    return {"industry": result.industry, "location": result.location}
 
 
 # LLM Ollama Attack
 def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
-    global hcatProcess
     candidates_path = f"{hcatHashFile}.ollama_candidates"
 
-    # Step A: Build LLM prompt based on mode
+    # Step A: normalize context into the dict generate_candidates expects.
     if mode == "wordlist":
         wordlist_path = context_data
         if not os.path.isfile(wordlist_path):
             print(f"Error: Wordlist not found: {wordlist_path}")
             return
-        lines = []
-        try:
-            with open(wordlist_path, "r", errors="ignore") as f:
-                for line in f:
-                    stripped = line.strip()
-                    if not stripped:
-                        continue
-                    # Use only content after the first colon (e.g. hash:password -> password)
-                    if ":" in stripped:
-                        stripped = stripped.split(":", 1)[1]
-                    if stripped:
-                        lines.append(stripped)
-        except Exception as e:
-            print(f"Error reading wordlist: {e}")
+
+        sampled = _sample_plaintext_file(wordlist_path, ollamaMaxSampleLines)
+        if sampled is None:
             return
-        print(f"Loaded {len(lines)} passwords from wordlist.")
-        wordlist_sample = "\n".join(lines)
-        prompt = (
-            "Generate baseword to be used in a denylist for keeping users from setting their passwords with these basewords."
-            "Study the patterns, character choices, and structures. Focus on patterns like capitalization, leetspeak, suffixes, and common substitutions. Here are the sample passwords:\n"
-            f"{wordlist_sample}"
+        gen_context = {"sample": "\n".join(sampled)}
+    elif mode == "cracked":
+        # context_data may carry an explicit path; default to this session's
+        # cracked-output file.
+        cracked_path = context_data or f"{hcatHashFile}.out"
+        if not os.path.isfile(cracked_path):
+            print(f"Error: No cracked passwords found: {cracked_path}")
+            return
+
+        sampled = _sample_plaintext_file(
+            cracked_path, ollamaMaxSampleLines, source_label="cracked passwords"
         )
+        if sampled is None:
+            return
+        if not sampled:
+            print(
+                "Error: No cracked passwords yet — crack some hashes first, then "
+                "use this mode to generate more candidates in the same style."
+            )
+            return
+        gen_context = {"sample": "\n".join(sampled)}
     elif mode == "target":
-        company = context_data.get("company", "")
-        industry = context_data.get("industry", "")
-        location = context_data.get("location", "")
-        prompt = (
-            "You are participating in a capture the flag event as a security professional. "
-            "You are my partner in the competition. You need to recover the password to a system to retrieve the flag. "
-            "Output as many possible password combinations you think might help us. "
-            f"The name of the fake company is {company}. They are a {industry} in {location}. "
-            "Use terms related to the industry as basewords and also use permutations of the company name combined with common suffixes. "
-            "Only output the candidate password each on a new line. Dont output any explanation. "
-            "Only output the password candidate. Do not number the lines or add any extra information to the output"
-        )
+        gen_context = context_data
     else:
         print(f"Error: Unknown LLM generation mode: {mode}")
         return
 
-    # Step B: Call Ollama API to generate candidates
-    print(f"Generating password candidates via Ollama ({ollamaModel})...")
-    api_url = f"{ollamaUrl}/api/generate"
-    payload = json.dumps(
-        {
-            "model": ollamaModel,
-            "prompt": prompt,
-            "stream": False,
-            "options": {"num_ctx": ollamaNumCtx},
-        }
-    ).encode("utf-8")
-
-    if debug_mode:
-        print(f"[DEBUG] Ollama API URL: {api_url}")
-        print(f"[DEBUG] Ollama request payload: {payload.decode('utf-8')}")
-
+    # Step B: generate candidates via the Atomic Agents module.
     try:
-        req = urllib.request.Request(
-            api_url,
-            data=payload,
-            headers={"Content-Type": "application/json"},
+        with spinner(f"Generating password candidates via Ollama ({ollamaModel})..."):
+            candidates = llm.generate_candidates(
+                ollamaUrl,
+                ollamaModel,
+                ollamaNumCtx,
+                mode,
+                gen_context,
+                timeout=ollamaTimeout,
+            )
+    except llm.LLMTimeoutError:
+        print(f"Error: the Ollama request timed out after {ollamaTimeout:g} seconds.")
+        print(
+            f"The model ({ollamaModel}) may still be loading into VRAM. Retry, or "
+            'raise "ollamaTimeout" in config.json to wait longer.'
         )
-        with urllib.request.urlopen(req, timeout=600) as resp:
-            result = json.loads(resp.read().decode("utf-8"))
-        if debug_mode:
-            print(f"[DEBUG] Ollama response: {json.dumps(result, indent=2)}")
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            if _pull_ollama_model(ollamaUrl, ollamaModel):
-                try:
-                    req = urllib.request.Request(
-                        api_url,
-                        data=payload,
-                        headers={"Content-Type": "application/json"},
-                    )
-                    with urllib.request.urlopen(req, timeout=600) as resp:
-                        result = json.loads(resp.read().decode("utf-8"))
-                    if debug_mode:
-                        print(
-                            f"[DEBUG] Ollama response (after pull): {json.dumps(result, indent=2)}"
-                        )
-                except Exception as retry_err:
-                    print(f"Error calling Ollama API after pull: {retry_err}")
-                    return
-            else:
-                print(f"Could not pull model '{ollamaModel}'. Aborting LLM attack.")
-                return
-        else:
-            print(f"Error: Could not connect to Ollama at {ollamaUrl}: {e}")
-            print("Ensure Ollama is running (ollama serve) and try again.")
-            return
-    except urllib.error.URLError as e:
-        print(f"Error: Could not connect to Ollama at {ollamaUrl}: {e}")
-        print("Ensure Ollama is running (ollama serve) and try again.")
+        return
+    except ValueError as e:
+        # Defensive: mode is already validated above, but keep an explicit,
+        # non-misleading message if generate_candidates ever rejects its input.
+        print(f"Error: {e}")
         return
     except Exception as e:
-        print(f"Error calling Ollama API: {e}")
-        return
-
-    response_text = result.get("response", "")
-    if "I'm sorry, but I can't help with that" in response_text:
+        print(f"Error generating candidates: {e}")
         print(
-            "Error: Ollama refused the request. Try a different model or adjust your prompt."
+            "Ensure Ollama is running (ollama serve) and the model is pulled "
+            f"(ollama pull {ollamaModel})."
         )
         return
-    raw_lines = response_text.strip().split("\n")
-    # Filter out blank lines and lines that look like numbering/explanation
-    candidates = []
-    for line in raw_lines:
-        stripped = line.strip()
-        if not stripped:
-            continue
-        # Strip leading numbering like "1. " or "1) " or "- "
-        cleaned = re.sub(r"^\d+[.)]\s*", "", stripped)
-        cleaned = re.sub(r"^[-*]\s*", "", cleaned)
-        cleaned = cleaned.strip()
-        if cleaned and len(cleaned) <= 128:
-            candidates.append(cleaned)
 
     if not candidates:
         print("Error: Ollama returned no usable password candidates.")
@@ -2099,13 +2278,8 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
         return
 
     print(f"Generated {len(candidates)} password candidates -> {candidates_path}")
-    if debug_mode:
-        filtered_count = len(raw_lines) - len(candidates)
-        print(
-            f"[DEBUG] Filtered out {filtered_count} lines from Ollama response ({len(raw_lines)} raw -> {len(candidates)} candidates)"
-        )
 
-    # Step C: Run hashcat wordlist attack with LLM-generated candidates (no rules)
+    # Step C: hashcat wordlist attack with the generated candidates (no rules).
     print("Running wordlist attack with LLM-generated candidates...")
     cmd = [
         hcatBin,
@@ -2130,7 +2304,7 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
     except KeyboardInterrupt:
         return
 
-    # Step D: Run hashcat with LLM candidates against every rule in the rules directory
+    # Step D: hashcat with candidates against every rule in the rules directory.
     rule_files = sorted(f for f in os.listdir(rulesDirectory) if f != ".DS_Store")
     if not rule_files:
         print("No rule files found in rules directory. Skipping rule-based attacks.")
@@ -2552,7 +2726,7 @@ def hcatCombipow(hcatHashType, hcatHashFile, wordlist, use_space_sep=True):
 
 
 # PRINCE Attack
-def hcatPrince(hcatHashType, hcatHashFile):
+def hcatPrince(hcatHashType, hcatHashFile, attack_name="PRINCE"):
     global hcatProcess
     prince_rules_dir = os.path.join(hate_path, "princeprocessor", "rules")
     prince_rule = get_rule_path("prince_optimized.rule", fallback_dir=prince_rules_dir)
@@ -2592,13 +2766,122 @@ def hcatPrince(hcatHashType, hcatHashFile):
         prince_proc = subprocess.Popen(prince_cmd, stdin=base, stdout=subprocess.PIPE)
         _run_hcat_cmd(
             hashcat_cmd,
-            attack_name="PRINCE",
+            attack_name=attack_name,
             hash_file=hcatHashFile,
             stdin=prince_proc.stdout,
             companion_procs=[prince_proc],
         )
         if prince_proc.stdout:
             prince_proc.stdout.close()
+
+
+def hcatPCFG(hcatHashType, hcatHashFile):
+    """Mode A: pipe pcfg_guesser.py output into hashcat in stdin mode."""
+    pcfg_guesser_script = os.path.join(hate_path, "pcfg_cracker", "pcfg_guesser.py")
+    if not os.path.isfile(pcfg_guesser_script):
+        print(f"pcfg_guesser.py not found at {pcfg_guesser_script}")
+        return
+    pcfg_cmd = [
+        "python3",
+        pcfg_guesser_script,
+        "--rule",
+        pcfgRuleset,
+        "--limit",
+        str(pcfgMaxCandidates),
+    ]
+    hashcat_cmd = [
+        hcatBin,
+        "-m",
+        hcatHashType,
+        hcatHashFile,
+        "--session",
+        generate_session_id(),
+        "-o",
+        f"{hcatHashFile}.out",
+    ]
+    if _should_use_optimized_kernel("hcatPCFG"):
+        _insert_optimized_flag(hashcat_cmd)
+    hashcat_cmd.extend(shlex.split(hcatTuning))
+    _append_potfile_arg(hashcat_cmd)
+    pcfg_proc = subprocess.Popen(pcfg_cmd, stdout=subprocess.PIPE)
+    _run_hcat_cmd(
+        hashcat_cmd,
+        attack_name="PCFG",
+        hash_file=hcatHashFile,
+        stdin=pcfg_proc.stdout,
+        companion_procs=[pcfg_proc],
+    )
+    if pcfg_proc.stdout:
+        pcfg_proc.stdout.close()
+
+
+def hcatPrinceLing(hcatHashType, hcatHashFile):
+    """Mode B: prince_ling generates a wordlist (with cache+staleness check),
+    then we delegate to the existing hcatPrince attack with hcatPrinceBaseList
+    temporarily rebound to the cached wordlist.
+    """
+    global hcatPrinceBaseList
+    pcfg_root = os.path.join(hate_path, "pcfg_cracker")
+    prince_ling_script = os.path.join(pcfg_root, "prince_ling.py")
+    ruleset_dir = os.path.join(pcfg_root, "Rules", pcfgRuleset)
+    if not os.path.isfile(prince_ling_script):
+        print(f"prince_ling.py not found at {prince_ling_script}")
+        return
+    if not os.path.isdir(ruleset_dir):
+        print(f"PCFG ruleset not found: {ruleset_dir}")
+        return
+
+    cache_dir = (
+        hcatOptimizedWordlists
+        if isinstance(hcatOptimizedWordlists, str)
+        else str(hcatOptimizedWordlists)
+    )
+    os.makedirs(cache_dir, exist_ok=True)
+    cache_path = os.path.join(cache_dir, f"pcfg_prince_ling_{pcfgRuleset}.txt")
+    tmp_path = cache_path + ".tmp"
+
+    # Staleness check: regenerate iff ruleset dir mtime > cache mtime (strict)
+    needs_regen = True
+    if os.path.isfile(cache_path):
+        ruleset_mtime = os.path.getmtime(ruleset_dir)
+        cache_mtime = os.path.getmtime(cache_path)
+        if ruleset_mtime <= cache_mtime:
+            needs_regen = False
+
+    if needs_regen:
+        print(f"[*] Generating prince_ling wordlist -> {cache_path}")
+        cmd = [
+            "python3",
+            prince_ling_script,
+            "--rule",
+            pcfgRuleset,
+            "--output",
+            tmp_path,
+            "--size",
+            str(pcfgPrinceLingMaxCandidates),
+        ]
+        try:
+            subprocess.run(cmd, check=True)
+            os.replace(tmp_path, cache_path)
+        except (subprocess.CalledProcessError, KeyboardInterrupt, OSError) as e:
+            # Clean up partial tmp file
+            if os.path.isfile(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+            print(f"prince_ling generation failed: {e}")
+            return
+
+    # Delegate to existing PRINCE attack with rebound base list. The
+    # ``attack_name`` override keeps notifications matched to the
+    # "PRINCE-LING" prompt the user consented to (see issue #110).
+    original_base = hcatPrinceBaseList
+    hcatPrinceBaseList = [cache_path]
+    try:
+        hcatPrince(hcatHashType, hcatHashFile, attack_name="PRINCE-LING")
+    finally:
+        hcatPrinceBaseList = original_base
 
 
 def hcatPermute(hcatHashType, hcatHashFile, wordlist):
@@ -2865,7 +3148,10 @@ def hcatLMtoNT():
             stdout=subprocess.PIPE,
         )
         hcatProcess = subprocess.Popen(
-            ["sort", "-u"], stdin=combine_proc.stdout, stdout=combined_out
+            ["sort", "-u"],
+            stdin=combine_proc.stdout,
+            stdout=combined_out,
+            env={**os.environ, "LC_ALL": "C"},
         )
         combine_proc.stdout.close()
         try:
@@ -3103,6 +3389,7 @@ def hashview_api():
                 )
             menu_options.append(("upload_wordlist", "Upload Wordlist"))
             menu_options.append(("download_wordlist", "Download Wordlist"))
+            menu_options.append(("download_rules", "Download Rule"))
             menu_options.append(
                 (
                     "download_hashes",
@@ -3219,8 +3506,30 @@ def hashview_api():
                     print(
                         f"\n✓ Success: {result.get('msg', 'Cracked hashes uploaded')}"
                     )
-                    if "count" in result:
-                        print(f"  Imported: {result['count']} hashes")
+                    if not isinstance(result, dict):
+                        result = {}
+                    # What this client sent (available regardless of server version).
+                    if "uploaded" in result:
+                        line = f"  Uploaded: {result['uploaded']} pair(s)"
+                        if result.get("skipped"):
+                            line += f" ({result['skipped']} skipped by validation)"
+                        print(line)
+                    # What the server actually did (newer Hashview reports these).
+                    if "verified" in result or "updated" in result or "count" in result:
+                        updated = result.get("updated", result.get("count"))
+                        print(f"  Newly cracked in Hashview: {updated}")
+                        if "verified" in result:
+                            print(f"  Verified: {result['verified']}")
+                        if result.get("unmatched"):
+                            print(
+                                "  Unmatched (already cracked or not in Hashview): "
+                                f"{result['unmatched']}"
+                            )
+                    else:
+                        print(
+                            "  (This Hashview did not report an import count; "
+                            "upgrade Hashview to see how many landed.)"
+                        )
                 except Exception as e:
                     print(f"\n✗ Error: {str(e)}")
                     import traceback
@@ -3322,6 +3631,60 @@ def hashview_api():
                     print(f"  File: {download_result['output_file']}")
                 except Exception as e:
                     print(f"\n✗ Error downloading wordlist: {str(e)}")
+
+            elif option_key == "download_rules":
+                # Download rule file
+                try:
+                    rules = api_harness.list_rules()
+                    rule_map = {}
+                    if rules:
+                        print("\n" + "=" * 100)
+                        print("Available Rules:")
+                        print("=" * 100)
+                        print(f"{'ID':<10} {'Name':<60} {'Size':>12}")
+                        print("-" * 100)
+                        for rule in rules:
+                            r_id = rule.get("id", "N/A")
+                            r_name = rule.get("name", "N/A")
+                            r_size = rule.get("size", "N/A")
+                            name = str(r_name)
+                            if len(name) > 60:
+                                name = name[:57] + "..."
+                            print(f"{r_id:<10} {name:<60} {r_size:>12}")
+                            if r_id != "N/A":
+                                try:
+                                    rule_map[int(r_id)] = str(r_name)
+                                except ValueError:
+                                    pass
+                        print("=" * 100)
+                    else:
+                        print("\nNo rules found.")
+                except Exception as e:
+                    print(f"\n✗ Error fetching rules: {str(e)}")
+                    continue
+
+                try:
+                    rules_id = int(input("\nEnter rule ID: "))
+                except ValueError:
+                    print("\n✗ Error: Invalid ID entered. Please enter a numeric ID.")
+                    continue
+
+                api_name = rule_map.get(rules_id)
+                prompt_suffix = (
+                    f" (API filename: {api_name})" if api_name else " (API filename)"
+                )
+                output_file = (
+                    input(
+                        f"Enter output file name{prompt_suffix} or press Enter to use API filename: "
+                    ).strip()
+                    or api_name
+                )
+                try:
+                    download_result = api_harness.download_rules(rules_id, output_file)
+                    print(f"\n✓ Success: Downloaded {download_result['size']} bytes")
+                    print(f"  File: {download_result['output_file']}")
+                except Exception as e:
+                    print(f"\n✗ Error downloading rule: {str(e)}")
 
             elif option_key == "upload_hashfile_job":
                 # Upload hashfile and create job
@@ -3528,6 +3891,7 @@ def hashview_api():
             elif option_key == "download_hashes":
                 # Download left hashes
                 try:
+                    cancel_download = False
                     while True:
                         # First, list customers to help user select
                         customers_result = api_harness.list_customers()
@@ -3575,24 +3939,31 @@ def hashview_api():
                                 )
                                 continue
 
-                        # List hashfiles for the customer
+                        # Try to list the customer's hashfiles for convenience.
+                        # This only works on Hashview servers that expose the
+                        # /v1/hashfiles/hash_type endpoint (v0.8.3-dev, added
+                        # 2026-06-08); on `main` or older builds there is no
+                        # hashfile-listing API, so we fall back to entering the
+                        # hashfile ID directly (look it up in the web UI).
+                        hashfile_map = {}
                         try:
-                            customer_hashfiles = api_harness.get_customer_hashfiles(
+                            print(
+                                "\nScanning customer hashfiles across common hash types..."
+                            )
+                            customer_hashfiles = api_harness.get_all_customer_hashfiles(
                                 customer_id
                             )
+                        except Exception as e:
+                            customer_hashfiles = []
+                            if debug_mode:
+                                print(f"[DEBUG] hashfile listing unavailable: {e}")
 
-                            if not customer_hashfiles:
-                                print(
-                                    f"\nNo hashfiles found for customer ID {customer_id}"
-                                )
-                                continue
-
+                        if customer_hashfiles:
                             print("\n" + "=" * 120)
                             print(f"Hashfiles for Customer ID {customer_id}:")
                             print("=" * 120)
                             print(f"{'ID':<10} {'Hash Type':<10} {'Name':<96}")
                             print("-" * 120)
-                            hashfile_map = {}
                             for hf in customer_hashfiles:
                                 hf_id = hf.get("id")
                                 hf_name = hf.get("name", "N/A")
@@ -3612,28 +3983,43 @@ def hashview_api():
                                 hashfile_map[int(hf_id)] = hf_type
                             print("=" * 120)
                             print(f"Total: {len(hashfile_map)} hashfile(s)")
-                        except Exception as e:
-                            print(f"\nWarning: Could not list hashfiles: {e}")
-                            continue
+                        else:
+                            print(
+                                "\nThis Hashview server has no hashfile-listing API "
+                                "(it lacks the /v1/hashfiles/hash_type endpoint), or "
+                                f"customer {customer_id} has no hashfiles of a common "
+                                "type. Look up the hashfile ID in the Hashview web UI "
+                                "and enter it below."
+                            )
 
                         while True:
+                            hashfile_id_input = input(
+                                "\nEnter hashfile ID (or Q to cancel): "
+                            ).strip()
+                            if hashfile_id_input.lower() == "q":
+                                cancel_download = True
+                                break
                             try:
-                                hashfile_id_input = input(
-                                    "\nEnter hashfile ID: "
-                                ).strip()
                                 hashfile_id = int(hashfile_id_input)
                             except ValueError:
                                 print(
                                     "\n✗ Error: Invalid ID entered. Please enter a numeric ID."
                                 )
                                 continue
-                            if hashfile_id not in hashfile_map:
+                            # Only restrict to the listed set when we actually
+                            # have a listing; otherwise accept any ID the user
+                            # read from the web UI.
+                            if hashfile_map and hashfile_id not in hashfile_map:
                                 print(
                                     "\n✗ Error: Hashfile ID not in the list. Please try again."
                                 )
                                 continue
                             break
                         break
+
+                    # User cancelled at the hash-type prompt: back to the menu.
+                    if cancel_download:
+                        continue
 
                     # Set output filename automatically
                     output_file = f"left_{customer_id}_{hashfile_id}.txt"
@@ -3703,6 +4089,15 @@ def hashview_api():
         return
     except Exception as e:
         print(f"\nError connecting to Hashview: {str(e)}")
+
+
+def _auto_input(prompt, default=""):
+    """input() wrapper that returns the default without prompting when running
+    in non-interactive (scripted) mode. In interactive mode this is identical
+    to ``input(prompt) or default``."""
+    if non_interactive:
+        return default
+    return input(prompt) or default
 
 
 def _attack_ctx():
@@ -3816,6 +4211,14 @@ def permute_crack():
     return _attacks.permute_crack(_attack_ctx())
 
 
+def pcfg_attack():
+    return _attacks.pcfg_attack(_attack_ctx())
+
+
+def prince_ling_attack():
+    return _attacks.prince_ling_attack(_attack_ctx())
+
+
 def wordlist_filter_len(infile: str, outfile: str, min_len: int, max_len: int) -> bool:
     """Filter wordlist keeping only words between min_len and max_len (inclusive)."""
     len_bin = os.path.join(hate_path, "hashcat-utils/bin/len.bin")
@@ -3886,15 +4289,56 @@ def wordlist_gate(infile: str, outfile: str, mod: int, offset: int) -> bool:
     return result.returncode == 0
 
 
+def wordlist_optimize(input_wordlists: list[str], outdir: str) -> bool:
+    """Consolidate wordlists into per-length deduplicated files in outdir."""
+    os.makedirs(outdir, exist_ok=True)
+    for wl in input_wordlists:
+        if not os.path.isfile(wl):
+            print(f"[!] Skipping missing wordlist: {wl}")
+            continue
+        if not os.listdir(outdir):
+            if not wordlist_splitlen(wl, outdir):
+                return False
+            continue
+        with tempfile.TemporaryDirectory(prefix="hc_optimize_") as tmp:
+            if not wordlist_splitlen(wl, tmp):
+                return False
+            for fname in os.listdir(tmp):
+                src = os.path.join(tmp, fname)
+                dst = os.path.join(outdir, fname)
+                if not os.path.isfile(dst):
+                    shutil.copyfile(src, dst)
+                    continue
+                with tempfile.NamedTemporaryFile(
+                    delete=False, prefix="hc_optimize_", suffix=".out"
+                ) as out_fh:
+                    out_path = out_fh.name
+                try:
+                    if not wordlist_subtract(src, out_path, dst):
+                        return False
+                    if os.path.getsize(out_path) > 0:
+                        with open(dst, "ab") as df, open(out_path, "rb") as sf:
+                            df.write(sf.read())
+                finally:
+                    if os.path.isfile(out_path):
+                        os.remove(out_path)
+    return True
+
+
 def wordlist_tools_submenu():
     return _attacks.wordlist_tools_submenu(_attack_ctx())
 
 
-def rules_cleanup(infile: str, outfile: str) -> bool:
-    """Clean a rule file using cleanup-rules.bin. Returns True on success."""
+def rules_cleanup(infile: str, outfile: str, mode: int = 2) -> bool:
+    """Clean a rule file using cleanup-rules.bin. Returns True on success.
+
+    cleanup-rules.bin requires a ``mode`` argument (1 = CPU, 2 = GPU) and exits
+    with usage text if it is omitted. Defaults to GPU (2), which strips rules
+    hashcat cannot run on the GPU.
+    """
     cleanup_path = os.path.join(hate_path, "hashcat-utils", "bin", "cleanup-rules.bin")
     with open(infile, "rb") as fin, open(outfile, "wb") as fout:
-        result = subprocess.run([cleanup_path], stdin=fin, stdout=fout)
+        result = subprocess.run([cleanup_path, str(mode)], stdin=fin, stdout=fout)
     return result.returncode == 0
 
 
@@ -3994,18 +4438,23 @@ def pipal():
                         clearTextPass = binascii.unhexlify(match.group(1)).decode(
                             "iso-8859-9"
                         )
+                    if not clearTextPass.endswith("\n"):
+                        clearTextPass += "\n"
                     pipalFile.write(clearTextPass)
                 pipalFile.close()
 
-            pipalProcess = subprocess.Popen(
-                "{pipal_path} {pipal_file} -t {pipal_count} --output {pipal_out}".format(
-                    pipal_path=pipalPath,
-                    pipal_file=hcatHashFilePipal + ".passwords",
-                    pipal_out=hcatHashFilePipal + ".pipal",
-                    pipal_count=pipal_count,
-                ),
-                shell=True,
-            )
+            # List-form Popen (no shell=True) so paths/filenames containing
+            # shell metacharacters can't be interpreted as commands. shlex.split
+            # on pipalPath still allows an interpreter prefix (e.g. "ruby
+            # /opt/pipal/pipal.rb") to be configured.
+            pipal_cmd = shlex.split(pipalPath) + [
+                hcatHashFilePipal + ".passwords",
+                "-t",
+                str(pipal_count),
+                "--output",
+                hcatHashFilePipal + ".pipal",
+            ]
+            pipalProcess = subprocess.Popen(pipal_cmd)
             try:
                 pipalProcess.wait()
             except KeyboardInterrupt:
@@ -4028,25 +4477,31 @@ def pipal():
                     print(pipalfile.read())
                 print("\n--- Pipal Output End ---\n")
             with open(hcatHashFilePipal + ".pipal") as pipalfile:
-                pipal_content = pipalfile.readlines()
-                raw_pipal = "\n".join(pipal_content)
-                raw_pipal = re.sub("\n+", "\n", raw_pipal)
-                raw_regex = r"Top [0-9]+ base words\n"
-                for word in range(pipal_count):
-                    raw_regex += r"(\S+).*\n"
-                basewords_re = re.compile(raw_regex)
-                results = re.search(basewords_re, raw_pipal)
+                pipal_content = pipalfile.read()
+                # Parse the "Top N base words" section line by line rather than
+                # with one rigid regex.  The old approach required *exactly*
+                # pipal_count baseword lines, so any cracked set with fewer
+                # unique base words than pipal_count (the common case on small
+                # cracks) matched nothing and returned []. Collect up to
+                # pipal_count base words and stop at the end of the section.
                 top_basewords = []
-                if results:
-                    if results.lastindex is not None:
-                        for i in range(1, results.lastindex + 1):
-                            if i is not None:
-                                top_basewords.append(results.group(i))
-                    else:
-                        pass
-                    return top_basewords
-                else:
-                    return []
+                in_section = False
+                for line in pipal_content.splitlines():
+                    if re.match(r"\s*Top\s+[0-9]+\s+base words", line):
+                        in_section = True
+                        continue
+                    if in_section:
+                        if not line.strip():
+                            # blank line terminates the base words section
+                            break
+                        # Capture the base word (first token); tolerate both
+                        # "word = 5 (5%)" and "word 5" separators.
+                        match = re.match(r"\s*(\S+)", line)
+                        if match:
+                            top_basewords.append(match.group(1))
+                            if len(top_basewords) >= pipal_count:
+                                break
+                return top_basewords
         else:
             print("No hashes were cracked :(")
             return []
@@ -4240,16 +4695,18 @@ def get_main_menu_items():
         ("7", "Hybrid Attack"),
         ("8", "Pathwell Top 100 Mask Brute Force Crack"),
         ("9", "PRINCE Attack"),
-        ("13", "Bandrel Methodology"),
-        ("14", "Loopback Attack"),
-        ("15", "LLM Attack"),
-        ("16", "OMEN Attack"),
-        ("17", "Ad-hoc Mask Attack"),
-        ("18", "Markov Brute Force Attack"),
-        ("19", "N-gram Attack"),
-        ("20", "Permutation Attack"),
-        ("21", "Random Rules Attack"),
-        ("22", "Combipow Passphrase Attack"),
+        ("10", "Bandrel Methodology"),
+        ("11", "Loopback Attack"),
+        ("12", "LLM Attack"),
+        ("13", "OMEN Attack"),
+        ("14", "Ad-hoc Mask Attack"),
+        ("15", "Markov Brute Force Attack"),
+        ("16", "N-gram Attack"),
+        ("17", "Permutation Attack"),
+        ("18", "Random Rules Attack"),
+        ("19", "Combipow Passphrase Attack"),
+        ("20", "PCFG Attack"),
+        ("21", "PRINCE-LING Attack"),
         ("80", "Wordlist Tools"),
         ("81", "Rule File Tools"),
         ("82", "Notifications"),
@@ -4284,16 +4741,18 @@ def get_main_menu_options():
         "7": hybrid_crack,
         "8": pathwell_crack,
         "9": prince_attack,
-        "13": bandrel_method,
-        "14": loopback_attack,
-        "15": ollama_attack,
-        "16": omen_attack,
-        "17": adhoc_mask_crack,
-        "18": markov_brute_force,
-        "19": ngram_attack,
-        "20": permute_crack,
-        "21": generate_rules_crack,
-        "22": combipow_crack,
+        "10": bandrel_method,
+        "11": loopback_attack,
+        "12": ollama_attack,
+        "13": omen_attack,
+        "14": adhoc_mask_crack,
+        "15": markov_brute_force,
+        "16": ngram_attack,
+        "17": permute_crack,
+        "18": generate_rules_crack,
+        "19": combipow_crack,
+        "20": pcfg_attack,
+        "21": prince_ling_attack,
         "80": wordlist_tools_submenu,
         "81": rule_tools_submenu,
         "82": notifications_submenu,
@@ -4321,6 +4780,7 @@ def main():
     global hcatHashFileOrig
     global lmHashesFound
     global debug_mode
+    global non_interactive
     global hashview_url, hashview_api_key
     global hcatPath, hcatBin, hcatWordlists, hcatOptimizedWordlists, rulesDirectory
     global pipalPath, maxruntime, bandrelbasewords
@@ -4330,6 +4790,7 @@ def main():
 
     # Initialize global variables
     hcatHashFile = None
+    non_interactive = False
     hcatHashType = None
     hcatHashFileOrig = None
 
@@ -4416,6 +4877,7 @@ def main():
             return parser, hashview_parser
 
         subparsers = parser.add_subparsers(dest="command")
+        _noninteractive.add_attack_subparsers(subparsers)
 
         hashview_parser = subparsers.add_parser(
             "hashview", help="Hashview menu actions"
@@ -4460,6 +4922,19 @@ def main():
             help="Hash type for hashcat (e.g., 1000 for NTLM)",
         )
 
+        hv_download_rules = hashview_subparsers.add_parser(
+            "download-rules",
+            help="Download a rule file",
+        )
+        hv_download_rules.add_argument(
+            "--rules-id", required=True, type=int, help="Rule ID"
+        )
+        hv_download_rules.add_argument(
+            "--output",
+            default=None,
+            help="Output file name (default: rule_<id>.rule in the rules directory)",
+        )
+
         hv_upload_hashfile_job = hashview_subparsers.add_parser(
             "upload-hashfile-job",
             help="Upload a hashfile and create a job",
@@ -4496,6 +4971,7 @@ def main():
         "upload-cracked",
         "upload-wordlist",
         "download-hashes",
+        "download-rules",
         "upload-hashfile-job",
     ]
     has_hashview_flag = "--hashview" in argv
@@ -4528,7 +5004,8 @@ def main():
         else:
             argv = argv_temp  # Fallback if subcommand not found
 
-    use_subcommand_parser = "hashview" in argv
+    has_attack_subcommand = any(arg in _noninteractive.ATTACK_COMMANDS for arg in argv)
+    use_subcommand_parser = "hashview" in argv or has_attack_subcommand
     parser, hashview_parser = _build_parser(
         include_positional=not use_subcommand_parser,
         include_subcommands=use_subcommand_parser,
@@ -4537,6 +5014,8 @@ def main():
 
     global debug_mode
     debug_mode = args.debug
+    if getattr(args, "command", None) in _noninteractive.ATTACK_COMMANDS:
+        non_interactive = True
 
     # CLI flags override config file.
     if getattr(args, "no_potfile_path", False):
@@ -4628,6 +5107,15 @@ def main():
                 args.hashfile_id,
                 hash_type=args.hash_type,
                 potfile_path=hcatPotfilePath,
+            )
+            print(f"\n✓ Success: Downloaded {download_result['size']} bytes")
+            print(f"  File: {download_result['output_file']}")
+            sys.exit(0)
+
+        if args.hashview_command == "download-rules":
+            download_result = api_harness.download_rules(
+                args.rules_id,
+                args.output,
             )
             print(f"\n✓ Success: Downloaded {download_result['size']} bytes")
             print(f"  File: {download_result['output_file']}")
@@ -4727,7 +5215,9 @@ def main():
             ("2", "Download wordlists from Weakpass"),
             ("3", "Download wordlists from Hashmob.net"),
             ("4", "Download rules from Hashmob.net"),
-            ("5", "Exit"),
+            ("5", "Wordlist Tools"),
+            ("6", "Rule File Tools"),
+            ("7", "Exit"),
         ]
         menu_loop = True
         while menu_loop:
@@ -4765,6 +5255,10 @@ def main():
                     sys.exit(0)
                 # Otherwise continue the menu loop
             elif choice == "5":
+                wordlist_tools_submenu()
+            elif choice == "6":
+                rule_tools_submenu()
+            elif choice == "7":
                 sys.exit(0)
             else:
                 if (
@@ -4820,8 +5314,8 @@ def main():
                         f"Detected {computer_count} computer account(s)"
                         " (usernames ending with $)."
                     )
-                    filter_choice = (
-                        input("Would you like to ignore computer accounts? (Y) ") or "Y"
+                    filter_choice = _auto_input(
+                        "Would you like to ignore computer accounts? (Y) ", "Y"
                     )
                     if filter_choice.upper() == "Y":
                         filtered_path = f"{hcatHashFile}.filtered"
@@ -4843,12 +5337,10 @@ def main():
                     )
                 ) or (lineCount(hcatHashFile + ".lm") > 1):
                     lmHashesFound = True
-                    lmChoice = (
-                        input(
-                            "LM hashes identified. Would you like to brute force"
-                            " the LM hashes first? (Y) "
-                        )
-                        or "Y"
+                    lmChoice = _auto_input(
+                        "LM hashes identified. Would you like to brute force"
+                        " the LM hashes first? (Y) ",
+                        "Y",
                     )
                     if lmChoice.upper() == "Y":
                         hcatLMtoNT()
@@ -4894,8 +5386,8 @@ def main():
                     f"Detected {computer_count} computer account(s)"
                     " (usernames ending with $)."
                 )
-                filter_choice = (
-                    input("Would you like to ignore computer accounts? (Y) ") or "Y"
+                filter_choice = _auto_input(
+                    "Would you like to ignore computer accounts? (Y) ", "Y"
                 )
                 if filter_choice.upper() == "Y":
                     filtered_path = f"{hcatHashFile}.filtered"
@@ -4918,12 +5410,10 @@ def main():
                     f"Detected {duplicates} duplicate account(s) out of"
                     f" {total} total NetNTLM hashes."
                 )
-                dedup_choice = (
-                    input(
-                        "Would you like to ignore duplicate accounts"
-                        " (keep first occurrence only)? (Y) "
-                    )
-                    or "Y"
+                dedup_choice = _auto_input(
+                    "Would you like to ignore duplicate accounts"
+                    " (keep first occurrence only)? (Y) ",
+                    "Y",
                 )
                 if dedup_choice.upper() == "Y":
                     hcatHashFileOrig = hcatHashFile
@@ -4973,6 +5463,9 @@ def main():
             )
         else:
             print("No hashes found in POT file.")
+
+    if non_interactive:
+        sys.exit(_noninteractive.run_noninteractive(_attack_ctx(), args))
 
     # Display Options
     try:

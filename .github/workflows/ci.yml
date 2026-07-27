@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Lint, type-check, and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          # tests/test_main_pcfg.py needs pcfg_cracker/pcfg_guesser.py on disk
+          submodules: true
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
+        with:
+          python-version: "3.13"
+          enable-cache: true
+          cache-dependency-glob: "**/uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Ruff (lint)
+        run: uv run ruff check hate_crack
+
+      - name: Ruff (format)
+        run: uv run ruff format --check hate_crack
+
+      - name: Ty
+        # ty 0.0.63 fails CI on warning-level diagnostics by default;
+        # keep the pre-0.0.63 behaviour of failing only on errors so the
+        # rules already downgraded to "warn" in [tool.ty.rules] stay
+        # non-blocking.
+        run: uv run ty check --exit-zero-on-warning hate_crack
+
+      - name: Pytest
+        env:
+          HATE_CRACK_SKIP_INIT: "1"
+        run: uv run pytest -q
+
+  # Bandit SAST against the committed baseline (.bandit-baseline.json): only
+  # findings NOT already in the baseline fail the build. hate_crack shells out
+  # to hashcat extensively, so the baseline captures the reviewed low-severity
+  # subprocess/shlex findings. Config lives in [tool.bandit] in pyproject.toml.
+  bandit:
+    name: Bandit SAST
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
+
+      - name: Bandit (vs baseline)
+        run: >-
+          uvx --from "bandit[toml]==1.9.4" bandit
+          -r hate_crack -c pyproject.toml -b .bandit-baseline.json
+
+  # pip-audit: fail on dependencies with known CVEs (PyPI / OSV advisory DB).
+  # Audits the synced project environment. PYSEC-2026-2447 (diskcache 5.6.3, a
+  # transitive dep via instructor -> atomic-agents) is ignored because no fixed
+  # release exists upstream; revisit when diskcache ships a fix.
+  pip-audit:
+    name: pip-audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
+        with:
+          python-version: "3.13"
+          enable-cache: true
+          cache-dependency-glob: "**/uv.lock"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Audit dependencies
+        run: >-
+          uv run --with pip-audit==2.10.0 pip-audit
+          --progress-spinner off --ignore-vuln PYSEC-2026-2447

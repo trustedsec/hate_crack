@@ -25,10 +25,16 @@
   "hashview_url": "http://localhost:8443",
   "hashview_api_key": "",
   "hashmob_api_key": "",
-  "ollamaModel": "mistral",
+  "ollamaModel": "qwen2.5:32b",
   "ollamaNumCtx": 2048,
+  "ollamaTimeout": 300,
+  "ollamaMaxSampleLines": 500,
+  "ollamaAutoResearch": true,
   "omenTrainingList": "rockyou.txt",
   "omenMaxCandidates": 50000000,
+  "pcfgRuleset": "DEFAULT",
+  "pcfgMaxCandidates": 50000000,
+  "pcfgPrinceLingMaxCandidates": 10000000,
   "check_for_updates": true,
   "optimizedKernelAttacks": [
     "hcatDictionary", "hcatQuickDictionary", "hcatBandrel", "hcatGoodMeasure",
@@ -36,7 +42,7 @@
     "hcatAdHocMask", "hcatMarkovBruteForce", "hcatFingerprint", "hcatCombination",
     "hcatCombinator3", "hcatCombinatorX", "hcatHybrid", "hcatYoloCombination",
     "hcatMiddleCombinator", "hcatThoroughCombinator", "hcatCombipow", "hcatPrince",
-    "hcatPermute"
+    "hcatPermute", "hcatPCFG", "hcatPrinceLing"
   ],
   "notify_enabled": false,
   "notify_pushover_token": "",

@@ -36,6 +36,7 @@ submodules-pre:
 	@test -d hashcat-utils || { echo "Error: missing required directory: hashcat-utils"; exit 1; }
 	@test -d princeprocessor || { echo "Error: missing required directory: princeprocessor"; exit 1; }
 	@test -d omen || { echo "Warning: missing directory: omen (OMEN attacks will not be available)"; }
+	@test -d pcfg_cracker || { echo "Warning: missing directory: pcfg_cracker (PCFG attacks will not be available)"; }
 	@# Generate per-length expander sources (expander8.c..expander36.c) and patch
 	@# hashcat-utils Makefiles to compile them. Skips if expander8.c already exists.
 	@for base in hashcat-utils; do \

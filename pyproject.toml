@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=69", "setuptools-scm>=8"]
+requires = ["setuptools>=83.0.0", "setuptools-scm>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -9,16 +9,21 @@ description = "Menu driven Python wrapper for hashcat"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "requests>=2.31.0",
+    "requests>=2.34.2",
     "openpyxl>=3.0.0",
-    "packaging>=21.0",
+    "packaging>=26.2",
+    "simple-term-menu==1.6.6",
+    "click>=8.4.2",
+    "atomic-agents>=2.0.0",
+    # Imported directly by hate_crack/llm.py; declared explicitly rather than
+    # relying on atomic-agents pulling them in transitively.
+    "instructor>=1.14.5",
+    "openai>=2.48.0",
+    "pydantic>=2.13.4",
 ]
 
 [project.scripts]
 hate_crack = "hate_crack.__main__:main"
-
-[project.optional-dependencies]
-tui = ["simple-term-menu==1.6.6"]
 
 [tool.setuptools.packages.find]
 include = ["hate_crack*"]
@@ -44,6 +49,29 @@ exclude = [
     "rules",
 ]
 
+[tool.ruff.lint]
+# Pin to the pre-0.16.0 default rule set so future ruff bumps stay
+# behaviour-neutral. Broadening the ruleset is a separate cleanup, not
+# a dep-bump side effect.
+select = ["E4", "E7", "E9", "F"]
+
+[tool.bandit]
+# hate_crack shells out to hashcat and its helper binaries extensively, so the
+# scan produces many low-severity subprocess/shlex findings. These are reviewed
+# and captured in .bandit-baseline.json; CI compares against that baseline so
+# only NEW findings fail the build (mirrors the hashview approach). Scan the
+# first-party package only — bundled third-party trees are excluded.
+exclude_dirs = [
+    "tests",
+    ".venv",
+    "build",
+    "dist",
+    "PACK",
+    "hashcat-utils",
+    "omen",
+    "princeprocessor",
+]
+
 [tool.ty.src]
 exclude = [
     "build/",
@@ -64,6 +92,13 @@ unresolved-import = "warn"
 # Module-level globals and dynamic attribute access
 unresolved-attribute = "warn"
 invalid-argument-type = "warn"
+# ty 0.0.63 tightened these to error for the same legacy pattern
+# (module-level `hcatHashFile = None` etc. in main.py, later used as
+# strings). Downgrade to warn to match the rest.
+unsupported-operator = "warn"
+no-matching-overload = "warn"
+invalid-assignment = "warn"
+unresolved-global = "warn"
 
 [tool.pytest.ini_options]
 testpaths = [
@@ -72,9 +107,9 @@ testpaths = [
 
 [dependency-groups]
 dev = [
-    "ty==0.0.17",
-    "ruff==0.15.1",
-    "pytest==9.0.2",
-    "pytest-cov==7.0.0",
+    "ty==0.0.63",
+    "ruff==0.16.0",
+    "pytest==9.0.3",
+    "pytest-cov==7.1.0",
     "pytest-timeout>=2.4.0",
 ]

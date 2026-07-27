@@ -12,8 +12,6 @@ except _PackageNotFoundError:
 #   "2.5.1.post1.dev0" → "2.5.1"
 #   "2.5.1"            → "2.5.1"
 __version__ = _re.sub(r"(\.post\d+|\.dev\d+)", "", _raw_version)
-__version_tuple__ = tuple(
-    int(x) if x.isdigit() else x for x in __version__.split(".")
-)
+__version_tuple__ = tuple(int(x) if x.isdigit() else x for x in __version__.split("."))
 
 __all__ = ["__version__", "__version_tuple__"]

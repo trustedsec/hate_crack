@@ -68,80 +68,230 @@ class TestHashviewAPI:
 
         # Cleanup
 
-    def test_list_hashfiles_success(self, api):
-        """Test successful hashfile listing with real API if possible, else mock."""
+    def test_get_hashfiles_by_type_success(self, api):
+        """The /v1/hashfiles/hash_type/<type> endpoint returns a list (real API if possible)."""
         hashview_url, hashview_api_key = self._get_hashview_config()
         if hashview_url and hashview_api_key:
             real_api = HashviewAPI(hashview_url, hashview_api_key)
-            result = real_api.list_hashfiles()
+            result = real_api.get_hashfiles_by_type("1000")
             assert isinstance(result, list)
-            # If there are no hashfiles, that's valid, but if present, check structure
             if result:
                 assert "name" in result[0]
         else:
             mock_response = Mock()
-            mock_response.json.return_value = {
-                "hashfiles": json.dumps(
-                    [
-                        {"id": 1, "customer_id": 1, "name": "hashfile1.txt"},
-                        {"id": 2, "customer_id": 2, "name": "hashfile2.txt"},
-                    ]
-                )
-            }
+            mock_response.json.return_value = [
+                {"id": 1, "customer_id": 1, "name": "hashfile1.txt", "hash_type": 1000},
+                {"id": 2, "customer_id": 2, "name": "hashfile2.txt", "hash_type": 1000},
+            ]
             mock_response.raise_for_status = Mock()
             api.session.get.return_value = mock_response
-            result = api.list_hashfiles()
+            result = api.get_hashfiles_by_type("1000")
             assert isinstance(result, list)
             assert len(result) == 2
             assert result[0]["name"] == "hashfile1.txt"
 
-    def test_list_hashfiles_empty(self, api):
-        """Test hashfile listing returns empty list if no hashfiles (real API if possible)."""
-        hashview_url, hashview_api_key = self._get_hashview_config()
-        if hashview_url and hashview_api_key:
-            real_api = HashviewAPI(hashview_url, hashview_api_key)
-            result = real_api.list_hashfiles()
-            # If there are no hashfiles, result should be []
-            if not result:
-                assert result == []
-            else:
-                assert isinstance(result, list)
-        else:
-            mock_response = Mock()
-            mock_response.json.return_value = {}
-            mock_response.raise_for_status = Mock()
-            api.session.get.return_value = mock_response
-            result = api.list_hashfiles()
-            assert result == []
+    def test_get_customer_hashfiles_requires_hash_type(self, api):
+        """Without a hash_type there is no Hashview list route, so we return []."""
+        result = api.get_customer_hashfiles(1)
+        assert result == []
+
+    def test_get_all_customer_hashfiles_sweeps_and_dedupes(self, api):
+        """Aggregate sweeps per-type listings, filters by customer, dedupes by id."""
+        per_type = {
+            1000: [
+                {"id": 1, "customer_id": 1, "name": "ntlm.txt", "hash_type": 1000},
+                {"id": 2, "customer_id": 2, "name": "other.txt", "hash_type": 1000},
+            ],
+            5600: [
+                {"id": 3, "customer_id": 1, "name": "ntlmv2.txt", "hash_type": 5600},
+                # id 1 appears again under another type; must dedupe (first wins)
+                {"id": 1, "customer_id": 1, "name": "ntlm.txt", "hash_type": 5600},
+            ],
+        }
+        api.get_hashfiles_by_type = Mock(side_effect=lambda ht: per_type.get(int(ht), []))
+
+        result = api.get_all_customer_hashfiles(1, hash_types=[1000, 5600])
+
+        ids = sorted(hf["id"] for hf in result)
+        assert ids == [1, 3]  # customer 2 excluded, id 1 not duplicated
+        by_id = {hf["id"]: hf for hf in result}
+        assert str(by_id[1]["hash_type"]) == "1000"  # first type seen wins
+        assert str(by_id[3]["hash_type"]) == "5600"
+
+    def test_get_all_customer_hashfiles_aborts_on_404(self, api):
+        """A 404 means the listing endpoint is absent (e.g. Hashview main);
+        the sweep stops after the first request instead of probing every type."""
+        import requests
+
+        def _raise_404(ht):
+            resp = Mock()
+            resp.status_code = 404
+            raise requests.exceptions.HTTPError("404 Not Found", response=resp)
+
+        api.get_hashfiles_by_type = Mock(side_effect=_raise_404)
+        result = api.get_all_customer_hashfiles(1, hash_types=[1000, 5600, 3000])
+        assert result == []
+        # Stopped after the first 404, did not sweep all three types.
+        assert api.get_hashfiles_by_type.call_count == 1
+
+    def test_get_all_customer_hashfiles_skips_failing_types(self, api):
+        """A per-type query that errors is skipped, not fatal."""
+
+        def _by_type(ht):
+            if int(ht) == 1000:
+                raise RuntimeError("boom")
+            return [{"id": 9, "customer_id": 1, "name": "x", "hash_type": int(ht)}]
+
+        api.get_hashfiles_by_type = Mock(side_effect=_by_type)
+        result = api.get_all_customer_hashfiles(1, hash_types=[1000, 5600])
+        assert [hf["id"] for hf in result] == [9]
 
     def test_get_customer_hashfiles(self, api):
-        """Test filtering hashfiles by customer_id (real API if possible)."""
+        """Filter the type-scoped hashfile list by customer_id (real API if possible)."""
         hashview_url, hashview_api_key = self._get_hashview_config()
         customer_id = os.environ.get("HASHVIEW_CUSTOMER_ID")
         if hashview_url and hashview_api_key and customer_id:
             real_api = HashviewAPI(hashview_url, hashview_api_key)
-            result = real_api.get_customer_hashfiles(int(customer_id))
+            result = real_api.get_customer_hashfiles(int(customer_id), hash_type="1000")
             assert isinstance(result, list)
             # If there are hashfiles, all should match customer_id
             if result:
                 assert all(hf["customer_id"] == int(customer_id) for hf in result)
         else:
-            api.list_hashfiles = Mock(
+            api.get_hashfiles_by_type = Mock(
                 return_value=[
                     {"id": 1, "customer_id": 1, "name": "hashfile1.txt"},
                     {"id": 2, "customer_id": 2, "name": "hashfile2.txt"},
                     {"id": 3, "customer_id": 1, "name": "hashfile3.txt"},
                 ]
             )
-            result = api.get_customer_hashfiles(1)
+            result = api.get_customer_hashfiles(1, hash_type="1000")
             assert len(result) == 2
             assert all(hf["customer_id"] == 1 for hf in result)
+            api.get_hashfiles_by_type.assert_called_once_with("1000")
 
     def test_display_customers_multicolumn_empty(self, api, capsys):
         """Test display_customers_multicolumn with no customers (mock only, as real API not needed)."""
         api.display_customers_multicolumn([])
         captured = capsys.readouterr()
         assert "No customers found" in captured.out
+
+    def test_list_customers_native_json_array(self, api):
+        """Server returns `users` as a native JSON array (issue #229, no double-decode)."""
+        mock_resp = Mock()
+        mock_resp.json.return_value = {"users": [{"id": 1, "name": "Acme"}]}
+        mock_resp.raise_for_status = Mock()
+        api.session.get.return_value = mock_resp
+
+        result = api.list_customers()
+        assert result["customers"] == [{"id": 1, "name": "Acme"}]
+
+    def test_list_customers_legacy_json_string(self, api):
+        """Older servers double-encode `users` as a JSON string; still supported."""
+        mock_resp = Mock()
+        mock_resp.json.return_value = {"users": json.dumps([{"id": 2, "name": "Beta"}])}
+        mock_resp.raise_for_status = Mock()
+        api.session.get.return_value = mock_resp
+
+        result = api.list_customers()
+        assert result["customers"] == [{"id": 2, "name": "Beta"}]
+
+    def test_get_hashfile_details_md5_zero(self, api):
+        """hash_type 0 (MD5) is falsy; must not fall through to the envelope `type`."""
+        mock_resp = Mock()
+        mock_resp.json.return_value = {
+            "hash_type": 0,
+            "msg": "OK",
+            "status": 200,
+            "type": "message",
+        }
+        mock_resp.raise_for_status = Mock()
+        api.session.get.return_value = mock_resp
+
+        details = api.get_hashfile_details(42)
+        assert details["hashtype"] == 0
+
+    def test_get_hashfile_details_ntlm(self, api):
+        """Sanity: NTLM (1000) still parses from `hash_type`."""
+        mock_resp = Mock()
+        mock_resp.json.return_value = {
+            "hash_type": 1000,
+            "msg": "OK",
+            "status": 200,
+            "type": "message",
+        }
+        mock_resp.raise_for_status = Mock()
+        api.session.get.return_value = mock_resp
+
+        assert api.get_hashfile_details(7)["hashtype"] == 1000
+
+    def test_get_hashfile_hash_type_reads_hashfiles_key(self, api):
+        """Endpoint returns {hashfiles: [...]} objects; return their ids."""
+        mock_resp = Mock()
+        mock_resp.json.return_value = {
+            "status": 200,
+            "type": "message",
+            "msg": "OK",
+            "hashfiles": [{"id": 3, "name": "a"}, {"id": 9, "name": "b"}],
+        }
+        mock_resp.raise_for_status = Mock()
+        api.session.get.return_value = mock_resp
+
+        assert api.get_hashfile_hash_type(1000) == [3, 9]
+
+    def test_list_rules_native_array(self, api):
+        """/v1/rules returns {rules: [...]} as a native JSON array."""
+        mock_resp = Mock()
+        mock_resp.json.return_value = {
+            "status": 200,
+            "rules": [{"id": 4, "name": "best64.rule", "size": 77}],
+        }
+        mock_resp.raise_for_status = Mock()
+        api.session.get.return_value = mock_resp
+
+        rules = api.list_rules()
+        assert rules == [{"id": 4, "name": "best64.rule", "size": 77}]
+
+    def test_download_rules_gunzips_to_plaintext(self, api, tmp_path):
+        """Rule download arrives gzip-compressed; saved file must be plaintext."""
+        import gzip
+
+        plaintext = b":\nc\nu\nsa\n"
+        mock_resp = Mock()
+        mock_resp.content = gzip.compress(plaintext)
+        mock_resp.headers = {}
+        mock_resp.raise_for_status = Mock()
+        api.session.get.return_value = mock_resp
+
+        out = os.path.join(str(tmp_path), "best64.rule")
+        result = api.download_rules(4, out)
+        assert result["output_file"] == out
+        with open(out, "rb") as f:
+            assert f.read() == plaintext
+
+    def test_download_rules_passes_plaintext_through(self, api, tmp_path):
+        """If the body is already plaintext (not gzip), save it unchanged."""
+        mock_resp = Mock()
+        mock_resp.content = b":\nc\nu\n"
+        mock_resp.headers = {}
+        mock_resp.raise_for_status = Mock()
+        api.session.get.return_value = mock_resp
+
+        out = os.path.join(str(tmp_path), "plain.rule")
+        api.download_rules(7, out)
+        with open(out, "rb") as f:
+            assert f.read() == b":\nc\nu\n"
+
+    def test_download_rules_raises_on_404(self, api, tmp_path):
+        """Unknown rule id is a real HTTP 404 -> raise_for_status propagates."""
+        from requests.exceptions import HTTPError
+
+        mock_resp = Mock()
+        mock_resp.raise_for_status = Mock(side_effect=HTTPError("404"))
+        api.session.get.return_value = mock_resp
+
+        with pytest.raises(HTTPError):
+            api.download_rules(99999999, os.path.join(str(tmp_path), "x.rule"))
 
     def test_upload_cracked_hashes_success(self, api, tmp_path):
         """Test uploading cracked hashes with valid lines (real API if possible)."""
@@ -203,6 +353,153 @@ class TestHashviewAPI:
             api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
         assert "Invalid API response" in str(excinfo.value)
 
+    def test_upload_skips_wrong_type_line(self, api, tmp_path, capsys):
+        """An MD5 line mixed into an NTLM upload is filtered client-side."""
+        cracked_file = tmp_path / "cracked.txt"
+        cracked_file.write_text(
+            # MD5("password") — invalid as NTLM, must be dropped
+            "5f4dcc3b5aa765d61d8327deb882cf99:password\n"
+            # genuine NTLM("password") — must be kept
+            "8846f7eaee8fb117ad06bdd830b7586c:password\n"
+        )
+        mock_response = Mock()
+        mock_response.json.return_value = {"imported": 1}
+        mock_response.raise_for_status = Mock()
+        api.session.post.return_value = mock_response
+
+        result = api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
+        assert result["imported"] == 1
+        # Only the valid NTLM line should have been sent (body is bytes)
+        sent = api.session.post.call_args.kwargs.get("data")
+        if sent is None:
+            sent = api.session.post.call_args.args[1]
+        assert isinstance(sent, bytes)
+        assert b"8846f7eaee8fb117ad06bdd830b7586c:password" in sent
+        assert b"5f4dcc3b5aa765d61d8327deb882cf99" not in sent
+        out = capsys.readouterr().out
+        assert "Skipped 1 line" in out
+
+    def test_upload_surfaces_client_counts(self, api, tmp_path):
+        """upload_cracked_hashes reports uploaded/skipped even when the server
+        returns a bare OK with no counts of its own."""
+        cracked_file = tmp_path / "cracked.txt"
+        cracked_file.write_text(
+            "5f4dcc3b5aa765d61d8327deb882cf99:password\n"  # MD5 -> skipped
+            "8846f7eaee8fb117ad06bdd830b7586c:password\n"  # NTLM -> uploaded
+        )
+        mock_response = Mock()
+        mock_response.json.return_value = {"status": 200, "type": "message", "msg": "OK"}
+        mock_response.raise_for_status = Mock()
+        api.session.post.return_value = mock_response
+
+        result = api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
+        assert result["uploaded"] == 1
+        assert result["skipped"] == 1
+
+    def test_upload_preserves_server_counts(self, api, tmp_path):
+        """A Hashview that reports counts keeps them; client counts are added
+        without clobbering the server's."""
+        cracked_file = tmp_path / "cracked.txt"
+        cracked_file.write_text("8846f7eaee8fb117ad06bdd830b7586c:password\n")
+        mock_response = Mock()
+        mock_response.json.return_value = {
+            "msg": "OK", "count": 1, "verified": 1, "updated": 1, "unmatched": 0,
+        }
+        mock_response.raise_for_status = Mock()
+        api.session.post.return_value = mock_response
+
+        result = api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
+        assert result["updated"] == 1
+        assert result["verified"] == 1
+        assert result["uploaded"] == 1  # client count added alongside
+
+    def _sent_body(self, api):
+        sent = api.session.post.call_args.kwargs.get("data")
+        if sent is None:
+            sent = api.session.post.call_args.args[1]
+        return sent
+
+    def test_upload_decodes_hex_ntlm_ascii(self, api, tmp_path):
+        """$HEX[...] with trailing space is decoded to real bytes on the wire."""
+        cracked_file = tmp_path / "cracked.txt"
+        # NTLM of "%032023RC$ " (trailing space) emitted by hashcat as $HEX[...]
+        cracked_file.write_text(
+            "c153ace1d5b148820dab48a8aa5aa02e:$HEX[2530333230323352432420]\n"
+        )
+        mock_response = Mock()
+        mock_response.json.return_value = {"imported": 1}
+        mock_response.raise_for_status = Mock()
+        api.session.post.return_value = mock_response
+
+        result = api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
+        assert result["imported"] == 1
+        body = self._sent_body(api)
+        # The $HEX wrapper must be gone; the decoded plaintext (with its
+        # trailing space) is sent so a non-$HEX-aware Hashview verifies it.
+        assert b"$HEX[" not in body
+        assert b"c153ace1d5b148820dab48a8aa5aa02e:%032023RC$ " in body
+
+    def test_upload_decodes_hex_ntlm_highbyte(self, api, tmp_path):
+        """High-byte $HEX (0xA8) becomes UTF-8 so the server rebuilds U+00A8."""
+        cracked_file = tmp_path / "cracked.txt"
+        cracked_file.write_text(
+            "af70d9ee21294a74f6337b121e6c9624:$HEX[a833333531343136335777]\n"
+        )
+        mock_response = Mock()
+        mock_response.json.return_value = {"imported": 1}
+        mock_response.raise_for_status = Mock()
+        api.session.post.return_value = mock_response
+
+        api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
+        body = self._sent_body(api)
+        # 0xA8 -> latin-1 U+00A8 -> UTF-8 bytes C2 A8
+        assert b"af70d9ee21294a74f6337b121e6c9624:\xc2\xa833514163Ww" in body
+
+    def test_upload_keeps_hex_with_embedded_newline(self, api, tmp_path):
+        """$HEX encoding a newline can't be inlined; the wrapper is kept."""
+        cracked_file = tmp_path / "cracked.txt"
+        # NTLM("a\nb") — plaintext contains a literal newline
+        import hashlib as _h  # noqa
+
+        cracked_file.write_text(
+            "9c6d9b0dc5e5f4d8a4c8e0a1e0b1c2d3:$HEX[610a62]\n"
+        )
+        mock_response = Mock()
+        mock_response.json.return_value = {"imported": 1}
+        mock_response.raise_for_status = Mock()
+        api.session.post.return_value = mock_response
+
+        # validate=False so the (bogus) hash isn't dropped before we inspect wire
+        api.upload_cracked_hashes(
+            str(cracked_file), hash_type="1000", validate=False
+        )
+        body = self._sent_body(api)
+        assert b"$HEX[610a62]" in body  # kept verbatim, no raw newline injected
+        assert b"a\nb" not in body
+
+    def test_upload_all_invalid_raises(self, api, tmp_path):
+        """If validation drops every line, we raise instead of posting empty."""
+        cracked_file = tmp_path / "cracked.txt"
+        cracked_file.write_text("5f4dcc3b5aa765d61d8327deb882cf99:password\n")
+        api.session.post.side_effect = AssertionError("should not POST")
+        with pytest.raises(Exception) as excinfo:
+            api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
+        assert "No valid hashes" in str(excinfo.value)
+
+    def test_upload_validation_can_be_disabled(self, api, tmp_path):
+        """validate=False restores the old permissive behaviour."""
+        cracked_file = tmp_path / "cracked.txt"
+        cracked_file.write_text("5f4dcc3b5aa765d61d8327deb882cf99:password\n")
+        mock_response = Mock()
+        mock_response.json.return_value = {"imported": 1}
+        mock_response.raise_for_status = Mock()
+        api.session.post.return_value = mock_response
+
+        result = api.upload_cracked_hashes(
+            str(cracked_file), hash_type="1000", validate=False
+        )
+        assert result["imported"] == 1
+
     def test_create_customer_success(self, api):
         """Test creating a customer (real API if possible)."""
         hashview_url, hashview_api_key = self._get_hashview_config()
@@ -262,9 +559,15 @@ class TestHashviewAPI:
             assert content == b"hash1\nhash2\n"
             assert result["size"] == len(content)
 
-            # Verify auth headers were passed in the left hashes download call
+            # Verify auth headers were passed in the left hashes download call.
+            # The uncracked ("left") hashes come from GET /v1/hashfiles/<id>
+            # (the trailing /found call is a separate lookup).
             call_args_list = api.session.get.call_args_list
-            left_call = [c for c in call_args_list if "left" in str(c)][0]
+            left_call = [
+                c
+                for c in call_args_list
+                if "/v1/hashfiles/2" in str(c) and "found" not in str(c)
+            ][0]
             assert left_call.kwargs.get("headers") is not None
             auth_headers = left_call.kwargs.get("headers")
             assert "Cookie" in auth_headers or "uuid" in str(auth_headers)
@@ -469,6 +772,36 @@ class TestHashviewAPI:
         print("✓ Option 2 (Create Job) is READY and WORKING!")
         print("=" * 60)
 
+    def test_start_job_uses_post(self, api):
+        """start_job must POST to /v1/jobs/start/<id> (the route is POST-only)."""
+        mock_response = Mock()
+        mock_response.json.return_value = {"status": 200, "msg": "Job started"}
+        mock_response.raise_for_status = Mock()
+        api.session.post.return_value = mock_response
+
+        result = api.start_job(42)
+
+        assert result["msg"] == "Job started"
+        api.session.post.assert_called_once_with(f"{HASHVIEW_URL}/v1/jobs/start/42")
+        api.session.get.assert_not_called()
+
+    def test_delete_job_uses_delete_verb(self, api):
+        """delete_job must use DELETE /v1/jobs/<id> (there is no /jobs/delete/)."""
+        mock_response = Mock()
+        mock_response.json.return_value = {"status": 200, "msg": "Job deleted"}
+        mock_response.raise_for_status = Mock()
+        api.session.delete.return_value = mock_response
+
+        result = api.delete_job(7)
+
+        assert result["msg"] == "Job deleted"
+        api.session.delete.assert_called_once_with(f"{HASHVIEW_URL}/v1/jobs/7")
+
+    def test_stop_job_not_supported(self, api):
+        """Hashview has no stop-job route, so stop_job raises NotImplementedError."""
+        with pytest.raises(NotImplementedError):
+            api.stop_job(7)
+
     def test_create_job_with_new_customer(self, api, test_hashfile):
         """Test creating a new customer and then creating a job (real API if possible)."""
         hashview_url, hashview_api_key = self._get_hashview_config()
@@ -644,14 +977,20 @@ class TestHashviewAPI:
         # Verify left file was created
         assert os.path.exists(result["output_file"])
 
-        # Verify left file contains only the original uncracked hashes
+        # Verify left file contains the full original hashlist (left + found)
         with open(result["output_file"], "r") as f:
             left_contents = f.read()
-        assert "found_hash1" not in left_contents, (
-            "Found hashes must NOT be written back into the left file"
+        assert "found_hash1\n" in left_contents, (
+            "Found hashes must be appended as hash-only lines"
         )
-        assert "found_hash2" not in left_contents, (
-            "Found hashes must NOT be written back into the left file"
+        assert "found_password1" not in left_contents, (
+            "Plaintext passwords must not appear in the left file"
+        )
+        assert "found_hash2\n" in left_contents, (
+            "Found hashes must be appended as hash-only lines"
+        )
+        assert "found_password2" not in left_contents, (
+            "Plaintext passwords must not appear in the left file"
         )
         assert "uncracked_hash1" in left_contents
         assert "uncracked_hash2" in left_contents
@@ -676,6 +1015,42 @@ class TestHashviewAPI:
             potfile_contents = f.read()
         assert "found_hash1:found_password1" in potfile_contents
         assert "found_hash2:found_password2" in potfile_contents
+
+    def test_download_left_rsplit_ntlmv2(self, api, tmp_path, monkeypatch):
+        """rsplit correctly extracts the full NTLMv2 hash (which contains colons) from a found line."""
+        potfile = str(tmp_path / "hashcat.potfile")
+        monkeypatch.setattr("hate_crack.api.get_hcat_potfile_path", lambda: potfile)
+
+        ntlmv2_hash = "alice::DOMAIN:aabbccdd:ntproofstr:blob"
+        ntlmv2_found_line = f"{ntlmv2_hash}:s3cr3t\n"
+
+        mock_left = Mock()
+        mock_left.content = b"some_other_hash\n"
+        mock_left.raise_for_status = Mock()
+        mock_left.headers = {"content-length": "0"}
+        mock_left.iter_content = lambda chunk_size=8192: iter([mock_left.content])
+
+        mock_found = Mock()
+        mock_found.content = ntlmv2_found_line.encode()
+        mock_found.raise_for_status = Mock()
+        mock_found.headers = {"content-length": "0"}
+        mock_found.iter_content = lambda chunk_size=8192: iter([mock_found.content])
+        mock_found.status_code = 200
+
+        api.session.get.side_effect = [mock_left, mock_found]
+
+        left_file = tmp_path / "left_1_2.txt"
+        api.download_left_hashes(1, 2, output_file=str(left_file))
+
+        with open(str(left_file), "r") as f:
+            contents = f.read()
+
+        assert ntlmv2_hash + "\n" in contents, (
+            "Full NTLMv2 hash (with colons) must be appended to the left file"
+        )
+        assert "s3cr3t" not in contents, (
+            "Plaintext password must not appear in the left file"
+        )
 
     def test_download_left_potfile_path_param_overrides_config(self, api, tmp_path):
         """Test that a passed-in potfile_path is used instead of re-reading config."""

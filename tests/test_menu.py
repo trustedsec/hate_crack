@@ -19,29 +19,30 @@ class TestUseArrowMenu:
         import hate_crack.menu as mod
 
         monkeypatch.setattr(mod, "_HAS_TERM_MENU", False)
-        monkeypatch.delenv("HATE_CRACK_PLAIN_MENU", raising=False)
+        monkeypatch.setenv("HATE_CRACK_ARROW_MENU", "1")
         assert _use_arrow_menu() is False
 
     def test_falls_back_on_non_tty(self, monkeypatch):
         import hate_crack.menu as mod
 
         monkeypatch.setattr(mod, "_HAS_TERM_MENU", True)
-        monkeypatch.delenv("HATE_CRACK_PLAIN_MENU", raising=False)
+        monkeypatch.setenv("HATE_CRACK_ARROW_MENU", "1")
         monkeypatch.setattr("sys.stdout.isatty", lambda: False)
         assert _use_arrow_menu() is False
 
-    def test_falls_back_with_env_var(self, monkeypatch):
+    def test_falls_back_without_env_var(self, monkeypatch):
         import hate_crack.menu as mod
 
         monkeypatch.setattr(mod, "_HAS_TERM_MENU", True)
-        monkeypatch.setenv("HATE_CRACK_PLAIN_MENU", "1")
+        monkeypatch.delenv("HATE_CRACK_ARROW_MENU", raising=False)
+        monkeypatch.setattr("sys.stdout.isatty", lambda: True)
         assert _use_arrow_menu() is False
 
     def test_enabled_when_all_conditions_met(self, monkeypatch):
         import hate_crack.menu as mod
 
         monkeypatch.setattr(mod, "_HAS_TERM_MENU", True)
-        monkeypatch.delenv("HATE_CRACK_PLAIN_MENU", raising=False)
+        monkeypatch.setenv("HATE_CRACK_ARROW_MENU", "1")
         monkeypatch.setattr("sys.stdout.isatty", lambda: True)
         assert _use_arrow_menu() is True
 
@@ -56,8 +57,9 @@ class TestNumberedMenu:
         monkeypatch.setattr("builtins.input", lambda _: "1")
         _numbered_menu(SAMPLE_ITEMS, "\nSelect: ")
         captured = capsys.readouterr().out
+        w = max(len(key) for key, _ in SAMPLE_ITEMS)
         for key, label in SAMPLE_ITEMS:
-            assert f"({key}) {label}" in captured
+            assert f"[{key:>{w}}] {label}" in captured
 
     def test_returns_none_on_empty_input(self, monkeypatch):
         monkeypatch.setattr("builtins.input", lambda _: "")
@@ -94,7 +96,7 @@ class TestInteractiveMenu:
         import hate_crack.menu as mod
 
         monkeypatch.setattr(mod, "_HAS_TERM_MENU", False)
-        monkeypatch.delenv("HATE_CRACK_PLAIN_MENU", raising=False)
+        monkeypatch.delenv("HATE_CRACK_ARROW_MENU", raising=False)
         monkeypatch.setattr("builtins.input", lambda _: "99")
         result = interactive_menu(SAMPLE_ITEMS)
         assert result == "99"
@@ -103,7 +105,7 @@ class TestInteractiveMenu:
         import hate_crack.menu as mod
 
         monkeypatch.setattr(mod, "_HAS_TERM_MENU", True)
-        monkeypatch.delenv("HATE_CRACK_PLAIN_MENU", raising=False)
+        monkeypatch.setenv("HATE_CRACK_ARROW_MENU", "1")
         monkeypatch.setattr("sys.stdout.isatty", lambda: True)
         mock_menu_instance = MagicMock()
         mock_menu_instance.show.return_value = 0
