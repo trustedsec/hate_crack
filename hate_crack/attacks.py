@@ -181,6 +181,7 @@ def quick_crack(ctx: Any) -> None:
                 print("Please enter a valid wordlist or wordlist directory.")
         except ValueError:
             print("Please enter a valid number.")
+    readline.set_completer(None)
 
     selected_rules = _select_rules(ctx)
     if selected_rules is None:
@@ -492,6 +493,7 @@ def _prompt_wordlist_paths(ctx, max_count: int) -> list[str]:
             count += 1
         else:
             print(f"Not found: {resolved}")
+    readline.set_completer(None)
     return collected
 
 
@@ -590,7 +592,7 @@ def ollama_attack(ctx: Any) -> None:
             )
             return
         elif choice == "2":
-            path = _omen_pick_training_wordlist(ctx, title="LLM Sample Wordlists")
+            path = _pick_training_wordlist(ctx, title="LLM Sample Wordlists")
             if not path:
                 return
             ctx.hcatOllama(ctx.hcatHashType, ctx.hcatHashFile, "wordlist", path)
@@ -604,7 +606,7 @@ def ollama_attack(ctx: Any) -> None:
             print("\t[!] Invalid selection.")
 
 
-def _omen_pick_training_wordlist(ctx: Any, title: str = "Training Wordlists"):
+def _pick_training_wordlist(ctx: Any, title: str = "Training Wordlists"):
     """Show wordlist picker. Returns path or None (user cancelled with 'q')."""
     wordlist_files = ctx.list_wordlist_files(ctx.hcatWordlists)
     # Print the grid once, outside the retry loop: a wordlists directory can
@@ -626,8 +628,10 @@ def _omen_pick_training_wordlist(ctx: Any, title: str = "Training Wordlists"):
         if sel.lower() == "q":
             return None
         if sel.lower() == "p":
-            path = input("\n\tPath to wordlist: ").strip()
-            return path if path else None
+            path = ctx.select_file_with_autocomplete(
+                "\tPath to wordlist (tab to autocomplete)"
+            )
+            return path.strip() if path else None
         try:
             idx = int(sel)
             if 1 <= idx <= len(wordlist_files):
@@ -678,7 +682,7 @@ def omen_attack(ctx: Any) -> None:
         print("\n\tNo valid OMEN model found. Training is required.")
 
     if need_training:
-        training_file = _omen_pick_training_wordlist(ctx)
+        training_file = _pick_training_wordlist(ctx)
         if not training_file:
             return
         if not ctx.hcatOmenTrain(training_file):
@@ -705,7 +709,7 @@ def _markov_pick_training_source(ctx: Any):
     has_cracked = os.path.isfile(out_path) and os.path.getsize(out_path) > 0
 
     wordlist_files = ctx.list_wordlist_files(ctx.hcatWordlists)
-    # Print the grid once, outside the retry loop — see _omen_pick_training_wordlist.
+    # Print the grid once, outside the retry loop — see _pick_training_wordlist.
     entries = []
     if has_cracked:
         entries.append("0) Cracked passwords (current session)")
@@ -727,8 +731,10 @@ def _markov_pick_training_source(ctx: Any):
         if sel == "0" and has_cracked:
             return out_path
         if sel.lower() == "p":
-            path = input("\n\tPath to training file: ").strip()
-            return path if path else None
+            path = ctx.select_file_with_autocomplete(
+                "\tPath to training file (tab to autocomplete)"
+            )
+            return path.strip() if path else None
         try:
             idx = int(sel)
             if 1 <= idx <= len(wordlist_files):
@@ -805,7 +811,10 @@ def combipow_crack(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("Combipow")
     wordlist = None
     while wordlist is None:
-        path = input("\nEnter path to wordlist (max 63 lines recommended): ").strip()
+        path = ctx.select_file_with_autocomplete(
+            "Enter path to wordlist (max 63 lines recommended, tab to autocomplete)"
+        )
+        path = path.strip() if path else ""
         if not path:
             continue
         if not os.path.isfile(path):
@@ -901,9 +910,11 @@ def generate_rules_crack(ctx: Any) -> None:
                 wordlist_choice = raw_choice
             else:
                 print("[!] Wordlist not found. Please enter a valid path.")
+                readline.set_completer(None)
                 return
         except ValueError:
             print("Please enter a valid number.")
+    readline.set_completer(None)
 
     ctx.hcatGenerateRules(
         ctx.hcatHashType, ctx.hcatHashFile, rule_count, wordlist_choice
@@ -981,6 +992,7 @@ def permute_crack(ctx: Any) -> None:
             print("[!] A directory was provided. Please enter a single wordlist file.")
             continue
         wordlist_path = raw
+    readline.set_completer(None)
 
     ctx.hcatPermute(ctx.hcatHashType, ctx.hcatHashFile, wordlist_path)
 
@@ -1028,7 +1040,10 @@ def _rule_select_file(ctx: Any, prompt: str = "Rule file: ") -> str:
             return None
 
     _configure_readline(rule_completer)
-    return input(prompt).strip()
+    try:
+        return input(prompt).strip()
+    finally:
+        readline.set_completer(None)
 
 
 def rule_cleanup_handler(ctx: Any) -> None:
@@ -1039,7 +1054,10 @@ def rule_cleanup_handler(ctx: Any) -> None:
     if not infile or not os.path.isfile(infile):
         print(f"[!] File not found: {infile}")
         return
-    outfile = input("Output file path: ").strip()
+    outfile = ctx.select_file_with_autocomplete(
+        "Output file path (tab to autocomplete)"
+    )
+    outfile = outfile.strip() if outfile else ""
     if not outfile:
         print("[!] Output path required.")
         return
@@ -1057,7 +1075,10 @@ def rule_optimize_handler(ctx: Any) -> None:
     if not infile or not os.path.isfile(infile):
         print(f"[!] File not found: {infile}")
         return
-    outfile = input("Output file path: ").strip()
+    outfile = ctx.select_file_with_autocomplete(
+        "Output file path (tab to autocomplete)"
+    )
+    outfile = outfile.strip() if outfile else ""
     if not outfile:
         print("[!] Output path required.")
         return
@@ -1077,7 +1098,10 @@ def rule_cleanup_and_optimize_handler(ctx: Any) -> None:
     if not infile or not os.path.isfile(infile):
         print(f"[!] File not found: {infile}")
         return
-    outfile = input("Output file path: ").strip()
+    outfile = ctx.select_file_with_autocomplete(
+        "Output file path (tab to autocomplete)"
+    )
+    outfile = outfile.strip() if outfile else ""
     if not outfile:
         print("[!] Output path required.")
         return

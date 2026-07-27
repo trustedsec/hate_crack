@@ -1238,7 +1238,12 @@ def select_file_with_autocomplete(
         full_prompt += f" (default: {default})"
     full_prompt += ": "
 
-    result = input(full_prompt).strip()
+    try:
+        result = input(full_prompt).strip()
+    finally:
+        # Drop the path completer so later plain prompts (numeric menus, y/n)
+        # don't inherit stale file-path tab completion.
+        readline.set_completer(None)
     if not result and base_dir:
         result = base_dir
 
@@ -4438,15 +4443,18 @@ def pipal():
                     pipalFile.write(clearTextPass)
                 pipalFile.close()
 
-            pipalProcess = subprocess.Popen(
-                "{pipal_path} {pipal_file} -t {pipal_count} --output {pipal_out}".format(
-                    pipal_path=pipalPath,
-                    pipal_file=hcatHashFilePipal + ".passwords",
-                    pipal_out=hcatHashFilePipal + ".pipal",
-                    pipal_count=pipal_count,
-                ),
-                shell=True,
-            )
+            # List-form Popen (no shell=True) so paths/filenames containing
+            # shell metacharacters can't be interpreted as commands. shlex.split
+            # on pipalPath still allows an interpreter prefix (e.g. "ruby
+            # /opt/pipal/pipal.rb") to be configured.
+            pipal_cmd = shlex.split(pipalPath) + [
+                hcatHashFilePipal + ".passwords",
+                "-t",
+                str(pipal_count),
+                "--output",
+                hcatHashFilePipal + ".pipal",
+            ]
+            pipalProcess = subprocess.Popen(pipal_cmd)
             try:
                 pipalProcess.wait()
             except KeyboardInterrupt:
@@ -4469,25 +4477,31 @@ def pipal():
                     print(pipalfile.read())
                 print("\n--- Pipal Output End ---\n")
             with open(hcatHashFilePipal + ".pipal") as pipalfile:
-                pipal_content = pipalfile.readlines()
-                raw_pipal = "\n".join(pipal_content)
-                raw_pipal = re.sub("\n+", "\n", raw_pipal)
-                raw_regex = r"Top [0-9]+ base words\n"
-                for word in range(pipal_count):
-                    raw_regex += r"(\S+).*\n"
-                basewords_re = re.compile(raw_regex)
-                results = re.search(basewords_re, raw_pipal)
+                pipal_content = pipalfile.read()
+                # Parse the "Top N base words" section line by line rather than
+                # with one rigid regex.  The old approach required *exactly*
+                # pipal_count baseword lines, so any cracked set with fewer
+                # unique base words than pipal_count (the common case on small
+                # cracks) matched nothing and returned []. Collect up to
+                # pipal_count base words and stop at the end of the section.
                 top_basewords = []
-                if results:
-                    if results.lastindex is not None:
-                        for i in range(1, results.lastindex + 1):
-                            if i is not None:
-                                top_basewords.append(results.group(i))
-                    else:
-                        pass
-                    return top_basewords
-                else:
-                    return []
+                in_section = False
+                for line in pipal_content.splitlines():
+                    if re.match(r"\s*Top\s+[0-9]+\s+base words", line):
+                        in_section = True
+                        continue
+                    if in_section:
+                        if not line.strip():
+                            # blank line terminates the base words section
+                            break
+                        # Capture the base word (first token); tolerate both
+                        # "word = 5 (5%)" and "word 5" separators.
+                        match = re.match(r"\s*(\S+)", line)
+                        if match:
+                            top_basewords.append(match.group(1))
+                            if len(top_basewords) >= pipal_count:
+                                break
+                return top_basewords
         else:
             print("No hashes were cracked :(")
             return []

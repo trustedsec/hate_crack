@@ -55,18 +55,9 @@ stages = ["pre-push"]
 pass_filenames = false
 always_run = true
 
-[[repos.hooks]]
-id = "audit-docs"
-name = "audit-docs"
-entry = "bash .claude/audit-docs.sh HEAD"
-language = "system"
-stages = ["post-commit"]
-pass_filenames = false
-always_run = true
-
 # General hygiene hooks (mirrors hashview's .pre-commit-config.yaml). These run
-# at the pre-commit stage, so `prek install` must include `--hook-type pre-commit`
-# (see CLAUDE.md). Auto-fixers modify files in place; re-stage and commit again.
+# at the pre-commit stage, so `prek install` must include `--hook-type pre-commit`.
+# Auto-fixers modify files in place; re-stage and commit again.
 [[repos]]
 repo = "https://github.com/pre-commit/pre-commit-hooks"
 rev = "v5.0.0"
@@ -86,3 +77,8 @@ id = "check-merge-conflict"
 [[repos.hooks]]
 id = "check-added-large-files"
 args = ["--maxkb=1024"]
+
+# Blocks committing PEM/OpenSSH private keys. The repo had no secret-scanning
+# gate at all before this; bandit only covers hate_crack/.
+[[repos.hooks]]
+id = "detect-private-key"
