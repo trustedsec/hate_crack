@@ -491,79 +491,97 @@ class TransmissionSession:
                     self.remove(entry["id"])
 
 
-def get_hcat_wordlists_dir():
+def _load_config_defaults():
+    """Load config.json.example, searching the same candidate order main.py
+    uses: alongside the resolved config.json (if any), then this package's
+    directory. Returns {} if no readable, well-formed example is found —
+    callers fall back to their own hardcoded defaults in that case.
+    """
+    candidates = []
+    config_path = _resolve_config_path()
+    if config_path:
+        candidates.append(os.path.dirname(config_path))
+    candidates.append(os.path.dirname(os.path.realpath(__file__)))
+    for candidate_dir in candidates:
+        example_path = os.path.join(candidate_dir, "config.json.example")
+        if os.path.isfile(example_path):
+            try:
+                with open(example_path) as f:
+                    return json.load(f)
+            except (OSError, json.JSONDecodeError):
+                continue
+    return {}
+
+
+def _load_merged_config():
+    """config.json.example defaults overlaid with config.json, mirroring
+    the merge main.py performs at import time. Fixes #153: api.py's
+    helpers previously read config.json directly and fell back to their
+    own hardcoded (cwd-relative) defaults when a key was absent, silently
+    diverging from main.py whenever a user's config.json predated a key.
+    """
+    merged = _load_config_defaults()
     config_path = _resolve_config_path()
     if config_path:
         try:
             with open(config_path) as f:
-                config = json.load(f)
-            path = config.get("hcatWordlists")
-            if path:
-                path = os.path.expanduser(path)
-                if not os.path.isabs(path):
-                    path = os.path.normpath(os.path.join(_get_hate_path(), path))
-                os.makedirs(path, exist_ok=True)
-                return path
-        except Exception:
+                merged.update(json.load(f))
+        except (OSError, json.JSONDecodeError):
             pass
+    return merged
+
+
+def get_hcat_wordlists_dir():
+    config = _load_merged_config()
+    path = config.get("hcatWordlists")
+    if path:
+        path = os.path.expanduser(path)
+        if not os.path.isabs(path):
+            path = os.path.normpath(os.path.join(_get_hate_path(), path))
+        os.makedirs(path, exist_ok=True)
+        return path
     default = os.path.join(os.getcwd(), "wordlists")
     os.makedirs(default, exist_ok=True)
     return default
 
 
 def get_rules_dir():
-    config_path = _resolve_config_path()
-    if config_path:
-        try:
-            with open(config_path) as f:
-                config = json.load(f)
-            path = config.get("rules_directory")
-            if path:
-                path = os.path.expanduser(path)
-                if not os.path.isabs(path):
-                    path = os.path.normpath(os.path.join(_get_hate_path(), path))
-                os.makedirs(path, exist_ok=True)
-                return path
-        except Exception:
-            pass
+    config = _load_merged_config()
+    path = config.get("rules_directory")
+    if path:
+        path = os.path.expanduser(path)
+        if not os.path.isabs(path):
+            path = os.path.normpath(os.path.join(_get_hate_path(), path))
+        os.makedirs(path, exist_ok=True)
+        return path
     default = os.path.join(os.getcwd(), "rules")
     os.makedirs(default, exist_ok=True)
     return default
 
 
 def get_hcat_tuning_args():
-    config_path = _resolve_config_path()
-    if config_path:
-        try:
-            with open(config_path) as f:
-                config = json.load(f)
-            tuning = config.get("hcatTuning")
-            if tuning:
-                import shlex
+    config = _load_merged_config()
+    tuning = config.get("hcatTuning")
+    if tuning:
+        import shlex
 
-                return shlex.split(tuning)
-        except Exception:
-            pass
+        return shlex.split(tuning)
     return []
 
 
 def get_hcat_potfile_path():
     """Return the resolved potfile path from config, or the default."""
-    config_path = _resolve_config_path()
-    if config_path:
-        try:
-            with open(config_path) as f:
-                config = json.load(f)
-            if "hcatPotfilePath" in config:
-                raw = (config["hcatPotfilePath"] or "").strip()
-                if raw == "":
-                    return ""
-                expanded = os.path.expanduser(raw)
-                if not os.path.isabs(expanded):
-                    expanded = os.path.join(os.path.dirname(config_path), expanded)
-                return expanded
-        except Exception:
-            pass
+    config = _load_merged_config()
+    if "hcatPotfilePath" in config:
+        raw = (config["hcatPotfilePath"] or "").strip()
+        if raw == "":
+            return ""
+        expanded = os.path.expanduser(raw)
+        if not os.path.isabs(expanded):
+            config_path = _resolve_config_path()
+            base_dir = os.path.dirname(config_path) if config_path else _get_hate_path()
+            expanded = os.path.join(base_dir, expanded)
+        return expanded
     return os.path.expanduser("~/.hashcat/hashcat.potfile")
 
 
