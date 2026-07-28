@@ -116,8 +116,9 @@ def test_get_hcat_wordlists_dir_no_config_uses_example_default(tmp_path, monkeyp
 
 def test_get_hcat_wordlists_dir_true_fallback_when_no_example(tmp_path, monkeypatch):
     """Last-resort cwd fallback still applies if config.json.example itself
-    can't be found or read (e.g. Task 5's _load_config_defaults would exit
-    at the main.py import site, but api.py's helper degrades gracefully)."""
+    can't be found or read (e.g. hate_crack.main's equivalent loader exits
+    at import time on an unreadable example; api.py's degrades gracefully
+    instead)."""
     monkeypatch.setattr(api, "_resolve_config_path", lambda: None)
     monkeypatch.setattr(api, "_load_config_defaults", lambda: {})
     monkeypatch.chdir(tmp_path)

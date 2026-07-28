@@ -397,7 +397,8 @@ class TestGetHcatPotfilePath:
         config_data = {"hcatPotfilePath": "hashcat.potfile"}
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps(config_data))
-        with patch("hate_crack.api._resolve_config_path", return_value=str(config_file)):
+        with patch("hate_crack.api._resolve_config_path", return_value=str(config_file)), \
+             patch("hate_crack.api._get_hate_path", return_value=str(tmp_path)):
             result = get_hcat_potfile_path()
         assert result == str(tmp_path / "hashcat.potfile")
 

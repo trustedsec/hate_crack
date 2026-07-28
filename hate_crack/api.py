@@ -578,9 +578,7 @@ def get_hcat_potfile_path():
             return ""
         expanded = os.path.expanduser(raw)
         if not os.path.isabs(expanded):
-            config_path = _resolve_config_path()
-            base_dir = os.path.dirname(config_path) if config_path else _get_hate_path()
-            expanded = os.path.join(base_dir, expanded)
+            expanded = os.path.join(_get_hate_path(), expanded)
         return expanded
     return os.path.expanduser("~/.hashcat/hashcat.potfile")
 
