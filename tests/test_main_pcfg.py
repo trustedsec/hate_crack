@@ -237,17 +237,21 @@ class TestHcatPrinceLing:
 
         assert run_calls[0][0] == sys.executable
 
-    def test_prince_ling_keeps_stdin_open(self, main_module, tmp_path, monkeypatch):
+    def test_resolves_ruleset_case_insensitively(self, main_module, tmp_path, monkeypatch):
         rules_dir, opt_dir = self._setup_pcfg_dirs(tmp_path, main_module, monkeypatch)
-        cache = opt_dir / "pcfg_prince_ling_Default.txt"
+        cache = opt_dir / "pcfg_prince_ling_DEFAULT.txt"
         cache.write_text("stale")
         old = (rules_dir.stat().st_mtime - 100)
         os.utime(cache, (old, old))
 
-        run_kwargs = []
+        # Simulate a config.json predating the default-casing fix, where
+        # "DEFAULT" was backfilled to disk instead of "Default".
+        monkeypatch.setattr(main_module, "pcfgRuleset", "DEFAULT")
+
+        run_calls = []
 
         def fake_run(cmd, **kwargs):
-            run_kwargs.append(kwargs)
+            run_calls.append(cmd)
             for i, part in enumerate(cmd):
                 if part == "--output":
                     Path(cmd[i + 1]).write_text("regenerated")
@@ -256,7 +260,10 @@ class TestHcatPrinceLing:
             return R()
 
         with patch("hate_crack.main.subprocess.run", side_effect=fake_run), \
-             patch("hate_crack.main.hcatPrince"):
+             patch("hate_crack.main.hcatPrince") as mock_prince:
             main_module.hcatPrinceLing("0", str(tmp_path / "hashes.txt"))
 
-        assert run_kwargs[0].get("stdin") is not None
+        # Should have found the on-disk "Default" dir and proceeded, not
+        # printed "PCFG ruleset not found" and returned early.
+        assert len(run_calls) == 1
+        assert mock_prince.called
