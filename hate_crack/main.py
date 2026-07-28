@@ -744,8 +744,6 @@ if not SKIP_INIT:
                 "pcfg_cracker not found at " + os.path.join(hate_path, "pcfg_cracker")
             )
             print("PCFG attacks will not be available. Run 'make' to fetch submodules.")
-        elif not shutil.which("python3"):
-            print("python3 not on PATH. PCFG attacks will not be available.")
 
     except Exception as e:
         print(f"Module initialization error: {e}")
@@ -2768,7 +2766,7 @@ def hcatPCFG(hcatHashType, hcatHashFile):
         print(f"pcfg_guesser.py not found at {pcfg_guesser_script}")
         return
     pcfg_cmd = [
-        "python3",
+        sys.executable,
         pcfg_guesser_script,
         "--rule",
         pcfgRuleset,
@@ -2837,7 +2835,7 @@ def hcatPrinceLing(hcatHashType, hcatHashFile):
     if needs_regen:
         print(f"[*] Generating prince_ling wordlist -> {cache_path}")
         cmd = [
-            "python3",
+            sys.executable,
             prince_ling_script,
             "--rule",
             pcfgRuleset,

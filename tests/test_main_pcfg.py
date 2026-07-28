@@ -1,5 +1,6 @@
 """Tests for PCFG attack subprocess construction in hate_crack.main."""
 import os
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -46,7 +47,7 @@ class TestHcatPCFG:
         # First Popen call is the pcfg_guesser producer
         producer_args, producer_kwargs = captured_calls[0]
         producer_cmd = producer_args[0]
-        assert "python3" in producer_cmd[0] or producer_cmd[0].endswith("python3")
+        assert producer_cmd[0] == sys.executable
         assert any("pcfg_guesser.py" in part for part in producer_cmd)
         assert "--rule" in producer_cmd
         assert producer_cmd[producer_cmd.index("--rule") + 1] == main_module.pcfgRuleset
@@ -176,3 +177,27 @@ class TestHcatPrinceLing:
             main_module.hcatPrinceLing("0", str(tmp_path / "hashes.txt"))
 
         assert main_module.hcatPrinceBaseList == original
+
+    def test_uses_sys_executable(self, main_module, tmp_path, monkeypatch):
+        rules_dir, opt_dir = self._setup_pcfg_dirs(tmp_path, main_module, monkeypatch)
+        cache = opt_dir / "pcfg_prince_ling_DEFAULT.txt"
+        cache.write_text("stale")
+        old = (rules_dir.stat().st_mtime - 100)
+        os.utime(cache, (old, old))
+
+        run_calls = []
+
+        def fake_run(cmd, **kwargs):
+            run_calls.append(cmd)
+            for i, part in enumerate(cmd):
+                if part == "--output":
+                    Path(cmd[i + 1]).write_text("regenerated")
+            class R:
+                returncode = 0
+            return R()
+
+        with patch("hate_crack.main.subprocess.run", side_effect=fake_run), \
+             patch("hate_crack.main.hcatPrince"):
+            main_module.hcatPrinceLing("0", str(tmp_path / "hashes.txt"))
+
+        assert run_calls[0][0] == sys.executable
