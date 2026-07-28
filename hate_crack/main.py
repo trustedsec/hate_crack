@@ -242,6 +242,7 @@ except json.JSONDecodeError as e:
     print("  2. Delete the file to regenerate from defaults")
     sys.exit(1)
 
+
 def _load_config_defaults(defaults_path):
     """Load config.json.example, exiting with a clear diagnostic on
     malformed JSON or an unreadable/missing file (see #155 — a dangling
@@ -259,7 +260,9 @@ def _load_config_defaults(defaults_path):
         print("\nError: config.json.example could not be read")
         print(f"  File: {defaults_path}")
         if os.path.islink(defaults_path) and not os.path.exists(defaults_path):
-            print("  This is a dangling symlink: the link exists but its target is missing.")
+            print(
+                "  This is a dangling symlink: the link exists but its target is missing."
+            )
         print("  This is a package installation issue. Try reinstalling hate_crack.")
         sys.exit(1)
 
