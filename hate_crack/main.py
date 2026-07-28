@@ -2857,6 +2857,7 @@ def hcatPrinceLing(hcatHashType, hcatHashFile):
     if not os.path.isdir(ruleset_dir):
         print(f"PCFG ruleset not found: {ruleset_dir}")
         return
+    resolved_ruleset_name = os.path.basename(ruleset_dir)
 
     cache_dir = (
         hcatOptimizedWordlists
@@ -2864,7 +2865,9 @@ def hcatPrinceLing(hcatHashType, hcatHashFile):
         else str(hcatOptimizedWordlists)
     )
     os.makedirs(cache_dir, exist_ok=True)
-    cache_path = os.path.join(cache_dir, f"pcfg_prince_ling_{pcfgRuleset}.txt")
+    cache_path = os.path.join(
+        cache_dir, f"pcfg_prince_ling_{resolved_ruleset_name}.txt"
+    )
     tmp_path = cache_path + ".tmp"
 
     # Staleness check: regenerate iff ruleset dir mtime > cache mtime (strict)
@@ -2881,7 +2884,7 @@ def hcatPrinceLing(hcatHashType, hcatHashFile):
             sys.executable,
             prince_ling_script,
             "--rule",
-            pcfgRuleset,
+            resolved_ruleset_name,
             "--output",
             tmp_path,
             "--size",

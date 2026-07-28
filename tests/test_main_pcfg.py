@@ -239,7 +239,9 @@ class TestHcatPrinceLing:
 
     def test_resolves_ruleset_case_insensitively(self, main_module, tmp_path, monkeypatch):
         rules_dir, opt_dir = self._setup_pcfg_dirs(tmp_path, main_module, monkeypatch)
-        cache = opt_dir / "pcfg_prince_ling_DEFAULT.txt"
+        # Cache file uses the resolved on-disk basename ("Default"), not the
+        # raw (legacy, all-caps) config value.
+        cache = opt_dir / "pcfg_prince_ling_Default.txt"
         cache.write_text("stale")
         old = (rules_dir.stat().st_mtime - 100)
         os.utime(cache, (old, old))
@@ -247,6 +249,21 @@ class TestHcatPrinceLing:
         # Simulate a config.json predating the default-casing fix, where
         # "DEFAULT" was backfilled to disk instead of "Default".
         monkeypatch.setattr(main_module, "pcfgRuleset", "DEFAULT")
+
+        # Force case-sensitive isdir semantics for this test: on
+        # case-insensitive-but-case-preserving filesystems (e.g. macOS
+        # APFS), os.path.isdir(".../DEFAULT") would spuriously match the
+        # real ".../Default" dir, masking the fallback path this test is
+        # meant to exercise (and which is what actually runs on CI's
+        # case-sensitive Linux filesystem).
+        real_isdir = os.path.isdir
+
+        def case_sensitive_isdir(path):
+            parent, name = os.path.split(path)
+            try:
+                return name in os.listdir(parent) and real_isdir(path)
+            except FileNotFoundError:
+                return False
 
         run_calls = []
 
@@ -260,10 +277,19 @@ class TestHcatPrinceLing:
             return R()
 
         with patch("hate_crack.main.subprocess.run", side_effect=fake_run), \
-             patch("hate_crack.main.hcatPrince") as mock_prince:
+             patch("hate_crack.main.hcatPrince") as mock_prince, \
+             patch("hate_crack.main.os.path.isdir", side_effect=case_sensitive_isdir):
             main_module.hcatPrinceLing("0", str(tmp_path / "hashes.txt"))
 
         # Should have found the on-disk "Default" dir and proceeded, not
         # printed "PCFG ruleset not found" and returned early.
         assert len(run_calls) == 1
+        cmd = run_calls[0]
+        # The subprocess argv and cache filename must both use the resolved
+        # on-disk basename ("Default"), not the raw monkeypatched "DEFAULT"
+        # value, since prince_ling.py does its own case-sensitive Rules/
+        # lookup internally.
+        assert "--rule" in cmd
+        assert cmd[cmd.index("--rule") + 1] == "Default"
+        assert cache.exists()
         assert mock_prince.called
