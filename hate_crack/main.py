@@ -262,16 +262,9 @@ except json.JSONDecodeError:
     print("  This is a package installation issue. Try reinstalling hate_crack.")
     sys.exit(1)
 
-_missing_keys = []
 for _key, _value in default_config.items():
     if _key not in config_parser:
         config_parser[_key] = _value
-        _missing_keys.append(_key)
-if _missing_keys:
-    with open(_config_path, "w") as _cf:
-        json.dump(config_parser, _cf, indent=2)
-    print(f"[config] Added {len(_missing_keys)} missing key(s) to {_config_path}")
-    print(f"         Keys: {', '.join(_missing_keys)}")
 
 # Environment variables override config.json so the CLI can be pointed at a
 # different Hashview instance (e.g. a local docker stack for the live test
