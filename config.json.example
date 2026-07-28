@@ -31,7 +31,7 @@
   "ollamaMaxSampleLines": 500,
   "ollamaAutoResearch": true,
   "omenTrainingList": "rockyou.txt",
-  "omenMaxCandidates": 50000000,
+  "omenMaxCandidates": 100000000,
   "pcfgRuleset": "DEFAULT",
   "pcfgMaxCandidates": 50000000,
   "pcfgPrinceLingMaxCandidates": 10000000,
