@@ -2787,7 +2787,9 @@ def hcatPCFG(hcatHashType, hcatHashFile):
         _insert_optimized_flag(hashcat_cmd)
     hashcat_cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(hashcat_cmd)
-    pcfg_proc = subprocess.Popen(pcfg_cmd, stdout=subprocess.PIPE, stdin=subprocess.PIPE)
+    pcfg_proc = subprocess.Popen(
+        pcfg_cmd, stdout=subprocess.PIPE, stdin=subprocess.PIPE
+    )
     _run_hcat_cmd(
         hashcat_cmd,
         attack_name="PCFG",
