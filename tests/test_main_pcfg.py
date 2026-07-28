@@ -34,6 +34,8 @@ class TestHcatPCFG:
                 captured_calls.append((args, kwargs))
                 self.stdout = MagicMock()
                 self.stdout.close = MagicMock()
+                self.stdin = MagicMock()
+                self.stdin.close = MagicMock()
 
         with patch("hate_crack.main.subprocess.Popen", side_effect=FakeProc), \
              patch("hate_crack.main._run_hcat_cmd") as mock_run, \
@@ -71,6 +73,39 @@ class TestHcatPCFG:
         assert kwargs["stdin"] is not None
         assert kwargs["companion_procs"] is not None
         assert len(kwargs["companion_procs"]) == 1
+
+    def test_pcfg_child_stdin_stays_open(self, main_module, tmp_path):
+        hash_file = str(tmp_path / "hashes.txt")
+        Path(hash_file).write_text("dummy")
+
+        pcfg_dir = tmp_path / "pcfg_cracker"
+        pcfg_dir.mkdir()
+        (pcfg_dir / "pcfg_guesser.py").write_text("# stub")
+
+        captured_calls = []
+
+        class FakeProc:
+            def __init__(self, *args, **kwargs):
+                captured_calls.append((args, kwargs))
+                self.stdout = MagicMock()
+                self.stdout.close = MagicMock()
+                self.stdin = MagicMock()
+                self.stdin.close = MagicMock()
+
+        with patch("hate_crack.main.subprocess.Popen", side_effect=FakeProc), \
+             patch("hate_crack.main._run_hcat_cmd") as mock_run, \
+             patch.object(main_module, "hate_path", str(tmp_path)), \
+             patch.object(main_module, "hcatBin", "hashcat"), \
+             patch.object(main_module, "hcatTuning", ""), \
+             patch.object(main_module, "hcatPotfilePath", ""), \
+             patch.object(main_module, "generate_session_id", return_value="test_session"):
+            main_module.hcatPCFG("0", hash_file)
+
+        producer_args, producer_kwargs = captured_calls[0]
+        assert producer_kwargs.get("stdin") is not None
+
+        fake_proc = mock_run.call_args.kwargs["companion_procs"][0]
+        assert fake_proc.stdin.close.called
 
 
 class TestHcatPrinceLing:
@@ -201,3 +236,27 @@ class TestHcatPrinceLing:
             main_module.hcatPrinceLing("0", str(tmp_path / "hashes.txt"))
 
         assert run_calls[0][0] == sys.executable
+
+    def test_prince_ling_keeps_stdin_open(self, main_module, tmp_path, monkeypatch):
+        rules_dir, opt_dir = self._setup_pcfg_dirs(tmp_path, main_module, monkeypatch)
+        cache = opt_dir / "pcfg_prince_ling_Default.txt"
+        cache.write_text("stale")
+        old = (rules_dir.stat().st_mtime - 100)
+        os.utime(cache, (old, old))
+
+        run_kwargs = []
+
+        def fake_run(cmd, **kwargs):
+            run_kwargs.append(kwargs)
+            for i, part in enumerate(cmd):
+                if part == "--output":
+                    Path(cmd[i + 1]).write_text("regenerated")
+            class R:
+                returncode = 0
+            return R()
+
+        with patch("hate_crack.main.subprocess.run", side_effect=fake_run), \
+             patch("hate_crack.main.hcatPrince"):
+            main_module.hcatPrinceLing("0", str(tmp_path / "hashes.txt"))
+
+        assert run_kwargs[0].get("stdin") is not None
