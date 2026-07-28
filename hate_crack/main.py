@@ -2849,7 +2849,7 @@ def hcatPrinceLing(hcatHashType, hcatHashFile):
             str(pcfgPrinceLingMaxCandidates),
         ]
         try:
-            subprocess.run(cmd, check=True, stdin=subprocess.PIPE)
+            subprocess.run(cmd, check=True)
             os.replace(tmp_path, cache_path)
         except (subprocess.CalledProcessError, KeyboardInterrupt, OSError) as e:
             # Clean up partial tmp file
