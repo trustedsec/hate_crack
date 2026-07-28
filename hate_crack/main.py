@@ -476,7 +476,7 @@ ollamaMaxSampleLines = int(config_parser.get("ollamaMaxSampleLines", 500))
 ollamaAutoResearch = bool(config_parser.get("ollamaAutoResearch", True))
 
 omenTrainingList = config_parser.get("omenTrainingList", "rockyou.txt")
-omenMaxCandidates = int(config_parser.get("omenMaxCandidates", 1000000))
+omenMaxCandidates = int(config_parser.get("omenMaxCandidates", 100000000))
 pcfgRuleset = config_parser.get("pcfgRuleset", "DEFAULT")
 pcfgMaxCandidates = int(config_parser.get("pcfgMaxCandidates", 50000000))
 pcfgPrinceLingMaxCandidates = int(
