@@ -2759,17 +2759,38 @@ def hcatPrince(hcatHashType, hcatHashFile, attack_name="PRINCE"):
             prince_proc.stdout.close()
 
 
+def _resolve_pcfg_ruleset_dir(pcfg_root, ruleset_name):
+    """Resolve ruleset_name against pcfg_root/Rules case-insensitively.
+
+    Older config.json files may have "DEFAULT" backfilled to disk from
+    before the default changed to "Default" (see #148) — match whatever
+    casing exists on disk rather than requiring an exact match.
+    """
+    exact = os.path.join(pcfg_root, "Rules", ruleset_name)
+    if os.path.isdir(exact):
+        return exact
+    rules_root = os.path.join(pcfg_root, "Rules")
+    if os.path.isdir(rules_root):
+        for entry in os.listdir(rules_root):
+            if entry.lower() == ruleset_name.lower():
+                return os.path.join(rules_root, entry)
+    return exact
+
+
 def hcatPCFG(hcatHashType, hcatHashFile):
     """Mode A: pipe pcfg_guesser.py output into hashcat in stdin mode."""
     pcfg_guesser_script = os.path.join(hate_path, "pcfg_cracker", "pcfg_guesser.py")
     if not os.path.isfile(pcfg_guesser_script):
         print(f"pcfg_guesser.py not found at {pcfg_guesser_script}")
         return
+    pcfg_root = os.path.join(hate_path, "pcfg_cracker")
+    resolved_ruleset_dir = _resolve_pcfg_ruleset_dir(pcfg_root, pcfgRuleset)
+    resolved_ruleset_name = os.path.basename(resolved_ruleset_dir)
     pcfg_cmd = [
         sys.executable,
         pcfg_guesser_script,
         "--rule",
-        pcfgRuleset,
+        resolved_ruleset_name,
         "--limit",
         str(pcfgMaxCandidates),
     ]
@@ -2811,7 +2832,7 @@ def hcatPrinceLing(hcatHashType, hcatHashFile):
     global hcatPrinceBaseList
     pcfg_root = os.path.join(hate_path, "pcfg_cracker")
     prince_ling_script = os.path.join(pcfg_root, "prince_ling.py")
-    ruleset_dir = os.path.join(pcfg_root, "Rules", pcfgRuleset)
+    ruleset_dir = _resolve_pcfg_ruleset_dir(pcfg_root, pcfgRuleset)
     if not os.path.isfile(prince_ling_script):
         print(f"prince_ling.py not found at {prince_ling_script}")
         return
