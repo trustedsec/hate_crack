@@ -77,7 +77,7 @@ class TestHcatPrinceLing:
     def _setup_pcfg_dirs(self, tmp_path, main_module, monkeypatch):
         """Lay out fake pcfg_cracker/Rules/<ruleset>/ and optimized_wordlists/."""
         pcfg_root = tmp_path / "pcfg_cracker"
-        rules_dir = pcfg_root / "Rules" / "DEFAULT"
+        rules_dir = pcfg_root / "Rules" / "Default"
         rules_dir.mkdir(parents=True)
         (rules_dir / "config.txt").write_text("dummy")
         # prince_ling script must "exist" for the function to proceed
@@ -91,7 +91,7 @@ class TestHcatPrinceLing:
 
     def test_regenerates_when_cache_stale(self, main_module, tmp_path, monkeypatch):
         rules_dir, opt_dir = self._setup_pcfg_dirs(tmp_path, main_module, monkeypatch)
-        cache = opt_dir / "pcfg_prince_ling_DEFAULT.txt"
+        cache = opt_dir / "pcfg_prince_ling_Default.txt"
         # Cache exists but is older than ruleset
         cache.write_text("stale")
         old = (rules_dir.stat().st_mtime - 100)
@@ -118,7 +118,7 @@ class TestHcatPrinceLing:
         cmd = run_calls[0]
         assert any("prince_ling.py" in p for p in cmd)
         assert "--rule" in cmd
-        assert cmd[cmd.index("--rule") + 1] == "DEFAULT"
+        assert cmd[cmd.index("--rule") + 1] == "Default"
         # Uses --size, NOT --limit
         assert "--size" in cmd
         assert "--limit" not in cmd
@@ -127,7 +127,7 @@ class TestHcatPrinceLing:
 
     def test_skips_regen_when_cache_fresh(self, main_module, tmp_path, monkeypatch):
         rules_dir, opt_dir = self._setup_pcfg_dirs(tmp_path, main_module, monkeypatch)
-        cache = opt_dir / "pcfg_prince_ling_DEFAULT.txt"
+        cache = opt_dir / "pcfg_prince_ling_Default.txt"
         cache.write_text("fresh")
         # Cache is newer than ruleset
         future = rules_dir.stat().st_mtime + 1000
@@ -156,12 +156,12 @@ class TestHcatPrinceLing:
             main_module.hcatPrinceLing("0", str(tmp_path / "hashes.txt"))
 
         # No real cache file created; tmp file cleaned up
-        assert not (opt_dir / "pcfg_prince_ling_DEFAULT.txt").exists()
-        assert not (opt_dir / "pcfg_prince_ling_DEFAULT.txt.tmp").exists()
+        assert not (opt_dir / "pcfg_prince_ling_Default.txt").exists()
+        assert not (opt_dir / "pcfg_prince_ling_Default.txt.tmp").exists()
 
     def test_restores_hcatPrinceBaseList_on_exception(self, main_module, tmp_path, monkeypatch):
         rules_dir, opt_dir = self._setup_pcfg_dirs(tmp_path, main_module, monkeypatch)
-        cache = opt_dir / "pcfg_prince_ling_DEFAULT.txt"
+        cache = opt_dir / "pcfg_prince_ling_Default.txt"
         cache.write_text("fresh")
         future = rules_dir.stat().st_mtime + 1000
         os.utime(cache, (future, future))
@@ -180,7 +180,7 @@ class TestHcatPrinceLing:
 
     def test_uses_sys_executable(self, main_module, tmp_path, monkeypatch):
         rules_dir, opt_dir = self._setup_pcfg_dirs(tmp_path, main_module, monkeypatch)
-        cache = opt_dir / "pcfg_prince_ling_DEFAULT.txt"
+        cache = opt_dir / "pcfg_prince_ling_Default.txt"
         cache.write_text("stale")
         old = (rules_dir.stat().st_mtime - 100)
         os.utime(cache, (old, old))
