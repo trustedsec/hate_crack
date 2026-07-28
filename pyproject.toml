@@ -15,7 +15,7 @@ dependencies = [
     "packaging>=26.2",
     "simple-term-menu==1.6.6",
     "click>=8.4.2",
-    "atomic-agents>=2.0.0",
+    "atomic-agents>=2.9.1",
     # Imported directly by hate_crack/llm.py; declared explicitly rather than
     # relying on atomic-agents pulling them in transitively.
     "instructor>=1.14.5",
