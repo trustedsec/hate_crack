@@ -242,18 +242,33 @@ except json.JSONDecodeError as e:
     print("  2. Delete the file to regenerate from defaults")
     sys.exit(1)
 
+def _load_config_defaults(defaults_path):
+    """Load config.json.example, exiting with a clear diagnostic on
+    malformed JSON or an unreadable/missing file (see #155 — a dangling
+    symlink surfaces as FileNotFoundError, which used to escape uncaught).
+    """
+    try:
+        with open(defaults_path) as defaults:
+            return json.load(defaults)
+    except json.JSONDecodeError:
+        print("\nError: config.json.example contains invalid JSON")
+        print(f"  File: {defaults_path}")
+        print("  This is a package installation issue. Try reinstalling hate_crack.")
+        sys.exit(1)
+    except OSError:
+        print("\nError: config.json.example could not be read")
+        print(f"  File: {defaults_path}")
+        if os.path.islink(defaults_path) and not os.path.exists(defaults_path):
+            print("  This is a dangling symlink: the link exists but its target is missing.")
+        print("  This is a package installation issue. Try reinstalling hate_crack.")
+        sys.exit(1)
+
+
 config_dir = os.path.dirname(_config_path)
 defaults_path = os.path.join(config_dir, "config.json.example")
 if not os.path.isfile(defaults_path):
     defaults_path = os.path.join(_package_path, "config.json.example")
-try:
-    with open(defaults_path) as defaults:
-        default_config = json.load(defaults)
-except json.JSONDecodeError:
-    print("\nError: config.json.example contains invalid JSON")
-    print(f"  File: {defaults_path}")
-    print("  This is a package installation issue. Try reinstalling hate_crack.")
-    sys.exit(1)
+default_config = _load_config_defaults(defaults_path)
 
 for _key, _value in default_config.items():
     if _key not in config_parser:
