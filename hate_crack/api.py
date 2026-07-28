@@ -179,17 +179,11 @@ def _get_hate_path():
 
 
 def _candidate_roots():
-    cwd = os.getcwd()
     home = os.path.expanduser("~")
-    candidates = [
-        cwd,
-        os.path.abspath(os.path.join(cwd, os.pardir)),
-        "/opt/hate_crack",
-        "/usr/local/share/hate_crack",
+    return [
+        _get_hate_path(),
+        os.path.join(home, ".hate_crack"),
     ]
-    for candidate_name in ["hate_crack", "hate-crack", ".hate_crack"]:
-        candidates.append(os.path.join(home, candidate_name))
-    return candidates
 
 
 def _resolve_config_path():

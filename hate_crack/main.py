@@ -166,19 +166,12 @@ def _has_hate_crack_assets(path):
 
 
 def _candidate_roots():
-    cwd = os.getcwd()
     home = os.path.expanduser("~")
-    candidates = [
-        cwd,
-        os.path.abspath(os.path.join(cwd, os.pardir)),
+    return [
         _repo_root,
         _package_path,
-        "/opt/hate_crack",
-        "/usr/local/share/hate_crack",
+        os.path.join(home, ".hate_crack"),
     ]
-    for candidate_name in ["hate_crack", "hate-crack", ".hate_crack"]:
-        candidates.append(os.path.join(home, candidate_name))
-    return candidates
 
 
 def _resolve_config_path():

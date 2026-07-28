@@ -145,9 +145,8 @@ hate_crack
 The `make install` command creates a bash shim at `~/.local/bin/hate_crack` that runs from the repo directory, so config and assets are always found regardless of your current working directory.
 
 Config is also searched in:
-- Current working directory and parent directory
 - The repo root and package directory
-- `~/hate_crack`, `~/hate-crack`, or `~/.hate_crack`
+- `~/.hate_crack`
 
 **Note:** The `hcatPath` in `config.json` is for the hashcat binary location only (optional if hashcat is in PATH). Hate_crack assets (hashcat-utils, princeprocessor, pcfg_cracker, omen) are loaded from the repository directory and bundled automatically by `make install`.
 
@@ -235,7 +234,7 @@ Most users can use defaults without customization:
 
 **Configuration loading:**
 - Missing config keys are automatically backfilled from `config.json.example` on startup
-- Config is searched in multiple locations: repo root, current working directory, `~/.hate_crack`, `/opt/hate_crack`
+- Config is searched in: repo root, package directory, `~/.hate_crack`
 
 ### Error: merge with ref 'refs/heads/master' but no such ref was fetched
 
