@@ -126,6 +126,19 @@ def test_menu_option_93_registered(hc_module):
     assert labels["93"] == "Regenerate .out from POT file"
 
 
+def test_menu_item_93_precedes_94_when_hashview_configured(monkeypatch):
+    """93 must render before the conditionally-appended Hashview entry.
+
+    get_main_menu_items() appends "94" between the base list and a trailing
+    extend(), so an entry placed in that trailing block would display after 94.
+    """
+    monkeypatch.setattr(main, "hashview_api_key", "dummy-key", raising=False)
+    keys = [key for key, _label in main.get_main_menu_items()]
+
+    assert "94" in keys
+    assert keys.index("93") < keys.index("94") < keys.index("95")
+
+
 def test_restore_potfile_flag_rebuilds_existing_out(monkeypatch, tmp_path):
     """--restore-potfile regenerates .out even though the file already exists.
 

@@ -4858,12 +4858,12 @@ def get_main_menu_items():
         ("80", "Wordlist Tools"),
         ("81", "Rule File Tools"),
         ("82", "Notifications"),
+        ("93", "Regenerate .out from POT file"),
     ]
     if hashview_api_key:
         items.append(("94", "Hashview API"))
     items.extend(
         [
-            ("93", "Regenerate .out from POT file"),
             ("95", "Analyze hashes with Pipal"),
             ("96", "Export Output to Excel Format"),
             ("97", "Display Cracked Hashes"),
