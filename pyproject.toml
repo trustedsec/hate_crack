@@ -17,7 +17,7 @@ dependencies = [
     "atomic-agents>=2.9.1",
     # Imported directly by hate_crack/llm.py; declared explicitly rather than
     # relying on atomic-agents pulling them in transitively.
-    "instructor>=1.14.5",
+    "instructor>=1.15.4",
     "openai>=2.49.0",
     "pydantic>=2.13.4",
 ]
