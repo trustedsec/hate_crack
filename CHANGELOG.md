@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [Unreleased]
+
+### Changed
+
+- **Spoonman Attack output is now ephemeral.** Derived basewords and rules are
+  written to `<hash file>.spoonman/` beside the hash file, matching the other
+  ephemeral wordlists (`.expanded`, `.combined`), instead of persisting under
+  `<hcatOptimizedWordlists>/spoonman/<corpus name>/`. The directory is removed
+  by the temp-file cleanup on exit. Derivation is still skipped when the corpus
+  has not changed since a prior run against the same hash file. This also
+  removes the collision between two different corpora that share a filename.
+
 ## [2.17.1] - 2026-07-29
 
 ### Changed

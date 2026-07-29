@@ -21,10 +21,14 @@ def corpus(tmp_path):
 
 
 class TestHcatSpoonman:
+    def _hash_file(self, tmp_path):
+        return str(tmp_path / "hashes.txt")
+
     def _run(self, main_module, tmp_path, corpus, monkeypatch, **kwargs):
-        monkeypatch.setattr(main_module, "hcatOptimizedWordlists", str(tmp_path / "opt"))
         with patch.object(main_module, "hcatQuickDictionary") as quick:
-            main_module.hcatSpoonman("1000", "hashes.txt", corpus, **kwargs)
+            main_module.hcatSpoonman(
+                "1000", self._hash_file(tmp_path), corpus, **kwargs
+            )
         return quick
 
     def test_derives_then_delegates_to_quick_dictionary(
@@ -35,7 +39,7 @@ class TestHcatSpoonman:
         quick.assert_called_once()
         args, kwargs = quick.call_args
         assert args[0] == "1000"
-        assert args[1] == "hashes.txt"
+        assert args[1] == self._hash_file(tmp_path)
         assert args[2].startswith("-r ")
         assert args[2].endswith("rules.full.rule")
         assert args[3].endswith("basewords.txt")
@@ -48,11 +52,27 @@ class TestHcatSpoonman:
         quick = self._run(main_module, tmp_path, corpus, monkeypatch, coverage=95)
         assert quick.call_args[0][2].endswith("rules.top95.rule")
 
-    def test_cache_dir_is_namespaced_per_corpus(
+    def test_output_lives_beside_the_hash_file(
         self, main_module, tmp_path, corpus, monkeypatch
     ):
         quick = self._run(main_module, tmp_path, corpus, monkeypatch)
-        assert os.path.join("spoonman", "cracked.txt") in quick.call_args[0][3]
+        expected_dir = self._hash_file(tmp_path) + ".spoonman"
+        assert os.path.dirname(quick.call_args[0][3]) == expected_dir
+        assert os.path.isdir(expected_dir)
+
+    def test_cleanup_removes_derived_output(
+        self, main_module, tmp_path, corpus, monkeypatch
+    ):
+        hash_file = self._hash_file(tmp_path)
+        self._run(main_module, tmp_path, corpus, monkeypatch)
+        assert os.path.isdir(hash_file + ".spoonman")
+
+        monkeypatch.setattr(main_module, "hcatHashFile", hash_file, raising=False)
+        monkeypatch.setattr(main_module, "hcatHashFileOrig", hash_file, raising=False)
+        monkeypatch.setattr(main_module, "hcatHashType", "1000", raising=False)
+        monkeypatch.setattr(main_module, "pwdump_format", False, raising=False)
+        main_module.cleanup()
+        assert not os.path.exists(hash_file + ".spoonman")
 
     def test_missing_corpus_reports_and_does_not_run_hashcat(
         self, main_module, tmp_path, monkeypatch, capsys
