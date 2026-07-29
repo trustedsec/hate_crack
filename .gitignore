@@ -1,4 +1,14 @@
 config.json
+# Timestamped/editor backups of config.json carry the same populated API keys as
+# config.json itself. Only the exact name was ignored, so a `git add -A` in a
+# checkout holding one would have staged live credentials into a public repo.
+config.json.bak*
+config.json.*.bak
+config.json.orig
+config.json.save
+config.json~
+# Playwright MCP scratch output (console logs, traces, screenshots).
+.playwright-mcp/
 hashcat.pot
 hate_crack/__init__.pyc
 hate_crack/_version.py
