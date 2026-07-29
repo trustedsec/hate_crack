@@ -4742,8 +4742,6 @@ def get_main_menu_items():
         ("82", "Notifications"),
         ("90", "Download rules from Hashmob.net"),
         ("91", "Analyze Hashcat Rules"),
-        ("92", "Download wordlists from Hashmob.net"),
-        ("93", "Weakpass Wordlist Menu"),
     ]
     if hashview_api_key:
         items.append(("94", "Hashview API"))
@@ -4788,8 +4786,6 @@ def get_main_menu_options():
         "82": notifications_submenu,
         "90": lambda: download_hashmob_rules(rules_dir=rulesDirectory),
         "91": analyze_rules,
-        "92": download_hashmob_wordlists,
-        "93": weakpass_wordlist_menu,
         "95": pipal,
         "96": export_excel,
         "97": show_results,

@@ -5,7 +5,11 @@ import readline
 from typing import Any
 
 from hate_crack import notify as _notify
-from hate_crack.api import download_hashmob_rules
+from hate_crack.api import (
+    download_hashmob_rules,
+    download_hashmob_wordlists,
+    weakpass_wordlist_menu,
+)
 from hate_crack.formatting import print_multicolumn_list
 from hate_crack.llm import clean_research_field
 from hate_crack.menu import interactive_menu
@@ -1398,6 +1402,8 @@ def wordlist_tools_submenu(ctx: Any) -> None:
         ("6", "Subtract Wordlist"),
         ("7", "Shard Wordlist"),
         ("8", "Optimize Wordlists"),
+        ("9", "Download wordlists from Hashmob.net"),
+        ("10", "Download wordlists from Weakpass"),
         ("99", "Back to Main Menu"),
     ]
     while True:
@@ -1420,3 +1426,7 @@ def wordlist_tools_submenu(ctx: Any) -> None:
             wordlist_shard(ctx)
         elif choice == "8":
             wordlist_optimize(ctx)
+        elif choice == "9":
+            download_hashmob_wordlists(print_fn=print)
+        elif choice == "10":
+            weakpass_wordlist_menu()
