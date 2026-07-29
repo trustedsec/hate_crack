@@ -5,6 +5,9 @@ on:
   push:
     branches:
       - main
+      # Required for nightly-tag.yml, which triggers on this workflow completing
+      # for nightly-dev. Without it, pushes to nightly-dev run no CI at all.
+      - nightly-dev
 
 permissions:
   contents: read
