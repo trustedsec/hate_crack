@@ -2940,25 +2940,35 @@ def hcatSpoonman(hcatHashType, hcatHashFile, corpus, coverage=None):
         "spoonman",
         os.path.basename(corpus),
     )
-    print(f"[*] Deriving basewords and rules from {corpus}")
-    try:
-        result = _rulegen.generate(corpus, cache_dir)
-    except (OSError, ValueError) as e:
-        print(f"Rule derivation failed: {e}")
-        return
-
-    rules_path = result["rules"]
+    # Deriving is O(corpus), so reuse a previous run's output unless the corpus
+    # has changed since. Mirrors the staleness check in hcatPrinceLing.
+    basewords_path = os.path.join(cache_dir, "basewords.txt")
+    rules_path = os.path.join(cache_dir, "rules.full.rule")
     if coverage is not None:
-        rules_path = result["capped_rules"].get(coverage, rules_path)
-    print(f"[*] Basewords: {result['basewords']}")
+        rules_path = os.path.join(cache_dir, f"rules.top{coverage}.rule")
+    cached = os.path.isfile(basewords_path) and os.path.isfile(rules_path)
+    if cached and os.path.getmtime(corpus) <= os.path.getmtime(basewords_path):
+        print(f"[*] Reusing derived basewords and rules in {cache_dir}")
+    else:
+        print(f"[*] Deriving basewords and rules from {corpus}")
+        try:
+            result = _rulegen.generate(corpus, cache_dir)
+        except (OSError, ValueError) as e:
+            print(f"Rule derivation failed: {e}")
+            return
+        basewords_path = result["basewords"]
+        rules_path = result["rules"]
+        if coverage is not None:
+            rules_path = result["capped_rules"].get(coverage, rules_path)
+    print(f"[*] Basewords: {basewords_path}")
     print(f"[*] Rules:     {rules_path}")
-    print(f"[*] Coverage:  {result['coverage']}")
+    print(f"[*] Coverage:  {os.path.join(cache_dir, 'coverage.txt')}")
 
     hcatQuickDictionary(
         hcatHashType,
         hcatHashFile,
         f"-r {shlex.quote(rules_path)}",
-        result["basewords"],
+        basewords_path,
         attack_name="Spoonman",
     )
 

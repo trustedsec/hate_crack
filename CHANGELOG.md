@@ -16,8 +16,8 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   passwords, such that the baseword x rule cross product reconstructs the
   corpus. Rules are ordered most-productive-first so the file is truncatable;
   the menu offers the full set, top 99%, or top 95% coverage. Output is cached
-  per corpus under `<hcatOptimizedWordlists>/spoonman/`. Contributed by
-  @Spoonman1091. (#169)
+  per corpus under `<hcatOptimizedWordlists>/spoonman/` and reused until the
+  corpus changes. Contributed by @Spoonman1091. (#169)
 
   The derivation enforces hashcat's limit of 31 functions per rule, falling
   back to emitting the password as its own literal baseword. hashcat drops

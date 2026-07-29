@@ -1004,7 +1004,7 @@ Each password is split into its letters-only lowercased core (the baseword) plus
 
 * Prompts for the corpus, then for how much of the rule file to run: the full set, top 99%, or top 95%
 * Rules are sorted by how many passwords each one rebuilds, so a truncated file keeps the most productive rules — top 95% coverage typically needs a small fraction of the rules
-* Output is cached under `<hcatOptimizedWordlists>/spoonman/<corpus name>/`: `basewords.txt`, `rules.full.rule`, the capped rule files, and `coverage.txt` with per-milestone rule counts
+* Output is cached under `<hcatOptimizedWordlists>/spoonman/<corpus name>/`: `basewords.txt`, `rules.full.rule`, the capped rule files, and `coverage.txt` with per-milestone rule counts. Derivation is skipped on later runs unless the corpus has been modified since
 * Passwords that cannot be expressed as a rule are written verbatim as their own baseword with a `:` no-op, so coverage stays complete. This covers two hashcat limits: rule positions cannot address past index 35, and hashcat rejects any rule with more than 31 functions — silently, when valid rules share the file
 * The derivation self-checks every password by reconstructing it in-process, and reports any failures rather than reporting success
 
