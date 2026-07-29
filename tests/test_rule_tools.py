@@ -1,8 +1,6 @@
 import os
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from hate_crack.attacks import (
     rule_cleanup_and_optimize_handler,

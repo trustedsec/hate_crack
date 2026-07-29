@@ -1,7 +1,5 @@
-import os
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from hate_crack.attacks import permute_crack
 

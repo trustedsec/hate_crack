@@ -1,8 +1,6 @@
 """Tests for rules_cleanup and rules_optimize subprocess wrappers in main.py."""
-import subprocess
-from unittest.mock import MagicMock, mock_open, patch
+from unittest.mock import MagicMock, patch
 
-import pytest
 
 
 def _load_main():

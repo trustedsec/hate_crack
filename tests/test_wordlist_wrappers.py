@@ -1,10 +1,7 @@
-import os
-import subprocess
 from pathlib import Path
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 import importlib.util
 
-import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CLI_SPEC = importlib.util.spec_from_file_location(

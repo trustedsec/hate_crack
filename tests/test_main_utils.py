@@ -1,6 +1,5 @@
 """Tests for utility functions in hate_crack/main.py."""
 
-import os
 from unittest.mock import MagicMock, patch
 
 import pytest

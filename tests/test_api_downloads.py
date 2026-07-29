@@ -301,7 +301,7 @@ class TestTransmissionSession:
         ), patch(
             "shutil.rmtree", rmtree_mock
         ):
-            with TransmissionSession(str(tmp_path)) as ts:
+            with TransmissionSession(str(tmp_path)):
                 pass
             # transmission-remote --exit was called
             exit_called = any(

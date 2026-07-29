@@ -508,8 +508,6 @@ class TestOllamaAttack:
 
     def test_arrow_menu_env_reaches_ollama_attack(self) -> None:
         """HATE_CRACK_ARROW_MENU=1 routes through interactive_menu in ollama_attack."""
-        import os
-        from hate_crack.attacks import interactive_menu as real_im
 
         ctx = _make_ctx()
         calls: list[tuple] = []
