@@ -209,10 +209,8 @@ class DummyHashviewAPI:
     def __init__(self, base_url, api_key, debug=False):
         self.calls = []
 
-    def download_left_hashes(
-        self, customer_id, hashfile_id, hash_type=None, potfile_path=None
-    ):
-        self.calls.append(("download_left_hashes", customer_id, hashfile_id, hash_type))
+    def download_left_hashes(self, customer_id, hashfile_id, potfile_path=None):
+        self.calls.append(("download_left_hashes", customer_id, hashfile_id))
         return {"output_file": "left.txt", "size": 42}
 
 
@@ -229,8 +227,6 @@ def test_hashview_download_hashes(monkeypatch, capsys):
             "1",
             "--hashfile-id",
             "2",
-            "--hash-type",
-            "1000",
         ],
     )
     assert code == 0

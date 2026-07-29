@@ -95,6 +95,12 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   way to see which rule cracked which hash for exactly those two. A new test
   pins the invariant for every future rule-based attack.
 
+- **`hashview download-hashes --hash-type` did nothing.** The flag existed only
+  to feed `download_left_hashes`, whose `hash_type` parameter had been unused
+  since the download flow was overhauled and its `hashcat -m` verification run
+  removed. Both the flag and the parameter are gone; the `--hash-type` flags on
+  `upload-cracked` and `upload-hashfile-job` are unaffected.
+
 - **The same attack could run with or without `-O` depending only on whether a
   `config.json` existed.** `hcatPCFG` was listed in the example's
   `optimizedKernelAttacks` but missing from the `DEFAULT_OPTIMIZED_ATTACKS`

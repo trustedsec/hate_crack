@@ -4470,15 +4470,10 @@ def hashview_api():
                             selected_hash_type = None
 
                     # Download the left hashes
-                    if debug_mode:
-                        print(
-                            f"[DEBUG] Calling download_left_hashes with hash_type={selected_hash_type}"
-                        )
                     download_result = api_harness.download_left_hashes(
                         customer_id,
                         hashfile_id,
                         output_file,
-                        hash_type=selected_hash_type,
                         potfile_path=hcatPotfilePath,
                     )
                     print(f"\n✓ Success: Downloaded {download_result['size']} bytes")
@@ -5367,11 +5362,6 @@ def main():
         hv_download_left.add_argument(
             "--hashfile-id", required=True, type=int, help="Hashfile ID"
         )
-        hv_download_left.add_argument(
-            "--hash-type",
-            default=None,
-            help="Hash type for hashcat (e.g., 1000 for NTLM)",
-        )
 
         hv_download_rules = hashview_subparsers.add_parser(
             "download-rules",
@@ -5558,7 +5548,6 @@ def main():
             download_result = api_harness.download_left_hashes(
                 args.customer_id,
                 args.hashfile_id,
-                hash_type=args.hash_type,
                 potfile_path=hcatPotfilePath,
             )
             print(f"\n✓ Success: Downloaded {download_result['size']} bytes")

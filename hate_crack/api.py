@@ -1623,7 +1623,6 @@ class HashviewAPI:
         customer_id,
         hashfile_id,
         output_file=None,
-        hash_type=None,
         potfile_path=None,
     ):
         import sys
@@ -2132,7 +2131,6 @@ def download_hashes_from_hashview(
         customer_id,
         hashfile_id,
         output_file,
-        hash_type=selected_hash_type,
         potfile_path=potfile_path,
     )
     print_fn(f"\n✓ Success: Downloaded {download_result['size']} bytes")
