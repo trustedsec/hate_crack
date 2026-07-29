@@ -2944,13 +2944,10 @@ def hcatSpoonman(hcatHashType, hcatHashFile, corpus, coverage=None):
         print(f"Error: corpus not found: {corpus}")
         return
 
-    cache_dir = os.path.join(
-        hcatOptimizedWordlists
-        if isinstance(hcatOptimizedWordlists, str)
-        else str(hcatOptimizedWordlists),
-        "spoonman",
-        os.path.basename(corpus),
-    )
+    # Derived basewords/rules are per-run scratch, so they live beside the hash
+    # file like the other ephemeral wordlists (.expanded, .combined) and are
+    # removed by cleanup().
+    cache_dir = f"{hcatHashFile}.spoonman"
     # Deriving is O(corpus), so reuse a previous run's output unless the corpus
     # has changed since. Mirrors the staleness check in hcatPrinceLing.
     basewords_path = os.path.join(cache_dir, "basewords.txt")
@@ -3434,6 +3431,8 @@ def cleanup():
             os.remove(hcatHashFile + ".working")
         if os.path.exists(hcatHashFile + ".expanded"):
             os.remove(hcatHashFile + ".expanded")
+        if os.path.isdir(hcatHashFile + ".spoonman"):
+            shutil.rmtree(hcatHashFile + ".spoonman", ignore_errors=True)
         if os.path.exists(hcatHashFileOrig + ".combined"):
             os.remove(hcatHashFileOrig + ".combined")
         if os.path.exists(hcatHashFileOrig + ".lm"):
