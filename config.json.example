@@ -26,7 +26,7 @@
   "hashview_api_key": "",
   "hashmob_api_key": "",
   "ollamaModel": "qwen2.5:32b",
-  "ollamaNumCtx": 2048,
+  "ollamaNumCtx": 8192,
   "ollamaTimeout": 300,
   "ollamaMaxSampleLines": 500,
   "ollamaAutoResearch": true,

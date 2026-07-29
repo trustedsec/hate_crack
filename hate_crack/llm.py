@@ -168,13 +168,17 @@ _PATTERN_PROMPT = SystemPromptGenerator(
         "leetspeak — so decorating a baseword yourself only wastes a slot.",
     ],
     steps=[
-        "Strip each sample password down to the word or words behind it, ignoring "
-        "case, digits, and punctuation.",
-        "Group those words into the semantic families they belong to: the company "
+        "Read the corpus statistics. They cover every password in the corpus, so "
+        "a baseword's share tells you how much of the organization chose it — "
+        "treat the high-share entries as the strongest signal about what these "
+        "users draw on.",
+        "Strip each word you are shown down to the word or words behind it, "
+        "ignoring case, digits, and punctuation.",
+        "Group them into the semantic families they belong to: the company "
         "and its products, site or department names, local sports teams and city "
         "names, seasons and months, hobbies, mascots, keyboard walks.",
         "For every family you identify, list more members of that family than the "
-        "sample actually contains — the point is to predict the words other users "
+        "corpus actually contains — the point is to predict the words other users "
         "at this organization chose, not to echo the ones already recovered.",
     ],
     output_instructions=[
@@ -197,6 +201,25 @@ _PROMPTS = {
 }
 
 
+def _corpus_block(context_data: dict) -> str:
+    """Render the corpus portion of a request from *context_data*.
+
+    ``summary`` holds whole-corpus statistics (see hate_crack.corpus_stats) and
+    ``sample`` the literal plaintexts, which are only present when the whole
+    corpus fit under the sample cap. Either may be absent; both are labelled so
+    the model does not mistake a frequency table for a list of passwords to
+    return.
+    """
+    parts = []
+    summary = context_data.get("summary", "")
+    sample = context_data.get("sample", "")
+    if summary:
+        parts.append("=== CORPUS STATISTICS (whole corpus) ===\n" + summary)
+    if sample:
+        parts.append("=== PASSWORDS ===\n" + sample)
+    return "\n".join(parts)
+
+
 def _build_request(mode: str, context_data: dict) -> str:
     """Build the natural-language request string for the given mode."""
     if mode == "target":
@@ -210,27 +233,29 @@ def _build_request(mode: str, context_data: dict) -> str:
             "suffixes, years, and leetspeak substitutions."
         )
     if mode == "wordlist":
-        sample = context_data.get("sample", "")
         return (
-            "Here are sample passwords. Study their patterns and generate basewords "
-            "for a denylist:\n" + sample
+            "Here is a description of a password corpus. Study its patterns and "
+            "generate basewords for a denylist:\n" + _corpus_block(context_data)
         )
     if mode == "pattern":
-        sample = context_data.get("sample", "")
         return (
-            "Here is a sample of passwords from the target environment. Identify "
-            "the semantic families of words behind them, then return as many "
-            "lowercase letters-only basewords from those families as you can, "
-            "including words the sample does not contain. Hashcat rules will "
-            "mutate these, so add no digits, capitals, or punctuation:\n" + sample
+            "Here is a description of the passwords in the target environment. "
+            "Identify the semantic families of words behind them, then return as "
+            "many lowercase letters-only basewords from those families as you "
+            "can, including words the corpus does not contain. The statistics "
+            "tell you which basewords and habits dominate the organization, so "
+            "weight your answer toward the families the common ones belong to. "
+            "Hashcat rules will mutate these, so add no digits, capitals, or "
+            "punctuation:\n" + _corpus_block(context_data)
         )
     if mode == "cracked":
-        sample = context_data.get("sample", "")
         return (
-            "These passwords were already cracked from the target organization. "
-            "Study the conventions they reveal and generate as many NEW password "
-            "candidates as you can that follow the same conventions. Do not repeat "
-            "any of these:\n" + sample
+            "The passwords described below were already cracked from the target "
+            "organization. Study the conventions they reveal and generate as many "
+            "NEW password candidates as you can that follow the same conventions. "
+            "Do not repeat any password shown to you, and note that a high-share "
+            "baseword in the statistics is one many users chose, so it is worth "
+            "varying rather than repeating:\n" + _corpus_block(context_data)
         )
     raise ValueError(f"Unknown LLM generation mode: {mode}")
 
