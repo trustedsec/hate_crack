@@ -2783,12 +2783,18 @@ def _resolve_pcfg_ruleset_dir(pcfg_root, ruleset_name):
     Older config.json files may have "DEFAULT" backfilled to disk from
     before the default changed to "Default" (see #148) — match whatever
     casing exists on disk rather than requiring an exact match.
+
+    ``os.path.isdir()`` alone can't be used for the fast path: on
+    case-insensitive filesystems (macOS/Windows default) it returns True
+    for a wrong-cased path too, which would make callers report the
+    casing they asked for instead of what's actually on disk.
     """
     exact = os.path.join(pcfg_root, "Rules", ruleset_name)
-    if os.path.isdir(exact):
-        return exact
     rules_root = os.path.join(pcfg_root, "Rules")
     if os.path.isdir(rules_root):
+        for entry in os.listdir(rules_root):
+            if entry == ruleset_name:
+                return os.path.join(rules_root, entry)
         for entry in os.listdir(rules_root):
             if entry.lower() == ruleset_name.lower():
                 return os.path.join(rules_root, entry)
