@@ -5,7 +5,11 @@ import readline
 from typing import Any
 
 from hate_crack import notify as _notify
-from hate_crack.api import download_hashmob_rules
+from hate_crack.api import (
+    download_hashmob_rules,
+    download_hashmob_wordlists,
+    weakpass_wordlist_menu,
+)
 from hate_crack.formatting import print_multicolumn_list
 from hate_crack.llm import clean_research_field
 from hate_crack.menu import interactive_menu
@@ -1129,6 +1133,8 @@ def rule_tools_submenu(ctx: Any) -> None:
         ("1", "Clean rule file (remove invalid/duplicate rules)"),
         ("2", "Optimize rule file (consolidate redundant operations)"),
         ("3", "Clean and optimize rule file (both)"),
+        ("4", "Download rules from Hashmob.net"),
+        ("5", "Analyze Hashcat rules (opcode statistics)"),
         ("99", "Back to Main Menu"),
     ]
     while True:
@@ -1141,6 +1147,10 @@ def rule_tools_submenu(ctx: Any) -> None:
             rule_optimize_handler(ctx)
         elif choice == "3":
             rule_cleanup_and_optimize_handler(ctx)
+        elif choice == "4":
+            download_hashmob_rules(print_fn=print, rules_dir=ctx.rulesDirectory)
+        elif choice == "5":
+            ctx.analyze_rules()
 
 
 def wordlist_filter_length(ctx: Any) -> None:
@@ -1398,6 +1408,8 @@ def wordlist_tools_submenu(ctx: Any) -> None:
         ("6", "Subtract Wordlist"),
         ("7", "Shard Wordlist"),
         ("8", "Optimize Wordlists"),
+        ("9", "Download wordlists from Hashmob.net"),
+        ("10", "Download wordlists from Weakpass"),
         ("99", "Back to Main Menu"),
     ]
     while True:
@@ -1420,3 +1432,7 @@ def wordlist_tools_submenu(ctx: Any) -> None:
             wordlist_shard(ctx)
         elif choice == "8":
             wordlist_optimize(ctx)
+        elif choice == "9":
+            download_hashmob_wordlists(print_fn=print)
+        elif choice == "10":
+            weakpass_wordlist_menu()

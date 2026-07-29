@@ -325,6 +325,20 @@ class TestWordlistToolsSubmenu:
             wordlist_tools_submenu(ctx)
         mock_fn.assert_called_once_with(ctx)
 
+    def test_submenu_dispatches_to_hashmob_download(self):
+        ctx = _make_ctx()
+        with patch("hate_crack.attacks.download_hashmob_wordlists") as mock_fn, \
+             patch("hate_crack.attacks.interactive_menu", side_effect=["9", "99"]):
+            wordlist_tools_submenu(ctx)
+        mock_fn.assert_called_once_with(print_fn=print)
+
+    def test_submenu_dispatches_to_weakpass_download(self):
+        ctx = _make_ctx()
+        with patch("hate_crack.attacks.weakpass_wordlist_menu") as mock_fn, \
+             patch("hate_crack.attacks.interactive_menu", side_effect=["10", "99"]):
+            wordlist_tools_submenu(ctx)
+        mock_fn.assert_called_once_with()
+
     def test_submenu_exits_on_99(self):
         ctx = _make_ctx()
         with patch("hate_crack.attacks.interactive_menu", return_value="99"):

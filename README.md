@@ -567,7 +567,7 @@ Credentials and tuning knobs remain config-file-only in `config.json`:
 
 ### Wordlist Tools (menu option 80)
 
-The Wordlist Tools submenu provides 7 wordlist preprocessing utilities backed by hashcat-utils binaries. Access via option **80** in the main menu.
+The Wordlist Tools submenu provides wordlist preprocessing utilities backed by hashcat-utils binaries, plus wordlist downloads from Hashmob.net and Weakpass. Access via option **80** in the main menu.
 
 | Option | Binary | What it does |
 |--------|--------|--------------|
@@ -578,6 +578,9 @@ The Wordlist Tools submenu provides 7 wordlist preprocessing utilities backed by
 | 5 | `splitlen.bin` | Split by length - create separate files per word length (files named `01`-`64` in an output directory) |
 | 6 | `rli.bin` / `rli2.bin` | Subtract words - remove entries that appear in one or more other files |
 | 7 | `gate.bin` | Shard - extract every N-th word for distributed cracking across multiple machines |
+| 8 | - | Optimize wordlists - dedupe and split into per-length files under the optimized wordlists directory |
+| 9 | - | Download wordlists from Hashmob.net |
+| 10 | - | Download wordlists from Weakpass (via BitTorrent) |
 
 **Character class mask bits** (used by options 2 and 3): `1`=lowercase, `2`=uppercase, `4`=digit, `8`=symbol, `16`=other. Add values together: `7` = lowercase+uppercase+digit.
 
@@ -768,10 +771,6 @@ All tests use mocked API calls, so they can run without connectivity to a Hashvi
   (81) Rule File Tools
   (82) Notifications
 
-  (90) Download rules from Hashmob.net
-  (91) Analyze Hashcat Rules
-  (92) Download wordlists from Hashmob.net
-  (93) Weakpass Wordlist Menu
   (94) Hashview API
   (95) Analyze hashes with Pipal
   (96) Export Output to Excel Format
@@ -1009,19 +1008,24 @@ A submenu of wordlist preprocessing utilities using hashcat-utils binaries. All 
 | 5 | Split by Length | Create per-length files in an output directory (`splitlen.bin`) |
 | 6 | Subtract Wordlist | Remove lines from a wordlist that appear in one or more remove files. Mode 1 uses `rli2.bin` (single file); mode 2 uses `rli.bin` (multiple files) |
 | 7 | Shard Wordlist | Split a wordlist into N equal, interleaved parts in one run, written as `base.001`…`base.00N` for distributed cracking (`gate.bin`) |
+| 8 | Optimize Wordlists | Dedupe and split the selected wordlists into per-length files under an output directory |
+| 9 | Download from Hashmob.net | Browse and download wordlists from Hashmob.net into the configured wordlist directory |
+| 10 | Download from Weakpass | Browse and download Weakpass wordlist torrents, with automatic extraction |
 
 All binaries are in `hate_crack/hashcat-utils/bin/`.
 
 #### Rule File Tools (option 81)
-Preprocesses hashcat rule files using `cleanup-rules.bin` and `rules_optimize.bin` from hashcat-utils.
+Preprocesses hashcat rule files using `cleanup-rules.bin` and `rules_optimize.bin` from hashcat-utils, and downloads rule files from Hashmob.net.
 
-* **Clean** - removes invalid syntax and duplicate rules using `cleanup-rules.bin`. Useful after combining rule files or downloading rules from external sources.
-* **Optimize** - consolidates redundant operations using `rules_optimize.bin`. Reduces rule file size and improves cracking speed.
-* **Clean and optimize** - runs both operations in sequence via a temporary file, then writes the final result.
+* **Clean** (1) - removes invalid syntax and duplicate rules using `cleanup-rules.bin`. Useful after combining rule files or downloading rules from external sources.
+* **Optimize** (2) - consolidates redundant operations using `rules_optimize.bin`. Reduces rule file size and improves cracking speed.
+* **Clean and optimize** (3) - runs both operations in sequence via a temporary file, then writes the final result.
+* **Download rules from Hashmob.net** (4) - fetches rule files into the configured `rulesDirectory`.
+* **Analyze Hashcat rules** (5) - opcode frequency analysis of a rule file, powered by HashcatRosetta.
 
-All three operations read from an input file and write to a separate output file (original is never modified).
+The three preprocessing operations read from an input file and write to a separate output file (original is never modified).
 
-#### Download Rules from Hashmob.net
+#### Download Rules from Hashmob.net (Rule File Tools option 4)
 Downloads the latest rule files from Hashmob.net's rule repository. These rules are curated and optimized for password cracking and can be used with the Quick Crack and Loopback Attack modes.
 
 * Downloads rule sets in parallel using a thread pool (up to 4 concurrent downloads)
@@ -1029,7 +1033,7 @@ Downloads the latest rule files from Hashmob.net's rule repository. These rules 
 * Reports download summary with success/failure counts
 * Stores rules in the configured rules directory
 
-#### Analyze Hashcat Rules
+#### Analyze Hashcat Rules (Rule File Tools option 5)
 Powered by HashcatRosetta (https://github.com/bandrel/HashcatRosetta), this feature analyzes hashcat rule files to provide detailed insights into rule composition and complexity.
 
 * Prompts for a rule file path
@@ -1037,14 +1041,14 @@ Powered by HashcatRosetta (https://github.com/bandrel/HashcatRosetta), this feat
 * Helps understand what transformations a rule set performs
 * Useful for rule debugging and optimization
 
-#### Download Wordlists from Hashmob.net
+#### Download Wordlists from Hashmob.net (Wordlist Tools option 9)
 Downloads wordlists from Hashmob.net's collection of cracked passwords and commonly used wordlists.
 
 * Interactive menu for browsing available wordlists
 * Progress tracking for large downloads
 * Stores wordlists in configured wordlist directory
 
-#### Weakpass Wordlist Menu
+#### Weakpass Wordlist Menu (Wordlist Tools option 10)
 Interactive menu for downloading and managing wordlists from Weakpass.com via BitTorrent.
 
 * Browse available Weakpass wordlist torrents
