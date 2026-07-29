@@ -19,7 +19,27 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   `masks/` usable without retyping them, and lets a generated or hand-written
   mask list run without a dedicated menu entry.
 
+### Removed
+
+- **Three config keys that had no effect are gone from `config.json.example`.**
+  `hcatCombinator3Wordlist` and `hcatCombinatorXWordlist` were loaded and
+  path-normalized but never read: since the combinator attacks were merged into
+  one menu entry, the single handler takes its defaults from
+  `hcatCombinationWordlist` and picks the 2-way, 3-way, or N-way path from how
+  many entries that list has. `hcatPrinceLing` was listed in
+  `optimizedKernelAttacks` but never checked, because PRINCE-LING delegates to
+  the PRINCE attack, which tests its own name — use `hcatPrince` to control
+  `-O` for both.
+
 ### Fixed
+
+- **The same attack could run with or without `-O` depending only on whether a
+  `config.json` existed.** `hcatPCFG` was listed in the example's
+  `optimizedKernelAttacks` but missing from the `DEFAULT_OPTIMIZED_ATTACKS`
+  fallback in code, so a user with no config file got un-optimized kernels for
+  it. The default now matches the example, and two new tests assert that the
+  two lists stay equal and that every name in the list actually reaches
+  `_should_use_optimized_kernel`.
 
 - **The Spoonman attack derived basewords and rules from the hash as well as the
   password.** `rulegen.generate` treated each corpus line as a password in full,

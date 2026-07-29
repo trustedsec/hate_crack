@@ -9,8 +9,6 @@
   "rules_directory": "./hashcat/rules",
   "hcatDictionaryWordlist": ["rockyou.txt"],
   "hcatCombinationWordlist": ["rockyou.txt","rockyou.txt"],
-  "hcatCombinator3Wordlist": ["rockyou.txt","rockyou.txt","rockyou.txt"],
-  "hcatCombinatorXWordlist": ["rockyou.txt","rockyou.txt"],
   "hcatHybridlist": ["rockyou.txt"],
   "hcatMiddleCombinatorMasks": ["2","4"," ","-","_","+",",",".","&"],
   "hcatMiddleBaseList": "rockyou.txt",
@@ -42,7 +40,7 @@
     "hcatAdHocMask", "hcatMarkovBruteForce", "hcatFingerprint", "hcatCombination",
     "hcatCombinator3", "hcatCombinatorX", "hcatHybrid", "hcatYoloCombination",
     "hcatMiddleCombinator", "hcatThoroughCombinator", "hcatCombipow", "hcatPrince",
-    "hcatPermute", "hcatPCFG", "hcatPrinceLing"
+    "hcatPermute", "hcatPCFG"
   ],
   "notify_enabled": false,
   "notify_pushover_token": "",

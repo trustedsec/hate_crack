@@ -126,6 +126,7 @@ DEFAULT_OPTIMIZED_ATTACKS = frozenset(
         "hcatCombipow",
         "hcatPrince",
         "hcatPermute",
+        "hcatPCFG",
     }
 )
 
@@ -460,12 +461,6 @@ pipalPath = config_parser["pipalPath"]
 hcatDictionaryWordlist = config_parser["hcatDictionaryWordlist"]
 hcatHybridlist = config_parser["hcatHybridlist"]
 hcatCombinationWordlist = config_parser["hcatCombinationWordlist"]
-hcatCombinator3Wordlist = config_parser.get(
-    "hcatCombinator3Wordlist", ["rockyou.txt", "rockyou.txt", "rockyou.txt"]
-)
-hcatCombinatorXWordlist = config_parser.get(
-    "hcatCombinatorXWordlist", ["rockyou.txt", "rockyou.txt"]
-)
 hcatMiddleCombinatorMasks = config_parser["hcatMiddleCombinatorMasks"]
 hcatMiddleBaseList = config_parser["hcatMiddleBaseList"]
 hcatThoroughCombinatorMasks = config_parser["hcatThoroughCombinatorMasks"]
@@ -638,12 +633,6 @@ hcatDictionaryWordlist = _normalize_wordlist_setting(
 )
 hcatCombinationWordlist = _normalize_wordlist_setting(
     hcatCombinationWordlist, wordlists_dir
-)
-hcatCombinator3Wordlist = _normalize_wordlist_setting(
-    hcatCombinator3Wordlist, wordlists_dir
-)
-hcatCombinatorXWordlist = _normalize_wordlist_setting(
-    hcatCombinatorXWordlist, wordlists_dir
 )
 hcatHybridlist = _normalize_wordlist_setting(hcatHybridlist, wordlists_dir)
 hcatMiddleBaseList = _normalize_wordlist_setting(hcatMiddleBaseList, wordlists_dir)

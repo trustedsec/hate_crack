@@ -22,8 +22,6 @@ EXPECTED_KEYS = {
     "rules_directory",
     "hcatDictionaryWordlist",
     "hcatCombinationWordlist",
-    "hcatCombinator3Wordlist",
-    "hcatCombinatorXWordlist",
     "hcatHybridlist",
     "hcatMiddleCombinatorMasks",
     "hcatMiddleBaseList",
@@ -84,3 +82,30 @@ def test_packaged_example_matches_root_content():
     with open(PACKAGED_EXAMPLE) as f:
         packaged_config = json.load(f)
     assert packaged_config == root_config
+
+
+def test_optimized_kernel_attacks_matches_code_default(hc_module):
+    """A user with no config.json must get the same -O behaviour as one who
+    copied the example verbatim.
+
+    These two lists drifted once already: the example shipped hcatPCFG while
+    DEFAULT_OPTIMIZED_ATTACKS omitted it, so the same attack ran with -O or
+    without depending only on whether a config file existed.
+    """
+    with open(ROOT_EXAMPLE) as f:
+        example_attacks = set(json.load(f)["optimizedKernelAttacks"])
+    assert example_attacks == set(hc_module.DEFAULT_OPTIMIZED_ATTACKS)
+
+
+def test_optimized_kernel_attack_names_are_honoured():
+    """Every name in the list must reach _should_use_optimized_kernel.
+
+    hcatPrinceLing used to be listed but was never checked — it delegates to
+    hcatPrince, which tests its own name — so toggling it did nothing.
+    """
+    with open(os.path.join(REPO_ROOT, "hate_crack", "main.py")) as f:
+        source = f.read()
+    with open(ROOT_EXAMPLE) as f:
+        listed = json.load(f)["optimizedKernelAttacks"]
+    for name in listed:
+        assert f'_should_use_optimized_kernel("{name}")' in source, name
