@@ -34,7 +34,7 @@ def _load(monkeypatch, tmp_path, existing=None):
 
 def test_overwrites_truncated_out_file(monkeypatch, tmp_path):
     hash_file = _load(monkeypatch, tmp_path, existing="")
-    calls = _stub_show(monkeypatch, ["fb5699c234f878ce6be8182c2d2bcac8:Summer2026!"])
+    calls = _stub_show(monkeypatch, ["fb5699c234f878ce6be8182c2d2bcac8:PLAINTEXT_A"])
 
     assert main.restore_from_potfile() is True
 
@@ -42,46 +42,46 @@ def test_overwrites_truncated_out_file(monkeypatch, tmp_path):
     assert calls[0] == ("1000", str(hash_file), f"{hash_file}.out")
     assert (
         tmp_path / "hashes.txt.out"
-    ).read_text() == "fb5699c234f878ce6be8182c2d2bcac8:Summer2026!\n"
+    ).read_text() == "fb5699c234f878ce6be8182c2d2bcac8:PLAINTEXT_A\n"
 
 
 def test_creates_out_file_when_absent(monkeypatch, tmp_path):
     _load(monkeypatch, tmp_path)
-    _stub_show(monkeypatch, ["aa:pw"])
+    _stub_show(monkeypatch, ["aa:PLAINTEXT_B"])
     monkeypatch.setattr("sys.stdin.isatty", lambda: True, raising=False)
 
     assert main.restore_from_potfile() is True
-    assert (tmp_path / "hashes.txt.out").read_text() == "aa:pw\n"
+    assert (tmp_path / "hashes.txt.out").read_text() == "aa:PLAINTEXT_B\n"
 
 
 def test_prompts_and_overwrites_when_confirmed(monkeypatch, tmp_path, capsys):
-    _load(monkeypatch, tmp_path, existing="old:oldpw\n")
-    calls = _stub_show(monkeypatch, ["new:newpw"])
+    _load(monkeypatch, tmp_path, existing="old:PLAINTEXT_OLD\n")
+    calls = _stub_show(monkeypatch, ["new:PLAINTEXT_NEW"])
     monkeypatch.setattr(main.sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr("builtins.input", lambda _prompt="": "y")
 
     assert main.restore_from_potfile() is True
 
     assert len(calls) == 1
-    assert (tmp_path / "hashes.txt.out").read_text() == "new:newpw\n"
+    assert (tmp_path / "hashes.txt.out").read_text() == "new:PLAINTEXT_NEW\n"
     assert "already contains 1 cracked hash(es)" in capsys.readouterr().out
 
 
 def test_declining_prompt_leaves_existing_out_intact(monkeypatch, tmp_path):
-    _load(monkeypatch, tmp_path, existing="old:oldpw\n")
-    calls = _stub_show(monkeypatch, ["new:newpw"])
+    _load(monkeypatch, tmp_path, existing="old:PLAINTEXT_OLD\n")
+    calls = _stub_show(monkeypatch, ["new:PLAINTEXT_NEW"])
     monkeypatch.setattr(main.sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr("builtins.input", lambda _prompt="": "n")
 
     assert main.restore_from_potfile() is False
 
     assert calls == []
-    assert (tmp_path / "hashes.txt.out").read_text() == "old:oldpw\n"
+    assert (tmp_path / "hashes.txt.out").read_text() == "old:PLAINTEXT_OLD\n"
 
 
 def test_non_interactive_overwrites_without_prompting(monkeypatch, tmp_path):
-    _load(monkeypatch, tmp_path, existing="old:oldpw\n")
-    _stub_show(monkeypatch, ["new:newpw"])
+    _load(monkeypatch, tmp_path, existing="old:PLAINTEXT_OLD\n")
+    _stub_show(monkeypatch, ["new:PLAINTEXT_NEW"])
     monkeypatch.setattr(main.sys.stdin, "isatty", lambda: False)
 
     def explode(_prompt=""):
@@ -90,7 +90,7 @@ def test_non_interactive_overwrites_without_prompting(monkeypatch, tmp_path):
     monkeypatch.setattr("builtins.input", explode)
 
     assert main.restore_from_potfile() is True
-    assert (tmp_path / "hashes.txt.out").read_text() == "new:newpw\n"
+    assert (tmp_path / "hashes.txt.out").read_text() == "new:PLAINTEXT_NEW\n"
 
 
 def test_no_hashfile_loaded_is_reported(monkeypatch, capsys):
@@ -147,7 +147,7 @@ def test_restore_potfile_flag_rebuilds_existing_out(monkeypatch, tmp_path):
     """
     hashfile = tmp_path / "hashes.txt"
     hashfile.write_text("fb5699c234f878ce6be8182c2d2bcac8\n")
-    (tmp_path / "hashes.txt.out").write_text("stale:stalepw\n")
+    (tmp_path / "hashes.txt.out").write_text("stale:PLAINTEXT_STALE\n")
 
     calls = []
     monkeypatch.setattr(main, "ascii_art", lambda: None)
@@ -169,7 +169,7 @@ def test_restore_potfile_flag_rebuilds_existing_out(monkeypatch, tmp_path):
 def test_startup_skips_restore_without_the_flag(monkeypatch, tmp_path):
     hashfile = tmp_path / "hashes.txt"
     hashfile.write_text("fb5699c234f878ce6be8182c2d2bcac8\n")
-    (tmp_path / "hashes.txt.out").write_text("stale:stalepw\n")
+    (tmp_path / "hashes.txt.out").write_text("stale:PLAINTEXT_STALE\n")
 
     calls = []
     monkeypatch.setattr(main, "ascii_art", lambda: None)
