@@ -835,6 +835,26 @@ def _markov_pick_training_source(ctx: Any):
 
 def adhoc_mask_crack(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("Ad-hoc Mask")
+    print("\n\tAd-hoc Mask Attack")
+    print("\t1. Type a mask")
+    print("\t2. Use a mask file (.hcmask)")
+    choice = input("\tSelect [1]: ").strip() or "1"
+
+    if choice == "2":
+        masks_dir = os.path.join(ctx.hate_path, "masks")
+        mask = ctx.select_file_with_autocomplete(
+            "\tPath to mask file (tab to autocomplete)",
+            base_dir=masks_dir,
+        )
+        mask = mask.strip() if mask else ""
+        if not mask:
+            return
+        if not os.path.isfile(mask):
+            print(f"\t[!] Mask file not found: {mask}")
+            return
+        ctx.hcatAdHocMask(ctx.hcatHashType, ctx.hcatHashFile, mask, "")
+        return
+
     print(
         "\nEnter a hashcat mask. Tokens: ?l=lower ?u=upper ?d=digit ?s=special ?a=all ?b=binary ?1-?4=custom"
     )

@@ -9,6 +9,16 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ## [Unreleased]
 
+### Added
+
+- **The Ad-hoc Mask Attack (option 14) now accepts a mask file.** The attack
+  opens with a choice between typing a mask and selecting a `.hcmask` file, the
+  latter with tab completion rooted at the bundled `masks/` directory. Mask
+  files carry their own charset definitions, so the `-1` through `-4` prompts are
+  skipped on that path. This makes the hundreds of masks already shipped in
+  `masks/` usable without retyping them, and lets a generated or hand-written
+  mask list run without a dedicated menu entry.
+
 ### Fixed
 
 - **The Spoonman attack derived basewords and rules from the hash as well as the

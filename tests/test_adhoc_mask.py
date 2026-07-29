@@ -20,11 +20,23 @@ class TestAdHocMaskHandler:
         from hate_crack.attacks import adhoc_mask_crack
 
         ctx = _make_ctx()
-        with patch("builtins.input", side_effect=["?l?l?l?l", ""]):
+        with patch("builtins.input", side_effect=["1", "?l?l?l?l", ""]):
             adhoc_mask_crack(ctx)
 
         ctx.hcatAdHocMask.assert_called_once_with(
             "1000", "/tmp/hashes.txt", "?l?l?l?l", ""
+        )
+
+    def test_default_choice_is_typed_mask(self) -> None:
+        """Pressing Enter at the menu falls through to the typed-mask prompt."""
+        from hate_crack.attacks import adhoc_mask_crack
+
+        ctx = _make_ctx()
+        with patch("builtins.input", side_effect=["", "?d?d?d", ""]):
+            adhoc_mask_crack(ctx)
+
+        ctx.hcatAdHocMask.assert_called_once_with(
+            "1000", "/tmp/hashes.txt", "?d?d?d", ""
         )
 
     def test_empty_mask_aborts(self) -> None:
@@ -32,7 +44,50 @@ class TestAdHocMaskHandler:
         from hate_crack.attacks import adhoc_mask_crack
 
         ctx = _make_ctx()
-        with patch("builtins.input", return_value=""):
+        with patch("builtins.input", side_effect=["1", ""]):
+            adhoc_mask_crack(ctx)
+
+        ctx.hcatAdHocMask.assert_not_called()
+
+    def test_mask_file_selected(self, tmp_path: Path) -> None:
+        """Option 2 passes the chosen .hcmask path straight through to hashcat."""
+        from hate_crack.attacks import adhoc_mask_crack
+
+        ctx = _make_ctx()
+        ctx.hate_path = str(tmp_path)
+        mask_file = tmp_path / "custom.hcmask"
+        mask_file.write_text("?u?l?l?l?d?d\n")
+        ctx.select_file_with_autocomplete.return_value = str(mask_file)
+
+        with patch("builtins.input", side_effect=["2"]):
+            adhoc_mask_crack(ctx)
+
+        ctx.hcatAdHocMask.assert_called_once_with(
+            "1000", "/tmp/hashes.txt", str(mask_file), ""
+        )
+
+    def test_missing_mask_file_aborts(self, tmp_path: Path) -> None:
+        """A nonexistent mask file path aborts before invoking hashcat."""
+        from hate_crack.attacks import adhoc_mask_crack
+
+        ctx = _make_ctx()
+        ctx.hate_path = str(tmp_path)
+        ctx.select_file_with_autocomplete.return_value = str(tmp_path / "nope.hcmask")
+
+        with patch("builtins.input", side_effect=["2"]):
+            adhoc_mask_crack(ctx)
+
+        ctx.hcatAdHocMask.assert_not_called()
+
+    def test_blank_mask_file_aborts(self, tmp_path: Path) -> None:
+        """Blank input at the file selector aborts."""
+        from hate_crack.attacks import adhoc_mask_crack
+
+        ctx = _make_ctx()
+        ctx.hate_path = str(tmp_path)
+        ctx.select_file_with_autocomplete.return_value = ""
+
+        with patch("builtins.input", side_effect=["2"]):
             adhoc_mask_crack(ctx)
 
         ctx.hcatAdHocMask.assert_not_called()
@@ -42,7 +97,7 @@ class TestAdHocMaskHandler:
         from hate_crack.attacks import adhoc_mask_crack
 
         ctx = _make_ctx()
-        with patch("builtins.input", side_effect=["?1?1?1?1", "abc", ""]):
+        with patch("builtins.input", side_effect=["1", "?1?1?1?1", "abc", ""]):
             adhoc_mask_crack(ctx)
 
         ctx.hcatAdHocMask.assert_called_once()

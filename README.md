@@ -963,9 +963,11 @@ Opens an interactive submenu with six combinator attack variants (formerly at me
 #### Ad-hoc Mask Attack
 Runs hashcat mask attack (mode 3) with a user-specified custom mask string. Allows fine-grained control over character-set brute forcing.
 
+* Opens with a choice between typing a mask and selecting a mask file
 * Prompts for a hashcat mask (e.g., `?u?l?l?l?d?d` for uppercase + lowercase + lowercase + lowercase + digit + digit)
 * Supports custom character sets (`-1`, `-2`, `-3`, `-4`) for specialized character combinations
 * Interactive charset entry with early exit on blank input
+* Mask files (`.hcmask`) can be selected with tab completion, defaulting to the bundled `masks/` directory; hashcat runs every mask in the file in order. Because a mask file defines its own charsets inline, the `-1` through `-4` prompts are skipped when one is chosen
 * Useful for targeted brute forcing when you know password structure patterns
 
 #### Markov Brute Force Attack
