@@ -592,7 +592,7 @@ Credentials and tuning knobs remain config-file-only in `config.json`:
 
 - `notify_pushover_token`, `notify_pushover_user` — required for any push to fire.
 - `notify_attack_allowlist` — attack names that auto-consent without the `[y/N/always]` prompt. Populated automatically when you answer `always`.
-- `notify_suppress_in_orchestrators` (default `true`) — silences nested attacks launched by Quick/Extensive/Brute-Force wrappers; the wrapper fires a single summary instead.
+- `notify_suppress_in_orchestrators` (default `true`) — silences the individual attacks chained by Extensive Crack, which fires a single summary instead. Set to `false` to get a notification per chained attack. Other menu entries that run several passes (for example Quick Crack with multiple rule chains) are not orchestrators and always notify per pass.
 - `notify_max_cracks_per_burst` (default `5`), `notify_poll_interval_seconds` (default `5.0`) — per-crack tailer tuning. See `hate_crack/notify/tailer.py` for the burst aggregation logic.
 
 ### Wordlist Tools (menu option 80)

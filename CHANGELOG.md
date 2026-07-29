@@ -74,6 +74,14 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   an uncracked dump rather than cracked output is reported in `coverage.txt` and
   warned about.
 
+- **`notify_suppress_in_orchestrators` did nothing.** The key was parsed into
+  `NotifySettings` and unit-tested for parsing, but `suppressed_notifications()`
+  set its thread-local flag unconditionally, so there was no way to get a
+  notification per attack inside Extensive Crack. The context manager now
+  consults the setting. README also overstated the scope: only Extensive Crack
+  suppresses, and Quick Crack with N rule chains has always sent N
+  notifications.
+
 ### Changed
 
 - **Hash-prefix stripping is now based on digest shape rather than the first

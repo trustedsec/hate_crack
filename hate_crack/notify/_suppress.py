@@ -29,7 +29,18 @@ def suppressed_notifications():
 
     Nests correctly: the previous state is restored on exit so an outer
     ``with`` block still reflects "suppressed" after an inner one exits.
+
+    Honours ``notify_suppress_in_orchestrators``.  When that setting is
+    false the context is a no-op, so each primitive in an orchestrator
+    fires its own notification.  The import is function-level because
+    ``hate_crack.notify`` imports this module at load time.
     """
+    from hate_crack.notify import get_settings
+
+    if not get_settings().suppress_in_orchestrators:
+        yield
+        return
+
     prev = getattr(_suppressed, "active", False)
     _suppressed.active = True
     try:
