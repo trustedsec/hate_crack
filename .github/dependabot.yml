@@ -14,6 +14,19 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    # atomic-agents pins instructor==1.14.5 exactly and imports its internals
+    # (instructor.core.client, instructor.processing.multimodal,
+    # instructor.dsl.partial, instructor.processing.schema), all of which
+    # 1.15.x reorganized. Bumping is unsatisfiable, and forcing it with an
+    # override resolves but then fails at import with
+    # "module 'instructor' has no attribute 'core'".
+    #
+    # REMOVE THIS as soon as atomic-agents relaxes the pin: check with
+    #   curl -s https://pypi.org/pypi/atomic-agents/json \
+    #     | python3 -c "import json,sys;print([r for r in json.load(sys.stdin)['info']['requires_dist'] if 'instructor' in r])"
+    # Until then Dependabot would re-open the same unmergeable PR weekly.
+    ignore:
+      - dependency-name: "instructor"
     # "chore" deliberately does NOT match the feat|fix|perf patterns in
     # .github/workflows/auto-tag.yml, so dependency PRs never auto-cut a tag.
     commit-message:
