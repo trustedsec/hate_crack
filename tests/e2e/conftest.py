@@ -4,10 +4,10 @@ Gated entirely behind HATE_CRACK_HASHCAT_REAL=1 — see the module-level
 pytestmark in each tests/e2e/test_e2e_*.py file. Never runs in standard CI
 (ubuntu-latest CI runners have no hashcat installed).
 """
-import hashlib
 import json
 import os
 import shutil
+import struct
 
 import pytest
 
@@ -21,8 +21,88 @@ E2E_PLAINTEXTS = ("changeme123", "e2e2026", "notarealpassword")
 E2E_MASK = "?l?l?l?l?l?l?l?l?d?d?d"
 
 
+def _md4(data: bytes) -> bytes:
+    """Pure-Python MD4 (RFC 1320). No external dependency, works regardless
+    of whether the platform's OpenSSL build exposes MD4 (OpenSSL 3.x's
+    default provider does not — only the legacy provider does, and
+    hashlib.new("md4", ...) raises ValueError/UnsupportedDigestmodError on
+    such builds, which this suite hit on real developer hardware)."""
+
+    def left_rotate(x, n):
+        return ((x << n) | (x >> (32 - n))) & 0xFFFFFFFF
+
+    def F(x, y, z):
+        return (x & y) | (~x & z)
+
+    def G(x, y, z):
+        return (x & y) | (x & z) | (y & z)
+
+    def H(x, y, z):
+        return x ^ y ^ z
+
+    msg = bytearray(data)
+    orig_len_bits = (len(data) * 8) & 0xFFFFFFFFFFFFFFFF
+    msg.append(0x80)
+    while len(msg) % 64 != 56:
+        msg.append(0)
+    msg += struct.pack("<Q", orig_len_bits)
+
+    a0, b0, c0, d0 = 0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476
+
+    for chunk_offset in range(0, len(msg), 64):
+        chunk = msg[chunk_offset:chunk_offset + 64]
+        X = list(struct.unpack("<16I", chunk))
+        A, B, C, D = a0, b0, c0, d0
+
+        # Round 1
+        s = [3, 7, 11, 19]
+        for i in range(16):
+            k = i
+            if i % 4 == 0:
+                A = left_rotate((A + F(B, C, D) + X[k]) & 0xFFFFFFFF, s[0])
+            elif i % 4 == 1:
+                D = left_rotate((D + F(A, B, C) + X[k]) & 0xFFFFFFFF, s[1])
+            elif i % 4 == 2:
+                C = left_rotate((C + F(D, A, B) + X[k]) & 0xFFFFFFFF, s[2])
+            else:
+                B = left_rotate((B + F(C, D, A) + X[k]) & 0xFFFFFFFF, s[3])
+
+        # Round 2
+        s = [3, 5, 9, 13]
+        order = [0, 4, 8, 12, 1, 5, 9, 13, 2, 6, 10, 14, 3, 7, 11, 15]
+        for i, k in enumerate(order):
+            if i % 4 == 0:
+                A = left_rotate((A + G(B, C, D) + X[k] + 0x5A827999) & 0xFFFFFFFF, s[0])
+            elif i % 4 == 1:
+                D = left_rotate((D + G(A, B, C) + X[k] + 0x5A827999) & 0xFFFFFFFF, s[1])
+            elif i % 4 == 2:
+                C = left_rotate((C + G(D, A, B) + X[k] + 0x5A827999) & 0xFFFFFFFF, s[2])
+            else:
+                B = left_rotate((B + G(C, D, A) + X[k] + 0x5A827999) & 0xFFFFFFFF, s[3])
+
+        # Round 3
+        s = [3, 9, 11, 15]
+        order = [0, 8, 4, 12, 2, 10, 6, 14, 1, 9, 5, 13, 3, 11, 7, 15]
+        for i, k in enumerate(order):
+            if i % 4 == 0:
+                A = left_rotate((A + H(B, C, D) + X[k] + 0x6ED9EBA1) & 0xFFFFFFFF, s[0])
+            elif i % 4 == 1:
+                D = left_rotate((D + H(A, B, C) + X[k] + 0x6ED9EBA1) & 0xFFFFFFFF, s[1])
+            elif i % 4 == 2:
+                C = left_rotate((C + H(D, A, B) + X[k] + 0x6ED9EBA1) & 0xFFFFFFFF, s[2])
+            else:
+                B = left_rotate((B + H(C, D, A) + X[k] + 0x6ED9EBA1) & 0xFFFFFFFF, s[3])
+
+        a0 = (a0 + A) & 0xFFFFFFFF
+        b0 = (b0 + B) & 0xFFFFFFFF
+        c0 = (c0 + C) & 0xFFFFFFFF
+        d0 = (d0 + D) & 0xFFFFFFFF
+
+    return struct.pack("<4I", a0, b0, c0, d0)
+
+
 def _ntlm(password: str) -> str:
-    return hashlib.new("md4", password.encode("utf-16-le")).hexdigest()
+    return _md4(password.encode("utf-16-le")).hex()
 
 
 def _missing_required_binaries() -> list[str]:
