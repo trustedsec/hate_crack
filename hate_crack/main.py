@@ -4738,8 +4738,8 @@ def get_main_menu_items():
         ("20", "PCFG Attack"),
         ("21", "PRINCE-LING Attack"),
         ("80", "Wordlist Tools"),
+        ("81", "Rule File Tools"),
         ("82", "Notifications"),
-        ("90", "Rule File Tools"),
     ]
     if hashview_api_key:
         items.append(("94", "Hashview API"))
@@ -4780,8 +4780,8 @@ def get_main_menu_options():
         "20": pcfg_attack,
         "21": prince_ling_attack,
         "80": wordlist_tools_submenu,
+        "81": rule_tools_submenu,
         "82": notifications_submenu,
-        "90": rule_tools_submenu,
         "95": pipal,
         "96": export_excel,
         "97": show_results,

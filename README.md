@@ -768,9 +768,9 @@ All tests use mocked API calls, so they can run without connectivity to a Hashvi
   (21) PRINCE-LING Attack
 
   (80) Wordlist Tools
+  (81) Rule File Tools
   (82) Notifications
 
-  (90) Rule File Tools
   (94) Hashview API
   (95) Analyze hashes with Pipal
   (96) Export Output to Excel Format
@@ -1014,7 +1014,7 @@ A submenu of wordlist preprocessing utilities using hashcat-utils binaries. All 
 
 All binaries are in `hate_crack/hashcat-utils/bin/`.
 
-#### Rule File Tools (option 90)
+#### Rule File Tools (option 81)
 Preprocesses hashcat rule files using `cleanup-rules.bin` and `rules_optimize.bin` from hashcat-utils, and downloads rule files from Hashmob.net.
 
 * **Clean** (1) - removes invalid syntax and duplicate rules using `cleanup-rules.bin`. Useful after combining rule files or downloading rules from external sources.
