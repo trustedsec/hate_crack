@@ -21,6 +21,18 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   existing cracked-hash count and asks for confirmation before overwriting
   (auto-confirming when stdin is not a TTY); the flag is treated as an explicit
   request and skips the prompt.
+- **LLM Pattern Rules mode** (option 4 in the LLM Attack submenu). Mirrors the
+  Spoonman Attack's shape — a baseword list run through hashcat rules — but
+  infers the basewords rather than extracting them. Spoonman's `rulegen` is
+  lossless and therefore literal: it can only emit cores that already appear in
+  its corpus. This mode instead asks the local model to identify the word
+  families behind a sample (company and products, site names, local teams,
+  seasons, mascots) and enumerate members the sample does not contain, then runs
+  those basewords against rule file(s) chosen from the rules directory. The
+  pattern source is either the session's cracked passwords or a sample wordlist;
+  model output is normalized to lowercase letters only, since the rules supply
+  case, digits, and punctuation. Basewords land in `<hashfile>.llm_patterns`,
+  which `cleanup()` removes on exit.
 
 ## [2.17.2] - 2026-07-29
 
