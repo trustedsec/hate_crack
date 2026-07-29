@@ -44,6 +44,7 @@ def _make_ctx(hash_type="1000", hash_file="/tmp/hashes.txt"):
 
 # --- Menu presence tests ---
 
+
 def test_combipow_crack_in_main_menu(cli):
     options = cli.get_main_menu_options()
     assert "19" in options
@@ -60,6 +61,7 @@ def test_combipow_crack_menu_item_label():
 
 # --- combipow_crack handler tests ---
 
+
 class TestCombipowCrack:
     def test_calls_hcatCombipow_with_space_sep_by_default(self, tmp_path):
         attacks = _load_attacks()
@@ -72,7 +74,9 @@ class TestCombipowCrack:
         ctx.hcatCombipow.assert_called_once()
         call_args = ctx.hcatCombipow.call_args
         use_space = (
-            call_args[0][3] if len(call_args[0]) > 3 else call_args[1].get("use_space_sep")
+            call_args[0][3]
+            if len(call_args[0]) > 3
+            else call_args[1].get("use_space_sep")
         )
         assert use_space is True
 
@@ -97,7 +101,9 @@ class TestCombipowCrack:
         ctx.hcatCombipow.assert_called_once()
         call_args = ctx.hcatCombipow.call_args
         use_space = (
-            call_args[0][3] if len(call_args[0]) > 3 else call_args[1].get("use_space_sep")
+            call_args[0][3]
+            if len(call_args[0]) > 3
+            else call_args[1].get("use_space_sep")
         )
         assert use_space is False
 
@@ -159,6 +165,7 @@ class TestCombipowCrack:
 
 # --- hcatCombipow wrapper tests ---
 
+
 def _get_main_module():
     if str(PROJECT_ROOT) not in sys.path:
         sys.path.insert(0, str(PROJECT_ROOT))
@@ -186,7 +193,10 @@ class TestHcatCombipow:
             patch.object(m, "hcatBin", "hashcat"),
             patch.object(m, "hcatTuning", ""),
             patch("hate_crack.main.hcatHashFile", hash_file, create=True),
-            patch("hate_crack.main.subprocess.Popen", side_effect=[fake_combipow, fake_hashcat]) as mock_popen,
+            patch(
+                "hate_crack.main.subprocess.Popen",
+                side_effect=[fake_combipow, fake_hashcat],
+            ) as mock_popen,
         ):
             m.hcatCombipow("1000", hash_file, str(wl), use_space_sep=use_space_sep)
 

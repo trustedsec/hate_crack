@@ -75,28 +75,23 @@ def test_ollama_max_sample_lines_default(env, capsys):
     wl500 = env.tmp_path / "w500.txt"
     wl500.write_text("\n".join(f"w{i:04d}" for i in range(500)) + "\n")
 
-    with mock.patch.object(hc_main, "ollamaMaxSampleLines", 500), mock.patch.object(
-        hc_main.llm, "generate_candidates", return_value=["x"]
-    ) as gen500, mock.patch.object(
-        hc_main, "ollamaUrl", OLLAMA_URL
-    ), mock.patch.object(
-        hc_main, "ollamaModel", MODEL
-    ), mock.patch.object(
-        hc_main, "ollamaNumCtx", 2048
-    ), mock.patch.object(
-        hc_main, "hcatBin", "/usr/bin/hashcat"
-    ), mock.patch.object(
-        hc_main, "hcatTuning", ""
-    ), mock.patch.object(
-        hc_main, "hcatPotfilePath", ""
-    ), mock.patch.object(
-        hc_main, "rulesDirectory", str(env.tmp_path / "rules")
-    ), mock.patch(
-        "hate_crack.main.generate_session_id", return_value="s"
-    ), mock.patch(
-        "subprocess.Popen", return_value=_make_proc()
+    with (
+        mock.patch.object(hc_main, "ollamaMaxSampleLines", 500),
+        mock.patch.object(
+            hc_main.llm, "generate_candidates", return_value=["x"]
+        ) as gen500,
+        mock.patch.object(hc_main, "ollamaUrl", OLLAMA_URL),
+        mock.patch.object(hc_main, "ollamaModel", MODEL),
+        mock.patch.object(hc_main, "ollamaNumCtx", 2048),
+        mock.patch.object(hc_main, "hcatBin", "/usr/bin/hashcat"),
+        mock.patch.object(hc_main, "hcatTuning", ""),
+        mock.patch.object(hc_main, "hcatPotfilePath", ""),
+        mock.patch.object(hc_main, "rulesDirectory", str(env.tmp_path / "rules")),
+        mock.patch("hate_crack.main.generate_session_id", return_value="s"),
+        mock.patch("subprocess.Popen", return_value=_make_proc()),
     ):
         import os as _os
+
         _os.makedirs(str(env.tmp_path / "rules"), exist_ok=True)
         hc_main.hcatOllama("0", env.hash_file, "wordlist", str(wl500))
 
@@ -116,9 +111,13 @@ def test_small_wordlist_loads_all(env, capsys):
     wl = env.tmp_path / "small.txt"
     wl.write_text("alpha\nbeta\ngamma\n")
 
-    with _ollama_globals(env.tmp_path), mock.patch.object(
-        hc_main.llm, "generate_candidates", return_value=["x"]
-    ) as gen, mock.patch("subprocess.Popen", return_value=_make_proc()):
+    with (
+        _ollama_globals(env.tmp_path),
+        mock.patch.object(
+            hc_main.llm, "generate_candidates", return_value=["x"]
+        ) as gen,
+        mock.patch("subprocess.Popen", return_value=_make_proc()),
+    ):
         hc_main.hcatOllama("0", env.hash_file, "wordlist", str(wl))
 
     captured = capsys.readouterr()
@@ -135,9 +134,11 @@ def test_small_wordlist_no_sampled_message(env, capsys):
     wl = env.tmp_path / "small.txt"
     wl.write_text("a\nb\nc\n")
 
-    with _ollama_globals(env.tmp_path, max_sample=500), mock.patch.object(
-        hc_main.llm, "generate_candidates", return_value=["x"]
-    ), mock.patch("subprocess.Popen", return_value=_make_proc()):
+    with (
+        _ollama_globals(env.tmp_path, max_sample=500),
+        mock.patch.object(hc_main.llm, "generate_candidates", return_value=["x"]),
+        mock.patch("subprocess.Popen", return_value=_make_proc()),
+    ):
         hc_main.hcatOllama("0", env.hash_file, "wordlist", str(wl))
 
     captured = capsys.readouterr()
@@ -166,9 +167,11 @@ def test_large_wordlist_caps_to_max(env, capsys):
         captured_ctx.append(args[4])
         return ["x"]
 
-    with _ollama_globals(env.tmp_path, max_sample=50), mock.patch.object(
-        hc_main.llm, "generate_candidates", side_effect=_capture_gen
-    ), mock.patch("subprocess.Popen", return_value=_make_proc()):
+    with (
+        _ollama_globals(env.tmp_path, max_sample=50),
+        mock.patch.object(hc_main.llm, "generate_candidates", side_effect=_capture_gen),
+        mock.patch("subprocess.Popen", return_value=_make_proc()),
+    ):
         hc_main.hcatOllama("0", env.hash_file, "wordlist", str(wl))
 
     sample_lines = captured_ctx[0]["sample"].splitlines()
@@ -190,16 +193,20 @@ def test_large_wordlist_covers_full_range(env):
         return ["x"]
 
     # Use a small cap (10) over 1000 lines so the stride is clearly 100.
-    with _ollama_globals(env.tmp_path, max_sample=10), mock.patch.object(
-        hc_main.llm, "generate_candidates", side_effect=_capture_gen
-    ), mock.patch("subprocess.Popen", return_value=_make_proc()):
+    with (
+        _ollama_globals(env.tmp_path, max_sample=10),
+        mock.patch.object(hc_main.llm, "generate_candidates", side_effect=_capture_gen),
+        mock.patch("subprocess.Popen", return_value=_make_proc()),
+    ):
         hc_main.hcatOllama("0", env.hash_file, "wordlist", str(wl))
 
     sample_lines = captured_ctx[0]["sample"].splitlines()
     # The sampled words should come from across the file, not just the head.
     # word000000..word000099 are the first 100; word000900..word000999 are the last 100.
     indices = [int(w.replace("word", "")) for w in sample_lines]
-    assert min(indices) < 100, "sample should include entries from the start of the file"
+    assert min(indices) < 100, (
+        "sample should include entries from the start of the file"
+    )
     assert max(indices) >= 900, "sample should include entries from the end of the file"
 
 
@@ -219,9 +226,11 @@ def _sample_count(env, total: int, cap: int) -> int:
         captured_ctx.append(args[4])
         return ["x"]
 
-    with _ollama_globals(env.tmp_path, max_sample=cap), mock.patch.object(
-        hc_main.llm, "generate_candidates", side_effect=_capture
-    ), mock.patch("subprocess.Popen", return_value=_make_proc()):
+    with (
+        _ollama_globals(env.tmp_path, max_sample=cap),
+        mock.patch.object(hc_main.llm, "generate_candidates", side_effect=_capture),
+        mock.patch("subprocess.Popen", return_value=_make_proc()),
+    ):
         hc_main.hcatOllama("0", env.hash_file, "wordlist", str(wl))
 
     if not captured_ctx:
@@ -263,9 +272,13 @@ def test_zero_cap_falls_back_to_default(env, capsys) -> None:
     wl = env.tmp_path / "zero_cap.txt"
     wl.write_text("\n".join(f"pw{i}" for i in range(10)) + "\n")
 
-    with _ollama_globals(env.tmp_path, max_sample=0), mock.patch.object(
-        hc_main.llm, "generate_candidates", return_value=["x"]
-    ) as gen, mock.patch("subprocess.Popen", return_value=_make_proc()):
+    with (
+        _ollama_globals(env.tmp_path, max_sample=0),
+        mock.patch.object(
+            hc_main.llm, "generate_candidates", return_value=["x"]
+        ) as gen,
+        mock.patch("subprocess.Popen", return_value=_make_proc()),
+    ):
         hc_main.hcatOllama("0", env.hash_file, "wordlist", str(wl))
 
     captured = capsys.readouterr()
@@ -283,7 +296,9 @@ def test_wordlist_sampling_strips_hash_prefix(env):
     """hash:password lines must contribute only the plaintext in capped mode."""
     wl = env.tmp_path / "dump.txt"
     # 20 lines: half with colon prefix, half plain; more than max_sample=5
-    lines = [f"hash{i}:plain{i:02d}" if i % 2 == 0 else f"plain{i:02d}" for i in range(20)]
+    lines = [
+        f"hash{i}:plain{i:02d}" if i % 2 == 0 else f"plain{i:02d}" for i in range(20)
+    ]
     wl.write_text("\n".join(lines) + "\n")
 
     captured_ctx: list[dict] = []
@@ -292,9 +307,11 @@ def test_wordlist_sampling_strips_hash_prefix(env):
         captured_ctx.append(args[4])
         return ["x"]
 
-    with _ollama_globals(env.tmp_path, max_sample=5), mock.patch.object(
-        hc_main.llm, "generate_candidates", side_effect=_capture_gen
-    ), mock.patch("subprocess.Popen", return_value=_make_proc()):
+    with (
+        _ollama_globals(env.tmp_path, max_sample=5),
+        mock.patch.object(hc_main.llm, "generate_candidates", side_effect=_capture_gen),
+        mock.patch("subprocess.Popen", return_value=_make_proc()),
+    ):
         hc_main.hcatOllama("0", env.hash_file, "wordlist", str(wl))
 
     sample = captured_ctx[0]["sample"]
@@ -308,9 +325,13 @@ def test_wordlist_sampling_skips_blank_lines(env, capsys):
     # 3 real words surrounded by blank lines
     wl.write_text("\nalpha\n\nbeta\n\ngamma\n\n")
 
-    with _ollama_globals(env.tmp_path, max_sample=500), mock.patch.object(
-        hc_main.llm, "generate_candidates", return_value=["x"]
-    ) as gen, mock.patch("subprocess.Popen", return_value=_make_proc()):
+    with (
+        _ollama_globals(env.tmp_path, max_sample=500),
+        mock.patch.object(
+            hc_main.llm, "generate_candidates", return_value=["x"]
+        ) as gen,
+        mock.patch("subprocess.Popen", return_value=_make_proc()),
+    ):
         hc_main.hcatOllama("0", env.hash_file, "wordlist", str(wl))
 
     captured = capsys.readouterr()
@@ -330,9 +351,11 @@ def test_spinner_called_with_model_message(env, capsys):
     wl = env.tmp_path / "s.txt"
     wl.write_text("pw\n")
 
-    with _ollama_globals(env.tmp_path), mock.patch.object(
-        hc_main.llm, "generate_candidates", return_value=["x"]
-    ), mock.patch("subprocess.Popen", return_value=_make_proc()):
+    with (
+        _ollama_globals(env.tmp_path),
+        mock.patch.object(hc_main.llm, "generate_candidates", return_value=["x"]),
+        mock.patch("subprocess.Popen", return_value=_make_proc()),
+    ):
         hc_main.hcatOllama("0", env.hash_file, "wordlist", str(wl))
 
     captured = capsys.readouterr()
@@ -389,7 +412,9 @@ def test_sample_helper_caps_and_labels_source(tmp_path, capsys):
     src = tmp_path / "src.txt"
     src.write_text("\n".join(f"p{i:04d}" for i in range(100)) + "\n")
 
-    sampled = hc_main._sample_plaintext_file(str(src), 10, source_label="cracked passwords")
+    sampled = hc_main._sample_plaintext_file(
+        str(src), 10, source_label="cracked passwords"
+    )
 
     assert sampled is not None
     assert len(sampled) == 10
@@ -416,27 +441,33 @@ def test_cracked_mode_uses_shared_sampling_helper(env):
     with open(out_path, "w") as f:
         f.write("hash:Summer2024!\n")
 
-    with _ollama_globals(env.tmp_path, max_sample=123), mock.patch.object(
-        hc_main, "_sample_plaintext_file", return_value=["Summer2024!"]
-    ) as sampler, mock.patch.object(
-        hc_main.llm, "generate_candidates", return_value=["Winter2025!"]
-    ), mock.patch("subprocess.Popen", return_value=_make_proc()):
+    with (
+        _ollama_globals(env.tmp_path, max_sample=123),
+        mock.patch.object(
+            hc_main, "_sample_plaintext_file", return_value=["Summer2024!"]
+        ) as sampler,
+        mock.patch.object(
+            hc_main.llm, "generate_candidates", return_value=["Winter2025!"]
+        ),
+        mock.patch("subprocess.Popen", return_value=_make_proc()),
+    ):
         hc_main.hcatOllama("0", env.hash_file, "cracked", None)
 
-    sampler.assert_called_once_with(
-        out_path, 123, source_label="cracked passwords"
-    )
+    sampler.assert_called_once_with(out_path, 123, source_label="cracked passwords")
 
 
 def test_wordlist_mode_uses_shared_sampling_helper(env):
     wl = env.tmp_path / "wl.txt"
     wl.write_text("alpha\n")
 
-    with _ollama_globals(env.tmp_path, max_sample=77), mock.patch.object(
-        hc_main, "_sample_plaintext_file", return_value=["alpha"]
-    ) as sampler, mock.patch.object(
-        hc_main.llm, "generate_candidates", return_value=["x"]
-    ), mock.patch("subprocess.Popen", return_value=_make_proc()):
+    with (
+        _ollama_globals(env.tmp_path, max_sample=77),
+        mock.patch.object(
+            hc_main, "_sample_plaintext_file", return_value=["alpha"]
+        ) as sampler,
+        mock.patch.object(hc_main.llm, "generate_candidates", return_value=["x"]),
+        mock.patch("subprocess.Popen", return_value=_make_proc()),
+    ):
         hc_main.hcatOllama("0", env.hash_file, "wordlist", str(wl))
 
     sampler.assert_called_once_with(str(wl), 77)
@@ -448,9 +479,13 @@ def test_cracked_mode_caps_large_out_file(env, capsys):
     with open(out_path, "w") as f:
         f.write("\n".join(f"h{i}:pw{i:06d}" for i in range(1000)) + "\n")
 
-    with _ollama_globals(env.tmp_path, max_sample=25), mock.patch.object(
-        hc_main.llm, "generate_candidates", return_value=["x"]
-    ) as gen, mock.patch("subprocess.Popen", return_value=_make_proc()):
+    with (
+        _ollama_globals(env.tmp_path, max_sample=25),
+        mock.patch.object(
+            hc_main.llm, "generate_candidates", return_value=["x"]
+        ) as gen,
+        mock.patch("subprocess.Popen", return_value=_make_proc()),
+    ):
         hc_main.hcatOllama("0", env.hash_file, "cracked", None)
 
     sample_lines = gen.call_args[0][4]["sample"].splitlines()
@@ -458,4 +493,7 @@ def test_cracked_mode_caps_large_out_file(env, capsys):
     indices = [int(w.replace("pw", "")) for w in sample_lines]
     assert min(indices) < 100
     assert max(indices) >= 900
-    assert "Sampled 25 of 1,000 passwords from cracked passwords." in capsys.readouterr().out
+    assert (
+        "Sampled 25 of 1,000 passwords from cracked passwords."
+        in capsys.readouterr().out
+    )

@@ -97,7 +97,8 @@ def _run_hashcat(
         # OpenCL/device build failures are environment-specific, not code bugs.
         opencl_noise = all(
             "clCreateProgramWithBinary" in line
-            or "Kernel" in line and "build failed" in line
+            or "Kernel" in line
+            and "build failed" in line
             or line == ""
             for line in stderr.splitlines()
         )

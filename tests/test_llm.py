@@ -28,7 +28,10 @@ def _patch_agent(candidates):
     agent_cls.__getitem__.return_value.return_value = agent_instance
 
     return (
-        mock.patch("hate_crack.llm.instructor.from_openai", return_value=mock.MagicMock(spec=instructor.Instructor)),
+        mock.patch(
+            "hate_crack.llm.instructor.from_openai",
+            return_value=mock.MagicMock(spec=instructor.Instructor),
+        ),
         mock.patch("hate_crack.llm.OpenAI"),
         mock.patch("hate_crack.llm.AtomicAgent", agent_cls),
         agent_cls,
@@ -71,7 +74,9 @@ def test_wordlist_mode_includes_sample_in_request():
 
 
 def test_cracked_mode_includes_sample_in_request():
-    p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_agent(["Winter2025!"])
+    p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_agent(
+        ["Winter2025!"]
+    )
     with p_instr, p_openai, p_agent:
         out = llm.generate_candidates(
             "http://localhost:11434",
@@ -93,8 +98,11 @@ def test_cracked_mode_uses_its_own_prompt_not_the_denylist_one():
     p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_agent(["x"])
     with p_instr, p_openai, p_agent:
         llm.generate_candidates(
-            "http://localhost:11434", "qwen2.5:32b", 2048,
-            "cracked", {"sample": "Summer2024!"},
+            "http://localhost:11434",
+            "qwen2.5:32b",
+            2048,
+            "cracked",
+            {"sample": "Summer2024!"},
         )
     config = agent_cls.__getitem__.return_value.call_args.kwargs["config"]
     assert config.system_prompt_generator is llm._CRACKED_PROMPT
@@ -105,8 +113,11 @@ def test_wordlist_mode_still_uses_wordlist_prompt():
     p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_agent(["x"])
     with p_instr, p_openai, p_agent:
         llm.generate_candidates(
-            "http://localhost:11434", "qwen2.5:32b", 2048,
-            "wordlist", {"sample": "password"},
+            "http://localhost:11434",
+            "qwen2.5:32b",
+            2048,
+            "wordlist",
+            {"sample": "password"},
         )
     config = agent_cls.__getitem__.return_value.call_args.kwargs["config"]
     assert config.system_prompt_generator is llm._WORDLIST_PROMPT
@@ -116,8 +127,11 @@ def test_target_mode_still_uses_target_prompt():
     p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_agent(["x"])
     with p_instr, p_openai, p_agent:
         llm.generate_candidates(
-            "http://localhost:11434", "qwen2.5:32b", 2048,
-            "target", {"company": "X", "industry": "Y", "location": "Z"},
+            "http://localhost:11434",
+            "qwen2.5:32b",
+            2048,
+            "target",
+            {"company": "X", "industry": "Y", "location": "Z"},
         )
     config = agent_cls.__getitem__.return_value.call_args.kwargs["config"]
     assert config.system_prompt_generator is llm._TARGET_PROMPT
@@ -142,8 +156,11 @@ def test_dedupes_and_caps_length():
     )
     with p_instr, p_openai, p_agent:
         out = llm.generate_candidates(
-            "http://localhost:11434", "qwen2.5:32b", 2048,
-            "target", {"company": "X", "industry": "Y", "location": "Z"},
+            "http://localhost:11434",
+            "qwen2.5:32b",
+            2048,
+            "target",
+            {"company": "X", "industry": "Y", "location": "Z"},
         )
     assert out == ["keep", "dup"]  # trimmed, deduped, blank + >128 dropped
 
@@ -152,8 +169,11 @@ def test_num_ctx_forwarded_via_model_api_parameters():
     p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_agent(["x"])
     with p_instr, p_openai, p_agent:
         llm.generate_candidates(
-            "http://localhost:11434", "qwen2.5:32b", 4096,
-            "target", {"company": "X", "industry": "Y", "location": "Z"},
+            "http://localhost:11434",
+            "qwen2.5:32b",
+            4096,
+            "target",
+            {"company": "X", "industry": "Y", "location": "Z"},
         )
     # AtomicAgent[In, Out](config=<AgentConfig>) — inspect the config.
     config = agent_cls.__getitem__.return_value.call_args.kwargs["config"]
@@ -171,7 +191,11 @@ def test_generate_candidates_rejects_unknown_mode_before_building_client():
     """generate_candidates surfaces _build_request's ValueError to its caller."""
     with pytest.raises(ValueError, match="Unknown LLM generation mode: bogus"):
         llm.generate_candidates(
-            "http://localhost:11434", "qwen2.5:32b", 2048, "bogus", {},
+            "http://localhost:11434",
+            "qwen2.5:32b",
+            2048,
+            "bogus",
+            {},
         )
 
 
@@ -179,8 +203,11 @@ def test_timeout_forwarded_to_openai_client():
     p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_agent(["x"])
     with p_instr, p_openai as openai_cls, p_agent:
         llm.generate_candidates(
-            "http://localhost:11434", "qwen2.5:32b", 2048,
-            "target", {"company": "X", "industry": "Y", "location": "Z"},
+            "http://localhost:11434",
+            "qwen2.5:32b",
+            2048,
+            "target",
+            {"company": "X", "industry": "Y", "location": "Z"},
             timeout=42.5,
         )
     assert openai_cls.call_args.kwargs["timeout"] == 42.5
@@ -190,8 +217,11 @@ def test_default_timeout_used_when_omitted():
     p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_agent(["x"])
     with p_instr, p_openai as openai_cls, p_agent:
         llm.generate_candidates(
-            "http://localhost:11434", "qwen2.5:32b", 2048,
-            "target", {"company": "X", "industry": "Y", "location": "Z"},
+            "http://localhost:11434",
+            "qwen2.5:32b",
+            2048,
+            "target",
+            {"company": "X", "industry": "Y", "location": "Z"},
         )
     assert llm.DEFAULT_TIMEOUT_SECONDS == 300.0
     assert openai_cls.call_args.kwargs["timeout"] == llm.DEFAULT_TIMEOUT_SECONDS
@@ -206,8 +236,11 @@ def test_api_timeout_reraised_as_domain_error():
     with p_instr, p_openai, p_agent:
         with pytest.raises(llm.LLMTimeoutError):
             llm.generate_candidates(
-                "http://localhost:11434", "qwen2.5:32b", 2048,
-                "target", {"company": "X", "industry": "Y", "location": "Z"},
+                "http://localhost:11434",
+                "qwen2.5:32b",
+                2048,
+                "target",
+                {"company": "X", "industry": "Y", "location": "Z"},
                 timeout=1.0,
             )
 

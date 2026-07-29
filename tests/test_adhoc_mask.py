@@ -3,8 +3,6 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 
 def _make_ctx(hash_type: str = "1000", hash_file: str = "/tmp/hashes.txt") -> MagicMock:
     ctx = MagicMock()
@@ -25,7 +23,9 @@ class TestAdHocMaskHandler:
         with patch("builtins.input", side_effect=["?l?l?l?l", ""]):
             adhoc_mask_crack(ctx)
 
-        ctx.hcatAdHocMask.assert_called_once_with("1000", "/tmp/hashes.txt", "?l?l?l?l", "")
+        ctx.hcatAdHocMask.assert_called_once_with(
+            "1000", "/tmp/hashes.txt", "?l?l?l?l", ""
+        )
 
     def test_empty_mask_aborts(self) -> None:
         """Empty mask string causes early return."""

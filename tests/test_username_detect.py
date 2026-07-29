@@ -68,8 +68,7 @@ class TestDetectPositiveCases:
     def test_sha256_user_hash(self, tmp_path, detect):
         f = tmp_path / "sha256.txt"
         f.write_text(
-            "bob:5e884898da28047151d0e56f8dc6292773603d0d"
-            "6aabbdd62a11ef721d1542d8\n"
+            "bob:5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8\n"
         )
         assert detect(str(f), "1400") is True
 
@@ -125,10 +124,7 @@ class TestDetectNegativeCases:
     def test_mixed_valid_and_invalid(self, tmp_path, detect):
         """All sampled lines must match; one bad line fails detection."""
         f = tmp_path / "mixed.txt"
-        f.write_text(
-            "alice:5f4dcc3b5aa765d61d8327deb882cf99\n"
-            "bob:not_a_hash_at_all\n"
-        )
+        f.write_text("alice:5f4dcc3b5aa765d61d8327deb882cf99\nbob:not_a_hash_at_all\n")
         assert detect(str(f), "0") is False
 
     def test_pwdump_format_mode_1000(self, tmp_path, detect):
@@ -201,9 +197,7 @@ class TestDetectFileHandling:
 
     def test_bom_handled(self, tmp_path, detect):
         f = tmp_path / "bom.txt"
-        f.write_bytes(
-            b"\xef\xbb\xbfalice:5f4dcc3b5aa765d61d8327deb882cf99\n"
-        )
+        f.write_bytes(b"\xef\xbb\xbfalice:5f4dcc3b5aa765d61d8327deb882cf99\n")
         assert detect(str(f), "0") is True
 
     def test_crlf_handled(self, tmp_path, detect):
@@ -218,9 +212,7 @@ class TestDetectFileHandling:
 
     def test_unicode_username(self, tmp_path, detect):
         f = tmp_path / "u.txt"
-        f.write_text(
-            "alicé:5f4dcc3b5aa765d61d8327deb882cf99\n", encoding="utf-8"
-        )
+        f.write_text("alicé:5f4dcc3b5aa765d61d8327deb882cf99\n", encoding="utf-8")
         assert detect(str(f), "0") is True
 
 
@@ -246,34 +238,42 @@ class TestAppendUsernameFlag:
 
     def test_append_when_flag_true(self, main_module):
         cmd = ["hashcat", "-m", "0", "hashes.txt"]
-        with patch.object(main_module, "hcatUsernamePrefix", True), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "_debug_cmd"):
+        with (
+            patch.object(main_module, "hcatUsernamePrefix", True),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "_debug_cmd"),
+        ):
             main_module._append_potfile_arg(cmd)
         assert "--username" in cmd
 
     def test_no_append_when_flag_false(self, main_module):
         cmd = ["hashcat", "-m", "0", "hashes.txt"]
-        with patch.object(main_module, "hcatUsernamePrefix", False), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "_debug_cmd"):
+        with (
+            patch.object(main_module, "hcatUsernamePrefix", False),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "_debug_cmd"),
+        ):
             main_module._append_potfile_arg(cmd)
         assert "--username" not in cmd
 
     def test_no_duplicate_when_tuning_adds_username(self, main_module):
         """If --username is already in cmd (e.g. from hcatTuning), don't add a second."""
         cmd = ["hashcat", "-m", "0", "hashes.txt", "--username"]
-        with patch.object(main_module, "hcatUsernamePrefix", True), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "_debug_cmd"):
+        with (
+            patch.object(main_module, "hcatUsernamePrefix", True),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "_debug_cmd"),
+        ):
             main_module._append_potfile_arg(cmd)
         assert cmd.count("--username") == 1
 
     def test_append_with_use_potfile_path_false(self, main_module):
         """When potfile handling is disabled, --username must still be injected."""
         cmd = ["hashcat", "-m", "0", "hashes.txt"]
-        with patch.object(main_module, "hcatUsernamePrefix", True), \
-             patch.object(main_module, "_debug_cmd"):
+        with (
+            patch.object(main_module, "hcatUsernamePrefix", True),
+            patch.object(main_module, "_debug_cmd"),
+        ):
             main_module._append_potfile_arg(cmd, use_potfile_path=False)
         assert "--username" in cmd
 
@@ -281,54 +281,54 @@ class TestAppendUsernameFlag:
 class TestUsernameInjectionIntoBruteForce:
     """End-to-end: hcatBruteForce cmd contains --username when flag is set."""
 
-    def test_brute_force_contains_username_when_flag_set(
-        self, main_module, tmp_path
-    ):
+    def test_brute_force_contains_username_when_flag_set(self, main_module, tmp_path):
         hash_file = str(tmp_path / "hashes.txt")
         mock_proc = _make_mock_proc()
 
-        with patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "hcatUsernamePrefix", True), \
-             patch.object(main_module, "generate_session_id", return_value="sess"), \
-             patch("hate_crack.main.subprocess.Popen", return_value=mock_proc) as mp, \
-             patch.object(main_module, "lineCount", return_value=0):
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "hcatUsernamePrefix", True),
+            patch.object(main_module, "generate_session_id", return_value="sess"),
+            patch("hate_crack.main.subprocess.Popen", return_value=mock_proc) as mp,
+            patch.object(main_module, "lineCount", return_value=0),
+        ):
             main_module.hcatBruteForce("0", hash_file, 1, 7)
         cmd = mp.call_args[0][0]
         assert "--username" in cmd
 
-    def test_brute_force_no_username_when_flag_unset(
-        self, main_module, tmp_path
-    ):
+    def test_brute_force_no_username_when_flag_unset(self, main_module, tmp_path):
         hash_file = str(tmp_path / "hashes.txt")
         mock_proc = _make_mock_proc()
 
-        with patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "hcatUsernamePrefix", False), \
-             patch.object(main_module, "generate_session_id", return_value="sess"), \
-             patch("hate_crack.main.subprocess.Popen", return_value=mock_proc) as mp, \
-             patch.object(main_module, "lineCount", return_value=0):
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "hcatUsernamePrefix", False),
+            patch.object(main_module, "generate_session_id", return_value="sess"),
+            patch("hate_crack.main.subprocess.Popen", return_value=mock_proc) as mp,
+            patch.object(main_module, "lineCount", return_value=0),
+        ):
             main_module.hcatBruteForce("0", hash_file, 1, 7)
         cmd = mp.call_args[0][0]
         assert "--username" not in cmd
 
-    def test_brute_force_duplicate_guard_via_tuning(
-        self, main_module, tmp_path
-    ):
+    def test_brute_force_duplicate_guard_via_tuning(self, main_module, tmp_path):
         """hcatTuning='--username' with the flag set must not duplicate."""
         hash_file = str(tmp_path / "hashes.txt")
         mock_proc = _make_mock_proc()
 
-        with patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", "--username"), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "hcatUsernamePrefix", True), \
-             patch.object(main_module, "generate_session_id", return_value="sess"), \
-             patch("hate_crack.main.subprocess.Popen", return_value=mock_proc) as mp, \
-             patch.object(main_module, "lineCount", return_value=0):
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", "--username"),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "hcatUsernamePrefix", True),
+            patch.object(main_module, "generate_session_id", return_value="sess"),
+            patch("hate_crack.main.subprocess.Popen", return_value=mock_proc) as mp,
+            patch.object(main_module, "lineCount", return_value=0),
+        ):
             main_module.hcatBruteForce("0", hash_file, 1, 7)
         cmd = mp.call_args[0][0]
         assert cmd.count("--username") == 1
@@ -344,10 +344,12 @@ class TestUsernameInjectionIntoShow:
         mock_result = MagicMock()
         mock_result.stdout = b""
 
-        with patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "hcatUsernamePrefix", True), \
-             patch("hate_crack.main.subprocess.run", return_value=mock_result) as mr:
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "hcatUsernamePrefix", True),
+            patch("hate_crack.main.subprocess.run", return_value=mock_result) as mr,
+        ):
             main_module._run_hashcat_show("0", hash_file, output_path)
         cmd = mr.call_args[0][0]
         assert "--username" in cmd
@@ -358,10 +360,12 @@ class TestUsernameInjectionIntoShow:
         mock_result = MagicMock()
         mock_result.stdout = b""
 
-        with patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "hcatUsernamePrefix", False), \
-             patch("hate_crack.main.subprocess.run", return_value=mock_result) as mr:
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "hcatUsernamePrefix", False),
+            patch("hate_crack.main.subprocess.run", return_value=mock_result) as mr,
+        ):
             main_module._run_hashcat_show("0", hash_file, output_path)
         cmd = mr.call_args[0][0]
         assert "--username" not in cmd

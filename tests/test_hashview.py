@@ -108,7 +108,9 @@ class TestHashviewAPI:
                 {"id": 1, "customer_id": 1, "name": "ntlm.txt", "hash_type": 5600},
             ],
         }
-        api.get_hashfiles_by_type = Mock(side_effect=lambda ht: per_type.get(int(ht), []))
+        api.get_hashfiles_by_type = Mock(
+            side_effect=lambda ht: per_type.get(int(ht), [])
+        )
 
         result = api.get_all_customer_hashfiles(1, hash_types=[1000, 5600])
 
@@ -388,7 +390,11 @@ class TestHashviewAPI:
             "8846f7eaee8fb117ad06bdd830b7586c:password\n"  # NTLM -> uploaded
         )
         mock_response = Mock()
-        mock_response.json.return_value = {"status": 200, "type": "message", "msg": "OK"}
+        mock_response.json.return_value = {
+            "status": 200,
+            "type": "message",
+            "msg": "OK",
+        }
         mock_response.raise_for_status = Mock()
         api.session.post.return_value = mock_response
 
@@ -403,7 +409,11 @@ class TestHashviewAPI:
         cracked_file.write_text("8846f7eaee8fb117ad06bdd830b7586c:password\n")
         mock_response = Mock()
         mock_response.json.return_value = {
-            "msg": "OK", "count": 1, "verified": 1, "updated": 1, "unmatched": 0,
+            "msg": "OK",
+            "count": 1,
+            "verified": 1,
+            "updated": 1,
+            "unmatched": 0,
         }
         mock_response.raise_for_status = Mock()
         api.session.post.return_value = mock_response
@@ -461,18 +471,14 @@ class TestHashviewAPI:
         # NTLM("a\nb") — plaintext contains a literal newline
         import hashlib as _h  # noqa
 
-        cracked_file.write_text(
-            "9c6d9b0dc5e5f4d8a4c8e0a1e0b1c2d3:$HEX[610a62]\n"
-        )
+        cracked_file.write_text("9c6d9b0dc5e5f4d8a4c8e0a1e0b1c2d3:$HEX[610a62]\n")
         mock_response = Mock()
         mock_response.json.return_value = {"imported": 1}
         mock_response.raise_for_status = Mock()
         api.session.post.return_value = mock_response
 
         # validate=False so the (bogus) hash isn't dropped before we inspect wire
-        api.upload_cracked_hashes(
-            str(cracked_file), hash_type="1000", validate=False
-        )
+        api.upload_cracked_hashes(str(cracked_file), hash_type="1000", validate=False)
         body = self._sent_body(api)
         assert b"$HEX[610a62]" in body  # kept verbatim, no raw newline injected
         assert b"a\nb" not in body
@@ -1058,13 +1064,17 @@ class TestHashviewAPI:
         mock_left_response.content = b"hash1\n"
         mock_left_response.raise_for_status = Mock()
         mock_left_response.headers = {"content-length": "0"}
-        mock_left_response.iter_content = lambda chunk_size=8192: iter([mock_left_response.content])
+        mock_left_response.iter_content = lambda chunk_size=8192: iter(
+            [mock_left_response.content]
+        )
 
         mock_found_response = Mock()
         mock_found_response.content = b"found_hash:plaintext\n"
         mock_found_response.raise_for_status = Mock()
         mock_found_response.headers = {"content-length": "0"}
-        mock_found_response.iter_content = lambda chunk_size=8192: iter([mock_found_response.content])
+        mock_found_response.iter_content = lambda chunk_size=8192: iter(
+            [mock_found_response.content]
+        )
 
         api.session.get.side_effect = [mock_left_response, mock_found_response]
 
@@ -1074,10 +1084,14 @@ class TestHashviewAPI:
         left_file = tmp_path / "left_1_2.txt"
         # Pass potfile_path explicitly - config-derived path should NOT be used
         with patch("hate_crack.api.get_hcat_potfile_path", return_value=other_potfile):
-            api.download_left_hashes(1, 2, output_file=str(left_file), potfile_path=explicit_potfile)
+            api.download_left_hashes(
+                1, 2, output_file=str(left_file), potfile_path=explicit_potfile
+            )
 
         assert os.path.exists(explicit_potfile), "Explicit potfile should be written"
-        assert not os.path.exists(other_potfile), "Config-derived potfile should NOT be written"
+        assert not os.path.exists(other_potfile), (
+            "Config-derived potfile should NOT be written"
+        )
         with open(explicit_potfile, "r") as f:
             assert "found_hash:plaintext" in f.read()
 

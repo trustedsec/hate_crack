@@ -1,4 +1,5 @@
 """Unit tests for the CrackTailer polling thread and username extractor."""
+
 import time
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -33,8 +34,16 @@ def _make_tailer(out_path: Path, **overrides):
     return tailer, notify, aggregate
 
 
-def _wait_until(predicate, timeout=2.0):
-    """Spin until predicate() or timeout; returns whether it passed."""
+def _wait_until(predicate, timeout=5.0):
+    """Spin until predicate() or timeout; returns whether it passed.
+
+    The timeout is a ceiling, not a delay: it returns as soon as the
+    predicate holds, so a generous value costs nothing on a healthy run and
+    absorbs scheduling starvation on a loaded CI runner. Callers must only
+    assert totals that any tick split would still reach -- see
+    TestBurstCollapseSingleTick for why per-tick assertions do not belong in
+    a threaded test.
+    """
     deadline = time.time() + timeout
     while time.time() < deadline:
         if predicate():
@@ -134,40 +143,105 @@ class TestCrackTailerStart:
             tailer.stop()
 
 
-class TestCrackTailerBurstCap:
-    def test_burst_cap_fires_aggregate(self, tmp_path: Path) -> None:
+class TestBurstCollapseSingleTick:
+    """Burst-cap semantics, exercised synchronously through _poll_once.
+
+    These assertions are about what ONE poll tick does with the lines it
+    sees, so they call _poll_once directly instead of racing the background
+    thread. Driving them through the thread made them order-dependent on
+    where the tick boundary happened to fall relative to the writer's flush
+    -- a tick that observed fewer lines than the cap took the per-crack
+    branch, the aggregate never fired, and the test failed on CI while
+    passing locally. See test_split_burst_does_not_aggregate below for the
+    mechanism.
+    """
+
+    def _seeded(self, out_path: Path, **overrides):
+        """Tailer positioned at EOF of an empty file, as start() would leave it."""
+        out_path.write_text("")
+        tailer, notify, aggregate = _make_tailer(out_path, **overrides)
+        tailer._seek_to_eof()
+        return tailer, notify, aggregate
+
+    def test_over_cap_collapses_into_one_aggregate(self, tmp_path: Path) -> None:
         out = tmp_path / "hashes.out"
-        out.write_text("")
-        tailer, notify, aggregate = _make_tailer(out, max_cracks_per_burst=3)
-        tailer.start()
-        try:
-            # Write 10 lines in one shot; a single poll tick must see them
-            # all and collapse into one aggregate call.
-            with open(out, "a") as f:
-                for i in range(10):
-                    f.write(f"user{i}:hash:plain\n")
-            assert _wait_until(lambda: aggregate.call_count >= 1)
-            # Per-crack path must NOT have fired for this burst.
-            assert notify.call_count == 0
-            args = aggregate.call_args.args
-            assert args[0] == 10
-            assert args[1] == "Brute Force"
-        finally:
-            tailer.stop()
+        tailer, notify, aggregate = self._seeded(out, max_cracks_per_burst=3)
+        with open(out, "a") as f:
+            for i in range(10):
+                f.write(f"user{i}:hash:plain\n")
+
+        tailer._poll_once()
+
+        assert aggregate.call_count == 1
+        assert aggregate.call_args.args == (10, "Brute Force")
+        assert notify.call_count == 0
+
+    def test_at_cap_stays_on_per_crack_path(self, tmp_path: Path) -> None:
+        """The cap is exclusive: exactly max_cracks_per_burst still notifies individually."""
+        out = tmp_path / "hashes.out"
+        tailer, notify, aggregate = self._seeded(out, max_cracks_per_burst=3)
+        with open(out, "a") as f:
+            for i in range(3):
+                f.write(f"user{i}:hash:plain\n")
+
+        tailer._poll_once()
+
+        assert notify.call_count == 3
+        assert aggregate.call_count == 0
 
     def test_under_cap_fires_per_crack(self, tmp_path: Path) -> None:
         out = tmp_path / "hashes.out"
-        out.write_text("")
-        tailer, notify, aggregate = _make_tailer(out, max_cracks_per_burst=10)
-        tailer.start()
-        try:
-            with open(out, "a") as f:
-                for i in range(3):
-                    f.write(f"user{i}:hash:plain\n")
-            assert _wait_until(lambda: notify.call_count >= 3)
-            assert aggregate.call_count == 0
-        finally:
-            tailer.stop()
+        tailer, notify, aggregate = self._seeded(out, max_cracks_per_burst=10)
+        with open(out, "a") as f:
+            for i in range(3):
+                f.write(f"user{i}:hash:plain\n")
+
+        tailer._poll_once()
+
+        assert notify.call_count == 3
+        assert aggregate.call_count == 0
+
+    def test_split_burst_does_not_aggregate(self, tmp_path: Path) -> None:
+        """A burst split across two ticks is NOT collapsed -- by design.
+
+        The cap applies per tick, not per logical burst. This is the exact
+        behaviour that made the old threaded burst test flaky: whenever the
+        poll boundary split the writer's 10 lines into chunks of <= cap,
+        aggregate never fired at all.
+        """
+        out = tmp_path / "hashes.out"
+        tailer, notify, aggregate = self._seeded(out, max_cracks_per_burst=3)
+
+        with open(out, "a") as f:
+            for i in range(2):
+                f.write(f"user{i}:hash:plain\n")
+        tailer._poll_once()
+        with open(out, "a") as f:
+            for i in range(2, 4):
+                f.write(f"user{i}:hash:plain\n")
+        tailer._poll_once()
+
+        # Four lines total, none of the ticks exceeded the cap.
+        assert aggregate.call_count == 0
+        assert notify.call_count == 4
+
+    def test_partial_trailing_line_is_buffered_until_complete(
+        self, tmp_path: Path
+    ) -> None:
+        """A tick that lands mid-line must not notify for the fragment."""
+        out = tmp_path / "hashes.out"
+        tailer, notify, aggregate = self._seeded(out, max_cracks_per_burst=10)
+
+        with open(out, "a") as f:
+            f.write("alice:hash:pla")
+        tailer._poll_once()
+        assert notify.call_count == 0
+
+        with open(out, "a") as f:
+            f.write("in\n")
+        tailer._poll_once()
+        assert notify.call_count == 1
+        assert notify.call_args.args == ("alice", "Brute Force")
 
 
 class TestCrackTailerStop:
@@ -199,9 +273,7 @@ class TestCrackTailerPollOnceInternals:
         # Do NOT call start() or _seek_to_eof(); leave _file_pos = None.
         return tailer, notify, aggregate
 
-    def test_first_poll_with_file_pos_none_seeds_position(
-        self, tmp_path: Path
-    ) -> None:
+    def test_first_poll_with_file_pos_none_seeds_position(self, tmp_path: Path) -> None:
         """_poll_once with _file_pos=None must record size and return without notifying."""
         out = tmp_path / "hashes.out"
         out.write_text("alice:hash:plain\n")

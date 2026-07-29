@@ -45,7 +45,9 @@ class TestHcatCombinator3:
             patch.object(main_module, "hcatWordlists", str(tmp_path)),
             patch.object(main_module, "generate_session_id", return_value="sess123"),
             patch.object(main_module, "lineCount", return_value=0),
-            patch("hate_crack.main.subprocess.Popen", side_effect=popen_side_effect) as mock_popen,
+            patch(
+                "hate_crack.main.subprocess.Popen", side_effect=popen_side_effect
+            ) as mock_popen,
         ):
             main_module.hcatCombinator3("1000", hash_file, wls)
 
@@ -80,7 +82,9 @@ class TestHcatCombinator3:
             patch.object(main_module, "hcatWordlists", str(tmp_path)),
             patch.object(main_module, "generate_session_id", return_value="sess123"),
             patch.object(main_module, "lineCount", return_value=0),
-            patch("hate_crack.main.subprocess.Popen", side_effect=popen_side_effect) as mock_popen,
+            patch(
+                "hate_crack.main.subprocess.Popen", side_effect=popen_side_effect
+            ) as mock_popen,
         ):
             main_module.hcatCombinator3("1000", hash_file, wls)
 
@@ -155,7 +159,9 @@ class TestHcatCombinatorX:
             patch.object(main_module, "hcatWordlists", str(tmp_path)),
             patch.object(main_module, "generate_session_id", return_value="sess123"),
             patch.object(main_module, "lineCount", return_value=0),
-            patch("hate_crack.main.subprocess.Popen", side_effect=popen_side_effect) as mock_popen,
+            patch(
+                "hate_crack.main.subprocess.Popen", side_effect=popen_side_effect
+            ) as mock_popen,
         ):
             main_module.hcatCombinatorX("1000", hash_file, wls)
 
@@ -189,7 +195,9 @@ class TestHcatCombinatorX:
             patch.object(main_module, "hcatWordlists", str(tmp_path)),
             patch.object(main_module, "generate_session_id", return_value="sess123"),
             patch.object(main_module, "lineCount", return_value=0),
-            patch("hate_crack.main.subprocess.Popen", side_effect=popen_side_effect) as mock_popen,
+            patch(
+                "hate_crack.main.subprocess.Popen", side_effect=popen_side_effect
+            ) as mock_popen,
         ):
             main_module.hcatCombinatorX("1000", hash_file, wls, separator="-")
 
@@ -221,7 +229,9 @@ class TestHcatCombinatorX:
             patch.object(main_module, "hcatWordlists", str(tmp_path)),
             patch.object(main_module, "generate_session_id", return_value="sess123"),
             patch.object(main_module, "lineCount", return_value=0),
-            patch("hate_crack.main.subprocess.Popen", side_effect=popen_side_effect) as mock_popen,
+            patch(
+                "hate_crack.main.subprocess.Popen", side_effect=popen_side_effect
+            ) as mock_popen,
         ):
             main_module.hcatCombinatorX("1000", hash_file, wls, separator=None)
 
@@ -261,7 +271,9 @@ class TestHcatCombinatorX:
             patch.object(main_module, "hcatWordlists", str(tmp_path)),
             patch.object(main_module, "generate_session_id", return_value="sess123"),
             patch.object(main_module, "lineCount", return_value=0),
-            patch("hate_crack.main.subprocess.Popen", side_effect=popen_side_effect) as mock_popen,
+            patch(
+                "hate_crack.main.subprocess.Popen", side_effect=popen_side_effect
+            ) as mock_popen,
         ):
             main_module.hcatCombinatorX("1000", hash_file, wls)
 

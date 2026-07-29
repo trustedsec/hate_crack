@@ -30,7 +30,14 @@ class TestCombinatorCrackUnified:
         for name in ["a.txt", "b.txt", "c.txt"]:
             (tmp_path / name).write_text("word\n")
         ctx._resolve_wordlist_path.side_effect = lambda p, base: p
-        inputs = ["n", f"{tmp_path}/a.txt", f"{tmp_path}/b.txt", f"{tmp_path}/c.txt", "", ""]
+        inputs = [
+            "n",
+            f"{tmp_path}/a.txt",
+            f"{tmp_path}/b.txt",
+            f"{tmp_path}/c.txt",
+            "",
+            "",
+        ]
         with patch("builtins.input", side_effect=inputs):
             combinator_crack(ctx)
         ctx.hcatCombinator3.assert_called_once()
@@ -76,7 +83,14 @@ class TestCombinatorCrackUnified:
         for name in ["a.txt", "b.txt", "c.txt"]:
             (tmp_path / name).write_text("word\n")
         ctx._resolve_wordlist_path.side_effect = lambda p, base: p
-        inputs = ["n", f"{tmp_path}/a.txt", f"{tmp_path}/b.txt", f"{tmp_path}/c.txt", "", "-"]
+        inputs = [
+            "n",
+            f"{tmp_path}/a.txt",
+            f"{tmp_path}/b.txt",
+            f"{tmp_path}/c.txt",
+            "",
+            "-",
+        ]
         with patch("builtins.input", side_effect=inputs):
             combinator_crack(ctx)
         ctx.hcatCombinatorX.assert_called_once()
@@ -130,8 +144,9 @@ class TestCombinatorCrackUnified:
 class TestCombinatorSubmenuUpdated:
     def test_submenu_option1_dispatches_to_combinator_crack(self):
         ctx = _make_ctx()
-        with patch("hate_crack.attacks.combinator_crack") as mock_c, patch(
-            "hate_crack.attacks.interactive_menu", side_effect=["1", "99"]
+        with (
+            patch("hate_crack.attacks.combinator_crack") as mock_c,
+            patch("hate_crack.attacks.interactive_menu", side_effect=["1", "99"]),
         ):
             combinator_submenu(ctx)
         mock_c.assert_called_once_with(ctx)

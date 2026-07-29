@@ -1,4 +1,5 @@
 """Tests for PCFG attack subprocess construction in hate_crack.main."""
+
 import os
 import sys
 from pathlib import Path
@@ -37,13 +38,17 @@ class TestHcatPCFG:
                 self.stdin = MagicMock()
                 self.stdin.close = MagicMock()
 
-        with patch("hate_crack.main.subprocess.Popen", side_effect=FakeProc), \
-             patch("hate_crack.main._run_hcat_cmd") as mock_run, \
-             patch.object(main_module, "hate_path", str(tmp_path)), \
-             patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "generate_session_id", return_value="test_session"):
+        with (
+            patch("hate_crack.main.subprocess.Popen", side_effect=FakeProc),
+            patch("hate_crack.main._run_hcat_cmd") as mock_run,
+            patch.object(main_module, "hate_path", str(tmp_path)),
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(
+                main_module, "generate_session_id", return_value="test_session"
+            ),
+        ):
             main_module.hcatPCFG("0", hash_file)
 
         # First Popen call is the pcfg_guesser producer
@@ -54,7 +59,9 @@ class TestHcatPCFG:
         assert "--rule" in producer_cmd
         assert producer_cmd[producer_cmd.index("--rule") + 1] == main_module.pcfgRuleset
         assert "--limit" in producer_cmd
-        assert producer_cmd[producer_cmd.index("--limit") + 1] == str(main_module.pcfgMaxCandidates)
+        assert producer_cmd[producer_cmd.index("--limit") + 1] == str(
+            main_module.pcfgMaxCandidates
+        )
 
         # _run_hcat_cmd was called with attack_name='PCFG' and the hashcat command
         assert mock_run.called
@@ -92,13 +99,17 @@ class TestHcatPCFG:
                 self.stdin = MagicMock()
                 self.stdin.close = MagicMock()
 
-        with patch("hate_crack.main.subprocess.Popen", side_effect=FakeProc), \
-             patch("hate_crack.main._run_hcat_cmd") as mock_run, \
-             patch.object(main_module, "hate_path", str(tmp_path)), \
-             patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "generate_session_id", return_value="test_session"):
+        with (
+            patch("hate_crack.main.subprocess.Popen", side_effect=FakeProc),
+            patch("hate_crack.main._run_hcat_cmd") as mock_run,
+            patch.object(main_module, "hate_path", str(tmp_path)),
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(
+                main_module, "generate_session_id", return_value="test_session"
+            ),
+        ):
             main_module.hcatPCFG("0", hash_file)
 
         producer_args, producer_kwargs = captured_calls[0]
@@ -129,7 +140,7 @@ class TestHcatPrinceLing:
         cache = opt_dir / "pcfg_prince_ling_Default.txt"
         # Cache exists but is older than ruleset
         cache.write_text("stale")
-        old = (rules_dir.stat().st_mtime - 100)
+        old = rules_dir.stat().st_mtime - 100
         os.utime(cache, (old, old))
 
         run_calls = []
@@ -140,12 +151,16 @@ class TestHcatPrinceLing:
             for i, part in enumerate(cmd):
                 if part == "--output":
                     Path(cmd[i + 1]).write_text("regenerated")
+
             class R:
                 returncode = 0
+
             return R()
 
-        with patch("hate_crack.main.subprocess.run", side_effect=fake_run), \
-             patch("hate_crack.main.hcatPrince") as mock_prince:
+        with (
+            patch("hate_crack.main.subprocess.run", side_effect=fake_run),
+            patch("hate_crack.main.hcatPrince") as mock_prince,
+        ):
             main_module.hcatPrinceLing("0", str(tmp_path / "hashes.txt"))
 
         # prince_ling subprocess.run was invoked
@@ -168,15 +183,20 @@ class TestHcatPrinceLing:
         future = rules_dir.stat().st_mtime + 1000
         os.utime(cache, (future, future))
 
-        with patch("hate_crack.main.subprocess.run") as mock_run, \
-             patch("hate_crack.main.hcatPrince"):
+        with (
+            patch("hate_crack.main.subprocess.run") as mock_run,
+            patch("hate_crack.main.hcatPrince"),
+        ):
             main_module.hcatPrinceLing("0", str(tmp_path / "hashes.txt"))
 
         # subprocess.run was NOT called for prince_ling
         assert not mock_run.called
 
-    def test_atomic_cache_write_cleans_tmp_on_failure(self, main_module, tmp_path, monkeypatch):
+    def test_atomic_cache_write_cleans_tmp_on_failure(
+        self, main_module, tmp_path, monkeypatch
+    ):
         import subprocess as real_subprocess
+
         rules_dir, opt_dir = self._setup_pcfg_dirs(tmp_path, main_module, monkeypatch)
 
         def boom(cmd, **kwargs):
@@ -186,15 +206,19 @@ class TestHcatPrinceLing:
                     Path(cmd[i + 1]).write_text("partial")
             raise real_subprocess.CalledProcessError(1, cmd)
 
-        with patch("hate_crack.main.subprocess.run", side_effect=boom), \
-             patch("hate_crack.main.hcatPrince"):
+        with (
+            patch("hate_crack.main.subprocess.run", side_effect=boom),
+            patch("hate_crack.main.hcatPrince"),
+        ):
             main_module.hcatPrinceLing("0", str(tmp_path / "hashes.txt"))
 
         # No real cache file created; tmp file cleaned up
         assert not (opt_dir / "pcfg_prince_ling_Default.txt").exists()
         assert not (opt_dir / "pcfg_prince_ling_Default.txt.tmp").exists()
 
-    def test_restores_hcatPrinceBaseList_on_exception(self, main_module, tmp_path, monkeypatch):
+    def test_restores_hcatPrinceBaseList_on_exception(
+        self, main_module, tmp_path, monkeypatch
+    ):
         rules_dir, opt_dir = self._setup_pcfg_dirs(tmp_path, main_module, monkeypatch)
         cache = opt_dir / "pcfg_prince_ling_Default.txt"
         cache.write_text("fresh")
@@ -207,8 +231,10 @@ class TestHcatPrinceLing:
         def boom(*a, **kw):
             raise RuntimeError("hcatPrince exploded")
 
-        with patch("hate_crack.main.hcatPrince", side_effect=boom), \
-             pytest.raises(RuntimeError):
+        with (
+            patch("hate_crack.main.hcatPrince", side_effect=boom),
+            pytest.raises(RuntimeError),
+        ):
             main_module.hcatPrinceLing("0", str(tmp_path / "hashes.txt"))
 
         assert main_module.hcatPrinceBaseList == original
@@ -217,7 +243,7 @@ class TestHcatPrinceLing:
         rules_dir, opt_dir = self._setup_pcfg_dirs(tmp_path, main_module, monkeypatch)
         cache = opt_dir / "pcfg_prince_ling_Default.txt"
         cache.write_text("stale")
-        old = (rules_dir.stat().st_mtime - 100)
+        old = rules_dir.stat().st_mtime - 100
         os.utime(cache, (old, old))
 
         run_calls = []
@@ -227,23 +253,29 @@ class TestHcatPrinceLing:
             for i, part in enumerate(cmd):
                 if part == "--output":
                     Path(cmd[i + 1]).write_text("regenerated")
+
             class R:
                 returncode = 0
+
             return R()
 
-        with patch("hate_crack.main.subprocess.run", side_effect=fake_run), \
-             patch("hate_crack.main.hcatPrince"):
+        with (
+            patch("hate_crack.main.subprocess.run", side_effect=fake_run),
+            patch("hate_crack.main.hcatPrince"),
+        ):
             main_module.hcatPrinceLing("0", str(tmp_path / "hashes.txt"))
 
         assert run_calls[0][0] == sys.executable
 
-    def test_resolves_ruleset_case_insensitively(self, main_module, tmp_path, monkeypatch):
+    def test_resolves_ruleset_case_insensitively(
+        self, main_module, tmp_path, monkeypatch
+    ):
         rules_dir, opt_dir = self._setup_pcfg_dirs(tmp_path, main_module, monkeypatch)
         # Cache file uses the resolved on-disk basename ("Default"), not the
         # raw (legacy, all-caps) config value.
         cache = opt_dir / "pcfg_prince_ling_Default.txt"
         cache.write_text("stale")
-        old = (rules_dir.stat().st_mtime - 100)
+        old = rules_dir.stat().st_mtime - 100
         os.utime(cache, (old, old))
 
         # Simulate a config.json predating the default-casing fix, where
@@ -272,13 +304,17 @@ class TestHcatPrinceLing:
             for i, part in enumerate(cmd):
                 if part == "--output":
                     Path(cmd[i + 1]).write_text("regenerated")
+
             class R:
                 returncode = 0
+
             return R()
 
-        with patch("hate_crack.main.subprocess.run", side_effect=fake_run), \
-             patch("hate_crack.main.hcatPrince") as mock_prince, \
-             patch("hate_crack.main.os.path.isdir", side_effect=case_sensitive_isdir):
+        with (
+            patch("hate_crack.main.subprocess.run", side_effect=fake_run),
+            patch("hate_crack.main.hcatPrince") as mock_prince,
+            patch("hate_crack.main.os.path.isdir", side_effect=case_sensitive_isdir),
+        ):
             main_module.hcatPrinceLing("0", str(tmp_path / "hashes.txt"))
 
         # Should have found the on-disk "Default" dir and proceeded, not

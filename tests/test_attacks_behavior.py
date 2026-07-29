@@ -90,9 +90,7 @@ class TestLoopbackAttack:
 
         assert empty_txt.exists()
 
-    def test_empty_wordlist_passed_to_hcatQuickDictionary(
-        self, tmp_path: Path
-    ) -> None:
+    def test_empty_wordlist_passed_to_hcatQuickDictionary(self, tmp_path: Path) -> None:
         ctx = _make_ctx()
         ctx.hcatWordlists = str(tmp_path / "wordlists")
         ctx.rulesDirectory = str(tmp_path / "rules")
@@ -115,9 +113,13 @@ class TestExtensiveCrack:
 
         extensive_crack(ctx)
 
-        ctx.hcatBruteForce.assert_called_once_with(ctx.hcatHashType, ctx.hcatHashFile, "1", "7")
+        ctx.hcatBruteForce.assert_called_once_with(
+            ctx.hcatHashType, ctx.hcatHashFile, "1", "7"
+        )
         ctx.hcatDictionary.assert_called_once_with(ctx.hcatHashType, ctx.hcatHashFile)
-        ctx.hcatTopMask.assert_called_once_with(ctx.hcatHashType, ctx.hcatHashFile, 4 * 60 * 60)
+        ctx.hcatTopMask.assert_called_once_with(
+            ctx.hcatHashType, ctx.hcatHashFile, 4 * 60 * 60
+        )
         ctx.hcatFingerprint.assert_called_once_with(
             ctx.hcatHashType, ctx.hcatHashFile, 7, run_hybrid_on_expanded=False
         )
@@ -133,19 +135,27 @@ class TestExtensiveCrack:
         # extensive_crack calls hcatRecycle after: brute, dictionary, mask,
         # fingerprint, combination, hybrid, and once more at the end (hcatExtraCount)
         assert ctx.hcatRecycle.call_count == 7
-        ctx.hcatRecycle.assert_any_call(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatBruteCount)
+        ctx.hcatRecycle.assert_any_call(
+            ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatBruteCount
+        )
         ctx.hcatRecycle.assert_any_call(
             ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatDictionaryCount
         )
-        ctx.hcatRecycle.assert_any_call(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatMaskCount)
+        ctx.hcatRecycle.assert_any_call(
+            ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatMaskCount
+        )
         ctx.hcatRecycle.assert_any_call(
             ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatFingerprintCount
         )
         ctx.hcatRecycle.assert_any_call(
             ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatCombinationCount
         )
-        ctx.hcatRecycle.assert_any_call(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatHybridCount)
-        ctx.hcatRecycle.assert_any_call(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatExtraCount)
+        ctx.hcatRecycle.assert_any_call(
+            ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatHybridCount
+        )
+        ctx.hcatRecycle.assert_any_call(
+            ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatExtraCount
+        )
 
 
 class TestTopMaskCrack:
@@ -155,7 +165,9 @@ class TestTopMaskCrack:
         with patch("builtins.input", return_value=""):
             top_mask_crack(ctx)
 
-        ctx.hcatTopMask.assert_called_once_with(ctx.hcatHashType, ctx.hcatHashFile, 4 * 60 * 60)
+        ctx.hcatTopMask.assert_called_once_with(
+            ctx.hcatHashType, ctx.hcatHashFile, 4 * 60 * 60
+        )
 
     def test_custom_time_converts_hours_to_seconds(self) -> None:
         ctx = _make_ctx()
@@ -163,7 +175,9 @@ class TestTopMaskCrack:
         with patch("builtins.input", return_value="2"):
             top_mask_crack(ctx)
 
-        ctx.hcatTopMask.assert_called_once_with(ctx.hcatHashType, ctx.hcatHashFile, 2 * 60 * 60)
+        ctx.hcatTopMask.assert_called_once_with(
+            ctx.hcatHashType, ctx.hcatHashFile, 2 * 60 * 60
+        )
 
     def test_one_hour_input(self) -> None:
         ctx = _make_ctx()
@@ -171,7 +185,9 @@ class TestTopMaskCrack:
         with patch("builtins.input", return_value="1"):
             top_mask_crack(ctx)
 
-        ctx.hcatTopMask.assert_called_once_with(ctx.hcatHashType, ctx.hcatHashFile, 1 * 60 * 60)
+        ctx.hcatTopMask.assert_called_once_with(
+            ctx.hcatHashType, ctx.hcatHashFile, 1 * 60 * 60
+        )
 
 
 class TestCombinatorCrack:
@@ -273,7 +289,9 @@ class TestSimpleAttacks:
 
         pathwell_crack(ctx)
 
-        ctx.hcatPathwellBruteForce.assert_called_once_with(ctx.hcatHashType, ctx.hcatHashFile)
+        ctx.hcatPathwellBruteForce.assert_called_once_with(
+            ctx.hcatHashType, ctx.hcatHashFile
+        )
 
     def test_prince_attack(self) -> None:
         ctx = _make_ctx()
@@ -287,21 +305,27 @@ class TestSimpleAttacks:
 
         yolo_combination(ctx)
 
-        ctx.hcatYoloCombination.assert_called_once_with(ctx.hcatHashType, ctx.hcatHashFile)
+        ctx.hcatYoloCombination.assert_called_once_with(
+            ctx.hcatHashType, ctx.hcatHashFile
+        )
 
     def test_thorough_combinator(self) -> None:
         ctx = _make_ctx()
 
         thorough_combinator(ctx)
 
-        ctx.hcatThoroughCombinator.assert_called_once_with(ctx.hcatHashType, ctx.hcatHashFile)
+        ctx.hcatThoroughCombinator.assert_called_once_with(
+            ctx.hcatHashType, ctx.hcatHashFile
+        )
 
     def test_middle_combinator(self) -> None:
         ctx = _make_ctx()
 
         middle_combinator(ctx)
 
-        ctx.hcatMiddleCombinator.assert_called_once_with(ctx.hcatHashType, ctx.hcatHashFile)
+        ctx.hcatMiddleCombinator.assert_called_once_with(
+            ctx.hcatHashType, ctx.hcatHashFile
+        )
 
     def test_bandrel_method(self) -> None:
         ctx = _make_ctx()
@@ -467,9 +491,7 @@ class TestOllamaAttack:
         assert "3" not in keys
         ctx.hcatOllama.assert_not_called()
 
-    def test_cracked_mode_not_offered_when_out_file_empty(
-        self, tmp_path: Path
-    ) -> None:
+    def test_cracked_mode_not_offered_when_out_file_empty(self, tmp_path: Path) -> None:
         """Option 3 must NOT appear in items when cracked file exists but is empty."""
         hash_file = tmp_path / "hashes.txt"
         hash_file.touch()
@@ -508,8 +530,6 @@ class TestOllamaAttack:
 
     def test_arrow_menu_env_reaches_ollama_attack(self) -> None:
         """HATE_CRACK_ARROW_MENU=1 routes through interactive_menu in ollama_attack."""
-        import os
-        from hate_crack.attacks import interactive_menu as real_im
 
         ctx = _make_ctx()
         calls: list[tuple] = []

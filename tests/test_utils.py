@@ -129,7 +129,9 @@ def test_get_hcat_wordlists_dir_true_fallback_when_no_example(tmp_path, monkeypa
     assert os.path.isdir(result)
 
 
-def test_get_hcat_wordlists_dir_falls_back_when_resolved_dir_unwritable(tmp_path, monkeypatch):
+def test_get_hcat_wordlists_dir_falls_back_when_resolved_dir_unwritable(
+    tmp_path, monkeypatch
+):
     """Regression test: the #153 refactor resolves the default against
     hate_path (potentially a read-only install tree, e.g. /opt/hate_crack
     or a site-packages checkout) instead of cwd. If os.makedirs fails there

@@ -2944,13 +2944,10 @@ def hcatSpoonman(hcatHashType, hcatHashFile, corpus, coverage=None):
         print(f"Error: corpus not found: {corpus}")
         return
 
-    cache_dir = os.path.join(
-        hcatOptimizedWordlists
-        if isinstance(hcatOptimizedWordlists, str)
-        else str(hcatOptimizedWordlists),
-        "spoonman",
-        os.path.basename(corpus),
-    )
+    # Derived basewords/rules are per-run scratch, so they live beside the hash
+    # file like the other ephemeral wordlists (.expanded, .combined) and are
+    # removed by cleanup().
+    cache_dir = f"{hcatHashFile}.spoonman"
     # Deriving is O(corpus), so reuse a previous run's output unless the corpus
     # has changed since. Mirrors the staleness check in hcatPrinceLing.
     basewords_path = os.path.join(cache_dir, "basewords.txt")
@@ -3416,7 +3413,11 @@ def cleanup():
     global hcatHashFileOrig
     try:
         if not hcatHashFileOrig:
-            return
+            # Fall back to the live hash file so a missed assignment degrades to
+            # "skip the pwdump comparison" rather than skipping cleanup entirely.
+            if not hcatHashFile:
+                return
+            hcatHashFileOrig = hcatHashFile
         if hcatHashType == "1000" and pwdump_format:
             print("\nComparing cracked hashes to original file...")
             combine_ntlm_output()
@@ -3434,6 +3435,8 @@ def cleanup():
             os.remove(hcatHashFile + ".working")
         if os.path.exists(hcatHashFile + ".expanded"):
             os.remove(hcatHashFile + ".expanded")
+        if os.path.isdir(hcatHashFile + ".spoonman"):
+            shutil.rmtree(hcatHashFile + ".spoonman", ignore_errors=True)
         if os.path.exists(hcatHashFileOrig + ".combined"):
             os.remove(hcatHashFileOrig + ".combined")
         if os.path.exists(hcatHashFileOrig + ".lm"):
@@ -3454,7 +3457,7 @@ def cleanup():
 
 def hashview_api():
     """Download/Upload data to Hashview API"""
-    global hcatHashFile, hcatHashType
+    global hcatHashFile, hcatHashType, hcatHashFileOrig
 
     if not REQUESTS_AVAILABLE:
         print("\nError: 'requests' module not found.")
@@ -4168,6 +4171,10 @@ def hashview_api():
                     )
                     if switch != "n":
                         hcatHashFile = download_result["output_file"]
+                        # Rebind the original alongside it: cleanup() keys every
+                        # temp-file removal and the pwdump comparison off this,
+                        # so leaving it stale (or unset) strands artifacts.
+                        hcatHashFileOrig = hcatHashFile
                         if selected_hash_type:
                             hcatHashType = str(selected_hash_type)
                         else:

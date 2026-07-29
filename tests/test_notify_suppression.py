@@ -1,4 +1,5 @@
 """Unit tests for hate_crack.notify._suppress."""
+
 import threading
 import time
 

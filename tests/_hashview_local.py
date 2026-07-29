@@ -21,6 +21,7 @@ Config via env:
   HASHVIEW_KEEP=1           leave containers running after the session
   HASHVIEW_LOCAL_PORT=5000  host port the app is published on
 """
+
 import os
 import shutil
 import subprocess
@@ -78,7 +79,10 @@ def _base_url() -> str:
 
 
 def _compose(repo: Path, *args: str, check: bool = True, capture: bool = False):
-    env = {**os.environ, "DOCKER_PLATFORM": os.environ.get("DOCKER_PLATFORM", "linux/amd64")}
+    env = {
+        **os.environ,
+        "DOCKER_PLATFORM": os.environ.get("DOCKER_PLATFORM", "linux/amd64"),
+    }
     return subprocess.run(
         ["docker", "compose", *args],
         cwd=str(repo),
@@ -155,11 +159,16 @@ def _seed(repo: Path, attempts: int = 6) -> None:
     seeder = Path(__file__).with_name("hashview_local_seed.py")
     _compose(repo, "cp", str(seeder), "app:/tmp/hashview_local_seed.py")
     seed_env = [
-        "-e", "PYTHONPATH=/",
-        "-e", f"HASHVIEW_API_KEY={LOCAL_API_KEY}",
-        "-e", f"HASHVIEW_CUSTOMER_ID={CUSTOMER_ID}",
-        "-e", f"HASHVIEW_HASHFILE_ID={HASHFILE_ID}",
-        "-e", f"HASHVIEW_SEED_HASH_TYPES={SEED_HASH_TYPES}",
+        "-e",
+        "PYTHONPATH=/",
+        "-e",
+        f"HASHVIEW_API_KEY={LOCAL_API_KEY}",
+        "-e",
+        f"HASHVIEW_CUSTOMER_ID={CUSTOMER_ID}",
+        "-e",
+        f"HASHVIEW_HASHFILE_ID={HASHFILE_ID}",
+        "-e",
+        f"HASHVIEW_SEED_HASH_TYPES={SEED_HASH_TYPES}",
     ]
     # The admin user (id=1) and default tasks are created during the app's
     # first-request boot, which can lag a few seconds behind the app routing.

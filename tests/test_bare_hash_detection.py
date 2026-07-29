@@ -75,9 +75,7 @@ class TestBareHashDetection:
 
     def test_bare_hash_with_bom_and_crlf(self, tmp_path):
         hash_file = tmp_path / "bare.txt"
-        hash_file.write_bytes(
-            b"\xef\xbb\xbfaad3b435b51404eeaad3b435b51404ee\r\n"
-        )
+        hash_file.write_bytes(b"\xef\xbb\xbfaad3b435b51404eeaad3b435b51404ee\r\n")
         line = _read_first_line(str(hash_file))
         assert BARE_HASH_PATTERN.search(line), f"BOM+CRLF not handled: {line!r}"
 

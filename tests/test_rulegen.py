@@ -146,9 +146,7 @@ class TestGenerate:
 
         basewords = (out / "basewords.txt").read_text(encoding="latin-1").splitlines()
         rules = (out / "rules.full.rule").read_text(encoding="latin-1").splitlines()
-        produced = {
-            rulegen.apply_rule(b, r) for b in basewords for r in rules
-        }
+        produced = {rulegen.apply_rule(b, r) for b in basewords for r in rules}
         assert set(passwords) <= produced
 
     def test_rules_sorted_most_productive_first(self, tmp_path):
