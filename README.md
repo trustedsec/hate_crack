@@ -412,6 +412,7 @@ Common options:
 - `--download-all-torrents`: Download all available Weakpass torrents from cache.
 - `--wordlists-dir <PATH>` / `--optimized-wordlists-dir <PATH>`: Override wordlist directories.
 - `--pipal-path <PATH>`: Override pipal path.
+- `--restore-potfile`: Rebuild `<hashfile>.out` from the hashcat POT file at startup, replacing any existing contents, then continue into the normal menu. Without this flag the POT lookup only runs when `.out` does not already exist. Menu option 93 does the same thing on demand, with a confirmation prompt.
 - `--maxruntime <SECONDS>`: Override max runtime.
 - `--bandrel-basewords <PATH>`: Override bandrel basewords file.
 - `--update`: Update to the latest release and reinstall. Switches the checkout to `main` if it is on another branch, since release tags live there.
@@ -790,6 +791,7 @@ All tests use mocked API calls, so they can run without connectivity to a Hashvi
   (81) Rule File Tools
   (82) Notifications
 
+  (93) Regenerate .out from POT file
   (94) Hashview API
   (95) Analyze hashes with Pipal
   (96) Export Output to Excel Format
