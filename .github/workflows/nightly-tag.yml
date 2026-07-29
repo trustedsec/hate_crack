@@ -12,6 +12,11 @@ name: Nightly Tag
 # .devN for N>0 ("create a new supported one ending in .dev0"), reserving the
 # dev segment for its own commit-distance counting. That rules out an
 # incrementing dev scheme.
+#
+# This file MUST live on the default branch (main). GitHub only dispatches
+# workflow_run for workflows present on the default branch, so a copy that
+# exists solely on nightly-dev never fires - verified the hard way: CI passed on
+# nightly-dev and this workflow did not run.
 on:
   workflow_run:
     workflows: ["CI"]
