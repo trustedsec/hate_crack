@@ -242,18 +242,36 @@ except json.JSONDecodeError as e:
     print("  2. Delete the file to regenerate from defaults")
     sys.exit(1)
 
+
+def _load_config_defaults(defaults_path):
+    """Load config.json.example, exiting with a clear diagnostic on
+    malformed JSON or an unreadable/missing file (see #155 — a dangling
+    symlink surfaces as FileNotFoundError, which used to escape uncaught).
+    """
+    try:
+        with open(defaults_path) as defaults:
+            return json.load(defaults)
+    except json.JSONDecodeError:
+        print("\nError: config.json.example contains invalid JSON")
+        print(f"  File: {defaults_path}")
+        print("  This is a package installation issue. Try reinstalling hate_crack.")
+        sys.exit(1)
+    except OSError:
+        print("\nError: config.json.example could not be read")
+        print(f"  File: {defaults_path}")
+        if os.path.islink(defaults_path) and not os.path.exists(defaults_path):
+            print(
+                "  This is a dangling symlink: the link exists but its target is missing."
+            )
+        print("  This is a package installation issue. Try reinstalling hate_crack.")
+        sys.exit(1)
+
+
 config_dir = os.path.dirname(_config_path)
 defaults_path = os.path.join(config_dir, "config.json.example")
 if not os.path.isfile(defaults_path):
     defaults_path = os.path.join(_package_path, "config.json.example")
-try:
-    with open(defaults_path) as defaults:
-        default_config = json.load(defaults)
-except json.JSONDecodeError:
-    print("\nError: config.json.example contains invalid JSON")
-    print(f"  File: {defaults_path}")
-    print("  This is a package installation issue. Try reinstalling hate_crack.")
-    sys.exit(1)
+default_config = _load_config_defaults(defaults_path)
 
 for _key, _value in default_config.items():
     if _key not in config_parser:
@@ -463,7 +481,7 @@ ollamaAutoResearch = bool(config_parser.get("ollamaAutoResearch", True))
 
 omenTrainingList = config_parser.get("omenTrainingList", "rockyou.txt")
 omenMaxCandidates = int(config_parser.get("omenMaxCandidates", 100000000))
-pcfgRuleset = config_parser.get("pcfgRuleset", "DEFAULT")
+pcfgRuleset = config_parser.get("pcfgRuleset", "Default")
 pcfgMaxCandidates = int(config_parser.get("pcfgMaxCandidates", 50000000))
 pcfgPrinceLingMaxCandidates = int(
     config_parser.get("pcfgPrinceLingMaxCandidates", 10000000)
@@ -2759,17 +2777,38 @@ def hcatPrince(hcatHashType, hcatHashFile, attack_name="PRINCE"):
             prince_proc.stdout.close()
 
 
+def _resolve_pcfg_ruleset_dir(pcfg_root, ruleset_name):
+    """Resolve ruleset_name against pcfg_root/Rules case-insensitively.
+
+    Older config.json files may have "DEFAULT" backfilled to disk from
+    before the default changed to "Default" (see #148) — match whatever
+    casing exists on disk rather than requiring an exact match.
+    """
+    exact = os.path.join(pcfg_root, "Rules", ruleset_name)
+    if os.path.isdir(exact):
+        return exact
+    rules_root = os.path.join(pcfg_root, "Rules")
+    if os.path.isdir(rules_root):
+        for entry in os.listdir(rules_root):
+            if entry.lower() == ruleset_name.lower():
+                return os.path.join(rules_root, entry)
+    return exact
+
+
 def hcatPCFG(hcatHashType, hcatHashFile):
     """Mode A: pipe pcfg_guesser.py output into hashcat in stdin mode."""
     pcfg_guesser_script = os.path.join(hate_path, "pcfg_cracker", "pcfg_guesser.py")
     if not os.path.isfile(pcfg_guesser_script):
         print(f"pcfg_guesser.py not found at {pcfg_guesser_script}")
         return
+    pcfg_root = os.path.join(hate_path, "pcfg_cracker")
+    resolved_ruleset_dir = _resolve_pcfg_ruleset_dir(pcfg_root, pcfgRuleset)
+    resolved_ruleset_name = os.path.basename(resolved_ruleset_dir)
     pcfg_cmd = [
         sys.executable,
         pcfg_guesser_script,
         "--rule",
-        pcfgRuleset,
+        resolved_ruleset_name,
         "--limit",
         str(pcfgMaxCandidates),
     ]
@@ -2787,7 +2826,9 @@ def hcatPCFG(hcatHashType, hcatHashFile):
         _insert_optimized_flag(hashcat_cmd)
     hashcat_cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(hashcat_cmd)
-    pcfg_proc = subprocess.Popen(pcfg_cmd, stdout=subprocess.PIPE)
+    pcfg_proc = subprocess.Popen(
+        pcfg_cmd, stdout=subprocess.PIPE, stdin=subprocess.PIPE
+    )
     _run_hcat_cmd(
         hashcat_cmd,
         attack_name="PCFG",
@@ -2797,6 +2838,8 @@ def hcatPCFG(hcatHashType, hcatHashFile):
     )
     if pcfg_proc.stdout:
         pcfg_proc.stdout.close()
+    if pcfg_proc.stdin:
+        pcfg_proc.stdin.close()
 
 
 def hcatPrinceLing(hcatHashType, hcatHashFile):
@@ -2807,13 +2850,14 @@ def hcatPrinceLing(hcatHashType, hcatHashFile):
     global hcatPrinceBaseList
     pcfg_root = os.path.join(hate_path, "pcfg_cracker")
     prince_ling_script = os.path.join(pcfg_root, "prince_ling.py")
-    ruleset_dir = os.path.join(pcfg_root, "Rules", pcfgRuleset)
+    ruleset_dir = _resolve_pcfg_ruleset_dir(pcfg_root, pcfgRuleset)
     if not os.path.isfile(prince_ling_script):
         print(f"prince_ling.py not found at {prince_ling_script}")
         return
     if not os.path.isdir(ruleset_dir):
         print(f"PCFG ruleset not found: {ruleset_dir}")
         return
+    resolved_ruleset_name = os.path.basename(ruleset_dir)
 
     cache_dir = (
         hcatOptimizedWordlists
@@ -2821,7 +2865,9 @@ def hcatPrinceLing(hcatHashType, hcatHashFile):
         else str(hcatOptimizedWordlists)
     )
     os.makedirs(cache_dir, exist_ok=True)
-    cache_path = os.path.join(cache_dir, f"pcfg_prince_ling_{pcfgRuleset}.txt")
+    cache_path = os.path.join(
+        cache_dir, f"pcfg_prince_ling_{resolved_ruleset_name}.txt"
+    )
     tmp_path = cache_path + ".tmp"
 
     # Staleness check: regenerate iff ruleset dir mtime > cache mtime (strict)
@@ -2838,7 +2884,7 @@ def hcatPrinceLing(hcatHashType, hcatHashFile):
             sys.executable,
             prince_ling_script,
             "--rule",
-            pcfgRuleset,
+            resolved_ruleset_name,
             "--output",
             tmp_path,
             "--size",
