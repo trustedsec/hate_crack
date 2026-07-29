@@ -2410,6 +2410,7 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
             _insert_optimized_flag(cmd)
         cmd.extend(shlex.split(hcatTuning))
         _append_potfile_arg(cmd)
+        cmd = _add_debug_mode_for_rules(cmd)
         try:
             _run_hcat_cmd(
                 cmd,
@@ -3641,6 +3642,7 @@ def hcatGenerateRules(hcatHashType, hcatHashFile, rule_count, wordlist):
         ]
         cmd.extend(shlex.split(hcatTuning))
         _append_potfile_arg(cmd)
+        cmd = _add_debug_mode_for_rules(cmd)
         _run_hcat_cmd(cmd, attack_name="Random Rules", hash_file=hcatHashFile)
     finally:
         if os.path.exists(rules_path):

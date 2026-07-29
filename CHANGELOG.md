@@ -82,6 +82,13 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ### Fixed
 
+- **The Random Rules and LLM rule attacks wrote no hashcat debug log.** Five of
+  the seven attacks that pass `-r` to hashcat call `_add_debug_mode_for_rules`,
+  which wires `--debug-mode`/`--debug-file` to `hcatDebugLogPath`;
+  `hcatGenerateRules` and `hcatOllama`'s per-rule pass did not, so there was no
+  way to see which rule cracked which hash for exactly those two. A new test
+  pins the invariant for every future rule-based attack.
+
 - **The same attack could run with or without `-O` depending only on whether a
   `config.json` existed.** `hcatPCFG` was listed in the example's
   `optimizedKernelAttacks` but missing from the `DEFAULT_OPTIMIZED_ATTACKS`
