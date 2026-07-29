@@ -538,8 +538,11 @@ def get_hcat_wordlists_dir():
         path = os.path.expanduser(path)
         if not os.path.isabs(path):
             path = os.path.normpath(os.path.join(_get_hate_path(), path))
-        os.makedirs(path, exist_ok=True)
-        return path
+        try:
+            os.makedirs(path, exist_ok=True)
+            return path
+        except OSError:
+            pass
     default = os.path.join(os.getcwd(), "wordlists")
     os.makedirs(default, exist_ok=True)
     return default
@@ -552,8 +555,11 @@ def get_rules_dir():
         path = os.path.expanduser(path)
         if not os.path.isabs(path):
             path = os.path.normpath(os.path.join(_get_hate_path(), path))
-        os.makedirs(path, exist_ok=True)
-        return path
+        try:
+            os.makedirs(path, exist_ok=True)
+            return path
+        except OSError:
+            pass
     default = os.path.join(os.getcwd(), "rules")
     os.makedirs(default, exist_ok=True)
     return default

@@ -129,6 +129,37 @@ def test_get_hcat_wordlists_dir_true_fallback_when_no_example(tmp_path, monkeypa
     assert os.path.isdir(result)
 
 
+def test_get_hcat_wordlists_dir_falls_back_when_resolved_dir_unwritable(tmp_path, monkeypatch):
+    """Regression test: the #153 refactor resolves the default against
+    hate_path (potentially a read-only install tree, e.g. /opt/hate_crack
+    or a site-packages checkout) instead of cwd. If os.makedirs fails there
+    (PermissionError/OSError), this must degrade to the cwd fallback rather
+    than letting the exception escape to the caller.
+    """
+    hate_path_dir = tmp_path / "install-tree"
+    hate_path_dir.mkdir()
+    cwd_dir = tmp_path / "cwd"
+    cwd_dir.mkdir()
+
+    monkeypatch.setattr(api, "_resolve_config_path", lambda: None)
+    monkeypatch.setattr(api, "_get_hate_path", lambda: str(hate_path_dir))
+    monkeypatch.chdir(cwd_dir)
+
+    real_makedirs = os.makedirs
+
+    def guarded_makedirs(path, exist_ok=False):
+        if str(hate_path_dir) in str(path):
+            raise PermissionError(f"cannot create {path}")
+        return real_makedirs(path, exist_ok=exist_ok)
+
+    monkeypatch.setattr(api.os, "makedirs", guarded_makedirs)
+
+    result = api.get_hcat_wordlists_dir()
+
+    assert result == str(cwd_dir / "wordlists")
+    assert os.path.isdir(result)
+
+
 def test_get_rules_dir_from_config(tmp_path, monkeypatch):
     config_path = tmp_path / "config.json"
     config_path.write_text('{"rules_directory": "rules"}')
@@ -152,6 +183,35 @@ def test_get_rules_dir_no_config_uses_example_default(tmp_path, monkeypatch):
     result = api.get_rules_dir()
 
     assert result == str(tmp_path / "hashcat" / "rules")
+    assert os.path.isdir(result)
+
+
+def test_get_rules_dir_falls_back_when_resolved_dir_unwritable(tmp_path, monkeypatch):
+    """Regression test: same as
+    test_get_hcat_wordlists_dir_falls_back_when_resolved_dir_unwritable, for
+    get_rules_dir.
+    """
+    hate_path_dir = tmp_path / "install-tree"
+    hate_path_dir.mkdir()
+    cwd_dir = tmp_path / "cwd"
+    cwd_dir.mkdir()
+
+    monkeypatch.setattr(api, "_resolve_config_path", lambda: None)
+    monkeypatch.setattr(api, "_get_hate_path", lambda: str(hate_path_dir))
+    monkeypatch.chdir(cwd_dir)
+
+    real_makedirs = os.makedirs
+
+    def guarded_makedirs(path, exist_ok=False):
+        if str(hate_path_dir) in str(path):
+            raise PermissionError(f"cannot create {path}")
+        return real_makedirs(path, exist_ok=exist_ok)
+
+    monkeypatch.setattr(api.os, "makedirs", guarded_makedirs)
+
+    result = api.get_rules_dir()
+
+    assert result == str(cwd_dir / "rules")
     assert os.path.isdir(result)
 
 
