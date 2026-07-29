@@ -31,8 +31,8 @@ def test_pattern_mode_has_a_prompt():
 
 
 def test_pattern_request_embeds_the_sample():
-    request = llm._build_request("pattern", {"sample": "Acme2024!\nWidget99"})
-    assert "Acme2024!" in request and "Widget99" in request
+    request = llm._build_request("pattern", {"sample": "Delta2024!\nGamma99"})
+    assert "Delta2024!" in request and "Gamma99" in request
 
 
 def test_pattern_request_asks_for_undecorated_basewords():
@@ -53,10 +53,10 @@ def test_unknown_mode_still_rejected():
 @pytest.mark.parametrize(
     "raw,expected",
     [
-        ("summer", "summer"),
-        ("Summer2024!", "summer"),
-        ("ACME", "acme"),
-        ("acme widgets", "acmewidgets"),
+        ("alpha", "alpha"),
+        ("Alpha2024!", "alpha"),
+        ("DELTA", "delta"),
+        ("delta gammas", "deltagammas"),
         ("s3cr3t", "scrt"),
         ("a1", ""),  # under MIN_PATTERN_LEN once digits are stripped
         ("123456", ""),
@@ -80,7 +80,7 @@ def pattern_env(tmp_path):
     hash_file = tmp_path / "hashes.txt"
     hash_file.touch()
     corpus = tmp_path / "corpus.txt"
-    corpus.write_text("Acme2024!\nSummer99\nWidget1\n")
+    corpus.write_text("Delta2024!\nAlpha99\nGamma1\n")
     return SimpleNamespace(
         tmp_path=tmp_path, hash_file=str(hash_file), corpus=str(corpus)
     )
@@ -106,7 +106,7 @@ def test_patterns_written_and_rules_passed_through(pattern_env):
         pattern_globals(pattern_env.tmp_path),
         mock.patch(
             "hate_crack.main.llm.generate_candidates",
-            return_value=["Acme2024!", "widgets", "summer"],
+            return_value=["Delta2024!", "gammas", "alpha"],
         ) as gen,
         mock.patch("hate_crack.main.hcatQuickDictionary") as quick,
     ):
@@ -115,10 +115,10 @@ def test_patterns_written_and_rules_passed_through(pattern_env):
         )
 
     assert gen.call_args[0][3] == "pattern"
-    assert "Acme2024!" in gen.call_args[0][4]["sample"]
+    assert "Delta2024!" in gen.call_args[0][4]["sample"]
 
     patterns_path = f"{pattern_env.hash_file}.llm_patterns"
-    assert open(patterns_path).read().split() == ["acme", "widgets", "summer"]
+    assert open(patterns_path).read().split() == ["delta", "gammas", "alpha"]
 
     quick.assert_called_once()
     args = quick.call_args[0]
@@ -130,7 +130,7 @@ def test_patterns_written_and_rules_passed_through(pattern_env):
 def test_no_rules_chain_is_allowed(pattern_env):
     with (
         pattern_globals(pattern_env.tmp_path),
-        mock.patch("hate_crack.main.llm.generate_candidates", return_value=["summer"]),
+        mock.patch("hate_crack.main.llm.generate_candidates", return_value=["alpha"]),
         mock.patch("hate_crack.main.hcatQuickDictionary") as quick,
     ):
         hc_main.hcatOllamaPatterns(
@@ -143,7 +143,7 @@ def test_chained_rules_pass_through_verbatim(pattern_env):
     chain = " -r best64.rule -r toggles1.rule"
     with (
         pattern_globals(pattern_env.tmp_path),
-        mock.patch("hate_crack.main.llm.generate_candidates", return_value=["summer"]),
+        mock.patch("hate_crack.main.llm.generate_candidates", return_value=["alpha"]),
         mock.patch("hate_crack.main.hcatQuickDictionary") as quick,
     ):
         hc_main.hcatOllamaPatterns(
@@ -157,7 +157,7 @@ def test_multiple_chains_infer_once_and_reuse_the_baseword_file(pattern_env):
     with (
         pattern_globals(pattern_env.tmp_path),
         mock.patch(
-            "hate_crack.main.llm.generate_candidates", return_value=["summer"]
+            "hate_crack.main.llm.generate_candidates", return_value=["alpha"]
         ) as gen,
         mock.patch("hate_crack.main.hcatQuickDictionary") as quick,
     ):
@@ -184,7 +184,7 @@ def test_multiple_chains_infer_once_and_reuse_the_baseword_file(pattern_env):
 def test_empty_chain_list_infers_but_runs_nothing(pattern_env):
     with (
         pattern_globals(pattern_env.tmp_path),
-        mock.patch("hate_crack.main.llm.generate_candidates", return_value=["summer"]),
+        mock.patch("hate_crack.main.llm.generate_candidates", return_value=["alpha"]),
         mock.patch("hate_crack.main.hcatQuickDictionary") as quick,
     ):
         hc_main.hcatOllamaPatterns(
@@ -198,8 +198,8 @@ def test_duplicate_patterns_deduped_after_cleaning(pattern_env):
         pattern_globals(pattern_env.tmp_path),
         mock.patch(
             "hate_crack.main.llm.generate_candidates",
-            # All three clean to "acme" — the model decorated its own output.
-            return_value=["acme", "ACME", "Acme2024"],
+            # All three clean to "delta" — the model decorated its own output.
+            return_value=["delta", "DELTA", "Delta2024"],
         ),
         mock.patch("hate_crack.main.hcatQuickDictionary"),
     ):
@@ -207,7 +207,7 @@ def test_duplicate_patterns_deduped_after_cleaning(pattern_env):
             "1000", pattern_env.hash_file, pattern_env.corpus, ""
         )
     patterns_path = f"{pattern_env.hash_file}.llm_patterns"
-    assert open(patterns_path).read().split() == ["acme"]
+    assert open(patterns_path).read().split() == ["delta"]
 
 
 def test_missing_source_skips_the_model(pattern_env):
@@ -277,7 +277,7 @@ def _pattern_ctx(tmp_path, has_cracked=False):
     hash_file = tmp_path / "hashes.txt"
     hash_file.touch()
     if has_cracked:
-        (tmp_path / "hashes.txt.out").write_text("hash:Summer2024!\n")
+        (tmp_path / "hashes.txt.out").write_text("hash:Alpha2024!\n")
     return SimpleNamespace(
         hcatHashType="1000",
         hcatHashFile=str(hash_file),
@@ -312,7 +312,7 @@ def test_mode_4_hands_all_chains_over_in_one_call(tmp_path):
     """Every chain goes over at once so the model is queried once, not per rule."""
     ctx = _pattern_ctx(tmp_path)
     corpus = tmp_path / "corpus.txt"
-    corpus.write_text("Summer2024!\n")
+    corpus.write_text("Alpha2024!\n")
 
     with (
         mock.patch.object(hc_attacks, "interactive_menu", return_value="4"),
@@ -385,7 +385,7 @@ def test_llm_patterns_removed_by_cleanup(tmp_path, monkeypatch):
     hash_file = str(tmp_path / "hashes.txt")
     patterns_path = hash_file + ".llm_patterns"
     with open(patterns_path, "w") as f:
-        f.write("acme\n")
+        f.write("delta\n")
 
     monkeypatch.setattr(hc_main, "hcatHashFile", hash_file, raising=False)
     monkeypatch.setattr(hc_main, "hcatHashFileOrig", hash_file, raising=False)

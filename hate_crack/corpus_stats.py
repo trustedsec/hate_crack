@@ -16,10 +16,22 @@ Nothing here contacts the model or the network; it is pure aggregation, which
 keeps it cheap to test.
 """
 
-import binascii
 from collections import Counter
 
 from hate_crack import rulegen
+from hate_crack.plaintext import (
+    decode_hex_wrapper,
+    looks_like_hash_line,
+    usable_plaintext,
+)
+
+__all__ = [
+    "decode_hex_wrapper",
+    "format_summary",
+    "looks_like_hash_line",
+    "summarize",
+    "usable_plaintext",
+]
 
 # Bounds on what reaches the prompt. Each list is truncated to its top N by
 # frequency, so summary size is independent of corpus size.
@@ -32,64 +44,6 @@ TOP_SPECIALS = 10
 # Basewords appearing once in a large corpus are usually typos or one-offs and
 # crowd out the families worth extrapolating from.
 MIN_BASEWORD_HITS = 2
-
-
-def decode_hex_wrapper(plaintext):
-    """Expand hashcat's ``$HEX[...]`` wrapper to the bytes it encodes.
-
-    hashcat wraps any plaintext it cannot write literally — non-ASCII bytes, or
-    anything holding the output separator — as ``$HEX[68656c6c6f]``. Left alone,
-    the wrapper is read as if it were the password itself, which pollutes
-    baseword and mask statistics with the letters of ``$HEX[`` and the corpus's
-    hex digits.
-
-    Decoded to latin-1 so one byte maps to one character, matching how the rest
-    of this module and rulegen read a corpus: hashcat rules address bytes, not
-    codepoints. Returns *plaintext* unchanged if it is not a well-formed
-    wrapper, so malformed input degrades to today's behaviour rather than
-    vanishing.
-    """
-    if not (plaintext.startswith("$HEX[") and plaintext.endswith("]")):
-        return plaintext
-    body = plaintext[5:-1]
-    try:
-        return binascii.unhexlify(body).decode("latin-1")
-    except (binascii.Error, ValueError):
-        return plaintext
-
-
-def usable_plaintext(raw):
-    """Return the usable plaintext from a raw corpus line, or "".
-
-    Blank/whitespace-only lines are discarded. Lines in ``hash:password``
-    format (as hashcat ``--show`` emits) are split on the first colon so only
-    the plaintext is returned; lines with no colon are returned as-is. A
-    ``hash:`` line whose plaintext is empty after stripping returns "".
-    ``$HEX[...]`` plaintexts are decoded — see :func:`decode_hex_wrapper`.
-    """
-    stripped = raw.strip()
-    if not stripped:
-        return ""
-    if ":" in stripped:
-        stripped = stripped.split(":", 1)[1]
-    if not stripped:
-        return ""
-    return decode_hex_wrapper(stripped)
-
-
-def looks_like_hash(value):
-    """True if *value* looks like an uncracked hash rather than a plaintext.
-
-    Operators keep raw NTDS dumps (``user:rid:lm:nt:::``) alongside cracked
-    output, and both end in ``.out`` or ``.ntds`` in a working directory. A
-    dump's first colon splits into the *rest of the hash line*, not a password,
-    so the statistics silently describe hex strings. This flags the shape so
-    :func:`summarize` can warn instead of reporting nonsense confidently.
-    """
-    if value.endswith(":::") or "aad3b435b51404eeaad3b435b51404ee" in value:
-        return True
-    head = value.split(":", 1)[0]
-    return len(head) >= 32 and all(c in "0123456789abcdefABCDEF" for c in head)
 
 
 def _mask(pw):
@@ -163,7 +117,7 @@ def summarize(path):
             if not pw:
                 continue
             total += 1
-            if looks_like_hash(pw):
+            if looks_like_hash_line(raw.strip()):
                 hash_shaped += 1
             unique.add(pw)
             lengths[len(pw)] += 1

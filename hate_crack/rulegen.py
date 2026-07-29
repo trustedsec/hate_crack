@@ -31,6 +31,8 @@ emitting the password verbatim as its own baseword with a ``:`` no-op rule:
 import os
 from collections import Counter
 
+from hate_crack.plaintext import looks_like_hash_line, usable_plaintext
+
 POS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 # hashcat's rule engine accepts at most this many functions in a single rule.
@@ -193,11 +195,21 @@ def generate(
     total = 0
     skipped = 0
     literal_fallbacks = 0
+    hash_shaped = 0
     selfcheck_failures = []
 
     with open(corpus_path, encoding="latin-1") as fh:
         for line in fh:
-            pw = line.rstrip("\r\n")
+            stripped = line.rstrip("\r\n")
+            if looks_like_hash_line(stripped.strip()):
+                hash_shaped += 1
+            # The corpus this attack is built for is a previous engagement's
+            # cracked output, whose lines are "hash:password". Deriving from the
+            # whole line prepends the digest's hex digits to the baseword and
+            # spends 20-30 rule functions rebuilding them, which both poisons
+            # the baseword list and pushes real transformations over
+            # MAX_RULE_FUNCTIONS into the literal fallback.
+            pw = usable_plaintext(stripped)
             if pw == "":
                 continue
             if ascii_only and not _is_printable_ascii(pw):
@@ -263,6 +275,7 @@ def generate(
         f.write(f"unique basewords:    {len(base_counts)}\n")
         f.write(f"unique rules:        {len(rule_counts)}\n")
         f.write(f"literal fallbacks:   {literal_fallbacks}\n")
+        f.write(f"hash-shaped lines:   {hash_shaped}\n")
         if verify:
             f.write(f"self-check failures: {len(selfcheck_failures)} (must be 0)\n")
         f.write("\nrules needed for coverage:\n")
@@ -273,6 +286,12 @@ def generate(
         f"[*] {total} passwords -> {len(base_counts)} basewords, "
         f"{len(rule_counts)} rules ({literal_fallbacks} literal fallbacks)"
     )
+    if hash_shaped > total * 0.25:
+        print_fn(
+            f"[!] Warning: {hash_shaped} lines look like hashes rather than "
+            "plaintexts. This corpus may be an uncracked dump instead of cracked "
+            "output, in which case the basewords and rules below are meaningless."
+        )
     if selfcheck_failures:
         print_fn(
             f"[!] {len(selfcheck_failures)} passwords failed the reconstruction "
@@ -289,6 +308,7 @@ def generate(
         "basewords_count": len(base_counts),
         "rules_count": len(rule_counts),
         "literal_fallbacks": literal_fallbacks,
+        "hash_shaped": hash_shaped,
         "selfcheck_failures": selfcheck_failures,
         "milestones": milestones,
     }

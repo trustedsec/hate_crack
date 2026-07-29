@@ -21,6 +21,17 @@ import pytest
 os.environ["HATE_CRACK_SKIP_INIT"] = "1"
 from hate_crack import main as hc_main  # noqa: E402
 
+
+def _digest(i: int) -> str:
+    """A 32-character digest-shaped hash field.
+
+    Hash fields are recognized by digest length, so a short stand-in like
+    "aabbcc" or "h0" is treated as part of the password (a wordlist entry may
+    legitimately contain a colon). Fixtures therefore need realistic lengths.
+    """
+    return f"{i:032x}"
+
+
 OLLAMA_URL = "http://localhost:11434"
 MODEL = "test-model"
 
@@ -262,13 +273,14 @@ def test_wordlist_sampling_strips_hash_prefix(env):
     wl = env.tmp_path / "dump.txt"
     # 20 lines: half with colon prefix, half plain; more than max_sample=5
     lines = [
-        f"hash{i}:plain{i:02d}" if i % 2 == 0 else f"plain{i:02d}" for i in range(20)
+        f"{_digest(i)}:plain{i:02d}" if i % 2 == 0 else f"plain{i:02d}"
+        for i in range(20)
     ]
     wl.write_text("\n".join(lines) + "\n")
 
     sample = "\n".join(hc_main._sample_plaintext_file(str(wl), 5))
-    # No hash prefix should appear in the sample
-    assert "hash" not in sample
+    # Only plaintexts survive; no digest characters carry through.
+    assert all(line.startswith("plain") for line in sample.splitlines())
 
 
 def test_wordlist_sampling_skips_blank_lines(env, capsys):
@@ -337,17 +349,17 @@ def test_usable_plaintext_plain_password():
 
 def test_usable_plaintext_hash_colon_password():
     """A hash:password line returns only the password portion."""
-    assert hc_main._usable_plaintext("aabbcc:hunter2") == "hunter2"
+    assert hc_main._usable_plaintext(f"{_digest(1)}:token2") == "token2"
 
 
 def test_usable_plaintext_multiple_colons():
     """A line with multiple colons splits only on the first colon."""
-    assert hc_main._usable_plaintext("aabbcc:p@ss:word") == "p@ss:word"
+    assert hc_main._usable_plaintext(f"{_digest(1)}:frag:ment") == "frag:ment"
 
 
 def test_usable_plaintext_hash_colon_empty():
     """A hash: line with no plaintext after the colon returns empty string."""
-    assert hc_main._usable_plaintext("aabbcc:") == ""
+    assert hc_main._usable_plaintext(f"{_digest(1)}:") == ""
 
 
 # ---------------------------------------------------------------------------
@@ -429,7 +441,7 @@ def test_cracked_mode_caps_large_out_file(env, capsys):
     """A large .out file gets the same evenly-spaced capping as a wordlist."""
     out_path = env.hash_file + ".out"
     with open(out_path, "w") as f:
-        f.write("\n".join(f"h{i}:pw{i:06d}" for i in range(1000)) + "\n")
+        f.write("\n".join(f"{_digest(i)}:pw{i:06d}" for i in range(1000)) + "\n")
 
     sample_lines = hc_main._sample_plaintext_file(
         out_path, 25, source_label="cracked passwords"
@@ -448,7 +460,7 @@ def test_cracked_mode_above_cap_sends_stats_not_raw_lines(env):
     """Above the cap the model gets whole-corpus statistics, never a slice."""
     out_path = env.hash_file + ".out"
     with open(out_path, "w") as f:
-        f.write("\n".join(f"h{i}:Summer{i:04d}!" for i in range(1000)) + "\n")
+        f.write("\n".join(f"{_digest(i)}:Alpha{i:04d}!" for i in range(1000)) + "\n")
 
     with (
         _ollama_globals(env.tmp_path, max_sample=25),
@@ -465,4 +477,4 @@ def test_cracked_mode_above_cap_sends_stats_not_raw_lines(env):
     assert "1000 passwords" in summary
     # The dominant baseword of the whole corpus, which a 25-line slice could
     # not have established.
-    assert "summer" in summary
+    assert "alpha" in summary

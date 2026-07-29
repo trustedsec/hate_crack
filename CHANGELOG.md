@@ -9,7 +9,40 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Spoonman attack derived basewords and rules from the hash as well as the
+  password.** `rulegen.generate` treated each corpus line as a password in full,
+  but the corpus the attack is built for — and that its own menu text recommends
+  — is a previous engagement's cracked output, whose lines are `hash:password`.
+  The digest's hex digits were therefore prepended to every baseword, and 20–30
+  of the 31 available rule functions were spent rebuilding them.
+
+  The damage compounded. Because every hash is unique, every derived baseword and
+  rule was unique too, which destroyed the property the attack exists for: a rule
+  file ranked by productivity and safe to truncate. And because rebuilding the
+  prefix nearly exhausted `MAX_RULE_FUNCTIONS`, real transformations tipped over
+  the limit into the literal fallback — emitting the password as its own
+  baseword, so the corpus became its own wordlist.
+
+  Measured on a 22,283-line cracked-output file: distinct basewords 22,284 →
+  9,912 (previously one per line, i.e. no deduplication at all), literal
+  fallbacks 5,388 → 31, rules needed for 95% coverage 15,783 → 11,730.
+
+  `$HEX[...]` plaintexts are now decoded here too, and a corpus that looks like
+  an uncracked dump rather than cracked output is reported in `coverage.txt` and
+  warned about.
+
 ### Changed
+
+- **Hash-prefix stripping is now based on digest shape rather than the first
+  colon.** New module `hate_crack/plaintext.py` holds the single implementation
+  shared by the LLM read path, `corpus_stats`, and `rulegen`. A leading field is
+  dropped only when it has the shape of a hash — a hex digest at a known length,
+  or a crypt-style `$id$` string — so `hash:salt:plain` is handled, a plaintext
+  containing colons survives intact, and a wordlist entry that merely contains a
+  colon (a URL, a ratio, a time of day) is no longer truncated. Previously the
+  LLM modes split unconditionally on the first colon.
 
 - **The LLM modes now describe the whole corpus statistically instead of pasting
   in a sample of it.** New module `hate_crack/corpus_stats.py` aggregates every

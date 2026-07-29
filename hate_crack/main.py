@@ -77,6 +77,7 @@ from hate_crack import llm  # noqa: E402
 from hate_crack import noninteractive as _noninteractive  # noqa: E402
 from hate_crack.progress import spinner  # noqa: E402
 from hate_crack import corpus_stats as _corpus_stats  # noqa: E402
+from hate_crack import plaintext as _plaintext  # noqa: E402
 from hate_crack import rulegen as _rulegen  # noqa: E402
 from hate_crack.menu import interactive_menu  # noqa: E402
 from hate_crack.username_detect import detect_username_hash_format  # noqa: E402
@@ -932,16 +933,15 @@ def _wordlist_path(path: str):
 def _usable_plaintext(raw: str) -> str:
     """Return the usable plaintext from a raw wordlist line, or empty string.
 
-    Blank/whitespace-only lines are discarded.  Lines in ``hash:password``
-    format (as produced by hashcat ``--show``) are split on the first colon
-    so only the plaintext portion is returned; lines with no colon are
-    returned as-is.  A ``hash:`` line whose plaintext is empty after
-    stripping returns an empty string and is therefore also discarded.
+    Blank/whitespace-only lines are discarded.  Leading hash fields (as
+    produced by hashcat ``--show``, i.e. ``hash:password``) are dropped, and a
+    ``$HEX[...]`` wrapper is decoded.  Both only when clearly present, so a
+    wordlist entry that merely contains a colon is returned intact.
 
-    Delegates to hate_crack.corpus_stats so the sampler and the whole-corpus
-    aggregator cannot drift apart on what counts as a password.
+    Delegates to hate_crack.plaintext so the sampler, the whole-corpus
+    aggregator, and rulegen cannot drift apart on what counts as a password.
     """
-    return _corpus_stats.usable_plaintext(raw)
+    return _plaintext.usable_plaintext(raw)
 
 
 def _add_debug_mode_for_rules(cmd):
@@ -2409,8 +2409,9 @@ def _clean_pattern(raw):
     Returns "" for anything unusable. The prompt asks for lowercase letters
     only, but the rule file is what supplies case, digits, and punctuation — so
     a model that decorates its answer anyway would otherwise get decorated a
-    second time by the rules, producing candidates like "Summer2024!123". The
-    filter is applied here rather than trusted to the prompt for that reason.
+    second time by the rules, stacking a suffix on top of one the model already
+    added. The filter is applied here rather than trusted to the prompt for that
+    reason.
     """
     if not isinstance(raw, str):
         return ""
