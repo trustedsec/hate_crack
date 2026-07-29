@@ -42,7 +42,6 @@ EXPECTED_KEYS = {
     "ollamaTimeout",
     "ollamaMaxSampleLines",
     "ollamaAutoResearch",
-    "omenTrainingList",
     "omenMaxCandidates",
     "pcfgRuleset",
     "pcfgMaxCandidates",

@@ -257,7 +257,6 @@ class TestOmenAttackHandler:
         ctx._omen_dir = str(tmp_path / "omen")
         ctx.hcatOmenCreateBin = "createNG"
         ctx.hcatOmenEnumBin = "enumNG"
-        ctx.omenTrainingList = "/default/rockyou.txt"
         ctx.omenMaxCandidates = 50000000
         ctx.hcatHashType = "1000"
         ctx.hcatHashFile = "/tmp/hashes.txt"
