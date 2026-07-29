@@ -2444,22 +2444,93 @@ def _clean_pattern(raw):
     return letters
 
 
-def hcatOllamaPatterns(hcatHashType, hcatHashFile, source_path, rule_chains=""):
-    """LLM Pattern Rules: infer pattern basewords from a corpus, then apply rules.
+# A thin rule file wastes the pass it is spent on, and local-model yield here
+# varies a lot run to run — measured against one 600-line corpus, the same
+# prompt and model returned 40 valid rules one run and 16 the next. So a thin
+# first answer is asked again rather than accepted, up to this many requests.
+MIN_GENERATED_RULES = 25
+MAX_RULE_REQUESTS = 2
 
-    The Spoonman attack (see hcatSpoonman and hate_crack/rulegen.py) extracts
-    basewords mechanically, so it can only ever produce cores that already
-    appear in the corpus. This asks the model to generalize instead — to name
-    the word families behind the sample and enumerate members the sample does
-    not contain — and then subjects those basewords to *rule_chains*.
 
-    *rule_chains* is one already-formatted hashcat rule argument (such as
-    "-r best64.rule", or "" for no rules) as produced by
-    attacks._select_rules, or a list of them. Inference happens once and every
-    chain runs against the same baseword file: unlike the local generators the
-    other multi-chain attacks use, a round trip to the model costs tens of
-    seconds and is not deterministic, so inferring per chain would both stall
-    the run and change the basewords underneath it between passes.
+def _llm_pattern_rules(gen_context):
+    """Ask the model for hashcat rules describing *gen_context*'s corpus.
+
+    Returns ``(rules, discarded)`` — the rules that passed
+    ``rulegen.validate_rule``, in the order the model ranked them, and how many
+    it returned that did not. Returns ``(None, 0)`` when the *first* request
+    failed outright, having already printed why; an empty list means the model
+    answered but nothing it said was usable.
+
+    Retries once when the yield comes in under ``MIN_GENERATED_RULES``, keeping
+    whatever the earlier attempt produced — the model is sampled, not
+    deterministic, so a second ask genuinely adds rules rather than repeating
+    the first. A failure on a retry is not fatal: rules already in hand still
+    run.
+
+    Validation is not optional. hashcat drops an invalid rule silently when the
+    file also holds valid ones, so an unscreened bad line becomes missing
+    coverage the operator never hears about rather than an error.
+    """
+    rules = []
+    seen = set()
+    discarded = 0
+    for attempt in range(1, MAX_RULE_REQUESTS + 1):
+        label = f"Inferring hashcat rules via Ollama ({ollamaModel})"
+        if attempt > 1:
+            label += f" — retry {attempt - 1}, {len(rules)} rules so far"
+        try:
+            with spinner(f"{label}..."):
+                raw_rules = llm.generate_rules(
+                    ollamaUrl,
+                    ollamaModel,
+                    ollamaNumCtx,
+                    gen_context,
+                    timeout=ollamaTimeout,
+                )
+        except llm.LLMTimeoutError:
+            print(
+                f"Error: the Ollama rule request timed out after {ollamaTimeout:g} s."
+            )
+            return (None, 0) if attempt == 1 else (rules, discarded)
+        except ValueError as e:
+            print(f"Error: {e}")
+            return (None, 0) if attempt == 1 else (rules, discarded)
+        except Exception as e:
+            print(f"Error inferring rules: {e}")
+            return (None, 0) if attempt == 1 else (rules, discarded)
+
+        for raw in raw_rules:
+            if not _rulegen.validate_rule(raw):
+                discarded += 1
+            elif raw not in seen:
+                seen.add(raw)
+                rules.append(raw)
+        if len(rules) >= MIN_GENERATED_RULES:
+            break
+
+    return (rules, discarded)
+
+
+def hcatOllamaPatterns(hcatHashType, hcatHashFile, source_path):
+    """LLM Pattern Rules: infer basewords *and* rules from a corpus, then crack.
+
+    Takes the same shape as the Spoonman attack (see hcatSpoonman and
+    hate_crack/rulegen.py) — a baseword list run through a rule file, both
+    derived from the corpus — but infers each side with the model instead of
+    extracting it. Spoonman is exact and therefore bounded: its basewords all
+    appear in the corpus and its rules only reproduce transformations the corpus
+    already shows. This asks the model to generalize on both axes at once, so it
+    can name word families the corpus only hints at and write decorations the
+    corpus does not contain.
+
+    The operator is not asked to choose a rule file. Picking one would defeat
+    the point — a stock rule file encodes the internet's habits, while the whole
+    reason to spend a model round trip here is to encode *this* organization's.
+
+    Both requests share one corpus analysis, and the rule request is what can
+    come back empty in practice, so a model that produces no valid rules falls
+    back to running the basewords bare rather than aborting a run whose
+    expensive half already succeeded.
     """
     if not os.path.isfile(source_path):
         print(f"Error: pattern source not found: {source_path}")
@@ -2513,10 +2584,13 @@ def hcatOllamaPatterns(hcatHashType, hcatHashFile, source_path, rule_chains=""):
         )
         return
 
-    # Per-run scratch beside the hash file, like .ollama_candidates and
-    # .spoonman; removed by cleanup().
-    patterns_path = f"{hcatHashFile}.llm_patterns"
+    # Per-run scratch beside the hash file, laid out like .spoonman so both
+    # halves of the attack are inspectable after a run; removed by cleanup().
+    scratch_dir = f"{hcatHashFile}.llm_patterns"
+    patterns_path = os.path.join(scratch_dir, "basewords.txt")
+    rules_path = os.path.join(scratch_dir, "rules.rule")
     try:
+        os.makedirs(scratch_dir, exist_ok=True)
         with open(patterns_path, "w") as f:
             for pattern in patterns:
                 f.write(pattern + "\n")
@@ -2530,15 +2604,35 @@ def hcatOllamaPatterns(hcatHashType, hcatHashFile, source_path, rule_chains=""):
         summary += f" ({discarded} discarded during cleanup)"
     print(summary)
 
-    chains = [rule_chains] if isinstance(rule_chains, str) else list(rule_chains)
-    for rule_chain in chains:
-        hcatQuickDictionary(
-            hcatHashType,
-            hcatHashFile,
-            rule_chain,
-            patterns_path,
-            attack_name="LLM Patterns",
+    rules, rules_discarded = _llm_pattern_rules(gen_context)
+    rule_chain = ""
+    if rules:
+        try:
+            with open(rules_path, "w") as f:
+                for rule in rules:
+                    f.write(rule + "\n")
+        except OSError as e:
+            print(f"Error writing rules file: {e}")
+        else:
+            rule_chain = f"-r {shlex.quote(rules_path)}"
+            rule_summary = f"Inferred {len(rules)} hashcat rules -> {rules_path}"
+            if rules_discarded > 0:
+                rule_summary += f" ({rules_discarded} rejected as invalid)"
+            print(rule_summary)
+    if not rule_chain:
+        print(
+            "[!] No usable rules were inferred; running the basewords unmutated. "
+            "Re-run to try again, or use the Spoonman Attack for rules derived "
+            "mechanically from the same corpus."
         )
+
+    hcatQuickDictionary(
+        hcatHashType,
+        hcatHashFile,
+        rule_chain,
+        patterns_path,
+        attack_name="LLM Patterns",
+    )
 
 
 # Middle fast Combinator Attack
@@ -3658,7 +3752,11 @@ def cleanup():
             os.remove(hcatHashFile + ".working")
         if os.path.exists(hcatHashFile + ".expanded"):
             os.remove(hcatHashFile + ".expanded")
-        if os.path.exists(hcatHashFile + ".llm_patterns"):
+        # A directory since the attack started generating its own rules; the
+        # isfile branch clears scratch left by a pre-2.17.3 run.
+        if os.path.isdir(hcatHashFile + ".llm_patterns"):
+            shutil.rmtree(hcatHashFile + ".llm_patterns", ignore_errors=True)
+        elif os.path.isfile(hcatHashFile + ".llm_patterns"):
             os.remove(hcatHashFile + ".llm_patterns")
         if os.path.isdir(hcatHashFile + ".spoonman"):
             shutil.rmtree(hcatHashFile + ".spoonman", ignore_errors=True)

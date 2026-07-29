@@ -146,7 +146,7 @@ def test_cracked_prompt_is_offensive_not_denylist():
 
 
 def test_prompts_map_covers_every_supported_mode():
-    assert set(llm._PROMPTS) == {"target", "wordlist", "cracked", "pattern"}
+    assert set(llm._PROMPTS) == {"target", "wordlist", "cracked", "pattern", "rules"}
 
 
 def test_dedupes_and_caps_length():
