@@ -4740,7 +4740,6 @@ def get_main_menu_items():
         ("80", "Wordlist Tools"),
         ("81", "Rule File Tools"),
         ("82", "Notifications"),
-        ("90", "Download rules from Hashmob.net"),
         ("91", "Analyze Hashcat Rules"),
     ]
     if hashview_api_key:
@@ -4784,7 +4783,6 @@ def get_main_menu_options():
         "80": wordlist_tools_submenu,
         "81": rule_tools_submenu,
         "82": notifications_submenu,
-        "90": lambda: download_hashmob_rules(rules_dir=rulesDirectory),
         "91": analyze_rules,
         "95": pipal,
         "96": export_excel,

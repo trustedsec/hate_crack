@@ -35,7 +35,6 @@ MENU_OPTION_TEST_CASES = [
     ("80", CLI_MODULE._attacks, "wordlist_tools_submenu", "wordlist-tools"),
     ("81", CLI_MODULE._attacks, "rule_tools_submenu", "rule-tools"),
     ("82", CLI_MODULE, "notifications_submenu", "notifications-submenu"),
-    ("90", CLI_MODULE, "download_hashmob_rules", "hashmob-rules"),
     ("91", CLI_MODULE, "analyze_rules", "analyze-rules"),
     ("95", CLI_MODULE, "pipal", "pipal"),
     ("96", CLI_MODULE, "export_excel", "export-excel"),
