@@ -35,9 +35,10 @@ def test_non_tty_no_extra_thread() -> None:
     buf = io.StringIO()
     buf.isatty = lambda: False  # type: ignore[attr-defined]
 
-    with mock.patch("sys.stdout", buf), mock.patch(
-        "hate_crack.progress.threading.Thread"
-    ) as mock_thread:
+    with (
+        mock.patch("sys.stdout", buf),
+        mock.patch("hate_crack.progress.threading.Thread") as mock_thread,
+    ):
         with spinner("No threads please"):
             pass
     mock_thread.assert_not_called()
@@ -76,8 +77,9 @@ def test_tty_shows_elapsed_seconds() -> None:
     # returning 3.0 so stop_event.wait() ends quickly.
     mono_values = iter([0.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0])
 
-    with mock.patch("sys.stdout", buf), mock.patch(
-        "hate_crack.progress.time.monotonic", side_effect=mono_values
+    with (
+        mock.patch("sys.stdout", buf),
+        mock.patch("hate_crack.progress.time.monotonic", side_effect=mono_values),
     ):
         with spinner("Counting..."):
             pass  # body exits immediately; the thread gets one tick then stops
@@ -137,8 +139,9 @@ def test_tty_clears_line_even_if_join_raises() -> None:
         def join(self, *args, **kwargs) -> None:
             raise KeyboardInterrupt("simulated double Ctrl-C during join")
 
-    with mock.patch("hate_crack.progress.threading.Thread", FakeThread), mock.patch(
-        "sys.stdout", buf
+    with (
+        mock.patch("hate_crack.progress.threading.Thread", FakeThread),
+        mock.patch("sys.stdout", buf),
     ):
         with pytest.raises(KeyboardInterrupt):
             with spinner("Robust teardown"):

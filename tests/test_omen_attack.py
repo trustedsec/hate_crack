@@ -22,15 +22,13 @@ class TestHcatOmenTrain:
         model_dir = tmp_path / "model"
         model_dir.mkdir()
 
-        with patch.object(main_module, "hate_path", str(tmp_path)), patch.object(
-            main_module, "_omen_dir", str(omen_dir)
-        ), patch.object(
-            main_module, "hcatOmenCreateBin", "createNG"
-        ), patch(
-            "hate_crack.main._omen_model_dir", return_value=str(model_dir)
-        ), patch(
-            "hate_crack.main.subprocess.Popen"
-        ) as mock_popen:
+        with (
+            patch.object(main_module, "hate_path", str(tmp_path)),
+            patch.object(main_module, "_omen_dir", str(omen_dir)),
+            patch.object(main_module, "hcatOmenCreateBin", "createNG"),
+            patch("hate_crack.main._omen_model_dir", return_value=str(model_dir)),
+            patch("hate_crack.main.subprocess.Popen") as mock_popen,
+        ):
             mock_proc = MagicMock()
             mock_proc.wait.return_value = None
             mock_proc.returncode = 0
@@ -66,10 +64,12 @@ class TestHcatOmenTrain:
         model_dir = tmp_path / "model"
         model_dir.mkdir()
 
-        with patch.object(main_module, "_omen_dir", str(omen_dir)), \
-             patch.object(main_module, "hcatOmenCreateBin", "createNG"), \
-             patch("hate_crack.main._omen_model_dir", return_value=str(model_dir)), \
-             patch("hate_crack.main.subprocess.Popen") as mock_popen:
+        with (
+            patch.object(main_module, "_omen_dir", str(omen_dir)),
+            patch.object(main_module, "hcatOmenCreateBin", "createNG"),
+            patch("hate_crack.main._omen_model_dir", return_value=str(model_dir)),
+            patch("hate_crack.main.subprocess.Popen") as mock_popen,
+        ):
             mock_proc = MagicMock()
             mock_proc.wait.return_value = None
             mock_proc.returncode = 0
@@ -95,10 +95,12 @@ class TestHcatOmenTrain:
         model_dir = tmp_path / "model"
         model_dir.mkdir()
 
-        with patch.object(main_module, "_omen_dir", str(omen_dir)), \
-             patch.object(main_module, "hcatOmenCreateBin", "createNG"), \
-             patch("hate_crack.main._omen_model_dir", return_value=str(model_dir)), \
-             patch("hate_crack.main.subprocess.Popen") as mock_popen:
+        with (
+            patch.object(main_module, "_omen_dir", str(omen_dir)),
+            patch.object(main_module, "hcatOmenCreateBin", "createNG"),
+            patch("hate_crack.main._omen_model_dir", return_value=str(model_dir)),
+            patch("hate_crack.main.subprocess.Popen") as mock_popen,
+        ):
             mock_proc = MagicMock()
             mock_proc.wait.return_value = None
             mock_proc.returncode = 1
@@ -109,8 +111,10 @@ class TestHcatOmenTrain:
         assert result is False
 
     def test_missing_binary_returns_false(self, main_module, tmp_path):
-        with patch.object(main_module, "_omen_dir", str(tmp_path / "omen")), \
-             patch.object(main_module, "hcatOmenCreateBin", "createNG"):
+        with (
+            patch.object(main_module, "_omen_dir", str(tmp_path / "omen")),
+            patch.object(main_module, "hcatOmenCreateBin", "createNG"),
+        ):
             result = main_module.hcatOmenTrain("/nonexistent/file.txt")
         assert result is False
 
@@ -122,9 +126,11 @@ class TestHcatOmenTrain:
         model_dir = tmp_path / "model"
         model_dir.mkdir()
 
-        with patch.object(main_module, "_omen_dir", str(omen_dir)), \
-             patch.object(main_module, "hcatOmenCreateBin", "createNG"), \
-             patch("hate_crack.main._omen_model_dir", return_value=str(model_dir)):
+        with (
+            patch.object(main_module, "_omen_dir", str(omen_dir)),
+            patch.object(main_module, "hcatOmenCreateBin", "createNG"),
+            patch("hate_crack.main._omen_model_dir", return_value=str(model_dir)),
+        ):
             result = main_module.hcatOmenTrain("/nonexistent/file.txt")
         assert result is False
 
@@ -140,21 +146,17 @@ class TestHcatOmen:
         model_dir.mkdir()
         (model_dir / "createConfig").write_text("# test config\n")
 
-        with patch.object(main_module, "hate_path", str(tmp_path)), patch.object(
-            main_module, "_omen_dir", str(omen_dir)
-        ), patch.object(
-            main_module, "hcatOmenEnumBin", "enumNG"
-        ), patch.object(main_module, "hcatBin", "hashcat"), patch.object(
-            main_module, "hcatTuning", "--force"
-        ), patch.object(
-            main_module, "hcatPotfilePath", ""
-        ), patch.object(
-            main_module, "hcatHashFile", "/tmp/hashes.txt", create=True
-        ), patch(
-            "hate_crack.main._omen_model_dir", return_value=str(model_dir)
-        ), patch(
-            "hate_crack.main.subprocess.Popen"
-        ) as mock_popen:
+        with (
+            patch.object(main_module, "hate_path", str(tmp_path)),
+            patch.object(main_module, "_omen_dir", str(omen_dir)),
+            patch.object(main_module, "hcatOmenEnumBin", "enumNG"),
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", "--force"),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "hcatHashFile", "/tmp/hashes.txt", create=True),
+            patch("hate_crack.main._omen_model_dir", return_value=str(model_dir)),
+            patch("hate_crack.main.subprocess.Popen") as mock_popen,
+        ):
             mock_enum_proc = MagicMock()
             mock_enum_proc.stdout = MagicMock()
             mock_enum_proc.returncode = 0
@@ -183,9 +185,11 @@ class TestHcatOmen:
             assert "/tmp/hashes.txt" in hashcat_cmd
 
     def test_missing_binary(self, main_module, tmp_path, capsys):
-        with patch.object(main_module, "hate_path", str(tmp_path)), patch.object(
-            main_module, "_omen_dir", str(tmp_path / "omen")
-        ), patch.object(main_module, "hcatOmenEnumBin", "enumNG"):
+        with (
+            patch.object(main_module, "hate_path", str(tmp_path)),
+            patch.object(main_module, "_omen_dir", str(tmp_path / "omen")),
+            patch.object(main_module, "hcatOmenEnumBin", "enumNG"),
+        ):
             main_module.hcatOmen("1000", "/tmp/hashes.txt", 500000)
             captured = capsys.readouterr()
             assert "enumNG binary not found" in captured.out
@@ -200,11 +204,12 @@ class TestHcatOmen:
         model_dir.mkdir()
         # No createConfig in model_dir
 
-        with patch.object(main_module, "hate_path", str(tmp_path)), patch.object(
-            main_module, "_omen_dir", str(omen_dir)
-        ), patch.object(
-            main_module, "hcatOmenEnumBin", "enumNG"
-        ), patch("hate_crack.main._omen_model_dir", return_value=str(model_dir)):
+        with (
+            patch.object(main_module, "hate_path", str(tmp_path)),
+            patch.object(main_module, "_omen_dir", str(omen_dir)),
+            patch.object(main_module, "hcatOmenEnumBin", "enumNG"),
+            patch("hate_crack.main._omen_model_dir", return_value=str(model_dir)),
+        ):
             main_module.hcatOmen("1000", "/tmp/hashes.txt", 500000)
             captured = capsys.readouterr()
             assert "OMEN model not found" in captured.out
@@ -219,14 +224,16 @@ class TestHcatOmen:
         model_dir.mkdir()
         (model_dir / "createConfig").write_text("# test config\n")
 
-        with patch.object(main_module, "_omen_dir", str(omen_dir)), \
-             patch.object(main_module, "hcatOmenEnumBin", "enumNG"), \
-             patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "hcatHashFile", "/tmp/hashes.txt", create=True), \
-             patch("hate_crack.main._omen_model_dir", return_value=str(model_dir)), \
-             patch("hate_crack.main.subprocess.Popen") as mock_popen:
+        with (
+            patch.object(main_module, "_omen_dir", str(omen_dir)),
+            patch.object(main_module, "hcatOmenEnumBin", "enumNG"),
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "hcatHashFile", "/tmp/hashes.txt", create=True),
+            patch("hate_crack.main._omen_model_dir", return_value=str(model_dir)),
+            patch("hate_crack.main.subprocess.Popen") as mock_popen,
+        ):
             mock_enum_proc = MagicMock()
             mock_enum_proc.stdout = MagicMock()
             mock_enum_proc.stderr.read.return_value = b"ERROR: Could not open CP.level"
@@ -331,8 +338,9 @@ class TestOmenAttackHandler:
     def test_no_model_goes_straight_to_training(self, tmp_path):
         ctx = self._make_ctx(tmp_path, model_valid=False)
         self._setup_rules_dir(tmp_path)
-        with patch("os.path.isfile", return_value=True), patch(
-            "builtins.input", side_effect=["1", "", "0"]
+        with (
+            patch("os.path.isfile", return_value=True),
+            patch("builtins.input", side_effect=["1", "", "0"]),
         ):
             from hate_crack.attacks import omen_attack
 
@@ -343,8 +351,9 @@ class TestOmenAttackHandler:
     def test_training_failure_aborts_enumeration(self, tmp_path):
         ctx = self._make_ctx(tmp_path, model_valid=False)
         ctx.hcatOmenTrain.return_value = False
-        with patch("os.path.isfile", return_value=True), patch(
-            "builtins.input", side_effect=["1"]
+        with (
+            patch("os.path.isfile", return_value=True),
+            patch("builtins.input", side_effect=["1"]),
         ):
             from hate_crack.attacks import omen_attack
 
@@ -355,8 +364,9 @@ class TestOmenAttackHandler:
         ctx = self._make_ctx(tmp_path, model_valid=False)
         self._setup_rules_dir(tmp_path)
         ctx.select_file_with_autocomplete.return_value = "/custom/wordlist.txt"
-        with patch("os.path.isfile", return_value=True), patch(
-            "builtins.input", side_effect=["p", "", "0"]
+        with (
+            patch("os.path.isfile", return_value=True),
+            patch("builtins.input", side_effect=["p", "", "0"]),
         ):
             from hate_crack.attacks import omen_attack
 
@@ -431,15 +441,17 @@ class TestHcatOmenWithRules:
         model_dir.mkdir()
         (model_dir / "createConfig").write_text("# test config\n")
 
-        with patch.object(main_module, "_omen_dir", str(omen_dir)), \
-             patch.object(main_module, "hcatOmenEnumBin", "enumNG"), \
-             patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "hcatDebugLogPath", str(tmp_path / "debug")), \
-             patch.object(main_module, "hcatHashFile", "/tmp/hashes.txt", create=True), \
-             patch("hate_crack.main._omen_model_dir", return_value=str(model_dir)), \
-             patch("hate_crack.main.subprocess.Popen") as mock_popen:
+        with (
+            patch.object(main_module, "_omen_dir", str(omen_dir)),
+            patch.object(main_module, "hcatOmenEnumBin", "enumNG"),
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "hcatDebugLogPath", str(tmp_path / "debug")),
+            patch.object(main_module, "hcatHashFile", "/tmp/hashes.txt", create=True),
+            patch("hate_crack.main._omen_model_dir", return_value=str(model_dir)),
+            patch("hate_crack.main.subprocess.Popen") as mock_popen,
+        ):
             mock_enum_proc = MagicMock()
             mock_enum_proc.stdout = MagicMock()
             mock_enum_proc.stderr = MagicMock()
@@ -450,7 +462,9 @@ class TestHcatOmenWithRules:
             mock_hashcat_proc.wait.return_value = None
             mock_popen.side_effect = [mock_enum_proc, mock_hashcat_proc]
 
-            main_module.hcatOmen("1000", "/tmp/hashes.txt", 500000, "-r /tmp/best64.rule")
+            main_module.hcatOmen(
+                "1000", "/tmp/hashes.txt", 500000, "-r /tmp/best64.rule"
+            )
 
         hashcat_cmd = mock_popen.call_args_list[1][0][0]
         assert "-r" in hashcat_cmd
@@ -466,15 +480,17 @@ class TestHcatOmenWithRules:
         model_dir.mkdir()
         (model_dir / "createConfig").write_text("# test config\n")
 
-        with patch.object(main_module, "_omen_dir", str(omen_dir)), \
-             patch.object(main_module, "hcatOmenEnumBin", "enumNG"), \
-             patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "hcatDebugLogPath", str(tmp_path / "debug")), \
-             patch.object(main_module, "hcatHashFile", "/tmp/hashes.txt", create=True), \
-             patch("hate_crack.main._omen_model_dir", return_value=str(model_dir)), \
-             patch("hate_crack.main.subprocess.Popen") as mock_popen:
+        with (
+            patch.object(main_module, "_omen_dir", str(omen_dir)),
+            patch.object(main_module, "hcatOmenEnumBin", "enumNG"),
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "hcatDebugLogPath", str(tmp_path / "debug")),
+            patch.object(main_module, "hcatHashFile", "/tmp/hashes.txt", create=True),
+            patch("hate_crack.main._omen_model_dir", return_value=str(model_dir)),
+            patch("hate_crack.main.subprocess.Popen") as mock_popen,
+        ):
             mock_enum_proc = MagicMock()
             mock_enum_proc.stdout = MagicMock()
             mock_enum_proc.stderr = MagicMock()
@@ -485,7 +501,9 @@ class TestHcatOmenWithRules:
             mock_hashcat_proc.wait.return_value = None
             mock_popen.side_effect = [mock_enum_proc, mock_hashcat_proc]
 
-            main_module.hcatOmen("1000", "/tmp/hashes.txt", 500000, "-r /tmp/best64.rule")
+            main_module.hcatOmen(
+                "1000", "/tmp/hashes.txt", 500000, "-r /tmp/best64.rule"
+            )
 
         hashcat_cmd = mock_popen.call_args_list[1][0][0]
         assert "--debug-mode" in hashcat_cmd
@@ -500,14 +518,16 @@ class TestHcatOmenWithRules:
         model_dir.mkdir()
         (model_dir / "createConfig").write_text("# test config\n")
 
-        with patch.object(main_module, "_omen_dir", str(omen_dir)), \
-             patch.object(main_module, "hcatOmenEnumBin", "enumNG"), \
-             patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "hcatHashFile", "/tmp/hashes.txt", create=True), \
-             patch("hate_crack.main._omen_model_dir", return_value=str(model_dir)), \
-             patch("hate_crack.main.subprocess.Popen") as mock_popen:
+        with (
+            patch.object(main_module, "_omen_dir", str(omen_dir)),
+            patch.object(main_module, "hcatOmenEnumBin", "enumNG"),
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "hcatHashFile", "/tmp/hashes.txt", create=True),
+            patch("hate_crack.main._omen_model_dir", return_value=str(model_dir)),
+            patch("hate_crack.main.subprocess.Popen") as mock_popen,
+        ):
             mock_enum_proc = MagicMock()
             mock_enum_proc.stdout = MagicMock()
             mock_enum_proc.stderr = MagicMock()
@@ -561,7 +581,10 @@ class TestOmenModelInfo:
     def test_returns_info_when_metadata_exists(self, main_module, tmp_path):
         model_dir = tmp_path / "model"
         model_dir.mkdir()
-        info = {"training_file": "/path/to/rockyou.txt", "trained_at": "2026-03-17T12:00:00"}
+        info = {
+            "training_file": "/path/to/rockyou.txt",
+            "trained_at": "2026-03-17T12:00:00",
+        }
         (model_dir / "model_info.json").write_text(json.dumps(info))
         result = main_module._omen_model_info(str(model_dir))
         assert result["training_file"] == "/path/to/rockyou.txt"

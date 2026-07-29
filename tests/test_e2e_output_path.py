@@ -94,11 +94,14 @@ class TestOutputPathE2E:
         out_file = f"{nt_file}.out"
         cmd = [
             "hashcat",
-            "-m", "1000",
+            "-m",
+            "1000",
             nt_file,
             "/tmp/test_wordlist.txt",
-            "-a", "0",
-            "-o", out_file,
+            "-a",
+            "0",
+            "-o",
+            out_file,
             f"--potfile-path={potfile}",
             "--potfile-disable",
             "--quiet",

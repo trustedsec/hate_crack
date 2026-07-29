@@ -1,4 +1,5 @@
 """Tests for the ``_run_hcat_cmd`` subprocess/notify wrapper in main.py."""
+
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -33,7 +34,9 @@ class TestRunHcatCmd:
             mock_notify.get_settings.return_value = MagicMock(enabled=True)
             mock_notify.start_tailer.return_value = None
             main_module._run_hcat_cmd(
-                ["hashcat", "-m", "1000"], attack_name="Brute Force", hash_file=hash_file
+                ["hashcat", "-m", "1000"],
+                attack_name="Brute Force",
+                hash_file=hash_file,
             )
 
         mock_popen.assert_called_once()
@@ -194,9 +197,7 @@ class TestRunHcatCmd:
             )
 
         mock_lc.assert_called_with(alt_out)
-        mock_notify.notify_job_done.assert_called_once_with(
-            "LM Phase", 9, hash_file
-        )
+        mock_notify.notify_job_done.assert_called_once_with("LM Phase", 9, hash_file)
 
     def test_tailer_is_stopped_in_finally(self, main_module, tmp_path):
         hash_file = str(tmp_path / "hashes.txt")

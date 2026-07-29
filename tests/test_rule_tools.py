@@ -204,9 +204,7 @@ class TestRuleToolsSubmenu:
         ctx = _make_ctx()
         with (
             patch("hate_crack.attacks.rule_cleanup_handler") as mock_fn,
-            patch(
-                "hate_crack.menu.interactive_menu", side_effect=["1", "99"]
-            ),
+            patch("hate_crack.menu.interactive_menu", side_effect=["1", "99"]),
         ):
             rule_tools_submenu(ctx)
         mock_fn.assert_called_once_with(ctx)
@@ -215,9 +213,7 @@ class TestRuleToolsSubmenu:
         ctx = _make_ctx()
         with (
             patch("hate_crack.attacks.rule_optimize_handler") as mock_fn,
-            patch(
-                "hate_crack.menu.interactive_menu", side_effect=["2", "99"]
-            ),
+            patch("hate_crack.menu.interactive_menu", side_effect=["2", "99"]),
         ):
             rule_tools_submenu(ctx)
         mock_fn.assert_called_once_with(ctx)
@@ -226,9 +222,7 @@ class TestRuleToolsSubmenu:
         ctx = _make_ctx()
         with (
             patch("hate_crack.attacks.rule_cleanup_and_optimize_handler") as mock_fn,
-            patch(
-                "hate_crack.menu.interactive_menu", side_effect=["3", "99"]
-            ),
+            patch("hate_crack.menu.interactive_menu", side_effect=["3", "99"]),
         ):
             rule_tools_submenu(ctx)
         mock_fn.assert_called_once_with(ctx)
@@ -240,9 +234,7 @@ class TestRuleToolsSubmenu:
             patch("hate_crack.menu.interactive_menu", side_effect=["4", "99"]),
         ):
             rule_tools_submenu(ctx)
-        mock_fn.assert_called_once_with(
-            print_fn=print, rules_dir=ctx.rulesDirectory
-        )
+        mock_fn.assert_called_once_with(print_fn=print, rules_dir=ctx.rulesDirectory)
 
     def test_dispatches_to_analyze_rules(self):
         ctx = _make_ctx()

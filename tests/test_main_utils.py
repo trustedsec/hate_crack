@@ -52,17 +52,23 @@ class TestGenerateSessionId:
         assert result == "myfile"
 
     def test_with_hyphens_and_underscores(self, main_module):
-        with patch("hate_crack.main.hcatHashFile", "/path/to/my-file_v2.txt", create=True):
+        with patch(
+            "hate_crack.main.hcatHashFile", "/path/to/my-file_v2.txt", create=True
+        ):
             result = main_module.generate_session_id()
         assert result == "my-file_v2"
 
     def test_dots_replaced(self, main_module):
-        with patch("hate_crack.main.hcatHashFile", "/tmp/file.with.dots.txt", create=True):
+        with patch(
+            "hate_crack.main.hcatHashFile", "/tmp/file.with.dots.txt", create=True
+        ):
             result = main_module.generate_session_id()
         assert result == "file_with_dots"
 
     def test_spaces_replaced(self, main_module):
-        with patch("hate_crack.main.hcatHashFile", "/tmp/file with spaces.txt", create=True):
+        with patch(
+            "hate_crack.main.hcatHashFile", "/tmp/file with spaces.txt", create=True
+        ):
             result = main_module.generate_session_id()
         assert result == "file_with_spaces"
 
@@ -76,6 +82,7 @@ class TestGenerateSessionId:
         with patch("hate_crack.main.hcatHashFile", "/tmp/f!le@na#me.txt", create=True):
             result = main_module.generate_session_id()
         import re
+
         assert re.fullmatch(r"[a-zA-Z0-9_-]+", result) is not None
 
 
@@ -99,7 +106,9 @@ class TestEnsureHashfileInCwd:
         result = main_module._ensure_hashfile_in_cwd(str(target))
         assert result == str(target)
 
-    def test_different_dir_returns_original_path(self, main_module, tmp_path, monkeypatch):
+    def test_different_dir_returns_original_path(
+        self, main_module, tmp_path, monkeypatch
+    ):
         """File in different dir is returned as-is (no symlink/copy)."""
         other_dir = tmp_path / "other"
         other_dir.mkdir()
@@ -257,7 +266,9 @@ class TestRunHashcatShow:
 class TestDedupNetntlmByUsername:
     def test_no_duplicates_no_output_file(self, tmp_path):
         input_file = tmp_path / "hashes.txt"
-        input_file.write_text("user1::domain:challenge:response:blob\nuser2::domain:challenge:response:blob\n")
+        input_file.write_text(
+            "user1::domain:challenge:response:blob\nuser2::domain:challenge:response:blob\n"
+        )
         output_file = tmp_path / "deduped.txt"
 
         total, dupes = _dedup_netntlm_by_username(str(input_file), str(output_file))
@@ -288,8 +299,7 @@ class TestDedupNetntlmByUsername:
     def test_only_first_occurrence_kept(self, tmp_path):
         input_file = tmp_path / "hashes.txt"
         input_file.write_text(
-            "alice::domain:first:aaa:bbb\n"
-            "alice::domain:second:ccc:ddd\n"
+            "alice::domain:first:aaa:bbb\nalice::domain:second:ccc:ddd\n"
         )
         output_file = tmp_path / "deduped.txt"
 
@@ -398,7 +408,9 @@ class TestGetRulePath:
         rule_file.write_text("rule content")
 
         with patch.object(main_module, "rulesDirectory", str(empty_rules_dir)):
-            result = main_module.get_rule_path("custom.rule", fallback_dir=str(fallback_dir))
+            result = main_module.get_rule_path(
+                "custom.rule", fallback_dir=str(fallback_dir)
+            )
 
         assert result == str(rule_file)
 
@@ -427,7 +439,9 @@ class TestGetRulePath:
         (fallback_dir / "priority.rule").write_text("fallback version")
 
         with patch.object(main_module, "rulesDirectory", str(rules_dir)):
-            result = main_module.get_rule_path("priority.rule", fallback_dir=str(fallback_dir))
+            result = main_module.get_rule_path(
+                "priority.rule", fallback_dir=str(fallback_dir)
+            )
 
         assert result == str(rules_dir / "priority.rule")
 
@@ -507,7 +521,9 @@ class TestListWordlistFiles:
             (".DS_Store", False),
         ],
     )
-    def test_filters_excluded_extensions(self, tmp_path, main_module, filename, included):
+    def test_filters_excluded_extensions(
+        self, tmp_path, main_module, filename, included
+    ):
         (tmp_path / filename).touch()
         result = main_module.list_wordlist_files(str(tmp_path))
         if included:

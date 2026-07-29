@@ -13,6 +13,7 @@ CLI_SPEC.loader.exec_module(CLI_MODULE)
 
 def _get_main():
     import hate_crack.main as m
+
     return m
 
 
@@ -130,7 +131,9 @@ class TestWordlistSubtractWrapper:
         remove2.write_text("word2\n")
         with patch("hate_crack.main.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0)
-            result = m.wordlist_subtract(str(infile), str(outfile), str(remove1), str(remove2))
+            result = m.wordlist_subtract(
+                str(infile), str(outfile), str(remove1), str(remove2)
+            )
         assert result is True
         cmd = mock_run.call_args[0][0]
         assert "rli.bin" in cmd[0]
@@ -150,7 +153,9 @@ class TestWordlistSubtractSingleWrapper:
         outfile = tmp_path / "out.txt"
         with patch("hate_crack.main.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0)
-            result = m.wordlist_subtract_single(str(infile), str(removefile), str(outfile))
+            result = m.wordlist_subtract_single(
+                str(infile), str(removefile), str(outfile)
+            )
         assert result is True
         cmd = mock_run.call_args[0][0]
         assert "rli2.bin" in cmd[0]

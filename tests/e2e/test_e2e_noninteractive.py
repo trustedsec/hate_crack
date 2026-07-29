@@ -1,6 +1,7 @@
 """Real-subprocess, real-hashcat e2e tests for the 4 non-interactive CLI
 subcommands: quick, dict, brute, topmask.
 """
+
 import json
 import os
 
@@ -27,9 +28,9 @@ _DICT_REQUIRED_RULES = ("best66.rule", "d3ad0ne.rule", "T0XlC.rule")
 
 @pytest.fixture
 def e2e_dict_rules(e2e_home):
-    rules_dir = json.loads(
-        (e2e_home / ".hate_crack" / "config.json").read_text()
-    )["rules_directory"]
+    rules_dir = json.loads((e2e_home / ".hate_crack" / "config.json").read_text())[
+        "rules_directory"
+    ]
     for name in _DICT_REQUIRED_RULES:
         with open(os.path.join(rules_dir, name), "w") as f:
             f.write(":\n")
@@ -135,8 +136,11 @@ def test_harness_smoke_no_crack_when_wordlist_lacks_target(
     depends on this being true."""
     result = run_noninteractive(
         [
-            "quick", str(e2e_hash_file), "1000",
-            "--wordlist", str(e2e_wordlist_no_target),
+            "quick",
+            str(e2e_hash_file),
+            "1000",
+            "--wordlist",
+            str(e2e_wordlist_no_target),
         ],
         home_dir=e2e_home,
     )

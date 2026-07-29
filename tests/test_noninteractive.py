@@ -63,6 +63,7 @@ def _spy_ctx(tmp_path, **overrides):
     def rec(name):
         def _fn(*a, **k):
             calls.append((name, a, k))
+
         return _fn
 
     ctx = SimpleNamespace(
@@ -87,7 +88,9 @@ def test_dispatch_quick_calls_quick_dictionary(tmp_path):
     wl = tmp_path / "rockyou.txt"
     wl.write_text("password\n")
     ctx = _spy_ctx(tmp_path)
-    args = SimpleNamespace(command="quick", wordlist=str(wl), rule_files=["best64.rule"])
+    args = SimpleNamespace(
+        command="quick", wordlist=str(wl), rule_files=["best64.rule"]
+    )
     code = ni.run_noninteractive(ctx, args)
     assert code == 0
     assert [c[0] for c in ctx.calls] == ["hcatQuickDictionary"]
@@ -101,7 +104,9 @@ def test_dispatch_quick_calls_quick_dictionary(tmp_path):
 def test_dispatch_quick_missing_wordlist_returns_1(tmp_path):
     (tmp_path / "rules").mkdir()
     ctx = _spy_ctx(tmp_path)
-    args = SimpleNamespace(command="quick", wordlist=str(tmp_path / "nope.txt"), rule_files=[])
+    args = SimpleNamespace(
+        command="quick", wordlist=str(tmp_path / "nope.txt"), rule_files=[]
+    )
     assert ni.run_noninteractive(ctx, args) == 1
     assert ctx.calls == []
 
@@ -230,9 +235,7 @@ def test_main_quick_with_rules_dispatches(monkeypatch, tmp_path):
     (rules_dir / "best64.rule").write_text(":\n")
     monkeypatch.setattr(hc_main, "rulesDirectory", str(rules_dir))
     calls = []
-    monkeypatch.setattr(
-        hc_main, "hcatQuickDictionary", lambda *a, **k: calls.append(a)
-    )
+    monkeypatch.setattr(hc_main, "hcatQuickDictionary", lambda *a, **k: calls.append(a))
     code = _run_main(
         monkeypatch,
         ["quick", str(hf), "1000", "--wordlist", str(wl), "--rules", "best64.rule"],
@@ -248,9 +251,7 @@ def test_main_debug_flag_before_subcommand(monkeypatch, tmp_path):
     wl = tmp_path / "w.txt"
     wl.write_text("x\n")
     calls = []
-    monkeypatch.setattr(
-        hc_main, "hcatQuickDictionary", lambda *a, **k: calls.append(a)
-    )
+    monkeypatch.setattr(hc_main, "hcatQuickDictionary", lambda *a, **k: calls.append(a))
     code = _run_main(
         monkeypatch,
         ["--debug", "quick", str(hf), "1000", "--wordlist", str(wl)],

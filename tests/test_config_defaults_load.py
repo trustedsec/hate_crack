@@ -1,4 +1,5 @@
 """Tests for hate_crack.main's config.json.example defaults loader (#155)."""
+
 import json
 import os
 
@@ -35,7 +36,9 @@ def test_dangling_symlink_defaults_file_names_the_cause(main_module, tmp_path, c
     assert "dangling symlink" in captured.out.lower()
 
 
-def test_malformed_json_defaults_file_exits_with_clear_message(main_module, tmp_path, capsys):
+def test_malformed_json_defaults_file_exits_with_clear_message(
+    main_module, tmp_path, capsys
+):
     bad_path = tmp_path / "config.json.example"
     bad_path.write_text("{not valid json")
 

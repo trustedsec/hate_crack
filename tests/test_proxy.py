@@ -39,7 +39,9 @@ class TestSyncGlobalsToMain:
         """Names not in the sync list are not pushed to main."""
         hc_module.__dict__["_random_unlisted_var"] = "should_not_sync"
         hc_module._sync_globals_to_main()
-        assert getattr(hc_module._main, "_random_unlisted_var", None) != "should_not_sync"
+        assert (
+            getattr(hc_module._main, "_random_unlisted_var", None) != "should_not_sync"
+        )
 
     def test_absent_name_skipped(self, hc_module):
         """If a synced name is absent from hc_module globals, main is not modified."""

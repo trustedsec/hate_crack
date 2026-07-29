@@ -88,7 +88,9 @@ class TestWordlistFilterCharclassInclude:
         ctx.select_file_with_autocomplete.side_effect = [str(infile), str(outfile)]
         with patch("builtins.input", side_effect=["7"]):
             wordlist_filter_charclass_include(ctx)
-        ctx.wordlist_filter_req_include.assert_called_once_with(str(infile), str(outfile), 7)
+        ctx.wordlist_filter_req_include.assert_called_once_with(
+            str(infile), str(outfile), 7
+        )
 
     def test_rejects_nonexistent_infile(self, tmp_path):
         ctx = _make_ctx()
@@ -106,7 +108,9 @@ class TestWordlistFilterCharclassExclude:
         ctx.select_file_with_autocomplete.side_effect = [str(infile), str(outfile)]
         with patch("builtins.input", side_effect=["8"]):
             wordlist_filter_charclass_exclude(ctx)
-        ctx.wordlist_filter_req_exclude.assert_called_once_with(str(infile), str(outfile), 8)
+        ctx.wordlist_filter_req_exclude.assert_called_once_with(
+            str(infile), str(outfile), 8
+        )
 
     def test_rejects_nonexistent_infile(self, tmp_path):
         ctx = _make_ctx()
@@ -177,10 +181,16 @@ class TestWordlistSubtractWords:
         removefile = tmp_path / "remove.txt"
         removefile.write_text("word1\n")
         outfile = tmp_path / "out.txt"
-        ctx.select_file_with_autocomplete.side_effect = [str(infile), str(removefile), str(outfile)]
+        ctx.select_file_with_autocomplete.side_effect = [
+            str(infile),
+            str(removefile),
+            str(outfile),
+        ]
         with patch("builtins.input", side_effect=["1"]):
             wordlist_subtract_words(ctx)
-        ctx.wordlist_subtract_single.assert_called_once_with(str(infile), str(removefile), str(outfile))
+        ctx.wordlist_subtract_single.assert_called_once_with(
+            str(infile), str(removefile), str(outfile)
+        )
 
     def test_multi_remove_calls_wordlist_subtract(self, tmp_path):
         ctx = _make_ctx()
@@ -269,71 +279,91 @@ class TestWordlistShard:
 class TestWordlistToolsSubmenu:
     def test_submenu_dispatches_to_filter_length(self):
         ctx = _make_ctx()
-        with patch("hate_crack.attacks.wordlist_filter_length") as mock_fn, \
-             patch("hate_crack.attacks.interactive_menu", side_effect=["1", "99"]):
+        with (
+            patch("hate_crack.attacks.wordlist_filter_length") as mock_fn,
+            patch("hate_crack.attacks.interactive_menu", side_effect=["1", "99"]),
+        ):
             wordlist_tools_submenu(ctx)
         mock_fn.assert_called_once_with(ctx)
 
     def test_submenu_dispatches_to_filter_charclass_include(self):
         ctx = _make_ctx()
-        with patch("hate_crack.attacks.wordlist_filter_charclass_include") as mock_fn, \
-             patch("hate_crack.attacks.interactive_menu", side_effect=["2", "99"]):
+        with (
+            patch("hate_crack.attacks.wordlist_filter_charclass_include") as mock_fn,
+            patch("hate_crack.attacks.interactive_menu", side_effect=["2", "99"]),
+        ):
             wordlist_tools_submenu(ctx)
         mock_fn.assert_called_once_with(ctx)
 
     def test_submenu_dispatches_to_filter_charclass_exclude(self):
         ctx = _make_ctx()
-        with patch("hate_crack.attacks.wordlist_filter_charclass_exclude") as mock_fn, \
-             patch("hate_crack.attacks.interactive_menu", side_effect=["3", "99"]):
+        with (
+            patch("hate_crack.attacks.wordlist_filter_charclass_exclude") as mock_fn,
+            patch("hate_crack.attacks.interactive_menu", side_effect=["3", "99"]),
+        ):
             wordlist_tools_submenu(ctx)
         mock_fn.assert_called_once_with(ctx)
 
     def test_submenu_dispatches_to_cut_substring(self):
         ctx = _make_ctx()
-        with patch("hate_crack.attacks.wordlist_cut_substring") as mock_fn, \
-             patch("hate_crack.attacks.interactive_menu", side_effect=["4", "99"]):
+        with (
+            patch("hate_crack.attacks.wordlist_cut_substring") as mock_fn,
+            patch("hate_crack.attacks.interactive_menu", side_effect=["4", "99"]),
+        ):
             wordlist_tools_submenu(ctx)
         mock_fn.assert_called_once_with(ctx)
 
     def test_submenu_dispatches_to_split_by_length(self):
         ctx = _make_ctx()
-        with patch("hate_crack.attacks.wordlist_split_by_length") as mock_fn, \
-             patch("hate_crack.attacks.interactive_menu", side_effect=["5", "99"]):
+        with (
+            patch("hate_crack.attacks.wordlist_split_by_length") as mock_fn,
+            patch("hate_crack.attacks.interactive_menu", side_effect=["5", "99"]),
+        ):
             wordlist_tools_submenu(ctx)
         mock_fn.assert_called_once_with(ctx)
 
     def test_submenu_dispatches_to_subtract_words(self):
         ctx = _make_ctx()
-        with patch("hate_crack.attacks.wordlist_subtract_words") as mock_fn, \
-             patch("hate_crack.attacks.interactive_menu", side_effect=["6", "99"]):
+        with (
+            patch("hate_crack.attacks.wordlist_subtract_words") as mock_fn,
+            patch("hate_crack.attacks.interactive_menu", side_effect=["6", "99"]),
+        ):
             wordlist_tools_submenu(ctx)
         mock_fn.assert_called_once_with(ctx)
 
     def test_submenu_dispatches_to_shard(self):
         ctx = _make_ctx()
-        with patch("hate_crack.attacks.wordlist_shard") as mock_fn, \
-             patch("hate_crack.attacks.interactive_menu", side_effect=["7", "99"]):
+        with (
+            patch("hate_crack.attacks.wordlist_shard") as mock_fn,
+            patch("hate_crack.attacks.interactive_menu", side_effect=["7", "99"]),
+        ):
             wordlist_tools_submenu(ctx)
         mock_fn.assert_called_once_with(ctx)
 
     def test_submenu_dispatches_to_optimize(self):
         ctx = _make_ctx()
-        with patch("hate_crack.attacks.wordlist_optimize") as mock_fn, \
-             patch("hate_crack.attacks.interactive_menu", side_effect=["8", "99"]):
+        with (
+            patch("hate_crack.attacks.wordlist_optimize") as mock_fn,
+            patch("hate_crack.attacks.interactive_menu", side_effect=["8", "99"]),
+        ):
             wordlist_tools_submenu(ctx)
         mock_fn.assert_called_once_with(ctx)
 
     def test_submenu_dispatches_to_hashmob_download(self):
         ctx = _make_ctx()
-        with patch("hate_crack.attacks.download_hashmob_wordlists") as mock_fn, \
-             patch("hate_crack.attacks.interactive_menu", side_effect=["9", "99"]):
+        with (
+            patch("hate_crack.attacks.download_hashmob_wordlists") as mock_fn,
+            patch("hate_crack.attacks.interactive_menu", side_effect=["9", "99"]),
+        ):
             wordlist_tools_submenu(ctx)
         mock_fn.assert_called_once_with(print_fn=print)
 
     def test_submenu_dispatches_to_weakpass_download(self):
         ctx = _make_ctx()
-        with patch("hate_crack.attacks.weakpass_wordlist_menu") as mock_fn, \
-             patch("hate_crack.attacks.interactive_menu", side_effect=["10", "99"]):
+        with (
+            patch("hate_crack.attacks.weakpass_wordlist_menu") as mock_fn,
+            patch("hate_crack.attacks.interactive_menu", side_effect=["10", "99"]),
+        ):
             wordlist_tools_submenu(ctx)
         mock_fn.assert_called_once_with()
 
@@ -365,9 +395,7 @@ class TestWordlistOptimize:
             patch("hate_crack.attacks.os.path.isdir", return_value=False),
         ):
             wordlist_optimize(ctx)
-        ctx.wordlist_optimize.assert_called_once_with(
-            [str(wl_a), str(wl_b)], outdir
-        )
+        ctx.wordlist_optimize.assert_called_once_with([str(wl_a), str(wl_b)], outdir)
         out = capsys.readouterr().out
         assert outdir in out
 
@@ -420,9 +448,14 @@ class TestWordlistOptimize:
         ctx = _make_ctx()
         existing = tmp_path / "a.txt"
         existing.write_text("word\n")
-        ctx.select_file_with_autocomplete.return_value = f"{existing},/nonexistent/missing.txt"
+        ctx.select_file_with_autocomplete.return_value = (
+            f"{existing},/nonexistent/missing.txt"
+        )
         with (
-            patch("hate_crack.attacks.os.path.isfile", side_effect=lambda p: p == str(existing)),
+            patch(
+                "hate_crack.attacks.os.path.isfile",
+                side_effect=lambda p: p == str(existing),
+            ),
             patch("hate_crack.attacks.os.path.isdir", return_value=False),
         ):
             wordlist_optimize(ctx)
@@ -470,6 +503,7 @@ class TestWordlistOptimizeWorker:
     def _get_worker(self):
         import importlib
         import sys
+
         # Import the module fresh; SKIP_INIT is already active via conftest.
         mod = sys.modules.get("hate_crack.main")
         if mod is None:
@@ -486,8 +520,10 @@ class TestWordlistOptimizeWorker:
         outdir = tmp_path / "out"
         outdir.mkdir()
 
-        with patch("hate_crack.main.wordlist_splitlen", return_value=True) as mock_split, \
-             patch("hate_crack.main.wordlist_subtract") as mock_sub:
+        with (
+            patch("hate_crack.main.wordlist_splitlen", return_value=True) as mock_split,
+            patch("hate_crack.main.wordlist_subtract") as mock_sub,
+        ):
             result = worker([str(wl)], str(outdir))
 
         assert result is True
@@ -526,8 +562,10 @@ class TestWordlistOptimizeWorker:
                 f.write(new_words)
             return True
 
-        with patch("hate_crack.main.wordlist_splitlen", side_effect=fake_splitlen), \
-             patch("hate_crack.main.wordlist_subtract", side_effect=fake_subtract):
+        with (
+            patch("hate_crack.main.wordlist_splitlen", side_effect=fake_splitlen),
+            patch("hate_crack.main.wordlist_subtract", side_effect=fake_subtract),
+        ):
             # outdir is already non-empty (len_file exists), so wl_b goes to merge path
             result = worker([str(wl_b)], str(outdir))
 
@@ -554,8 +592,10 @@ class TestWordlistOptimizeWorker:
             (Path(outdir_arg) / "len12.txt").write_bytes(b"verylongword\n")
             return True
 
-        with patch("hate_crack.main.wordlist_splitlen", side_effect=fake_splitlen), \
-             patch("hate_crack.main.wordlist_subtract") as mock_sub:
+        with (
+            patch("hate_crack.main.wordlist_splitlen", side_effect=fake_splitlen),
+            patch("hate_crack.main.wordlist_subtract") as mock_sub,
+        ):
             result = worker([str(wl_b)], str(outdir))
 
         assert result is True
@@ -595,8 +635,10 @@ class TestWordlistOptimizeWorker:
             (Path(outdir_arg) / "len5.txt").write_bytes(b"word2\n")
             return True
 
-        with patch("hate_crack.main.wordlist_splitlen", side_effect=fake_splitlen), \
-             patch("hate_crack.main.wordlist_subtract", return_value=False):
+        with (
+            patch("hate_crack.main.wordlist_splitlen", side_effect=fake_splitlen),
+            patch("hate_crack.main.wordlist_subtract", return_value=False),
+        ):
             result = worker([str(wl_b)], str(outdir))
 
         assert result is False

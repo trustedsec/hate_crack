@@ -1,4 +1,5 @@
 """Integration-style tests for the notify public API."""
+
 import json
 from pathlib import Path
 from unittest.mock import patch

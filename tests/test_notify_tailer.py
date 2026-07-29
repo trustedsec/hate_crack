@@ -1,4 +1,5 @@
 """Unit tests for the CrackTailer polling thread and username extractor."""
+
 import time
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -272,9 +273,7 @@ class TestCrackTailerPollOnceInternals:
         # Do NOT call start() or _seek_to_eof(); leave _file_pos = None.
         return tailer, notify, aggregate
 
-    def test_first_poll_with_file_pos_none_seeds_position(
-        self, tmp_path: Path
-    ) -> None:
+    def test_first_poll_with_file_pos_none_seeds_position(self, tmp_path: Path) -> None:
         """_poll_once with _file_pos=None must record size and return without notifying."""
         out = tmp_path / "hashes.out"
         out.write_text("alice:hash:plain\n")

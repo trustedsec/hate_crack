@@ -53,7 +53,11 @@ class TestPermuteCrack:
         with patch("builtins.input", return_value=str(wl)):
             permute_crack(ctx)
         captured = capsys.readouterr()
-        assert "WARNING" in captured.out or "factorial" in captured.out.lower() or "N!" in captured.out
+        assert (
+            "WARNING" in captured.out
+            or "factorial" in captured.out.lower()
+            or "N!" in captured.out
+        )
 
     def test_prints_header(self, tmp_path, capsys):
         ctx = _make_ctx()

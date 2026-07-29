@@ -99,12 +99,11 @@ class TestTransmissionSession:
 
     def test_daemon_starts_with_expected_args(self, tmp_path):
         proc_mock, probe_result = self._patch_startup_success()
-        with patch("hate_crack.api._pick_free_port", return_value=12345), patch(
-            "subprocess.Popen", return_value=proc_mock
-        ) as popen, patch(
-            "subprocess.run", return_value=probe_result
-        ) as run_mock, patch(
-            "atexit.register"
+        with (
+            patch("hate_crack.api._pick_free_port", return_value=12345),
+            patch("subprocess.Popen", return_value=proc_mock) as popen,
+            patch("subprocess.run", return_value=probe_result) as run_mock,
+            patch("atexit.register"),
         ):
             ts = TransmissionSession(str(tmp_path))
             ts.__enter__()
@@ -128,14 +127,13 @@ class TestTransmissionSession:
     def test_startup_timeout_raises(self, tmp_path):
         proc_mock = MagicMock()
         probe_failure = MagicMock(returncode=1, stdout="", stderr="")
-        with patch("hate_crack.api._pick_free_port", return_value=12345), patch(
-            "subprocess.Popen", return_value=proc_mock
-        ), patch("subprocess.run", return_value=probe_failure), patch(
-            "time.sleep"
-        ), patch(
-            "time.monotonic", side_effect=[0.0, 0.1, 100.0, 200.0, 300.0]
-        ), patch(
-            "atexit.register"
+        with (
+            patch("hate_crack.api._pick_free_port", return_value=12345),
+            patch("subprocess.Popen", return_value=proc_mock),
+            patch("subprocess.run", return_value=probe_failure),
+            patch("time.sleep"),
+            patch("time.monotonic", side_effect=[0.0, 0.1, 100.0, 200.0, 300.0]),
+            patch("atexit.register"),
         ):
             ts = TransmissionSession(str(tmp_path), startup_timeout=1.0)
             with pytest.raises(RuntimeError, match="Transmission daemon failed"):
@@ -145,13 +143,17 @@ class TestTransmissionSession:
         ts = TransmissionSession(str(tmp_path))
         ts._rpc = "127.0.0.1:9999"
         # Before: IDs 3 and 5. After add: ID 7 appears.
-        list_calls = iter([
-            [{"id": 3}, {"id": 5}],
-            [{"id": 3}, {"id": 5}, {"id": 7}],
-        ])
+        list_calls = iter(
+            [
+                [{"id": 3}, {"id": 5}],
+                [{"id": 3}, {"id": 5}, {"id": 7}],
+            ]
+        )
         run_result = MagicMock(returncode=0, stdout="", stderr="")
-        with patch("subprocess.run", return_value=run_result), \
-                patch.object(ts, "list", side_effect=list_calls):
+        with (
+            patch("subprocess.run", return_value=run_result),
+            patch.object(ts, "list", side_effect=list_calls),
+        ):
             tid = ts.add("/tmp/foo.torrent")
         assert tid == 7
 
@@ -164,8 +166,10 @@ class TestTransmissionSession:
             stdout="torrent added (id 42)\n",
             stderr="",
         )
-        with patch("subprocess.run", return_value=run_result), \
-                patch.object(ts, "list", return_value=before_list):
+        with (
+            patch("subprocess.run", return_value=run_result),
+            patch.object(ts, "list", return_value=before_list),
+        ):
             tid = ts.add("/tmp/foo.torrent")
         assert tid == 42
 
@@ -174,8 +178,10 @@ class TestTransmissionSession:
         ts._rpc = "127.0.0.1:9999"
         # list returns the same IDs before and after; output has no ID.
         run_result = MagicMock(returncode=1, stdout="", stderr="error")
-        with patch("subprocess.run", return_value=run_result), \
-                patch.object(ts, "list", return_value=[{"id": 1}]):
+        with (
+            patch("subprocess.run", return_value=run_result),
+            patch.object(ts, "list", return_value=[{"id": 1}]),
+        ):
             with pytest.raises(RuntimeError):
                 ts.add("/tmp/foo.torrent")
 
@@ -250,10 +256,11 @@ class TestTransmissionSession:
         def on_complete(tid, name):
             callbacks.append((tid, name))
 
-        with patch.object(ts, "list", side_effect=fake_list), patch.object(
-            ts, "info_file", side_effect=fake_info
-        ), patch.object(ts, "remove", side_effect=fake_remove), patch(
-            "time.sleep"
+        with (
+            patch.object(ts, "list", side_effect=fake_list),
+            patch.object(ts, "info_file", side_effect=fake_info),
+            patch.object(ts, "remove", side_effect=fake_remove),
+            patch("time.sleep"),
         ):
             ts.wait_for_all(on_complete=on_complete)
         assert callbacks == [(1, "my-list.7z")]
@@ -271,19 +278,24 @@ class TestTransmissionSession:
         ]
         callbacks = []
 
-        with patch.object(ts, "list", side_effect=lambda: list_results.pop(0)), \
-             patch.object(ts, "info_file", return_value=""), \
-             patch.object(ts, "remove"), \
-             patch("time.sleep"):
+        with (
+            patch.object(ts, "list", side_effect=lambda: list_results.pop(0)),
+            patch.object(ts, "info_file", return_value=""),
+            patch.object(ts, "remove"),
+            patch("time.sleep"),
+        ):
             ts.wait_for_all(on_complete=lambda tid, name: callbacks.append((tid, name)))
 
-        assert callbacks == [(2, "")], "on_complete must fire even when info_file returns empty"
+        assert callbacks == [(2, "")], (
+            "on_complete must fire even when info_file returns empty"
+        )
 
     def test_wait_for_all_keyboard_interrupt_propagates(self, tmp_path):
         ts = TransmissionSession(str(tmp_path), poll_interval=0.0)
         ts._rpc = "127.0.0.1:9999"
-        with patch.object(ts, "list", side_effect=KeyboardInterrupt), patch(
-            "time.sleep"
+        with (
+            patch.object(ts, "list", side_effect=KeyboardInterrupt),
+            patch("time.sleep"),
         ):
             with pytest.raises(KeyboardInterrupt):
                 ts.wait_for_all(on_complete=lambda *a: None)
@@ -292,14 +304,13 @@ class TestTransmissionSession:
         proc_mock = MagicMock()
         probe_result = MagicMock(returncode=0, stdout="", stderr="")
         rmtree_mock = MagicMock()
-        with patch("hate_crack.api._pick_free_port", return_value=12345), patch(
-            "subprocess.Popen", return_value=proc_mock
-        ), patch("subprocess.run", return_value=probe_result) as run_mock, patch(
-            "atexit.register"
-        ), patch(
-            "tempfile.mkdtemp", return_value="/tmp/fake_cfg_dir"
-        ), patch(
-            "shutil.rmtree", rmtree_mock
+        with (
+            patch("hate_crack.api._pick_free_port", return_value=12345),
+            patch("subprocess.Popen", return_value=proc_mock),
+            patch("subprocess.run", return_value=probe_result) as run_mock,
+            patch("atexit.register"),
+            patch("tempfile.mkdtemp", return_value="/tmp/fake_cfg_dir"),
+            patch("shutil.rmtree", rmtree_mock),
         ):
             with TransmissionSession(str(tmp_path)):
                 pass
@@ -310,9 +321,7 @@ class TestTransmissionSession:
             )
             assert exit_called
             # cfg_dir removed
-            rmtree_mock.assert_called_with(
-                "/tmp/fake_cfg_dir", ignore_errors=True
-            )
+            rmtree_mock.assert_called_with("/tmp/fake_cfg_dir", ignore_errors=True)
 
     def test_stop_is_idempotent(self, tmp_path):
         ts = TransmissionSession(str(tmp_path))
@@ -325,18 +334,19 @@ class TestTransmissionSession:
 
 class TestRunTorrentSession:
     def test_returns_early_when_daemon_missing(self):
-        with patch(
-            "hate_crack.api.check_transmission_daemon", return_value=False
-        ), patch("hate_crack.api.check_7z") as seven_z:
+        with (
+            patch("hate_crack.api.check_transmission_daemon", return_value=False),
+            patch("hate_crack.api.check_7z") as seven_z,
+        ):
             run_torrent_session(["a.torrent"], "/tmp/save")
         seven_z.assert_not_called()
 
     def test_returns_early_when_7z_missing(self):
-        with patch(
-            "hate_crack.api.check_transmission_daemon", return_value=True
-        ), patch("hate_crack.api.check_7z", return_value=False), patch(
-            "hate_crack.api.TransmissionSession"
-        ) as ts_cls:
+        with (
+            patch("hate_crack.api.check_transmission_daemon", return_value=True),
+            patch("hate_crack.api.check_7z", return_value=False),
+            patch("hate_crack.api.TransmissionSession") as ts_cls,
+        ):
             run_torrent_session(["a.torrent"], "/tmp/save")
         ts_cls.assert_not_called()
 
@@ -345,10 +355,10 @@ class TestRunTorrentSession:
         ts_cls = MagicMock()
         ts_cls.return_value.__enter__ = MagicMock(return_value=ts_instance)
         ts_cls.return_value.__exit__ = MagicMock(return_value=None)
-        with patch(
-            "hate_crack.api.check_transmission_daemon", return_value=True
-        ), patch("hate_crack.api.check_7z", return_value=True), patch(
-            "hate_crack.api.TransmissionSession", ts_cls
+        with (
+            patch("hate_crack.api.check_transmission_daemon", return_value=True),
+            patch("hate_crack.api.check_7z", return_value=True),
+            patch("hate_crack.api.TransmissionSession", ts_cls),
         ):
             run_torrent_session(["a.torrent", "b.torrent"], "/tmp/save")
         # ts.add called for each torrent
@@ -361,10 +371,10 @@ class TestRunTorrentSession:
         ts_cls = MagicMock()
         ts_cls.return_value.__enter__ = MagicMock(return_value=ts_instance)
         ts_cls.return_value.__exit__ = MagicMock(return_value=None)
-        with patch(
-            "hate_crack.api.check_transmission_daemon", return_value=True
-        ), patch("hate_crack.api.check_7z", return_value=True), patch(
-            "hate_crack.api.TransmissionSession", ts_cls
+        with (
+            patch("hate_crack.api.check_transmission_daemon", return_value=True),
+            patch("hate_crack.api.check_7z", return_value=True),
+            patch("hate_crack.api.TransmissionSession", ts_cls),
         ):
             with pytest.raises(KeyboardInterrupt):
                 run_torrent_session(["a.torrent"], "/tmp/save")
@@ -375,14 +385,18 @@ class TestGetHcatPotfilePath:
         config_data = {"hcatPotfilePath": "/custom/hashcat.potfile"}
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps(config_data))
-        with patch("hate_crack.api._resolve_config_path", return_value=str(config_file)):
+        with patch(
+            "hate_crack.api._resolve_config_path", return_value=str(config_file)
+        ):
             result = get_hcat_potfile_path()
         assert result == "/custom/hashcat.potfile"
 
     def test_returns_default_when_key_missing(self, tmp_path):
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({}))
-        with patch("hate_crack.api._resolve_config_path", return_value=str(config_file)):
+        with patch(
+            "hate_crack.api._resolve_config_path", return_value=str(config_file)
+        ):
             result = get_hcat_potfile_path()
         assert result == os.path.expanduser("~/.hashcat/hashcat.potfile")
 
@@ -390,7 +404,9 @@ class TestGetHcatPotfilePath:
         config_data = {"hcatPotfilePath": ""}
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps(config_data))
-        with patch("hate_crack.api._resolve_config_path", return_value=str(config_file)):
+        with patch(
+            "hate_crack.api._resolve_config_path", return_value=str(config_file)
+        ):
             result = get_hcat_potfile_path()
         assert result == ""
 
@@ -398,8 +414,10 @@ class TestGetHcatPotfilePath:
         config_data = {"hcatPotfilePath": "hashcat.potfile"}
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps(config_data))
-        with patch("hate_crack.api._resolve_config_path", return_value=str(config_file)), \
-             patch("hate_crack.api._get_hate_path", return_value=str(tmp_path)):
+        with (
+            patch("hate_crack.api._resolve_config_path", return_value=str(config_file)),
+            patch("hate_crack.api._get_hate_path", return_value=str(tmp_path)),
+        ):
             result = get_hcat_potfile_path()
         assert result == str(tmp_path / "hashcat.potfile")
 
@@ -412,7 +430,9 @@ class TestGetHcatPotfilePath:
         config_data = {"hcatPotfilePath": "~/.custom/hashcat.potfile"}
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps(config_data))
-        with patch("hate_crack.api._resolve_config_path", return_value=str(config_file)):
+        with patch(
+            "hate_crack.api._resolve_config_path", return_value=str(config_file)
+        ):
             result = get_hcat_potfile_path()
         assert result == os.path.expanduser("~/.custom/hashcat.potfile")
         assert "~" not in result
@@ -420,7 +440,10 @@ class TestGetHcatPotfilePath:
 
 class TestGetHcatPotfileArgs:
     def test_returns_list_with_potfile_arg(self):
-        with patch("hate_crack.api.get_hcat_potfile_path", return_value="/some/path/hashcat.potfile"):
+        with patch(
+            "hate_crack.api.get_hcat_potfile_path",
+            return_value="/some/path/hashcat.potfile",
+        ):
             result = get_hcat_potfile_args()
         assert result == ["--potfile-path=/some/path/hashcat.potfile"]
 
@@ -440,9 +463,13 @@ class TestGetHashmobApiKey:
         config_path = str(config_file)
         # Patch isfile so the function sees our config file as the pkg_dir config,
         # and patch open so reads come from it.
-        with patch("hate_crack.api.os.path.isfile", side_effect=lambda p: p == config_path), \
-             patch("hate_crack.api.os.path.dirname", return_value=str(tmp_path)), \
-             patch("hate_crack.api.os.path.abspath", side_effect=lambda p: p):
+        with (
+            patch(
+                "hate_crack.api.os.path.isfile", side_effect=lambda p: p == config_path
+            ),
+            patch("hate_crack.api.os.path.dirname", return_value=str(tmp_path)),
+            patch("hate_crack.api.os.path.abspath", side_effect=lambda p: p),
+        ):
             result = get_hashmob_api_key()
         assert result == "abc123secret"
 
@@ -450,9 +477,13 @@ class TestGetHashmobApiKey:
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({}))
         config_path = str(config_file)
-        with patch("hate_crack.api.os.path.isfile", side_effect=lambda p: p == config_path), \
-             patch("hate_crack.api.os.path.dirname", return_value=str(tmp_path)), \
-             patch("hate_crack.api.os.path.abspath", side_effect=lambda p: p):
+        with (
+            patch(
+                "hate_crack.api.os.path.isfile", side_effect=lambda p: p == config_path
+            ),
+            patch("hate_crack.api.os.path.dirname", return_value=str(tmp_path)),
+            patch("hate_crack.api.os.path.abspath", side_effect=lambda p: p),
+        ):
             result = get_hashmob_api_key()
         assert result is None
 
@@ -483,8 +514,10 @@ class TestExtractWith7z:
         archive = tmp_path / "test.7z"
         archive.write_text("fake archive data")
         mock_result = self._make_run_result(returncode=0)
-        with patch("hate_crack.api.shutil.which", return_value="/usr/bin/7z"), \
-             patch("subprocess.run", return_value=mock_result):
+        with (
+            patch("hate_crack.api.shutil.which", return_value="/usr/bin/7z"),
+            patch("subprocess.run", return_value=mock_result),
+        ):
             result = extract_with_7z(str(archive), str(tmp_path), remove_archive=False)
         assert result is True
 
@@ -492,8 +525,10 @@ class TestExtractWith7z:
         archive = tmp_path / "test.7z"
         archive.write_text("fake archive data")
         mock_result = self._make_run_result(returncode=1)
-        with patch("hate_crack.api.shutil.which", return_value="/usr/bin/7z"), \
-             patch("subprocess.run", return_value=mock_result):
+        with (
+            patch("hate_crack.api.shutil.which", return_value="/usr/bin/7z"),
+            patch("subprocess.run", return_value=mock_result),
+        ):
             result = extract_with_7z(str(archive), str(tmp_path))
         assert result is False
 
@@ -501,8 +536,10 @@ class TestExtractWith7z:
         archive = tmp_path / "test.7z"
         archive.write_text("fake archive data")
         mock_result = self._make_run_result(returncode=0)
-        with patch("hate_crack.api.shutil.which", return_value="/usr/bin/7z"), \
-             patch("subprocess.run", return_value=mock_result):
+        with (
+            patch("hate_crack.api.shutil.which", return_value="/usr/bin/7z"),
+            patch("subprocess.run", return_value=mock_result),
+        ):
             result = extract_with_7z(str(archive), str(tmp_path), remove_archive=True)
         assert result is True
         assert not archive.exists()
@@ -511,8 +548,10 @@ class TestExtractWith7z:
         archive = tmp_path / "test.7z"
         archive.write_text("fake archive data")
         mock_result = self._make_run_result(returncode=0)
-        with patch("hate_crack.api.shutil.which", return_value="/usr/bin/7z"), \
-             patch("subprocess.run", return_value=mock_result):
+        with (
+            patch("hate_crack.api.shutil.which", return_value="/usr/bin/7z"),
+            patch("subprocess.run", return_value=mock_result),
+        ):
             result = extract_with_7z(str(archive), str(tmp_path), remove_archive=False)
         assert result is True
         assert archive.exists()
@@ -530,10 +569,14 @@ class TestDownloadHashmobWordlist:
         return mock_response
 
     def test_successful_download(self, tmp_path):
-        mock_response = self._make_mock_response(status_code=200, content=b"wordlist data")
+        mock_response = self._make_mock_response(
+            status_code=200, content=b"wordlist data"
+        )
         out = tmp_path / "test.txt"
-        with patch("hate_crack.api.requests.get", return_value=mock_response), \
-             patch("hate_crack.api.time.sleep"):
+        with (
+            patch("hate_crack.api.requests.get", return_value=mock_response),
+            patch("hate_crack.api.time.sleep"),
+        ):
             result = download_hashmob_wordlist("test.txt", str(out))
         assert result is True
         assert out.exists()
@@ -547,8 +590,10 @@ class TestDownloadHashmobWordlist:
             response=MagicMock(status_code=404)
         )
         out = tmp_path / "test.txt"
-        with patch("hate_crack.api.requests.get", return_value=mock_response), \
-             patch("hate_crack.api.time.sleep"):
+        with (
+            patch("hate_crack.api.requests.get", return_value=mock_response),
+            patch("hate_crack.api.time.sleep"),
+        ):
             result = download_hashmob_wordlist("test.txt", str(out))
         assert result is False
 
@@ -566,10 +611,12 @@ class TestParallelRuleDownloads:
         rules = self._make_rules(["rule1.rule", "rule2.rule", "rule3.rule"])
         rules_dir = str(tmp_path / "rules")
         os.makedirs(rules_dir)
-        with patch("hate_crack.api.download_hashmob_rule_list", return_value=rules), \
-             patch("hate_crack.api.download_hashmob_rule") as mock_dl, \
-             self._patch_stdin_tty(), \
-             patch("builtins.input", return_value="a"):
+        with (
+            patch("hate_crack.api.download_hashmob_rule_list", return_value=rules),
+            patch("hate_crack.api.download_hashmob_rule") as mock_dl,
+            self._patch_stdin_tty(),
+            patch("builtins.input", return_value="a"),
+        ):
             list_and_download_hashmob_rules(rules_dir=rules_dir)
         assert mock_dl.call_count == 3
         downloaded_names = {c.args[0] for c in mock_dl.call_args_list}
@@ -584,10 +631,12 @@ class TestParallelRuleDownloads:
             if file_name == "bad.rule":
                 raise RuntimeError("download error")
 
-        with patch("hate_crack.api.download_hashmob_rule_list", return_value=rules), \
-             patch("hate_crack.api.download_hashmob_rule", side_effect=side_effect), \
-             self._patch_stdin_tty(), \
-             patch("builtins.input", return_value="a"):
+        with (
+            patch("hate_crack.api.download_hashmob_rule_list", return_value=rules),
+            patch("hate_crack.api.download_hashmob_rule", side_effect=side_effect),
+            self._patch_stdin_tty(),
+            patch("builtins.input", return_value="a"),
+        ):
             list_and_download_hashmob_rules(rules_dir=rules_dir)
 
         captured = capsys.readouterr()
@@ -599,10 +648,12 @@ class TestParallelRuleDownloads:
         rules_dir = str(tmp_path / "rules")
         os.makedirs(rules_dir)
         (tmp_path / "rules" / "existing.rule").touch()
-        with patch("hate_crack.api.download_hashmob_rule_list", return_value=rules), \
-             patch("hate_crack.api.download_hashmob_rule") as mock_dl, \
-             self._patch_stdin_tty(), \
-             patch("builtins.input", return_value="a"):
+        with (
+            patch("hate_crack.api.download_hashmob_rule_list", return_value=rules),
+            patch("hate_crack.api.download_hashmob_rule") as mock_dl,
+            self._patch_stdin_tty(),
+            patch("builtins.input", return_value="a"),
+        ):
             list_and_download_hashmob_rules(rules_dir=rules_dir)
         assert mock_dl.call_count == 1
         assert mock_dl.call_args.args[0] == "new.rule"
@@ -684,9 +735,13 @@ class TestStreamedDownload:
 class TestHashmobBackoff:
     def test_gives_up_after_max_attempts(self, capsys):
         fn = MagicMock(side_effect=_Hashmob429)
-        with patch("hate_crack.api.time.sleep") as mock_sleep, \
-             patch("hate_crack.api._hashmob_limiter.wait"):
-            result = _with_hashmob_backoff(fn, max_attempts=3, base_delay=1, step=1, max_delay=10)
+        with (
+            patch("hate_crack.api.time.sleep") as mock_sleep,
+            patch("hate_crack.api._hashmob_limiter.wait"),
+        ):
+            result = _with_hashmob_backoff(
+                fn, max_attempts=3, base_delay=1, step=1, max_delay=10
+            )
         assert result is False
         assert fn.call_count == 3
         # sleep called between attempts, but NOT after the last attempt
@@ -703,9 +758,13 @@ class TestHashmobBackoff:
 
     def test_succeeds_after_retry(self):
         fn = MagicMock(side_effect=[_Hashmob429(), _Hashmob429(), True])
-        with patch("hate_crack.api.time.sleep") as mock_sleep, \
-             patch("hate_crack.api._hashmob_limiter.wait"):
-            result = _with_hashmob_backoff(fn, max_attempts=6, base_delay=1, step=1, max_delay=10)
+        with (
+            patch("hate_crack.api.time.sleep") as mock_sleep,
+            patch("hate_crack.api._hashmob_limiter.wait"),
+        ):
+            result = _with_hashmob_backoff(
+                fn, max_attempts=6, base_delay=1, step=1, max_delay=10
+            )
         assert result is True
         assert fn.call_count == 3
         assert mock_sleep.call_count == 2
@@ -729,10 +788,12 @@ class TestHashmobWordlistRedirectBugFix:
             content=html_content,
             content_type="text/plain",
         )
-        with patch("hate_crack.api.requests.get", return_value=mock_resp), \
-             patch("hate_crack.api.time.sleep"), \
-             patch("hate_crack.api._hashmob_limiter.wait"), \
-             patch("hate_crack.api._streamed_download", return_value=True) as mock_sd:
+        with (
+            patch("hate_crack.api.requests.get", return_value=mock_resp),
+            patch("hate_crack.api.time.sleep"),
+            patch("hate_crack.api._hashmob_limiter.wait"),
+            patch("hate_crack.api._streamed_download", return_value=True) as mock_sd,
+        ):
             download_hashmob_wordlist("some_file.txt", str(tmp_path / "out.txt"))
 
         mock_sd.assert_called_once()
@@ -757,11 +818,15 @@ class TestListAndDownloadOfficialWordlistsSkipExisting:
         mock_stdin = MagicMock()
         mock_stdin.isatty.return_value = True
 
-        with patch("hate_crack.api.requests.get", return_value=mock_resp), \
-             patch("hate_crack.api.get_hcat_wordlists_dir", return_value=str(wordlists_dir)), \
-             patch("hate_crack.api.download_official_wordlist") as mock_dl, \
-             patch("hate_crack.api.sys.stdin", mock_stdin), \
-             patch("builtins.input", return_value="a"):
+        with (
+            patch("hate_crack.api.requests.get", return_value=mock_resp),
+            patch(
+                "hate_crack.api.get_hcat_wordlists_dir", return_value=str(wordlists_dir)
+            ),
+            patch("hate_crack.api.download_official_wordlist") as mock_dl,
+            patch("hate_crack.api.sys.stdin", mock_stdin),
+            patch("builtins.input", return_value="a"),
+        ):
             list_and_download_official_wordlists()
 
         assert mock_dl.call_count == 1
@@ -827,18 +892,27 @@ class TestFetchWeakpassListingPage:
     def _html_with_data_page(self, props_dict):
         """Return HTML with data-page attribute encoding the given props."""
         import json as _json
+
         payload = _json.dumps({"props": props_dict}).replace('"', "&quot;")
         return f'<div id="app" data-page="{payload}"></div>'
 
     def test_uses_inertia_headers_when_version_available(self):
         _api_mod._WEAKPASS_INERTIA_VERSION = "ver123"
-        entry = {"id": 1, "name": "test.txt", "torrent_link": "test.txt.7z.torrent",
-                 "size": 100, "rank": 5, "downloaded": 10}
+        entry = {
+            "id": 1,
+            "name": "test.txt",
+            "torrent_link": "test.txt.7z.torrent",
+            "size": 100,
+            "rank": 5,
+            "downloaded": 10,
+        }
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = self._inertia_json([entry], last_page=3)
         with patch("hate_crack.api.requests.get", return_value=mock_resp) as mock_get:
-            entries, last_page = _api_mod._fetch_weakpass_listing_page(1, {"User-Agent": "t"})
+            entries, last_page = _api_mod._fetch_weakpass_listing_page(
+                1, {"User-Agent": "t"}
+            )
         sent_headers = mock_get.call_args[1]["headers"]
         assert sent_headers.get("X-Inertia") == "true"
         assert sent_headers.get("X-Inertia-Version") == "ver123"
@@ -850,15 +924,27 @@ class TestFetchWeakpassListingPage:
 
     def test_falls_back_to_html_parse_when_version_unavailable(self):
         # _WEAKPASS_INERTIA_VERSION is None; preflight also fails
-        entry = {"id": 2, "name": "rock.txt", "torrent_link": "rock.txt.7z.torrent",
-                 "size": 200, "rank": 4, "downloaded": 5}
-        html = self._html_with_data_page({"wordlists": {"data": [entry], "last_page": 1}})
+        entry = {
+            "id": 2,
+            "name": "rock.txt",
+            "torrent_link": "rock.txt.7z.torrent",
+            "size": 200,
+            "rank": 4,
+            "downloaded": 5,
+        }
+        html = self._html_with_data_page(
+            {"wordlists": {"data": [entry], "last_page": 1}}
+        )
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.text = html
-        with patch("hate_crack.api._get_weakpass_inertia_version", return_value=None), \
-             patch("hate_crack.api.requests.get", return_value=mock_resp) as mock_get:
-            entries, last_page = _api_mod._fetch_weakpass_listing_page(1, {"User-Agent": "t"})
+        with (
+            patch("hate_crack.api._get_weakpass_inertia_version", return_value=None),
+            patch("hate_crack.api.requests.get", return_value=mock_resp) as mock_get,
+        ):
+            entries, last_page = _api_mod._fetch_weakpass_listing_page(
+                1, {"User-Agent": "t"}
+            )
         sent_headers = mock_get.call_args[1]["headers"]
         assert "X-Inertia" not in sent_headers
         assert len(entries) == 1
@@ -866,16 +952,26 @@ class TestFetchWeakpassListingPage:
 
     def test_clears_version_cache_and_retries_on_409(self):
         _api_mod._WEAKPASS_INERTIA_VERSION = "stale_ver"
-        entry = {"id": 3, "name": "mini.txt", "torrent_link": "mini.txt.7z.torrent",
-                 "size": 50, "rank": 6, "downloaded": 1}
+        entry = {
+            "id": 3,
+            "name": "mini.txt",
+            "torrent_link": "mini.txt.7z.torrent",
+            "size": 50,
+            "rank": 6,
+            "downloaded": 1,
+        }
         resp_409 = MagicMock()
         resp_409.status_code = 409
-        html = self._html_with_data_page({"wordlists": {"data": [entry], "last_page": 1}})
+        html = self._html_with_data_page(
+            {"wordlists": {"data": [entry], "last_page": 1}}
+        )
         resp_html = MagicMock()
         resp_html.status_code = 200
         resp_html.text = html
         with patch("hate_crack.api.requests.get", side_effect=[resp_409, resp_html]):
-            entries, last_page = _api_mod._fetch_weakpass_listing_page(1, {"User-Agent": "t"})
+            entries, last_page = _api_mod._fetch_weakpass_listing_page(
+                1, {"User-Agent": "t"}
+            )
         assert _api_mod._WEAKPASS_INERTIA_VERSION is None  # cache cleared
         assert len(entries) == 1
         assert entries[0]["name"] == "mini.txt"
@@ -884,9 +980,13 @@ class TestFetchWeakpassListingPage:
         _api_mod._WEAKPASS_INERTIA_VERSION = "ver"
         mock_resp = MagicMock()
         mock_resp.status_code = 500
-        with patch("hate_crack.api.requests.get", return_value=mock_resp), \
-             patch("hate_crack.api._get_weakpass_inertia_version", return_value="ver"):
-            entries, last_page = _api_mod._fetch_weakpass_listing_page(1, {"User-Agent": "t"})
+        with (
+            patch("hate_crack.api.requests.get", return_value=mock_resp),
+            patch("hate_crack.api._get_weakpass_inertia_version", return_value="ver"),
+        ):
+            entries, last_page = _api_mod._fetch_weakpass_listing_page(
+                1, {"User-Agent": "t"}
+            )
         assert entries == []
         assert last_page is None
 
@@ -895,8 +995,16 @@ class TestMatchEntry:
     def _entries(self):
         return [
             {"id": 10, "name": "rockyou.txt", "torrent_url": "rockyou.txt.7z.torrent"},
-            {"id": 20, "name": "ignis-10K.txt", "torrent_url": "ignis-10K.txt.7z.torrent"},
-            {"id": 30, "name": "hashmob.net_2025.micro.found", "torrent_url": "hashmob.net_2025.micro.found.7z.torrent"},
+            {
+                "id": 20,
+                "name": "ignis-10K.txt",
+                "torrent_url": "ignis-10K.txt.7z.torrent",
+            },
+            {
+                "id": 30,
+                "name": "hashmob.net_2025.micro.found",
+                "torrent_url": "hashmob.net_2025.micro.found.7z.torrent",
+            },
         ]
 
     def test_exact_name_match(self):

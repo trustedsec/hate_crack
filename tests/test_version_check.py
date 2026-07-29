@@ -25,9 +25,11 @@ class TestCheckForUpdates:
         mock_resp.json.return_value = {"tag_name": "v99.0.0"}
         mock_resp.raise_for_status = MagicMock()
 
-        with patch.object(hc_module, "requests") as mock_requests, patch.object(
-            hc_module, "REQUESTS_AVAILABLE", True
-        ), patch("builtins.input", return_value="n"):
+        with (
+            patch.object(hc_module, "requests") as mock_requests,
+            patch.object(hc_module, "REQUESTS_AVAILABLE", True),
+            patch("builtins.input", return_value="n"),
+        ):
             mock_requests.get.return_value = mock_resp
             hc_module.check_for_updates()
 
@@ -43,8 +45,9 @@ class TestCheckForUpdates:
         mock_resp.json.return_value = {"tag_name": f"v{local_base}"}
         mock_resp.raise_for_status = MagicMock()
 
-        with patch.object(hc_module, "requests") as mock_requests, patch.object(
-            hc_module, "REQUESTS_AVAILABLE", True
+        with (
+            patch.object(hc_module, "requests") as mock_requests,
+            patch.object(hc_module, "REQUESTS_AVAILABLE", True),
         ):
             mock_requests.get.return_value = mock_resp
             hc_module.check_for_updates()
@@ -69,8 +72,9 @@ class TestCheckForUpdates:
         assert "Update available" not in output
 
     def test_network_error_silently_handled(self, hc_module, capsys):
-        with patch.object(hc_module, "requests") as mock_requests, patch.object(
-            hc_module, "REQUESTS_AVAILABLE", True
+        with (
+            patch.object(hc_module, "requests") as mock_requests,
+            patch.object(hc_module, "REQUESTS_AVAILABLE", True),
         ):
             mock_requests.get.side_effect = ConnectionError("no network")
             hc_module.check_for_updates()
@@ -80,8 +84,9 @@ class TestCheckForUpdates:
         assert "Error" not in output
 
     def test_requests_unavailable_skips_check(self, hc_module, capsys):
-        with patch.object(hc_module, "requests") as mock_requests, patch.object(
-            hc_module, "REQUESTS_AVAILABLE", False
+        with (
+            patch.object(hc_module, "requests") as mock_requests,
+            patch.object(hc_module, "REQUESTS_AVAILABLE", False),
         ):
             hc_module.check_for_updates()
             mock_requests.get.assert_not_called()
@@ -97,9 +102,11 @@ class TestCheckForUpdates:
         mock_resp.json.return_value = {"tag_name": "99.0.0"}
         mock_resp.raise_for_status = MagicMock()
 
-        with patch.object(hc_module, "requests") as mock_requests, patch.object(
-            hc_module, "REQUESTS_AVAILABLE", True
-        ), patch("builtins.input", return_value="n"):
+        with (
+            patch.object(hc_module, "requests") as mock_requests,
+            patch.object(hc_module, "REQUESTS_AVAILABLE", True),
+            patch("builtins.input", return_value="n"),
+        ):
             mock_requests.get.return_value = mock_resp
             hc_module.check_for_updates()
 
@@ -111,8 +118,9 @@ class TestCheckForUpdates:
         mock_resp.json.return_value = {"tag_name": ""}
         mock_resp.raise_for_status = MagicMock()
 
-        with patch.object(hc_module, "requests") as mock_requests, patch.object(
-            hc_module, "REQUESTS_AVAILABLE", True
+        with (
+            patch.object(hc_module, "requests") as mock_requests,
+            patch.object(hc_module, "REQUESTS_AVAILABLE", True),
         ):
             mock_requests.get.return_value = mock_resp
             hc_module.check_for_updates()
@@ -125,11 +133,12 @@ class TestCheckForUpdates:
         mock_resp.json.return_value = {"tag_name": "v99.0.0"}
         mock_resp.raise_for_status = MagicMock()
 
-        with patch.object(hc_module, "requests") as mock_requests, patch.object(
-            hc_module, "REQUESTS_AVAILABLE", True
-        ), patch("builtins.input", return_value="n"), patch(
-            "subprocess.run"
-        ) as mock_run:
+        with (
+            patch.object(hc_module, "requests") as mock_requests,
+            patch.object(hc_module, "REQUESTS_AVAILABLE", True),
+            patch("builtins.input", return_value="n"),
+            patch("subprocess.run") as mock_run,
+        ):
             mock_requests.get.return_value = mock_resp
             hc_module.check_for_updates()
 
@@ -154,12 +163,16 @@ class TestCheckForUpdates:
         make_proc = MagicMock()
         make_proc.returncode = 0
 
-        with patch.object(hc_module, "requests") as mock_requests, patch.object(
-            hc_module, "REQUESTS_AVAILABLE", True
-        ), patch("builtins.input", return_value="y"), patch(
-            "subprocess.run",
-            side_effect=[git_root_proc, fetch_proc, branch_proc, make_proc],
-        ) as mock_run, pytest.raises(SystemExit):
+        with (
+            patch.object(hc_module, "requests") as mock_requests,
+            patch.object(hc_module, "REQUESTS_AVAILABLE", True),
+            patch("builtins.input", return_value="y"),
+            patch(
+                "subprocess.run",
+                side_effect=[git_root_proc, fetch_proc, branch_proc, make_proc],
+            ) as mock_run,
+            pytest.raises(SystemExit),
+        ):
             mock_requests.get.return_value = mock_resp
             hc_module.check_for_updates()
 
@@ -190,15 +203,17 @@ class TestCheckForUpdates:
         make_proc = MagicMock()
         make_proc.returncode = 1
 
-        with patch.object(hc_module, "requests") as mock_requests, patch.object(
-            hc_module, "REQUESTS_AVAILABLE", True
-        ), patch("builtins.input", return_value="y"), patch(
-            "subprocess.run",
-            side_effect=[git_root_proc, fetch_proc, branch_proc, make_proc],
-        ), patch("shutil.which", return_value="/usr/local/bin/uv"), patch(
-            "os.path.isfile", return_value=True
-        ), pytest.raises(
-            SystemExit
+        with (
+            patch.object(hc_module, "requests") as mock_requests,
+            patch.object(hc_module, "REQUESTS_AVAILABLE", True),
+            patch("builtins.input", return_value="y"),
+            patch(
+                "subprocess.run",
+                side_effect=[git_root_proc, fetch_proc, branch_proc, make_proc],
+            ),
+            patch("shutil.which", return_value="/usr/local/bin/uv"),
+            patch("os.path.isfile", return_value=True),
+            pytest.raises(SystemExit),
         ):
             mock_requests.get.return_value = mock_resp
             hc_module.check_for_updates()
@@ -215,12 +230,12 @@ class TestCheckForUpdates:
         git_root_proc.returncode = 128
         git_root_proc.stdout = ""
 
-        with patch.object(hc_module, "requests") as mock_requests, patch.object(
-            hc_module, "REQUESTS_AVAILABLE", True
-        ), patch("builtins.input", return_value="y"), patch(
-            "subprocess.run", return_value=git_root_proc
-        ), pytest.raises(
-            SystemExit
+        with (
+            patch.object(hc_module, "requests") as mock_requests,
+            patch.object(hc_module, "REQUESTS_AVAILABLE", True),
+            patch("builtins.input", return_value="y"),
+            patch("subprocess.run", return_value=git_root_proc),
+            pytest.raises(SystemExit),
         ):
             mock_requests.get.return_value = mock_resp
             hc_module.check_for_updates()
@@ -247,10 +262,13 @@ class TestRunUpgrade:
         make_proc = MagicMock()
         make_proc.returncode = 0
 
-        with patch(
-            "subprocess.run",
-            side_effect=[git_root_proc, fetch_proc, branch_proc, make_proc],
-        ) as mock_run, pytest.raises(SystemExit) as exc:
+        with (
+            patch(
+                "subprocess.run",
+                side_effect=[git_root_proc, fetch_proc, branch_proc, make_proc],
+            ) as mock_run,
+            pytest.raises(SystemExit) as exc,
+        ):
             hc_module._run_upgrade()
 
         assert exc.value.code == 0
@@ -279,10 +297,13 @@ class TestRunUpgrade:
         make_proc = MagicMock()
         make_proc.returncode = 1
 
-        with patch(
-            "subprocess.run",
-            side_effect=[git_root_proc, fetch_proc, branch_proc, make_proc],
-        ), pytest.raises(SystemExit) as exc:
+        with (
+            patch(
+                "subprocess.run",
+                side_effect=[git_root_proc, fetch_proc, branch_proc, make_proc],
+            ),
+            pytest.raises(SystemExit) as exc,
+        ):
             hc_module._run_upgrade()
 
         assert exc.value.code == 1
@@ -294,7 +315,10 @@ class TestRunUpgrade:
         git_root_proc.returncode = 128
         git_root_proc.stdout = ""
 
-        with patch("subprocess.run", return_value=git_root_proc), pytest.raises(SystemExit) as exc:
+        with (
+            patch("subprocess.run", return_value=git_root_proc),
+            pytest.raises(SystemExit) as exc,
+        ):
             hc_module._run_upgrade()
 
         assert exc.value.code == 1
@@ -306,11 +330,12 @@ class TestRunUpgrade:
         mock_resp.json.return_value = {"tag_name": "v99.0.0"}
         mock_resp.raise_for_status = MagicMock()
 
-        with patch.object(hc_module, "requests") as mock_requests, patch.object(
-            hc_module, "REQUESTS_AVAILABLE", True
-        ), patch("builtins.input", side_effect=KeyboardInterrupt), patch(
-            "subprocess.run"
-        ) as mock_run:
+        with (
+            patch.object(hc_module, "requests") as mock_requests,
+            patch.object(hc_module, "REQUESTS_AVAILABLE", True),
+            patch("builtins.input", side_effect=KeyboardInterrupt),
+            patch("subprocess.run") as mock_run,
+        ):
             mock_requests.get.return_value = mock_resp
             hc_module.check_for_updates()
 
@@ -334,18 +359,21 @@ class TestRunUpgrade:
         upstream_proc = MagicMock(returncode=0, stdout="", stderr="")
         make_proc = MagicMock(returncode=0)
 
-        with patch(
-            "subprocess.run",
-            side_effect=[
-                git_root_proc,
-                fetch_proc,
-                branch_proc,
-                status_proc,
-                checkout_proc,
-                upstream_proc,
-                make_proc,
-            ],
-        ) as mock_run, pytest.raises(SystemExit) as exc:
+        with (
+            patch(
+                "subprocess.run",
+                side_effect=[
+                    git_root_proc,
+                    fetch_proc,
+                    branch_proc,
+                    status_proc,
+                    checkout_proc,
+                    upstream_proc,
+                    make_proc,
+                ],
+            ) as mock_run,
+            pytest.raises(SystemExit) as exc,
+        ):
             hc_module._run_upgrade()
 
         assert exc.value.code == 0
@@ -369,9 +397,7 @@ class TestRunUpgrade:
         output = capsys.readouterr().out
         assert "Switching from 'dev' to 'main'" in output
 
-    def test_run_upgrade_migrates_master_only_renamed_clone(
-        self, hc_module, capsys
-    ):
+    def test_run_upgrade_migrates_master_only_renamed_clone(self, hc_module, capsys):
         """An old clone still sitting on `master` (default branch renamed
         master -> main upstream) must be migrated: fetch BEFORE checkout,
         checkout/create `main` from origin/main, set upstream to origin/main,
@@ -384,18 +410,21 @@ class TestRunUpgrade:
         upstream_proc = MagicMock(returncode=0, stdout="", stderr="")
         make_proc = MagicMock(returncode=0)
 
-        with patch(
-            "subprocess.run",
-            side_effect=[
-                git_root_proc,
-                fetch_proc,
-                branch_proc,
-                status_proc,
-                checkout_proc,
-                upstream_proc,
-                make_proc,
-            ],
-        ) as mock_run, pytest.raises(SystemExit) as exc:
+        with (
+            patch(
+                "subprocess.run",
+                side_effect=[
+                    git_root_proc,
+                    fetch_proc,
+                    branch_proc,
+                    status_proc,
+                    checkout_proc,
+                    upstream_proc,
+                    make_proc,
+                ],
+            ) as mock_run,
+            pytest.raises(SystemExit) as exc,
+        ):
             hc_module._run_upgrade()
 
         assert exc.value.code == 0
@@ -426,10 +455,13 @@ class TestRunUpgrade:
             returncode=1, stdout="", stderr="fatal: unable to access origin\n"
         )
 
-        with patch(
-            "subprocess.run",
-            side_effect=[git_root_proc, fetch_proc],
-        ) as mock_run, pytest.raises(SystemExit) as exc:
+        with (
+            patch(
+                "subprocess.run",
+                side_effect=[git_root_proc, fetch_proc],
+            ) as mock_run,
+            pytest.raises(SystemExit) as exc,
+        ):
             hc_module._run_upgrade()
 
         assert exc.value.code == 1
@@ -438,18 +470,19 @@ class TestRunUpgrade:
         output = capsys.readouterr().out
         assert "Failed to fetch from origin" in output
 
-    def test_run_upgrade_bails_when_non_main_branch_is_dirty(
-        self, hc_module, capsys
-    ):
+    def test_run_upgrade_bails_when_non_main_branch_is_dirty(self, hc_module, capsys):
         git_root_proc = MagicMock(returncode=0, stdout="/fake/repo\n")
         fetch_proc = MagicMock(returncode=0, stdout="", stderr="")
         branch_proc = MagicMock(returncode=0, stdout="feat/x\n")
         status_proc = MagicMock(returncode=0, stdout=" M hate_crack/main.py\n")
 
-        with patch(
-            "subprocess.run",
-            side_effect=[git_root_proc, fetch_proc, branch_proc, status_proc],
-        ) as mock_run, pytest.raises(SystemExit) as exc:
+        with (
+            patch(
+                "subprocess.run",
+                side_effect=[git_root_proc, fetch_proc, branch_proc, status_proc],
+            ) as mock_run,
+            pytest.raises(SystemExit) as exc,
+        ):
             hc_module._run_upgrade()
 
         assert exc.value.code == 1
@@ -472,16 +505,19 @@ class TestRunUpgrade:
             stderr="error: 'main' is already checked out at '/other/wt'\n",
         )
 
-        with patch(
-            "subprocess.run",
-            side_effect=[
-                git_root_proc,
-                fetch_proc,
-                branch_proc,
-                status_proc,
-                checkout_proc,
-            ],
-        ), pytest.raises(SystemExit) as exc:
+        with (
+            patch(
+                "subprocess.run",
+                side_effect=[
+                    git_root_proc,
+                    fetch_proc,
+                    branch_proc,
+                    status_proc,
+                    checkout_proc,
+                ],
+            ),
+            pytest.raises(SystemExit) as exc,
+        ):
             hc_module._run_upgrade()
 
         assert exc.value.code == 1
@@ -489,18 +525,19 @@ class TestRunUpgrade:
         assert "Failed to switch to main" in output
         assert "already checked out" in output
 
-    def test_run_upgrade_skips_switch_when_already_on_main(
-        self, hc_module, capsys
-    ):
+    def test_run_upgrade_skips_switch_when_already_on_main(self, hc_module, capsys):
         git_root_proc = MagicMock(returncode=0, stdout="/fake/repo\n")
         fetch_proc = MagicMock(returncode=0, stdout="", stderr="")
         branch_proc = MagicMock(returncode=0, stdout="main\n")
         make_proc = MagicMock(returncode=0)
 
-        with patch(
-            "subprocess.run",
-            side_effect=[git_root_proc, fetch_proc, branch_proc, make_proc],
-        ) as mock_run, pytest.raises(SystemExit) as exc:
+        with (
+            patch(
+                "subprocess.run",
+                side_effect=[git_root_proc, fetch_proc, branch_proc, make_proc],
+            ) as mock_run,
+            pytest.raises(SystemExit) as exc,
+        ):
             hc_module._run_upgrade()
 
         assert exc.value.code == 0
@@ -517,13 +554,18 @@ class TestRunUpgrade:
         the existing upgrade flow proceed."""
         git_root_proc = MagicMock(returncode=0, stdout="/fake/repo\n")
         fetch_proc = MagicMock(returncode=0, stdout="", stderr="")
-        branch_proc = MagicMock(returncode=1, stdout="", stderr="fatal: ref HEAD is not a symbolic ref\n")
+        branch_proc = MagicMock(
+            returncode=1, stdout="", stderr="fatal: ref HEAD is not a symbolic ref\n"
+        )
         make_proc = MagicMock(returncode=0)
 
-        with patch(
-            "subprocess.run",
-            side_effect=[git_root_proc, fetch_proc, branch_proc, make_proc],
-        ) as mock_run, pytest.raises(SystemExit) as exc:
+        with (
+            patch(
+                "subprocess.run",
+                side_effect=[git_root_proc, fetch_proc, branch_proc, make_proc],
+            ) as mock_run,
+            pytest.raises(SystemExit) as exc,
+        ):
             hc_module._run_upgrade()
 
         assert exc.value.code == 0
@@ -541,10 +583,13 @@ class TestNightlyChannel:
         branch_proc = MagicMock(returncode=0, stdout="nightly-dev\n")
         make_proc = MagicMock(returncode=0)
 
-        with patch(
-            "subprocess.run",
-            side_effect=[git_root_proc, fetch_proc, branch_proc, make_proc],
-        ) as mock_run, pytest.raises(SystemExit) as exc:
+        with (
+            patch(
+                "subprocess.run",
+                side_effect=[git_root_proc, fetch_proc, branch_proc, make_proc],
+            ) as mock_run,
+            pytest.raises(SystemExit) as exc,
+        ):
             hc_module._run_upgrade(branch="nightly-dev")
 
         assert exc.value.code == 0
@@ -563,18 +608,21 @@ class TestNightlyChannel:
         upstream_proc = MagicMock(returncode=0, stdout="", stderr="")
         make_proc = MagicMock(returncode=0)
 
-        with patch(
-            "subprocess.run",
-            side_effect=[
-                git_root_proc,
-                fetch_proc,
-                branch_proc,
-                status_proc,
-                checkout_proc,
-                upstream_proc,
-                make_proc,
-            ],
-        ) as mock_run, pytest.raises(SystemExit) as exc:
+        with (
+            patch(
+                "subprocess.run",
+                side_effect=[
+                    git_root_proc,
+                    fetch_proc,
+                    branch_proc,
+                    status_proc,
+                    checkout_proc,
+                    upstream_proc,
+                    make_proc,
+                ],
+            ) as mock_run,
+            pytest.raises(SystemExit) as exc,
+        ):
             hc_module._run_upgrade(branch="nightly-dev")
 
         assert exc.value.code == 0
@@ -601,26 +649,30 @@ class TestNightlyChannel:
         branch_proc = MagicMock(returncode=0, stdout="main\n")
         make_proc = MagicMock(returncode=0)
 
-        with patch(
-            "subprocess.run",
-            side_effect=[git_root_proc, fetch_proc, branch_proc, make_proc],
-        ) as mock_run, pytest.raises(SystemExit):
+        with (
+            patch(
+                "subprocess.run",
+                side_effect=[git_root_proc, fetch_proc, branch_proc, make_proc],
+            ) as mock_run,
+            pytest.raises(SystemExit),
+        ):
             hc_module._run_upgrade()
 
         assert "git pull origin main" in mock_run.call_args_list[3][0][0]
 
-    def test_uncommitted_changes_message_names_target_branch(
-        self, hc_module, capsys
-    ):
+    def test_uncommitted_changes_message_names_target_branch(self, hc_module, capsys):
         git_root_proc = MagicMock(returncode=0, stdout="/fake/repo\n")
         fetch_proc = MagicMock(returncode=0, stdout="", stderr="")
         branch_proc = MagicMock(returncode=0, stdout="main\n")
         status_proc = MagicMock(returncode=0, stdout=" M hate_crack/main.py\n")
 
-        with patch(
-            "subprocess.run",
-            side_effect=[git_root_proc, fetch_proc, branch_proc, status_proc],
-        ), pytest.raises(SystemExit) as exc:
+        with (
+            patch(
+                "subprocess.run",
+                side_effect=[git_root_proc, fetch_proc, branch_proc, status_proc],
+            ),
+            pytest.raises(SystemExit) as exc,
+        ):
             hc_module._run_upgrade(branch="nightly-dev")
 
         assert exc.value.code == 1

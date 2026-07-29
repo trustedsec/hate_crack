@@ -18,6 +18,7 @@ Brings the database to:
 Required env: HASHVIEW_API_KEY, HASHVIEW_CUSTOMER_ID, HASHVIEW_HASHFILE_ID.
 Optional env: HASHVIEW_SEED_HASH_TYPES, HASHVIEW_SEED_TASK_ID (default 1).
 """
+
 import os
 import sys
 
@@ -57,7 +58,9 @@ def seed(app: Flask) -> None:
     hashfile_id = int(os.environ["HASHVIEW_HASHFILE_ID"])
     task_id = int(os.environ.get("HASHVIEW_SEED_TASK_ID", "1"))
     hash_types = [
-        int(x) for x in os.environ.get("HASHVIEW_SEED_HASH_TYPES", "0,1000").split(",") if x.strip()
+        int(x)
+        for x in os.environ.get("HASHVIEW_SEED_HASH_TYPES", "0,1000").split(",")
+        if x.strip()
     ]
 
     bcrypt = Bcrypt(app)
