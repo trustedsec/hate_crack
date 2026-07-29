@@ -130,6 +130,24 @@ DEFAULT_OPTIMIZED_ATTACKS = frozenset(
     }
 )
 
+# Every attack that consults the setting, whether or not it is optimized by
+# default. The four names below honour optimizedKernelAttacks but are absent
+# from the default set, so -O is opt-in for them: each pipes or feeds
+# candidates that may exceed the length ceiling -O imposes, and turning them
+# on by default would silently shrink the keyspace of an attack a user had
+# already tuned.
+#
+# A name recognised here but never passed to _should_use_optimized_kernel is
+# an inert config knob (hcatPrinceLing was one for several releases, because
+# PRINCE-LING delegates to hcatPrince and that function checks its own name).
+# tests/test_config_json_example.py enforces both directions.
+KNOWN_OPTIMIZABLE_ATTACKS = DEFAULT_OPTIMIZED_ATTACKS | {
+    "hcatNgramX",
+    "hcatOllama",
+    "hcatOmen",
+    "hcatLMtoNT",
+}
+
 _optimized_kernel_attacks = DEFAULT_OPTIMIZED_ATTACKS
 
 
@@ -489,6 +507,16 @@ try:
     _cfg_optimized = config_parser["optimizedKernelAttacks"]
     if isinstance(_cfg_optimized, list):
         _optimized_kernel_attacks = frozenset(_cfg_optimized)
+        # A misspelled or retired name is silently ignored by the membership
+        # test, so the user sees an attack running without -O and no reason why.
+        _unknown_optimized = sorted(
+            str(name) for name in set(_cfg_optimized) - KNOWN_OPTIMIZABLE_ATTACKS
+        )
+        if _unknown_optimized:
+            print(
+                "[!] Unrecognized optimizedKernelAttacks entries in config.json "
+                f"(ignored): {', '.join(_unknown_optimized)}"
+            )
 except KeyError:
     pass
 check_for_updates_enabled = config_parser.get("check_for_updates", True)
@@ -1898,6 +1926,8 @@ def hcatNgramX(hcatHashType, hcatHashFile, corpus, group_size=3):
             "-o",
             f"{hcatHashFile}.out",
         ]
+        if _should_use_optimized_kernel("hcatNgramX"):
+            _insert_optimized_flag(hashcat_cmd)
         hashcat_cmd.extend(shlex.split(hcatTuning))
         _append_potfile_arg(hashcat_cmd)
         generator_proc = subprocess.Popen(generator_cmd, stdout=subprocess.PIPE)
@@ -2339,6 +2369,8 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
         f"{hcatHashFile}.out",
         candidates_path,
     ]
+    if _should_use_optimized_kernel("hcatOllama"):
+        _insert_optimized_flag(cmd)
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
     try:
@@ -2376,6 +2408,8 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
             rule_path,
             candidates_path,
         ]
+        if _should_use_optimized_kernel("hcatOllama"):
+            _insert_optimized_flag(cmd)
         cmd.extend(shlex.split(hcatTuning))
         _append_potfile_arg(cmd)
         try:
@@ -3288,6 +3322,8 @@ def hcatOmen(hcatHashType, hcatHashFile, max_candidates, hcatChains=""):
     ]
     if hcatChains:
         hashcat_cmd.extend(shlex.split(hcatChains))
+    if _should_use_optimized_kernel("hcatOmen"):
+        _insert_optimized_flag(hashcat_cmd)
     hashcat_cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(hashcat_cmd)
     hashcat_cmd = _add_debug_mode_for_rules(hashcat_cmd)
@@ -3374,6 +3410,8 @@ def hcatLMtoNT():
         "3",
         "?1?1?1?1?1?1?1",
     ]
+    if _should_use_optimized_kernel("hcatLMtoNT"):
+        _insert_optimized_flag(cmd)
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
     _run_hcat_cmd(
@@ -3428,6 +3466,8 @@ def hcatLMtoNT():
             "toggles-lm-ntlm.rule", fallback_dir=os.path.join(hate_path, "rules")
         ),
     ]
+    if _should_use_optimized_kernel("hcatLMtoNT"):
+        _insert_optimized_flag(cmd)
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
     cmd = _add_debug_mode_for_rules(cmd)

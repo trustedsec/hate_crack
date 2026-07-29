@@ -91,3 +91,103 @@ class TestHcatFingerprintOptimizedFlag:
         assert any("-O" in cmd for cmd in hashcat_cmds), (
             f"Expected -O in hashcat cmd, got: {hashcat_cmds}"
         )
+
+
+class TestOptInOptimizedAttacks:
+    """The four attacks that honour optimizedKernelAttacks without being in the
+    default set: -O must be absent by default and present once configured.
+
+    All four built their hashcat command without ever consulting the setting,
+    so listing them in config.json did nothing.
+    """
+
+    def test_ngramx_omits_optimized_flag_by_default(self, main_module, tmp_path):
+        cmds = self._run_ngramx(main_module, tmp_path, enabled=False)
+        assert not any("-O" in cmd for cmd in cmds), cmds
+
+    def test_ngramx_includes_optimized_flag_when_enabled(self, main_module, tmp_path):
+        cmds = self._run_ngramx(main_module, tmp_path, enabled=True)
+        assert cmds, "No hashcat Popen calls captured"
+        assert all("-O" in cmd for cmd in cmds), cmds
+
+    def _run_ngramx(self, main_module, tmp_path, enabled):
+        corpus = tmp_path / "corpus.txt"
+        corpus.write_text("aaa\nbbb\n")
+        hash_file = tmp_path / "hashes.txt"
+        hash_file.write_text("")
+        captured = []
+
+        def fake_popen(cmd, **kwargs):
+            captured.append(list(cmd))
+            proc = MagicMock()
+            proc.stdout = MagicMock()
+            proc.wait.return_value = 0
+            proc.returncode = 0
+            return proc
+
+        attacks = (
+            frozenset({"hcatNgramX"})
+            if enabled
+            else main_module.DEFAULT_OPTIMIZED_ATTACKS
+        )
+        with (
+            patch("hate_crack.main.subprocess.Popen", side_effect=fake_popen),
+            patch.object(main_module, "_optimized_kernel_attacks", attacks),
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "hate_path", str(tmp_path)),
+            patch.object(main_module, "hcatHashCracked", 0),
+            patch("hate_crack.main.lineCount", return_value=0),
+            patch("hate_crack.main.generate_session_id", return_value="s"),
+        ):
+            main_module.hcatNgramX("1000", str(hash_file), str(corpus))
+
+        return [cmd for cmd in captured if cmd and cmd[0] == "hashcat"]
+
+    def test_omen_omits_optimized_flag_by_default(self, main_module, tmp_path):
+        cmds = self._run_omen(main_module, tmp_path, enabled=False)
+        assert not any("-O" in cmd for cmd in cmds), cmds
+
+    def test_omen_includes_optimized_flag_when_enabled(self, main_module, tmp_path):
+        cmds = self._run_omen(main_module, tmp_path, enabled=True)
+        assert cmds, "No hashcat Popen calls captured"
+        assert all("-O" in cmd for cmd in cmds), cmds
+
+    def _run_omen(self, main_module, tmp_path, enabled):
+        omen_dir = tmp_path / "omen"
+        omen_dir.mkdir()
+        (omen_dir / "enumNG").touch()
+        model_dir = tmp_path / "model"
+        model_dir.mkdir()
+        (model_dir / "createConfig").write_text("# test config\n")
+        captured = []
+
+        def fake_popen(cmd, **kwargs):
+            captured.append(list(cmd))
+            proc = MagicMock()
+            proc.stdout = MagicMock()
+            proc.stderr = MagicMock()
+            proc.wait.return_value = None
+            proc.returncode = 0
+            return proc
+
+        attacks = (
+            frozenset({"hcatOmen"})
+            if enabled
+            else main_module.DEFAULT_OPTIMIZED_ATTACKS
+        )
+        with (
+            patch("hate_crack.main.subprocess.Popen", side_effect=fake_popen),
+            patch.object(main_module, "_optimized_kernel_attacks", attacks),
+            patch.object(main_module, "_omen_dir", str(omen_dir)),
+            patch.object(main_module, "hcatOmenEnumBin", "enumNG"),
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch("hate_crack.main._omen_model_dir", return_value=str(model_dir)),
+            patch("hate_crack.main.generate_session_id", return_value="s"),
+        ):
+            main_module.hcatOmen("1000", str(tmp_path / "hashes.txt"), 500000)
+
+        return [cmd for cmd in captured if cmd and cmd[0] == "hashcat"]

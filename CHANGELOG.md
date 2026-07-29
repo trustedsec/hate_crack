@@ -11,6 +11,17 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ### Added
 
+- **`optimizedKernelAttacks` now works for the N-gram, LLM, OMEN, and LM-to-NT
+  attacks, and is documented.** All four built their hashcat command without
+  ever consulting the setting, so listing them had no effect. They honour it
+  now, but stay out of the default set — each feeds candidates that can exceed
+  the length ceiling `-O` imposes, so enabling it is opt-in rather than a
+  silent keyspace reduction for anyone already running them. An unrecognized
+  entry in the list is now reported at startup instead of being ignored, and
+  README documents the flag's trade-off along with the delegation rule that
+  makes PRINCE-LING follow `hcatPrince` and Spoonman follow
+  `hcatQuickDictionary`.
+
 - **The Ad-hoc Mask Attack (option 14) now accepts a mask file.** The attack
   opens with a choice between typing a mask and selecting a `.hcmask` file, the
   latter with tab completion rooted at the bundled `masks/` directory. Mask

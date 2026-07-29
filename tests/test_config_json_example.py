@@ -1,5 +1,6 @@
 import json
 import os
+import re
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROOT_EXAMPLE = os.path.join(REPO_ROOT, "config.json.example")
@@ -97,15 +98,30 @@ def test_optimized_kernel_attacks_matches_code_default(hc_module):
     assert example_attacks == set(hc_module.DEFAULT_OPTIMIZED_ATTACKS)
 
 
-def test_optimized_kernel_attack_names_are_honoured():
-    """Every name in the list must reach _should_use_optimized_kernel.
-
-    hcatPrinceLing used to be listed but was never checked — it delegates to
-    hcatPrince, which tests its own name — so toggling it did nothing.
-    """
+def _checked_attack_names():
+    """Names actually passed to _should_use_optimized_kernel in main.py."""
     with open(os.path.join(REPO_ROOT, "hate_crack", "main.py")) as f:
         source = f.read()
-    with open(ROOT_EXAMPLE) as f:
-        listed = json.load(f)["optimizedKernelAttacks"]
-    for name in listed:
-        assert f'_should_use_optimized_kernel("{name}")' in source, name
+    return set(re.findall(r'_should_use_optimized_kernel\("([A-Za-z0-9]+)"\)', source))
+
+
+def test_every_recognized_attack_name_is_checked(hc_module):
+    """No inert knobs: a recognized name must reach a real -O decision.
+
+    hcatPrinceLing was recognized but never checked — PRINCE-LING delegates to
+    hcatPrince, which tests its own name — so setting it did nothing at all.
+    """
+    assert set(hc_module.KNOWN_OPTIMIZABLE_ATTACKS) <= _checked_attack_names()
+
+
+def test_every_checked_attack_name_is_recognized(hc_module):
+    """No unreachable knobs: an attack that consults the setting must be a name
+    the user can actually put in optimizedKernelAttacks, and one the config
+    loader will not warn about as unrecognized."""
+    assert _checked_attack_names() <= set(hc_module.KNOWN_OPTIMIZABLE_ATTACKS)
+
+
+def test_default_optimized_attacks_are_recognized(hc_module):
+    assert set(hc_module.DEFAULT_OPTIMIZED_ATTACKS) <= set(
+        hc_module.KNOWN_OPTIMIZABLE_ATTACKS
+    )

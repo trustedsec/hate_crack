@@ -557,6 +557,27 @@ The PCFG Attack (option 20) and PRINCE-LING Attack (option 21) use the `pcfg_cra
 - **`pcfgMaxCandidates`** — Maximum candidates `pcfg_guesser.py` emits for the PCFG attack (default: `50000000`).
 - **`pcfgPrinceLingMaxCandidates`** — Maximum base words `prince_ling.py` writes into the cached PRINCE base wordlist (default: `10000000`).
 
+### Optimized kernels (`optimizedKernelAttacks`)
+
+hashcat's `-O` flag selects optimized kernels, which are substantially faster
+but cap candidate length (roughly 31 characters, lower for some modes) and
+silently skip anything longer. `optimizedKernelAttacks` in `config.json` lists
+the attacks that run with `-O`; omit an attack from the list to run it with
+full-length kernels. The list in `config.json.example` matches the built-in
+default that applies when no `config.json` exists.
+
+Four attacks honour the setting but are **not** optimized by default, because
+they feed candidates that can exceed the `-O` ceiling — add them to the list to
+opt in:
+
+- `hcatNgramX`, `hcatOllama`, `hcatOmen`, `hcatLMtoNT`
+
+Names are matched exactly, and an unrecognized entry is reported at startup
+rather than ignored. Note that attacks which delegate to another attack are
+controlled by the attack they delegate to, not by their own name: PRINCE-LING
+follows `hcatPrince`, while Spoonman and the LLM pattern-rule modes follow
+`hcatQuickDictionary`.
+
 ### Notifications (menu option 82)
 
 hate_crack can send Pushover push notifications when attacks complete and,
