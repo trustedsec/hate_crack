@@ -52,7 +52,9 @@ def lima_vm():
     # needed for installation (wordlists, crack results, the hashcat binary -
     # the VM has hashcat installed via apt).
     rsync_cmd = [
-        "rsync", "-a", "--delete",
+        "rsync",
+        "-a",
+        "--delete",
         "--exclude=wordlists/",
         "--exclude=hashcat/",
         "--exclude=results/",
@@ -66,7 +68,8 @@ def lima_vm():
         "--exclude=hashcat-utils/bin/*.bin",
         "--exclude=hashcat-utils/bin/*.exe",
         "--exclude=hashcat-utils/bin/*.app",
-        "-e", f"ssh -F {ssh_config}",
+        "-e",
+        f"ssh -F {ssh_config}",
         f"{repo_root}/",
         f"lima-{vm_name}:/tmp/hate_crack/",
     ]

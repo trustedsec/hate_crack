@@ -4,6 +4,7 @@ Gated entirely behind HATE_CRACK_HASHCAT_REAL=1 — see the module-level
 pytestmark in each tests/e2e/test_e2e_*.py file. Never runs in standard CI
 (ubuntu-latest CI runners have no hashcat installed).
 """
+
 import json
 import os
 import shutil
@@ -50,7 +51,7 @@ def _md4(data: bytes) -> bytes:
     a0, b0, c0, d0 = 0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476
 
     for chunk_offset in range(0, len(msg), 64):
-        chunk = msg[chunk_offset:chunk_offset + 64]
+        chunk = msg[chunk_offset : chunk_offset + 64]
         X = list(struct.unpack("<16I", chunk))
         A, B, C, D = a0, b0, c0, d0
 
@@ -114,7 +115,8 @@ def _missing_required_binaries() -> list[str]:
         REPO_ROOT,
     ]
     hashcat_utils_ok = any(
-        os.path.isdir(os.path.join(c, "hashcat-utils", "bin")) for c in hate_path_candidates
+        os.path.isdir(os.path.join(c, "hashcat-utils", "bin"))
+        for c in hate_path_candidates
     )
     if not hashcat_utils_ok:
         missing.append("hashcat-utils/bin (run `make submodules`)")
@@ -185,9 +187,7 @@ def e2e_home(tmp_path):
 
 @pytest.fixture
 def e2e_hash_file(tmp_path):
-    lines = [
-        f"user{i}:{_ntlm(pw)}" for i, pw in enumerate(E2E_PLAINTEXTS, start=1)
-    ]
+    lines = [f"user{i}:{_ntlm(pw)}" for i, pw in enumerate(E2E_PLAINTEXTS, start=1)]
     hash_file = tmp_path / "hashes.ntlm"
     hash_file.write_text("\n".join(lines) + "\n")
     return hash_file
@@ -197,15 +197,38 @@ def e2e_hash_file(tmp_path):
 def e2e_wordlist(e2e_home):
     """~30-line wordlist containing all three E2E_PLAINTEXTS plus decoys,
     placed under e2e_home's configured wordlists dir."""
-    wordlists_dir = json.loads(
-        (e2e_home / ".hate_crack" / "config.json").read_text()
-    )["hcatWordlists"]
+    wordlists_dir = json.loads((e2e_home / ".hate_crack" / "config.json").read_text())[
+        "hcatWordlists"
+    ]
     decoys = [
-        "password", "letmein", "qwerty123", "dragon", "monkey", "football",
-        "baseball", "sunshine", "princess", "welcome", "shadow", "master",
-        "abc123", "trustno1", "iloveyou", "starwars", "whatever", "freedom",
-        "hunter2", "cheese", "computer", "internet", "superman", "batman",
-        "flower", "hockey", "soccer", "tiger",
+        "password",
+        "letmein",
+        "qwerty123",
+        "dragon",
+        "monkey",
+        "football",
+        "baseball",
+        "sunshine",
+        "princess",
+        "welcome",
+        "shadow",
+        "master",
+        "abc123",
+        "trustno1",
+        "iloveyou",
+        "starwars",
+        "whatever",
+        "freedom",
+        "hunter2",
+        "cheese",
+        "computer",
+        "internet",
+        "superman",
+        "batman",
+        "flower",
+        "hockey",
+        "soccer",
+        "tiger",
     ]
     lines = list(E2E_PLAINTEXTS) + decoys
     wordlist_path = os.path.join(wordlists_dir, "e2e.txt")
@@ -219,9 +242,9 @@ def e2e_wordlist_no_target(e2e_home):
     """A wordlist deliberately NOT containing any E2E_PLAINTEXTS, for the
     harness smoke test (proves 'ran clean, zero cracks' is distinguishable
     from 'actually cracked something')."""
-    wordlists_dir = json.loads(
-        (e2e_home / ".hate_crack" / "config.json").read_text()
-    )["hcatWordlists"]
+    wordlists_dir = json.loads((e2e_home / ".hate_crack" / "config.json").read_text())[
+        "hcatWordlists"
+    ]
     decoys = ["nope1", "nope2", "wrongpassword", "notitherer"]
     wordlist_path = os.path.join(wordlists_dir, "no_target.txt")
     with open(wordlist_path, "w") as f:
@@ -231,9 +254,9 @@ def e2e_wordlist_no_target(e2e_home):
 
 @pytest.fixture
 def e2e_rules_dir(e2e_home):
-    rules_dir = json.loads(
-        (e2e_home / ".hate_crack" / "config.json").read_text()
-    )["rules_directory"]
+    rules_dir = json.loads((e2e_home / ".hate_crack" / "config.json").read_text())[
+        "rules_directory"
+    ]
     rule_path = os.path.join(rules_dir, "e2e.rule")
     with open(rule_path, "w") as f:
         f.write(":\n")

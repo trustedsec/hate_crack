@@ -11,6 +11,10 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ### Changed
 
+- **CI now lints and format-checks `tests/` alongside `hate_crack/`.** The ruff
+  gates previously covered only the package, so the test suite had accumulated
+  21 unused imports, one unused binding, and 51 unformatted modules — all of
+  which are now fixed and gated. `ty` still checks `hate_crack/` only.
 - **Spoonman Attack output is now ephemeral.** Derived basewords and rules are
   written to `<hash file>.spoonman/` beside the hash file, matching the other
   ephemeral wordlists (`.expanded`, `.combined`), instead of persisting under

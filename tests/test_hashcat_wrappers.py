@@ -36,12 +36,18 @@ class TestHcatBruteForce:
         hash_file = str(tmp_path / "hashes.txt")
         mock_proc = _make_mock_proc()
 
-        with patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "generate_session_id", return_value="test_session"), \
-             patch("hate_crack.main.subprocess.Popen", return_value=mock_proc) as mock_popen, \
-             patch.object(main_module, "lineCount", return_value=0):
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(
+                main_module, "generate_session_id", return_value="test_session"
+            ),
+            patch(
+                "hate_crack.main.subprocess.Popen", return_value=mock_proc
+            ) as mock_popen,
+            patch.object(main_module, "lineCount", return_value=0),
+        ):
             main_module.hcatBruteForce("1000", hash_file, 1, 7)
 
         mock_popen.assert_called_once()
@@ -53,12 +59,18 @@ class TestHcatBruteForce:
         hash_file = str(tmp_path / "hashes.txt")
         mock_proc = _make_mock_proc()
 
-        with patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "generate_session_id", return_value="test_session"), \
-             patch("hate_crack.main.subprocess.Popen", return_value=mock_proc) as mock_popen, \
-             patch.object(main_module, "lineCount", return_value=0):
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(
+                main_module, "generate_session_id", return_value="test_session"
+            ),
+            patch(
+                "hate_crack.main.subprocess.Popen", return_value=mock_proc
+            ) as mock_popen,
+            patch.object(main_module, "lineCount", return_value=0),
+        ):
             main_module.hcatBruteForce("1000", hash_file, 3, 9)
             cmd = mock_popen.call_args[0][0]
 
@@ -70,12 +82,16 @@ class TestHcatBruteForce:
         hash_file = str(tmp_path / "hashes.txt")
         mock_proc = _make_mock_proc(wait_side_effect=KeyboardInterrupt())
 
-        with patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "generate_session_id", return_value="test_session"), \
-             patch("hate_crack.main.subprocess.Popen", return_value=mock_proc), \
-             patch.object(main_module, "lineCount", return_value=0):
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(
+                main_module, "generate_session_id", return_value="test_session"
+            ),
+            patch("hate_crack.main.subprocess.Popen", return_value=mock_proc),
+            patch.object(main_module, "lineCount", return_value=0),
+        ):
             main_module.hcatBruteForce("1000", hash_file, 1, 7)
 
         mock_proc.kill.assert_called_once()
@@ -84,12 +100,18 @@ class TestHcatBruteForce:
         hash_file = str(tmp_path / "hashes.txt")
         mock_proc = _make_mock_proc()
 
-        with patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "generate_session_id", return_value="test_session"), \
-             patch("hate_crack.main.subprocess.Popen", return_value=mock_proc) as mock_popen, \
-             patch.object(main_module, "lineCount", return_value=0):
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(
+                main_module, "generate_session_id", return_value="test_session"
+            ),
+            patch(
+                "hate_crack.main.subprocess.Popen", return_value=mock_proc
+            ) as mock_popen,
+            patch.object(main_module, "lineCount", return_value=0),
+        ):
             main_module.hcatBruteForce("500", hash_file, 1, 8)
 
         cmd = mock_popen.call_args[0][0]
@@ -104,13 +126,19 @@ class TestHcatQuickDictionary:
         wordlist = str(tmp_path / "words.txt")
         mock_proc = _make_mock_proc()
 
-        with patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "generate_session_id", return_value="test_session"), \
-             patch("hate_crack.main.subprocess.Popen", return_value=mock_proc) as mock_popen, \
-             patch("hate_crack.main._add_debug_mode_for_rules", side_effect=lambda c: c), \
-             patch("hate_crack.main._debug_cmd"):
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(
+                main_module, "generate_session_id", return_value="test_session"
+            ),
+            patch(
+                "hate_crack.main.subprocess.Popen", return_value=mock_proc
+            ) as mock_popen,
+            patch("hate_crack.main._add_debug_mode_for_rules", side_effect=lambda c: c),
+            patch("hate_crack.main._debug_cmd"),
+        ):
             main_module.hcatQuickDictionary("1000", hash_file, "", wordlist)
 
         cmd = mock_popen.call_args[0][0]
@@ -121,14 +149,22 @@ class TestHcatQuickDictionary:
         wordlist = str(tmp_path / "words.txt")
         mock_proc = _make_mock_proc()
 
-        with patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "generate_session_id", return_value="test_session"), \
-             patch("hate_crack.main.subprocess.Popen", return_value=mock_proc) as mock_popen, \
-             patch("hate_crack.main._add_debug_mode_for_rules", side_effect=lambda c: c), \
-             patch("hate_crack.main._debug_cmd"):
-            main_module.hcatQuickDictionary("1000", hash_file, "", wordlist, loopback=True)
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(
+                main_module, "generate_session_id", return_value="test_session"
+            ),
+            patch(
+                "hate_crack.main.subprocess.Popen", return_value=mock_proc
+            ) as mock_popen,
+            patch("hate_crack.main._add_debug_mode_for_rules", side_effect=lambda c: c),
+            patch("hate_crack.main._debug_cmd"),
+        ):
+            main_module.hcatQuickDictionary(
+                "1000", hash_file, "", wordlist, loopback=True
+            )
 
         cmd = mock_popen.call_args[0][0]
         assert "--loopback" in cmd
@@ -138,13 +174,19 @@ class TestHcatQuickDictionary:
         wordlist = str(tmp_path / "words.txt")
         mock_proc = _make_mock_proc()
 
-        with patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "generate_session_id", return_value="test_session"), \
-             patch("hate_crack.main.subprocess.Popen", return_value=mock_proc) as mock_popen, \
-             patch("hate_crack.main._add_debug_mode_for_rules", side_effect=lambda c: c), \
-             patch("hate_crack.main._debug_cmd"):
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(
+                main_module, "generate_session_id", return_value="test_session"
+            ),
+            patch(
+                "hate_crack.main.subprocess.Popen", return_value=mock_proc
+            ) as mock_popen,
+            patch("hate_crack.main._add_debug_mode_for_rules", side_effect=lambda c: c),
+            patch("hate_crack.main._debug_cmd"),
+        ):
             main_module.hcatQuickDictionary("1000", hash_file, "", wordlist)
 
         cmd = mock_popen.call_args[0][0]
@@ -155,13 +197,19 @@ class TestHcatQuickDictionary:
         wordlist = str(tmp_path / "words.txt")
         mock_proc = _make_mock_proc()
 
-        with patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "generate_session_id", return_value="test_session"), \
-             patch("hate_crack.main.subprocess.Popen", return_value=mock_proc) as mock_popen, \
-             patch("hate_crack.main._add_debug_mode_for_rules", side_effect=lambda c: c), \
-             patch("hate_crack.main._debug_cmd"):
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(
+                main_module, "generate_session_id", return_value="test_session"
+            ),
+            patch(
+                "hate_crack.main.subprocess.Popen", return_value=mock_proc
+            ) as mock_popen,
+            patch("hate_crack.main._add_debug_mode_for_rules", side_effect=lambda c: c),
+            patch("hate_crack.main._debug_cmd"),
+        ):
             main_module.hcatQuickDictionary(
                 "1000", hash_file, "-r /fake/rule.rule", wordlist
             )
@@ -176,13 +224,19 @@ class TestHcatQuickDictionary:
         wl2 = str(tmp_path / "words2.txt")
         mock_proc = _make_mock_proc()
 
-        with patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "generate_session_id", return_value="test_session"), \
-             patch("hate_crack.main.subprocess.Popen", return_value=mock_proc) as mock_popen, \
-             patch("hate_crack.main._add_debug_mode_for_rules", side_effect=lambda c: c), \
-             patch("hate_crack.main._debug_cmd"):
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(
+                main_module, "generate_session_id", return_value="test_session"
+            ),
+            patch(
+                "hate_crack.main.subprocess.Popen", return_value=mock_proc
+            ) as mock_popen,
+            patch("hate_crack.main._add_debug_mode_for_rules", side_effect=lambda c: c),
+            patch("hate_crack.main._debug_cmd"),
+        ):
             main_module.hcatQuickDictionary("1000", hash_file, "", [wl1, wl2])
 
         cmd = mock_popen.call_args[0][0]
@@ -199,14 +253,20 @@ class TestHcatCombination:
         wl2.write_text("word2\n")
         mock_proc = _make_mock_proc()
 
-        with patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "hcatWordlists", str(tmp_path)), \
-             patch.object(main_module, "generate_session_id", return_value="test_session"), \
-             patch("hate_crack.main.subprocess.Popen", return_value=mock_proc) as mock_popen, \
-             patch.object(main_module, "lineCount", return_value=0), \
-             patch.object(main_module, "hcatHashCracked", 0, create=True):
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "hcatWordlists", str(tmp_path)),
+            patch.object(
+                main_module, "generate_session_id", return_value="test_session"
+            ),
+            patch(
+                "hate_crack.main.subprocess.Popen", return_value=mock_proc
+            ) as mock_popen,
+            patch.object(main_module, "lineCount", return_value=0),
+            patch.object(main_module, "hcatHashCracked", 0, create=True),
+        ):
             main_module.hcatCombination(
                 "1000", hash_file, wordlists=[str(wl1), str(wl2)]
             )
@@ -222,12 +282,18 @@ class TestHcatCombination:
         wl1.write_text("word1\n")
         mock_proc = _make_mock_proc()
 
-        with patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "hcatWordlists", str(tmp_path)), \
-             patch.object(main_module, "generate_session_id", return_value="test_session"), \
-             patch("hate_crack.main.subprocess.Popen", return_value=mock_proc) as mock_popen:
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "hcatWordlists", str(tmp_path)),
+            patch.object(
+                main_module, "generate_session_id", return_value="test_session"
+            ),
+            patch(
+                "hate_crack.main.subprocess.Popen", return_value=mock_proc
+            ) as mock_popen,
+        ):
             main_module.hcatCombination("1000", hash_file, wordlists=[str(wl1)])
 
         mock_popen.assert_not_called()
@@ -242,14 +308,20 @@ class TestHcatHybrid:
         wl.write_text("word\n")
         mock_proc = _make_mock_proc()
 
-        with patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "hcatWordlists", str(tmp_path)), \
-             patch.object(main_module, "generate_session_id", return_value="test_session"), \
-             patch("hate_crack.main.subprocess.Popen", return_value=mock_proc) as mock_popen, \
-             patch.object(main_module, "lineCount", return_value=0), \
-             patch.object(main_module, "hcatHashCracked", 0, create=True):
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "hcatWordlists", str(tmp_path)),
+            patch.object(
+                main_module, "generate_session_id", return_value="test_session"
+            ),
+            patch(
+                "hate_crack.main.subprocess.Popen", return_value=mock_proc
+            ) as mock_popen,
+            patch.object(main_module, "lineCount", return_value=0),
+            patch.object(main_module, "hcatHashCracked", 0, create=True),
+        ):
             main_module.hcatHybrid("1000", hash_file, wordlists=[str(wl)])
 
         assert mock_popen.call_count >= 1
@@ -259,18 +331,26 @@ class TestHcatHybrid:
             if "-a" in cmd:
                 idx = cmd.index("-a")
                 modes_used.add(cmd[idx + 1])
-        assert modes_used & {"6", "7"}, f"Expected mode 6 or 7 in cmds, got modes: {modes_used}"
+        assert modes_used & {"6", "7"}, (
+            f"Expected mode 6 or 7 in cmds, got modes: {modes_used}"
+        )
 
     def test_aborts_when_no_valid_wordlists(self, main_module, tmp_path, capsys):
         hash_file = str(tmp_path / "hashes.txt")
         mock_proc = _make_mock_proc()
 
-        with patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "hcatWordlists", str(tmp_path)), \
-             patch.object(main_module, "generate_session_id", return_value="test_session"), \
-             patch("hate_crack.main.subprocess.Popen", return_value=mock_proc) as mock_popen:
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "hcatWordlists", str(tmp_path)),
+            patch.object(
+                main_module, "generate_session_id", return_value="test_session"
+            ),
+            patch(
+                "hate_crack.main.subprocess.Popen", return_value=mock_proc
+            ) as mock_popen,
+        ):
             main_module.hcatHybrid(
                 "1000", hash_file, wordlists=["/nonexistent/wordlist.txt"]
             )
@@ -285,12 +365,18 @@ class TestHcatPathwellBruteForce:
         hash_file = str(tmp_path / "hashes.txt")
         mock_proc = _make_mock_proc()
 
-        with patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "hate_path", str(tmp_path)), \
-             patch.object(main_module, "generate_session_id", return_value="test_session"), \
-             patch("hate_crack.main.subprocess.Popen", return_value=mock_proc) as mock_popen:
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "hate_path", str(tmp_path)),
+            patch.object(
+                main_module, "generate_session_id", return_value="test_session"
+            ),
+            patch(
+                "hate_crack.main.subprocess.Popen", return_value=mock_proc
+            ) as mock_popen,
+        ):
             main_module.hcatPathwellBruteForce("1000", hash_file)
 
         mock_popen.assert_called_once()
@@ -299,12 +385,18 @@ class TestHcatPathwellBruteForce:
         hash_file = str(tmp_path / "hashes.txt")
         mock_proc = _make_mock_proc()
 
-        with patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "hate_path", str(tmp_path)), \
-             patch.object(main_module, "generate_session_id", return_value="test_session"), \
-             patch("hate_crack.main.subprocess.Popen", return_value=mock_proc) as mock_popen:
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "hate_path", str(tmp_path)),
+            patch.object(
+                main_module, "generate_session_id", return_value="test_session"
+            ),
+            patch(
+                "hate_crack.main.subprocess.Popen", return_value=mock_proc
+            ) as mock_popen,
+        ):
             main_module.hcatPathwellBruteForce("1000", hash_file)
 
         cmd = mock_popen.call_args[0][0]
@@ -315,12 +407,18 @@ class TestHcatPathwellBruteForce:
         hash_file = str(tmp_path / "hashes.txt")
         mock_proc = _make_mock_proc()
 
-        with patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "hate_path", str(tmp_path)), \
-             patch.object(main_module, "generate_session_id", return_value="test_session"), \
-             patch("hate_crack.main.subprocess.Popen", return_value=mock_proc) as mock_popen:
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "hate_path", str(tmp_path)),
+            patch.object(
+                main_module, "generate_session_id", return_value="test_session"
+            ),
+            patch(
+                "hate_crack.main.subprocess.Popen", return_value=mock_proc
+            ) as mock_popen,
+        ):
             main_module.hcatPathwellBruteForce("1000", hash_file)
 
         cmd = mock_popen.call_args[0][0]
@@ -343,16 +441,22 @@ class TestHcatPrince:
         mock_hashcat_proc.wait.return_value = None
         mock_hashcat_proc.pid = 12345
 
-        with patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "hate_path", str(tmp_path)), \
-             patch.object(main_module, "hcatPrinceBin", "pp64.bin"), \
-             patch.object(main_module, "hcatPrinceBaseList", [str(prince_base)]), \
-             patch.object(main_module, "generate_session_id", return_value="test_session"), \
-             patch.object(main_module, "get_rule_path", return_value="/fake/prince_optimized.rule"), \
-             patch("hate_crack.main._add_debug_mode_for_rules", side_effect=lambda c: c), \
-             patch("hate_crack.main.subprocess.Popen") as mock_popen:
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "hate_path", str(tmp_path)),
+            patch.object(main_module, "hcatPrinceBin", "pp64.bin"),
+            patch.object(main_module, "hcatPrinceBaseList", [str(prince_base)]),
+            patch.object(
+                main_module, "generate_session_id", return_value="test_session"
+            ),
+            patch.object(
+                main_module, "get_rule_path", return_value="/fake/prince_optimized.rule"
+            ),
+            patch("hate_crack.main._add_debug_mode_for_rules", side_effect=lambda c: c),
+            patch("hate_crack.main.subprocess.Popen") as mock_popen,
+        ):
             mock_popen.side_effect = [mock_prince_proc, mock_hashcat_proc]
             main_module.hcatPrince("1000", hash_file)
 
@@ -374,16 +478,22 @@ class TestHcatPrince:
         mock_hashcat_proc.wait.return_value = None
         mock_hashcat_proc.pid = 12345
 
-        with patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "hate_path", str(tmp_path)), \
-             patch.object(main_module, "hcatPrinceBin", "pp64.bin"), \
-             patch.object(main_module, "hcatPrinceBaseList", [str(prince_base)]), \
-             patch.object(main_module, "generate_session_id", return_value="test_session"), \
-             patch.object(main_module, "get_rule_path", return_value="/fake/prince_optimized.rule"), \
-             patch("hate_crack.main._add_debug_mode_for_rules", side_effect=lambda c: c), \
-             patch("hate_crack.main.subprocess.Popen") as mock_popen:
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "hate_path", str(tmp_path)),
+            patch.object(main_module, "hcatPrinceBin", "pp64.bin"),
+            patch.object(main_module, "hcatPrinceBaseList", [str(prince_base)]),
+            patch.object(
+                main_module, "generate_session_id", return_value="test_session"
+            ),
+            patch.object(
+                main_module, "get_rule_path", return_value="/fake/prince_optimized.rule"
+            ),
+            patch("hate_crack.main._add_debug_mode_for_rules", side_effect=lambda c: c),
+            patch("hate_crack.main.subprocess.Popen") as mock_popen,
+        ):
             mock_popen.side_effect = [mock_prince_proc, mock_hashcat_proc]
             main_module.hcatPrince("1000", hash_file)
 
@@ -393,11 +503,13 @@ class TestHcatPrince:
     def test_aborts_when_prince_base_missing(self, main_module, tmp_path, capsys):
         hash_file = str(tmp_path / "hashes.txt")
 
-        with patch.object(main_module, "hate_path", str(tmp_path)), \
-             patch.object(main_module, "hcatPrinceBin", "pp64.bin"), \
-             patch.object(main_module, "hcatPrinceBaseList", ["/nonexistent/base.txt"]), \
-             patch.object(main_module, "get_rule_path", return_value="/fake/rule.rule"), \
-             patch("hate_crack.main.subprocess.Popen") as mock_popen:
+        with (
+            patch.object(main_module, "hate_path", str(tmp_path)),
+            patch.object(main_module, "hcatPrinceBin", "pp64.bin"),
+            patch.object(main_module, "hcatPrinceBaseList", ["/nonexistent/base.txt"]),
+            patch.object(main_module, "get_rule_path", return_value="/fake/rule.rule"),
+            patch("hate_crack.main.subprocess.Popen") as mock_popen,
+        ):
             main_module.hcatPrince("1000", hash_file)
 
         mock_popen.assert_not_called()
@@ -420,17 +532,27 @@ class TestHcatRecycle:
         out_file.write_text("hash1:password1\nhash2:password2\n")
         mock_proc = _make_mock_proc()
 
-        with patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "hcatRules", ["best66.rule"]), \
-             patch.object(main_module, "generate_session_id", return_value="test_session"), \
-             patch.object(main_module, "get_rule_path", return_value="/fake/best66.rule"), \
-             patch("hate_crack.main._write_delimited_field"), \
-             patch("hate_crack.main.convert_hex", return_value=["password1", "password2"]), \
-             patch("hate_crack.main._add_debug_mode_for_rules", side_effect=lambda c: c), \
-             patch("builtins.open", create=True) as mock_open, \
-             patch("hate_crack.main.subprocess.Popen", return_value=mock_proc) as mock_popen:
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "hcatRules", ["best66.rule"]),
+            patch.object(
+                main_module, "generate_session_id", return_value="test_session"
+            ),
+            patch.object(
+                main_module, "get_rule_path", return_value="/fake/best66.rule"
+            ),
+            patch("hate_crack.main._write_delimited_field"),
+            patch(
+                "hate_crack.main.convert_hex", return_value=["password1", "password2"]
+            ),
+            patch("hate_crack.main._add_debug_mode_for_rules", side_effect=lambda c: c),
+            patch("builtins.open", create=True) as mock_open,
+            patch(
+                "hate_crack.main.subprocess.Popen", return_value=mock_proc
+            ) as mock_popen,
+        ):
             mock_open.return_value.__enter__ = MagicMock(return_value=MagicMock())
             mock_open.return_value.__exit__ = MagicMock(return_value=False)
             main_module.hcatRecycle("1000", hash_file, 5)
@@ -441,17 +563,25 @@ class TestHcatRecycle:
         hash_file = str(tmp_path / "hashes.txt")
         mock_proc = _make_mock_proc()
 
-        with patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "hcatRules", ["best66.rule"]), \
-             patch.object(main_module, "generate_session_id", return_value="test_session"), \
-             patch.object(main_module, "get_rule_path", return_value="/fake/best66.rule"), \
-             patch("hate_crack.main._write_delimited_field"), \
-             patch("hate_crack.main.convert_hex", return_value=["pass1"]), \
-             patch("hate_crack.main._add_debug_mode_for_rules", side_effect=lambda c: c), \
-             patch("builtins.open", create=True) as mock_open, \
-             patch("hate_crack.main.subprocess.Popen", return_value=mock_proc) as mock_popen:
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "hcatRules", ["best66.rule"]),
+            patch.object(
+                main_module, "generate_session_id", return_value="test_session"
+            ),
+            patch.object(
+                main_module, "get_rule_path", return_value="/fake/best66.rule"
+            ),
+            patch("hate_crack.main._write_delimited_field"),
+            patch("hate_crack.main.convert_hex", return_value=["pass1"]),
+            patch("hate_crack.main._add_debug_mode_for_rules", side_effect=lambda c: c),
+            patch("builtins.open", create=True) as mock_open,
+            patch(
+                "hate_crack.main.subprocess.Popen", return_value=mock_proc
+            ) as mock_popen,
+        ):
             mock_open.return_value.__enter__ = MagicMock(return_value=MagicMock())
             mock_open.return_value.__exit__ = MagicMock(return_value=False)
             main_module.hcatRecycle("1000", hash_file, 3)
@@ -466,16 +596,22 @@ class TestHcatGoodMeasure:
         hash_file = str(tmp_path / "hashes.txt")
         mock_proc = _make_mock_proc()
 
-        with patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "hcatGoodMeasureBaseList", "/fake/base.txt"), \
-             patch.object(main_module, "generate_session_id", return_value="test_session"), \
-             patch.object(main_module, "get_rule_path", return_value="/fake/rule.rule"), \
-             patch("hate_crack.main._add_debug_mode_for_rules", side_effect=lambda c: c), \
-             patch("hate_crack.main.subprocess.Popen", return_value=mock_proc) as mock_popen, \
-             patch.object(main_module, "lineCount", return_value=0), \
-             patch.object(main_module, "hcatHashCracked", 0, create=True):
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "hcatGoodMeasureBaseList", "/fake/base.txt"),
+            patch.object(
+                main_module, "generate_session_id", return_value="test_session"
+            ),
+            patch.object(main_module, "get_rule_path", return_value="/fake/rule.rule"),
+            patch("hate_crack.main._add_debug_mode_for_rules", side_effect=lambda c: c),
+            patch(
+                "hate_crack.main.subprocess.Popen", return_value=mock_proc
+            ) as mock_popen,
+            patch.object(main_module, "lineCount", return_value=0),
+            patch.object(main_module, "hcatHashCracked", 0, create=True),
+        ):
             main_module.hcatGoodMeasure("1000", hash_file)
 
         assert mock_popen.call_count >= 1
@@ -484,16 +620,22 @@ class TestHcatGoodMeasure:
         hash_file = str(tmp_path / "hashes.txt")
         mock_proc = _make_mock_proc()
 
-        with patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "hcatGoodMeasureBaseList", "/fake/base.txt"), \
-             patch.object(main_module, "generate_session_id", return_value="test_session"), \
-             patch.object(main_module, "get_rule_path", return_value="/fake/rule.rule"), \
-             patch("hate_crack.main._add_debug_mode_for_rules", side_effect=lambda c: c), \
-             patch("hate_crack.main.subprocess.Popen", return_value=mock_proc) as mock_popen, \
-             patch.object(main_module, "lineCount", return_value=0), \
-             patch.object(main_module, "hcatHashCracked", 0, create=True):
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "hcatGoodMeasureBaseList", "/fake/base.txt"),
+            patch.object(
+                main_module, "generate_session_id", return_value="test_session"
+            ),
+            patch.object(main_module, "get_rule_path", return_value="/fake/rule.rule"),
+            patch("hate_crack.main._add_debug_mode_for_rules", side_effect=lambda c: c),
+            patch(
+                "hate_crack.main.subprocess.Popen", return_value=mock_proc
+            ) as mock_popen,
+            patch.object(main_module, "lineCount", return_value=0),
+            patch.object(main_module, "hcatHashCracked", 0, create=True),
+        ):
             main_module.hcatGoodMeasure("500", hash_file)
 
         cmd = mock_popen.call_args_list[0][0][0]
@@ -506,13 +648,19 @@ class TestHcatMiddleCombinator:
         hash_file = str(tmp_path / "hashes.txt")
         mock_proc = _make_mock_proc()
 
-        with patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "hcatMiddleCombinatorMasks", ["!", "1"]), \
-             patch.object(main_module, "hcatMiddleBaseList", "/fake/base.txt"), \
-             patch.object(main_module, "generate_session_id", return_value="test_session"), \
-             patch("hate_crack.main.subprocess.Popen", return_value=mock_proc) as mock_popen:
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "hcatMiddleCombinatorMasks", ["!", "1"]),
+            patch.object(main_module, "hcatMiddleBaseList", "/fake/base.txt"),
+            patch.object(
+                main_module, "generate_session_id", return_value="test_session"
+            ),
+            patch(
+                "hate_crack.main.subprocess.Popen", return_value=mock_proc
+            ) as mock_popen,
+        ):
             main_module.hcatMiddleCombinator("1000", hash_file)
 
         assert mock_popen.call_count >= 1
@@ -521,13 +669,19 @@ class TestHcatMiddleCombinator:
         hash_file = str(tmp_path / "hashes.txt")
         mock_proc = _make_mock_proc()
 
-        with patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "hcatMiddleCombinatorMasks", ["!"]), \
-             patch.object(main_module, "hcatMiddleBaseList", "/fake/base.txt"), \
-             patch.object(main_module, "generate_session_id", return_value="test_session"), \
-             patch("hate_crack.main.subprocess.Popen", return_value=mock_proc) as mock_popen:
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "hcatMiddleCombinatorMasks", ["!"]),
+            patch.object(main_module, "hcatMiddleBaseList", "/fake/base.txt"),
+            patch.object(
+                main_module, "generate_session_id", return_value="test_session"
+            ),
+            patch(
+                "hate_crack.main.subprocess.Popen", return_value=mock_proc
+            ) as mock_popen,
+        ):
             main_module.hcatMiddleCombinator("1000", hash_file)
 
         cmd = mock_popen.call_args_list[0][0][0]
@@ -540,13 +694,19 @@ class TestHcatThoroughCombinator:
         hash_file = str(tmp_path / "hashes.txt")
         mock_proc = _make_mock_proc()
 
-        with patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "hcatThoroughCombinatorMasks", ["!"]), \
-             patch.object(main_module, "hcatThoroughBaseList", "/fake/base.txt"), \
-             patch.object(main_module, "generate_session_id", return_value="test_session"), \
-             patch("hate_crack.main.subprocess.Popen", return_value=mock_proc) as mock_popen:
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "hcatThoroughCombinatorMasks", ["!"]),
+            patch.object(main_module, "hcatThoroughBaseList", "/fake/base.txt"),
+            patch.object(
+                main_module, "generate_session_id", return_value="test_session"
+            ),
+            patch(
+                "hate_crack.main.subprocess.Popen", return_value=mock_proc
+            ) as mock_popen,
+        ):
             main_module.hcatThoroughCombinator("1000", hash_file)
 
         assert mock_popen.call_count >= 1
@@ -563,12 +723,18 @@ class TestHcatYoloCombination:
         mock_proc.pid = 12345
         mock_proc.wait.side_effect = KeyboardInterrupt()
 
-        with patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "hcatWordlists", str(wl_dir)), \
-             patch.object(main_module, "generate_session_id", return_value="test_session"), \
-             patch("hate_crack.main.subprocess.Popen", return_value=mock_proc) as mock_popen:
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "hcatWordlists", str(wl_dir)),
+            patch.object(
+                main_module, "generate_session_id", return_value="test_session"
+            ),
+            patch(
+                "hate_crack.main.subprocess.Popen", return_value=mock_proc
+            ) as mock_popen,
+        ):
             main_module.hcatYoloCombination("1000", hash_file)
 
         assert mock_popen.call_count >= 1
@@ -584,12 +750,18 @@ class TestHcatYoloCombination:
         mock_proc.pid = 12345
         mock_proc.wait.side_effect = KeyboardInterrupt()
 
-        with patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "hcatWordlists", str(wl_dir)), \
-             patch.object(main_module, "generate_session_id", return_value="test_session"), \
-             patch("hate_crack.main.subprocess.Popen", return_value=mock_proc) as mock_popen:
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "hcatWordlists", str(wl_dir)),
+            patch.object(
+                main_module, "generate_session_id", return_value="test_session"
+            ),
+            patch(
+                "hate_crack.main.subprocess.Popen", return_value=mock_proc
+            ) as mock_popen,
+        ):
             main_module.hcatYoloCombination("1000", hash_file)
 
         cmd = mock_popen.call_args_list[0][0][0]

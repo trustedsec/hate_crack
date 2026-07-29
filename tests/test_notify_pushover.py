@@ -1,4 +1,5 @@
 """Unit tests for the Pushover HTTP backend."""
+
 from unittest.mock import MagicMock, patch
 
 from hate_crack.notify import pushover

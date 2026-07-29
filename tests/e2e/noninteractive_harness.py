@@ -2,15 +2,14 @@
 (quick, dict, brute, topmask). See
 docs/superpowers/specs/2026-07-28-cli-e2e-testing-design.md.
 """
+
 import os
 import signal
 import subprocess
 import sys
 
 
-HATE_CRACK_SCRIPT = os.path.join(
-    os.path.dirname(__file__), "..", "..", "hate_crack.py"
-)
+HATE_CRACK_SCRIPT = os.path.join(os.path.dirname(__file__), "..", "..", "hate_crack.py")
 
 
 def run_noninteractive(args, home_dir, timeout=90):

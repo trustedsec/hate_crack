@@ -111,7 +111,9 @@ def test_hcatFingerprint_sort_uses_C_locale(monkeypatch, tmp_path):
     )
 
     sort_calls = _sort_calls(calls)
-    assert sort_calls, "expected at least one sort -u invocation in fingerprint pipeline"
+    assert sort_calls, (
+        "expected at least one sort -u invocation in fingerprint pipeline"
+    )
     for _args, kwargs in sort_calls:
         env = kwargs.get("env")
         assert env is not None
@@ -158,6 +160,6 @@ def test_all_sort_popen_calls_in_main_set_LC_ALL_C():
             offenders.append(node.lineno)
 
     assert not offenders, (
-        f"subprocess.Popen([\"sort\", ...]) at line(s) {offenders} must pass "
+        f'subprocess.Popen(["sort", ...]) at line(s) {offenders} must pass '
         "env={**os.environ, 'LC_ALL': 'C'} to handle non-UTF-8 bytes on macOS."
     )

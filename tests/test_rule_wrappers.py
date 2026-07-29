@@ -1,8 +1,6 @@
 """Tests for rules_cleanup and rules_optimize subprocess wrappers in main.py."""
-import subprocess
-from unittest.mock import MagicMock, mock_open, patch
 
-import pytest
+from unittest.mock import MagicMock, patch
 
 
 def _load_main():
@@ -80,7 +78,9 @@ class TestRulesCleanupWrapper:
 
         cmd = mock_run.call_args[0][0]
         expected_suffix = "hashcat-utils/bin/cleanup-rules.bin"
-        assert cmd[0].endswith(expected_suffix), f"Expected path ending with {expected_suffix}, got {cmd[0]}"
+        assert cmd[0].endswith(expected_suffix), (
+            f"Expected path ending with {expected_suffix}, got {cmd[0]}"
+        )
 
 
 class TestRulesOptimizeWrapper:
@@ -130,4 +130,6 @@ class TestRulesOptimizeWrapper:
 
         cmd = mock_run.call_args[0][0]
         expected_suffix = "hashcat-utils/bin/rules_optimize.bin"
-        assert cmd[0].endswith(expected_suffix), f"Expected path ending with {expected_suffix}, got {cmd[0]}"
+        assert cmd[0].endswith(expected_suffix), (
+            f"Expected path ending with {expected_suffix}, got {cmd[0]}"
+        )

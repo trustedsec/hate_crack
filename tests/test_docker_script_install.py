@@ -115,10 +115,15 @@ def test_docker_torrent_downloads_wordlists(docker_image, tmp_path):
     try:
         run = subprocess.run(
             [
-                "docker", "run", "--rm",
-                "-v", f"{downloads_dir}:/downloads",
+                "docker",
+                "run",
+                "--rm",
+                "-v",
+                f"{downloads_dir}:/downloads",
                 docker_image,
-                "bash", "-lc", f"/workspace/.venv/bin/python -c \"{py_cmd}\"",
+                "bash",
+                "-lc",
+                f'/workspace/.venv/bin/python -c "{py_cmd}"',
             ],
             capture_output=True,
             text=True,

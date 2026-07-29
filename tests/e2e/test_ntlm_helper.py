@@ -17,10 +17,13 @@ def test_ntlm_matches_hashcat_cracking_a_known_hash(tmp_path):
     suite depends on being correct."""
     import subprocess
     import shutil
+
     if not shutil.which("hashcat"):
         import pytest
+
         pytest.skip("hashcat not on PATH")
     from tests.e2e.conftest import _ntlm
+
     pw = "e2etestvector99"
     hash_file = tmp_path / "test.ntlm"
     hash_file.write_text(_ntlm(pw) + "\n")
@@ -28,9 +31,19 @@ def test_ntlm_matches_hashcat_cracking_a_known_hash(tmp_path):
     wordlist.write_text(pw + "\n")
     out_file = tmp_path / "test.ntlm.out"
     result = subprocess.run(
-        ["hashcat", "-m", "1000", str(hash_file), str(wordlist),
-         "-o", str(out_file), "--potfile-disable"],
-        capture_output=True, text=True, timeout=60,
+        [
+            "hashcat",
+            "-m",
+            "1000",
+            str(hash_file),
+            str(wordlist),
+            "-o",
+            str(out_file),
+            "--potfile-disable",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
     )
     assert result.returncode in (0, 1), result.stdout + result.stderr
     assert out_file.is_file()

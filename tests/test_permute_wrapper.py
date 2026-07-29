@@ -1,4 +1,3 @@
-import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -28,14 +27,16 @@ class TestHcatPermute:
         mock_hashcat_proc.wait.return_value = None
         mock_hashcat_proc.pid = 99
 
-        with patch.object(main_module, "hate_path", str(tmp_path)), \
-             patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "generate_session_id", return_value="sess1"), \
-             patch.object(main_module, "lineCount", return_value=0), \
-             patch.object(main_module, "hcatHashCracked", 0, create=True), \
-             patch("hate_crack.main.subprocess.Popen") as mock_popen:
+        with (
+            patch.object(main_module, "hate_path", str(tmp_path)),
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "generate_session_id", return_value="sess1"),
+            patch.object(main_module, "lineCount", return_value=0),
+            patch.object(main_module, "hcatHashCracked", 0, create=True),
+            patch("hate_crack.main.subprocess.Popen") as mock_popen,
+        ):
             mock_popen.side_effect = [mock_permute_proc, mock_hashcat_proc]
             main_module.hcatPermute("1000", hash_file, str(wl))
 
@@ -59,14 +60,16 @@ class TestHcatPermute:
         mock_hashcat_proc.wait.return_value = None
         mock_hashcat_proc.pid = 99
 
-        with patch.object(main_module, "hate_path", str(tmp_path)), \
-             patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "generate_session_id", return_value="sess1"), \
-             patch.object(main_module, "lineCount", return_value=0), \
-             patch.object(main_module, "hcatHashCracked", 0, create=True), \
-             patch("hate_crack.main.subprocess.Popen") as mock_popen:
+        with (
+            patch.object(main_module, "hate_path", str(tmp_path)),
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "generate_session_id", return_value="sess1"),
+            patch.object(main_module, "lineCount", return_value=0),
+            patch.object(main_module, "hcatHashCracked", 0, create=True),
+            patch("hate_crack.main.subprocess.Popen") as mock_popen,
+        ):
             mock_popen.side_effect = [mock_permute_proc, mock_hashcat_proc]
             main_module.hcatPermute("1000", hash_file, str(wl))
 
@@ -90,14 +93,16 @@ class TestHcatPermute:
         mock_hashcat_proc.wait.return_value = None
         mock_hashcat_proc.pid = 99
 
-        with patch.object(main_module, "hate_path", str(tmp_path)), \
-             patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "generate_session_id", return_value="sess1"), \
-             patch.object(main_module, "lineCount", return_value=0), \
-             patch.object(main_module, "hcatHashCracked", 0, create=True), \
-             patch("hate_crack.main.subprocess.Popen") as mock_popen:
+        with (
+            patch.object(main_module, "hate_path", str(tmp_path)),
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "generate_session_id", return_value="sess1"),
+            patch.object(main_module, "lineCount", return_value=0),
+            patch.object(main_module, "hcatHashCracked", 0, create=True),
+            patch("hate_crack.main.subprocess.Popen") as mock_popen,
+        ):
             mock_popen.side_effect = [mock_permute_proc, mock_hashcat_proc]
             main_module.hcatPermute("1000", hash_file, str(wl))
 
@@ -123,14 +128,16 @@ class TestHcatPermute:
         mock_hashcat_proc.wait.side_effect = KeyboardInterrupt()
         mock_hashcat_proc.pid = 99
 
-        with patch.object(main_module, "hate_path", str(tmp_path)), \
-             patch.object(main_module, "hcatBin", "hashcat"), \
-             patch.object(main_module, "hcatTuning", ""), \
-             patch.object(main_module, "hcatPotfilePath", ""), \
-             patch.object(main_module, "generate_session_id", return_value="sess1"), \
-             patch.object(main_module, "lineCount", return_value=0), \
-             patch.object(main_module, "hcatHashCracked", 0, create=True), \
-             patch("hate_crack.main.subprocess.Popen") as mock_popen:
+        with (
+            patch.object(main_module, "hate_path", str(tmp_path)),
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "generate_session_id", return_value="sess1"),
+            patch.object(main_module, "lineCount", return_value=0),
+            patch.object(main_module, "hcatHashCracked", 0, create=True),
+            patch("hate_crack.main.subprocess.Popen") as mock_popen,
+        ):
             mock_popen.side_effect = [mock_permute_proc, mock_hashcat_proc]
             main_module.hcatPermute("1000", hash_file, str(wl))
 

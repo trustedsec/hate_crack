@@ -27,7 +27,9 @@ class TestMarkovE2E:
 
         # Create test wordlist
         wordlist = tmp_path / "wordlist.txt"
-        wordlist.write_text("\n".join(["password", "123456", "admin", "letmein", "qwerty"]))
+        wordlist.write_text(
+            "\n".join(["password", "123456", "admin", "letmein", "qwerty"])
+        )
 
         # Create test hash file
         hash_file = tmp_path / "hashes.txt"
@@ -58,7 +60,9 @@ class TestMarkovE2E:
 
         # Create test wordlist (gzipped)
         wordlist_plain = tmp_path / "wordlist.txt"
-        wordlist_plain.write_text("\n".join(["password", "123456", "admin", "letmein", "qwerty"]))
+        wordlist_plain.write_text(
+            "\n".join(["password", "123456", "admin", "letmein", "qwerty"])
+        )
 
         wordlist_gz = tmp_path / "wordlist.txt.gz"
         with open(wordlist_plain, "rb") as f_in:
@@ -76,10 +80,14 @@ class TestMarkovE2E:
         assert result is True, "Markov training with gzipped input should succeed"
 
         hcstat2_path = Path(str(hash_file) + ".hcstat2")
-        assert hcstat2_path.exists(), ".hcstat2 file should be created from gzipped wordlist"
+        assert hcstat2_path.exists(), (
+            ".hcstat2 file should be created from gzipped wordlist"
+        )
         assert hcstat2_path.stat().st_size > 0, ".hcstat2 file should not be empty"
 
-    def test_markov_brute_force_handler_use_existing_table(self, tmp_path: Path) -> None:
+    def test_markov_brute_force_handler_use_existing_table(
+        self, tmp_path: Path
+    ) -> None:
         """Test handler when .hcstat2 table already exists."""
         from hate_crack.attacks import markov_brute_force
 
@@ -139,7 +147,9 @@ class TestMarkovE2E:
         assert args[2] == 2  # min length
         assert args[3] == 8  # max length
 
-    def test_markov_brute_force_handler_use_cracked_passwords(self, tmp_path: Path) -> None:
+    def test_markov_brute_force_handler_use_cracked_passwords(
+        self, tmp_path: Path
+    ) -> None:
         """Test handler when using cracked passwords as training source."""
         from hate_crack.attacks import markov_brute_force
 
@@ -188,7 +198,9 @@ class TestMarkovE2E:
         ctx.hcatMarkovTrain.assert_not_called()
         ctx.hcatMarkovBruteForce.assert_not_called()
 
-    def test_markov_brute_force_handler_no_table_requires_training(self, tmp_path: Path) -> None:
+    def test_markov_brute_force_handler_no_table_requires_training(
+        self, tmp_path: Path
+    ) -> None:
         """Test handler when no table exists - training is required."""
         from hate_crack.attacks import markov_brute_force
 

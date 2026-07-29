@@ -187,10 +187,10 @@ class DummyHashviewAPI:
     def __init__(self, base_url, api_key, debug=False):
         self.calls = []
 
-    def download_left_hashes(self, customer_id, hashfile_id, hash_type=None, potfile_path=None):
-        self.calls.append(
-            ("download_left_hashes", customer_id, hashfile_id, hash_type)
-        )
+    def download_left_hashes(
+        self, customer_id, hashfile_id, hash_type=None, potfile_path=None
+    ):
+        self.calls.append(("download_left_hashes", customer_id, hashfile_id, hash_type))
         return {"output_file": "left.txt", "size": 42}
 
 
@@ -232,9 +232,7 @@ class DummyHashviewAPIFull:
     def create_job(
         self, name, hashfile_id, customer_id, limit_recovered=False, notify_email=True
     ):
-        self.calls.append(
-            ("create_job", limit_recovered, notify_email)
-        )
+        self.calls.append(("create_job", limit_recovered, notify_email))
         return {"msg": "Job created", "job_id": 789}
 
 
@@ -284,7 +282,12 @@ def test_hashview_upload_hashfile_job_no_notify_email_by_default(
             return {"msg": "Hashfile uploaded", "hashfile_id": 456}
 
         def create_job(
-            self, name, hashfile_id, customer_id, limit_recovered=False, notify_email=None
+            self,
+            name,
+            hashfile_id,
+            customer_id,
+            limit_recovered=False,
+            notify_email=None,
         ):
             captured_kwargs["notify_email"] = notify_email
             return {"msg": "Job created", "job_id": 789}
@@ -329,7 +332,12 @@ def test_hashview_upload_hashfile_job_error_response_exits_nonzero(
             return {"msg": "Hashfile uploaded", "hashfile_id": 456}
 
         def create_job(
-            self, name, hashfile_id, customer_id, limit_recovered=False, notify_email=None
+            self,
+            name,
+            hashfile_id,
+            customer_id,
+            limit_recovered=False,
+            notify_email=None,
         ):
             return {
                 "msg": "Failed to add job: 'notify_email' is an invalid keyword argument for JobNotifications"
@@ -385,6 +393,8 @@ def test_potfile_path_and_no_potfile_path_conflict(monkeypatch):
     monkeypatch.setattr(hc_main, "ascii_art", lambda: None)
     monkeypatch.setattr("builtins.input", lambda _prompt="": "4")
     # --potfile-path wins because it's checked second in the dispatch logic
-    code = _run_main(monkeypatch, ["--potfile-path", "/tmp/test.pot", "--no-potfile-path"])
+    code = _run_main(
+        monkeypatch, ["--potfile-path", "/tmp/test.pot", "--no-potfile-path"]
+    )
     assert code == 0
     assert hc_main.hcatPotfilePath == "/tmp/test.pot"

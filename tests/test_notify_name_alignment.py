@@ -6,6 +6,7 @@ passed to ``_run_hcat_cmd``.
 Each test below pins the contract: the same string the user consented
 to under is the string that ``_run_hcat_cmd`` receives.
 """
+
 import os
 from contextlib import ExitStack
 from pathlib import Path
@@ -43,7 +44,9 @@ class TestQuickDictionaryAttackName:
         with ExitStack() as stack:
             run = stack.enter_context(patch("hate_crack.main._run_hcat_cmd"))
             stack.enter_context(
-                patch("hate_crack.main._add_debug_mode_for_rules", side_effect=lambda c: c)
+                patch(
+                    "hate_crack.main._add_debug_mode_for_rules", side_effect=lambda c: c
+                )
             )
             stack.enter_context(patch("hate_crack.main._debug_cmd"))
             _enter_all(stack, _common_patches(main_module))
@@ -56,7 +59,9 @@ class TestQuickDictionaryAttackName:
         with ExitStack() as stack:
             run = stack.enter_context(patch("hate_crack.main._run_hcat_cmd"))
             stack.enter_context(
-                patch("hate_crack.main._add_debug_mode_for_rules", side_effect=lambda c: c)
+                patch(
+                    "hate_crack.main._add_debug_mode_for_rules", side_effect=lambda c: c
+                )
             )
             stack.enter_context(patch("hate_crack.main._debug_cmd"))
             _enter_all(stack, _common_patches(main_module))
@@ -71,7 +76,9 @@ class TestQuickDictionaryAttackName:
         with ExitStack() as stack:
             run = stack.enter_context(patch("hate_crack.main._run_hcat_cmd"))
             stack.enter_context(
-                patch("hate_crack.main._add_debug_mode_for_rules", side_effect=lambda c: c)
+                patch(
+                    "hate_crack.main._add_debug_mode_for_rules", side_effect=lambda c: c
+                )
             )
             stack.enter_context(patch("hate_crack.main._debug_cmd"))
             _enter_all(stack, _common_patches(main_module))
@@ -158,7 +165,9 @@ class TestSingleCallerWrapperNames:
         wl2.write_text("b\n")
         with ExitStack() as stack:
             run = stack.enter_context(patch("hate_crack.main._run_hcat_cmd"))
-            stack.enter_context(patch.object(main_module, "hcatWordlists", str(tmp_path)))
+            stack.enter_context(
+                patch.object(main_module, "hcatWordlists", str(tmp_path))
+            )
             stack.enter_context(patch.object(main_module, "lineCount", return_value=0))
             stack.enter_context(
                 patch.object(main_module, "hcatHashCracked", 0, create=True)
@@ -235,9 +244,7 @@ class TestHandlersPassThroughPromptName:
         ctx.rulesDirectory = str(tmp_path / "rules")
         return ctx
 
-    def test_quick_crack_handler_passes_quick_crack_label(
-        self, tmp_path: Path
-    ) -> None:
+    def test_quick_crack_handler_passes_quick_crack_label(self, tmp_path: Path) -> None:
         from hate_crack.attacks import quick_crack
 
         ctx = self._make_ctx(tmp_path)
@@ -254,8 +261,7 @@ class TestHandlersPassThroughPromptName:
             quick_crack(ctx)
         ctx.hcatQuickDictionary.assert_called_once()
         assert (
-            ctx.hcatQuickDictionary.call_args.kwargs.get("attack_name")
-            == "Quick Crack"
+            ctx.hcatQuickDictionary.call_args.kwargs.get("attack_name") == "Quick Crack"
         )
 
     def test_loopback_handler_passes_loopback_label(self, tmp_path: Path) -> None:
@@ -292,9 +298,7 @@ class TestHandlersPassThroughPromptName:
         with ExitStack() as stack:
             stack.enter_context(patch.object(main_module, "hate_path", str(tmp_path)))
             stack.enter_context(
-                patch.object(
-                    main_module, "hcatOptimizedWordlists", str(cache_dir)
-                )
+                patch.object(main_module, "hcatOptimizedWordlists", str(cache_dir))
             )
             stack.enter_context(patch.object(main_module, "pcfgRuleset", "DEFAULT"))
             prince = stack.enter_context(patch.object(main_module, "hcatPrince"))
