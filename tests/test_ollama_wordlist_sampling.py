@@ -157,25 +157,17 @@ def _make_large_wordlist(path, n: int) -> None:
 
 
 def test_large_wordlist_caps_to_max(env, capsys):
-    """When total > cap, exactly cap lines are sampled."""
+    """When total > cap, exactly cap lines are sampled.
+
+    Exercises _sample_plaintext_file directly: above the cap, hcatOllama sends
+    whole-corpus statistics instead of raw lines (see _corpus_context), so the
+    sampler's own capping behaviour is no longer observable through it.
+    """
     wl = env.tmp_path / "big.txt"
     _make_large_wordlist(wl, 1000)
 
-    captured_ctx: list[dict] = []
-
-    def _capture_gen(*args, **kwargs):
-        captured_ctx.append(args[4])
-        return ["x"]
-
-    with (
-        _ollama_globals(env.tmp_path, max_sample=50),
-        mock.patch.object(hc_main.llm, "generate_candidates", side_effect=_capture_gen),
-        mock.patch("subprocess.Popen", return_value=_make_proc()),
-    ):
-        hc_main.hcatOllama("0", env.hash_file, "wordlist", str(wl))
-
-    sample_lines = captured_ctx[0]["sample"].splitlines()
-    assert len(sample_lines) == 50
+    sampled = hc_main._sample_plaintext_file(str(wl), 50)
+    assert len(sampled) == 50
 
     captured = capsys.readouterr()
     assert "Sampled 50 of 1,000" in captured.out
@@ -186,21 +178,8 @@ def test_large_wordlist_covers_full_range(env):
     wl = env.tmp_path / "range.txt"
     _make_large_wordlist(wl, 1000)
 
-    captured_ctx: list[dict] = []
-
-    def _capture_gen(*args, **kwargs):
-        captured_ctx.append(args[4])
-        return ["x"]
-
     # Use a small cap (10) over 1000 lines so the stride is clearly 100.
-    with (
-        _ollama_globals(env.tmp_path, max_sample=10),
-        mock.patch.object(hc_main.llm, "generate_candidates", side_effect=_capture_gen),
-        mock.patch("subprocess.Popen", return_value=_make_proc()),
-    ):
-        hc_main.hcatOllama("0", env.hash_file, "wordlist", str(wl))
-
-    sample_lines = captured_ctx[0]["sample"].splitlines()
+    sample_lines = hc_main._sample_plaintext_file(str(wl), 10)
     # The sampled words should come from across the file, not just the head.
     # word000000..word000099 are the first 100; word000900..word000999 are the last 100.
     indices = [int(w.replace("word", "")) for w in sample_lines]
@@ -216,26 +195,12 @@ def test_large_wordlist_covers_full_range(env):
 
 
 def _sample_count(env, total: int, cap: int) -> int:
-    """Helper: write a wordlist with *total* lines, run hcatOllama capped to *cap*,
-    return the number of lines that reached the LLM."""
+    """Helper: write a wordlist with *total* lines, sample it capped to *cap*,
+    return the number of lines the sampler kept."""
     wl = env.tmp_path / f"wl_{total}_{cap}.txt"
     wl.write_text("\n".join(f"p{i:04d}" for i in range(total)) + "\n")
-    captured_ctx: list[dict] = []
-
-    def _capture(*args, **kwargs):
-        captured_ctx.append(args[4])
-        return ["x"]
-
-    with (
-        _ollama_globals(env.tmp_path, max_sample=cap),
-        mock.patch.object(hc_main.llm, "generate_candidates", side_effect=_capture),
-        mock.patch("subprocess.Popen", return_value=_make_proc()),
-    ):
-        hc_main.hcatOllama("0", env.hash_file, "wordlist", str(wl))
-
-    if not captured_ctx:
-        return 0
-    return len(captured_ctx[0]["sample"].splitlines())
+    sampled = hc_main._sample_plaintext_file(str(wl), cap)
+    return len(sampled or [])
 
 
 def test_stride_exact_total_equals_cap(env) -> None:
@@ -301,20 +266,7 @@ def test_wordlist_sampling_strips_hash_prefix(env):
     ]
     wl.write_text("\n".join(lines) + "\n")
 
-    captured_ctx: list[dict] = []
-
-    def _capture_gen(*args, **kwargs):
-        captured_ctx.append(args[4])
-        return ["x"]
-
-    with (
-        _ollama_globals(env.tmp_path, max_sample=5),
-        mock.patch.object(hc_main.llm, "generate_candidates", side_effect=_capture_gen),
-        mock.patch("subprocess.Popen", return_value=_make_proc()),
-    ):
-        hc_main.hcatOllama("0", env.hash_file, "wordlist", str(wl))
-
-    sample = captured_ctx[0]["sample"]
+    sample = "\n".join(hc_main._sample_plaintext_file(str(wl), 5))
     # No hash prefix should appear in the sample
     assert "hash" not in sample
 
@@ -470,7 +422,7 @@ def test_wordlist_mode_uses_shared_sampling_helper(env):
     ):
         hc_main.hcatOllama("0", env.hash_file, "wordlist", str(wl))
 
-    sampler.assert_called_once_with(str(wl), 77)
+    sampler.assert_called_once_with(str(wl), 77, source_label="wordlist")
 
 
 def test_cracked_mode_caps_large_out_file(env, capsys):
@@ -478,6 +430,25 @@ def test_cracked_mode_caps_large_out_file(env, capsys):
     out_path = env.hash_file + ".out"
     with open(out_path, "w") as f:
         f.write("\n".join(f"h{i}:pw{i:06d}" for i in range(1000)) + "\n")
+
+    sample_lines = hc_main._sample_plaintext_file(
+        out_path, 25, source_label="cracked passwords"
+    )
+    assert len(sample_lines) == 25
+    indices = [int(w.replace("pw", "")) for w in sample_lines]
+    assert min(indices) < 100
+    assert max(indices) >= 900
+    assert (
+        "Sampled 25 of 1,000 passwords from cracked passwords."
+        in capsys.readouterr().out
+    )
+
+
+def test_cracked_mode_above_cap_sends_stats_not_raw_lines(env):
+    """Above the cap the model gets whole-corpus statistics, never a slice."""
+    out_path = env.hash_file + ".out"
+    with open(out_path, "w") as f:
+        f.write("\n".join(f"h{i}:Summer{i:04d}!" for i in range(1000)) + "\n")
 
     with (
         _ollama_globals(env.tmp_path, max_sample=25),
@@ -488,12 +459,10 @@ def test_cracked_mode_caps_large_out_file(env, capsys):
     ):
         hc_main.hcatOllama("0", env.hash_file, "cracked", None)
 
-    sample_lines = gen.call_args[0][4]["sample"].splitlines()
-    assert len(sample_lines) == 25
-    indices = [int(w.replace("pw", "")) for w in sample_lines]
-    assert min(indices) < 100
-    assert max(indices) >= 900
-    assert (
-        "Sampled 25 of 1,000 passwords from cracked passwords."
-        in capsys.readouterr().out
-    )
+    context = gen.call_args[0][4]
+    assert "sample" not in context
+    summary = context["summary"]
+    assert "1000 passwords" in summary
+    # The dominant baseword of the whole corpus, which a 25-line slice could
+    # not have established.
+    assert "summer" in summary

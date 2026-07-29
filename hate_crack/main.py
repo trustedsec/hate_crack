@@ -76,6 +76,7 @@ from hate_crack import attacks as _attacks  # noqa: E402
 from hate_crack import llm  # noqa: E402
 from hate_crack import noninteractive as _noninteractive  # noqa: E402
 from hate_crack.progress import spinner  # noqa: E402
+from hate_crack import corpus_stats as _corpus_stats  # noqa: E402
 from hate_crack import rulegen as _rulegen  # noqa: E402
 from hate_crack.menu import interactive_menu  # noqa: E402
 from hate_crack.username_detect import detect_username_hash_format  # noqa: E402
@@ -475,7 +476,7 @@ hcatDebugLogPath = os.path.expanduser(config_parser["hcatDebugLogPath"])
 
 ollamaUrl = _normalize_ollama_url(os.environ.get("OLLAMA_HOST", "localhost:11434"))
 ollamaModel = config_parser.get("ollamaModel", "qwen2.5:32b")
-ollamaNumCtx = int(config_parser.get("ollamaNumCtx", 2048))
+ollamaNumCtx = int(config_parser.get("ollamaNumCtx", 8192))
 ollamaTimeout = float(config_parser.get("ollamaTimeout", 300))
 ollamaMaxSampleLines = int(config_parser.get("ollamaMaxSampleLines", 500))
 ollamaAutoResearch = bool(config_parser.get("ollamaAutoResearch", True))
@@ -936,13 +937,11 @@ def _usable_plaintext(raw: str) -> str:
     so only the plaintext portion is returned; lines with no colon are
     returned as-is.  A ``hash:`` line whose plaintext is empty after
     stripping returns an empty string and is therefore also discarded.
+
+    Delegates to hate_crack.corpus_stats so the sampler and the whole-corpus
+    aggregator cannot drift apart on what counts as a password.
     """
-    stripped = raw.strip()
-    if not stripped:
-        return ""
-    if ":" in stripped:
-        stripped = stripped.split(":", 1)[1]
-    return stripped
+    return _corpus_stats.usable_plaintext(raw)
 
 
 def _add_debug_mode_for_rules(cmd):
@@ -2170,6 +2169,57 @@ def _sample_plaintext_file(path, cap, source_label="wordlist"):
     return sampled
 
 
+def _corpus_context(path, source_label="wordlist"):
+    """Build the LLM context dict describing the corpus at *path*.
+
+    Returns a dict with a ``summary`` key (whole-corpus statistics) and, when
+    the corpus is small enough to fit under ``ollamaMaxSampleLines`` in full, a
+    ``sample`` key holding the literal plaintexts as well. Returns None if the
+    file cannot be read or holds no passwords, having already printed why.
+
+    Statistics rather than a slice because the sample cap is not the real
+    constraint — ``ollamaNumCtx`` is. Several hundred raw plaintexts crowd the
+    context window while still describing a fraction of a large dump, and they
+    carry no frequency information at all: the model cannot tell a baseword
+    used by 8% of the organization from one used by a single person. The
+    aggregate covers 100% of the corpus at a bounded size. Literal plaintexts
+    are still included when they all fit, since nothing is gained by hiding
+    them from a small corpus.
+    """
+    try:
+        with spinner(f"Analyzing {source_label}..."):
+            stats = _corpus_stats.summarize(path)
+    except OSError as e:
+        print(f"Error reading {source_label}: {e}")
+        return None
+    except ValueError as e:
+        print(f"Error: {e}")
+        return None
+
+    context = {"summary": _corpus_stats.format_summary(stats)}
+    print(
+        f"Analyzed all {stats['total']:,} passwords in {source_label} "
+        f"({stats['baseword_total']:,} distinct basewords)."
+    )
+    # A raw NTDS dump and a cracked-output file both live in the working
+    # directory with similar names, and the dump produces confident nonsense
+    # rather than an error, so say so instead of letting it through quietly.
+    hash_shaped = stats.get("hash_shaped", 0)
+    if hash_shaped > stats["total"] * 0.25:
+        print(
+            f"[!] Warning: {hash_shaped:,} of {stats['total']:,} lines look like "
+            "hashes, not plaintexts. This file may be an uncracked dump rather "
+            "than cracked output; the statistics below will be meaningless if so."
+        )
+
+    cap = ollamaMaxSampleLines if ollamaMaxSampleLines > 0 else 500
+    if stats["total"] <= cap:
+        sampled = _sample_plaintext_file(path, cap, source_label=source_label)
+        if sampled:
+            context["sample"] = "\n".join(sampled)
+    return context
+
+
 def hcatOllamaResearchTarget(company):
     """Ask the local Ollama model what it knows about *company*.
 
@@ -2218,10 +2268,9 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
             print(f"Error: Wordlist not found: {wordlist_path}")
             return
 
-        sampled = _sample_plaintext_file(wordlist_path, ollamaMaxSampleLines)
-        if sampled is None:
+        gen_context = _corpus_context(wordlist_path)
+        if gen_context is None:
             return
-        gen_context = {"sample": "\n".join(sampled)}
     elif mode == "cracked":
         # context_data may carry an explicit path; default to this session's
         # cracked-output file.
@@ -2230,18 +2279,13 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
             print(f"Error: No cracked passwords found: {cracked_path}")
             return
 
-        sampled = _sample_plaintext_file(
-            cracked_path, ollamaMaxSampleLines, source_label="cracked passwords"
-        )
-        if sampled is None:
-            return
-        if not sampled:
+        gen_context = _corpus_context(cracked_path, source_label="cracked passwords")
+        if gen_context is None:
             print(
                 "Error: No cracked passwords yet — crack some hashes first, then "
                 "use this mode to generate more candidates in the same style."
             )
             return
-        gen_context = {"sample": "\n".join(sampled)}
     elif mode == "target":
         gen_context = context_data
     else:
@@ -2397,13 +2441,8 @@ def hcatOllamaPatterns(hcatHashType, hcatHashFile, source_path, rule_chains=""):
         print(f"Error: pattern source not found: {source_path}")
         return
 
-    sampled = _sample_plaintext_file(
-        source_path, ollamaMaxSampleLines, source_label="pattern source"
-    )
-    if sampled is None:
-        return
-    if not sampled:
-        print(f"Error: no passwords read from {source_path}.")
+    gen_context = _corpus_context(source_path, source_label="pattern source")
+    if gen_context is None:
         return
 
     try:
@@ -2413,7 +2452,7 @@ def hcatOllamaPatterns(hcatHashType, hcatHashFile, source_path, rule_chains=""):
                 ollamaModel,
                 ollamaNumCtx,
                 "pattern",
-                {"sample": "\n".join(sampled)},
+                gen_context,
                 timeout=ollamaTimeout,
             )
     except llm.LLMTimeoutError:

@@ -9,6 +9,49 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ## [Unreleased]
 
+### Changed
+
+- **The LLM modes now describe the whole corpus statistically instead of pasting
+  in a sample of it.** New module `hate_crack/corpus_stats.py` aggregates every
+  password in the source file — baseword shares (reusing `rulegen.derive`, the
+  same extraction the Spoonman attack uses), masks, casing, lengths, trailing
+  digits and symbols, and years — and the prompt carries that summary. Output is
+  bounded, so a 120,000-password dump costs roughly the prompt space a 500-line
+  sample did. Literal plaintexts are still included when the whole corpus fits
+  under `ollamaMaxSampleLines`.
+
+  An evenly-spaced sample conveyed no frequency information, so the model could
+  not tell a baseword used by 8% of an organization from one used by a single
+  person. It also did not reliably fit: at the old `ollamaNumCtx` of 2048, 500
+  plaintexts (~2,000–3,500 tokens) plus the system prompt and response exceeded
+  the context window, and Ollama silently truncated part of the sample.
+  `ollamaMaxSampleLines` keeps its meaning as the "small enough to send
+  verbatim" threshold.
+
+- **`ollamaNumCtx` default raised from 2048 to 8192**, so the prompt fits with
+  headroom.
+
+- **The LLM modes now warn when the chosen corpus looks like an uncracked hash
+  dump.** A raw NTDS dump (`user:rid:lm:nt:::`) and a cracked-output file sit in
+  the same working directory with similar names, and the dump produces confident
+  nonsense rather than an error: splitting on the first colon yields the rest of
+  the hash line, so the statistics describe hex strings. Validated against real
+  files — 99% of lines flagged in a 40,765-line NTDS dump, zero flagged in two
+  genuine 22k/41k-line cracked-output files.
+
+- **Digit-only basewords are excluded from the baseword list.** `rulegen.derive`
+  falls back to the password itself when it holds no letters, so a PIN-heavy
+  corpus filled the list with digit strings and crowded out the word families it
+  exists to surface. The digit-only share is still reported via the casing and
+  mask lines.
+
+- **`$HEX[...]` plaintexts are now decoded** when reading a corpus for the LLM
+  modes. hashcat wraps any plaintext holding non-ASCII bytes or the output
+  separator; read literally, the wrapper polluted baseword and mask statistics
+  with the letters of `$HEX[` and the corpus's hex digits. Malformed wrappers
+  pass through unchanged. Note this fixes the LLM read path only — the Spoonman
+  attack's `rulegen` reads corpora directly and is unaffected.
+
 ### Added
 
 - **On-demand regeneration of `<hashfile>.out` from the POT file.** New main

@@ -96,6 +96,7 @@ Core logic is now split into modules under `hate_crack/`:
 - `hate_crack/api.py`: Hashview, Weakpass, and Hashmob integrations (downloads/menus/helpers).
 - `hate_crack/attacks.py`: menu attack handlers.
 - `hate_crack/hashmob_wordlist.py`: Hashmob wordlist utilities (thin wrapper; calls into api.py).
+- `hate_crack/corpus_stats.py`: whole-corpus password statistics used to describe a corpus to the LLM.
 - `hate_crack/llm.py`: structured (JSON) LLM candidate generation via Atomic Agents.
 - `hate_crack/menu.py`: shared menu renderer, including optional arrow-key navigation.
 - `hate_crack/noninteractive.py`: dispatcher for the scripted attack subcommands.
@@ -496,15 +497,19 @@ The LLM Attack (option 12) uses Ollama to generate password candidates. Configur
 ```json
 {
   "ollamaModel": "qwen2.5:32b",
-  "ollamaNumCtx": 2048,
+  "ollamaNumCtx": 8192,
   "ollamaTimeout": 300
 }
 ```
 
 - **`ollamaModel`** — The Ollama model used for candidate generation (default: `qwen2.5:32b`). The LLM attack uses structured (JSON) output, so choose a model with good tool/JSON support.
-- **`ollamaNumCtx`** — Context window size for the model (default: `2048`).
+- **`ollamaNumCtx`** — Context window size for the model (default: `8192`). This was `2048` before corpus statistics were introduced, which was too small to hold the prompt it was being given: 500 sampled plaintexts run roughly 2,000–3,500 tokens before the system prompt and response, so Ollama silently truncated part of the sample the sampler had carefully spread across the file.
 - **`ollamaTimeout`** — Seconds to wait for a generation response before giving up (default: `300`). Raise this if a large model is still loading into VRAM on the first request, which can otherwise exceed the timeout; hate_crack prints the elapsed timeout and this setting's name when it fires.
-- **`ollamaMaxSampleLines`** — Maximum number of lines drawn from the source file and included in the LLM prompt when using **Wordlist** or **Cracked passwords** mode (default: `500`). Lines are sampled evenly across the whole file so the prompt reflects the wordlist's full character range rather than just the head. Set to a larger value if the model has a big context window (`ollamaNumCtx`) and you want richer coverage; set it lower to reduce prompt size and generation latency. Values ≤ 0 are treated as 500.
+- **`ollamaMaxSampleLines`** — The threshold below which the LLM modes also paste the literal plaintexts into the prompt (default: `500`). Values ≤ 0 are treated as 500.
+
+  Corpus-derived modes (**Wordlist**, **Cracked passwords**, **Pattern rules**) always describe the *entire* corpus statistically — baseword shares, masks, casing, lengths, trailing digits and symbols, years — rather than pasting in a slice of it. Aggregation is bounded, so a 120,000-password dump costs about the same prompt space as a 500-line one. When the whole corpus fits under this threshold, the raw plaintexts are included as well, since nothing is gained by hiding a small corpus from the model.
+
+  This replaces the previous behaviour of pasting an evenly-spaced sample of up to `ollamaMaxSampleLines` passwords. A sample of a large dump conveyed no frequency information at all: the model could not distinguish a baseword used by 8% of the organization from one used by a single person, which is precisely the signal that makes a guess worth running.
 - **`ollamaAutoResearch`** — When `true` (default), **Target info** mode asks the local model to suggest the industry and location as soon as you have typed the company name, and offers them as editable prompt defaults. Set to `false` to always get blank prompts (useful with a slow model, since research costs one extra round-trip before the attack starts).
 - The Ollama URL defaults to `http://localhost:11434` (override via the `OLLAMA_HOST` env var). Ensure Ollama is running and the model is pulled (`ollama pull qwen2.5:32b`) before using the LLM Attack — hate_crack no longer auto-pulls missing models.
 
@@ -533,7 +538,7 @@ The attack offers three generation modes:
 
    A research failure — timeout, Ollama not running, empty answer — never blocks the attack; it just falls back to blank prompts. Set `ollamaAutoResearch` to `false` to skip research entirely.
 2. **Wordlist** — derive basewords from a sample wordlist.
-3. **Cracked passwords** — feed the plaintexts already recovered this session (`<hashfile>.out`) back to the model so it can infer the target organization's own password conventions (basewords, seasons, years, suffixes, leetspeak) and generate *new* candidates in the same style. This option is only listed once at least one hash has been cracked; the sample is capped by `ollamaMaxSampleLines` exactly like Wordlist mode.
+3. **Cracked passwords** — feed the plaintexts already recovered this session (`<hashfile>.out`) back to the model so it can infer the target organization's own password conventions (basewords, seasons, years, suffixes, leetspeak) and generate *new* candidates in the same style. This option is only listed once at least one hash has been cracked; the whole file is analyzed statistically exactly like Wordlist mode (see `ollamaMaxSampleLines` above).
 
 #### PCFG Configuration
 
