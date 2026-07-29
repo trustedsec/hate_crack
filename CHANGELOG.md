@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [2.17.1] - 2026-07-29
+
+### Changed
+
+- **Dependency floors raised.** `openai` >=2.50.0, `openpyxl` >=3.1.5,
+  consolidating #178 and #179. (#180)
+- **`instructor` excluded from Dependabot as a durable policy, not a
+  temporary skip.** `atomic-agents` 2.9.1 pins `instructor==1.14.5` exactly
+  and imports internals (`instructor.core.client`,
+  `instructor.processing.multimodal`, `instructor.dsl.partial`,
+  `instructor.processing.schema`) that `instructor` 1.15.x reorganized.
+  Forcing the bump with an override resolves but fails at import with
+  `AttributeError: module 'instructor' has no attribute 'core'`, so the
+  `.github/dependabot.yml` `ignore` entry stays until `atomic-agents`
+  relaxes its pin. (#141)
+
 ## [2.17.0] - 2026-07-29
 
 ### Added

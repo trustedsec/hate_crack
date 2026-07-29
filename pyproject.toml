@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "requests>=2.34.2",
-    "openpyxl>=3.0.0",
+    "openpyxl>=3.1.5",
     "packaging>=26.2",
     "simple-term-menu==1.6.6",
     "click>=8.4.2",
@@ -18,7 +18,7 @@ dependencies = [
     # Imported directly by hate_crack/llm.py; declared explicitly rather than
     # relying on atomic-agents pulling them in transitively.
     "instructor>=1.14.5",
-    "openai>=2.49.0",
+    "openai>=2.50.0",
     "pydantic>=2.13.4",
 ]
 
@@ -109,7 +109,7 @@ testpaths = [
 dev = [
     "ty==0.0.64",
     "ruff==0.16.0",
-    "pytest==9.0.3",
+    "pytest==9.1.1",
     "pytest-cov==7.1.0",
     "pytest-timeout>=2.4.0",
     "pexpect>=4.9.0",
