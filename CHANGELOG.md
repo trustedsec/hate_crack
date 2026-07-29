@@ -25,6 +25,15 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   guard a corpus containing such passwords would quietly fall short of the
   coverage it reported.
 
+### Changed
+
+- **No-hash-file menu no longer duplicates the download entries.** The Weakpass
+  and Hashmob wordlist downloads already live in Wordlist Tools, and the Hashmob
+  rule download already lives in Rule File Tools, so the three top-level copies
+  were removed. The menu is now `1` Hashview API, `2` Wordlist Tools, `3` Rule
+  File Tools, `4` Exit. The `--weakpass`, `--hashmob`, and `--rules` CLI flags
+  are unaffected; they short-circuit before this menu is drawn.
+
 ## [2.16.0] - 2026-07-29
 
 ### Changed
