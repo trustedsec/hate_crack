@@ -1,5 +1,7 @@
 import concurrent.futures
+import html
 import json
+import re
 import sys
 import os
 import shutil
@@ -10,12 +12,12 @@ from queue import Queue
 from typing import Callable, Optional, Tuple
 
 import requests  # type: ignore[import-untyped]
-from bs4 import BeautifulSoup
 
 from hate_crack.cli import orig_cwd
 from hate_crack.formatting import print_multicolumn_list
 
 _TORRENT_CLEANUP_REGISTERED = False
+_WEAKPASS_INERTIA_VERSION: str | None = None
 
 
 class _RateLimiter:
@@ -671,50 +673,103 @@ def run_torrent_session(torrent_files, save_dir, *, print_fn=print) -> None:
     print_fn(f"[i] Torrent session complete: {completed} succeeded, {failed} failed.")
 
 
+def _get_weakpass_inertia_version(headers: dict) -> str | None:
+    global _WEAKPASS_INERTIA_VERSION
+    if _WEAKPASS_INERTIA_VERSION:
+        return _WEAKPASS_INERTIA_VERSION
+    try:
+        r = requests.get("https://weakpass.com/wordlists", headers=headers, timeout=30)
+        m = re.search(r'data-page="([^"]*)"', r.text)
+        if not m:
+            return None
+        raw = html.unescape(m.group(1))
+        data = json.loads(raw)
+        version = data.get("version")
+        if version:
+            _WEAKPASS_INERTIA_VERSION = version
+        return version
+    except Exception:
+        return None
+
+
+def _fetch_weakpass_listing_page(
+    page: int, headers: dict
+) -> tuple[list[dict], int | None]:
+    url = f"https://weakpass.com/wordlists?page={page}"
+    version = _get_weakpass_inertia_version(headers)
+    if version:
+        req_headers = {
+            **headers,
+            "X-Inertia": "true",
+            "X-Inertia-Version": version,
+            "X-Requested-With": "XMLHttpRequest",
+        }
+        r = requests.get(url, headers=req_headers, timeout=30)
+        if r.status_code == 409:
+            global _WEAKPASS_INERTIA_VERSION
+            _WEAKPASS_INERTIA_VERSION = None
+            r = requests.get(url, headers=headers, timeout=30)
+            if r.status_code != 200:
+                return [], None
+            return _parse_weakpass_html_page(r.text)
+        if r.status_code != 200:
+            return [], None
+        try:
+            data = r.json()
+        except Exception:
+            return [], None
+    else:
+        r = requests.get(url, headers=headers, timeout=30)
+        if r.status_code != 200:
+            return [], None
+        return _parse_weakpass_html_page(r.text)
+
+    return _extract_weakpass_entries(data)
+
+
+def _parse_weakpass_html_page(page_html: str) -> tuple[list[dict], int | None]:
+    m = re.search(r'data-page="([^"]*)"', page_html)
+    if not m:
+        return [], None
+    try:
+        data = json.loads(html.unescape(m.group(1)))
+    except Exception:
+        return [], None
+    return _extract_weakpass_entries(data)
+
+
+def _extract_weakpass_entries(data: dict) -> tuple[list[dict], int | None]:
+    wordlists_raw = data.get("props", {}).get("wordlists", {})
+    last_page = None
+    if isinstance(wordlists_raw, dict):
+        last_page = wordlists_raw.get("last_page") or wordlists_raw.get("meta", {}).get(
+            "last_page"
+        )
+        wordlists_raw = wordlists_raw.get("data", [])
+    if not isinstance(wordlists_raw, list):
+        return [], last_page
+    entries = [
+        {
+            "id": wl.get("id", ""),
+            "name": wl.get("name", ""),
+            "size": wl.get("size", ""),
+            "rank": wl.get("rank", ""),
+            "downloads": wl.get("downloaded", ""),
+            "torrent_url": wl.get("torrent_link", ""),
+        }
+        for wl in wordlists_raw
+    ]
+    return entries, last_page
+
+
 def fetch_all_weakpass_wordlists_multithreaded(total_pages=None, threads=10):
     """Fetch all Weakpass wordlists. Auto-detects page count from the Inertia payload."""
     headers = {"User-Agent": "Mozilla/5.0"}
 
-    def _fetch_page(page):
-        """Fetch a single page; return (entries, last_page_or_None)."""
-        url = f"https://weakpass.com/wordlists?page={page}"
-        r = requests.get(url, headers=headers, timeout=30)
-        soup = BeautifulSoup(r.text, "html.parser")
-        app_div = soup.find("div", id="app")
-        if not app_div or not app_div.has_attr("data-page"):
-            return [], None
-        data_page_val = app_div["data-page"]
-        if not isinstance(data_page_val, str):
-            data_page_val = str(data_page_val)
-        data = json.loads(data_page_val)
-        wordlists_raw = data.get("props", {}).get("wordlists", {})
-        last_page = None
-        if isinstance(wordlists_raw, dict):
-            # Check multiple possible locations for last_page
-            last_page = wordlists_raw.get("last_page") or wordlists_raw.get(
-                "meta", {}
-            ).get("last_page")
-            if "data" in wordlists_raw:
-                wordlists_raw = wordlists_raw["data"]
-            else:
-                wordlists_raw = []
-        entries = [
-            {
-                "id": wl.get("id", ""),
-                "name": wl.get("name", ""),
-                "size": wl.get("size", ""),
-                "rank": wl.get("rank", ""),
-                "downloads": wl.get("downloaded", ""),
-                "torrent_url": wl.get("torrent_link", ""),
-            }
-            for wl in wordlists_raw
-        ]
-        return entries, last_page
-
     # Determine total_pages via probe if not provided
     if total_pages is None:
         try:
-            entries1, detected = _fetch_page(1)
+            entries1, detected = _fetch_weakpass_listing_page(1, headers)
             if detected:
                 total_pages = int(detected)
                 print(f"[i] Weakpass: {total_pages} pages detected")
@@ -724,7 +779,7 @@ def fetch_all_weakpass_wordlists_multithreaded(total_pages=None, threads=10):
                 page = 2
                 while True:
                     try:
-                        entries, _ = _fetch_page(page)
+                        entries, _ = _fetch_weakpass_listing_page(page, headers)
                     except Exception as e:
                         print(f"Error fetching page {page}: {e}")
                         break
@@ -765,7 +820,7 @@ def fetch_all_weakpass_wordlists_multithreaded(total_pages=None, threads=10):
             if page is None:
                 break
             try:
-                entries, _ = _fetch_page(page)
+                entries, _ = _fetch_weakpass_listing_page(page, headers)
                 with lock:
                     wordlists.extend(entries)
             except Exception as e:
@@ -798,6 +853,19 @@ def fetch_all_weakpass_wordlists_multithreaded(total_pages=None, threads=10):
             seen.add(wl["name"])
 
     return unique_wordlists
+
+
+def _match_entry(entries: list[dict], filename: str) -> tuple[int, str] | None:
+    wordlist_base = (
+        filename.replace(".torrent", "").replace(".7z", "").replace(".txt", "")
+    )
+    for wl in entries:
+        if wl.get("name") == filename or wordlist_base in wl.get("name", ""):
+            wl_id = wl.get("id")
+            torrent_link = wl.get("torrent_url", "")
+            if wl_id and torrent_link:
+                return (wl_id, torrent_link)
+    return None
 
 
 def fetch_torrent_metadata(torrent_url, save_dir=None, wordlist_id=None):
@@ -847,57 +915,19 @@ def fetch_torrent_metadata(torrent_url, save_dir=None, wordlist_id=None):
     elif wordlist_id:
         torrent_link = f"https://weakpass.com/download/{wordlist_id}/{torrent_url}"
     else:
-        wordlist_base = (
-            filename.replace(".torrent", "").replace(".7z", "").replace(".txt", "")
-        )
-        wordlist_uri = f"https://weakpass.com/wordlists/{wordlist_base}"
-        print(f"[+] Fetching wordlist page: {wordlist_uri}")
-        r = requests.get(wordlist_uri, headers=headers)
-        if r.status_code != 200:
-            print(f"[!] Failed to fetch wordlist page: {wordlist_uri}")
-            wordlist_uri = None
-        if r.status_code == 200:
-            soup = BeautifulSoup(r.text, "html.parser")
-            app_div = soup.find("div", id="app")
-            if not app_div or not app_div.has_attr("data-page"):
-                print(f"[!] Could not find app data on {wordlist_uri}")
-            else:
-                data_page_val = app_div["data-page"]
-                if not isinstance(data_page_val, str):
-                    data_page_val = str(data_page_val)
-                data_page_val = data_page_val.replace("&quot;", '"')
-                try:
-                    data = json.loads(data_page_val)
-                    wordlist = data.get("props", {}).get("wordlist")
-                    resolved_id = None
-                    torrent_link_from_data = None
-                    if wordlist:
-                        resolved_id = wordlist.get("id")
-                        torrent_link_from_data = wordlist.get("torrent_link")
-                    else:
-                        wordlists = data.get("props", {}).get("wordlists")
-                        if isinstance(wordlists, dict) and "data" in wordlists:
-                            wordlists = wordlists["data"]
-                        if isinstance(wordlists, list):
-                            for wl in wordlists:
-                                if (
-                                    wl.get("torrent_link") == filename
-                                    or wl.get("name") == filename
-                                ):
-                                    resolved_id = wl.get("id")
-                                    torrent_link_from_data = wl.get("torrent_link")
-                                    break
-                                if wordlist_base in wl.get("name", ""):
-                                    resolved_id = wl.get("id")
-                                    torrent_link_from_data = wl.get("torrent_link")
-                                    break
-                    if torrent_link_from_data and resolved_id:
-                        if not torrent_link_from_data.startswith("http"):
-                            torrent_link = f"https://weakpass.com/download/{resolved_id}/{torrent_link_from_data}"
-                        else:
-                            torrent_link = torrent_link_from_data
-                except Exception as e:
-                    print(f"[!] Failed to parse data-page JSON: {e}")
+        entries, last_page = _fetch_weakpass_listing_page(1, headers)
+        match = _match_entry(entries, filename)
+        if not match and last_page and last_page > 1:
+            for page in range(2, last_page + 1):
+                entries, _ = _fetch_weakpass_listing_page(page, headers)
+                match = _match_entry(entries, filename)
+                if match:
+                    break
+        if match:
+            resolved_id, torrent_link_from_data = match
+            torrent_link = (
+                f"https://weakpass.com/download/{resolved_id}/{torrent_link_from_data}"
+            )
 
     if not torrent_link:
         torrent_link = f"https://weakpass.com/files/{filename}"
@@ -918,9 +948,9 @@ def fetch_torrent_metadata(torrent_url, save_dir=None, wordlist_id=None):
     else:
         print(f"Failed to download a valid torrent file: {torrent_link}")
         try:
-            html = r2.content.decode(errors="replace")
+            response_body = r2.content.decode(errors="replace")
             print("--- Begin HTML Debug Output ---")
-            print(html[:2000])
+            print(response_body[:2000])
             print("--- End HTML Debug Output ---")
         except Exception as e:
             print(f"Could not decode response for debug: {e}")

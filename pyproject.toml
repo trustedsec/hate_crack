@@ -10,7 +10,6 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "requests>=2.34.2",
-    "beautifulsoup4>=4.15.0",
     "openpyxl>=3.0.0",
     "packaging>=26.2",
     "simple-term-menu==1.6.6",
@@ -90,7 +89,7 @@ exclude = [
 unresolved-reference = "warn"
 # Optional deps (hashcat_rosetta) not always installed
 unresolved-import = "warn"
-# BeautifulSoup union types and module-level globals
+# Module-level globals and dynamic attribute access
 unresolved-attribute = "warn"
 invalid-argument-type = "warn"
 # ty 0.0.63 tightened these to error for the same legacy pattern

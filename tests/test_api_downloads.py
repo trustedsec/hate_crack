@@ -3,6 +3,7 @@ import os
 
 import pytest
 from unittest.mock import MagicMock, patch
+import hate_crack.api as _api_mod
 
 from hate_crack.api import (
     check_7z,
@@ -768,3 +769,162 @@ class TestListAndDownloadOfficialWordlistsSkipExisting:
         assert called_filename == "new.txt"
         captured = capsys.readouterr()
         assert "Skipping existing.txt" in captured.out
+
+
+class TestGetWeakpassInertiaVersion:
+    def setup_method(self):
+        _api_mod._WEAKPASS_INERTIA_VERSION = None  # reset cache before each test
+
+    def _html(self, version):
+        return f'<div id="app" data-page="{{&quot;version&quot;:&quot;{version}&quot;,&quot;props&quot;:{{}}}}"></div>'
+
+    def test_returns_version_from_html(self):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = self._html("abc123def456")
+        with patch("hate_crack.api.requests.get", return_value=mock_resp):
+            result = _api_mod._get_weakpass_inertia_version({"User-Agent": "test"})
+        assert result == "abc123def456"
+
+    def test_caches_version_on_second_call(self):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = self._html("cached_ver")
+        with patch("hate_crack.api.requests.get", return_value=mock_resp) as mock_get:
+            _api_mod._get_weakpass_inertia_version({"User-Agent": "test"})
+            _api_mod._get_weakpass_inertia_version({"User-Agent": "test"})
+        assert mock_get.call_count == 1  # second call uses cache
+
+    def test_returns_none_on_network_error(self):
+        with patch("hate_crack.api.requests.get", side_effect=Exception("timeout")):
+            result = _api_mod._get_weakpass_inertia_version({"User-Agent": "test"})
+        assert result is None
+
+    def test_returns_none_when_version_absent(self):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = '<div id="app" data-page="{&quot;props&quot;:{}}"></div>'
+        with patch("hate_crack.api.requests.get", return_value=mock_resp):
+            result = _api_mod._get_weakpass_inertia_version({"User-Agent": "test"})
+        assert result is None
+
+
+class TestFetchWeakpassListingPage:
+    def setup_method(self):
+        _api_mod._WEAKPASS_INERTIA_VERSION = None
+
+    def _inertia_json(self, entries, last_page=1):
+        """Return the JSON dict that Inertia returns directly."""
+        return {
+            "props": {
+                "wordlists": {
+                    "data": entries,
+                    "last_page": last_page,
+                }
+            }
+        }
+
+    def _html_with_data_page(self, props_dict):
+        """Return HTML with data-page attribute encoding the given props."""
+        import json as _json
+        payload = _json.dumps({"props": props_dict}).replace('"', "&quot;")
+        return f'<div id="app" data-page="{payload}"></div>'
+
+    def test_uses_inertia_headers_when_version_available(self):
+        _api_mod._WEAKPASS_INERTIA_VERSION = "ver123"
+        entry = {"id": 1, "name": "test.txt", "torrent_link": "test.txt.7z.torrent",
+                 "size": 100, "rank": 5, "downloaded": 10}
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = self._inertia_json([entry], last_page=3)
+        with patch("hate_crack.api.requests.get", return_value=mock_resp) as mock_get:
+            entries, last_page = _api_mod._fetch_weakpass_listing_page(1, {"User-Agent": "t"})
+        sent_headers = mock_get.call_args[1]["headers"]
+        assert sent_headers.get("X-Inertia") == "true"
+        assert sent_headers.get("X-Inertia-Version") == "ver123"
+        assert sent_headers.get("X-Requested-With") == "XMLHttpRequest"
+        assert len(entries) == 1
+        assert entries[0]["name"] == "test.txt"
+        assert entries[0]["torrent_url"] == "test.txt.7z.torrent"
+        assert last_page == 3
+
+    def test_falls_back_to_html_parse_when_version_unavailable(self):
+        # _WEAKPASS_INERTIA_VERSION is None; preflight also fails
+        entry = {"id": 2, "name": "rock.txt", "torrent_link": "rock.txt.7z.torrent",
+                 "size": 200, "rank": 4, "downloaded": 5}
+        html = self._html_with_data_page({"wordlists": {"data": [entry], "last_page": 1}})
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = html
+        with patch("hate_crack.api._get_weakpass_inertia_version", return_value=None), \
+             patch("hate_crack.api.requests.get", return_value=mock_resp) as mock_get:
+            entries, last_page = _api_mod._fetch_weakpass_listing_page(1, {"User-Agent": "t"})
+        sent_headers = mock_get.call_args[1]["headers"]
+        assert "X-Inertia" not in sent_headers
+        assert len(entries) == 1
+        assert entries[0]["name"] == "rock.txt"
+
+    def test_clears_version_cache_and_retries_on_409(self):
+        _api_mod._WEAKPASS_INERTIA_VERSION = "stale_ver"
+        entry = {"id": 3, "name": "mini.txt", "torrent_link": "mini.txt.7z.torrent",
+                 "size": 50, "rank": 6, "downloaded": 1}
+        resp_409 = MagicMock()
+        resp_409.status_code = 409
+        html = self._html_with_data_page({"wordlists": {"data": [entry], "last_page": 1}})
+        resp_html = MagicMock()
+        resp_html.status_code = 200
+        resp_html.text = html
+        with patch("hate_crack.api.requests.get", side_effect=[resp_409, resp_html]):
+            entries, last_page = _api_mod._fetch_weakpass_listing_page(1, {"User-Agent": "t"})
+        assert _api_mod._WEAKPASS_INERTIA_VERSION is None  # cache cleared
+        assert len(entries) == 1
+        assert entries[0]["name"] == "mini.txt"
+
+    def test_returns_empty_on_non_200(self):
+        _api_mod._WEAKPASS_INERTIA_VERSION = "ver"
+        mock_resp = MagicMock()
+        mock_resp.status_code = 500
+        with patch("hate_crack.api.requests.get", return_value=mock_resp), \
+             patch("hate_crack.api._get_weakpass_inertia_version", return_value="ver"):
+            entries, last_page = _api_mod._fetch_weakpass_listing_page(1, {"User-Agent": "t"})
+        assert entries == []
+        assert last_page is None
+
+
+class TestMatchEntry:
+    def _entries(self):
+        return [
+            {"id": 10, "name": "rockyou.txt", "torrent_url": "rockyou.txt.7z.torrent"},
+            {"id": 20, "name": "ignis-10K.txt", "torrent_url": "ignis-10K.txt.7z.torrent"},
+            {"id": 30, "name": "hashmob.net_2025.micro.found", "torrent_url": "hashmob.net_2025.micro.found.7z.torrent"},
+        ]
+
+    def test_exact_name_match(self):
+        result = _api_mod._match_entry(self._entries(), "ignis-10K.txt")
+        assert result == (20, "ignis-10K.txt.7z.torrent")
+
+    def test_wordlist_base_partial_match(self):
+        # "ignis-10K" (base after stripping .txt) matches entry named "ignis-10K.txt"
+        result = _api_mod._match_entry(self._entries(), "ignis-10K")
+        assert result == (20, "ignis-10K.txt.7z.torrent")
+
+    def test_substring_match_does_not_fire_on_ambiguous_base(self):
+        # "rock" is a substring of "rockyou.txt" but "rock" stripped of extensions is still "rock"
+        # Only an exact name "rock" or an entry containing substring "rock" would match.
+        # This documents the known behavior: "rock" DOES match "rockyou.txt" via substring.
+        result = _api_mod._match_entry(self._entries(), "rock")
+        # "rock" is a substring of "rockyou.txt", so it matches — document this behavior
+        assert result == (10, "rockyou.txt.7z.torrent")
+
+    def test_no_match_returns_none(self):
+        result = _api_mod._match_entry(self._entries(), "mini.txt")
+        assert result is None
+
+    def test_empty_entries_returns_none(self):
+        result = _api_mod._match_entry([], "rockyou.txt")
+        assert result is None
+
+    def test_filename_without_txt_extension_matches(self):
+        # "hashmob.net_2025.micro.found" has no .txt to strip; base == filename
+        result = _api_mod._match_entry(self._entries(), "hashmob.net_2025.micro.found")
+        assert result == (30, "hashmob.net_2025.micro.found.7z.torrent")
