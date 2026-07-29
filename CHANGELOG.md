@@ -65,6 +65,11 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ### Removed
 
+- **`omenTrainingList` is gone from `config.json.example`.** It was loaded and
+  path-normalized but never read: the OMEN attack always shows the wordlist
+  picker, which builds its list from the wordlists directory. Setting it had no
+  effect. Pick your training corpus in the attack's prompt instead.
+
 - **Three config keys that had no effect are gone from `config.json.example`.**
   `hcatCombinator3Wordlist` and `hcatCombinatorXWordlist` were loaded and
   path-normalized but never read: since the combinator attacks were merged into
