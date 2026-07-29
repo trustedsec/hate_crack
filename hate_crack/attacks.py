@@ -1010,6 +1010,18 @@ def generate_rules_crack(ctx: Any) -> None:
     )
 
 
+def restore_potfile_output(ctx: Any) -> None:
+    print("\n" + "=" * 60)
+    print("REGENERATE .out FROM POT FILE")
+    print("=" * 60)
+    print("Rebuilds <hashfile>.out from the hashcat POT file, replacing its")
+    print("current contents. Useful when the output file has been truncated or")
+    print("lost but the POT file still holds the cracked hashes.")
+    print("=" * 60 + "\n")
+
+    ctx.restore_from_potfile()
+
+
 def ngram_attack(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("N-gram")
     print("\n" + "=" * 60)

@@ -248,6 +248,15 @@ def _build_request(mode: str, context_data: dict) -> str:
             "Hashcat rules will mutate these, so add no digits, capitals, or "
             "punctuation:\n" + _corpus_block(context_data)
         )
+    if mode == "pattern":
+        sample = context_data.get("sample", "")
+        return (
+            "Here is a sample of passwords from the target environment. Identify "
+            "the semantic families of words behind them, then return as many "
+            "lowercase letters-only basewords from those families as you can, "
+            "including words the sample does not contain. Hashcat rules will "
+            "mutate these, so add no digits, capitals, or punctuation:\n" + sample
+        )
     if mode == "cracked":
         return (
             "The passwords described below were already cracked from the target "

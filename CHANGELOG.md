@@ -54,6 +54,16 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ### Added
 
+- **On-demand regeneration of `<hashfile>.out` from the POT file.** New main
+  menu option **93** ("Regenerate .out from POT file") and a matching
+  `--restore-potfile` startup flag. `check_potfile()` already rebuilt the
+  output file from `hashcat --show`, but it was only reachable as a side effect
+  of `combine_ntlm_output()`, and the startup POT lookup ran only when `.out`
+  did not already exist — so a truncated or lost output file could not be
+  restored without deleting it and restarting. The menu path prints the
+  existing cracked-hash count and asks for confirmation before overwriting
+  (auto-confirming when stdin is not a TTY); the flag is treated as an explicit
+  request and skips the prompt.
 - **LLM Pattern Rules mode** (option 4 in the LLM Attack submenu). Mirrors the
   Spoonman Attack's shape — a baseword list run through hashcat rules — but
   infers the basewords rather than extracting them. Spoonman's `rulegen` is
