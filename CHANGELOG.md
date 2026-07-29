@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
-## [Unreleased]
+## [2.17.2] - 2026-07-29
 
 ### Security
 
@@ -18,21 +18,23 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   `hashview_api_key` / `hashmob_api_key` values as the live config. Since this
   is a public repo and CI has no secret scanning, a `git add -A` was the only
   step between a local backup and published credentials. `.playwright-mcp/`
-  scratch output is ignored for the same reason.
+  scratch output is ignored for the same reason. (#191)
 
 ### Changed
 
 - **CI now lints and format-checks `tests/` alongside `hate_crack/`.** The ruff
   gates previously covered only the package, so the test suite had accumulated
   21 unused imports, one unused binding, and 51 unformatted modules — all of
-  which are now fixed and gated. `ty` still checks `hate_crack/` only.
+  which are now fixed and gated. `ty` still checks `hate_crack/` only. (#190)
+- **`ty` dev dependency raised** to 0.0.65. Dev-only; does not affect the
+  installed package. (#185)
 - **Spoonman Attack output is now ephemeral.** Derived basewords and rules are
   written to `<hash file>.spoonman/` beside the hash file, matching the other
   ephemeral wordlists (`.expanded`, `.combined`), instead of persisting under
   `<hcatOptimizedWordlists>/spoonman/<corpus name>/`. The directory is removed
   by the temp-file cleanup on exit. Derivation is still skipped when the corpus
   has not changed since a prior run against the same hash file. This also
-  removes the collision between two different corpora that share a filename.
+  removes the collision between two different corpora that share a filename. (#186)
 
 ### Fixed
 
@@ -47,6 +49,11 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   `cleanup()` falls back to the live hashfile when the original is unset, so a
   future missed assignment degrades to "skips the pwdump comparison" rather
   than silently cleaning up nothing at all. (#187)
+- **Flaky notify burst-cap tests.** `TestCrackTailerBurstCap` asserted on
+  aggregate counts that a split burst could satisfy in more than one way, so the
+  tests failed intermittently under load. Replaced with five deterministic
+  assertions on per-tick semantics. Test-only; no runtime behaviour changed.
+  (#188)
 
 ## [2.17.1] - 2026-07-29
 
