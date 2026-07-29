@@ -540,21 +540,6 @@ def _prompt_wordlist_paths(ctx, max_count: int) -> list[str]:
     return collected
 
 
-def combinator3_crack(ctx: Any) -> None:
-    """3-way combinator attack (delegates to unified combinator_crack)."""
-    combinator_crack(ctx)
-
-
-def combinatorX_crack(ctx: Any) -> None:
-    """N-way combinator attack (delegates to unified combinator_crack)."""
-    combinator_crack(ctx)
-
-
-def combinator_3plus_crack(ctx: Any) -> None:
-    """3+ wordlist combinator (delegates to unified combinator_crack)."""
-    combinator_crack(ctx)
-
-
 def bandrel_method(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("Bandrel")
     ctx.hcatBandrel(ctx.hcatHashType, ctx.hcatHashFile)
