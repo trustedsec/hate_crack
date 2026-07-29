@@ -3413,7 +3413,11 @@ def cleanup():
     global hcatHashFileOrig
     try:
         if not hcatHashFileOrig:
-            return
+            # Fall back to the live hash file so a missed assignment degrades to
+            # "skip the pwdump comparison" rather than skipping cleanup entirely.
+            if not hcatHashFile:
+                return
+            hcatHashFileOrig = hcatHashFile
         if hcatHashType == "1000" and pwdump_format:
             print("\nComparing cracked hashes to original file...")
             combine_ntlm_output()
@@ -3453,7 +3457,7 @@ def cleanup():
 
 def hashview_api():
     """Download/Upload data to Hashview API"""
-    global hcatHashFile, hcatHashType
+    global hcatHashFile, hcatHashType, hcatHashFileOrig
 
     if not REQUESTS_AVAILABLE:
         print("\nError: 'requests' module not found.")
@@ -4167,6 +4171,10 @@ def hashview_api():
                     )
                     if switch != "n":
                         hcatHashFile = download_result["output_file"]
+                        # Rebind the original alongside it: cleanup() keys every
+                        # temp-file removal and the pwdump comparison off this,
+                        # so leaving it stale (or unset) strands artifacts.
+                        hcatHashFileOrig = hcatHashFile
                         if selected_hash_type:
                             hcatHashType = str(selected_hash_type)
                         else:

@@ -19,6 +19,20 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   has not changed since a prior run against the same hash file. This also
   removes the collision between two different corpora that share a filename.
 
+### Fixed
+
+- **Temp-file cleanup no longer breaks when a hashfile is switched via the
+  Hashview API.** Accepting "Switch to this hashfile for cracking?" rebound
+  `hcatHashFile` but left `hcatHashFileOrig` pointing at the previous hashfile
+  (or, when reached before the startup fallback, unset). `cleanup()` keys every
+  removal and the cracked-vs-original comparison off the original, so switching
+  from the main menu stranded the new hashfile's `.combined`, `.lm`,
+  `.lm.cracked`, `.working` and `.passwords` artifacts and wrote the `.out`
+  comparison against the wrong file. The switch now rebinds both, and
+  `cleanup()` falls back to the live hashfile when the original is unset, so a
+  future missed assignment degrades to "skips the pwdump comparison" rather
+  than silently cleaning up nothing at all. (#187)
+
 ## [2.17.1] - 2026-07-29
 
 ### Changed
