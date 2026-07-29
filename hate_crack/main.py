@@ -76,6 +76,7 @@ from hate_crack import attacks as _attacks  # noqa: E402
 from hate_crack import llm  # noqa: E402
 from hate_crack import noninteractive as _noninteractive  # noqa: E402
 from hate_crack.progress import spinner  # noqa: E402
+from hate_crack import rulegen as _rulegen  # noqa: E402
 from hate_crack.menu import interactive_menu  # noqa: E402
 from hate_crack.username_detect import detect_username_hash_format  # noqa: E402
 
@@ -2920,6 +2921,58 @@ def hcatPrinceLing(hcatHashType, hcatHashFile):
         hcatPrinceBaseList = original_base
 
 
+def hcatSpoonman(hcatHashType, hcatHashFile, corpus, coverage=None):
+    """Spoonman Attack: derive basewords + rules from *corpus*, then crack with them.
+
+    ``coverage`` picks which generated rule file to run: ``None`` for the full
+    set (100% corpus reconstruction), or an int matching one of the capped
+    files (e.g. ``95`` for rules.top95.rule). See hate_crack/rulegen.py and
+    issue #169.
+    """
+    if not os.path.isfile(corpus):
+        print(f"Error: corpus not found: {corpus}")
+        return
+
+    cache_dir = os.path.join(
+        hcatOptimizedWordlists
+        if isinstance(hcatOptimizedWordlists, str)
+        else str(hcatOptimizedWordlists),
+        "spoonman",
+        os.path.basename(corpus),
+    )
+    # Deriving is O(corpus), so reuse a previous run's output unless the corpus
+    # has changed since. Mirrors the staleness check in hcatPrinceLing.
+    basewords_path = os.path.join(cache_dir, "basewords.txt")
+    rules_path = os.path.join(cache_dir, "rules.full.rule")
+    if coverage is not None:
+        rules_path = os.path.join(cache_dir, f"rules.top{coverage}.rule")
+    cached = os.path.isfile(basewords_path) and os.path.isfile(rules_path)
+    if cached and os.path.getmtime(corpus) <= os.path.getmtime(basewords_path):
+        print(f"[*] Reusing derived basewords and rules in {cache_dir}")
+    else:
+        print(f"[*] Deriving basewords and rules from {corpus}")
+        try:
+            result = _rulegen.generate(corpus, cache_dir)
+        except (OSError, ValueError) as e:
+            print(f"Rule derivation failed: {e}")
+            return
+        basewords_path = result["basewords"]
+        rules_path = result["rules"]
+        if coverage is not None:
+            rules_path = result["capped_rules"].get(coverage, rules_path)
+    print(f"[*] Basewords: {basewords_path}")
+    print(f"[*] Rules:     {rules_path}")
+    print(f"[*] Coverage:  {os.path.join(cache_dir, 'coverage.txt')}")
+
+    hcatQuickDictionary(
+        hcatHashType,
+        hcatHashFile,
+        f"-r {shlex.quote(rules_path)}",
+        basewords_path,
+        attack_name="Spoonman",
+    )
+
+
 def hcatPermute(hcatHashType, hcatHashFile, wordlist):
     global hcatProcess, hcatPermuteCount
     permute_path = os.path.join(hate_path, "hashcat-utils", "bin", "permute.bin")
@@ -4255,6 +4308,10 @@ def prince_ling_attack():
     return _attacks.prince_ling_attack(_attack_ctx())
 
 
+def spoonman_attack():
+    return _attacks.spoonman_attack(_attack_ctx())
+
+
 def wordlist_filter_len(infile: str, outfile: str, min_len: int, max_len: int) -> bool:
     """Filter wordlist keeping only words between min_len and max_len (inclusive)."""
     len_bin = os.path.join(hate_path, "hashcat-utils/bin/len.bin")
@@ -4743,6 +4800,7 @@ def get_main_menu_items():
         ("19", "Combipow Passphrase Attack"),
         ("20", "PCFG Attack"),
         ("21", "PRINCE-LING Attack"),
+        ("22", "Spoonman Attack"),
         ("80", "Wordlist Tools"),
         ("81", "Rule File Tools"),
         ("82", "Notifications"),
@@ -4785,6 +4843,7 @@ def get_main_menu_options():
         "19": combipow_crack,
         "20": pcfg_attack,
         "21": prince_ling_attack,
+        "22": spoonman_attack,
         "80": wordlist_tools_submenu,
         "81": rule_tools_submenu,
         "82": notifications_submenu,

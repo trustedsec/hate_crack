@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [Unreleased]
+
+### Added
+
+- **Spoonman Attack (main menu `22`).** Derives a baseword list and a
+  frequency-sorted hashcat rule file from a corpus of known plaintext
+  passwords, such that the baseword x rule cross product reconstructs the
+  corpus. Rules are ordered most-productive-first so the file is truncatable;
+  the menu offers the full set, top 99%, or top 95% coverage. Output is cached
+  per corpus under `<hcatOptimizedWordlists>/spoonman/` and reused until the
+  corpus changes. Contributed by @Spoonman1091. (#169)
+
+  The derivation enforces hashcat's limit of 31 functions per rule, falling
+  back to emitting the password as its own literal baseword. hashcat drops
+  over-long rules *silently* when valid rules share the file, so without the
+  guard a corpus containing such passwords would quietly fall short of the
+  coverage it reported.
+
 ## [2.16.0] - 2026-07-29
 
 ### Changed

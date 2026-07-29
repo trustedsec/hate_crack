@@ -440,6 +440,45 @@ def prince_ling_attack(ctx: Any) -> None:
     ctx.hcatPrinceLing(ctx.hcatHashType, ctx.hcatHashFile)
 
 
+def spoonman_attack(ctx: Any) -> None:
+    """Derive basewords + rules from a password corpus, then crack with them.
+
+    Contributed as issue #169 by @Spoonman1091.
+    """
+    print("\n" + "=" * 60)
+    print("SPOONMAN ATTACK")
+    print("=" * 60)
+    print("Derives a baseword list and hashcat rules from a corpus of known")
+    print("passwords, such as a previous engagement's cracked output. The rule")
+    print("file is sorted most-productive-first, so a capped set gets most of")
+    print("the coverage for a fraction of the keyspace.")
+    print("=" * 60)
+
+    corpus = ctx.select_file_with_autocomplete(
+        "\n[*] Enter path to password corpus", base_dir=ctx.hcatWordlists
+    ).strip()
+    if not corpus:
+        print("[!] No corpus specified.")
+        return
+    if not os.path.isfile(corpus):
+        print(f"[!] Corpus not found: {corpus}")
+        return
+
+    items = [
+        ("1", "Full rule set (reconstructs 100% of the corpus)"),
+        ("2", "Top 99% coverage"),
+        ("3", "Top 95% coverage"),
+        ("99", "Back to Main Menu"),
+    ]
+    choice = interactive_menu(items, title="\nRule set size:")
+    if choice is None or choice == "99":
+        return
+    coverage = {"1": None, "2": 99, "3": 95}.get(choice)
+
+    _notify.prompt_notify_for_attack("Spoonman")
+    ctx.hcatSpoonman(ctx.hcatHashType, ctx.hcatHashFile, corpus, coverage=coverage)
+
+
 def yolo_combination(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("YOLO Combination")
     ctx.hcatYoloCombination(ctx.hcatHashType, ctx.hcatHashFile)
