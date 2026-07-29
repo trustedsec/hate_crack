@@ -37,10 +37,10 @@ jobs:
         run: uv sync --dev
 
       - name: Ruff (lint)
-        run: uv run ruff check hate_crack
+        run: uv run ruff check hate_crack tests
 
       - name: Ruff (format)
-        run: uv run ruff format --check hate_crack
+        run: uv run ruff format --check hate_crack tests
 
       - name: Ty
         # ty 0.0.63 fails CI on warning-level diagnostics by default;
