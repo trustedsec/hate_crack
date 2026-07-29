@@ -25,6 +25,17 @@ updates:
     #   curl -s https://pypi.org/pypi/atomic-agents/json \
     #     | python3 -c "import json,sys;print([r for r in json.load(sys.stdin)['info']['requires_dist'] if 'instructor' in r])"
     # Until then Dependabot would re-open the same unmergeable PR weekly.
+    #
+    # This entry has no versions/update-types qualifier, so it suppresses
+    # ALL update types for instructor, including security updates, not just
+    # routine version bumps. That is intentional and should not be narrowed
+    # with update-types: the pin is exact (==1.14.5), so even a patch bump
+    # is equally unsatisfiable and Dependabot would just open a different
+    # unmergeable PR. The backstop for a vulnerable instructor is pip-audit,
+    # which runs in .github/workflows/ci.yml and will fail CI if a flagged
+    # version is ever resolved. If pip-audit flags instructor, fix it by
+    # addressing the atomic-agents pin (upstream fix, or pinning around it)
+    # — not by relaxing this ignore entry.
     ignore:
       - dependency-name: "instructor"
     # "chore" deliberately does NOT match the feat|fix|perf patterns in
