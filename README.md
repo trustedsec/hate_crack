@@ -768,10 +768,9 @@ All tests use mocked API calls, so they can run without connectivity to a Hashvi
   (21) PRINCE-LING Attack
 
   (80) Wordlist Tools
-  (81) Rule File Tools
   (82) Notifications
 
-  (91) Analyze Hashcat Rules
+  (90) Rule File Tools
   (94) Hashview API
   (95) Analyze hashes with Pipal
   (96) Export Output to Excel Format
@@ -1015,13 +1014,14 @@ A submenu of wordlist preprocessing utilities using hashcat-utils binaries. All 
 
 All binaries are in `hate_crack/hashcat-utils/bin/`.
 
-#### Rule File Tools (option 81)
+#### Rule File Tools (option 90)
 Preprocesses hashcat rule files using `cleanup-rules.bin` and `rules_optimize.bin` from hashcat-utils, and downloads rule files from Hashmob.net.
 
 * **Clean** (1) - removes invalid syntax and duplicate rules using `cleanup-rules.bin`. Useful after combining rule files or downloading rules from external sources.
 * **Optimize** (2) - consolidates redundant operations using `rules_optimize.bin`. Reduces rule file size and improves cracking speed.
 * **Clean and optimize** (3) - runs both operations in sequence via a temporary file, then writes the final result.
 * **Download rules from Hashmob.net** (4) - fetches rule files into the configured `rulesDirectory`.
+* **Analyze Hashcat rules** (5) - opcode frequency analysis of a rule file, powered by HashcatRosetta.
 
 The three preprocessing operations read from an input file and write to a separate output file (original is never modified).
 
@@ -1033,7 +1033,7 @@ Downloads the latest rule files from Hashmob.net's rule repository. These rules 
 * Reports download summary with success/failure counts
 * Stores rules in the configured rules directory
 
-#### Analyze Hashcat Rules
+#### Analyze Hashcat Rules (Rule File Tools option 5)
 Powered by HashcatRosetta (https://github.com/bandrel/HashcatRosetta), this feature analyzes hashcat rule files to provide detailed insights into rule composition and complexity.
 
 * Prompts for a rule file path

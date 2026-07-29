@@ -246,6 +246,12 @@ class TestRuleToolsSubmenu:
             print_fn=print, rules_dir=ctx.rulesDirectory
         )
 
+    def test_dispatches_to_analyze_rules(self):
+        ctx = _make_ctx()
+        with patch("hate_crack.menu.interactive_menu", side_effect=["5", "99"]):
+            rule_tools_submenu(ctx)
+        ctx.analyze_rules.assert_called_once_with()
+
     def test_exits_on_99(self):
         ctx = _make_ctx()
         with patch("hate_crack.menu.interactive_menu", return_value="99"):

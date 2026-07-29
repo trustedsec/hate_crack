@@ -1134,6 +1134,7 @@ def rule_tools_submenu(ctx: Any) -> None:
         ("2", "Optimize rule file (consolidate redundant operations)"),
         ("3", "Clean and optimize rule file (both)"),
         ("4", "Download rules from Hashmob.net"),
+        ("5", "Analyze Hashcat rules (opcode statistics)"),
         ("99", "Back to Main Menu"),
     ]
     while True:
@@ -1148,6 +1149,8 @@ def rule_tools_submenu(ctx: Any) -> None:
             rule_cleanup_and_optimize_handler(ctx)
         elif choice == "4":
             download_hashmob_rules(print_fn=print, rules_dir=ctx.rulesDirectory)
+        elif choice == "5":
+            ctx.analyze_rules()
 
 
 def wordlist_filter_length(ctx: Any) -> None:
