@@ -1,5 +1,6 @@
 """Tests for the startup version check feature."""
 
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -529,3 +530,140 @@ class TestRunUpgrade:
         assert mock_run.call_count == 4
         all_call_args = [c[0][0] for c in mock_run.call_args_list]
         assert ["git", "checkout", "-B", "main", "origin/main"] not in all_call_args
+
+
+class TestNightlyChannel:
+    """Tests for the --nightly update channel (_run_upgrade(branch=...))."""
+
+    def test_nightly_pulls_from_nightly_dev(self, hc_module, capsys):
+        git_root_proc = MagicMock(returncode=0, stdout="/fake/repo\n")
+        fetch_proc = MagicMock(returncode=0, stdout="", stderr="")
+        branch_proc = MagicMock(returncode=0, stdout="nightly-dev\n")
+        make_proc = MagicMock(returncode=0)
+
+        with patch(
+            "subprocess.run",
+            side_effect=[git_root_proc, fetch_proc, branch_proc, make_proc],
+        ) as mock_run, pytest.raises(SystemExit) as exc:
+            hc_module._run_upgrade(branch="nightly-dev")
+
+        assert exc.value.code == 0
+        make_cmd = mock_run.call_args_list[3][0][0]
+        assert "git pull origin nightly-dev" in make_cmd
+        assert "git pull origin main" not in make_cmd
+
+    def test_nightly_switches_from_main_to_nightly_dev(self, hc_module, capsys):
+        """The inverse of the main-channel switch: a user sitting on main who
+        asks for a nightly must be moved onto nightly-dev."""
+        git_root_proc = MagicMock(returncode=0, stdout="/fake/repo\n")
+        fetch_proc = MagicMock(returncode=0, stdout="", stderr="")
+        branch_proc = MagicMock(returncode=0, stdout="main\n")
+        status_proc = MagicMock(returncode=0, stdout="")
+        checkout_proc = MagicMock(returncode=0, stdout="", stderr="")
+        upstream_proc = MagicMock(returncode=0, stdout="", stderr="")
+        make_proc = MagicMock(returncode=0)
+
+        with patch(
+            "subprocess.run",
+            side_effect=[
+                git_root_proc,
+                fetch_proc,
+                branch_proc,
+                status_proc,
+                checkout_proc,
+                upstream_proc,
+                make_proc,
+            ],
+        ) as mock_run, pytest.raises(SystemExit) as exc:
+            hc_module._run_upgrade(branch="nightly-dev")
+
+        assert exc.value.code == 0
+        all_calls = [c[0][0] for c in mock_run.call_args_list]
+        assert [
+            "git",
+            "checkout",
+            "-B",
+            "nightly-dev",
+            "origin/nightly-dev",
+        ] in all_calls
+        assert [
+            "git",
+            "branch",
+            "--set-upstream-to=origin/nightly-dev",
+            "nightly-dev",
+        ] in all_calls
+        assert "Switching from 'main' to 'nightly-dev'" in capsys.readouterr().out
+
+    def test_default_branch_is_still_main(self, hc_module):
+        """--update must keep pulling releases from main."""
+        git_root_proc = MagicMock(returncode=0, stdout="/fake/repo\n")
+        fetch_proc = MagicMock(returncode=0, stdout="", stderr="")
+        branch_proc = MagicMock(returncode=0, stdout="main\n")
+        make_proc = MagicMock(returncode=0)
+
+        with patch(
+            "subprocess.run",
+            side_effect=[git_root_proc, fetch_proc, branch_proc, make_proc],
+        ) as mock_run, pytest.raises(SystemExit):
+            hc_module._run_upgrade()
+
+        assert "git pull origin main" in mock_run.call_args_list[3][0][0]
+
+    def test_uncommitted_changes_message_names_target_branch(
+        self, hc_module, capsys
+    ):
+        git_root_proc = MagicMock(returncode=0, stdout="/fake/repo\n")
+        fetch_proc = MagicMock(returncode=0, stdout="", stderr="")
+        branch_proc = MagicMock(returncode=0, stdout="main\n")
+        status_proc = MagicMock(returncode=0, stdout=" M hate_crack/main.py\n")
+
+        with patch(
+            "subprocess.run",
+            side_effect=[git_root_proc, fetch_proc, branch_proc, status_proc],
+        ), pytest.raises(SystemExit) as exc:
+            hc_module._run_upgrade(branch="nightly-dev")
+
+        assert exc.value.code == 1
+        out = capsys.readouterr().out
+        assert "uncommitted changes on 'main'" in out
+        assert "git checkout nightly-dev" in out
+
+
+class TestNightlyFlagWiring:
+    """The --nightly CLI flag routes to the nightly channel."""
+
+    @pytest.mark.parametrize(
+        ("argv", "expected_branch"),
+        [
+            (["--update"], "main"),
+            (["--nightly"], "nightly-dev"),
+            # Reads as "update, to the nightly channel".
+            (["--update", "--nightly"], "nightly-dev"),
+        ],
+    )
+    def test_flag_selects_channel(self, hc_module, monkeypatch, argv, expected_branch):
+        calls = []
+
+        def fake_upgrade(branch="main"):
+            calls.append(branch)
+            # The real _run_upgrade always exits; without this main() would
+            # fall through into the interactive menu and hang on input().
+            raise SystemExit(0)
+
+        monkeypatch.setattr(hc_module, "_run_upgrade", fake_upgrade)
+        monkeypatch.setattr(sys, "argv", ["hate_crack.py", *argv])
+        try:
+            hc_module.main()
+        except SystemExit:
+            pass
+        assert calls == [expected_branch]
+
+    def test_startup_check_never_offers_nightly(self, hc_module):
+        """check_for_updates() reads /releases/latest, which excludes
+        pre-releases -- and nightly-tag.yml publishes no release at all, so the
+        nightly channel is invisible to the startup nag by construction."""
+        import inspect
+
+        src = inspect.getsource(hc_module.check_for_updates)
+        assert "releases/latest" in src
+        assert "nightly" not in src

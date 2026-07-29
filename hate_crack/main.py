@@ -1015,8 +1015,14 @@ def ascii_art():
     )
 
 
-def _run_upgrade():
-    """Run `git pull && git fetch --tags && make install` in the repo root."""
+def _run_upgrade(branch="main"):
+    """Run `git pull && git fetch --tags && make install` in the repo root.
+
+    *branch* selects the update channel. ``"main"`` is the released channel that
+    ``--update`` uses; ``"nightly-dev"`` is the pre-release channel behind
+    ``--nightly``, carrying work that has passed CI but has not been cut into a
+    release yet. See the Branching Policy in CLAUDE.md.
+    """
     import subprocess
 
     print()
@@ -1031,7 +1037,7 @@ def _run_upgrade():
     if git_root_result.returncode != 0:
         print(
             "\n  Could not find a git repository to upgrade from."
-            "\n  Run manually: git pull && git fetch --tags && make install\n"
+            f"\n  Run manually: git pull origin {branch} && git fetch --tags && make install\n"
         )
         raise SystemExit(1)
     repo_root = git_root_result.stdout.strip()
@@ -1049,7 +1055,7 @@ def _run_upgrade():
     if fetch_result.returncode != 0:
         print(
             f"\n  Failed to fetch from origin:\n  {fetch_result.stderr.strip()}\n"
-            "\n  Upgrade manually: git fetch --tags && git checkout main && git pull origin main && make install\n"
+            f"\n  Upgrade manually: git fetch --tags && git checkout {branch} && git pull origin {branch} && make install\n"
         )
         raise SystemExit(1)
 
@@ -1069,9 +1075,11 @@ def _run_upgrade():
         capture_output=True,
         text=True,
     )
-    branch = branch_result.stdout.strip() if branch_result.returncode == 0 else ""
+    current_branch = (
+        branch_result.stdout.strip() if branch_result.returncode == 0 else ""
+    )
 
-    if branch and branch != "main":
+    if current_branch and current_branch != branch:
         status = subprocess.run(
             ["git", "status", "--porcelain"],
             cwd=repo_root,
@@ -1080,33 +1088,35 @@ def _run_upgrade():
         )
         if status.stdout.strip():
             print(
-                f"\n  Cannot auto-upgrade: uncommitted changes on '{branch}'."
+                f"\n  Cannot auto-upgrade: uncommitted changes on '{current_branch}'."
                 "\n  Commit or stash them, then re-run."
-                "\n  Or upgrade manually: git checkout main && git pull origin main && make install\n"
+                f"\n  Or upgrade manually: git checkout {branch} && git pull origin {branch} && make install\n"
             )
             raise SystemExit(1)
 
-        print(f"\n  Switching from '{branch}' to 'main' to pick up the release tag...")
+        print(
+            f"\n  Switching from '{current_branch}' to '{branch}' to pick up the new tag..."
+        )
         checkout = subprocess.run(
             # -B creates/resets a local `main` pointing at origin/main so this
             # works whether or not a local `main` already exists (e.g. a stale
             # master-only clone that has never had a main branch).
-            ["git", "checkout", "-B", "main", "origin/main"],
+            ["git", "checkout", "-B", branch, f"origin/{branch}"],
             cwd=repo_root,
             capture_output=True,
             text=True,
         )
         if checkout.returncode != 0:
             print(
-                f"\n  Failed to switch to main:\n  {checkout.stderr.strip()}\n"
-                "\n  Upgrade manually: git checkout main && git pull origin main && make install\n"
+                f"\n  Failed to switch to {branch}:\n  {checkout.stderr.strip()}\n"
+                f"\n  Upgrade manually: git checkout {branch} && git pull origin {branch} && make install\n"
             )
             raise SystemExit(1)
 
         # Repair the upstream so a later manual `git pull` consults
         # origin/main rather than a dangling branch.master.merge ref.
         subprocess.run(
-            ["git", "branch", "--set-upstream-to=origin/main", "main"],
+            ["git", "branch", f"--set-upstream-to=origin/{branch}", branch],
             cwd=repo_root,
             capture_output=True,
             text=True,
@@ -1123,7 +1133,8 @@ def _run_upgrade():
         # make install handles system deps and the CLI shim.
         # uv sync --reinstall-package forces setuptools-scm to regenerate the
         # version from the new tag so the version number updates correctly.
-        f"git pull origin main && git fetch --tags && make install && {uv} sync --reinstall-package hate_crack",
+        f"git pull origin {branch} && git fetch --tags && make install "
+        f"&& {uv} sync --reinstall-package hate_crack",
         shell=True,
         cwd=repo_root,
     )
@@ -4941,7 +4952,15 @@ def main():
         parser.add_argument(
             "--update",
             action="store_true",
-            help="Pull latest changes and reinstall (git pull && make clean && make && make install)",
+            help="Update to the latest release from main and reinstall",
+        )
+        parser.add_argument(
+            "--nightly",
+            action="store_true",
+            help=(
+                "Update to the latest nightly from nightly-dev instead of main. "
+                "Nightlies have passed CI but are not part of a cut release."
+            ),
         )
         parser.add_argument("--debug", action="store_true", help="Enable debug mode")
         parser.add_argument(
@@ -5145,8 +5164,10 @@ def main():
     maxruntime = config.maxruntime
     bandrelbasewords = config.bandrelbasewords
 
-    if args.update:
-        _run_upgrade()
+    if args.update or args.nightly:
+        # --nightly implies the upgrade action, so `--nightly` alone works and
+        # `--update --nightly` reads as "update, to the nightly channel".
+        _run_upgrade(branch="nightly-dev" if args.nightly else "main")
 
     if args.download_torrent:
         download_weakpass_torrent(

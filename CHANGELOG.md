@@ -11,6 +11,13 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ### Added
 
+- **`--nightly` update channel.** `--nightly` (or `--update --nightly`) updates
+  from the `nightly-dev` branch instead of `main`, for work that has passed CI
+  but has not been cut into a release. `--update` is unchanged and still tracks
+  releases on `main`. The startup update check only ever offers releases: it
+  reads GitHub's "latest release" endpoint, which excludes pre-releases, and
+  nightly builds publish no GitHub release at all.
+
 - **Spoonman Attack (main menu `22`).** Derives a baseword list and a
   frequency-sorted hashcat rule file from a corpus of known plaintext
   passwords, such that the baseword x rule cross product reconstructs the
