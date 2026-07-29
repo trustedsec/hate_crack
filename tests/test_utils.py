@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import importlib
@@ -98,8 +99,28 @@ def test_get_hcat_wordlists_dir_from_config(tmp_path, monkeypatch):
     assert os.path.isdir(result)
 
 
-def test_get_hcat_wordlists_dir_fallback_cwd(tmp_path, monkeypatch):
+def test_get_hcat_wordlists_dir_no_config_uses_example_default(tmp_path, monkeypatch):
+    """Regression test for #153: with no config.json on disk, api.py must
+    resolve the same default main.py does (config.json.example's
+    hcatWordlists, relative to hate_path) rather than a hardcoded
+    cwd-relative fallback that only main.py knew to avoid.
+    """
     monkeypatch.setattr(api, "_resolve_config_path", lambda: None)
+    monkeypatch.setattr(api, "_get_hate_path", lambda: str(tmp_path))
+
+    result = api.get_hcat_wordlists_dir()
+
+    assert result == str(tmp_path / "wordlists")
+    assert os.path.isdir(result)
+
+
+def test_get_hcat_wordlists_dir_true_fallback_when_no_example(tmp_path, monkeypatch):
+    """Last-resort cwd fallback still applies if config.json.example itself
+    can't be found or read (e.g. hate_crack.main's equivalent loader exits
+    at import time on an unreadable example; api.py's degrades gracefully
+    instead)."""
+    monkeypatch.setattr(api, "_resolve_config_path", lambda: None)
+    monkeypatch.setattr(api, "_load_config_defaults", lambda: {})
     monkeypatch.chdir(tmp_path)
 
     result = api.get_hcat_wordlists_dir()
@@ -120,14 +141,37 @@ def test_get_rules_dir_from_config(tmp_path, monkeypatch):
     assert os.path.isdir(result)
 
 
-def test_get_rules_dir_fallback_cwd(tmp_path, monkeypatch):
+def test_get_rules_dir_no_config_uses_example_default(tmp_path, monkeypatch):
+    """Regression test for #153: api.py's rules_directory default must match
+    main.py's ('./hashcat/rules' from config.json.example), not the
+    hardcoded '<cwd>/rules' this helper used before the fix.
+    """
     monkeypatch.setattr(api, "_resolve_config_path", lambda: None)
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(api, "_get_hate_path", lambda: str(tmp_path))
 
     result = api.get_rules_dir()
 
-    assert result == str(tmp_path / "rules")
+    assert result == str(tmp_path / "hashcat" / "rules")
     assert os.path.isdir(result)
+
+
+def test_get_hcat_tuning_args_merges_example_default(monkeypatch):
+    monkeypatch.setattr(api, "_resolve_config_path", lambda: None)
+
+    result = api.get_hcat_tuning_args()
+
+    # config.json.example ships hcatTuning: "" — merged default, empty split
+    assert result == []
+
+
+def test_get_hcat_tuning_args_config_overrides_default(tmp_path, monkeypatch):
+    config_file = tmp_path / "config.json"
+    config_file.write_text(json.dumps({"hcatTuning": "-O -w 3"}))
+    monkeypatch.setattr(api, "_resolve_config_path", lambda: str(config_file))
+
+    result = api.get_hcat_tuning_args()
+
+    assert result == ["-O", "-w", "3"]
 
 
 def test_cleanup_torrent_files_removes_only_torrents(tmp_path):
