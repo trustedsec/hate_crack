@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [Unreleased]
+
+### Fixed
+
+- **PCFG/PRINCE-LING interpreter drift.** `hcatPCFG`/`hcatPrinceLing` now
+  launch `pcfg_guesser.py`/`prince_ling.py` via `sys.executable` instead of
+  a bare `python3` resolved from `PATH`, so they run under the same pinned
+  interpreter and environment as hate_crack itself. (#149)
+- **PCFG ruleset default casing.** `pcfgRuleset` now defaults to `"Default"`,
+  matching the on-disk `pcfg_cracker/Rules/Default` directory, and both
+  `hcatPCFG` and `hcatPrinceLing` resolve the configured ruleset name
+  case-insensitively against whatever casing actually exists on disk. This
+  covers both a fresh install (prior default `"DEFAULT"` only worked by
+  accident on case-insensitive filesystems like macOS) and anyone whose
+  `config.json` already has `"DEFAULT"` backfilled to disk from before this
+  fix. (#148)
+- **PCFG silent candidate truncation on non-TTY stdin.** `hcatPCFG` now keeps
+  the `pcfg_guesser.py` child's stdin open (`stdin=subprocess.PIPE`) instead
+  of inheriting hate_crack's own stdin. Previously, any non-TTY stdin (cron,
+  CI, detached runs, piped input) caused the guesser's keypress-listener
+  thread to hit `EOFError` and shut the generator down after tens of
+  thousands of candidates, silently ignoring `--limit`/`pcfgMaxCandidates`.
+  (`prince_ling.py` was checked for the same exposure and doesn't have a
+  keypress thread, so it needed no change.) (#146)
+- **Uncaught OSError loading config.json.example defaults.** A missing or
+  unreadable defaults file (e.g. a dangling symlink surviving a
+  git-archive tarball or docker COPY) now surfaces the existing "package
+  installation issue" message instead of a raw traceback. (#155)
+- **Brittle config.json.example test guards.** Replaced a symlink-ness
+  assertion (fails outside the source tree, since builds dereference the
+  symlink) and a same-inode tautology with an explicit expected-key-set
+  check and a content-parity check that's exercised in built/flattened
+  trees. (#154)
+- **api.py/main.py config default divergence.** `api.py`'s
+  `get_hcat_wordlists_dir`/`get_rules_dir`/`get_hcat_tuning_args`/
+  `get_hcat_potfile_path` now merge `config.json.example` the same way
+  `main.py` does, instead of falling back to their own hardcoded,
+  cwd-relative defaults for any key absent from `config.json`. (#153)
+
 ## [2.14.3] - 2026-07-25
 
 ### Added
