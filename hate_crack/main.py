@@ -5299,12 +5299,9 @@ def main():
             check_for_updates()
         _no_hash_items = [
             ("1", "Hashview API"),
-            ("2", "Download wordlists from Weakpass"),
-            ("3", "Download wordlists from Hashmob.net"),
-            ("4", "Download rules from Hashmob.net"),
-            ("5", "Wordlist Tools"),
-            ("6", "Rule File Tools"),
-            ("7", "Exit"),
+            ("2", "Wordlist Tools"),
+            ("3", "Rule File Tools"),
+            ("4", "Exit"),
         ]
         menu_loop = True
         while menu_loop:
@@ -5326,26 +5323,11 @@ def main():
                     # Otherwise continue the menu loop
                 else:
                     menu_loop = False
-            elif choice == "2" or args.weakpass:
-                weakpass_wordlist_menu(rank=args.rank)
-                if args.weakpass:
-                    sys.exit(0)
-                # Otherwise continue the menu loop
-            elif choice == "3" or args.hashmob:
-                download_hashmob_wordlists(print_fn=print)
-                if args.hashmob:
-                    sys.exit(0)
-                # Otherwise continue the menu loop
-            elif choice == "4" or args.rules:
-                download_hashmob_rules(print_fn=print, rules_dir=rulesDirectory)
-                if args.rules:
-                    sys.exit(0)
-                # Otherwise continue the menu loop
-            elif choice == "5":
+            elif choice == "2":
                 wordlist_tools_submenu()
-            elif choice == "6":
+            elif choice == "3":
                 rule_tools_submenu()
-            elif choice == "7":
+            elif choice == "4":
                 sys.exit(0)
             else:
                 if (
