@@ -414,6 +414,8 @@ Common options:
 - `--pipal-path <PATH>`: Override pipal path.
 - `--maxruntime <SECONDS>`: Override max runtime.
 - `--bandrel-basewords <PATH>`: Override bandrel basewords file.
+- `--update`: Update to the latest release and reinstall. Switches the checkout to `main` if it is on another branch, since release tags live there.
+- `--nightly`: Update to the latest nightly instead, from the `nightly-dev` branch. Nightlies have passed CI but are not part of a cut release. Can also be written `--update --nightly`.
 - `--debug`: Enable debug logging (writes to stderr).
 
 ### Hashview Integration
@@ -601,6 +603,22 @@ hate_crack can automatically check GitHub for newer releases on startup. This fe
 - **`check_for_updates`** — Enable automatic version checks on startup (default: `true`).
 - When enabled, hate_crack fetches the latest release info from GitHub and displays a notice if an update is available.
 - The check runs asynchronously and does not block startup. Network errors are silently ignored.
+
+##### Update Channels
+
+| Channel | Flag | Source | What you get |
+|---------|------|--------|--------------|
+| Release | `--update` | `main` | The latest cut release. This is the default and what the startup check offers. |
+| Nightly | `--nightly` | `nightly-dev` | Work that has passed CI but has not been released yet. |
+
+The startup check only ever offers releases. It reads GitHub's "latest release"
+endpoint, which excludes pre-releases, and nightly builds publish no GitHub
+release at all — so enabling `check_for_updates` will never pull you onto a
+nightly.
+
+Either flag switches your checkout to the corresponding branch first (and
+refuses to do so if you have uncommitted changes). If you are running a nightly
+and want to go back to released code, `--update` moves you back to `main`.
 
 #### Automatic Found Hash Merging (Download Left Only)
 
