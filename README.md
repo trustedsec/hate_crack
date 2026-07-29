@@ -766,6 +766,7 @@ All tests use mocked API calls, so they can run without connectivity to a Hashvi
   (19) Combipow Passphrase Attack
   (20) PCFG Attack
   (21) PRINCE-LING Attack
+  (22) Spoonman Attack
 
   (80) Wordlist Tools
   (81) Rule File Tools
@@ -995,6 +996,17 @@ Uses pcfg_cracker's `prince_ling.py` to derive an optimized PRINCE base wordlist
 * Regenerates only when the ruleset directory is newer than the cached wordlist, so retraining a grammar invalidates the cache automatically
 * Generation is written to a temporary file and atomically moved into place; a failed or interrupted run cleans up its partial file and leaves any existing cache intact
 * Base wordlist size is capped by `pcfgPrinceLingMaxCandidates` (default 10,000,000)
+
+#### Spoonman Attack
+Derives a baseword list and a hashcat rule file from a corpus of known plaintext passwords — a previous engagement's cracked output, a leak dump, or any password list — such that the baseword x rule cross product reconstructs the corpus exactly. Contributed as issue #169 by @Spoonman1091.
+
+Each password is split into its letters-only lowercased core (the baseword) plus a rule that rebuilds the original from it, using `l`/`u`/`c` for casing, `T{p}` toggles, `${x}`/`^{x}` for trailing and leading characters, and `i{p}{x}` for interior ones.
+
+* Prompts for the corpus, then for how much of the rule file to run: the full set, top 99%, or top 95%
+* Rules are sorted by how many passwords each one rebuilds, so a truncated file keeps the most productive rules — top 95% coverage typically needs a small fraction of the rules
+* Output is cached under `<hcatOptimizedWordlists>/spoonman/<corpus name>/`: `basewords.txt`, `rules.full.rule`, the capped rule files, and `coverage.txt` with per-milestone rule counts
+* Passwords that cannot be expressed as a rule are written verbatim as their own baseword with a `:` no-op, so coverage stays complete. This covers two hashcat limits: rule positions cannot address past index 35, and hashcat rejects any rule with more than 31 functions — silently, when valid rules share the file
+* The derivation self-checks every password by reconstructing it in-process, and reports any failures rather than reporting success
 
 #### Wordlist Tools (option 80)
 A submenu of wordlist preprocessing utilities using hashcat-utils binaries. All tools read from and write to files on disk. All file and directory path prompts support tab completion.

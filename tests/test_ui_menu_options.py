@@ -32,6 +32,7 @@ MENU_OPTION_TEST_CASES = [
     ("19", CLI_MODULE._attacks, "combipow_crack", "combipow"),
     ("20", CLI_MODULE._attacks, "pcfg_attack", "pcfg"),
     ("21", CLI_MODULE._attacks, "prince_ling_attack", "prince-ling"),
+    ("22", CLI_MODULE._attacks, "spoonman_attack", "spoonman"),
     ("80", CLI_MODULE._attacks, "wordlist_tools_submenu", "wordlist-tools"),
     ("81", CLI_MODULE._attacks, "rule_tools_submenu", "rule-tools"),
     ("82", CLI_MODULE, "notifications_submenu", "notifications-submenu"),
