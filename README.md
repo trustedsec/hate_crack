@@ -97,6 +97,7 @@ Core logic is now split into modules under `hate_crack/`:
 - `hate_crack/attacks.py`: menu attack handlers.
 - `hate_crack/hashmob_wordlist.py`: Hashmob wordlist utilities (thin wrapper; calls into api.py).
 - `hate_crack/corpus_stats.py`: whole-corpus password statistics used to describe a corpus to the LLM.
+- `hate_crack/plaintext.py`: recovers the password from a corpus line (hash-prefix stripping, `$HEX[...]` decoding); shared by the LLM modes, corpus_stats, and rulegen.
 - `hate_crack/llm.py`: structured (JSON) LLM candidate generation via Atomic Agents.
 - `hate_crack/menu.py`: shared menu renderer, including optional arrow-key navigation.
 - `hate_crack/noninteractive.py`: dispatcher for the scripted attack subcommands.
@@ -1039,6 +1040,7 @@ Each password is split into its letters-only lowercased core (the baseword) plus
 * Output is written beside the hash file in `<hash file>.spoonman/`, alongside the other ephemeral wordlists: `basewords.txt`, `rules.full.rule`, the capped rule files, and `coverage.txt` with per-milestone rule counts. Derivation is skipped on later runs of the same hash file unless the corpus has been modified since, and the directory is removed on exit by the temp-file cleanup
 * Passwords that cannot be expressed as a rule are written verbatim as their own baseword with a `:` no-op, so coverage stays complete. This covers two hashcat limits: rule positions cannot address past index 35, and hashcat rejects any rule with more than 31 functions — silently, when valid rules share the file
 * The derivation self-checks every password by reconstructing it in-process, and reports any failures rather than reporting success
+* Corpus lines may carry a hash in front of the password, as cracked output does. A leading field is dropped only when it has the shape of a hash (a hex digest at a known length, or a crypt-style `$id$` string), so `hash:salt:plain` is handled while a plaintext or wordlist entry containing a colon survives intact. `$HEX[...]` plaintexts are decoded. If most lines look like an uncracked dump rather than cracked output, `coverage.txt` records the count and the attack warns — the derived basewords and rules would otherwise be meaningless without any error being raised
 
 #### Wordlist Tools (option 80)
 A submenu of wordlist preprocessing utilities using hashcat-utils binaries. All tools read from and write to files on disk. All file and directory path prompts support tab completion.

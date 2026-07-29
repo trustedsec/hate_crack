@@ -193,3 +193,88 @@ class TestGenerate:
         report = (out / "coverage.txt").read_text(encoding="latin-1")
         assert corpus in report
         assert "self-check failures: 0" in report
+
+
+class TestCorpusLineParsing:
+    """The corpus this attack is built for is a previous engagement's cracked
+    output, whose lines carry the hash in front of the password."""
+
+    NTLM = "31d6cfe0d16ae931b73c59d7e0c089c0"
+    NTLM_B = "8846f7eaee8fb117ad06bdd830b7586c"
+    EMPTY_LM = "aad3b435b51404eeaad3b435b51404ee"
+
+    def _write(self, tmp_path, lines, name="corpus.txt"):
+        path = tmp_path / name
+        path.write_text("\n".join(lines) + "\n", encoding="latin-1")
+        return str(path)
+
+    def _run(self, tmp_path, lines):
+        corpus = self._write(tmp_path, lines)
+        return rulegen.generate(corpus, str(tmp_path / "out"), print_fn=lambda *a: None)
+
+    def _basewords(self, result):
+        with open(result["basewords"], encoding="latin-1") as f:
+            return f.read().split()
+
+    def test_hash_prefix_does_not_reach_the_baseword(self, tmp_path):
+        """Deriving from the whole line prepended the digest's hex digits."""
+        result = self._run(tmp_path, [f"{self.NTLM}:Alphabet", f"{self.NTLM_B}:Bravo"])
+        assert sorted(self._basewords(result)) == ["alphabet", "bravo"]
+
+    def test_rules_stay_short_without_the_hash_prefix(self, tmp_path):
+        """Rebuilding a 32-character prefix consumed most of MAX_RULE_FUNCTIONS."""
+        result = self._run(tmp_path, [f"{self.NTLM}:Alphabet1"])
+        with open(result["rules"], encoding="latin-1") as f:
+            rules = f.read().split()
+        assert all(rulegen.count_ops(r) <= 3 for r in rules), rules
+
+    def test_rules_merge_across_passwords_sharing_a_transformation(self, tmp_path):
+        """The whole point of the rule file: rank by productivity, then truncate.
+
+        With the hash prefix included every rule was unique, so the ranking
+        carried no information and a capped set was no cheaper than the full one.
+        """
+        result = self._run(
+            tmp_path,
+            [
+                f"{self.NTLM}:Alphabet1",
+                f"{self.NTLM_B}:Bravoword1",
+                f"{self.NTLM}:Charlieword1",
+            ],
+        )
+        assert result["rules_count"] == 1
+        assert result["total"] == 3
+
+    def test_hex_wrapped_plaintext_is_decoded(self, tmp_path):
+        result = self._run(tmp_path, ["$HEX[616c706861]", "alpha"])
+        assert self._basewords(result) == ["alpha"]
+        assert result["basewords_count"] == 1
+
+    def test_plaintext_containing_a_colon_survives(self, tmp_path):
+        """A wordlist entry may hold a colon; only real hash fields are dropped."""
+        result = self._run(tmp_path, ["12:30", "aabbcc:token"])
+        assert result["total"] == 2
+        assert "aabbcc" in "".join(self._basewords(result))
+
+    def test_uncracked_dump_is_counted_and_reported(self, tmp_path):
+        lines = [
+            f"user{i}:{1100 + i}:{self.EMPTY_LM}:{self.NTLM}:::" for i in range(10)
+        ]
+        messages = []
+        corpus = self._write(tmp_path, lines)
+        result = rulegen.generate(
+            corpus, str(tmp_path / "out"), print_fn=messages.append
+        )
+        assert result["hash_shaped"] == 10
+        assert any("look like hashes" in m for m in messages)
+        report = (tmp_path / "out" / "coverage.txt").read_text(encoding="latin-1")
+        assert "hash-shaped lines:   10" in report
+
+    def test_cracked_output_triggers_no_warning(self, tmp_path):
+        messages = []
+        corpus = self._write(tmp_path, [f"{self.NTLM}:Alphabet1", "Bravoword2"])
+        result = rulegen.generate(
+            corpus, str(tmp_path / "out"), print_fn=messages.append
+        )
+        assert result["hash_shaped"] == 0
+        assert not any("look like hashes" in m for m in messages)

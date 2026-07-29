@@ -13,6 +13,11 @@ from hate_crack import main as hc_main  # noqa: E402
 OLLAMA_URL = "http://localhost:11434"
 MODEL = "qwen2.5:32b"
 
+# Hash fields are recognized by digest length, so fixtures need realistic ones:
+# a short stand-in is correctly read as part of the password.
+DIGEST_A = "31d6cfe0d16ae931b73c59d7e0c089c0"
+DIGEST_B = "8846f7eaee8fb117ad06bdd830b7586c"
+
 
 @pytest.fixture
 def ollama_env(tmp_path):
@@ -90,7 +95,7 @@ def test_wordlist_mode_reads_file_and_passes_sample(ollama_env):
 def test_wordlist_mode_strips_hash_prefix(ollama_env):
     # hash:password lines should contribute only the post-colon plaintext.
     dump = ollama_env.tmp_path / "dump.txt"
-    dump.write_text("aad3b435:Winter2024\nnocolonline\n")
+    dump.write_text(f"{DIGEST_A}:Bravo2024\nnocolonline\n")
     with (
         ollama_globals(ollama_env.tmp_path),
         mock.patch(
@@ -100,8 +105,8 @@ def test_wordlist_mode_strips_hash_prefix(ollama_env):
     ):
         hc_main.hcatOllama("0", ollama_env.hash_file, "wordlist", str(dump))
     sample = gen.call_args[0][4]["sample"]
-    assert "Winter2024" in sample
-    assert "aad3b435" not in sample
+    assert "Bravo2024" in sample
+    assert DIGEST_A not in sample
     assert "nocolonline" in sample
 
 
@@ -306,7 +311,7 @@ def test_unknown_mode_prints_error(ollama_env, capsys):
 def test_cracked_mode_samples_out_file(ollama_env):
     """cracked mode reads <hashfile>.out and passes the plaintexts as the sample."""
     with open(f"{ollama_env.hash_file}.out", "w") as f:
-        f.write("aad3b435:Summer2024!\nbbccddee:Acme2023\n")
+        f.write(f"{DIGEST_A}:Alpha2024!\n{DIGEST_B}:Delta2023\n")
 
     with (
         ollama_globals(ollama_env.tmp_path),
@@ -320,9 +325,9 @@ def test_cracked_mode_samples_out_file(ollama_env):
     args = gen.call_args[0]
     assert args[3] == "cracked"
     sample = args[4]["sample"].splitlines()
-    assert sample == ["Summer2024!", "Acme2023"]
+    assert sample == ["Alpha2024!", "Delta2023"]
     # Hash portions must not leak into the prompt.
-    assert "aad3b435" not in args[4]["sample"]
+    assert DIGEST_A not in args[4]["sample"]
 
 
 def test_cracked_mode_accepts_explicit_path(ollama_env):
