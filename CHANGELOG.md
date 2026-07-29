@@ -82,6 +82,12 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ### Fixed
 
+- **`--download-hashview` prompted for a menu choice and then ignored it.** The
+  no-hashfile menu's first branch was guarded by `or args.download_hashview`,
+  so with the flag set, choosing Wordlist Tools, Rule File Tools, or even Exit
+  all opened the Hashview flow. The flag now skips the menu entirely, and the
+  menu's own choices are honoured when it is absent.
+
 - **The Random Rules and LLM rule attacks wrote no hashcat debug log.** Five of
   the seven attacks that pass `-r` to hashcat call `_add_debug_mode_for_rules`,
   which wires `--debug-mode`/`--debug-file` to `hcatDebugLogPath`;

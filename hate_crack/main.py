@@ -5669,7 +5669,15 @@ def main():
             ("3", "Rule File Tools"),
             ("4", "Exit"),
         ]
-        menu_loop = True
+        # The flag states the intent, so go straight to Hashview. Prompting
+        # first and then overriding the answer meant even "Exit" opened
+        # Hashview (issue #203).
+        if args.download_hashview:
+            hashview_api()
+            if not hcatHashFile:
+                sys.exit(0)
+
+        menu_loop = not hcatHashFile
         while menu_loop:
             print("\n" + "=" * 60)
             print("No hash file provided. What would you like to do?")
@@ -5679,15 +5687,10 @@ def main():
                 title="No hash file provided. What would you like to do?",
                 prompt="\nSelect an option: ",
             )
-            if choice == "1" or args.download_hashview:
+            if choice == "1":
                 hashview_api()
-                # Check if hashfile was set by hashview_api
-                if not hcatHashFile:
-                    if args.download_hashview:
-                        # Exit if called from command line
-                        sys.exit(0)
-                    # Otherwise continue the menu loop
-                else:
+                # Nothing loaded means the user backed out; re-show the menu.
+                if hcatHashFile:
                     menu_loop = False
             elif choice == "2":
                 wordlist_tools_submenu()
@@ -5696,13 +5699,10 @@ def main():
             elif choice == "4":
                 sys.exit(0)
             else:
-                if (
-                    args.download_hashview
-                    or args.weakpass
-                    or args.hashmob
-                    or args.rules
-                ):
-                    sys.exit(0)
+                # --weakpass/--hashmob/--rules all exit before this loop, and
+                # --download-hashview is handled above, so the only way here
+                # is an unrecognized answer.
+                print("\n[!] Invalid selection.")
 
     # At this point, a hashfile must be loaded
     if not hcatHashFile:
