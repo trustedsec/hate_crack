@@ -76,6 +76,7 @@ from hate_crack import attacks as _attacks  # noqa: E402
 from hate_crack import llm  # noqa: E402
 from hate_crack import noninteractive as _noninteractive  # noqa: E402
 from hate_crack.progress import spinner  # noqa: E402
+from hate_crack import rulegen as _rulegen  # noqa: E402
 from hate_crack.menu import interactive_menu  # noqa: E402
 from hate_crack.username_detect import detect_username_hash_format  # noqa: E402
 
@@ -1014,8 +1015,14 @@ def ascii_art():
     )
 
 
-def _run_upgrade():
-    """Run `git pull && git fetch --tags && make install` in the repo root."""
+def _run_upgrade(branch="main"):
+    """Run `git pull && git fetch --tags && make install` in the repo root.
+
+    *branch* selects the update channel. ``"main"`` is the released channel that
+    ``--update`` uses; ``"nightly-dev"`` is the pre-release channel behind
+    ``--nightly``, carrying work that has passed CI but has not been cut into a
+    release yet. See the Branching Policy in CLAUDE.md.
+    """
     import subprocess
 
     print()
@@ -1030,7 +1037,7 @@ def _run_upgrade():
     if git_root_result.returncode != 0:
         print(
             "\n  Could not find a git repository to upgrade from."
-            "\n  Run manually: git pull && git fetch --tags && make install\n"
+            f"\n  Run manually: git pull origin {branch} && git fetch --tags && make install\n"
         )
         raise SystemExit(1)
     repo_root = git_root_result.stdout.strip()
@@ -1048,7 +1055,7 @@ def _run_upgrade():
     if fetch_result.returncode != 0:
         print(
             f"\n  Failed to fetch from origin:\n  {fetch_result.stderr.strip()}\n"
-            "\n  Upgrade manually: git fetch --tags && git checkout main && git pull origin main && make install\n"
+            f"\n  Upgrade manually: git fetch --tags && git checkout {branch} && git pull origin {branch} && make install\n"
         )
         raise SystemExit(1)
 
@@ -1068,9 +1075,11 @@ def _run_upgrade():
         capture_output=True,
         text=True,
     )
-    branch = branch_result.stdout.strip() if branch_result.returncode == 0 else ""
+    current_branch = (
+        branch_result.stdout.strip() if branch_result.returncode == 0 else ""
+    )
 
-    if branch and branch != "main":
+    if current_branch and current_branch != branch:
         status = subprocess.run(
             ["git", "status", "--porcelain"],
             cwd=repo_root,
@@ -1079,33 +1088,35 @@ def _run_upgrade():
         )
         if status.stdout.strip():
             print(
-                f"\n  Cannot auto-upgrade: uncommitted changes on '{branch}'."
+                f"\n  Cannot auto-upgrade: uncommitted changes on '{current_branch}'."
                 "\n  Commit or stash them, then re-run."
-                "\n  Or upgrade manually: git checkout main && git pull origin main && make install\n"
+                f"\n  Or upgrade manually: git checkout {branch} && git pull origin {branch} && make install\n"
             )
             raise SystemExit(1)
 
-        print(f"\n  Switching from '{branch}' to 'main' to pick up the release tag...")
+        print(
+            f"\n  Switching from '{current_branch}' to '{branch}' to pick up the new tag..."
+        )
         checkout = subprocess.run(
             # -B creates/resets a local `main` pointing at origin/main so this
             # works whether or not a local `main` already exists (e.g. a stale
             # master-only clone that has never had a main branch).
-            ["git", "checkout", "-B", "main", "origin/main"],
+            ["git", "checkout", "-B", branch, f"origin/{branch}"],
             cwd=repo_root,
             capture_output=True,
             text=True,
         )
         if checkout.returncode != 0:
             print(
-                f"\n  Failed to switch to main:\n  {checkout.stderr.strip()}\n"
-                "\n  Upgrade manually: git checkout main && git pull origin main && make install\n"
+                f"\n  Failed to switch to {branch}:\n  {checkout.stderr.strip()}\n"
+                f"\n  Upgrade manually: git checkout {branch} && git pull origin {branch} && make install\n"
             )
             raise SystemExit(1)
 
         # Repair the upstream so a later manual `git pull` consults
         # origin/main rather than a dangling branch.master.merge ref.
         subprocess.run(
-            ["git", "branch", "--set-upstream-to=origin/main", "main"],
+            ["git", "branch", f"--set-upstream-to=origin/{branch}", branch],
             cwd=repo_root,
             capture_output=True,
             text=True,
@@ -1122,7 +1133,8 @@ def _run_upgrade():
         # make install handles system deps and the CLI shim.
         # uv sync --reinstall-package forces setuptools-scm to regenerate the
         # version from the new tag so the version number updates correctly.
-        f"git pull origin main && git fetch --tags && make install && {uv} sync --reinstall-package hate_crack",
+        f"git pull origin {branch} && git fetch --tags && make install "
+        f"&& {uv} sync --reinstall-package hate_crack",
         shell=True,
         cwd=repo_root,
     )
@@ -2920,6 +2932,58 @@ def hcatPrinceLing(hcatHashType, hcatHashFile):
         hcatPrinceBaseList = original_base
 
 
+def hcatSpoonman(hcatHashType, hcatHashFile, corpus, coverage=None):
+    """Spoonman Attack: derive basewords + rules from *corpus*, then crack with them.
+
+    ``coverage`` picks which generated rule file to run: ``None`` for the full
+    set (100% corpus reconstruction), or an int matching one of the capped
+    files (e.g. ``95`` for rules.top95.rule). See hate_crack/rulegen.py and
+    issue #169.
+    """
+    if not os.path.isfile(corpus):
+        print(f"Error: corpus not found: {corpus}")
+        return
+
+    cache_dir = os.path.join(
+        hcatOptimizedWordlists
+        if isinstance(hcatOptimizedWordlists, str)
+        else str(hcatOptimizedWordlists),
+        "spoonman",
+        os.path.basename(corpus),
+    )
+    # Deriving is O(corpus), so reuse a previous run's output unless the corpus
+    # has changed since. Mirrors the staleness check in hcatPrinceLing.
+    basewords_path = os.path.join(cache_dir, "basewords.txt")
+    rules_path = os.path.join(cache_dir, "rules.full.rule")
+    if coverage is not None:
+        rules_path = os.path.join(cache_dir, f"rules.top{coverage}.rule")
+    cached = os.path.isfile(basewords_path) and os.path.isfile(rules_path)
+    if cached and os.path.getmtime(corpus) <= os.path.getmtime(basewords_path):
+        print(f"[*] Reusing derived basewords and rules in {cache_dir}")
+    else:
+        print(f"[*] Deriving basewords and rules from {corpus}")
+        try:
+            result = _rulegen.generate(corpus, cache_dir)
+        except (OSError, ValueError) as e:
+            print(f"Rule derivation failed: {e}")
+            return
+        basewords_path = result["basewords"]
+        rules_path = result["rules"]
+        if coverage is not None:
+            rules_path = result["capped_rules"].get(coverage, rules_path)
+    print(f"[*] Basewords: {basewords_path}")
+    print(f"[*] Rules:     {rules_path}")
+    print(f"[*] Coverage:  {os.path.join(cache_dir, 'coverage.txt')}")
+
+    hcatQuickDictionary(
+        hcatHashType,
+        hcatHashFile,
+        f"-r {shlex.quote(rules_path)}",
+        basewords_path,
+        attack_name="Spoonman",
+    )
+
+
 def hcatPermute(hcatHashType, hcatHashFile, wordlist):
     global hcatProcess, hcatPermuteCount
     permute_path = os.path.join(hate_path, "hashcat-utils", "bin", "permute.bin")
@@ -4255,6 +4319,10 @@ def prince_ling_attack():
     return _attacks.prince_ling_attack(_attack_ctx())
 
 
+def spoonman_attack():
+    return _attacks.spoonman_attack(_attack_ctx())
+
+
 def wordlist_filter_len(infile: str, outfile: str, min_len: int, max_len: int) -> bool:
     """Filter wordlist keeping only words between min_len and max_len (inclusive)."""
     len_bin = os.path.join(hate_path, "hashcat-utils/bin/len.bin")
@@ -4743,6 +4811,7 @@ def get_main_menu_items():
         ("19", "Combipow Passphrase Attack"),
         ("20", "PCFG Attack"),
         ("21", "PRINCE-LING Attack"),
+        ("22", "Spoonman Attack"),
         ("80", "Wordlist Tools"),
         ("81", "Rule File Tools"),
         ("82", "Notifications"),
@@ -4785,6 +4854,7 @@ def get_main_menu_options():
         "19": combipow_crack,
         "20": pcfg_attack,
         "21": prince_ling_attack,
+        "22": spoonman_attack,
         "80": wordlist_tools_submenu,
         "81": rule_tools_submenu,
         "82": notifications_submenu,
@@ -4882,7 +4952,15 @@ def main():
         parser.add_argument(
             "--update",
             action="store_true",
-            help="Pull latest changes and reinstall (git pull && make clean && make && make install)",
+            help="Update to the latest release from main and reinstall",
+        )
+        parser.add_argument(
+            "--nightly",
+            action="store_true",
+            help=(
+                "Update to the latest nightly from nightly-dev instead of main. "
+                "Nightlies have passed CI but are not part of a cut release."
+            ),
         )
         parser.add_argument("--debug", action="store_true", help="Enable debug mode")
         parser.add_argument(
@@ -5086,8 +5164,10 @@ def main():
     maxruntime = config.maxruntime
     bandrelbasewords = config.bandrelbasewords
 
-    if args.update:
-        _run_upgrade()
+    if args.update or args.nightly:
+        # --nightly implies the upgrade action, so `--nightly` alone works and
+        # `--update --nightly` reads as "update, to the nightly channel".
+        _run_upgrade(branch="nightly-dev" if args.nightly else "main")
 
     if args.download_torrent:
         download_weakpass_torrent(
@@ -5240,12 +5320,9 @@ def main():
             check_for_updates()
         _no_hash_items = [
             ("1", "Hashview API"),
-            ("2", "Download wordlists from Weakpass"),
-            ("3", "Download wordlists from Hashmob.net"),
-            ("4", "Download rules from Hashmob.net"),
-            ("5", "Wordlist Tools"),
-            ("6", "Rule File Tools"),
-            ("7", "Exit"),
+            ("2", "Wordlist Tools"),
+            ("3", "Rule File Tools"),
+            ("4", "Exit"),
         ]
         menu_loop = True
         while menu_loop:
@@ -5267,26 +5344,11 @@ def main():
                     # Otherwise continue the menu loop
                 else:
                     menu_loop = False
-            elif choice == "2" or args.weakpass:
-                weakpass_wordlist_menu(rank=args.rank)
-                if args.weakpass:
-                    sys.exit(0)
-                # Otherwise continue the menu loop
-            elif choice == "3" or args.hashmob:
-                download_hashmob_wordlists(print_fn=print)
-                if args.hashmob:
-                    sys.exit(0)
-                # Otherwise continue the menu loop
-            elif choice == "4" or args.rules:
-                download_hashmob_rules(print_fn=print, rules_dir=rulesDirectory)
-                if args.rules:
-                    sys.exit(0)
-                # Otherwise continue the menu loop
-            elif choice == "5":
+            elif choice == "2":
                 wordlist_tools_submenu()
-            elif choice == "6":
+            elif choice == "3":
                 rule_tools_submenu()
-            elif choice == "7":
+            elif choice == "4":
                 sys.exit(0)
             else:
                 if (

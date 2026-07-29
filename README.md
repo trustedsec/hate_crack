@@ -414,6 +414,8 @@ Common options:
 - `--pipal-path <PATH>`: Override pipal path.
 - `--maxruntime <SECONDS>`: Override max runtime.
 - `--bandrel-basewords <PATH>`: Override bandrel basewords file.
+- `--update`: Update to the latest release and reinstall. Switches the checkout to `main` if it is on another branch, since release tags live there.
+- `--nightly`: Update to the latest nightly instead, from the `nightly-dev` branch. Nightlies have passed CI but are not part of a cut release. Can also be written `--update --nightly`.
 - `--debug`: Enable debug logging (writes to stderr).
 
 ### Hashview Integration
@@ -602,6 +604,22 @@ hate_crack can automatically check GitHub for newer releases on startup. This fe
 - When enabled, hate_crack fetches the latest release info from GitHub and displays a notice if an update is available.
 - The check runs asynchronously and does not block startup. Network errors are silently ignored.
 
+##### Update Channels
+
+| Channel | Flag | Source | What you get |
+|---------|------|--------|--------------|
+| Release | `--update` | `main` | The latest cut release. This is the default and what the startup check offers. |
+| Nightly | `--nightly` | `nightly-dev` | Work that has passed CI but has not been released yet. |
+
+The startup check only ever offers releases. It reads GitHub's "latest release"
+endpoint, which excludes pre-releases, and nightly builds publish no GitHub
+release at all — so enabling `check_for_updates` will never pull you onto a
+nightly.
+
+Either flag switches your checkout to the corresponding branch first (and
+refuses to do so if you have uncommitted changes). If you are running a nightly
+and want to go back to released code, `--update` moves you back to `main`.
+
 #### Automatic Found Hash Merging (Download Left Only)
 
 When downloading left hashes (uncracked hashes), hate_crack automatically:
@@ -766,6 +784,7 @@ All tests use mocked API calls, so they can run without connectivity to a Hashvi
   (19) Combipow Passphrase Attack
   (20) PCFG Attack
   (21) PRINCE-LING Attack
+  (22) Spoonman Attack
 
   (80) Wordlist Tools
   (81) Rule File Tools
@@ -995,6 +1014,17 @@ Uses pcfg_cracker's `prince_ling.py` to derive an optimized PRINCE base wordlist
 * Regenerates only when the ruleset directory is newer than the cached wordlist, so retraining a grammar invalidates the cache automatically
 * Generation is written to a temporary file and atomically moved into place; a failed or interrupted run cleans up its partial file and leaves any existing cache intact
 * Base wordlist size is capped by `pcfgPrinceLingMaxCandidates` (default 10,000,000)
+
+#### Spoonman Attack
+Derives a baseword list and a hashcat rule file from a corpus of known plaintext passwords — a previous engagement's cracked output, a leak dump, or any password list — such that the baseword x rule cross product reconstructs the corpus exactly. Contributed as issue #169 by @Spoonman1091.
+
+Each password is split into its letters-only lowercased core (the baseword) plus a rule that rebuilds the original from it, using `l`/`u`/`c` for casing, `T{p}` toggles, `${x}`/`^{x}` for trailing and leading characters, and `i{p}{x}` for interior ones.
+
+* Prompts for the corpus, then for how much of the rule file to run: the full set, top 99%, or top 95%
+* Rules are sorted by how many passwords each one rebuilds, so a truncated file keeps the most productive rules — top 95% coverage typically needs a small fraction of the rules
+* Output is cached under `<hcatOptimizedWordlists>/spoonman/<corpus name>/`: `basewords.txt`, `rules.full.rule`, the capped rule files, and `coverage.txt` with per-milestone rule counts. Derivation is skipped on later runs unless the corpus has been modified since
+* Passwords that cannot be expressed as a rule are written verbatim as their own baseword with a `:` no-op, so coverage stays complete. This covers two hashcat limits: rule positions cannot address past index 35, and hashcat rejects any rule with more than 31 functions — silently, when valid rules share the file
+* The derivation self-checks every password by reconstructing it in-process, and reports any failures rather than reporting success
 
 #### Wordlist Tools (option 80)
 A submenu of wordlist preprocessing utilities using hashcat-utils binaries. All tools read from and write to files on disk. All file and directory path prompts support tab completion.

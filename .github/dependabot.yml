@@ -7,6 +7,10 @@ updates:
   # since 2025-12).
   - package-ecosystem: "uv"
     directory: "/"
+    # All PRs target nightly-dev; main receives work only via the weekly
+    # integration merge. Without this, Dependabot opens against the repo
+    # default branch (main) and bypasses that cadence.
+    target-branch: "nightly-dev"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
@@ -20,6 +24,7 @@ updates:
   # pins current (and refreshes the trailing "# vN" comment).
   - package-ecosystem: "github-actions"
     directory: "/"
+    target-branch: "nightly-dev"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5

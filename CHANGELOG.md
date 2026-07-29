@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [2.17.0] - 2026-07-29
+
+### Added
+
+- **`--nightly` update channel.** `--nightly` (or `--update --nightly`) updates
+  from the `nightly-dev` branch instead of `main`, for work that has passed CI
+  but has not been cut into a release. `--update` is unchanged and still tracks
+  releases on `main`. The startup update check only ever offers releases: it
+  reads GitHub's "latest release" endpoint, which excludes pre-releases, and
+  nightly builds publish no GitHub release at all.
+
+- **Spoonman Attack (main menu `22`).** Derives a baseword list and a
+  frequency-sorted hashcat rule file from a corpus of known plaintext
+  passwords, such that the baseword x rule cross product reconstructs the
+  corpus. Rules are ordered most-productive-first so the file is truncatable;
+  the menu offers the full set, top 99%, or top 95% coverage. Output is cached
+  per corpus under `<hcatOptimizedWordlists>/spoonman/` and reused until the
+  corpus changes. Contributed by @Spoonman1091. (#169)
+
+  The derivation enforces hashcat's limit of 31 functions per rule, falling
+  back to emitting the password as its own literal baseword. hashcat drops
+  over-long rules *silently* when valid rules share the file, so without the
+  guard a corpus containing such passwords would quietly fall short of the
+  coverage it reported.
+
+### Changed
+
+- **No-hash-file menu no longer duplicates the download entries.** The Weakpass
+  and Hashmob wordlist downloads already live in Wordlist Tools, and the Hashmob
+  rule download already lives in Rule File Tools, so the three top-level copies
+  were removed. The menu is now `1` Hashview API, `2` Wordlist Tools, `3` Rule
+  File Tools, `4` Exit. The `--weakpass`, `--hashmob`, and `--rules` CLI flags
+  are unaffected; they short-circuit before this menu is drawn.
+
 ## [2.16.0] - 2026-07-29
 
 ### Changed
