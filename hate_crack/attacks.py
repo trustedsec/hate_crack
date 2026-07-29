@@ -646,7 +646,7 @@ def ollama_attack(ctx: Any) -> None:
         items.append(("3", "Cracked passwords (current session)"))
     # Deliberately "4" whether or not "3" was offered: renumbering it per
     # session would move the option under an operator between runs.
-    items.append(("4", "Pattern rules (LLM finds patterns, hashcat rules mutate them)"))
+    items.append(("4", "Pattern rules (LLM generates basewords and hashcat rules)"))
     items.append(("99", "Cancel"))
 
     while True:
@@ -680,14 +680,9 @@ def ollama_attack(ctx: Any) -> None:
             source = _pick_pattern_source(ctx, out_path if has_cracked else None)
             if not source:
                 return
-            selected_rules = _select_rules(ctx)
-            if selected_rules is None:
-                return
-            # All chains are handed over at once so the model is queried once
-            # rather than once per rule file — see hcatOllamaPatterns.
-            ctx.hcatOllamaPatterns(
-                ctx.hcatHashType, ctx.hcatHashFile, source, selected_rules
-            )
+            # No rule prompt: the model writes the rule file too, which is the
+            # point of the mode — see hcatOllamaPatterns.
+            ctx.hcatOllamaPatterns(ctx.hcatHashType, ctx.hcatHashFile, source)
             return
         else:
             # Without this the menu just silently redraws and the user cannot

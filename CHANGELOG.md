@@ -9,6 +9,39 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ## [Unreleased]
 
+### Changed
+
+- **LLM Pattern Rules (LLM submenu option 4) now generates its own rule file
+  instead of prompting for one.** The mode was named for rules it never wrote:
+  it inferred basewords and then asked the operator to pick a stock rule file to
+  mutate them with, which encodes the internet's password habits rather than the
+  target organization's — the one thing a model round trip over that
+  organization's own corpus is there to capture. It now makes a second request
+  from the same corpus statistics for hashcat rules describing how these users
+  decorate a word, and runs the inferred basewords against the inferred rules.
+  This completes the parallel with the Spoonman attack, which derives both sides
+  from one corpus; the difference is that Spoonman is exact and therefore
+  bounded to transformations already present, while this generalizes past them.
+
+  Generated rules are validated against hashcat's op set, per-argument types,
+  and 31-function ceiling before the file is written (new
+  `rulegen.validate_rule`). Screening is not optional: hashcat drops an invalid
+  rule *silently* when the file also holds valid ones, so an unchecked line
+  would surface as missing coverage rather than an error. The op table was
+  established by testing a hashcat binary across 953 rule cases rather than
+  from the rule documentation, which lists ops (the memory and reject-plain
+  families) that hashcat then refuses to run.
+
+  Because local-model yield here varies widely between runs, a first answer
+  under 25 valid rules is asked again once and the two rounds are merged and
+  deduped; a corpus that yields no valid rules at all falls back to running the
+  basewords unmutated instead of discarding the run's expensive half.
+
+  Scratch output moves from the `<hashfile>.llm_patterns` file to a
+  `<hashfile>.llm_patterns/` directory holding `basewords.txt` and
+  `rules.rule`, mirroring `.spoonman/`. Cleanup removes either shape, so
+  scratch left by an earlier version is still cleared.
+
 ### Added
 
 - **The Ad-hoc Mask Attack (option 14) now accepts a mask file.** The attack

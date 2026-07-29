@@ -6,10 +6,12 @@ and the mode-4 wiring in hate_crack.attacks.
 """
 
 import os
+import shlex
 from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest import mock
 
+import instructor
 import pytest
 
 os.environ["HATE_CRACK_SKIP_INIT"] = "1"
@@ -101,96 +103,177 @@ def pattern_globals(tmp_path):
         yield
 
 
-def test_patterns_written_and_rules_passed_through(pattern_env):
+VALID_RULES = ["c$2$0$2$5", "$!", "u"]
+
+
+def _paths(pattern_env):
+    scratch = f"{pattern_env.hash_file}.llm_patterns"
+    return (
+        scratch,
+        os.path.join(scratch, "basewords.txt"),
+        os.path.join(scratch, "rules.rule"),
+    )
+
+
+def test_basewords_and_generated_rules_both_written(pattern_env):
     with (
         pattern_globals(pattern_env.tmp_path),
         mock.patch(
             "hate_crack.main.llm.generate_candidates",
             return_value=["Delta2024!", "gammas", "alpha"],
         ) as gen,
+        mock.patch(
+            "hate_crack.main.llm.generate_rules", return_value=VALID_RULES
+        ) as gen_rules,
         mock.patch("hate_crack.main.hcatQuickDictionary") as quick,
     ):
-        hc_main.hcatOllamaPatterns(
-            "1000", pattern_env.hash_file, pattern_env.corpus, "-r best64.rule"
-        )
+        hc_main.hcatOllamaPatterns("1000", pattern_env.hash_file, pattern_env.corpus)
 
     assert gen.call_args[0][3] == "pattern"
     assert "Delta2024!" in gen.call_args[0][4]["sample"]
+    # Both requests describe the same corpus, analyzed once.
+    assert gen_rules.call_args[0][3] == gen.call_args[0][4]
 
-    patterns_path = f"{pattern_env.hash_file}.llm_patterns"
-    assert open(patterns_path).read().split() == ["delta", "gammas", "alpha"]
+    _, basewords_path, rules_path = _paths(pattern_env)
+    assert open(basewords_path).read().split() == ["delta", "gammas", "alpha"]
+    assert open(rules_path).read().split("\n")[:3] == VALID_RULES
 
     quick.assert_called_once()
     args = quick.call_args[0]
-    assert args[2] == "-r best64.rule"
-    assert args[3] == patterns_path
+    assert args[2] == f"-r {rules_path}"
+    assert args[3] == basewords_path
     assert quick.call_args[1]["attack_name"] == "LLM Patterns"
 
 
-def test_no_rules_chain_is_allowed(pattern_env):
+def test_operator_is_never_asked_for_a_rule_file(pattern_env):
+    """The generated rules are the point of the mode; prompting defeats it."""
     with (
         pattern_globals(pattern_env.tmp_path),
         mock.patch("hate_crack.main.llm.generate_candidates", return_value=["alpha"]),
+        mock.patch("hate_crack.main.llm.generate_rules", return_value=VALID_RULES),
+        mock.patch("hate_crack.main.hcatQuickDictionary") as quick,
+        mock.patch("builtins.input", side_effect=AssertionError("prompted")),
+    ):
+        hc_main.hcatOllamaPatterns("1000", pattern_env.hash_file, pattern_env.corpus)
+    assert quick.call_count == 1
+
+
+def test_invalid_rules_are_dropped_before_hashcat_sees_them(pattern_env):
+    with (
+        pattern_globals(pattern_env.tmp_path),
+        mock.patch("hate_crack.main.llm.generate_candidates", return_value=["alpha"]),
+        mock.patch(
+            "hate_crack.main.llm.generate_rules",
+            # 'c$2' is valid; the rest use an op hashcat does not have, a
+            # truncated argument, a bad position argument, and a comment line.
+            return_value=["c$2", "QQQ", "$", "Ta", "# a comment", "c$2"],
+        ),
         mock.patch("hate_crack.main.hcatQuickDictionary") as quick,
     ):
-        hc_main.hcatOllamaPatterns(
-            "1000", pattern_env.hash_file, pattern_env.corpus, ""
-        )
+        hc_main.hcatOllamaPatterns("1000", pattern_env.hash_file, pattern_env.corpus)
+
+    _, _, rules_path = _paths(pattern_env)
+    assert open(rules_path).read().split("\n")[:-1] == ["c$2"]
+    assert quick.call_args[0][2] == f"-r {rules_path}"
+
+
+def test_a_thin_rule_yield_is_asked_again(pattern_env):
+    """A handful of rules wastes the pass, and the model is sampled, not fixed."""
+    batches = [["c$1", "c$2"], ["c$2", "c$3"]]
+    with (
+        pattern_globals(pattern_env.tmp_path),
+        mock.patch("hate_crack.main.llm.generate_candidates", return_value=["alpha"]),
+        mock.patch(
+            "hate_crack.main.llm.generate_rules", side_effect=batches
+        ) as gen_rules,
+        mock.patch("hate_crack.main.hcatQuickDictionary"),
+    ):
+        hc_main.hcatOllamaPatterns("1000", pattern_env.hash_file, pattern_env.corpus)
+
+    assert gen_rules.call_count == hc_main.MAX_RULE_REQUESTS
+    _, _, rules_path = _paths(pattern_env)
+    # Deduped across attempts, and the earlier attempt's rules are kept.
+    assert open(rules_path).read().split("\n")[:-1] == ["c$1", "c$2", "c$3"]
+
+
+def test_a_full_rule_yield_is_not_asked_again(pattern_env):
+    plenty = ["c" + "$1" * (i + 1) for i in range(hc_main.MIN_GENERATED_RULES)]
+    with (
+        pattern_globals(pattern_env.tmp_path),
+        mock.patch("hate_crack.main.llm.generate_candidates", return_value=["alpha"]),
+        mock.patch(
+            "hate_crack.main.llm.generate_rules", return_value=plenty
+        ) as gen_rules,
+        mock.patch("hate_crack.main.hcatQuickDictionary"),
+    ):
+        hc_main.hcatOllamaPatterns("1000", pattern_env.hash_file, pattern_env.corpus)
+    gen_rules.assert_called_once()
+
+
+def test_a_retry_that_fails_keeps_the_rules_already_in_hand(pattern_env):
+    with (
+        pattern_globals(pattern_env.tmp_path),
+        mock.patch("hate_crack.main.llm.generate_candidates", return_value=["alpha"]),
+        mock.patch(
+            "hate_crack.main.llm.generate_rules",
+            side_effect=[["c$1"], llm.LLMTimeoutError("boom")],
+        ),
+        mock.patch("hate_crack.main.hcatQuickDictionary") as quick,
+    ):
+        hc_main.hcatOllamaPatterns("1000", pattern_env.hash_file, pattern_env.corpus)
+
+    _, _, rules_path = _paths(pattern_env)
+    assert open(rules_path).read().split("\n")[:-1] == ["c$1"]
+    assert quick.call_args[0][2] == f"-r {rules_path}"
+
+
+def test_no_valid_rules_falls_back_to_running_basewords_bare(pattern_env):
+    """The expensive half already succeeded, so the run is not abandoned."""
+    with (
+        pattern_globals(pattern_env.tmp_path),
+        mock.patch("hate_crack.main.llm.generate_candidates", return_value=["alpha"]),
+        mock.patch("hate_crack.main.llm.generate_rules", return_value=["QQQ", ""]),
+        mock.patch("hate_crack.main.hcatQuickDictionary") as quick,
+    ):
+        hc_main.hcatOllamaPatterns("1000", pattern_env.hash_file, pattern_env.corpus)
+
+    _, basewords_path, rules_path = _paths(pattern_env)
+    assert quick.call_args[0][2] == ""
+    assert quick.call_args[0][3] == basewords_path
+    assert not os.path.exists(rules_path)
+
+
+def test_rule_request_failure_still_runs_the_basewords(pattern_env):
+    with (
+        pattern_globals(pattern_env.tmp_path),
+        mock.patch("hate_crack.main.llm.generate_candidates", return_value=["alpha"]),
+        mock.patch(
+            "hate_crack.main.llm.generate_rules",
+            side_effect=llm.LLMTimeoutError("boom"),
+        ),
+        mock.patch("hate_crack.main.hcatQuickDictionary") as quick,
+    ):
+        hc_main.hcatOllamaPatterns("1000", pattern_env.hash_file, pattern_env.corpus)
     assert quick.call_args[0][2] == ""
 
 
-def test_chained_rules_pass_through_verbatim(pattern_env):
-    chain = " -r best64.rule -r toggles1.rule"
+def test_rules_path_is_quoted_for_the_shell(pattern_env, tmp_path):
+    """hcatQuickDictionary splits the chain with shlex, so a spacey path must hold."""
+    spacey = tmp_path / "hash dir"
+    spacey.mkdir()
+    hash_file = spacey / "hashes.txt"
+    hash_file.touch()
     with (
         pattern_globals(pattern_env.tmp_path),
         mock.patch("hate_crack.main.llm.generate_candidates", return_value=["alpha"]),
+        mock.patch("hate_crack.main.llm.generate_rules", return_value=VALID_RULES),
         mock.patch("hate_crack.main.hcatQuickDictionary") as quick,
     ):
-        hc_main.hcatOllamaPatterns(
-            "1000", pattern_env.hash_file, pattern_env.corpus, chain
-        )
-    assert quick.call_args[0][2] == chain
+        hc_main.hcatOllamaPatterns("1000", str(hash_file), pattern_env.corpus)
 
-
-def test_multiple_chains_infer_once_and_reuse_the_baseword_file(pattern_env):
-    """A round trip to the model is slow and non-deterministic, so it runs once."""
-    with (
-        pattern_globals(pattern_env.tmp_path),
-        mock.patch(
-            "hate_crack.main.llm.generate_candidates", return_value=["alpha"]
-        ) as gen,
-        mock.patch("hate_crack.main.hcatQuickDictionary") as quick,
-    ):
-        hc_main.hcatOllamaPatterns(
-            "1000",
-            pattern_env.hash_file,
-            pattern_env.corpus,
-            ["-r a.rule", " -r b.rule -r c.rule", ""],
-        )
-
-    gen.assert_called_once()
-    assert quick.call_count == 3
-    assert [c[0][2] for c in quick.call_args_list] == [
-        "-r a.rule",
-        " -r b.rule -r c.rule",
-        "",
-    ]
-    # Every pass runs against the same inferred baseword file.
-    assert {c[0][3] for c in quick.call_args_list} == {
-        f"{pattern_env.hash_file}.llm_patterns"
-    }
-
-
-def test_empty_chain_list_infers_but_runs_nothing(pattern_env):
-    with (
-        pattern_globals(pattern_env.tmp_path),
-        mock.patch("hate_crack.main.llm.generate_candidates", return_value=["alpha"]),
-        mock.patch("hate_crack.main.hcatQuickDictionary") as quick,
-    ):
-        hc_main.hcatOllamaPatterns(
-            "1000", pattern_env.hash_file, pattern_env.corpus, []
-        )
-    quick.assert_not_called()
+    chain = quick.call_args[0][2]
+    expected = os.path.join(f"{hash_file}.llm_patterns", "rules.rule")
+    assert shlex.split(chain) == ["-r", expected]
 
 
 def test_duplicate_patterns_deduped_after_cleaning(pattern_env):
@@ -201,56 +284,57 @@ def test_duplicate_patterns_deduped_after_cleaning(pattern_env):
             # All three clean to "delta" — the model decorated its own output.
             return_value=["delta", "DELTA", "Delta2024"],
         ),
+        mock.patch("hate_crack.main.llm.generate_rules", return_value=VALID_RULES),
         mock.patch("hate_crack.main.hcatQuickDictionary"),
     ):
-        hc_main.hcatOllamaPatterns(
-            "1000", pattern_env.hash_file, pattern_env.corpus, ""
-        )
-    patterns_path = f"{pattern_env.hash_file}.llm_patterns"
-    assert open(patterns_path).read().split() == ["delta"]
+        hc_main.hcatOllamaPatterns("1000", pattern_env.hash_file, pattern_env.corpus)
+    _, basewords_path, _ = _paths(pattern_env)
+    assert open(basewords_path).read().split() == ["delta"]
 
 
 def test_missing_source_skips_the_model(pattern_env):
     with (
         pattern_globals(pattern_env.tmp_path),
         mock.patch("hate_crack.main.llm.generate_candidates") as gen,
+        mock.patch("hate_crack.main.llm.generate_rules") as gen_rules,
         mock.patch("hate_crack.main.hcatQuickDictionary") as quick,
     ):
         hc_main.hcatOllamaPatterns(
-            "1000", pattern_env.hash_file, str(pattern_env.tmp_path / "nope.txt"), ""
+            "1000", pattern_env.hash_file, str(pattern_env.tmp_path / "nope.txt")
         )
     gen.assert_not_called()
+    gen_rules.assert_not_called()
     quick.assert_not_called()
 
 
-def test_all_output_filtered_out_skips_hashcat(pattern_env):
+def test_all_output_filtered_out_skips_hashcat_and_the_rule_request(pattern_env):
     with (
         pattern_globals(pattern_env.tmp_path),
         mock.patch(
             "hate_crack.main.llm.generate_candidates", return_value=["1", "22", "!!"]
         ),
+        mock.patch("hate_crack.main.llm.generate_rules") as gen_rules,
         mock.patch("hate_crack.main.hcatQuickDictionary") as quick,
     ):
-        hc_main.hcatOllamaPatterns(
-            "1000", pattern_env.hash_file, pattern_env.corpus, ""
-        )
+        hc_main.hcatOllamaPatterns("1000", pattern_env.hash_file, pattern_env.corpus)
     quick.assert_not_called()
+    gen_rules.assert_not_called()
     assert not os.path.exists(f"{pattern_env.hash_file}.llm_patterns")
 
 
-def test_timeout_skips_hashcat(pattern_env):
+def test_baseword_timeout_skips_hashcat(pattern_env):
     with (
         pattern_globals(pattern_env.tmp_path),
         mock.patch(
             "hate_crack.main.llm.generate_candidates",
             side_effect=llm.LLMTimeoutError("boom"),
         ),
+        mock.patch("hate_crack.main.llm.generate_rules") as gen_rules,
         mock.patch("hate_crack.main.hcatQuickDictionary") as quick,
     ):
-        hc_main.hcatOllamaPatterns(
-            "1000", pattern_env.hash_file, pattern_env.corpus, ""
-        )
+        hc_main.hcatOllamaPatterns("1000", pattern_env.hash_file, pattern_env.corpus)
     quick.assert_not_called()
+    gen_rules.assert_not_called()
 
 
 def test_connection_failure_skips_hashcat(pattern_env):
@@ -262,9 +346,7 @@ def test_connection_failure_skips_hashcat(pattern_env):
         ),
         mock.patch("hate_crack.main.hcatQuickDictionary") as quick,
     ):
-        hc_main.hcatOllamaPatterns(
-            "1000", pattern_env.hash_file, pattern_env.corpus, ""
-        )
+        hc_main.hcatOllamaPatterns("1000", pattern_env.hash_file, pattern_env.corpus)
     quick.assert_not_called()
 
 
@@ -308,8 +390,7 @@ def test_mode_4_offered_with_and_without_cracked(tmp_path):
         assert ("3" in labels) is has_cracked
 
 
-def test_mode_4_hands_all_chains_over_in_one_call(tmp_path):
-    """Every chain goes over at once so the model is queried once, not per rule."""
+def test_mode_4_passes_only_the_source_and_never_prompts_for_rules(tmp_path):
     ctx = _pattern_ctx(tmp_path)
     corpus = tmp_path / "corpus.txt"
     corpus.write_text("Alpha2024!\n")
@@ -318,38 +399,24 @@ def test_mode_4_hands_all_chains_over_in_one_call(tmp_path):
         mock.patch.object(hc_attacks, "interactive_menu", return_value="4"),
         mock.patch.object(hc_attacks._notify, "prompt_notify_for_attack"),
         mock.patch.object(hc_attacks, "_pick_pattern_source", return_value=str(corpus)),
-        mock.patch.object(
-            hc_attacks, "_select_rules", return_value=["-r a.rule", "-r b.rule"]
-        ),
+        mock.patch.object(hc_attacks, "_select_rules") as sel,
     ):
         hc_attacks.ollama_attack(ctx)
 
-    ctx.hcatOllamaPatterns.assert_called_once()
-    assert ctx.hcatOllamaPatterns.call_args[0][3] == ["-r a.rule", "-r b.rule"]
+    sel.assert_not_called()
+    ctx.hcatOllamaPatterns.assert_called_once_with(
+        ctx.hcatHashType, ctx.hcatHashFile, str(corpus)
+    )
 
 
-def test_mode_4_rule_cancel_runs_nothing(tmp_path):
-    ctx = _pattern_ctx(tmp_path)
-    with (
-        mock.patch.object(hc_attacks, "interactive_menu", return_value="4"),
-        mock.patch.object(hc_attacks._notify, "prompt_notify_for_attack"),
-        mock.patch.object(hc_attacks, "_pick_pattern_source", return_value="/x"),
-        mock.patch.object(hc_attacks, "_select_rules", return_value=None),
-    ):
-        hc_attacks.ollama_attack(ctx)
-    ctx.hcatOllamaPatterns.assert_not_called()
-
-
-def test_mode_4_source_cancel_skips_rule_picker(tmp_path):
+def test_mode_4_source_cancel_runs_nothing(tmp_path):
     ctx = _pattern_ctx(tmp_path)
     with (
         mock.patch.object(hc_attacks, "interactive_menu", return_value="4"),
         mock.patch.object(hc_attacks._notify, "prompt_notify_for_attack"),
         mock.patch.object(hc_attacks, "_pick_pattern_source", return_value=None),
-        mock.patch.object(hc_attacks, "_select_rules") as sel,
     ):
         hc_attacks.ollama_attack(ctx)
-    sel.assert_not_called()
     ctx.hcatOllamaPatterns.assert_not_called()
 
 
@@ -384,7 +451,8 @@ def test_llm_patterns_removed_by_cleanup(tmp_path, monkeypatch):
     """Mirrors test_main_spoonman.test_cleanup_removes_derived_output."""
     hash_file = str(tmp_path / "hashes.txt")
     patterns_path = hash_file + ".llm_patterns"
-    with open(patterns_path, "w") as f:
+    os.makedirs(patterns_path)
+    with open(os.path.join(patterns_path, "basewords.txt"), "w") as f:
         f.write("delta\n")
 
     monkeypatch.setattr(hc_main, "hcatHashFile", hash_file, raising=False)
@@ -394,3 +462,47 @@ def test_llm_patterns_removed_by_cleanup(tmp_path, monkeypatch):
     hc_main.cleanup()
 
     assert not os.path.exists(patterns_path)
+
+
+# --------------------------------------------------------------------------
+# Layer 1: the "rules" generation mode
+# --------------------------------------------------------------------------
+
+
+def test_rules_mode_has_a_prompt():
+    assert "rules" in llm._PROMPTS
+
+
+def test_rules_request_embeds_the_corpus_description():
+    request = llm._build_request("rules", {"summary": "mask ?u?l?l?l?d?d 42%"})
+    assert "?u?l?l?l?d?d" in request
+    assert "hashcat rules" in request
+
+
+def test_rules_prompt_names_the_allowed_ops():
+    """A model told only "write hashcat rules" invents ops that get discarded."""
+    prompt = llm._PROMPTS["rules"].generate_prompt()
+    for op_description in ("append character", "prepend character", "capitalize"):
+        assert op_description in prompt
+
+
+def test_generate_rules_dedupes_and_strips():
+    result = mock.MagicMock()
+    result.rules = ["  c$1  ", "c$1", "$!", "", None]
+    agent_instance = mock.MagicMock()
+    agent_instance.run.return_value = result
+    agent_cls = mock.MagicMock()
+    agent_cls.__getitem__.return_value.return_value = agent_instance
+
+    with (
+        mock.patch(
+            "hate_crack.llm.instructor.from_openai",
+            return_value=mock.MagicMock(spec=instructor.Instructor),
+        ),
+        mock.patch("hate_crack.llm.OpenAI"),
+        mock.patch("hate_crack.llm.AtomicAgent", agent_cls),
+    ):
+        out = llm.generate_rules(OLLAMA_URL, MODEL, 2048, {"summary": "x"})
+
+    assert out == ["c$1", "$!"]
+    assert "x" in agent_instance.run.call_args[0][0].request

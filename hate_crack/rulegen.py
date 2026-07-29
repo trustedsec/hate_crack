@@ -72,6 +72,93 @@ def count_ops(rule):
     return count
 
 
+# What each hashcat rule op takes after the op character itself: "p" for a
+# position/count token, which must come from the 36-character POS alphabet, and
+# "c" for a literal character, which may be anything printable. Counting
+# arguments is not enough — hashcat rejects 'Ta' as surely as it rejects an
+# unknown op, and just as silently.
+#
+# Wider than the subset :func:`derive` emits, because :func:`validate_rule`
+# screens rules written by something else (see hate_crack.llm.generate_rules).
+#
+# Established empirically against hashcat v7 rather than from the rule
+# documentation, which lists ops this hashcat will not run. Verified rejected
+# both by --stdout and by a real -m 0 run, and therefore deliberately absent:
+#
+#   4 6 M X   memory ops (append/prepend memory, memorize, extract)
+#   < > _ ! / ( ) %   reject-plain ops
+#
+# hashcat answers "No valid rules left" for each of those on its own and drops
+# it silently from a file that also holds valid rules, which is the whole reason
+# this function exists — so treating them as valid here would defeat it.
+#
+# Also deliberately absent, in the opposite direction: 'h' and 'H' (hex-encode),
+# 'S', and 'v'/'B' (two arguments each). hashcat v7 runs them, but hate_crack
+# supports v6 installs too, and a rule this table blesses that the operator's
+# hashcat does not know is dropped silently — the exact failure this screen is
+# for. Rejecting a valid rule only costs one rule; accepting an invalid one
+# costs coverage nobody sees go missing.
+RULE_OP_ARGS = {
+    **{op: "" for op in ":lucCtrdfkKqE{}[]"},
+    **{op: "p" for op in "TpDzZ'-+.,yYLR"},
+    **{op: "c" for op in "$^e@"},
+    **{op: "pp" for op in "xO*"},
+    **{op: "pc" for op in "io3"},
+    "s": "cc",
+}
+
+# hashcat rejects a rule line longer than this outright.
+MAX_RULE_LENGTH = 255
+
+
+def validate_rule(rule):
+    """Return True if *rule* is a rule line hashcat will accept.
+
+    Stricter than :func:`count_ops`, which only knows the ops this module
+    emits and raises on anything else. This screens arbitrary rule text — a
+    model's output, a hand-written file — so one bad line cannot poison a whole
+    rule file. hashcat drops an invalid rule *silently* when valid rules share
+    the file, which turns a malformed line into missing coverage rather than an
+    error, so the filtering has to happen before hashcat sees it.
+
+    Rejects: unknown ops, an op whose arguments run off the end of the line, a
+    position argument outside the :data:`POS` alphabet, non-printable or
+    non-ASCII characters, an over-long line, and more than
+    ``MAX_RULE_FUNCTIONS`` functions. Comments and blank lines are not rules
+    and are rejected too; callers strip those first if they want to keep them.
+    """
+    if not isinstance(rule, str) or not rule:
+        return False
+    if len(rule) > MAX_RULE_LENGTH:
+        return False
+    if any(not (" " <= c <= "~") for c in rule):
+        return False
+
+    count = 0
+    i = 0
+    while i < len(rule):
+        # hashcat allows functions to be separated by spaces for readability.
+        # A space is only a separator *between* functions — as an argument it is
+        # consumed by the op below, exactly as hashcat's parser does it.
+        if rule[i] == " ":
+            i += 1
+            continue
+        kinds = RULE_OP_ARGS.get(rule[i])
+        if kinds is None:
+            return False
+        # The op and all of its arguments must fit inside the line.
+        if i + 1 + len(kinds) > len(rule):
+            return False
+        for offset, kind in enumerate(kinds, start=1):
+            if kind == "p" and rule[i + offset] not in POS:
+                return False
+        i += 1 + len(kinds)
+        count += 1
+        if count > MAX_RULE_FUNCTIONS:
+            return False
+    return count > 0
+
+
 def derive(pw):
     """Return ``(baseword, rule)`` such that applying *rule* to *baseword* yields *pw*.
 
