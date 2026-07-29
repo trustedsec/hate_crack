@@ -9,6 +9,17 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ## [Unreleased]
 
+### Security
+
+- **`config.json` backups are now gitignored.** Only the exact name
+  `config.json` was ignored, so a timestamped or editor backup
+  (`config.json.bak-<date>`, `config.json.orig`, `config.json~`) sat untracked
+  but stageable in a checkout while holding the same populated
+  `hashview_api_key` / `hashmob_api_key` values as the live config. Since this
+  is a public repo and CI has no secret scanning, a `git add -A` was the only
+  step between a local backup and published credentials. `.playwright-mcp/`
+  scratch output is ignored for the same reason.
+
 ### Changed
 
 - **CI now lints and format-checks `tests/` alongside `hate_crack/`.** The ruff
