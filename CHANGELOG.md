@@ -9,12 +9,71 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ## [Unreleased]
 
+### Changed
+
+- **Wordlist and rule downloads moved into their tool submenus.** The Hashmob
+  and Weakpass wordlist downloads are now options `9` and `10` of Wordlist
+  Tools (main menu `80`), and the Hashmob rule download and rule analyzer are
+  options `4` and `5` of Rule File Tools (main menu `81`). The main menu's
+  `90`–`93` block is gone. If you had those keys in muscle memory: `90` is now
+  Rule File Tools option 4, `91` is Rule File Tools option 5, `92` is Wordlist
+  Tools option 9, and `93` is Wordlist Tools option 10. The `--hashmob`,
+  `--weakpass`, and `--rules` non-interactive flags are unchanged. (#166)
+- **Duplicate menu mapping divergence.** `hate_crack.py`'s copy of the main
+  menu had key `91` wired to the Weakpass menu while both its own label and
+  `main.py` said "Analyze Hashcat Rules", so that key ran the wrong handler
+  through the proxy path. The key is now retired and both mappings agree.
+  (#166)
+
+## [2.15.1] - 2026-07-28
+
 ### Fixed
 
-- **PCFG/PRINCE-LING interpreter drift.** `hcatPCFG`/`hcatPrinceLing` now
-  launch `pcfg_guesser.py`/`prince_ling.py` via `sys.executable` instead of
-  a bare `python3` resolved from `PATH`, so they run under the same pinned
-  interpreter and environment as hate_crack itself. (#149)
+- **PCFG ruleset casing on case-insensitive filesystems.** The exact-match
+  fast path in `_resolve_pcfg_ruleset_dir` used `os.path.isdir()`, which
+  returns true for a wrong-cased path on macOS and Windows, so a
+  `pcfgRuleset` of `"DEFAULT"` was handed back verbatim instead of resolving
+  to the real `Default` directory — defeating the case-insensitive fallback
+  scan added in 2.14.8. Resolution now tries a real case-sensitive match
+  before falling back. This was also the root cause of the intermittent
+  `test_regenerates_when_cache_stale` failure. (#165)
+
+## [2.15.0] - 2026-07-28
+
+### Added
+
+- **End-to-end test suite for the non-interactive CLI.** Adds the e2e harness,
+  shared fixtures (hashes, wordlists, rules), and coverage for the four
+  non-interactive subcommands. Opt-in via `HATE_CRACK_RUN_E2E=1`. The NTLM
+  fixture generator uses a pure-Python MD4 implementation, since `hashlib`'s
+  MD4 is unavailable on OpenSSL builds that disable legacy providers. (#164)
+
+### Changed
+
+- **Weakpass listings parsed as JSON instead of scraped HTML.**
+  `hate_crack/api.py` now reads weakpass.com's Inertia `data-page` payload
+  with the standard library rather than parsing the rendered page, and the
+  `beautifulsoup4` runtime dependency is dropped — `api.py` was its only
+  consumer. (#139)
+- Dependency bumps: `openai` >=2.49.0, `atomic-agents` >=2.9.1, `ty` 0.0.64,
+  `setuptools-scm` >=10.2.1.
+
+## [2.14.9] - 2026-07-28
+
+### Fixed
+
+- **Unwritable install tree crashed wordlist and rule downloads.**
+  `get_hcat_wordlists_dir`/`get_rules_dir` now guard their `os.makedirs` call
+  with `try/except OSError` and fall back to the cwd-relative default.
+  Follow-up to #153 (shipped in 2.14.8), which started resolving these
+  defaults against the install tree and dropped the broad `except Exception`
+  that had been masking the failure — so an unprivileged user on a root-owned
+  or read-only install got a raw `PermissionError` traceback. (#163)
+
+## [2.14.8] - 2026-07-28
+
+### Fixed
+
 - **PCFG ruleset default casing.** `pcfgRuleset` now defaults to `"Default"`,
   matching the on-disk `pcfg_cracker/Rules/Default` directory, and both
   `hcatPCFG` and `hcatPrinceLing` resolve the configured ruleset name
@@ -45,6 +104,62 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   `get_hcat_potfile_path` now merge `config.json.example` the same way
   `main.py` does, instead of falling back to their own hardcoded,
   cwd-relative defaults for any key absent from `config.json`. (#153)
+
+## [2.14.7] - 2026-07-28
+
+### Fixed
+
+- **PCFG/PRINCE-LING interpreter drift.** `hcatPCFG`/`hcatPrinceLing` now
+  launch `pcfg_guesser.py`/`prince_ling.py` via `sys.executable` instead of
+  a bare `python3` resolved from `PATH`, so they run under the same pinned
+  interpreter and environment as hate_crack itself. (#149)
+
+## [2.14.6] - 2026-07-28
+
+### Changed
+
+- **Narrower config.json search path.** `_candidate_roots()` in both `main.py`
+  and `api.py` now checks only the repo/package directory and
+  `~/.hate_crack`, dropping the current working directory and its parent,
+  `/opt/hate_crack`, `/usr/local/share/hate_crack`, and the
+  `~/hate_crack`/`~/hate-crack` variants. This makes which config file is in
+  effect predictable rather than dependent on where you happened to run the
+  tool from. README updated to match. (#152)
+
+## [2.14.5] - 2026-07-28
+
+### Fixed
+
+- **config.json.example drift between the root and packaged copies.** Ten keys
+  were missing from the packaged copy, four dead PassGPT keys were still
+  shipped, and `hcatPath` disagreed. The packaged copy is now a symlink to the
+  root file, with a test asserting both parse to identical JSON so drift fails
+  CI instead of shipping silently. (#150, #151)
+- **Stale defaults persisted into user configs.** hate_crack no longer writes
+  missing keys back into your `config.json` on load. Previously a wrong default
+  in the example file got permanently baked into every user's config on the
+  next run; defaults are now merged in memory only. (#151)
+
+## [2.14.4] - 2026-07-28
+
+### Fixed
+
+- **OMEN finished in seconds instead of doing real work.** The in-code fallback
+  default for `omenMaxCandidates` (used when the key is absent from
+  `config.json`) was 1,000,000. Raised to 100,000,000 in both `main.py` and
+  the shipped `config.json.example`. (#145, #147)
+- **Flaky `test_main_pcfg`.** A leaked `hate_path` global let test ordering
+  decide the outcome.
+
+### Changed
+
+- **README menu block synced with the code.** The documented main menu still
+  showed pre-consolidation numbering (LLM at 15, OMEN at 16) and omitted
+  Notifications, PCFG, and PRINCE-LING entirely. Also adds the missing N-gram,
+  PCFG, and PRINCE-LING attack sections and a PCFG configuration section.
+  (#138)
+- Dependency bumps: `ruff` 0.16.0 (with the lint rule set pinned to pre-0.16
+  defaults), `ty` 0.0.63, `setuptools` >=83.0.0, `beautifulsoup4` >=4.15.0.
 
 ## [2.14.3] - 2026-07-25
 
