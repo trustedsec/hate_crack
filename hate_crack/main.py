@@ -3500,6 +3500,38 @@ def check_potfile():
         print("No hashes found in POT file.")
 
 
+def _confirm_overwrite(path, prompt):
+    """Ask before clobbering `path`. Non-interactive callers always proceed.
+
+    Returns True when the caller should go ahead with the overwrite.
+    """
+    if not os.path.isfile(path):
+        return True
+    existing = lineCount(path)
+    if existing <= 0:
+        return True
+    print(f"{path} already contains {existing} cracked hash(es).")
+    if not sys.stdin.isatty():
+        return True
+    answer = input(prompt).strip().lower()
+    return answer in ("", "y", "yes")
+
+
+# Rebuild <hashfile>.out from the POT file, discarding whatever is there now.
+def restore_from_potfile():
+    if not hcatHashFile:
+        print("Error: No hashfile loaded.")
+        return False
+    out_path = hcatHashFile + ".out"
+    if not _confirm_overwrite(
+        out_path, "Overwrite it with the POT file contents? (Y/n): "
+    ):
+        print("Left the existing output file untouched.")
+        return False
+    check_potfile()
+    return True
+
+
 # creating the combined output for pwdformat + cleartext
 def combine_ntlm_output():
     hashes = {}
@@ -4402,6 +4434,10 @@ def ngram_attack():
     return _attacks.ngram_attack(_attack_ctx())
 
 
+def restore_potfile_output():
+    return _attacks.restore_potfile_output(_attack_ctx())
+
+
 def combinator_submenu():
     return _attacks.combinator_submenu(_attack_ctx())
 
@@ -4946,6 +4982,7 @@ def get_main_menu_items():
         ("80", "Wordlist Tools"),
         ("81", "Rule File Tools"),
         ("82", "Notifications"),
+        ("93", "Regenerate .out from POT file"),
     ]
     if hashview_api_key:
         items.append(("94", "Hashview API"))
@@ -4989,6 +5026,7 @@ def get_main_menu_options():
         "80": wordlist_tools_submenu,
         "81": rule_tools_submenu,
         "82": notifications_submenu,
+        "93": restore_potfile_output,
         "95": pipal,
         "96": export_excel,
         "97": show_results,
@@ -5101,6 +5139,15 @@ def main():
             help=(
                 "Override hashcat potfile path (equivalent to hashcat --potfile-path). "
                 "Use empty string to disable overriding and use hashcat's built-in default."
+            ),
+        )
+        parser.add_argument(
+            "--restore-potfile",
+            dest="restore_potfile",
+            action="store_true",
+            help=(
+                "Rebuild <hashfile>.out from the POT file at startup, replacing "
+                "any existing contents, then continue as normal."
             ),
         )
         parser.add_argument(
@@ -5670,8 +5717,12 @@ def main():
         if hcatUsernamePrefix:
             print("[*] Username prefixes detected \u2014 adding --username flag")
 
-    # Check POT File for Already Cracked Hashes
-    if not os.path.isfile(hcatHashFile + ".out"):
+    # Check POT File for Already Cracked Hashes. --restore-potfile forces the
+    # rebuild even when .out already exists; the flag is the explicit request,
+    # so it skips the interactive overwrite confirmation.
+    if getattr(args, "restore_potfile", False):
+        check_potfile()
+    elif not os.path.isfile(hcatHashFile + ".out"):
         hcatOutput = open(hcatHashFile + ".out", "w+")
         hcatOutput.close()
         print("Checking POT file for already cracked hashes...")

@@ -36,6 +36,7 @@ MENU_OPTION_TEST_CASES = [
     ("80", CLI_MODULE._attacks, "wordlist_tools_submenu", "wordlist-tools"),
     ("81", CLI_MODULE._attacks, "rule_tools_submenu", "rule-tools"),
     ("82", CLI_MODULE, "notifications_submenu", "notifications-submenu"),
+    ("93", CLI_MODULE._attacks, "restore_potfile_output", "restore-potfile"),
     ("95", CLI_MODULE, "pipal", "pipal"),
     ("96", CLI_MODULE, "export_excel", "export-excel"),
     ("97", CLI_MODULE, "show_results", "show-results"),
