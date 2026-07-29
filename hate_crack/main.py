@@ -2356,6 +2356,128 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
             return
 
 
+MIN_PATTERN_LEN = 3
+
+
+def _clean_pattern(raw):
+    """Reduce one model-returned pattern to a bare lowercase baseword.
+
+    Returns "" for anything unusable. The prompt asks for lowercase letters
+    only, but the rule file is what supplies case, digits, and punctuation — so
+    a model that decorates its answer anyway would otherwise get decorated a
+    second time by the rules, producing candidates like "Summer2024!123". The
+    filter is applied here rather than trusted to the prompt for that reason.
+    """
+    if not isinstance(raw, str):
+        return ""
+    letters = "".join(c for c in raw.lower() if "a" <= c <= "z")
+    if len(letters) < MIN_PATTERN_LEN:
+        return ""
+    return letters
+
+
+def hcatOllamaPatterns(hcatHashType, hcatHashFile, source_path, rule_chains=""):
+    """LLM Pattern Rules: infer pattern basewords from a corpus, then apply rules.
+
+    The Spoonman attack (see hcatSpoonman and hate_crack/rulegen.py) extracts
+    basewords mechanically, so it can only ever produce cores that already
+    appear in the corpus. This asks the model to generalize instead — to name
+    the word families behind the sample and enumerate members the sample does
+    not contain — and then subjects those basewords to *rule_chains*.
+
+    *rule_chains* is one already-formatted hashcat rule argument (such as
+    "-r best64.rule", or "" for no rules) as produced by
+    attacks._select_rules, or a list of them. Inference happens once and every
+    chain runs against the same baseword file: unlike the local generators the
+    other multi-chain attacks use, a round trip to the model costs tens of
+    seconds and is not deterministic, so inferring per chain would both stall
+    the run and change the basewords underneath it between passes.
+    """
+    if not os.path.isfile(source_path):
+        print(f"Error: pattern source not found: {source_path}")
+        return
+
+    sampled = _sample_plaintext_file(
+        source_path, ollamaMaxSampleLines, source_label="pattern source"
+    )
+    if sampled is None:
+        return
+    if not sampled:
+        print(f"Error: no passwords read from {source_path}.")
+        return
+
+    try:
+        with spinner(f"Inferring password patterns via Ollama ({ollamaModel})..."):
+            raw_patterns = llm.generate_candidates(
+                ollamaUrl,
+                ollamaModel,
+                ollamaNumCtx,
+                "pattern",
+                {"sample": "\n".join(sampled)},
+                timeout=ollamaTimeout,
+            )
+    except llm.LLMTimeoutError:
+        print(f"Error: the Ollama request timed out after {ollamaTimeout:g} seconds.")
+        print(
+            f"The model ({ollamaModel}) may still be loading into VRAM. Retry, or "
+            'raise "ollamaTimeout" in config.json to wait longer.'
+        )
+        return
+    except ValueError as e:
+        print(f"Error: {e}")
+        return
+    except Exception as e:
+        print(f"Error inferring patterns: {e}")
+        print(
+            "Ensure Ollama is running (ollama serve) and the model is pulled "
+            f"(ollama pull {ollamaModel})."
+        )
+        return
+
+    seen = set()
+    patterns = []
+    for raw in raw_patterns:
+        cleaned = _clean_pattern(raw)
+        if cleaned and cleaned not in seen:
+            seen.add(cleaned)
+            patterns.append(cleaned)
+
+    if not patterns:
+        print(
+            "Error: none of the model's output survived cleanup — every entry was "
+            f"under {MIN_PATTERN_LEN} letters once digits and punctuation were "
+            "stripped."
+        )
+        return
+
+    # Per-run scratch beside the hash file, like .ollama_candidates and
+    # .spoonman; removed by cleanup().
+    patterns_path = f"{hcatHashFile}.llm_patterns"
+    try:
+        with open(patterns_path, "w") as f:
+            for pattern in patterns:
+                f.write(pattern + "\n")
+    except OSError as e:
+        print(f"Error writing patterns file: {e}")
+        return
+
+    discarded = len(raw_patterns) - len(patterns)
+    summary = f"Inferred {len(patterns)} pattern basewords -> {patterns_path}"
+    if discarded > 0:
+        summary += f" ({discarded} discarded during cleanup)"
+    print(summary)
+
+    chains = [rule_chains] if isinstance(rule_chains, str) else list(rule_chains)
+    for rule_chain in chains:
+        hcatQuickDictionary(
+            hcatHashType,
+            hcatHashFile,
+            rule_chain,
+            patterns_path,
+            attack_name="LLM Patterns",
+        )
+
+
 # Middle fast Combinator Attack
 def hcatMiddleCombinator(hcatHashType, hcatHashFile):
     global hcatProcess
@@ -3435,6 +3557,8 @@ def cleanup():
             os.remove(hcatHashFile + ".working")
         if os.path.exists(hcatHashFile + ".expanded"):
             os.remove(hcatHashFile + ".expanded")
+        if os.path.exists(hcatHashFile + ".llm_patterns"):
+            os.remove(hcatHashFile + ".llm_patterns")
         if os.path.isdir(hcatHashFile + ".spoonman"):
             shutil.rmtree(hcatHashFile + ".spoonman", ignore_errors=True)
         if os.path.exists(hcatHashFileOrig + ".combined"):

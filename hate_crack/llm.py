@@ -157,10 +157,43 @@ _CRACKED_PROMPT = SystemPromptGenerator(
     ],
 )
 
+_PATTERN_PROMPT = SystemPromptGenerator(
+    background=[
+        "You are a security professional working an authorized penetration test.",
+        "The sample passwords you are shown come from the target environment, so "
+        "the words behind them reveal what that organization's users draw on when "
+        "they invent a password.",
+        "Your output is a baseword list. A separate hashcat rule file will supply "
+        "all of the capitalization, digits, years, separators, suffixes, and "
+        "leetspeak — so decorating a baseword yourself only wastes a slot.",
+    ],
+    steps=[
+        "Strip each sample password down to the word or words behind it, ignoring "
+        "case, digits, and punctuation.",
+        "Group those words into the semantic families they belong to: the company "
+        "and its products, site or department names, local sports teams and city "
+        "names, seasons and months, hobbies, mascots, keyboard walks.",
+        "For every family you identify, list more members of that family than the "
+        "sample actually contains — the point is to predict the words other users "
+        "at this organization chose, not to echo the ones already recovered.",
+    ],
+    output_instructions=[
+        "Return lowercase letters only. No digits, punctuation, spaces, or "
+        "capitals anywhere in a baseword — the rules add those.",
+        "One baseword per list entry. Multi-word basewords run together, e.g. "
+        "'acmewidgets', not 'acme widgets'.",
+        "Skip generic filler such as 'password', 'welcome', 'letmein', and "
+        "'qwerty'. Stock wordlists already cover those, so they crowd out the "
+        "organization-specific guesses that make this list worth running.",
+        "Do not include explanations, numbering, or duplicate entries.",
+    ],
+)
+
 _PROMPTS = {
     "target": _TARGET_PROMPT,
     "wordlist": _WORDLIST_PROMPT,
     "cracked": _CRACKED_PROMPT,
+    "pattern": _PATTERN_PROMPT,
 }
 
 
@@ -181,6 +214,15 @@ def _build_request(mode: str, context_data: dict) -> str:
         return (
             "Here are sample passwords. Study their patterns and generate basewords "
             "for a denylist:\n" + sample
+        )
+    if mode == "pattern":
+        sample = context_data.get("sample", "")
+        return (
+            "Here is a sample of passwords from the target environment. Identify "
+            "the semantic families of words behind them, then return as many "
+            "lowercase letters-only basewords from those families as you can, "
+            "including words the sample does not contain. Hashcat rules will "
+            "mutate these, so add no digits, capitals, or punctuation:\n" + sample
         )
     if mode == "cracked":
         sample = context_data.get("sample", "")

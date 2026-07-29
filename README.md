@@ -924,6 +924,13 @@ Uses a local Ollama instance to generate password candidates for a capture-the-f
 * Alternatively derives basewords from a sample **wordlist**, or from the **cracked passwords** of the current session (`<hashfile>.out`) so the model mirrors the target organization's own password conventions and produces new candidates in that style (only offered once something has been cracked)
 * A live spinner with an elapsed-seconds counter runs during generation, and requests are bounded by `ollamaTimeout` so a model stuck loading into VRAM reports a timeout instead of hanging
 
+**Pattern rules mode** (option 4 in the LLM submenu) takes the same shape as the [Spoonman Attack](#spoonman-attack) — a baseword list run through hashcat rules — but infers the basewords instead of extracting them. Spoonman can only produce cores that already appear in its corpus; this asks the model to name the *word families* behind a sample (the company and its products, site names, local sports teams, seasons, mascots) and enumerate members the sample does not contain.
+
+* Pattern source is either the current session's cracked passwords (offered first, and only once something has been cracked, since those reveal the target's real conventions) or a sample wordlist
+* Prompts for rule file(s) from the rules directory using the standard rule picker, including chained rules (`1+2`) and YOLO (all rules); each selected chain runs as its own pass
+* Model output is normalized to lowercase letters only, discarding anything under 3 characters — the rules supply case, digits, and punctuation, so an undecorated baseword avoids being decorated twice
+* Inferred basewords are written to `<hashfile>.llm_patterns`, which is per-run scratch and removed on exit
+
 #### OMEN Attack
 Uses the Ordered Markov ENumerator (OMEN) to train a statistical password model from a wordlist and generate password candidates. This attack learns patterns from known passwords and generates new candidates based on those patterns.
 

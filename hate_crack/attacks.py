@@ -601,6 +601,36 @@ def _prompt_with_default(label: str, default: Any) -> str:
     return input(f"{label}: ").strip()
 
 
+def _pick_pattern_source(ctx: Any, cracked_path: str | None):
+    """Pick the corpus the LLM infers patterns from. Returns a path or None.
+
+    Cracked passwords are offered first and only when *cracked_path* is set,
+    because plaintexts already recovered from this target reveal its real
+    conventions — a generic wordlist only reveals the internet's.
+    """
+    if cracked_path:
+        items = [
+            ("1", "Cracked passwords (current session)"),
+            ("2", "Sample wordlist"),
+            ("99", "Cancel"),
+        ]
+        while True:
+            choice = interactive_menu(
+                items,
+                title="\nLLM Pattern Rules — pattern source",
+                prompt="\n\tSelect source: ",
+            )
+            if choice is None or choice == "99":
+                return None
+            if choice == "1":
+                return cracked_path
+            if choice == "2":
+                break
+            print("\t[!] Invalid selection.")
+
+    return _pick_training_wordlist(ctx, title="LLM Pattern Source Wordlists")
+
+
 def ollama_attack(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("LLM")
     # Cracked-password mode is only offered when this session actually has
@@ -614,6 +644,9 @@ def ollama_attack(ctx: Any) -> None:
     ]
     if has_cracked:
         items.append(("3", "Cracked passwords (current session)"))
+    # Deliberately "4" whether or not "3" was offered: renumbering it per
+    # session would move the option under an operator between runs.
+    items.append(("4", "Pattern rules (LLM finds patterns, hashcat rules mutate them)"))
     items.append(("99", "Cancel"))
 
     while True:
@@ -642,6 +675,19 @@ def ollama_attack(ctx: Any) -> None:
             return
         elif choice == "3" and has_cracked:
             ctx.hcatOllama(ctx.hcatHashType, ctx.hcatHashFile, "cracked", out_path)
+            return
+        elif choice == "4":
+            source = _pick_pattern_source(ctx, out_path if has_cracked else None)
+            if not source:
+                return
+            selected_rules = _select_rules(ctx)
+            if selected_rules is None:
+                return
+            # All chains are handed over at once so the model is queried once
+            # rather than once per rule file — see hcatOllamaPatterns.
+            ctx.hcatOllamaPatterns(
+                ctx.hcatHashType, ctx.hcatHashFile, source, selected_rules
+            )
             return
         else:
             # Without this the menu just silently redraws and the user cannot
