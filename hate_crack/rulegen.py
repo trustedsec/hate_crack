@@ -85,8 +85,16 @@ def _prune_counter(counter, max_unique):
     at the boundary: the tail of a password corpus is overwhelmingly keys seen
     once, so clearing the tier outright drops the counter well below the bound
     and buys many millions of lines before the next prune, whereas trimming to
-    exactly *max_unique* would re-trip on the very next check. The highest
-    remaining tier is never removed, so pruning cannot empty the counter.
+    exactly *max_unique* would re-trip on the very next check.
+
+    The bound is unconditional. When only one tier is left and it is still over
+    *max_unique* — every surviving key tied at the same frequency, which is
+    exactly what a corpus of all-distinct keys looks like — the tier is cut
+    partway instead, keeping *max_unique* of its keys and discarding the rest.
+    The choice among tied keys is arbitrary (dict order), because by definition
+    frequency gives no reason to prefer any of them. Stopping short here would
+    return a counter still over the bound and let it grow unchecked for the
+    rest of the read, which is the OOM this function exists to prevent.
 
     Returns ``(keys_discarded, observations_discarded)``.
 
@@ -111,14 +119,26 @@ def _prune_counter(counter, max_unique):
         if remaining <= max_unique:
             break
         if remaining - histogram[freq] <= 0:
-            # Removing this tier would leave nothing behind; keep it instead.
+            # This is the last tier and clearing it would empty the counter, so
+            # it is cut partway below instead of removed outright.
             break
         threshold = freq
         remaining -= histogram[freq]
-    if threshold == 0:
-        return (0, 0)
 
     doomed = [key for key, hits in counter.items() if hits <= threshold]
+    if remaining > max_unique:
+        # Only the tied top tier is left and it still overflows. Take the
+        # overflow from it, arbitrarily, so the bound actually holds. `keep` is
+        # overflow is appended as it is found rather than materialised as a
+        # second list of every survivor, so the transient stays proportional to
+        # what is discarded, not to what is kept.
+        kept = 0
+        for key, hits in counter.items():
+            if hits > threshold:
+                kept += 1
+                if kept > max_unique:
+                    doomed.append(key)
+
     observations = 0
     for key in doomed:
         observations += counter[key]
@@ -439,11 +459,21 @@ def generate(
             f.write(rule + "\n")
 
     pruned = bool(pruned_basewords or pruned_rules)
-    # Coverage is measured against the observations the retained rules actually
-    # account for. Without pruning that is every password, so the numbers are
-    # unchanged; with it, using `total` would silently understate every
-    # percentage by the share of the corpus that was discarded.
+    # The rule ranking is a ranking of rules, so its denominator is the
+    # observations the retained *rules* account for. Without pruning that is
+    # every password, so the numbers are unchanged; with it, using `total`
+    # would silently understate every percentage.
     retained_hits = total - pruned_rule_hits
+    # Reconstruction needs BOTH a surviving baseword and a surviving rule, and
+    # the two counters are pruned independently, so the rule denominator alone
+    # overstates how much of the corpus can still be rebuilt. Which passwords
+    # lost which half is not tracked — that would mean a third structure of the
+    # size this task exists to bound — so report the bracket instead of a
+    # number the code cannot actually know. The upper bound assumes the two
+    # sets of losses overlap completely, the lower bound that they are
+    # disjoint.
+    reconstructable_max = total - max(pruned_baseword_hits, pruned_rule_hits)
+    reconstructable_min = max(total - pruned_baseword_hits - pruned_rule_hits, 0)
 
     capped_paths = {}
     for target in cover:
@@ -497,11 +527,33 @@ def generate(
                 "  keep memory bounded. The output no longer reconstructs 100% of\n"
                 "  the corpus.\n"
             )
+            # A password needs both halves to survive, and which passwords lost
+            # which half is not tracked, so this is a range rather than a count.
+            if reconstructable_min == reconstructable_max:
+                f.write(
+                    f"  still reconstructable: {reconstructable_max} of {total} "
+                    "passwords\n"
+                )
+            else:
+                f.write(
+                    f"  still reconstructable: between {reconstructable_min} and "
+                    f"{reconstructable_max} of {total} passwords\n"
+                    "  (a password needs both its baseword and its rule to survive;\n"
+                    "   the two counters are pruned independently)\n"
+                )
         f.write("\nrules needed for coverage:\n")
-        if pruned:
+        if pruned_rule_hits:
+            # Only meaningful when the rule counter itself lost observations —
+            # otherwise the denominator is still the whole corpus and saying
+            # "not of all N read" against the same N is self-contradictory.
             f.write(
                 f"  (percentages are of the {retained_hits} passwords the retained\n"
                 f"   rules cover, not of all {total} read)\n"
+            )
+        elif pruned:
+            f.write(
+                "  (percentages are of rule coverage only; basewords were pruned,\n"
+                "   so fewer passwords are reconstructable than these imply)\n"
             )
         for mark in sorted(milestones):
             f.write(f"  {mark:3d}%: {milestones[mark]} rules\n")
@@ -515,10 +567,14 @@ def generate(
             f"[!] Memory bound reached: {pruned_basewords} basewords and "
             f"{pruned_rules} rules were discarded to keep each counter under "
             f"max_unique={max_unique} distinct keys. They were the "
-            "lowest-frequency keys, accounting for "
-            f"{pruned_rule_hits} of {total} passwords, so this run does NOT "
-            "reconstruct 100% of the corpus and the coverage percentages below "
-            "are relative to the retained keys. If you need exact figures, run "
+            "lowest-frequency keys, covering "
+            f"{pruned_baseword_hits} of {total} passwords on the baseword side "
+            f"and {pruned_rule_hits} on the rule side. A password needs both "
+            "halves, so between "
+            f"{reconstructable_min} and {reconstructable_max} of {total} "
+            "passwords are still reconstructable — this run does NOT cover "
+            "100% of the corpus, and the coverage percentages are rule "
+            "coverage over the retained keys. If you need exact figures, run "
             "against a random sample of the corpus small enough to fit, or "
             "raise max_unique if you have the RAM."
         )
@@ -552,4 +608,6 @@ def generate(
         "pruned_rules": pruned_rules,
         "pruned_baseword_hits": pruned_baseword_hits,
         "pruned_rule_hits": pruned_rule_hits,
+        "reconstructable_min": reconstructable_min,
+        "reconstructable_max": reconstructable_max,
     }

@@ -26,8 +26,11 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   `pruned_rules` keys in the returned dict, a section in `coverage.txt`, and a
   console warning naming the limit — because the output then reconstructs only
   the retained keys rather than 100% of the corpus, and the coverage
-  percentages are relative to those. A corpus that never reaches the cap
-  produces byte-identical output to before.
+  percentages are relative to those. A password needs both its baseword and
+  its rule to survive and the two counters are pruned independently, so the
+  report gives the range of passwords still reconstructable rather than a
+  number it cannot know. A corpus that never reaches the cap produces
+  byte-identical output to before.
 
 - **Spoonman Attack now offers a top-50% and top-75% coverage tier, and top 50%
   is the new default.** Rule-set coverage against a large corpus is extremely

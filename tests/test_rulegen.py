@@ -328,25 +328,96 @@ class TestMemoryBound:
     def test_default_bound_is_the_documented_constant(self):
         assert rulegen.MAX_UNIQUE_KEYS == 20_000_000
 
-    def test_unbounded_matches_the_default_on_a_small_corpus(self, tmp_path):
-        """The bound must not silently change results for a corpus under it."""
-        corpus = self._skewed_corpus(tmp_path)
-        bounded = rulegen.generate(
-            corpus, str(tmp_path / "bounded"), print_fn=lambda *a: None
-        )
-        unbounded = rulegen.generate(
-            corpus,
-            str(tmp_path / "unbounded"),
-            print_fn=lambda *a: None,
-            max_unique=None,
+    # A corpus whose every derived artefact is short enough to write down.
+    # 5x a bare lowercase token, 3x a capitalised token with a digit, 2x a
+    # token with a trailing punctuation mark. All synthetic.
+    LITERAL_CORPUS = ["alpha"] * 5 + ["Bravo1"] * 3 + ["delta!"] * 2
+    LITERAL_BASEWORDS = "alpha\nbravo\ndelta\n"
+    LITERAL_RULES = ":\nc$1\n$!\n"
+    LITERAL_MILESTONES = {50: 1, 75: 2, 80: 2, 90: 3, 95: 3, 99: 3, 100: 3}
+    LITERAL_CAPPED = {
+        50: ":\n",
+        75: ":\nc$1\n",
+        95: ":\nc$1\n$!\n",
+        99: ":\nc$1\n$!\n",
+    }
+
+    @pytest.mark.parametrize("max_unique", [None, rulegen.MAX_UNIQUE_KEYS])
+    def test_unpruned_output_matches_pinned_literal_values(self, tmp_path, max_unique):
+        """The bound must not change results for a corpus that never reaches it.
+
+        Pinned against values captured from the pre-bound implementation.
+        Comparing a bounded run to an unbounded one would be vacuous: both take
+        the unpruned path, so a regression in the coverage denominator would
+        move both arms identically and the assertion could never fail. Literal
+        expectations are the only form that catches it.
+        """
+        path = tmp_path / "corpus.txt"
+        path.write_text("\n".join(self.LITERAL_CORPUS) + "\n", encoding="latin-1")
+        out = tmp_path / "out"
+        result = rulegen.generate(
+            str(path), str(out), print_fn=lambda *a: None, max_unique=max_unique
         )
 
-        for name, text in self._outputs(tmp_path / "bounded").items():
-            assert text == self._read(str(tmp_path / "unbounded" / name)), name
-        assert bounded["pruned"] is False
-        assert unbounded["pruned"] is False
-        for key in ("total", "basewords_count", "rules_count", "milestones"):
-            assert bounded[key] == unbounded[key]
+        assert self._read(result["basewords"]) == self.LITERAL_BASEWORDS
+        assert self._read(result["rules"]) == self.LITERAL_RULES
+        assert result["milestones"] == self.LITERAL_MILESTONES
+        for target, expected in self.LITERAL_CAPPED.items():
+            assert self._read(result["capped_rules"][target]) == expected, target
+        assert result["total"] == 10
+        assert result["basewords_count"] == 3
+        assert result["rules_count"] == 3
+        assert result["pruned"] is False
+        assert result["reconstructable_min"] == 10
+        assert result["reconstructable_max"] == 10
+
+        report = self._read(result["coverage"])
+        assert "passwords:           10\n" in report
+        assert "unique basewords:    3\n" in report
+        # Substring, not `"pruned" not in report`: the corpus path is in there.
+        assert "pruned (max_unique" not in report
+        assert report.endswith(
+            "rules needed for coverage:\n"
+            "   50%: 1 rules\n"
+            "   75%: 2 rules\n"
+            "   80%: 2 rules\n"
+            "   90%: 3 rules\n"
+            "   95%: 3 rules\n"
+            "   99%: 3 rules\n"
+            "  100%: 3 rules\n"
+        )
+
+    def test_pruned_milestones_use_the_retained_denominator(
+        self, tmp_path, monkeypatch
+    ):
+        """The denominator change only bites when pruning fires, so pin it there.
+
+        6 repeats of one token plus 6 singletons, each singleton unique in both
+        counters. Pruning leaves 7 of the 12 passwords covered by the surviving
+        rules; against the old `total` denominator the top rule would reach
+        only 50% and the 90/95/99/100 milestones would never be recorded.
+        """
+        monkeypatch.setattr(rulegen, "_PRUNE_CHECK_INTERVAL", 4)
+        lines = ["alpha"] * 6 + [f"bravo{chr(97 + i)}{i}" for i in range(6)]
+        path = tmp_path / "corpus.txt"
+        path.write_text("\n".join(lines) + "\n", encoding="latin-1")
+        result = rulegen.generate(
+            str(path), str(tmp_path / "out"), print_fn=lambda *a: None, max_unique=2
+        )
+
+        assert result["total"] == 12
+        assert result["pruned_rule_hits"] == 5
+        assert result["milestones"] == {
+            50: 1,
+            75: 1,
+            80: 1,
+            90: 2,
+            95: 2,
+            99: 2,
+            100: 2,
+        }
+        report = self._read(result["coverage"])
+        assert "(percentages are of the 7 passwords the retained" in report
 
     def test_small_corpus_reports_no_pruning(self, tmp_path):
         corpus = self._skewed_corpus(tmp_path)
@@ -357,7 +428,7 @@ class TestMemoryBound:
         assert result["pruned_basewords"] == 0
         assert result["pruned_rules"] == 0
         report = self._read(result["coverage"])
-        assert "pruned" not in report
+        assert "pruned (max_unique" not in report
 
     def test_tiny_bound_prunes_the_low_frequency_tail(self, tmp_path, monkeypatch):
         # The real check interval is a million lines; shrink it so a corpus
@@ -392,6 +463,47 @@ class TestMemoryBound:
         assert any("Memory bound reached" in m for m in messages)
         assert any("max_unique=5" in m for m in messages)
         assert any("sample" in m for m in messages)
+
+    def test_baseword_only_pruning_is_reported_honestly(self, tmp_path, monkeypatch):
+        """Only the baseword counter overflows, so rule coverage is intact.
+
+        The rule denominator alone would then claim full coverage while most of
+        the corpus has no surviving baseword to apply those rules to. The report
+        has to say so, and must not print a "not of all N read" note against a
+        denominator that is still N.
+        """
+        monkeypatch.setattr(rulegen, "_PRUNE_CHECK_INTERVAL", 5)
+        # 60 distinct letter cores sharing one rule shape, plus a hot token.
+        tail = [f"tail{chr(97 + i // 26)}{chr(97 + i % 26)}zulu" for i in range(60)]
+        lines = tail + ["alphaalpha"] * 20
+        path = tmp_path / "corpus.txt"
+        path.write_text("\n".join(lines) + "\n", encoding="latin-1")
+        messages = []
+        result = rulegen.generate(
+            str(path), str(tmp_path / "out"), print_fn=messages.append, max_unique=5
+        )
+
+        assert result["pruned"] is True
+        assert result["pruned_basewords"] > 0
+        assert result["pruned_baseword_hits"] > 0
+        assert result["pruned_rules"] == 0
+        assert result["pruned_rule_hits"] == 0
+        # Rule coverage is untouched, so the reconstructable count is driven
+        # entirely by the baseword losses and is exact rather than a range.
+        assert result["reconstructable_max"] == 80 - result["pruned_baseword_hits"]
+        assert result["reconstructable_min"] == result["reconstructable_max"]
+
+        report = self._read(result["coverage"])
+        assert "not of all" not in report
+        assert "basewords were pruned" in report
+        assert (
+            f"still reconstructable: {result['reconstructable_max']} of 80 passwords"
+            in report
+        )
+
+        warning = next(m for m in messages if "Memory bound reached" in m)
+        assert f"{result['pruned_baseword_hits']} of 80 passwords" in warning
+        assert "0 on the rule side" in warning
 
     def test_pruning_does_not_cause_selfcheck_failures(self, tmp_path, monkeypatch):
         monkeypatch.setattr(rulegen, "_PRUNE_CHECK_INTERVAL", 10)
@@ -438,11 +550,26 @@ class TestPruneCounter:
         assert (keys, hits) == (3, 5)
         assert counter == Counter({"alpha": 9})
 
-    def test_never_empties_the_counter(self):
-        """All keys tie at the bottom, so the last tier has to be kept."""
-        counter = Counter({"alpha": 1, "bravo": 1, "charlie": 1})
-        assert rulegen._prune_counter(counter, 1) == (0, 0)
-        assert len(counter) == 3
+    def test_all_keys_tied_still_honours_the_bound(self):
+        """A single tier that overflows is cut partway, not left in place.
+
+        Giving up here would return a counter still over the bound and let it
+        grow unchecked for the rest of the read.
+        """
+        counter = Counter({f"token{i:03d}": 1 for i in range(100)})
+        keys, hits = rulegen._prune_counter(counter, 10)
+        assert (keys, hits) == (90, 90)
+        assert len(counter) == 10
+
+    def test_partial_cut_applies_after_whole_tiers_are_cleared(self):
+        """Lower tiers go first; only the leftover tie is cut arbitrarily."""
+        counter = Counter({"alpha": 1, "bravo": 1})
+        counter.update({f"token{i:02d}": 5 for i in range(4)})
+        keys, hits = rulegen._prune_counter(counter, 2)
+        assert len(counter) == 2
+        # Both frequency-1 keys, then two of the four tied 5s.
+        assert (keys, hits) == (4, 1 + 1 + 5 + 5)
+        assert set(counter.values()) == {5}
 
     def test_overshooting_the_bound_is_allowed(self):
         """Clearing a whole tier may leave far fewer keys than the bound."""
