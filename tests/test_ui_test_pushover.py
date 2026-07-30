@@ -58,7 +58,9 @@ class TestTestPushoverNotification:
         mock_notify._send_pushover.assert_not_called()
         out = capsys.readouterr().out
         assert "[!] Pushover credentials missing" in out
-        assert "notify_pushover_token" in out
+        # Post-split these credentials live in .env, under their env names.
+        assert "NOTIFY_PUSHOVER_TOKEN" in out
+        assert ".env" in out
 
     def test_missing_user_skips_send_and_warns(self, capsys):
         with patch.object(hc_main, "_notify") as mock_notify:

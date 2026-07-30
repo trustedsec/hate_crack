@@ -8,10 +8,12 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROOT_EXAMPLE = os.path.join(REPO_ROOT, "config.json.example")
 PACKAGED_EXAMPLE = os.path.join(REPO_ROOT, "hate_crack", "config.json.example")
 
-# Source of truth for config.json.example's key set. Update this set
-# whenever a config key is added or removed — it's what would have caught
-# the #150 drift (10 missing keys, 4 dead passgpt* keys shipped in a prior
-# release) regardless of whether the packaged copy is a symlink, a
+# Source of truth for config.json.example's key set: the 35 home="json" keys.
+# The twelve home="env" integration keys are deliberately absent -- they live
+# in `.env`, and the loader ignores them here (with a warning). Update this set
+# whenever a config key is added, removed, or changes home — it's what would
+# have caught the #150 drift (10 missing keys, 4 dead passgpt* keys shipped in
+# a prior release) regardless of whether the packaged copy is a symlink, a
 # dereferenced regular file (wheel/sdist builds), or a flattened copy
 # (git-archive tarball, docker COPY of hate_crack/ alone).
 EXPECTED_KEYS = {
@@ -32,18 +34,8 @@ EXPECTED_KEYS = {
     "hcatThoroughBaseList",
     "hcatGoodMeasureBaseList",
     "hcatPrinceBaseList",
-    "pipalPath",
-    "pipal_count",
     "bandrelmaxruntime",
     "bandrel_common_basedwords",
-    "hashview_url",
-    "hashview_api_key",
-    "hashmob_api_key",
-    "ollamaModel",
-    "ollamaNumCtx",
-    "ollamaTimeout",
-    "ollamaMaxSampleLines",
-    "ollamaAutoResearch",
     "omenMaxCandidates",
     "pcfgRuleset",
     "pcfgMaxCandidates",
@@ -51,13 +43,15 @@ EXPECTED_KEYS = {
     "check_for_updates",
     "optimizedKernelAttacks",
     "notify_enabled",
-    "notify_pushover_token",
-    "notify_pushover_user",
     "notify_per_crack_enabled",
     "notify_attack_allowlist",
     "notify_suppress_in_orchestrators",
     "notify_max_cracks_per_burst",
     "notify_poll_interval_seconds",
+    "debug",
+    "weakpass_min_rank",
+    "update_channel",
+    "restore_potfile_on_start",
 }
 
 

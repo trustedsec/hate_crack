@@ -1,3 +1,4 @@
+import re
 import sys
 
 import pytest
@@ -445,3 +446,77 @@ def test_potfile_path_and_no_potfile_path_conflict(monkeypatch):
     )
     assert code == 0
     assert hc_main.hcatPotfilePath == "/tmp/test.pot"
+
+
+# ---------------------------------------------------------------------------
+# 9. --help must name the right home file for the six promoted preference keys
+# ---------------------------------------------------------------------------
+# Each of these six CLI flags overrides a schema key whose home is
+# ``config.json`` (``home="json"``). An entry for any of them in ``.env`` is
+# ignored with a warning, so help text pointing at ``.env`` as the persistent
+# home documents the one action guaranteed not to work. This pins that the help
+# text names the JSON key instead. ``os.environ`` still overrides all six, so an
+# env-var mention would be fine -- what must never come back is ".env".
+_PROMOTED_FLAG_HELP_KEYS = {
+    "--rank": "weakpass_min_rank",
+    "--nightly": "update_channel",
+    "--no-optimized-kernel": "optimizedKernelAttacks",
+    "--debug": "debug",
+    "--potfile-path": "hcatPotfilePath",
+    "--restore-potfile": "restore_potfile_on_start",
+}
+
+
+def _help_text(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["hate_crack.py", "--help"])
+    with pytest.raises(SystemExit) as exc:
+        hc_main.main()
+    assert exc.value.code == 0
+    return capsys.readouterr().out
+
+
+def _option_help_blocks(text):
+    """Map each option's flag spellings to its help paragraph.
+
+    Parses only the options section, so the usage line -- which repeats every
+    flag without its help -- cannot be mistaken for an option block.
+    """
+    blocks = {}
+    current = None
+    for line in text.splitlines():
+        stripped = line.strip()
+        if re.match(r"^  -{1,2}[^\s]", line):
+            head, _, tail = stripped.partition("  ")
+            current = [s.split()[0] for s in head.split(",") if s.strip()]
+            for name in current:
+                blocks[name] = tail.strip()
+        elif current and stripped and line.startswith(" " * 8):
+            for name in current:
+                blocks[name] = (blocks[name] + " " + stripped).strip()
+        elif not stripped:
+            current = None
+    return blocks
+
+
+def test_promoted_flag_help_never_calls_env_the_persistent_home(monkeypatch, capsys):
+    from hate_crack.config_schema import BY_LEGACY
+
+    blocks = _option_help_blocks(_help_text(monkeypatch, capsys))
+    for flag, legacy_key in _PROMOTED_FLAG_HELP_KEYS.items():
+        assert BY_LEGACY[legacy_key].home == "json", (
+            f"{legacy_key} is no longer json-homed; update this test and the "
+            f"{flag} help string together"
+        )
+        assert flag in blocks, f"{flag} missing from the --help options section"
+        chunk = blocks[flag]
+        assert ".env" not in chunk, (
+            f"{flag} help text names .env, but {legacy_key} lives in config.json; "
+            "a .env entry for it is ignored with a warning"
+        )
+        assert "config.json" in chunk, (
+            f"{flag} help text should name config.json as the persistent home "
+            f"of {legacy_key}"
+        )
+        assert legacy_key in chunk, (
+            f"{flag} help text should name the config.json key {legacy_key}"
+        )

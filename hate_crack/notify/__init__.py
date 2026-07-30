@@ -11,8 +11,8 @@ module-level ``_settings`` object, a handful of helper functions, and one
 Wiring
 ======
 
-At startup ``main.py`` calls :func:`init` with the resolved config path and
-parsed config dict.  After that, the rest of the codebase interacts with
+At startup ``main.py`` calls :func:`init` with the resolved ``config.json``
+path and the merged config dict.  After that, the rest of the codebase interacts with
 this package via:
 
 - :func:`prompt_notify_for_attack`  -- called by attacks.py before an attack
@@ -45,6 +45,7 @@ from hate_crack.notify._suppress import (
 )
 from hate_crack.notify.pushover import _send_pushover
 from hate_crack.notify.settings import (
+    AllowlistNameError,
     NotifySettings,
     add_to_allowlist,
     load_settings,
@@ -76,6 +77,7 @@ _input_func: Callable[[str], str] = input
 
 
 __all__ = [
+    "AllowlistNameError",
     "CrackTailer",
     "NotifySettings",
     "add_to_allowlist",
@@ -99,6 +101,14 @@ __all__ = [
 
 def init(config_path: str | None, config_parser: dict | None) -> None:
     """Bootstrap the notify subsystem from the resolved config.
+
+    ``config_path`` is the path of the resolved ``config.json`` (``None`` when
+    no config file exists on disk, e.g. under ``HATE_CRACK_SKIP_INIT``). It is
+    only ever used as the write-back target for the toggles and for the
+    ``always`` answer; nothing else in this package reads it. The three keys
+    written back are all ``home="json"``, which is why this is the JSON path
+    and not the `.env` path -- the Pushover credentials in `.env` are never
+    written from the menu.
 
     Called once from ``main.py`` after its config-loading block.  Safe to
     call multiple times — the second call replaces settings but does not
@@ -148,7 +158,8 @@ def toggle_enabled() -> bool:
 
 
 def toggle_per_crack_enabled() -> bool:
-    """Flip ``notify_per_crack_enabled``, persist to ``config.json``, return new state.
+    """Flip ``notify_per_crack_enabled``, persist to ``config.json``, return
+    new state.
 
     If ``init`` was never called we still toggle an in-memory default — the
     UI update must not crash even if the config file is unreachable.
@@ -210,7 +221,10 @@ def prompt_notify_for_attack(attack_name: str) -> bool:
                 # same session sees the allowlist without re-reading config.
                 if attack_name not in settings.attack_allowlist:
                     settings.attack_allowlist.append(attack_name)
-            except OSError as exc:
+            except (OSError, AllowlistNameError) as exc:
+                # A name a csv_list cannot represent must not take down the
+                # attack the user was starting; warn and keep the per-run
+                # consent that was already granted above.
                 logger.warning("Could not persist allowlist entry: %s", exc)
         return True
     if answer in ("y", "yes"):

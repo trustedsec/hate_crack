@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from hate_crack import notify
+from hate_crack.config_loader import load_config
 
 
 @pytest.fixture(autouse=True)
@@ -17,7 +18,13 @@ def _reset_notify_state():
 
 
 def _init_with(tmp_path: Path, **kwargs) -> Path:
-    """Create a config file and initialize notify against it."""
+    """Create a ``config.json`` and initialize notify against it.
+
+    The three settings notify persists are all ``home="json"``, so the
+    write-back target is ``config.json``. The Pushover credentials are passed
+    in-memory only: they are `.env`-homed and nothing writes them from the
+    menu, so no `.env` is involved here at all.
+    """
     cfg = {
         "notify_enabled": True,
         "notify_pushover_token": "tok",
@@ -25,9 +32,18 @@ def _init_with(tmp_path: Path, **kwargs) -> Path:
     }
     cfg.update(kwargs)
     config_path = tmp_path / "config.json"
-    config_path.write_text(json.dumps(cfg))
+    config_path.write_text(
+        json.dumps(
+            {k: v for k, v in cfg.items() if not k.startswith("notify_pushover")}
+        )
+    )
     notify.init(str(config_path), cfg)
     return config_path
+
+
+def _read_back(config_path: Path) -> dict:
+    """Reload the persisted ``config.json`` through the shared loader."""
+    return load_config(legacy_json_path=str(config_path), environ={}).config
 
 
 class TestNotifyJobDone:
@@ -157,8 +173,8 @@ class TestPromptNotifyForAttack:
         config_path = _init_with(tmp_path, notify_enabled=True)
         notify.set_input_func(lambda _: "always")
         assert notify.prompt_notify_for_attack("Brute Force") is True
-        data = json.loads(config_path.read_text())
-        assert "Brute Force" in data.get("notify_attack_allowlist", [])
+        data = _read_back(config_path)
+        assert "Brute Force" in data["notify_attack_allowlist"]
         # Settings in memory also updated so we don't re-prompt next call.
         settings = notify.get_settings()
         assert "Brute Force" in settings.attack_allowlist
@@ -168,7 +184,7 @@ class TestPromptNotifyForAttack:
         notify.set_input_func(lambda _: "always")
         notify.prompt_notify_for_attack("Brute Force")
         notify.prompt_notify_for_attack("Brute Force")
-        data = json.loads(config_path.read_text())
+        data = _read_back(config_path)
         assert data["notify_attack_allowlist"].count("Brute Force") == 1
 
 
@@ -179,13 +195,11 @@ class TestToggleEnabled:
         new_state = notify.toggle_enabled()
         assert new_state is True
         assert notify.get_settings().enabled is True
-        data = json.loads(config_path.read_text())
-        assert data["notify_enabled"] is True
+        assert _read_back(config_path)["notify_enabled"] is True
 
         # Flip back.
         assert notify.toggle_enabled() is False
-        data = json.loads(config_path.read_text())
-        assert data["notify_enabled"] is False
+        assert _read_back(config_path)["notify_enabled"] is False
 
     def test_toggle_without_init_still_works(self) -> None:
         notify.clear_state_for_tests()

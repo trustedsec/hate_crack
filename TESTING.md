@@ -19,7 +19,7 @@ make coverage
 | `HASHVIEW_TEST_REAL=1` | Enable live Hashview CLI menu tests |
 | `WEAKPASS_TEST_REAL=1` | Enable live Weakpass CLI menu tests |
 | `HATE_CRACK_REQUIRE_DEPS=1` | Fail if `7z`, `transmission-daemon`, or `transmission-remote` are missing |
-| `HATE_CRACK_RUN_LIVE_TESTS=1` | Enable live Hashview upload test (requires valid credentials in `config.json`) |
+| `HATE_CRACK_RUN_LIVE_TESTS=1` | Enable live Hashview upload test (requires valid credentials in `.env`) |
 | `HATE_CRACK_RUN_LIVE_HASHVIEW_TESTS=1` | Enable live Hashview wordlist upload test |
 | `HATE_CRACK_RUN_E2E=1` | Enable local uv tool install E2E test |
 | `HATE_CRACK_RUN_DOCKER_TESTS=1` | Enable Docker-based E2E test |
@@ -87,7 +87,7 @@ WEAKPASS_TEST_REAL=1 uv run pytest tests/test_cli_weakpass.py -v
 
 #### Live Hashview Upload
 
-Requires valid `hashview_url` and `hashview_api_key` in `config.json`.
+Requires valid `HASHVIEW_URL` and `HASHVIEW_API_KEY` in `.env` (or exported as environment variables, which override it).
 
 ```bash
 HATE_CRACK_RUN_LIVE_TESTS=1 uv run pytest tests/test_upload_cracked_hashes.py -v

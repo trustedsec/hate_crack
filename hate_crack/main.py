@@ -29,7 +29,7 @@ from types import SimpleNamespace
 
 #!/usr/bin/env python3
 
-from typing import Any
+from typing import Any, NamedTuple
 
 requests: Any = None
 REQUESTS_AVAILABLE = False
@@ -68,11 +68,13 @@ from hate_crack.api import (  # noqa: E402
     extract_with_7z,
 )
 from hate_crack.cli import (  # noqa: E402
-    orig_cwd,
     resolve_path,
     setup_logging,
 )
 from hate_crack import attacks as _attacks  # noqa: E402
+from hate_crack import config_loader as _config_loader  # noqa: E402
+from hate_crack import config_schema as _config_schema  # noqa: E402
+from hate_crack import config_writer as _config_writer  # noqa: E402
 from hate_crack import llm  # noqa: E402
 from hate_crack import noninteractive as _noninteractive  # noqa: E402
 from hate_crack.progress import spinner  # noqa: E402
@@ -201,6 +203,109 @@ def disable_optimized_kernel():
     hcatTuning = _strip_optimized_flags(hcatTuning)
 
 
+class FlagOverrides(NamedTuple):
+    """The per-run effective value of every schema-backed preference flag."""
+
+    debug: bool
+    update_channel: str
+    weakpass_min_rank: int
+    restore_potfile: bool
+    optimized_kernel_disabled: bool
+    potfile_path: str
+
+
+def _flag_or_config(flag_value, config_value):
+    """Resolve one tri-state flag against its config-supplied default.
+
+    ``None`` means the flag was absent, so the config value (which the loader
+    already resolved from the key's own home file, the schema default and the
+    real environment) wins. Anything else -- including ``False`` and ``0`` -- is an
+    explicit per-run statement and outranks the config.
+
+    This tri-state is why none of the promoted booleans may use
+    ``action="store_true"``: that action makes "absent" and "explicitly false"
+    both ``False``, so the flag could never turn a config-enabled setting off.
+    Each one uses ``argparse.BooleanOptionalAction`` with ``default=None``.
+    """
+    if flag_value is None:
+        return config_value
+    return flag_value
+
+
+def resolve_flag_overrides(args, config, *, base_dir, current_potfile_path=None):
+    """Resolve the six promoted preference flags against loaded ``config``.
+
+    ``args`` is anything with the argparse attribute names (a
+    ``SimpleNamespace`` is fine); ``config`` is a ``config_parser``-shaped
+    mapping of legacy key names to coerced values; ``base_dir`` is the
+    directory a relative ``--potfile-path`` is resolved against.
+
+    Precedence for each key is CLI flag > os.environ > that key's own home file
+    > schema default. There is no cross-file fallthrough: each key lives in
+    exactly one of ``.env`` or ``config.json`` (all six resolved here are
+    ``config.json`` keys) and an entry in the other file is ignored with a
+    warning. The loader owns the bottom three and has already collapsed
+    them into ``config``; this function only layers the flag on top. It is
+    deliberately pure so it can be unit tested without building the parser.
+    """
+    nightly = getattr(args, "nightly", None)
+    if nightly is None:
+        update_channel = config.get("update_channel", "main")
+    else:
+        update_channel = "nightly-dev" if nightly else "main"
+
+    # --potfile-path is checked before --no-potfile-path: when both are passed
+    # the explicit path wins, matching the pre-existing dispatch order (see
+    # tests/test_cli_flags.py::test_potfile_path_and_no_potfile_path_conflict).
+    if getattr(args, "potfile_path", None) is not None:
+        raw = args.potfile_path.strip()
+        if raw == "":
+            # Empty string means: revert to hashcat's default behavior.
+            potfile_path = ""
+        else:
+            expanded = os.path.expanduser(raw)
+            if not os.path.isabs(expanded):
+                expanded = os.path.join(base_dir, expanded)
+            potfile_path = expanded
+    elif getattr(args, "no_potfile_path", False):
+        potfile_path = ""
+    elif current_potfile_path is not None:
+        # Module import time already normalized hcatPotfilePath (expanduser and
+        # relative-to-hate_path); re-deriving it from ``config`` here would
+        # drop that work, so the
+        # no-flag case keeps the value main() hands in.
+        potfile_path = current_potfile_path
+    else:
+        potfile_path = config.get("hcatPotfilePath", "")
+
+    return FlagOverrides(
+        debug=bool(_flag_or_config(getattr(args, "debug", None), config.get("debug"))),
+        update_channel=update_channel,
+        weakpass_min_rank=int(
+            _flag_or_config(
+                getattr(args, "rank", None), config.get("weakpass_min_rank", -1)
+            )
+        ),
+        restore_potfile=bool(
+            _flag_or_config(
+                getattr(args, "restore_potfile", None),
+                config.get("restore_potfile_on_start", False),
+            )
+        ),
+        # --no-optimized-kernel is a blanket override that empties the
+        # optimizedKernelAttacks list for this run; there is no affirmative
+        # form to re-enable a config that disabled it, because the key is a
+        # list of attack names, not a bool -- `"optimizedKernelAttacks": []` in
+        # config.json is how you turn it off persistently. Note that route is not
+        # folded in here: an empty list means "no attack gets -O", whereas the
+        # flag additionally strips a hand-written -O out of hcatTuning, and
+        # quietly extending that to the config list would change behavior for
+        # existing configs.
+        optimized_kernel_disabled=bool(getattr(args, "no_optimized_kernel", False)),
+        potfile_path=potfile_path,
+    )
+
+
 def _insert_optimized_flag(cmd):
     """Insert -O into *cmd* if not already present (from hcatTuning or elsewhere)."""
     if "-O" not in cmd and "--optimized-kernel-enable" not in cmd:
@@ -233,20 +338,14 @@ def _has_hate_crack_assets(path):
 
 
 def _candidate_roots():
-    home = os.path.expanduser("~")
-    return [
-        _repo_root,
-        _package_path,
-        os.path.join(home, ".hate_crack"),
-    ]
+    """Directory search order for configuration files.
 
-
-def _resolve_config_path():
-    for candidate in _candidate_roots():
-        config_path = os.path.join(candidate, "config.json")
-        if os.path.isfile(config_path):
-            return config_path
-    return None
+    Delegates to :func:`hate_crack.config_loader.candidate_roots`, which is
+    the single definition of this order (``api.py`` uses it too). Kept as a
+    thin wrapper because ``_resolve_config_destination()`` and the test suite
+    both reference it by this name.
+    """
+    return _config_loader.candidate_roots()
 
 
 def _resolve_config_destination():
@@ -286,74 +385,204 @@ _omen_dir = (
     if os.path.isdir(os.path.join(hate_path, "omen"))
     else os.path.join(_repo_root, "omen")
 )
-_config_path = _resolve_config_path()
-if not _config_path:
-    print("Initializing config.json from config.json.example")
-    src_config = os.path.abspath(os.path.join(_package_path, "config.json.example"))
-    config_dir = _resolve_config_destination()
-    dst_config = os.path.abspath(os.path.join(config_dir, "config.json"))
-    shutil.copy(src_config, dst_config)
-    print(f"Config source: {src_config}")
-    print(f"Config destination: {dst_config}")
-    _config_path = dst_config
+SKIP_INIT = os.environ.get("HATE_CRACK_SKIP_INIT") == "1"
 
-try:
-    with open(_config_path) as config:
-        config_parser = json.load(config)
-except json.JSONDecodeError as e:
-    print("\nError: config.json contains invalid JSON")
-    print(f"  File: {_config_path}")
-    print(f"  Line {e.lineno}, column {e.colno}: {e.msg}")
-    print("\nTo fix:")
-    print("  1. Edit the file and fix the JSON syntax, or")
-    print("  2. Delete the file to regenerate from defaults")
-    sys.exit(1)
+# The legacy names of the home="env" keys, derived from the schema so this
+# cannot drift when a thirteenth integration key is added.
+_INTEGRATION_LEGACY_KEYS = frozenset(entry.legacy for entry in _config_schema.ENV_KEYS)
 
 
-def _load_config_defaults(defaults_path):
-    """Load config.json.example, exiting with a clear diagnostic on
-    malformed JSON or an unreadable/missing file (see #155 — a dangling
-    symlink surfaces as FileNotFoundError, which used to escape uncaught).
+# Sentinel for "config.json exists but could not be read or parsed", which is
+# distinct from both "no integration keys" and "some integration keys".
+_CONFIG_JSON_UNUSABLE = object()
+
+
+def _read_config_json_for_bootstrap(legacy_json_path):
+    """Parse ``legacy_json_path``, or return :data:`_CONFIG_JSON_UNUSABLE`.
+
+    Deliberately does not raise and does not print: the loader reports a
+    malformed or unreadable ``config.json`` fatally a few lines later, with the
+    file-shaped diagnostic that names permissions and dangling symlinks, and a
+    second guess from here would only compete with it.
+
+    The three-way answer matters. Collapsing the failure case into "no
+    integration keys" made the bootstrap create a ``.env`` from defaults for a
+    startup that was about to exit(1) anyway -- and because the write target is
+    ``_resolve_config_destination()`` rather than the directory the unreadable
+    file was found in, that stray file landed somewhere the user was not even
+    looking (typically ``~/.hate_crack/.env`` while they were staring at a
+    ``config.json`` in the repo). See
+    tests/test_config_startup_wiring.py::test_unusable_config_json_writes_nothing_at_all.
     """
     try:
-        with open(defaults_path) as defaults:
-            return json.load(defaults)
-    except json.JSONDecodeError:
-        print("\nError: config.json.example contains invalid JSON")
-        print(f"  File: {defaults_path}")
-        print("  This is a package installation issue. Try reinstalling hate_crack.")
-        sys.exit(1)
-    except OSError:
-        print("\nError: config.json.example could not be read")
-        print(f"  File: {defaults_path}")
-        if os.path.islink(defaults_path) and not os.path.exists(defaults_path):
-            print(
-                "  This is a dangling symlink: the link exists but its target is missing."
-            )
-        print("  This is a package installation issue. Try reinstalling hate_crack.")
-        sys.exit(1)
+        with open(legacy_json_path) as fh:
+            return json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return _CONFIG_JSON_UNUSABLE
 
 
-config_dir = os.path.dirname(_config_path)
-defaults_path = os.path.join(config_dir, "config.json.example")
-if not os.path.isfile(defaults_path):
-    defaults_path = os.path.join(_package_path, "config.json.example")
-default_config = _load_config_defaults(defaults_path)
+def _bootstrap_config_files(env_path, legacy_json_path):
+    """Ensure both config files exist (unless ``SKIP_INIT``); return their paths.
 
-for _key, _value in default_config.items():
-    if _key not in config_parser:
-        config_parser[_key] = _value
+    Returns ``(env_path, legacy_json_path)``. Each file is created only if it
+    is missing; neither is ever rewritten, and ``config.json`` is never
+    modified.
 
-# Environment variables override config.json so the CLI can be pointed at a
-# different Hashview instance (e.g. a local docker stack for the live test
-# suite) without editing the persisted config. Empty/unset env vars fall back
-# to config.json.
-hashview_url = os.environ.get("HASHVIEW_URL") or config_parser["hashview_url"]
-hashview_api_key = (
-    os.environ.get("HASHVIEW_API_KEY") or config_parser["hashview_api_key"]
+    The cases, in order:
+
+    0. ``SKIP_INIT`` -> write nothing at all, whatever is or isn't present.
+       The test suite imports this module constantly; creating config files in
+       the repo or in ``~/.hate_crack`` as a side effect of an import is not
+       acceptable, so this branch comes first.
+    1. ``config.json`` present, `.env` absent, ``config.json`` holds at least
+       one integration key -> lift those keys into a new `.env` via
+       :func:`hate_crack.config_writer.write_env_from_legacy` and print its
+       notes, which name the keys the user must now delete from
+       ``config.json`` themselves.
+    2. ``config.json`` present, `.env` absent, no integration keys -> write a
+       `.env` from schema defaults anyway, so the file exists to be edited.
+       (Chosen over writing nothing: without it, a user who wants to set
+       ``HASHMOB_API_KEY`` has to know both that `.env` is where it goes and
+       that they must create it, and the post-condition "both files exist"
+       matches case 4.)
+    3. Both present -> nothing to do. Misplaced keys in either file are the
+       loader's business, and it warns about each one on every run.
+    4. Neither present -> create both, ``config.json`` from
+       ``config.json.example`` exactly as this module did before the split.
+
+    One cross-cutting rule: if ``config.json`` exists but cannot be read or
+    parsed, **nothing is written at all**. Startup is about to exit(1) with the
+    loader's file diagnostic, so creating a `.env` on the way out would leave a
+    stray file behind (in the resolved config destination, not necessarily
+    beside the file that failed) for a run that never got anywhere.
+    """
+    if SKIP_INIT:
+        return env_path, legacy_json_path
+
+    if legacy_json_path is None:
+        legacy_json_path = _initialize_config_json()
+
+    if env_path is None:
+        env_path = _initialize_env(legacy_json_path)
+
+    return env_path, legacy_json_path
+
+
+def _initialize_config_json():
+    """Copy ``config.json.example`` to the resolved config directory."""
+    src_config = os.path.abspath(os.path.join(_package_path, "config.json.example"))
+    destination = os.path.join(_resolve_config_destination(), "config.json")
+    print("Initializing config.json from config.json.example")
+    print(f"Config source: {src_config}")
+    print(f"Config destination: {destination}")
+    try:
+        shutil.copy(src_config, destination)
+    except OSError as exc:
+        print(f"[!] Could not write {destination}: {exc}")
+        return None
+    return destination
+
+
+def _initialize_env(legacy_json_path):
+    """Create the `.env`, migrating integration keys out of ``config.json``.
+
+    Returns ``None`` without writing anything when ``config.json`` exists but is
+    unusable -- see :func:`_read_config_json_for_bootstrap`.
+    """
+    migrating = False
+    if legacy_json_path is not None:
+        data = _read_config_json_for_bootstrap(legacy_json_path)
+        if data is _CONFIG_JSON_UNUSABLE:
+            return None
+        migrating = isinstance(data, dict) and any(
+            key in data for key in _INTEGRATION_LEGACY_KEYS
+        )
+    destination = os.path.join(_resolve_config_destination(), ".env")
+    if migrating:
+        try:
+            notes = _config_writer.write_env_from_legacy(legacy_json_path, destination)
+        except OSError as exc:
+            print(f"[!] Could not write {destination}: {exc}")
+            return None
+        print("Copying third-party integration settings from config.json to .env")
+        print(f"Config source: {legacy_json_path}")
+        print(f"Config destination: {destination}")
+        for note in notes:
+            print(f"[!] {note}")
+        return destination
+    print("Initializing .env from built-in defaults")
+    print(f"Config destination: {destination}")
+    try:
+        _config_writer.write_env(destination, {})
+    except OSError as exc:
+        print(f"[!] Could not write {destination}: {exc}")
+        return None
+    return destination
+
+
+def _describe_config_source(path, created):
+    """One right-hand side for :func:`_print_config_sources`."""
+    if path is None:
+        return "not found -- using built-in defaults"
+    return f"{path} (created this run)" if created else path
+
+
+def _print_config_sources(env_path, legacy_json_path, *, env_created, json_created):
+    """Name the two config files this run actually loaded.
+
+    Two lines, always the same two lines, printed before the loader's warnings
+    so each warning reads against a file the user has just been shown.
+
+    This is not decoration. ``config_loader.candidate_roots()`` searches the
+    repo root *before* ``~/.hate_crack``, so a stray `.env` left in any
+    checkout silently outranks the user's real one -- and running the tool from
+    a checkout is exactly what creates such a file. Separately, a `.env` in the
+    current working directory is never consulted at all: that is deliberate
+    (engagement directories are full of files nobody intends as configuration)
+    but it is invisible without this output. Printing the resolved paths
+    answers all three questions -- which directory won, whether a file was just
+    created, and whether the file being edited is even in the search order --
+    in the two lines before anything else happens.
+
+    Silent under ``SKIP_INIT``: the test suite imports this module constantly.
+    """
+    if SKIP_INIT:
+        return
+    print(f"[*] config.json: {_describe_config_source(legacy_json_path, json_created)}")
+    print(f"[*] .env:        {_describe_config_source(env_path, env_created)}")
+
+
+_env_path, _legacy_json_path = _config_loader.resolve_config_paths()
+_env_missing_before_bootstrap = _env_path is None
+_json_missing_before_bootstrap = _legacy_json_path is None
+_env_path, _legacy_json_path = _bootstrap_config_files(_env_path, _legacy_json_path)
+_print_config_sources(
+    _env_path,
+    _legacy_json_path,
+    env_created=_env_missing_before_bootstrap,
+    json_created=_json_missing_before_bootstrap,
 )
 
-SKIP_INIT = os.environ.get("HATE_CRACK_SKIP_INIT") == "1"
+# The loader is the single definition of the precedence stack: for each key,
+# schema default < that key's own home file < os.environ. config_parser stays
+# a plain dict keyed by the legacy JSON key names, with values already coerced
+# to their final Python types, because ~180 lines below here read it that way.
+_config_result = _config_loader.load_config_or_exit(
+    env_path=_env_path,
+    legacy_json_path=_legacy_json_path,
+)
+config_parser = _config_result.config
+for _warning in _config_result.warnings:
+    print(f"[!] {_warning}")
+
+# The real environment already outranks both config files inside the loader
+# (that is what
+# lets HASHVIEW_URL / HASHVIEW_API_KEY point the CLI at a local docker
+# stack without editing the persisted config), so these are read like every
+# other key. Do not re-apply os.environ here: a second application would bypass the
+# loader's coercion.
+hashview_url = config_parser["hashview_url"]
+hashview_api_key = config_parser["hashview_api_key"]
 
 logger = logging.getLogger("hate_crack")
 if not logger.handlers:
@@ -417,20 +646,16 @@ hcatRules: list[str] = []
 # Optional: override hashcat's default potfile location.
 # Default: use ~/.hashcat/hashcat.potfile (explicitly passed to hashcat).
 # Disable override with config `hcatPotfilePath: ""` or CLI `--no-potfile-path`.
-if "hcatPotfilePath" not in config_parser:
-    _default_pot = os.path.expanduser("~/.hashcat/hashcat.potfile")
-    if os.path.isfile(_default_pot) or os.path.isdir(os.path.dirname(_default_pot)):
-        hcatPotfilePath = _default_pot
-    else:
-        hcatPotfilePath = os.path.join(orig_cwd(), "hashcat.potfile")
+# The loader seeds every schema key, so the key is always present and there is
+# no "no key at all" discovery case to handle (the pre-split cwd-relative
+# fallback is gone -- see CHANGELOG).
+_raw_pot = (config_parser.get("hcatPotfilePath") or "").strip()
+if _raw_pot == "":
+    hcatPotfilePath = ""
 else:
-    _raw_pot = (config_parser.get("hcatPotfilePath") or "").strip()
-    if _raw_pot == "":
-        hcatPotfilePath = ""
-    else:
-        hcatPotfilePath = os.path.expanduser(_raw_pot)
-        if not os.path.isabs(hcatPotfilePath):
-            hcatPotfilePath = os.path.join(hate_path, hcatPotfilePath)
+    hcatPotfilePath = os.path.expanduser(_raw_pot)
+    if not os.path.isabs(hcatPotfilePath):
+        hcatPotfilePath = os.path.join(hate_path, hcatPotfilePath)
 
 
 def _normalize_ollama_url(host: str) -> str:
@@ -566,12 +791,16 @@ except KeyError:
 check_for_updates_enabled = config_parser.get("check_for_updates", True)
 
 # Notification subsystem bootstrap.  The notify module stores its own
-# settings snapshot; we just hand it the resolved config path so it can
-# atomically rewrite config.json when the user toggles enabled / answers
-# "always" at a prompt.
+# settings snapshot; we hand it the resolved `config.json` path so it can
+# rewrite the notify_enabled / notify_per_crack_enabled / notify_attack_allowlist
+# keys when the user toggles them or answers "always" at a prompt.  Those three
+# are home="json"; the Pushover credentials in `.env` are never written from
+# the menu.  ``None`` is legitimate under SKIP_INIT with no config file on
+# disk: the toggles then stay in-memory rather than creating one as a side
+# effect.
 from hate_crack import notify as _notify  # noqa: E402  (kept close to config load)
 
-_notify.init(_config_path, config_parser)
+_notify.init(_legacy_json_path, config_parser)
 
 hcatExpanderBin = "expander.bin"
 hcatCombinatorBin = "combinator.bin"
@@ -2448,7 +2677,7 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
         print(f"Error: the Ollama request timed out after {ollamaTimeout:g} seconds.")
         print(
             f"The model ({ollamaModel}) may still be loading into VRAM. Retry, or "
-            'raise "ollamaTimeout" in config.json to wait longer.'
+            "raise OLLAMA_TIMEOUT in the .env file to wait longer."
         )
         return
     except ValueError as e:
@@ -2677,7 +2906,7 @@ def hcatOllamaPatterns(hcatHashType, hcatHashFile, source_path):
         print(f"Error: the Ollama request timed out after {ollamaTimeout:g} seconds.")
         print(
             f"The model ({ollamaModel}) may still be loading into VRAM. Retry, or "
-            'raise "ollamaTimeout" in config.json to wait longer.'
+            "raise OLLAMA_TIMEOUT in the .env file to wait longer."
         )
         return
     except ValueError as e:
@@ -4152,7 +4381,7 @@ def hashview_api():
     # Get Hashview connection details from config
     if not hashview_api_key:
         print("\nError: Hashview API key not configured.")
-        print("Please set 'hashview_api_key' in config.json")
+        print("Please set HASHVIEW_API_KEY in the .env file")
         return
 
     print(f"\nConnecting to Hashview at: {hashview_url}")
@@ -5299,7 +5528,10 @@ def pipal():
             print("No hashes were cracked :(")
             return []
     else:
-        print("The path to pipal.rb is either not set, or is incorrect.")
+        print(
+            "The path to pipal.rb is either not set, or is incorrect. "
+            "Set PIPAL_PATH in the .env file."
+        )
         return
 
 
@@ -5422,8 +5654,8 @@ def toggle_notifications():
         settings = _notify.get_settings()
         if not settings.pushover_token or not settings.pushover_user:
             print(
-                "[!] notify_pushover_token / notify_pushover_user are empty in "
-                "config.json — notifications will silently no-op until set."
+                "[!] NOTIFY_PUSHOVER_TOKEN / NOTIFY_PUSHOVER_USER are empty in "
+                "the .env file — notifications will silently no-op until set."
             )
 
 
@@ -5463,8 +5695,8 @@ def test_pushover_notification():
     user = settings.pushover_user
     if not token or not user:
         print(
-            "\n[!] Pushover credentials missing. Set notify_pushover_token "
-            "and notify_pushover_user in config.json."
+            "\n[!] Pushover credentials missing. Set NOTIFY_PUSHOVER_TOKEN "
+            "and NOTIFY_PUSHOVER_USER in the .env file."
         )
         return
 
@@ -5635,8 +5867,12 @@ def main():
         parser.add_argument(
             "--rank",
             type=int,
-            default=-1,
-            help="Only show wordlists with this rank (use 0 to show all, default: >4)",
+            default=None,
+            help=(
+                "Only show wordlists with this rank (use 0 to show all, -1 for "
+                "the built-in >4 rule). Overrides `weakpass_min_rank` in "
+                "config.json for this run; defaults to that key (-1) when omitted."
+            ),
         )
         parser.add_argument(
             "--hashmob", action="store_true", help="Download wordlists from Hashmob.net"
@@ -5656,10 +5892,13 @@ def main():
         )
         parser.add_argument(
             "--nightly",
-            action="store_true",
+            action=argparse.BooleanOptionalAction,
+            default=None,
             help=(
                 "Update to the latest nightly from nightly-dev instead of main. "
-                "Nightlies have passed CI but are not part of a cut release."
+                "Nightlies have passed CI but are not part of a cut release. "
+                "Overrides `update_channel` in config.json for this run; --no-nightly "
+                "forces the main channel even when config.json selects nightly-dev."
             ),
         )
         parser.add_argument(
@@ -5669,28 +5908,40 @@ def main():
             action="store_true",
             help=(
                 "Never pass -O to hashcat, for every attack this run. Overrides "
-                "optimizedKernelAttacks in config.json and drops any -O in "
+                "`optimizedKernelAttacks` in config.json and drops any -O in "
                 "hcatTuning. Use when a candidate exceeds the password or salt "
                 "length ceiling the optimized kernels impose."
             ),
         )
-        parser.add_argument("--debug", action="store_true", help="Enable debug mode")
+        parser.add_argument(
+            "--debug",
+            action=argparse.BooleanOptionalAction,
+            default=None,
+            help=(
+                "Enable debug mode. Overrides `debug` in config.json for this run; "
+                "--no-debug forces it off even when config.json enables it."
+            ),
+        )
         parser.add_argument(
             "--potfile-path",
             dest="potfile_path",
             default=None,
             help=(
                 "Override hashcat potfile path (equivalent to hashcat --potfile-path). "
-                "Use empty string to disable overriding and use hashcat's built-in default."
+                "Overrides `hcatPotfilePath` in config.json for this run. Use empty string "
+                "to disable overriding and use hashcat's built-in default."
             ),
         )
         parser.add_argument(
             "--restore-potfile",
             dest="restore_potfile",
-            action="store_true",
+            action=argparse.BooleanOptionalAction,
+            default=None,
             help=(
                 "Rebuild <hashfile>.out from the POT file at startup, replacing "
-                "any existing contents, then continue as normal."
+                "any existing contents, then continue as normal. Overrides "
+                "`restore_potfile_on_start` in config.json for this run; "
+                "--no-restore-potfile forces it off even when config.json enables it."
             ),
         )
         parser.add_argument(
@@ -5834,26 +6085,26 @@ def main():
     )
     args = parser.parse_args(argv)
 
-    global debug_mode
-    debug_mode = args.debug
     if getattr(args, "command", None) in _noninteractive.ATTACK_COMMANDS:
         non_interactive = True
 
-    # CLI flags override config file.
-    if getattr(args, "no_optimized_kernel", False):
+    # Six flags are per-run overrides of schema-backed keys; resolve_flag_overrides
+    # layers the flag (when present) on top of what the loader already merged
+    # from os.environ, the key's own home file (config.json for all six) and
+    # the schema default.
+    flags = resolve_flag_overrides(
+        args,
+        config_parser,
+        base_dir=hate_path,
+        current_potfile_path=hcatPotfilePath,
+    )
+
+    global debug_mode
+    debug_mode = flags.debug
+    if flags.optimized_kernel_disabled:
         disable_optimized_kernel()
         print("[*] Optimized kernels (-O) disabled for this run")
-    if getattr(args, "no_potfile_path", False):
-        hcatPotfilePath = ""
-    if getattr(args, "potfile_path", None) is not None:
-        # Empty string means: revert to hashcat's default behavior.
-        if args.potfile_path.strip() == "":
-            hcatPotfilePath = ""
-        else:
-            p = os.path.expanduser(args.potfile_path.strip())
-            if not os.path.isabs(p):
-                p = os.path.join(hate_path, p)
-            hcatPotfilePath = p
+    hcatPotfilePath = flags.potfile_path
 
     setup_logging(logger, hate_path, debug_mode)
 
@@ -5886,7 +6137,9 @@ def main():
     if args.update or args.nightly:
         # --nightly implies the upgrade action, so `--nightly` alone works and
         # `--update --nightly` reads as "update, to the nightly channel".
-        _run_upgrade(branch="nightly-dev" if args.nightly else "main")
+        # Note the trigger is still an explicit flag: `update_channel` in config.json
+        # selects *which* channel an upgrade uses, it never starts one.
+        _run_upgrade(branch=flags.update_channel)
 
     if args.download_torrent:
         download_weakpass_torrent(
@@ -5899,7 +6152,7 @@ def main():
     if getattr(args, "command", None) == "hashview":
         if not hashview_api_key:
             print("\nError: Hashview API key not configured.")
-            print("Please set 'hashview_api_key' in config.json")
+            print("Please set HASHVIEW_API_KEY in the .env file")
             sys.exit(1)
 
         api_harness = HashviewAPI(hashview_url, hashview_api_key, debug=debug_mode)
@@ -6005,13 +6258,13 @@ def main():
         if not hashview_api_key:
             print("Available Customers:")
             print("\nError: Hashview API key not configured.")
-            print("Please set 'hashview_api_key' in config.json")
+            print("Please set HASHVIEW_API_KEY in the .env file")
             sys.exit(1)
         hashview_api()
         sys.exit(0)
 
     if args.weakpass:
-        weakpass_wordlist_menu(rank=args.rank)
+        weakpass_wordlist_menu(rank=flags.weakpass_min_rank)
         sys.exit(0)
 
     if args.hashmob:
@@ -6267,7 +6520,7 @@ def main():
     # Check POT File for Already Cracked Hashes. --restore-potfile forces the
     # rebuild even when .out already exists; the flag is the explicit request,
     # so it skips the interactive overwrite confirmation.
-    if getattr(args, "restore_potfile", False):
+    if flags.restore_potfile:
         check_potfile(force_overwrite=True)
     elif not os.path.isfile(hcatHashFile + ".out"):
         hcatOutput = open(hcatHashFile + ".out", "w+")

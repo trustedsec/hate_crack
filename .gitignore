@@ -7,6 +7,21 @@ config.json.*.bak
 config.json.orig
 config.json.save
 config.json~
+# The .env that now holds the third-party integration keys, same reasoning.
+# config.json is not deprecated -- it keeps the other 35 settings. hate_crack *creates*
+# this file at first startup (from a legacy config.json, or from defaults), so a
+# populated one exists in the checkout of anyone who has run the tool, and it can
+# hold up to four secrets: HASHVIEW_API_KEY, HASHMOB_API_KEY,
+# NOTIFY_PUSHOVER_TOKEN and NOTIFY_PUSHOVER_USER. The backup spellings are listed
+# for the same reason they are above: ignoring only the exact name is what let a
+# backup slip through last time. `.env.example` is deliberately NOT ignored -- it
+# is tracked, generated from schema defaults, and holds no values.
+.env
+.env.bak*
+.env.*.bak
+.env.orig
+.env.save
+.env~
 # Playwright MCP scratch output (console logs, traces, screenshots).
 .playwright-mcp/
 hashcat.pot

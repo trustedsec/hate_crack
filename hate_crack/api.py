@@ -14,6 +14,13 @@ from typing import Callable, Optional, Tuple
 import requests  # type: ignore[import-untyped]
 
 from hate_crack.cli import orig_cwd
+from hate_crack.config_loader import (
+    ConfigFileJSONError,
+    ConfigFileUnreadableError,
+    load_config,
+    resolve_config_paths,
+)
+from hate_crack.config_schema import CONFIG_SCHEMA, ConfigValueError
 from hate_crack.formatting import print_multicolumn_list
 from hate_crack.plaintext import encode_hex_wrapper
 
@@ -186,20 +193,20 @@ def _get_hate_path():
     return _package_path
 
 
-def _candidate_roots():
-    home = os.path.expanduser("~")
-    return [
-        _get_hate_path(),
-        os.path.join(home, ".hate_crack"),
-    ]
+def _resolve_env_path():
+    """Path of the `.env` the loader would read, or ``None``."""
+    return resolve_config_paths()[0]
 
 
 def _resolve_config_path():
-    for candidate in _candidate_roots():
-        config_path = os.path.join(candidate, "config.json")
-        if os.path.isfile(config_path):
-            return config_path
-    return None
+    """Path of the ``config.json``, or ``None``.
+
+    Kept as a named seam (the test suite patches it) but the directory search
+    order itself now lives in :func:`hate_crack.config_loader.candidate_roots`
+    -- api.py used to keep its own near-copy of main.py's order, which is
+    exactly the drift that produced #153.
+    """
+    return resolve_config_paths()[1]
 
 
 def check_7z():
@@ -499,44 +506,25 @@ class TransmissionSession:
                     self.remove(entry["id"])
 
 
-def _load_config_defaults():
-    """Load config.json.example, searching the same candidate order main.py
-    uses: alongside the resolved config.json (if any), then this package's
-    directory. Returns {} if no readable, well-formed example is found —
-    callers fall back to their own hardcoded defaults in that case.
-    """
-    candidates = []
-    config_path = _resolve_config_path()
-    if config_path:
-        candidates.append(os.path.dirname(config_path))
-    candidates.append(os.path.dirname(os.path.realpath(__file__)))
-    for candidate_dir in candidates:
-        example_path = os.path.join(candidate_dir, "config.json.example")
-        if os.path.isfile(example_path):
-            try:
-                with open(example_path) as f:
-                    return json.load(f)
-            except (OSError, json.JSONDecodeError):
-                continue
-    return {}
-
-
 def _load_merged_config():
-    """config.json.example defaults overlaid with config.json, mirroring
-    the merge main.py performs at import time. Fixes #153: api.py's
-    helpers previously read config.json directly and fell back to their
-    own hardcoded (cwd-relative) defaults when a key was absent, silently
-    diverging from main.py whenever a user's config.json predated a key.
+    """The same merged config ``main.py`` runs on, via the shared loader.
+
+    Delegates to :func:`hate_crack.config_loader.load_config`, so api.py and
+    main.py cannot disagree about defaults, precedence, or coercion. That
+    duplication is what #153 was: api.py's helpers reimplemented the
+    example-plus-user merge and drifted from main.py's copy.
+
+    Unlike main.py, a bad config file must not take the process down here --
+    these helpers are called from deep inside menu actions. Any load failure
+    degrades to the schema defaults.
     """
-    merged = _load_config_defaults()
-    config_path = _resolve_config_path()
-    if config_path:
-        try:
-            with open(config_path) as f:
-                merged.update(json.load(f))
-        except (OSError, json.JSONDecodeError):
-            pass
-    return merged
+    try:
+        return load_config(
+            env_path=_resolve_env_path(),
+            legacy_json_path=_resolve_config_path(),
+        ).config
+    except (ConfigValueError, ConfigFileJSONError, ConfigFileUnreadableError):
+        return {entry.legacy: entry.default for entry in CONFIG_SCHEMA}
 
 
 def get_hcat_wordlists_dir():
@@ -888,24 +876,7 @@ def fetch_torrent_metadata(torrent_url, save_dir=None, wordlist_id=None):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
-    hashmob_api_key = None
-    # Try to get hashmob_api_key from config
-    pkg_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.abspath(os.path.join(pkg_dir, os.pardir))
-    for cfg in (
-        os.path.join(pkg_dir, "config.json"),
-        os.path.join(project_root, "config.json"),
-    ):
-        if os.path.isfile(cfg):
-            try:
-                with open(cfg) as f:
-                    config = json.load(f)
-                    key = config.get("hashmob_api_key")
-                    if key:
-                        hashmob_api_key = key
-                        break
-            except Exception:
-                continue
+    hashmob_api_key = get_hashmob_api_key()
     if hashmob_api_key:
         headers["api-key"] = hashmob_api_key
 
@@ -2184,23 +2155,20 @@ def sanitize_filename(filename):
 
 
 def get_hashmob_api_key():
-    """Return hashmob_api_key from config.json in package or project root."""
-    pkg_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.abspath(os.path.join(pkg_dir, os.pardir))
-    for cfg in (
-        os.path.join(pkg_dir, "config.json"),
-        os.path.join(project_root, "config.json"),
-    ):
-        if os.path.isfile(cfg):
-            try:
-                with open(cfg) as f:
-                    config = json.load(f)
-                    key = config.get("hashmob_api_key")
-                    if key:
-                        return key
-            except Exception:
-                continue
-    return None
+    """Return ``hashmob_api_key`` from the merged config, or ``None``.
+
+    Goes through :func:`_load_merged_config` -- and therefore through
+    ``config_loader`` -- like every other config read in this module. It used
+    to walk its own two-directory list of ``config.json`` candidates, which
+    was #153's duplication in a third place and, once ``hashmob_api_key``
+    became a `.env`-homed key, plainly wrong: a user who set
+    ``HASHMOB_API_KEY`` in `.env` kept getting the stale value out of a
+    leftover ``config.json`` entry.
+
+    ``None`` rather than ``""`` for "not configured", because callers test it
+    with ``if key:`` and one passes it straight into a request header.
+    """
+    return _load_merged_config().get("hashmob_api_key") or None
 
 
 def download_hashmob_wordlist_list():

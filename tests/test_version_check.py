@@ -715,6 +715,9 @@ class TestNightlyFlagWiring:
             (["--nightly"], "nightly-dev"),
             # Reads as "update, to the nightly channel".
             (["--update", "--nightly"], "nightly-dev"),
+            # UPDATE_CHANNEL is only the persisted default now; --no-nightly is
+            # the per-run override that forces the released channel back on.
+            (["--update", "--no-nightly"], "main"),
         ],
     )
     def test_flag_selects_channel(self, hc_module, monkeypatch, argv, expected_branch):

@@ -114,13 +114,19 @@ def test_get_hcat_wordlists_dir_no_config_uses_example_default(tmp_path, monkeyp
     assert os.path.isdir(result)
 
 
-def test_get_hcat_wordlists_dir_true_fallback_when_no_example(tmp_path, monkeypatch):
-    """Last-resort cwd fallback still applies if config.json.example itself
-    can't be found or read (e.g. hate_crack.main's equivalent loader exits
-    at import time on an unreadable example; api.py's degrades gracefully
-    instead)."""
-    monkeypatch.setattr(api, "_resolve_config_path", lambda: None)
-    monkeypatch.setattr(api, "_load_config_defaults", lambda: {})
+def test_get_hcat_wordlists_dir_true_fallback_when_config_has_no_value(
+    tmp_path, monkeypatch
+):
+    """Last-resort cwd fallback still applies when the merged config yields
+    no hcatWordlists at all.
+
+    This used to be spelled as "config.json.example can't be read", patching
+    ``api._load_config_defaults``. That helper is gone: defaults now come from
+    ``config_schema``, which is code and cannot fail to load, so the only way
+    to reach this branch is a merged config without the key. The fallback
+    being tested is unchanged.
+    """
+    monkeypatch.setattr(api, "_load_merged_config", lambda: {})
     monkeypatch.chdir(tmp_path)
 
     result = api.get_hcat_wordlists_dir()

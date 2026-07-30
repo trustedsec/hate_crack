@@ -23,6 +23,17 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   Trusted Publishing (OIDC, no stored token) that the release tag automation
   cannot reach. Source install remains the only supported path. (#218)
 
+- **A tracked `.env.example` template, and a startup line naming the config
+  files actually loaded.** `.env.example` is generated from the configuration
+  schema (`uv run python -m hate_crack.config_writer`), so it cannot drift from
+  the key set hate_crack understands, and every credential key ships empty — it
+  is a committed file in a public repo. Startup now prints the resolved
+  `config.json` and `.env` paths, saying so inline when a file was created that
+  run. The search order prefers a repo checkout over `~/.hate_crack`, so a stray
+  `.env` in a checkout silently outranks the real one, and a `.env` in the
+  current working directory is never read at all; two lines of output make both
+  visible instead of leaving them to be rediscovered. Nothing is printed under
+  `HATE_CRACK_SKIP_INIT`. (#217)
 - **`--no-optimized-kernel` (alias `--no-optimize`) disables hashcat's `-O` for
   an entire run.** Until now the only way to turn optimized kernels off was to
   edit `optimizedKernelAttacks` in `config.json`, which persists and has to be
@@ -34,6 +45,39 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ### Changed
 
+- **Configuration is now split across two files, each owning a distinct set of
+  keys.** `config.json` keeps the 35 local settings (wordlists, masks, rules,
+  tuning, potfile, hashcat path, OMEN/PCFG/PRINCE limits, notification toggles,
+  update check) and gains the four persisted CLI preference defaults (`debug`,
+  `weakpass_min_rank`, `update_channel`, `restore_potfile_on_start`). A new
+  untracked `.env`, written at mode `0600`, owns the 12 third-party integration
+  keys: Hashview and Hashmob credentials, the Pushover token/user, the Ollama
+  settings, and `pipalPath`/`pipal_count`. `config.json` remains first-class and
+  is not deprecated. Each key has exactly one home; a key found in the other
+  file is ignored with a warning naming the file it belongs in, so there is no
+  cross-file precedence to reason about. `os.environ` still overrides any key,
+  which is what keeps the documented `HASHVIEW_URL` / `HASHVIEW_API_KEY`
+  overrides working. On first run both files are created; an existing
+  `config.json` holding integration keys has them copied into a new `.env`, and
+  hate_crack names the keys to delete from `config.json` rather than editing
+  that file itself. **Breaking** for anyone whose integration settings currently
+  live in `config.json`: those keys are no longer read from that file. The
+  migration is automatic and non-destructive — nothing is deleted, moved or
+  rewritten, and until you remove the stale keys yourself every run reminds you
+  which ones they are. Two of the promoted preference keys are namespaced as
+  `HATE_CRACK_DEBUG` and `HATE_CRACK_UPDATE_CHANNEL` on purpose: a bare `DEBUG=1`
+  exported by some unrelated tool must not switch on debug logging in a tool
+  that writes cracked plaintexts to disk. The other two keep their bare spellings
+  (`WEAKPASS_MIN_RANK`, `RESTORE_POTFILE_ON_START`). Adds a dependency on
+  `python-dotenv`. (#217)
+- **The cwd-relative potfile fallback is gone.** When `hcatPotfilePath` was
+  absent entirely, hate_crack used to fall back to `./hashcat.potfile` in the
+  directory it was launched from if `~/.hashcat/` did not exist. The
+  configuration schema now always supplies a value, so the potfile is
+  deterministically `~/.hashcat/hashcat.potfile` unless configured otherwise;
+  the directory is created on demand. Anyone who relied on picking up a potfile
+  from the current working directory should set `hcatPotfilePath` in
+  `config.json` or pass `--potfile-path`. (#217)
 - **Debug logs now default to `~/.hate_crack/hashcat_debug` instead of the
   checkout-relative `./hashcat_debug`.** The old default resolved against
   whatever directory hate_crack was launched from, which for anyone running it
