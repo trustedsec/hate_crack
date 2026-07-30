@@ -3,6 +3,7 @@ Tests for Hashview integration - Mocked API calls for CI/CD
 """
 
 import pytest
+import requests
 import sys
 import os
 import json
@@ -14,11 +15,37 @@ from unittest.mock import Mock, patch, MagicMock
 # Add the parent directory to the path to import hate_crack
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from hate_crack.api import HashviewAPI
+from hate_crack.api import HashviewAPI, _digest_for_type
 
 # Test configuration - these are mock values, not real credentials
 HASHVIEW_URL = "https://hashview.example.com"
 HASHVIEW_API_KEY = "test-api-key-123"
+
+# Obviously-synthetic example plaintexts. This is a public repository and real
+# passwords (or basewords/partials of them) must never appear as example values,
+# including in fixtures. Every hash constant below is derived from these strings
+# so hash:plaintext pairs stay internally consistent under client-side
+# validation instead of relying on memorised digests of real passwords.
+SYNTH_PLAIN_A = "Synthetic-Example-Aaa"
+SYNTH_PLAIN_B = "Synthetic-Example-Bbb"
+SYNTH_PLAIN_C = "Synthetic-Example-Ccc"
+
+
+def _synth_digest(hash_type, plaintext):
+    """Digest of a synthetic plaintext under ``hash_type`` (hashcat mode)."""
+    digest = _digest_for_type(str(hash_type), plaintext.encode("utf-8"))
+    if digest is None:
+        raise ValueError(f"no client-side digest available for mode {hash_type}")
+    return digest
+
+
+# NTLM (mode 1000) and MD5 (mode 0) digests of the synthetic plaintexts.
+NTLM_A = _synth_digest(1000, SYNTH_PLAIN_A)
+NTLM_B = _synth_digest(1000, SYNTH_PLAIN_B)
+NTLM_C = _synth_digest(1000, SYNTH_PLAIN_C)
+MD5_A = _synth_digest(0, SYNTH_PLAIN_A)
+# The all-zero NTLM of the empty password; a marker Hashview must never import.
+NTLM_EMPTY = "31d6cfe0d16ae931b73c59d7e0c089c0"
 
 
 class TestHashviewAPI:
@@ -41,6 +68,36 @@ class TestHashviewAPI:
             pass
         return env_url, env_key
 
+    def _live_api(self):
+        """Return a genuinely live HashviewAPI, or skip.
+
+        Live tests must NOT request the ``api`` fixture: that fixture holds
+        ``patch("requests.Session")`` open for the whole test body, so a client
+        built inside such a test gets a ``MagicMock`` session and never reaches
+        the server (issue #223). Credentials come from the environment only —
+        ``HASHVIEW_TEST_REAL=1`` plus ``HASHVIEW_URL``/``HASHVIEW_API_KEY``,
+        which is what the local docker stack exports — so a plain run can never
+        silently hit somebody's real Hashview via config.json.
+        """
+        if os.environ.get("HASHVIEW_TEST_REAL", "").lower() not in ("1", "true", "yes"):
+            pytest.skip("Set HASHVIEW_TEST_REAL=1 to run live Hashview tests.")
+        url = os.environ.get("HASHVIEW_URL")
+        key = os.environ.get("HASHVIEW_API_KEY")
+        if not url or not key:
+            pytest.skip("Missing HASHVIEW_URL/HASHVIEW_API_KEY env vars.")
+        real_api = HashviewAPI(url, key)
+        # Regression detector for the mock leak: if a future fixture change
+        # re-mocks requests.Session for a live test, fail here instead of
+        # asserting against a MagicMock and reporting it as a skip.
+        assert isinstance(real_api.session, requests.Session), (
+            f"live client session must be a real requests.Session, "
+            f"got {type(real_api.session)!r}"
+        )
+        assert not isinstance(real_api.session, (Mock, MagicMock)), (
+            "live client session is a mock — requests.Session is patched"
+        )
+        return real_api
+
     @pytest.fixture
     def api(self):
         """Create a HashviewAPI instance with mocked session"""
@@ -52,12 +109,8 @@ class TestHashviewAPI:
 
     @pytest.fixture
     def test_hashfile(self):
-        """Create a temporary test hashfile with NTLM hashes"""
-        test_hashes = [
-            "8846f7eaee8fb117ad06bdd830b7586c",  # password (NTLM)
-            "e19ccf75ee54e06b06a5907af13cef42",  # 123456 (NTLM)
-            "5835048ce94ad0564e29a924a03510ef",  # 12345678 (NTLM)
-        ]
+        """Create a temporary test hashfile with NTLM hashes of synthetic values"""
+        test_hashes = [NTLM_A, NTLM_B, NTLM_C]
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
             hashfile_path = f.name
@@ -67,6 +120,28 @@ class TestHashviewAPI:
         yield hashfile_path
 
         # Cleanup
+
+    @pytest.fixture
+    def test_hashfile_for_live(self, tmp_path):
+        """Factory: a hash-only file whose digests match the given hashcat mode.
+
+        The live stack seeds mode 0 (MD5) as well as 1000 (NTLM), so the file
+        has to be built for whichever mode ``HASHVIEW_HASH_TYPE`` selects.
+        """
+
+        def _make(hash_type):
+            try:
+                digests = [
+                    _synth_digest(hash_type, plain)
+                    for plain in (SYNTH_PLAIN_A, SYNTH_PLAIN_B, SYNTH_PLAIN_C)
+                ]
+            except ValueError as exc:
+                pytest.skip(str(exc))
+            path = tmp_path / "live_hashes.txt"
+            path.write_text("".join(d + "\n" for d in digests))
+            return str(path)
+
+        return _make
 
     def test_get_hashfiles_by_type_success(self, api):
         """The /v1/hashfiles/hash_type/<type> endpoint returns a list (real API if possible)."""
@@ -296,44 +371,56 @@ class TestHashviewAPI:
             api.download_rules(99999999, os.path.join(str(tmp_path), "x.rule"))
 
     def test_upload_cracked_hashes_success(self, api, tmp_path):
-        """Test uploading cracked hashes with valid lines (real API if possible)."""
-        hashview_url, hashview_api_key = self._get_hashview_config()
+        """Uploading cracked hashes with valid lines (mocked transport)."""
+        cracked_file = tmp_path / "cracked.txt"
+        cracked_file.write_text(
+            f"{NTLM_A}:{SYNTH_PLAIN_A}\n"
+            f"{NTLM_B}:{SYNTH_PLAIN_B}\n"
+            f"{NTLM_EMPTY}:{SYNTH_PLAIN_C}\n"
+            "invalidline\n"
+        )
+        mock_response = Mock()
+        mock_response.json.return_value = {"imported": 2}
+        mock_response.raise_for_status = Mock()
+        api.session.post.return_value = mock_response
+        result = api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
+        assert "imported" in result
+        assert result["imported"] == 2
+
+    def test_upload_cracked_hashes_success_live(self, tmp_path):
+        """Live Hashview accepts an import of valid hash:plaintext pairs.
+
+        Deliberately does not take the ``api`` fixture — see ``_live_api``.
+        """
+        real_api = self._live_api()
         hash_type = os.environ.get("HASHVIEW_HASH_TYPE", "1000")
-        if hashview_url and hashview_api_key:
-            real_api = HashviewAPI(hashview_url, hashview_api_key)
-            cracked_file = tmp_path / "cracked.txt"
-            cracked_file.write_text(
-                "8846f7eaee8fb117ad06bdd830b7586c:password\n"
-                "e19ccf75ee54e06b06a5907af13cef42:123456\n"
+        try:
+            pairs = [
+                (_synth_digest(hash_type, plain), plain)
+                for plain in (SYNTH_PLAIN_A, SYNTH_PLAIN_B)
+            ]
+        except ValueError as exc:
+            # Data condition, not a failure: we cannot construct a pair that
+            # passes client-side validation for this mode.
+            pytest.skip(str(exc))
+        cracked_file = tmp_path / "cracked.txt"
+        cracked_file.write_text("".join(f"{h}:{p}\n" for h, p in pairs))
+
+        try:
+            result = real_api.upload_cracked_hashes(
+                str(cracked_file), hash_type=hash_type
             )
-            try:
-                result = real_api.upload_cracked_hashes(
-                    str(cracked_file), hash_type=hash_type
-                )
-                assert "imported" in result
-            except Exception as e:
-                # If the API does not allow upload, skip
-                pytest.skip(f"Real API upload_cracked_hashes not allowed: {e}")
-        else:
-            cracked_file = tmp_path / "cracked.txt"
-            cracked_file.write_text(
-                "8846f7eaee8fb117ad06bdd830b7586c:password\n"
-                "e19ccf75ee54e06b06a5907af13cef42:123456\n"
-                "31d6cfe0d16ae931b73c59d7e0c089c0:should_skip\n"
-                "invalidline\n"
-            )
-            mock_response = Mock()
-            mock_response.json.return_value = {"imported": 2}
-            mock_response.raise_for_status = Mock()
-            api.session.post.return_value = mock_response
-            result = api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
-            assert "imported" in result
-            assert result["imported"] == 2
+        except requests.RequestException as exc:
+            pytest.skip(f"Hashview import request failed: {exc}")
+
+        assert isinstance(result, dict), f"expected a JSON object, got {result!r}"
+        assert result.get("uploaded") == 2, result
+        assert result.get("skipped") == 0, result
 
     def test_upload_cracked_hashes_api_error(self, api, tmp_path):
         """Test uploading cracked hashes with API error response (mock only)."""
         cracked_file = tmp_path / "cracked.txt"
-        cracked_file.write_text("8846f7eaee8fb117ad06bdd830b7586c:password\n")
+        cracked_file.write_text(f"{NTLM_A}:{SYNTH_PLAIN_A}\n")
         mock_response = Mock()
         mock_response.json.return_value = {"type": "Error", "msg": "Some error"}
         mock_response.raise_for_status = Mock()
@@ -345,7 +432,7 @@ class TestHashviewAPI:
     def test_upload_cracked_hashes_invalid_json(self, api, tmp_path):
         """Test uploading cracked hashes with invalid JSON response (mock only)."""
         cracked_file = tmp_path / "cracked.txt"
-        cracked_file.write_text("8846f7eaee8fb117ad06bdd830b7586c:password\n")
+        cracked_file.write_text(f"{NTLM_A}:{SYNTH_PLAIN_A}\n")
         mock_response = Mock()
         mock_response.json.side_effect = json.JSONDecodeError("Expecting value", "", 0)
         mock_response.text = "not a json"
@@ -359,10 +446,10 @@ class TestHashviewAPI:
         """An MD5 line mixed into an NTLM upload is filtered client-side."""
         cracked_file = tmp_path / "cracked.txt"
         cracked_file.write_text(
-            # MD5("password") — invalid as NTLM, must be dropped
-            "5f4dcc3b5aa765d61d8327deb882cf99:password\n"
-            # genuine NTLM("password") — must be kept
-            "8846f7eaee8fb117ad06bdd830b7586c:password\n"
+            # MD5 of the synthetic plaintext — invalid as NTLM, must be dropped
+            f"{MD5_A}:{SYNTH_PLAIN_A}\n"
+            # genuine NTLM of the same plaintext — must be kept
+            f"{NTLM_A}:{SYNTH_PLAIN_A}\n"
         )
         mock_response = Mock()
         mock_response.json.return_value = {"imported": 1}
@@ -376,8 +463,8 @@ class TestHashviewAPI:
         if sent is None:
             sent = api.session.post.call_args.args[1]
         assert isinstance(sent, bytes)
-        assert b"8846f7eaee8fb117ad06bdd830b7586c:password" in sent
-        assert b"5f4dcc3b5aa765d61d8327deb882cf99" not in sent
+        assert f"{NTLM_A}:{SYNTH_PLAIN_A}".encode() in sent
+        assert MD5_A.encode() not in sent
         out = capsys.readouterr().out
         assert "Skipped 1 line" in out
 
@@ -414,8 +501,8 @@ class TestHashviewAPI:
         returns a bare OK with no counts of its own."""
         cracked_file = tmp_path / "cracked.txt"
         cracked_file.write_text(
-            "5f4dcc3b5aa765d61d8327deb882cf99:password\n"  # MD5 -> skipped
-            "8846f7eaee8fb117ad06bdd830b7586c:password\n"  # NTLM -> uploaded
+            f"{MD5_A}:{SYNTH_PLAIN_A}\n"  # MD5 -> skipped
+            f"{NTLM_A}:{SYNTH_PLAIN_A}\n"  # NTLM -> uploaded
         )
         mock_response = Mock()
         mock_response.json.return_value = {
@@ -434,7 +521,7 @@ class TestHashviewAPI:
         """A Hashview that reports counts keeps them; client counts are added
         without clobbering the server's."""
         cracked_file = tmp_path / "cracked.txt"
-        cracked_file.write_text("8846f7eaee8fb117ad06bdd830b7586c:password\n")
+        cracked_file.write_text(f"{NTLM_A}:{SYNTH_PLAIN_A}\n")
         mock_response = Mock()
         mock_response.json.return_value = {
             "msg": "OK",
@@ -514,7 +601,7 @@ class TestHashviewAPI:
     def test_upload_all_invalid_raises(self, api, tmp_path):
         """If validation drops every line, we raise instead of posting empty."""
         cracked_file = tmp_path / "cracked.txt"
-        cracked_file.write_text("5f4dcc3b5aa765d61d8327deb882cf99:password\n")
+        cracked_file.write_text(f"{MD5_A}:{SYNTH_PLAIN_A}\n")
         api.session.post.side_effect = AssertionError("should not POST")
         with pytest.raises(Exception) as excinfo:
             api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
@@ -523,7 +610,7 @@ class TestHashviewAPI:
     def test_upload_validation_can_be_disabled(self, api, tmp_path):
         """validate=False restores the old permissive behaviour."""
         cracked_file = tmp_path / "cracked.txt"
-        cracked_file.write_text("5f4dcc3b5aa765d61d8327deb882cf99:password\n")
+        cracked_file.write_text(f"{MD5_A}:{SYNTH_PLAIN_A}\n")
         mock_response = Mock()
         mock_response.json.return_value = {"imported": 1}
         mock_response.raise_for_status = Mock()
@@ -535,24 +622,32 @@ class TestHashviewAPI:
         assert result["imported"] == 1
 
     def test_create_customer_success(self, api):
-        """Test creating a customer (real API if possible)."""
-        hashview_url, hashview_api_key = self._get_hashview_config()
-        if hashview_url and hashview_api_key:
-            real_api = HashviewAPI(hashview_url, hashview_api_key)
-            try:
-                result = real_api.create_customer("New Customer Test")
-                assert "id" in result
-                assert "name" in result
-            except Exception as e:
-                pytest.skip(f"Real API create_customer not allowed: {e}")
-        else:
-            mock_response = Mock()
-            mock_response.json.return_value = {"id": 10, "name": "New Customer"}
-            mock_response.raise_for_status = Mock()
-            api.session.post.return_value = mock_response
-            result = api.create_customer("New Customer")
-            assert result["id"] == 10
-            assert result["name"] == "New Customer"
+        """create_customer returns the server's JSON body (mocked transport)."""
+        mock_response = Mock()
+        mock_response.json.return_value = {"customer_id": 10, "msg": "Customer added"}
+        mock_response.raise_for_status = Mock()
+        api.session.post.return_value = mock_response
+        result = api.create_customer("New Customer")
+        assert result["customer_id"] == 10
+        assert result["msg"] == "Customer added"
+
+    def test_create_customer_success_live(self):
+        """Live Hashview creates a customer and returns its new id.
+
+        Deliberately does not take the ``api`` fixture — see ``_live_api``.
+        """
+        real_api = self._live_api()
+        customer_name = f"Example Customer {uuid.uuid4().hex[:8]}"
+        try:
+            result = real_api.create_customer(customer_name)
+        except requests.RequestException as exc:
+            pytest.skip(f"Hashview create_customer request failed: {exc}")
+
+        assert isinstance(result, dict), f"expected a JSON object, got {result!r}"
+        # Hashview answers {"customer_id": N, "msg": "Customer added", ...}.
+        customer_id = result.get("customer_id") or result.get("id")
+        assert customer_id, f"no customer id in response: {result!r}"
+        assert int(customer_id) > 0
 
     def test_download_left_hashes(self, api, tmp_path):
         """Test downloading left hashes: real API if possible, else mock."""
@@ -836,90 +931,86 @@ class TestHashviewAPI:
         with pytest.raises(NotImplementedError):
             api.stop_job(7)
 
-    def test_create_job_with_new_customer(self, api, test_hashfile):
-        """Test creating a new customer and then creating a job (real API if possible)."""
-        hashview_url, hashview_api_key = self._get_hashview_config()
+    def test_create_job_with_new_customer_live(self, test_hashfile_for_live):
+        """Live Hashview: new customer -> hashfile upload -> job -> start -> delete.
+
+        Deliberately does not take the ``api`` fixture — see ``_live_api``.
+        """
+        real_api = self._live_api()
         hash_type = os.environ.get("HASHVIEW_HASH_TYPE", "1000")
-        if hashview_url and hashview_api_key:
-            real_api = HashviewAPI(hashview_url, hashview_api_key)
-            customer_name = f"Example Customer {uuid.uuid4().hex[:8]}"
-            try:
-                customer_result = real_api.create_customer(customer_name)
-                customer_id = customer_result.get("customer_id") or customer_result.get(
-                    "id"
-                )
-                if not customer_id:
-                    pytest.skip("Create customer did not return a customer_id.")
-                upload_result = real_api.upload_hashfile(
-                    test_hashfile,
-                    int(customer_id),
-                    int(hash_type),
-                    5,
-                    "test_hashfile_new_customer",
-                )
-                hashfile_id = upload_result.get("hashfile_id")
-                if not hashfile_id:
-                    pytest.skip("Upload hashfile did not return a hashfile_id.")
-                job_result = real_api.create_job(
-                    name=f"test_job_new_customer_{uuid.uuid4().hex[:6]}",
-                    hashfile_id=hashfile_id,
-                    customer_id=int(customer_id),
-                )
-                if isinstance(job_result, dict) and "msg" in job_result:
-                    msg = str(job_result.get("msg", ""))
-                    if "Failed to add job" in msg:
-                        pytest.xfail(f"Hashview rejected job creation: {msg}")
-                assert job_result is not None
-                if isinstance(job_result, dict):
-                    assert "job_id" in job_result
-                    job_id = job_result.get("job_id")
-                    try:
-                        real_api.start_job(job_id)
-                    except Exception:
-                        pass
-                    try:
-                        real_api.stop_job(job_id)
-                    except Exception:
-                        pass
-                    try:
-                        real_api.delete_job(job_id)
-                    except Exception:
-                        pass
-            except Exception as e:
-                pytest.skip(f"Real API create_job with new customer not allowed: {e}")
-        else:
-            mock_create_customer = Mock()
-            mock_create_customer.json.return_value = {
-                "customer_id": 101,
-                "name": "Example Customer",
-            }
-            mock_create_customer.raise_for_status = Mock()
+        hashfile = test_hashfile_for_live(hash_type)
+        customer_name = f"Example Customer {uuid.uuid4().hex[:8]}"
 
-            mock_upload_hashfile = Mock()
-            mock_upload_hashfile.json.return_value = {
-                "hashfile_id": 202,
-                "msg": "Hashfile added",
-            }
-            mock_upload_hashfile.raise_for_status = Mock()
-
-            mock_create_job = Mock()
-            mock_create_job.json.return_value = {"job_id": 303, "msg": "Job added"}
-            mock_create_job.raise_for_status = Mock()
-
-            api.session.post.side_effect = [
-                mock_create_customer,
-                mock_upload_hashfile,
-                mock_create_job,
-            ]
-
-            customer_result = api.create_customer("Example Customer")
-            assert customer_result.get("customer_id") == 101
-            upload_result = api.upload_hashfile(
-                test_hashfile, 101, 1000, 5, "test_hashfile_new_customer"
+        try:
+            customer_result = real_api.create_customer(customer_name)
+            customer_id = customer_result.get("customer_id") or customer_result.get(
+                "id"
             )
-            assert upload_result.get("hashfile_id") == 202
-            job_result = api.create_job("test_job_new_customer", 202, 101)
-            assert job_result.get("job_id") == 303
+            assert customer_id, f"no customer id in response: {customer_result!r}"
+
+            upload_result = real_api.upload_hashfile(
+                hashfile,
+                int(customer_id),
+                int(hash_type),
+                5,
+                "test_hashfile_new_customer",
+            )
+            hashfile_id = upload_result.get("hashfile_id")
+            assert hashfile_id, f"no hashfile_id in response: {upload_result!r}"
+
+            job_result = real_api.create_job(
+                name=f"test_job_new_customer_{uuid.uuid4().hex[:6]}",
+                hashfile_id=hashfile_id,
+                customer_id=int(customer_id),
+            )
+            assert isinstance(job_result, dict), (
+                f"expected a JSON object, got {job_result!r}"
+            )
+            assert "job_id" in job_result, f"job creation failed: {job_result!r}"
+            job_id = job_result["job_id"]
+
+            assert real_api.start_job(job_id).get("job_id") == job_id
+            # Hashview has no stop-job route; the client must say so.
+            with pytest.raises(NotImplementedError):
+                real_api.stop_job(job_id)
+            assert real_api.delete_job(job_id).get("job_id") == job_id
+        except requests.RequestException as exc:
+            pytest.skip(f"Hashview job workflow request failed: {exc}")
+
+    def test_create_job_with_new_customer(self, api, test_hashfile):
+        """New customer -> hashfile upload -> job creation (mocked transport)."""
+        mock_create_customer = Mock()
+        mock_create_customer.json.return_value = {
+            "customer_id": 101,
+            "msg": "Customer added",
+        }
+        mock_create_customer.raise_for_status = Mock()
+
+        mock_upload_hashfile = Mock()
+        mock_upload_hashfile.json.return_value = {
+            "hashfile_id": 202,
+            "msg": "Hashfile added",
+        }
+        mock_upload_hashfile.raise_for_status = Mock()
+
+        mock_create_job = Mock()
+        mock_create_job.json.return_value = {"job_id": 303, "msg": "Job added"}
+        mock_create_job.raise_for_status = Mock()
+
+        api.session.post.side_effect = [
+            mock_create_customer,
+            mock_upload_hashfile,
+            mock_create_job,
+        ]
+
+        customer_result = api.create_customer("Example Customer")
+        assert customer_result.get("customer_id") == 101
+        upload_result = api.upload_hashfile(
+            test_hashfile, 101, 1000, 5, "test_hashfile_new_customer"
+        )
+        assert upload_result.get("hashfile_id") == 202
+        job_result = api.create_job("test_job_new_customer", 202, 101)
+        assert job_result.get("job_id") == 303
 
     def test_file_format_detection(self, tmp_path):
         """Test auto-detection of hashfile formats"""
@@ -931,15 +1022,15 @@ class TestHashviewAPI:
 
         # Test user:hash format (2 parts, non-hex username)
         userhash_file = tmp_path / "userhash.txt"
-        userhash_file.write_text("user123:5f4dcc3b5aa765d61d8327deb882cf99\n")
+        userhash_file.write_text(f"user123:{MD5_A}\n")
 
         # Test hash_only format (default)
         hashonly_file = tmp_path / "hashonly.txt"
-        hashonly_file.write_text("5f4dcc3b5aa765d61d8327deb882cf99\n")
+        hashonly_file.write_text(f"{MD5_A}\n")
 
         # Test hex:hash format (should be hash_only since first part is all hex)
         hexhash_file = tmp_path / "hexhash.txt"
-        hexhash_file.write_text("abcdef123456:5f4dcc3b5aa765d61d8327deb882cf99\n")
+        hexhash_file.write_text(f"abcdef123456:{MD5_A}\n")
 
         # Detection logic (same as in main.py)
         def detect_format(filepath):
@@ -1170,7 +1261,7 @@ class TestHashviewAPI:
         """Test that found hashes only merge when customer_id and hashfile_id match"""
         # Create .out file with specific IDs
         out_file = tmp_path / "left_1_2.txt.out"
-        out_file.write_text("existing_hash:password\n")
+        out_file.write_text("existing_hash:existing_plaintext\n")
 
         # Mock left hashes download for different IDs
         mock_response = Mock()
@@ -1191,7 +1282,7 @@ class TestHashviewAPI:
         # Verify the different IDs' .out file wasn't affected
         with open(str(out_file), "r") as f:
             content = f.read()
-        assert content == "existing_hash:password\n", (
+        assert content == "existing_hash:existing_plaintext\n", (
             "Different ID's .out file should be unchanged"
         )
 

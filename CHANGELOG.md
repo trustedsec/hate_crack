@@ -134,6 +134,29 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ### Fixed
 
+- **Three Hashview tests claimed to hit the real API "if possible" but never
+  did, and could not fail even when their assertions did (#223).** The `api`
+  fixture holds `patch("requests.Session")` open for the whole test body, so a
+  client built inside such a test got a `MagicMock` session and never reached
+  the server; the surrounding `except Exception` then laundered the resulting
+  `AssertionError` into a `pytest.skip` that read like an authorization problem,
+  which is what hid the mock leak. `test_upload_cracked_hashes_success`,
+  `test_create_customer_success`, and `test_create_job_with_new_customer` are
+  now each split into a mocked test and a `*_live` test that never requests the
+  mocked fixture, gated on `HASHVIEW_TEST_REAL=1` plus `HASHVIEW_URL` /
+  `HASHVIEW_API_KEY` (env only, so a plain run cannot silently reach a real
+  Hashview through `config.json`). The live path asserts up front that its
+  session is a genuine `requests.Session` and not a `Mock`, which is the
+  regression detector for the leak, and only `requests.RequestException` can
+  skip — assertion failures propagate. Verified against the local docker stack:
+  all three now execute, and each reports FAILED (not SKIPPED) under a
+  deliberately broken assertion.
+- **Test fixtures used real plaintext passwords as example values in a public
+  repository.** Every cracked-pair, hashfile, and format-detection fixture in
+  `tests/test_hashview.py` now derives its digests from obviously-synthetic
+  plaintexts via the client's own `_digest_for_type`, so hash/plaintext pairs
+  stay valid under upload validation (including for whichever hash mode the
+  live stack seeds) without embedding known passwords or their digests.
 - **`hcatHashFile`, `hcatHashFileOrig`, and `hcatHashType` did not exist until
   `main()` assigned them, so 53 test call sites needed
   `monkeypatch.setattr(..., raising=False)` — a flag that silently creates the
