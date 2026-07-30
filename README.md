@@ -494,7 +494,7 @@ Common options:
 - `--maxruntime <SECONDS>`: Override max runtime.
 - `--bandrel-basewords <PATH>`: Override bandrel basewords file.
 - `--update`: Update to the latest release and reinstall. Switches the checkout to `main` if it is on another branch, since release tags live there.
-- `--nightly`: Update to the latest nightly instead, from the `nightly-dev` branch. Nightlies have passed CI but are not part of a cut release. Can also be written `--update --nightly`.
+- `--nightly`: Update to the latest nightly instead, from the `nightly-dev` branch. Nightlies have passed CI but are not part of a cut release; they carry a non-zero patch version such as `2.19.3` (see [Versioning](#versioning)). Can also be written `--update --nightly`.
 - `--no-optimized-kernel` (or `--no-optimize`): Never pass `-O` to hashcat for the whole run. Overrides `optimizedKernelAttacks` in `config.json` and strips any `-O` you put in `hcatTuning`. Nothing is written back to the config, so it applies to this run only. With a subcommand, put it before the subcommand: `./hate_crack.py --no-optimize quick hashes.txt 1000 --wordlist words.txt`.
 - `--debug`: Enable debug logging (writes to stderr).
 
@@ -714,13 +714,15 @@ hate_crack can automatically check GitHub for newer releases on startup. This fe
 
 | Channel | Flag | Source | What you get |
 |---------|------|--------|--------------|
-| Release | `--update` | `main` | The latest cut release. This is the default and what the startup check offers. |
-| Nightly | `--nightly` | `nightly-dev` | Work that has passed CI but has not been released yet. |
+| Release | `--update` | `main` | The latest cut release, always `X.Y.0`. This is the default and what the startup check offers. |
+| Nightly | `--nightly` | `nightly-dev` | Work that has passed CI but has not been released yet, numbered `X.Y.1`, `X.Y.2`, … |
 
 The startup check only ever offers releases. It reads GitHub's "latest release"
-endpoint, which excludes pre-releases, and nightly builds publish no GitHub
-release at all — so enabling `check_for_updates` will never pull you onto a
-nightly.
+endpoint, and nightly builds publish no GitHub release at all — so enabling
+`check_for_updates` will never pull you onto a nightly. Note that a GitHub
+release existing is the *only* thing that distinguishes a release from a
+nightly: nightly tags are ordinary version numbers, not pre-releases (see
+[Versioning](#versioning)).
 
 Either flag switches your checkout to the corresponding branch first (and
 refuses to do so if you have uncommitted changes). If you are running a nightly
@@ -762,6 +764,49 @@ $ ./hate_crack.py <hash file> 1000
        \/      \/          \/_____/      \/            \/     \/     \/
                           Version 2.0
 ```
+
+-------------------------------------------------------------------
+## Versioning
+
+Version numbers are derived from git tags by setuptools-scm and created
+automatically after CI passes. Which component moves depends on the branch:
+
+| Branch | Shape | When it moves |
+|--------|-------|---------------|
+| `main` (stable) | `X.Y.0` | Merging `nightly-dev` down cuts `X.(Y+1).0`. A breaking change cuts `(X+1).0.0`. |
+| `nightly-dev` (rolling) | `X.Y.N` | Every merge that passes CI increments `N`: `2.19.1`, `2.19.2`, … |
+
+**The patch component is the nightly counter.** A release always ends in `.0`,
+and everything between two releases is a nightly. So with 2.19.0 released,
+nightly-dev counts 2.19.1, 2.19.2, 2.19.3, and the merge down to main cuts
+2.20.0. Every nightly version sorts after the release it started from and before
+the release it becomes, which means a nightly build never looks older than the
+release it precedes.
+
+Nightly tags are ordinary final version numbers, not pre-releases. The only thing
+marking a version as released is that a GitHub release exists for it, which is why
+the startup check never offers a nightly.
+
+Two consequences worth knowing:
+
+- **`main` has no patch slot for a hotfix.** Any push to `main` that passes CI
+  cuts a minor release, so route fixes through `nightly-dev` unless you intend to
+  ship one.
+- **A chore-only or docs-only merge to `main` still releases.** The merge itself
+  is the release event; the previous policy skipped tagging when no
+  `feat`/`fix`/`perf` commits were present, which would strand such a merge
+  unreleased.
+
+Breaking changes are detected from Conventional Commits — either a `!` before the
+colon in the subject (`feat!:`) or a `BREAKING CHANGE:` footer in the body.
+
+The policy lives in one place, `tools/next_version.py`, which both
+`.github/workflows/auto-tag.yml` and `.github/workflows/nightly-tag.yml` call.
+`tests/test_next_version.py` covers it, including a real-git test that walks a
+full release → nightlies → release cycle and asserts versions stay monotonic.
+
+Tags of the form `vX.Y.Z-rc.N` are from a retired scheme and are ignored when
+computing the next version.
 
 -------------------------------------------------------------------
 ## Testing

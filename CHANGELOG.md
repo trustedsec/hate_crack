@@ -97,6 +97,20 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   reached from two wordlists, misranking rules exactly when several logs were
   mined together.
 
+- **Versioning policy: the patch component is now the nightly counter.**
+  Releases on `main` always end in `.0`, and merging `nightly-dev` down cuts
+  `X.(Y+1).0` (or `(X+1).0.0` for a breaking change). Merges into `nightly-dev`
+  now cut ordinary versions `X.Y.1`, `X.Y.2`, … instead of `vX.Y.0-rc.N`
+  pre-release tags. The old rc tags sorted *below* the release they were heading
+  for, so a nightly build always looked older than the release it preceded;
+  counting upward from the last release fixes that ordering. Nightly builds still
+  publish no GitHub release, which is what keeps them out of the startup check's
+  upgrade path. Existing `vX.Y.Z-rc.N` tags are ignored when computing versions.
+- A chore-only or docs-only merge to `main` now cuts a release. The merge is the
+  release event; previously such a merge was left untagged.
+- The tagging policy moved out of duplicated shell in the two tagging workflows
+  into `tools/next_version.py`, covered by `tests/test_next_version.py`.
+
 ### Removed
 
 - **The standalone `wordlist_optimizer.py` script.** Its per-length split and

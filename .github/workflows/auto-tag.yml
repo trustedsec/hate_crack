@@ -1,7 +1,18 @@
 name: Auto Tag
 
-# Runs only after the CI workflow finishes successfully on main, so a broken
-# commit never gets tagged or released.
+# Cuts a stable release on main after CI passes, so a broken commit never gets
+# tagged or released.
+#
+# Stable releases always carry patch 0: merging nightly-dev down is the release
+# event, and it cuts X.(Y+1).0 (or (X+1).0.0 for a breaking change). The patch
+# component belongs to nightly-dev, which counts X.Y.1, X.Y.2, … between
+# releases. The policy itself lives in tools/next_version.py, shared with
+# nightly-tag.yml and tested in tests/test_next_version.py.
+#
+# Note this fires on ANY push to main that passes CI, not only a nightly-dev
+# merge. A commit pushed straight to main therefore also cuts a minor release,
+# because this scheme leaves no patch slot for a hotfix on main. Route fixes
+# through nightly-dev unless you intend to ship a release.
 on:
   workflow_run:
     workflows: ["CI"]
@@ -39,81 +50,16 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
 
-      - name: Determine version bump
+      - name: Determine release version
         id: bump
         run: |
-          # Get the latest semver tag. The `|| true` keeps `set -o pipefail`
-          # from aborting the step when there are no matching tags yet.
-          latest_tag=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
-          if [ -z "$latest_tag" ]; then
-            echo "No semver tag found, starting at v0.1.0"
-            echo "new_tag=v0.1.0" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          echo "Latest tag: $latest_tag"
-
-          # Commit SHAs since the last tag. We iterate SHAs rather than reading
-          # subjects line-by-line so that commit *bodies* (and therefore
-          # BREAKING CHANGE footers) are visible.
-          shas=$(git log "$latest_tag"..HEAD --format=%H)
-
-          if [ -z "$shas" ]; then
-            echo "No new commits since $latest_tag"
+          new_tag=$(python3 tools/next_version.py --channel stable)
+          if [ -z "$new_tag" ]; then
+            echo "Nothing to tag"
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-
-          # Parse current version
-          version="${latest_tag#v}"
-          major=$(echo "$version" | cut -d. -f1)
-          minor=$(echo "$version" | cut -d. -f2)
-          patch=$(echo "$version" | cut -d. -f3)
-
-          # Determine bump type. Precedence: major > minor > patch.
-          bump="none"
-          while IFS= read -r sha; do
-            [ -n "$sha" ] || continue
-            body=$(git log -1 --format=%B "$sha")
-            subject=${body%%$'\n'*}
-
-            # Note: matches are done with bash [[ =~ ]] / here-strings rather
-            # than pipelines, so `set -o pipefail` cannot turn an early-exiting
-            # `grep -q` (SIGPIPE, status 141) into a false negative.
-            if [[ "$subject" =~ ^[a-zA-Z]+(\(.+\))?!: ]]; then
-              # e.g. "feat!: ..." / "refactor(api)!: ..."
-              bump="major"
-            elif grep -qE '^(BREAKING CHANGE|BREAKING-CHANGE):' <<<"$body"; then
-              # Conventional Commits breaking-change footer in the body.
-              bump="major"
-            elif [[ "$subject" =~ ^feat(\(.+\))?: ]] && [ "$bump" != "major" ]; then
-              bump="minor"
-            elif [[ "$subject" =~ ^(fix|perf)(\(.+\))?: ]] && [ "$bump" = "none" ]; then
-              bump="patch"
-            fi
-          done <<EOF
-          $shas
-          EOF
-
-          if [ "$bump" = "none" ]; then
-            echo "No feat/fix/perf/breaking commits, skipping tag"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [ "$bump" = "major" ]; then
-            major=$((major + 1))
-            minor=0
-            patch=0
-          elif [ "$bump" = "minor" ]; then
-            minor=$((minor + 1))
-            patch=0
-          else
-            patch=$((patch + 1))
-          fi
-
-          new_tag="v${major}.${minor}.${patch}"
-          echo "Bump: $bump -> $new_tag"
+          echo "Next stable release: $new_tag"
           echo "new_tag=$new_tag" >> "$GITHUB_OUTPUT"
 
       - name: Create tag
@@ -132,6 +78,12 @@ jobs:
       # GITHUB_TOKEN, so release.yml will not fire for the tag above. Create the
       # release here instead. release.yml remains the path for tags pushed
       # manually by a human.
+      #
+      # Creating the release here is also what keeps nightly versions out of an
+      # operator's upgrade path. Nightly tags are ordinary final versions now, so
+      # the only thing marking a version as released is that a GitHub release
+      # exists for it, and the startup check reads the releases endpoint. Never
+      # create releases from nightly-tag.yml.
       - name: Create GitHub release
         if: steps.bump.outputs.skip != 'true'
         env:

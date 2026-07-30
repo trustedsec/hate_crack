@@ -36,11 +36,14 @@ jobs:
       - name: Install dependencies
         run: uv sync --dev
 
+      # tools/next_version.py and packaging/ are listed individually rather than
+      # by directory: the rest of tools/ predates linting and does not pass yet,
+      # and reformatting it here would bury this change in unrelated churn.
       - name: Ruff (lint)
-        run: uv run ruff check hate_crack tests
+        run: uv run ruff check hate_crack tests tools/next_version.py packaging
 
       - name: Ruff (format)
-        run: uv run ruff format --check hate_crack tests
+        run: uv run ruff format --check hate_crack tests tools/next_version.py packaging
 
       - name: Ty
         # ty 0.0.63 fails CI on warning-level diagnostics by default;
