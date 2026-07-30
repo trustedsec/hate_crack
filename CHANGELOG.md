@@ -225,6 +225,12 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ### Fixed
 
+- **Exiting a `-m 1000` session could crash instead of cleaning up.**
+  `pwdump_format` was assigned only inside `main()`'s format-detection block, so
+  any run that reached `cleanup()` without executing that block raised
+  `NameError: name 'pwdump_format' is not defined` — at the end of the session,
+  after the cracking work was done, and skipping the rest of the cleanup. It now
+  has a module-level default of `False`.
 - **Analysing or exporting a plain hash list destroyed every cracked password.**
   `combine_ntlm_output()` merges cracked passwords back onto pwdump lines, reading
   `<hashfile>.out` and writing `<original>.out`. For a hash file that is not pwdump

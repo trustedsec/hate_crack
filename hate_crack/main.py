@@ -152,6 +152,13 @@ KNOWN_OPTIMIZABLE_ATTACKS = DEFAULT_OPTIMIZED_ATTACKS | {
 
 _optimized_kernel_attacks = DEFAULT_OPTIMIZED_ATTACKS
 
+# Whether the loaded hash file is pwdump format (user:rid:lm:nt:::). Set by
+# main()'s detection block; defaulted here because cleanup() and the analysis
+# menu entries read it, and a run that never reached detection used to raise
+# NameError on exit (issue #211). False is the conservative default: it makes
+# the pwdump-only merge a no-op rather than a data-loss risk.
+pwdump_format = False
+
 
 def _should_use_optimized_kernel(attack_name):
     """Return True if *attack_name* should use hashcat's -O (optimized kernels)."""
