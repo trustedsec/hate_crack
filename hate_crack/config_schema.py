@@ -23,10 +23,16 @@ import os
 from dataclasses import dataclass
 from typing import Any, Literal
 
-CoerceType = Literal["str", "int", "float", "bool", "csv_list", "path"]
+CoerceType = Literal["str", "int", "float", "bool", "csv_list", "path", "charset"]
 
 _TRUE_TOKENS = frozenset({"1", "true", "yes", "on"})
 _FALSE_TOKENS = frozenset({"0", "false", "no", "off"})
+
+# Types whose raw string can start/end with a space that is semantically
+# significant (a real element, not incidental whitespace). python-dotenv
+# strips unquoted values, so Task 3 must emit these quoted or a leading/
+# trailing space element is silently lost on the next read.
+QUOTE_REQUIRED_TYPES: frozenset[str] = frozenset({"charset"})
 
 # Secret-bearing env keys. Their raw values must never appear in an error
 # message (or anywhere else this module chooses to render a value).
@@ -116,14 +122,14 @@ CONFIG_SCHEMA: tuple[ConfigKey, ...] = (
     ConfigKey(
         "HCAT_MIDDLE_COMBINATOR_MASKS",
         "hcatMiddleCombinatorMasks",
-        "csv_list",
+        "charset",
         ["2", "4", " ", "-", "_", "+", ",", ".", "&"],
     ),
     ConfigKey("HCAT_MIDDLE_BASE_LIST", "hcatMiddleBaseList", "str", "rockyou.txt"),
     ConfigKey(
         "HCAT_THOROUGH_COMBINATOR_MASKS",
         "hcatThoroughCombinatorMasks",
-        "csv_list",
+        "charset",
         [
             "0",
             "1",
@@ -302,6 +308,18 @@ def _coerce_csv_list(raw: str) -> list[str]:
     return [piece.strip() for piece in raw.split(",") if piece.strip()]
 
 
+def _coerce_charset(raw: str) -> list[str]:
+    """One character per element, order and duplicates preserved.
+
+    No stripping: a leading/trailing space is a real element, not
+    incidental whitespace. ``""`` -> ``[]``. This is how hashcat itself
+    expresses a custom charset, and it is lossless for exactly the
+    single-character mask lists that ``csv_list`` cannot represent (any
+    character, including ``,`` and `` ``, is just an element).
+    """
+    return list(raw)
+
+
 def coerce(entry: ConfigKey, raw: str, source: str = "<.env>") -> Any:
     """Coerce a raw string value according to ``entry.type``.
 
@@ -321,4 +339,6 @@ def coerce(entry: ConfigKey, raw: str, source: str = "<.env>") -> Any:
         return _coerce_bool(entry, raw, source)
     if entry.type == "csv_list":
         return _coerce_csv_list(raw)
+    if entry.type == "charset":
+        return _coerce_charset(raw)
     raise AssertionError(f"unhandled config type: {entry.type!r}")  # pragma: no cover

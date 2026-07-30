@@ -8,6 +8,7 @@ place we compare against the real config.json.example.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,7 @@ from hate_crack.config_schema import (
     BY_ENV,
     BY_LEGACY,
     CONFIG_SCHEMA,
+    QUOTE_REQUIRED_TYPES,
     SECRET_ENV_KEYS,
     ConfigKey,
     ConfigValueError,
@@ -54,10 +56,16 @@ def test_legacy_keys_match_config_json_example():
 def test_type_counts_match_config_json_example_value_types():
     """Guard the type-derivation rule itself: schema `type` must be driven by
     the Python type of each key's value in config.json.example (bool->bool,
-    int->int, float->float, list->csv_list, str->str/path), not by whatever
-    cast happens to appear at a main.py read site. Counting types is what
-    catches a systematic derivation error that individual key checks would
-    miss.
+    int->int, float->float, list->csv_list or charset, str->str/path), not
+    by whatever cast happens to appear at a main.py read site. Counting
+    types is what catches a systematic derivation error that individual key
+    checks would miss.
+
+    ``list`` splits into ``csv_list`` (5) and ``charset`` (2):
+    hcatMiddleCombinatorMasks and hcatThoroughCombinatorMasks are lists of
+    single characters (including a literal "," and " ") that csv_list's
+    join/split/strip rules cannot represent losslessly, so they get the
+    dedicated ``charset`` type instead.
     """
     example = _load_example()
     json_type_counts: dict[str, int] = {}
@@ -78,11 +86,17 @@ def test_type_counts_match_config_json_example_value_types():
     for entry in CONFIG_SCHEMA:
         schema_type_counts[entry.type] = schema_type_counts.get(entry.type, 0) + 1
 
-    # bool, int, float, list<->csv_list map straight across.
+    # bool, int, float map straight across.
     assert schema_type_counts.get("bool", 0) == json_type_counts.get("bool", 0) == 5
     assert schema_type_counts.get("int", 0) == json_type_counts.get("int", 0) == 9
     assert schema_type_counts.get("float", 0) == json_type_counts.get("float", 0) == 1
-    assert schema_type_counts.get("csv_list", 0) == json_type_counts.get("list", 0) == 7
+    # list splits into csv_list/charset; the two must sum to the JSON list count.
+    list_derived = schema_type_counts.get("csv_list", 0) + schema_type_counts.get(
+        "charset", 0
+    )
+    assert list_derived == json_type_counts.get("list", 0) == 7
+    assert schema_type_counts.get("csv_list", 0) == 5
+    assert schema_type_counts.get("charset", 0) == 2
     # str splits into str/path; the two must sum to the JSON str count.
     str_and_path = schema_type_counts.get("str", 0) + schema_type_counts.get("path", 0)
     assert str_and_path == json_type_counts.get("str_or_path", 0) == 21
@@ -250,17 +264,6 @@ def test_csv_list_never_produces_list_of_empty_string():
     assert coerce(_CSV_ENTRY, "   ") != [""]
 
 
-# hcatMiddleCombinatorMasks and hcatThoroughCombinatorMasks are csv_list
-# defaults that contain "," and " " as literal single-character elements
-# (mask tokens). A plain join(",") + coerce() round trip cannot represent
-# them: the "," element is indistinguishable from the separator once joined,
-# and the " " element is destroyed by csv_list's mandated per-element
-# .strip(). This is a genuine encoding gap for Task 3 (and, per the current
-# csv_list rules, an unrepresentable default) -- not a test bug. Marked
-# xfail(strict=True) so it surfaces loudly rather than silently regressing.
-_LOSSY_CSV_KEYS = {"hcatMiddleCombinatorMasks", "hcatThoroughCombinatorMasks"}
-
-
 @pytest.mark.parametrize(
     "entry",
     [entry for entry in CONFIG_SCHEMA if entry.type == "csv_list"],
@@ -269,13 +272,14 @@ _LOSSY_CSV_KEYS = {"hcatMiddleCombinatorMasks", "hcatThoroughCombinatorMasks"}
 def test_csv_list_defaults_round_trip_through_join_and_coerce(entry):
     """Every csv_list default must survive Task 3's emitter (join on ',')
     followed by this module's parser unchanged. optimizedKernelAttacks is
-    the largest such list (22 elements) and the one Task 3 will emit."""
-    if entry.legacy in _LOSSY_CSV_KEYS:
-        pytest.xfail(
-            f"{entry.legacy} default contains a literal ',' and/or ' ' "
-            "element that a comma-join/csv_list-coerce round trip cannot "
-            "preserve -- see module comment above."
-        )
+    the largest such list (22 elements) and the one Task 3 will emit.
+
+    hcatMiddleCombinatorMasks and hcatThoroughCombinatorMasks are NOT in
+    this parametrization: they are ``charset``, not ``csv_list``, precisely
+    because their single-character defaults (including a literal "," and
+    " ") cannot round-trip through comma-join. See
+    test_charset_defaults_round_trip_through_join_and_coerce below.
+    """
     emitted = ",".join(entry.default)
     assert coerce(entry, emitted) == entry.default
 
@@ -288,8 +292,6 @@ _PATH_ENTRY = ConfigKey("SYNTH_PATH", "synth_path", "path", "")
 
 
 def test_path_expands_tilde():
-    import os
-
     result = coerce(_PATH_ENTRY, "~/synthetic_dir")
     assert result == os.path.expanduser("~/synthetic_dir")
     assert not result.startswith("~")
@@ -297,6 +299,59 @@ def test_path_expands_tilde():
 
 def test_path_empty_string_stays_empty():
     assert coerce(_PATH_ENTRY, "") == ""
+
+
+# ---------------------------------------------------------------------------
+# 10. charset coercion
+# ---------------------------------------------------------------------------
+
+_CHARSET_ENTRY = ConfigKey("SYNTH_CHARSET", "synth_charset", "charset", [])
+
+
+def test_charset_splits_into_one_element_per_character():
+    assert coerce(_CHARSET_ENTRY, "24 -_+,.&") == [
+        "2",
+        "4",
+        " ",
+        "-",
+        "_",
+        "+",
+        ",",
+        ".",
+        "&",
+    ]
+
+
+def test_charset_does_not_strip_whitespace():
+    # A leading/trailing space is a real element for this type.
+    assert coerce(_CHARSET_ENTRY, " a ") == [" ", "a", " "]
+
+
+def test_charset_empty_string_yields_empty_list():
+    assert coerce(_CHARSET_ENTRY, "") == []
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [entry for entry in CONFIG_SCHEMA if entry.type == "charset"],
+    ids=lambda entry: entry.legacy,
+)
+def test_charset_defaults_round_trip_through_join_and_coerce(entry):
+    """charset must be lossless for exactly the two keys csv_list could not
+    represent: hcatMiddleCombinatorMasks and hcatThoroughCombinatorMasks,
+    whose defaults contain a literal "," and " " element."""
+    emitted = "".join(entry.default)
+    assert coerce(entry, emitted) == entry.default
+
+
+def test_charset_is_in_quote_required_types():
+    # python-dotenv strips unquoted values, so Task 3 must quote charset
+    # values in the .env file or a leading/trailing space element is lost.
+    assert "charset" in QUOTE_REQUIRED_TYPES
+
+
+def test_quote_required_types_does_not_include_ordinary_types():
+    assert QUOTE_REQUIRED_TYPES.isdisjoint({"str", "int", "float", "bool", "path"})
 
 
 # ---------------------------------------------------------------------------
