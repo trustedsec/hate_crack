@@ -232,7 +232,37 @@ def load_config(
     # Layer 4: real process environment.
     _apply_string_layer(result, environ, "<environment>", warnings, is_dotenv=False)
 
+    _normalize_path_values(result)
+
     return ConfigLoadResult(config=result, warnings=warnings)
+
+
+def _normalize_path_values(result: dict[str, Any]) -> None:
+    """Expand ``~`` uniformly on every ``path``-typed value, regardless of
+    which layer supplied it.
+
+    ``coerce()`` already does this for values sourced from ``.env`` and the
+    real environment (layers 3 and 4), but the schema-default layer (1) and
+    the legacy ``config.json`` layer (2) are never run through ``coerce()``
+    -- layer 2 intentionally does not, per Task 2's rule that JSON values are
+    typed already and only checked, not coerced. Without this pass,
+    ``load_config()`` could return a different string for the exact same
+    logical path depending on which layer happened to supply it (e.g. an
+    unexpanded default vs. an expanded ``.env`` override). Run once, after
+    all four layers have merged, so every ``path`` key ends up normalized
+    exactly once regardless of its source.
+
+    ``""`` is left untouched -- an explicitly empty path is a real "disabled"
+    sentinel (e.g. ``hcatPotfilePath``), not something to expand into the
+    home directory.
+    """
+    for entry in CONFIG_SCHEMA:
+        if entry.type != "path":
+            continue
+        value = result.get(entry.legacy, "")
+        if value == "":
+            continue
+        result[entry.legacy] = os.path.expanduser(value)
 
 
 def load_config_or_exit(

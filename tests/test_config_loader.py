@@ -49,7 +49,14 @@ def test_defaults_only_matches_schema(tmp_path, monkeypatch):
     assert set(result.config.keys()) == expected_keys
     assert len(expected_keys) == 43
     for entry in CONFIG_SCHEMA:
-        assert result.config[entry.legacy] == entry.default
+        # path-typed defaults are expanded by load_config()'s uniform
+        # post-merge normalization pass (see _normalize_path_values), so a
+        # "~"-containing default like hcatPotfilePath's is expected to come
+        # back expanded here, not verbatim.
+        expected = (
+            os.path.expanduser(entry.default) if entry.type == "path" else entry.default
+        )
+        assert result.config[entry.legacy] == expected
 
 
 # ---------------------------------------------------------------------------

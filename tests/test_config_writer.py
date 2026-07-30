@@ -264,6 +264,12 @@ def test_migration_notes_never_contain_secret_values(tmp_path):
 
 
 def test_migration_then_load_matches_loading_legacy_directly(tmp_path):
+    """load_config() must return the identical dict (all 43 keys) whether it
+    reads the original config.json or the .env migrated from it -- including
+    for a "~"-containing path override and the untouched path defaults.
+    load_config() now normalizes every path-typed value once, after all
+    layers merge, so this holds regardless of which layer supplied the value.
+    """
     legacy = _legacy_defaults_json()
     legacy["hcatBin"] = "hashcat-custom"
     legacy["pipal_count"] = 42
@@ -274,14 +280,7 @@ def test_migration_then_load_matches_loading_legacy_directly(tmp_path):
     legacy["hcatDictionaryWordlist"] = ["custom.txt", "extra.txt"]
     legacy["hcatMiddleCombinatorMasks"] = [" ", ",", "\\", '"', "'"]
     legacy["notify_attack_allowlist"] = []
-    # Deliberately not using "~" here: config_loader's legacy-json layer
-    # passes path values through raw (main.py expands them downstream at
-    # consumption sites), while its .env layer expands via coerce()
-    # immediately. That pre-existing (Task 2) asymmetry means a "~" value
-    # legitimately differs between the two load paths this test compares --
-    # see the config_writer report for the flagged concern.
-    legacy["hcatPotfilePath"] = "/tmp/other.potfile"
-    legacy["hcatDebugLogPath"] = "/tmp/other_debug"
+    legacy["hcatPotfilePath"] = "~/custom/other.potfile"  # "~"-containing override
     legacy_path = tmp_path / "config.json"
     legacy_path.write_text(json.dumps(legacy))
 
@@ -293,4 +292,14 @@ def test_migration_then_load_matches_loading_legacy_directly(tmp_path):
         env_path=None, legacy_json_path=str(legacy_path)
     ).config
 
+    assert set(via_migration) == {entry.legacy for entry in CONFIG_SCHEMA}
     assert via_migration == via_legacy_directly
+    # hcatDebugLogPath and hcatPrinceBaseList/etc. path defaults ("~/...")
+    # also went through neither an .env nor a legacy override in this test,
+    # proving the schema-default layer is normalized too.
+    assert via_migration["hcatPotfilePath"] == os.path.expanduser(
+        "~/custom/other.potfile"
+    )
+    assert via_migration["hcatDebugLogPath"] == os.path.expanduser(
+        "~/.hate_crack/hashcat_debug"
+    )
