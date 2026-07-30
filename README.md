@@ -9,6 +9,12 @@
 
 ## Installation
 
+Installing from source is the only supported path. hate_crack is **not**
+distributed on PyPI: `pip install hate-crack` resolves to a `0.0.0` placeholder
+that fails on purpose and points back here. The name is held only so nobody else
+can publish a lookalike under it — see
+[`packaging/pypi-placeholder/`](packaging/pypi-placeholder/).
+
 ### 1. Install hashcat
 
 Hashcat must be installed and available in your PATH:

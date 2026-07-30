@@ -46,6 +46,7 @@ hate_crack/__pycache__/
 tests/__pycache__/
 uv.lock
 build/
+dist/
 hate_crack.egg-info/
 hate_crack/hashcat-utils/
 hate_crack/princeprocessor/

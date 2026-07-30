@@ -11,6 +11,18 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ### Added
 
+- **A defensive `hate_crack` name placeholder for PyPI, in
+  `packaging/pypi-placeholder/`.** The name was unclaimed on the index, which is
+  a name an operator could plausibly type into `pip install` or `uvx` expecting
+  this project — and a squatted package under it would land on a host holding
+  client hash material and API credentials. The placeholder is version `0.0.0`
+  with no dependencies, no console script, and nothing importable; its in-tree
+  PEP 517 backend raises from every wheel and metadata hook, so
+  `pip install hate-crack` aborts with source install instructions rather than
+  silently succeeding. Publishing is a `workflow_dispatch`-only workflow using
+  Trusted Publishing (OIDC, no stored token) that the release tag automation
+  cannot reach. Source install remains the only supported path.
+
 - **`--no-optimized-kernel` (alias `--no-optimize`) disables hashcat's `-O` for
   an entire run.** Until now the only way to turn optimized kernels off was to
   edit `optimizedKernelAttacks` in `config.json`, which persists and has to be

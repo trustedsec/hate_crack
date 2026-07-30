@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=83.0.0"]
+build-backend = "placeholder_backend"
+backend-path = ["."]
+
+[project]
+name = "hate_crack"
+version = "0.0.0"
+description = "Name placeholder only - hate_crack is installed from source, not from PyPI"
+readme = "README.md"
+# Deliberately no requires-python: the real project needs 3.13+, but pinning it
+# here makes pip report "no matching distribution" on older interpreters, which
+# reads like a version problem rather than "this package does not exist". Every
+# user should reach the backend's explanatory error instead.
+dependencies = []
+license = "MIT"
+classifiers = [
+    "Development Status :: 7 - Inactive",
+]
+
+[project.urls]
+Homepage = "https://github.com/trustedsec/hate_crack"
+Installation = "https://github.com/trustedsec/hate_crack#installation"
+
+# No [project.scripts]: a placeholder must never leave a `hate_crack` command on
+# PATH. No packages either - the sdist carries metadata and a README, nothing
+# importable.
+[tool.setuptools]
+packages = []

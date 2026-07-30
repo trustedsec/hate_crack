@@ -1,0 +1,39 @@
+name: Publish PyPI name placeholder
+
+# Manual only, and deliberately NOT wired to auto-tag / nightly-tag / release.
+# This uploads the 0.0.0 name placeholder in packaging/pypi-placeholder, never
+# the real project. If it ever fires from a tag or a push, the index starts
+# receiving releases of a tool that is only supported as a source install.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      # Trusted Publishing (OIDC). No PyPI API token is stored in repo secrets.
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
+
+      - name: Build the sdist
+        working-directory: packaging/pypi-placeholder
+        # sdist only: the backend refuses to build a wheel, which is what makes
+        # `pip install hate-crack` fail instead of silently succeed.
+        run: uv build --sdist --out-dir dist .
+
+      - name: Confirm the artifact is a placeholder
+        working-directory: packaging/pypi-placeholder
+        run: uv run --no-project python verify_placeholder.py dist
+
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2
+        with:
+          packages-dir: packaging/pypi-placeholder/dist
