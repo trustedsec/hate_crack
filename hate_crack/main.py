@@ -977,8 +977,7 @@ def _add_debug_mode_for_rules(cmd):
 
     Mode 5 is mode 4 (baseword:rule:candidate) plus the wordlist the baseword
     came from, so a log from a multi-wordlist run records which list is actually
-    producing cracks. Readers must strip that fourth field before parsing --
-    see _strip_debug_source_field.
+    producing cracks. HashcatRosetta >= 0.3.0 parses that fourth field.
     """
     if "-r" in cmd:
         # Create debug output directory if it doesn't exist
@@ -3349,40 +3348,6 @@ ROSETTA_MAX_LINES = 1_000_000
 
 
 # Lines sampled per log when deciding whether it is mode 5, and the ceiling on
-# distinct trailing fields that still reads as "these are wordlist names".
-_DEBUG_SOURCE_SAMPLE = 200
-_DEBUG_SOURCE_MAX_DISTINCT = 10
-
-
-def _strip_debug_source_field(lines):
-    """Normalise --debug-mode 5 lines to the mode 4 shape HashcatRosetta parses.
-
-    Mode 5 appends the source wordlist: `baseword:rule:candidate:wordlist`.
-    HashcatRosetta's parser splits on the first two colons only, so the wordlist
-    silently ends up glued to the candidate ("secret123" becomes
-    "secret123:rockyou.txt") rather than raising. Basewords and rules survive
-    that, but the unique-candidate rule metric does not: the same candidate
-    reached from two wordlists counts twice, which misranks rules exactly when
-    several logs are mined together.
-
-    Detection rather than an unconditional strip, because logs written before
-    the switch to mode 5 are still on disk and a candidate may legitimately
-    contain a colon. A log reads as mode 5 when nearly every sampled line has a
-    fourth colon field and those fields repeat -- a run draws from a handful of
-    wordlists, while colons inside candidates do not repeat that way.
-    """
-    sample = [line for line in lines[:_DEBUG_SOURCE_SAMPLE] if line.strip()]
-    if not sample:
-        return lines
-    with_fourth = [line for line in sample if line.count(":") >= 3]
-    if len(with_fourth) < len(sample) * 0.8:
-        return lines
-    trailing = {line.rsplit(":", 1)[1] for line in with_fourth}
-    if len(trailing) > _DEBUG_SOURCE_MAX_DISTINCT:
-        return lines
-    return [line.rsplit(":", 1)[0] if line.count(":") >= 3 else line for line in lines]
-
-
 def rosetta_derive(
     debug_files,
     out_dir,
@@ -3393,11 +3358,10 @@ def rosetta_derive(
 ):
     """Derive a baseword list and rule file from hashcat debug logs.
 
-    Accepts mode 5 (the current writer) and mode 4 (logs predating the switch);
-    _strip_debug_source_field normalises the former. Every line records a
-    candidate that actually cracked a
-    hash, so the basewords and rules recovered here are known-productive
-    against this target population. ``top_rules``/``top_basewords`` of None or
+    HashcatRosetta parses mode 5 (the current writer) and mode 4 (logs
+    predating the switch) natively, detecting the format per batch. Every line
+    records a candidate that actually cracked a hash, so the basewords and rules
+    recovered here are known-productive against this target population. ``top_rules``/``top_basewords`` of None or
     0 mean "keep everything".
 
     Returns a dict with the two output paths plus the counts behind them.
@@ -3417,13 +3381,10 @@ def rosetta_derive(
     for path in debug_files:
         if truncated:
             break
-        # Detected per file, not across the batch: a mode 4 log written before
-        # the switch and a mode 5 one written after can be selected together.
-        file_lines = []
         with open(path, encoding="utf-8", errors="ignore") as debug_log:
             for line in debug_log:
-                file_lines.append(line.rstrip("\n"))
-                if len(lines) + len(file_lines) >= max_lines:
+                lines.append(line.rstrip("\n"))
+                if len(lines) >= max_lines:
                     truncated = True
                     print(
                         f"[!] Stopped at {max_lines} debug lines; the remainder "
@@ -3431,7 +3392,6 @@ def rosetta_derive(
                         "not read."
                     )
                     break
-        lines.extend(_strip_debug_source_field(file_lines))
     if not lines:
         raise ValueError("the selected debug logs are empty")
 

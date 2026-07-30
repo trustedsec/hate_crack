@@ -379,7 +379,7 @@ class TestRosettaMenuWiring:
 
 
 class TestDebugModeFive:
-    """hate_crack writes mode 5; HashcatRosetta's parser only understands mode 4.
+    """hate_crack writes --debug-mode 5; HashcatRosetta parses it natively.
 
     The sample lines here are verbatim hashcat output, captured by cracking a
     known md5 with a one-rule file under --debug-mode 4 and 5 in turn.
@@ -394,15 +394,23 @@ class TestDebugModeFive:
 
         assert cmd[cmd.index("--debug-mode") + 1] == "5"
 
-    def test_source_field_is_stripped(self, main_module):
-        assert main_module._strip_debug_source_field([self.MODE_5]) == [self.MODE_4]
+    def test_wordlist_field_is_parsed_not_glued_to_the_candidate(self, main_module):
+        # HashcatRosetta < 0.3.0 split on the first two colons only, so the
+        # wordlist silently became part of the candidate. Pins the submodule
+        # bump: an accidental downgrade fails here rather than quietly
+        # corrupting the unique-candidate metric.
+        entry = main_module.DebugAnalyzer().parser.parse_debug_lines([self.MODE_5])[0]
 
-    def test_mode_4_logs_are_left_alone(self, main_module):
-        lines = [self.MODE_4] * 5
-        assert main_module._strip_debug_source_field(lines) == lines
+        assert entry["candidate"] == "orangecrate12"
+        assert entry["wordlist"] == "wl.txt"
+
+    def test_mode_4_logs_still_parse(self, main_module):
+        entry = main_module.DebugAnalyzer().parser.parse_debug_lines([self.MODE_4])[0]
+
+        assert entry["candidate"] == "orangecrate12"
+        assert entry["baseword"] == "orangecrate"
 
     def test_candidate_survives_the_round_trip(self, main_module, tmp_path):
-        # Without the strip, the parser glues the wordlist onto the candidate.
         log = tmp_path / "mode5.log"
         log.write_text(
             "\n".join(
@@ -417,38 +425,27 @@ class TestDebugModeFive:
         )
         result = main_module.rosetta_derive([str(log)], str(tmp_path / "out"))
 
-        basewords = _read(result["basewords"])
-        assert "orangecrate" in basewords
+        assert "orangecrate" in _read(result["basewords"])
         assert "wl.txt" not in _read(result["rules"])
+        assert "wl.txt" not in _read(result["basewords"])
 
     def test_unique_candidate_metric_is_not_inflated_across_wordlists(
         self, main_module, tmp_path
     ):
         # The same rule reaching the same candidate from two wordlists is one
-        # unique candidate, not two. Only the strip makes that true.
+        # unique candidate, not two.
         log = tmp_path / "two_lists.log"
         log.write_text(
             "orangecrate:$1 $2:orangecrate12:a.txt\n"
             "orangecrate:$1 $2:orangecrate12:b.txt\n",
             encoding="utf-8",
         )
-        main_module.rosetta_derive(
-            [str(log)], str(tmp_path / "out"), metric="candidates"
-        )
-
         analyzer = main_module.DebugAnalyzer()
-        analyzer.analyze_debug_lines(
-            main_module._strip_debug_source_field(
-                log.read_text(encoding="utf-8").splitlines()
-            )
-        )
+        analyzer.analyze_debug_lines(log.read_text(encoding="utf-8").splitlines())
+
         assert analyzer.get_top_rules_by_unique_candidates(1) == [("$1 $2", 1)]
 
-    def test_mixed_mode_logs_are_detected_per_file(self, main_module, tmp_path):
-        # Both files are colon-separated, which is what hashcat writes for mode
-        # 4 and 5 alike; only the trailing wordlist field differs. Detection has
-        # to be per file, since a batch-wide check would see the mode 4 lines as
-        # a counterexample and skip the strip for everything.
+    def test_mixed_mode_logs_are_read_together(self, main_module, tmp_path):
         mode5 = tmp_path / "new.log"
         mode5.write_text("alpha:$1:alpha1:wl.txt\n" * 3, encoding="utf-8")
         mode4 = tmp_path / "old.log"
@@ -461,9 +458,3 @@ class TestDebugModeFive:
         basewords = _read(result["basewords"])
         assert "alpha" in basewords and "bravo" in basewords
         assert "wl.txt" not in basewords
-
-    def test_colon_bearing_candidates_are_not_truncated(self, main_module):
-        # Mode 4 candidates that happen to contain a colon must survive: the
-        # trailing fields here are all distinct, so this is not a mode 5 log.
-        lines = [f"alpha:$1:a:{n}:{n * 3}" for n in range(20)]
-        assert main_module._strip_debug_source_field(lines) == lines

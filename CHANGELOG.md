@@ -32,6 +32,16 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ### Fixed
 
+- **Bumped the HashcatRosetta submodule from v0.2.0 to v0.4.0, which parses
+  `--debug-mode 5` natively.** The pinned v0.2.0 predated mode 5 support: its
+  parser split on the first two colons only, so the trailing wordlist field was
+  silently glued onto the candidate rather than rejected. hate_crack worked
+  around that by stripping the field before parsing, which fixed the corruption
+  but threw the wordlist away. v0.4.0 returns it as its own `wordlist` key, so
+  the workaround is gone and the attribution survives -- a log can now say which
+  wordlist actually produced each crack. Mode 4 logs written before the switch
+  still parse.
+
 - **hashcat debug logs are no longer committable, and one that had been
   committed is now untracked.** `_add_debug_mode_for_rules` appends
   `--debug-mode 4 --debug-file` to every rule-based attack unconditionally, and
