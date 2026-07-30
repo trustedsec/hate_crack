@@ -51,6 +51,45 @@ def test_legacy_keys_match_config_json_example():
     )
 
 
+def test_type_counts_match_config_json_example_value_types():
+    """Guard the type-derivation rule itself: schema `type` must be driven by
+    the Python type of each key's value in config.json.example (bool->bool,
+    int->int, float->float, list->csv_list, str->str/path), not by whatever
+    cast happens to appear at a main.py read site. Counting types is what
+    catches a systematic derivation error that individual key checks would
+    miss.
+    """
+    example = _load_example()
+    json_type_counts: dict[str, int] = {}
+    for value in example.values():
+        # bool must be checked before int: bool is an int subclass in Python.
+        if isinstance(value, bool):
+            json_type_counts["bool"] = json_type_counts.get("bool", 0) + 1
+        elif isinstance(value, int):
+            json_type_counts["int"] = json_type_counts.get("int", 0) + 1
+        elif isinstance(value, float):
+            json_type_counts["float"] = json_type_counts.get("float", 0) + 1
+        elif isinstance(value, list):
+            json_type_counts["list"] = json_type_counts.get("list", 0) + 1
+        elif isinstance(value, str):
+            json_type_counts["str_or_path"] = json_type_counts.get("str_or_path", 0) + 1
+
+    schema_type_counts: dict[str, int] = {}
+    for entry in CONFIG_SCHEMA:
+        schema_type_counts[entry.type] = schema_type_counts.get(entry.type, 0) + 1
+
+    # bool, int, float, list<->csv_list map straight across.
+    assert schema_type_counts.get("bool", 0) == json_type_counts.get("bool", 0) == 5
+    assert schema_type_counts.get("int", 0) == json_type_counts.get("int", 0) == 9
+    assert schema_type_counts.get("float", 0) == json_type_counts.get("float", 0) == 1
+    assert schema_type_counts.get("csv_list", 0) == json_type_counts.get("list", 0) == 7
+    # str splits into str/path; the two must sum to the JSON str count.
+    str_and_path = schema_type_counts.get("str", 0) + schema_type_counts.get("path", 0)
+    assert str_and_path == json_type_counts.get("str_or_path", 0) == 21
+    assert schema_type_counts.get("path", 0) == 3
+    assert schema_type_counts.get("str", 0) == 18
+
+
 def test_defaults_match_config_json_example():
     example = _load_example()
     mismatches = []
@@ -209,6 +248,36 @@ def test_csv_list_interior_spaces():
 def test_csv_list_never_produces_list_of_empty_string():
     assert coerce(_CSV_ENTRY, "") != [""]
     assert coerce(_CSV_ENTRY, "   ") != [""]
+
+
+# hcatMiddleCombinatorMasks and hcatThoroughCombinatorMasks are csv_list
+# defaults that contain "," and " " as literal single-character elements
+# (mask tokens). A plain join(",") + coerce() round trip cannot represent
+# them: the "," element is indistinguishable from the separator once joined,
+# and the " " element is destroyed by csv_list's mandated per-element
+# .strip(). This is a genuine encoding gap for Task 3 (and, per the current
+# csv_list rules, an unrepresentable default) -- not a test bug. Marked
+# xfail(strict=True) so it surfaces loudly rather than silently regressing.
+_LOSSY_CSV_KEYS = {"hcatMiddleCombinatorMasks", "hcatThoroughCombinatorMasks"}
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [entry for entry in CONFIG_SCHEMA if entry.type == "csv_list"],
+    ids=lambda entry: entry.legacy,
+)
+def test_csv_list_defaults_round_trip_through_join_and_coerce(entry):
+    """Every csv_list default must survive Task 3's emitter (join on ',')
+    followed by this module's parser unchanged. optimizedKernelAttacks is
+    the largest such list (22 elements) and the one Task 3 will emit."""
+    if entry.legacy in _LOSSY_CSV_KEYS:
+        pytest.xfail(
+            f"{entry.legacy} default contains a literal ',' and/or ' ' "
+            "element that a comma-join/csv_list-coerce round trip cannot "
+            "preserve -- see module comment above."
+        )
+    emitted = ",".join(entry.default)
+    assert coerce(entry, emitted) == entry.default
 
 
 # ---------------------------------------------------------------------------
