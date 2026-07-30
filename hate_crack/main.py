@@ -85,9 +85,11 @@ from hate_crack.username_detect import detect_username_hash_format  # noqa: E402
 # Import HashcatRosetta for rule analysis functionality
 try:
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "HashcatRosetta"))
+    from hashcat_rosetta.debug_analyzer import DebugAnalyzer
     from hashcat_rosetta.formatting import display_rule_opcodes_summary
 except ImportError:
     display_rule_opcodes_summary = None
+    DebugAnalyzer = None
 
 
 EXCLUDED_WORDLIST_EXTENSIONS = frozenset({".7z", ".torrent", ".out"})
@@ -3291,6 +3293,182 @@ def hcatSpoonman(hcatHashType, hcatHashFile, corpus, coverage=None):
     )
 
 
+# Rule-ranking metrics offered by the Rosetta attack, mapped to the
+# DebugAnalyzer accessor that implements each one and a label for the summary.
+ROSETTA_RULE_METRICS = {
+    "frequency": ("get_top_rules_by_frequency", "applications"),
+    "basewords": ("get_top_rules_by_unique_basewords", "unique basewords"),
+    "candidates": ("get_top_rules_by_unique_candidates", "unique candidates"),
+}
+
+
+def rosetta_debug_logs(directory=None):
+    """Return hashcat debug logs under *directory*, newest first.
+
+    Defaults to hcatDebugLogPath, which is where _add_debug_mode_for_rules
+    parks the --debug-mode 4 output of every rule-based attack, so a normal
+    hate_crack session accumulates these without the operator doing anything.
+    """
+    directory = directory or hcatDebugLogPath
+    if not os.path.isdir(directory):
+        return []
+    found = [
+        os.path.join(directory, name)
+        for name in sorted(os.listdir(directory))
+        if os.path.isfile(os.path.join(directory, name))
+    ]
+    return sorted(found, key=os.path.getmtime, reverse=True)
+
+
+# DebugAnalyzer needs the whole batch as a list (it walks it twice, once for
+# format detection), so the logs cannot be streamed. Cap the read to keep peak
+# memory in the low hundreds of megabytes; truncation is reported, not silent.
+ROSETTA_MAX_LINES = 1_000_000
+
+
+def rosetta_derive(
+    debug_files,
+    out_dir,
+    metric="frequency",
+    top_rules=None,
+    top_basewords=None,
+    max_lines=ROSETTA_MAX_LINES,
+):
+    """Derive a baseword list and rule file from hashcat --debug-mode 4 logs.
+
+    Every line in a mode 4 log records a candidate that actually cracked a
+    hash, so the basewords and rules recovered here are known-productive
+    against this target population. ``top_rules``/``top_basewords`` of None or
+    0 mean "keep everything".
+
+    Returns a dict with the two output paths plus the counts behind them.
+    Raises RuntimeError if HashcatRosetta is missing and ValueError if the logs
+    yield nothing usable.
+    """
+    if DebugAnalyzer is None:
+        raise RuntimeError(
+            "HashcatRosetta is unavailable. Run: "
+            "git submodule update --init HashcatRosetta"
+        )
+    if metric not in ROSETTA_RULE_METRICS:
+        raise ValueError(f"unknown rule metric: {metric}")
+
+    lines = []
+    truncated = False
+    for path in debug_files:
+        if truncated:
+            break
+        with open(path, encoding="utf-8", errors="ignore") as debug_log:
+            for line in debug_log:
+                lines.append(line.rstrip("\n"))
+                if len(lines) >= max_lines:
+                    truncated = True
+                    print(
+                        f"[!] Stopped at {max_lines} debug lines; the remainder "
+                        f"of {os.path.basename(path)} and any later logs were "
+                        "not read."
+                    )
+                    break
+    if not lines:
+        raise ValueError("the selected debug logs are empty")
+
+    analyzer = DebugAnalyzer()
+    analyzer.analyze_debug_lines(lines)
+    if not analyzer.rule_stats or not analyzer.baseword_stats:
+        raise ValueError(
+            "no --debug-mode 4 entries found. Expected lines of the form "
+            "'baseword rule candidate'"
+        )
+
+    getter = ROSETTA_RULE_METRICS[metric][0]
+    rule_limit = top_rules or len(analyzer.rule_stats)
+    rules = [rule for rule, _score in getattr(analyzer, getter)(rule_limit)]
+    baseword_limit = top_basewords or len(analyzer.baseword_stats)
+    basewords = [
+        word for word, _count in analyzer.get_top_basewords_by_frequency(baseword_limit)
+    ]
+
+    os.makedirs(out_dir, exist_ok=True)
+    basewords_path = os.path.join(out_dir, "basewords.txt")
+    rules_path = os.path.join(out_dir, "rules.rule")
+    with open(basewords_path, "w", encoding="utf-8") as baseword_file:
+        baseword_file.writelines(f"{word}\n" for word in basewords)
+    with open(rules_path, "w", encoding="utf-8") as rule_file:
+        rule_file.writelines(f"{rule}\n" for rule in rules)
+
+    return {
+        "basewords": basewords_path,
+        "rules": rules_path,
+        "baseword_count": len(basewords),
+        "rule_count": len(rules),
+        "total_basewords": len(analyzer.baseword_stats),
+        "total_rules": len(analyzer.rule_stats),
+        "entries": len(analyzer.entries),
+    }
+
+
+def hcatRosetta(
+    hcatHashType,
+    hcatHashFile,
+    debug_files,
+    metric="frequency",
+    top_rules=None,
+    top_basewords=None,
+):
+    """Rosetta Attack: replay the basewords and rules that already cracked.
+
+    Reads hashcat --debug-mode 4 logs, keeps the winning basewords and the
+    highest-ranked winning rules, and runs their full cross product. The value
+    is in that cross product rather than in the pairs themselves: a pair that
+    appears in a log already cracked its hash, but a rule that worked on one
+    baseword has usually never been tried against the others.
+    """
+    if not debug_files:
+        print("Error: no debug logs selected.")
+        return
+    missing = [path for path in debug_files if not os.path.isfile(path)]
+    if missing:
+        print(f"Error: debug log not found: {missing[0]}")
+        return
+
+    # Per-run scratch beside the hash file, laid out like .spoonman so both
+    # are removed by cleanup().
+    out_dir = f"{hcatHashFile}.rosetta"
+    print(f"[*] Analyzing {len(debug_files)} debug log(s) with HashcatRosetta")
+    try:
+        derived = rosetta_derive(
+            debug_files,
+            out_dir,
+            metric=metric,
+            top_rules=top_rules,
+            top_basewords=top_basewords,
+        )
+    except (OSError, ValueError, RuntimeError) as e:
+        print(f"Rosetta derivation failed: {e}")
+        return
+
+    print(f"[*] Debug entries:  {derived['entries']}")
+    print(
+        f"[*] Basewords:      {derived['baseword_count']}"
+        f" of {derived['total_basewords']} -> {derived['basewords']}"
+    )
+    print(
+        f"[*] Rules ({metric}): {derived['rule_count']} of {derived['total_rules']}"
+        f" -> {derived['rules']}"
+    )
+    print(
+        f"[*] Keyspace:       {derived['baseword_count'] * derived['rule_count']} candidates"
+    )
+
+    hcatQuickDictionary(
+        hcatHashType,
+        hcatHashFile,
+        f"-r {shlex.quote(derived['rules'])}",
+        derived["basewords"],
+        attack_name="Rosetta",
+    )
+
+
 def hcatPermute(hcatHashType, hcatHashFile, wordlist):
     global hcatProcess, hcatPermuteCount
     permute_path = os.path.join(hate_path, "hashcat-utils", "bin", "permute.bin")
@@ -3795,6 +3973,8 @@ def cleanup():
             os.remove(hcatHashFile + ".llm_patterns")
         if os.path.isdir(hcatHashFile + ".spoonman"):
             shutil.rmtree(hcatHashFile + ".spoonman", ignore_errors=True)
+        if os.path.isdir(hcatHashFile + ".rosetta"):
+            shutil.rmtree(hcatHashFile + ".rosetta", ignore_errors=True)
         if os.path.exists(hcatHashFileOrig + ".combined"):
             os.remove(hcatHashFileOrig + ".combined")
         if os.path.exists(hcatHashFileOrig + ".lm"):
@@ -4675,6 +4855,10 @@ def spoonman_attack():
     return _attacks.spoonman_attack(_attack_ctx())
 
 
+def rosetta_attack():
+    return _attacks.rosetta_attack(_attack_ctx())
+
+
 def wordlist_filter_len(infile: str, outfile: str, min_len: int, max_len: int) -> bool:
     """Filter wordlist keeping only words between min_len and max_len (inclusive)."""
     len_bin = os.path.join(hate_path, "hashcat-utils/bin/len.bin")
@@ -5164,6 +5348,7 @@ def get_main_menu_items():
         ("20", "PCFG Attack"),
         ("21", "PRINCE-LING Attack"),
         ("22", "Spoonman Attack"),
+        ("23", "Rosetta Attack"),
         ("80", "Wordlist Tools"),
         ("81", "Rule File Tools"),
         ("82", "Notifications"),
@@ -5208,6 +5393,7 @@ def get_main_menu_options():
         "20": pcfg_attack,
         "21": prince_ling_attack,
         "22": spoonman_attack,
+        "23": rosetta_attack,
         "80": wordlist_tools_submenu,
         "81": rule_tools_submenu,
         "82": notifications_submenu,
