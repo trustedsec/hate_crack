@@ -13,7 +13,7 @@ states from the task brief:
 4. flag absent, nothing set -> the documented default, unchanged
 
 Plus the precedence edges (``os.environ`` > `.env`, flag > ``os.environ``), the
-fatal diagnostic for an out-of-range ``UPDATE_CHANNEL``, and parser-level
+fatal diagnostic for an out-of-range ``HATE_CRACK_UPDATE_CHANNEL``, and parser-level
 checks that the negative spellings actually exist.
 """
 
@@ -68,20 +68,20 @@ def _resolve(tmp_path, env_body="", environ=None, current_potfile_path=None, **f
 
 
 # ---------------------------------------------------------------------------
-# --debug / --no-debug  <->  DEBUG
+# --debug / --no-debug  <->  HATE_CRACK_DEBUG
 # ---------------------------------------------------------------------------
 
 
 def test_debug_flag_affirmative_wins(tmp_path):
-    assert _resolve(tmp_path, "DEBUG=0\n", debug=True).debug is True
+    assert _resolve(tmp_path, "HATE_CRACK_DEBUG=0\n", debug=True).debug is True
 
 
 def test_debug_flag_negative_beats_env_that_says_on(tmp_path):
-    assert _resolve(tmp_path, "DEBUG=1\n", debug=False).debug is False
+    assert _resolve(tmp_path, "HATE_CRACK_DEBUG=1\n", debug=False).debug is False
 
 
 def test_debug_from_env_when_flag_absent(tmp_path):
-    assert _resolve(tmp_path, "DEBUG=true\n").debug is True
+    assert _resolve(tmp_path, "HATE_CRACK_DEBUG=true\n").debug is True
 
 
 def test_debug_default_is_off(tmp_path):
@@ -144,22 +144,22 @@ def test_rank_default_is_the_builtin_sentinel(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# --nightly / --no-nightly  <->  UPDATE_CHANNEL
+# --nightly / --no-nightly  <->  HATE_CRACK_UPDATE_CHANNEL
 # ---------------------------------------------------------------------------
 
 
 def test_nightly_flag_affirmative_wins(tmp_path):
-    got = _resolve(tmp_path, "UPDATE_CHANNEL=main\n", nightly=True)
+    got = _resolve(tmp_path, "HATE_CRACK_UPDATE_CHANNEL=main\n", nightly=True)
     assert got.update_channel == "nightly-dev"
 
 
 def test_no_nightly_beats_env_that_selects_nightly(tmp_path):
-    got = _resolve(tmp_path, "UPDATE_CHANNEL=nightly-dev\n", nightly=False)
+    got = _resolve(tmp_path, "HATE_CRACK_UPDATE_CHANNEL=nightly-dev\n", nightly=False)
     assert got.update_channel == "main"
 
 
 def test_update_channel_from_env_when_flag_absent(tmp_path):
-    got = _resolve(tmp_path, "UPDATE_CHANNEL=nightly-dev\n")
+    got = _resolve(tmp_path, "HATE_CRACK_UPDATE_CHANNEL=nightly-dev\n")
     assert got.update_channel == "nightly-dev"
 
 
@@ -168,12 +168,12 @@ def test_update_channel_default_is_main(tmp_path):
 
 
 def test_invalid_update_channel_exits_naming_the_key(tmp_path, capsys):
-    env_path = _write_env(tmp_path, "UPDATE_CHANNEL=stable\n")
+    env_path = _write_env(tmp_path, "HATE_CRACK_UPDATE_CHANNEL=stable\n")
     with pytest.raises(SystemExit) as exc:
         load_config_or_exit(env_path=env_path, legacy_json_path=None, environ={})
     assert exc.value.code != 0
     out = capsys.readouterr().out
-    assert "UPDATE_CHANNEL" in out
+    assert "HATE_CRACK_UPDATE_CHANNEL" in out
     assert "main/nightly-dev" in out
 
 
@@ -182,7 +182,7 @@ def test_invalid_update_channel_in_legacy_json_also_exits(tmp_path, capsys):
     legacy.write_text('{"update_channel": "stable"}')
     with pytest.raises(SystemExit):
         load_config_or_exit(env_path=None, legacy_json_path=str(legacy), environ={})
-    assert "UPDATE_CHANNEL" in capsys.readouterr().out
+    assert "HATE_CRACK_UPDATE_CHANNEL" in capsys.readouterr().out
 
 
 def test_choices_diagnostic_redacts_a_secret_bearing_key():
@@ -302,8 +302,8 @@ def test_empty_optimized_kernel_attacks_in_env_is_an_empty_list(tmp_path):
 def test_environ_outranks_dotenv_for_a_promoted_key(tmp_path):
     got = _resolve(
         tmp_path,
-        "WEAKPASS_MIN_RANK=7\nDEBUG=0\n",
-        environ={"WEAKPASS_MIN_RANK": "9", "DEBUG": "1"},
+        "WEAKPASS_MIN_RANK=7\nHATE_CRACK_DEBUG=0\n",
+        environ={"WEAKPASS_MIN_RANK": "9", "HATE_CRACK_DEBUG": "1"},
     )
     assert got.weakpass_min_rank == 9
     assert got.debug is True
@@ -312,13 +312,58 @@ def test_environ_outranks_dotenv_for_a_promoted_key(tmp_path):
 def test_flag_outranks_environ(tmp_path):
     got = _resolve(
         tmp_path,
-        "WEAKPASS_MIN_RANK=7\nDEBUG=0\n",
-        environ={"WEAKPASS_MIN_RANK": "9", "DEBUG": "1"},
+        "WEAKPASS_MIN_RANK=7\nHATE_CRACK_DEBUG=0\n",
+        environ={"WEAKPASS_MIN_RANK": "9", "HATE_CRACK_DEBUG": "1"},
         rank=2,
         debug=False,
     )
     assert got.weakpass_min_rank == 2
     assert got.debug is False
+
+
+# ---------------------------------------------------------------------------
+# Namespacing: a generic env var must not reach a hate_crack setting
+# ---------------------------------------------------------------------------
+
+
+def test_unrelated_bare_debug_env_var_does_not_enable_debug_mode(tmp_path):
+    """A bare ``DEBUG=1`` exported for some *other* tool must not turn on
+    hate_crack's debug mode.
+
+    This is why the key is ``HATE_CRACK_DEBUG`` and not ``DEBUG``: the environ
+    layer outranks `.env`, debug mode writes files under ``hcatDebugLogPath``,
+    and this tool handles cracked plaintexts. Somebody with ``export DEBUG=1``
+    in their shell profile would get sensitive material written to disk they
+    never asked for and would not think to look for. Do not "simplify" the key
+    name back to ``DEBUG``.
+    """
+    got = _resolve(tmp_path, environ={"DEBUG": "1"})
+    assert got.debug is False
+
+    config = load_config(env_path=None, legacy_json_path=None, environ={"DEBUG": "1"})
+    assert config.config["debug"] is False
+    # ...and the bare name is not silently accepted as an alias either.
+    assert "DEBUG" not in BY_ENV
+
+
+def test_unrelated_bare_update_channel_env_var_is_ignored(tmp_path):
+    """Same reasoning as above for ``UPDATE_CHANNEL``, which is generic enough
+    to collide with an unrelated deployment tool. A collision here would also
+    trip the closed-set validator and make hate_crack refuse to start."""
+    got = _resolve(tmp_path, environ={"UPDATE_CHANNEL": "stable"})
+    assert got.update_channel == "main"
+    assert "UPDATE_CHANNEL" not in BY_ENV
+
+
+def test_generic_key_names_are_namespaced_in_the_schema():
+    """Guard the convention itself: no schema key may use one of these bare,
+    collision-prone names. ``HATE_CRACK_`` matches the prefix already used by
+    HATE_CRACK_SKIP_INIT / HATE_CRACK_ORIG_CWD / HATE_CRACK_RUN_E2E.
+    """
+    forbidden = {"DEBUG", "UPDATE_CHANNEL", "VERBOSE", "LOG_LEVEL", "TIMEOUT"}
+    assert forbidden.isdisjoint(BY_ENV)
+    assert BY_ENV["HATE_CRACK_DEBUG"].legacy == "debug"
+    assert BY_ENV["HATE_CRACK_UPDATE_CHANNEL"].legacy == "update_channel"
 
 
 # ---------------------------------------------------------------------------
@@ -358,7 +403,7 @@ def test_no_restore_potfile_is_accepted_by_the_parser(monkeypatch):
 
 
 def test_no_nightly_does_not_trigger_an_upgrade(monkeypatch):
-    """UPDATE_CHANNEL only picks the channel; starting an upgrade still needs
+    """HATE_CRACK_UPDATE_CHANNEL only picks the channel; starting an upgrade still needs
     an explicit --update/--nightly, so --no-nightly must be a no-op here."""
     calls = []
     monkeypatch.setattr(

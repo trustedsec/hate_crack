@@ -5784,7 +5784,7 @@ def main():
             help=(
                 "Update to the latest nightly from nightly-dev instead of main. "
                 "Nightlies have passed CI but are not part of a cut release. "
-                "Overrides UPDATE_CHANNEL in .env for this run; --no-nightly "
+                "Overrides HATE_CRACK_UPDATE_CHANNEL in .env for this run; --no-nightly "
                 "forces the main channel even when .env selects nightly-dev."
             ),
         )
@@ -5805,7 +5805,7 @@ def main():
             action=argparse.BooleanOptionalAction,
             default=None,
             help=(
-                "Enable debug mode. Overrides DEBUG in .env for this run; "
+                "Enable debug mode. Overrides HATE_CRACK_DEBUG in .env for this run; "
                 "--no-debug forces it off even when .env enables it."
             ),
         )
@@ -6023,7 +6023,7 @@ def main():
     if args.update or args.nightly:
         # --nightly implies the upgrade action, so `--nightly` alone works and
         # `--update --nightly` reads as "update, to the nightly channel".
-        # Note the trigger is still an explicit flag: UPDATE_CHANNEL in .env
+        # Note the trigger is still an explicit flag: HATE_CRACK_UPDATE_CHANNEL in .env
         # selects *which* channel an upgrade uses, it never starts one.
         _run_upgrade(branch=flags.update_channel)
 

@@ -121,9 +121,9 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "persisted defaults for per-run CLI flags (each flag still overrides "
         "the value below for one run)",
         (
-            "DEBUG",
+            "HATE_CRACK_DEBUG",
             "WEAKPASS_MIN_RANK",
-            "UPDATE_CHANNEL",
+            "HATE_CRACK_UPDATE_CHANNEL",
             "RESTORE_POTFILE_ON_START",
         ),
     ),

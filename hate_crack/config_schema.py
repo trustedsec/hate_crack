@@ -276,10 +276,10 @@ CONFIG_SCHEMA: tuple[ConfigKey, ...] = (
     # an argparse flag that remains available as a per-run override; see
     # main.py's resolve_flag_overrides().
     # ---------------------------------------------------------------------
-    ConfigKey("DEBUG", "debug", "bool", False),
+    ConfigKey("HATE_CRACK_DEBUG", "debug", "bool", False),
     ConfigKey("WEAKPASS_MIN_RANK", "weakpass_min_rank", "int", -1),
     ConfigKey(
-        "UPDATE_CHANNEL",
+        "HATE_CRACK_UPDATE_CHANNEL",
         "update_channel",
         "str",
         "main",
