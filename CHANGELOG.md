@@ -58,6 +58,14 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   that writes cracked plaintexts to disk. The other two keep their bare spellings
   (`WEAKPASS_MIN_RANK`, `RESTORE_POTFILE_ON_START`). Adds a dependency on
   `python-dotenv`. (#217)
+- **The cwd-relative potfile fallback is gone.** When `hcatPotfilePath` was
+  absent entirely, hate_crack used to fall back to `./hashcat.potfile` in the
+  directory it was launched from if `~/.hashcat/` did not exist. The
+  configuration schema now always supplies a value, so the potfile is
+  deterministically `~/.hashcat/hashcat.potfile` unless configured otherwise;
+  the directory is created on demand. Anyone who relied on picking up a potfile
+  from the current working directory should set `hcatPotfilePath` in
+  `config.json` or pass `--potfile-path`. (#217)
 - **Debug logs now default to `~/.hate_crack/hashcat_debug` instead of the
   checkout-relative `./hashcat_debug`.** The old default resolved against
   whatever directory hate_crack was launched from, which for anyone running it

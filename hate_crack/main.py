@@ -68,7 +68,6 @@ from hate_crack.api import (  # noqa: E402
     extract_with_7z,
 )
 from hate_crack.cli import (  # noqa: E402
-    orig_cwd,
     resolve_path,
     setup_logging,
 )
@@ -219,13 +218,13 @@ def _flag_or_config(flag_value, config_value):
     """Resolve one tri-state flag against its config-supplied default.
 
     ``None`` means the flag was absent, so the config value (which the loader
-    already resolved through .env / config.json / schema default / the real
-    environment) wins. Anything else -- including ``False`` and ``0`` -- is an
+    already resolved from the key's own home file, the schema default and the
+    real environment) wins. Anything else -- including ``False`` and ``0`` -- is an
     explicit per-run statement and outranks the config.
 
     This tri-state is why none of the promoted booleans may use
     ``action="store_true"``: that action makes "absent" and "explicitly false"
-    both ``False``, so the flag could never turn a `.env`-enabled setting off.
+    both ``False``, so the flag could never turn a config-enabled setting off.
     Each one uses ``argparse.BooleanOptionalAction`` with ``default=None``.
     """
     if flag_value is None:
@@ -241,8 +240,11 @@ def resolve_flag_overrides(args, config, *, base_dir, current_potfile_path=None)
     mapping of legacy key names to coerced values; ``base_dir`` is the
     directory a relative ``--potfile-path`` is resolved against.
 
-    Precedence for each key is CLI flag > os.environ > .env > config.json >
-    schema default. The loader owns the bottom four and has already collapsed
+    Precedence for each key is CLI flag > os.environ > that key's own home file
+    > schema default. There is no cross-file fallthrough: each key lives in
+    exactly one of ``.env`` or ``config.json`` (all six resolved here are
+    ``config.json`` keys) and an entry in the other file is ignored with a
+    warning. The loader owns the bottom three and has already collapsed
     them into ``config``; this function only layers the flag on top. It is
     deliberately pure so it can be unit tested without building the parser.
     """
@@ -268,9 +270,9 @@ def resolve_flag_overrides(args, config, *, base_dir, current_potfile_path=None)
     elif getattr(args, "no_potfile_path", False):
         potfile_path = ""
     elif current_potfile_path is not None:
-        # Module import time already normalized HCAT_POTFILE_PATH (expanduser,
-        # relative-to-hate_path, and the "no key at all" discovery fallback);
-        # re-deriving it from ``config`` here would drop that work, so the
+        # Module import time already normalized hcatPotfilePath (expanduser and
+        # relative-to-hate_path); re-deriving it from ``config`` here would
+        # drop that work, so the
         # no-flag case keeps the value main() hands in.
         potfile_path = current_potfile_path
     else:
@@ -292,9 +294,9 @@ def resolve_flag_overrides(args, config, *, base_dir, current_potfile_path=None)
         ),
         # --no-optimized-kernel is a blanket override that empties the
         # optimizedKernelAttacks list for this run; there is no affirmative
-        # form to re-enable a .env that disabled it, because the key is a list
-        # of attack names, not a bool -- setting OPTIMIZED_KERNEL_ATTACKS= in
-        # .env is how you turn it off persistently. Note that route is not
+        # form to re-enable a config that disabled it, because the key is a
+        # list of attack names, not a bool -- `"optimizedKernelAttacks": []` in
+        # config.json is how you turn it off persistently. Note that route is not
         # folded in here: an empty list means "no attack gets -O", whereas the
         # flag additionally strips a hand-written -O out of hcatTuning, and
         # quietly extending that to the config list would change behavior for
@@ -644,20 +646,16 @@ hcatRules: list[str] = []
 # Optional: override hashcat's default potfile location.
 # Default: use ~/.hashcat/hashcat.potfile (explicitly passed to hashcat).
 # Disable override with config `hcatPotfilePath: ""` or CLI `--no-potfile-path`.
-if "hcatPotfilePath" not in config_parser:
-    _default_pot = os.path.expanduser("~/.hashcat/hashcat.potfile")
-    if os.path.isfile(_default_pot) or os.path.isdir(os.path.dirname(_default_pot)):
-        hcatPotfilePath = _default_pot
-    else:
-        hcatPotfilePath = os.path.join(orig_cwd(), "hashcat.potfile")
+# The loader seeds every schema key, so the key is always present and there is
+# no "no key at all" discovery case to handle (the pre-split cwd-relative
+# fallback is gone -- see CHANGELOG).
+_raw_pot = (config_parser.get("hcatPotfilePath") or "").strip()
+if _raw_pot == "":
+    hcatPotfilePath = ""
 else:
-    _raw_pot = (config_parser.get("hcatPotfilePath") or "").strip()
-    if _raw_pot == "":
-        hcatPotfilePath = ""
-    else:
-        hcatPotfilePath = os.path.expanduser(_raw_pot)
-        if not os.path.isabs(hcatPotfilePath):
-            hcatPotfilePath = os.path.join(hate_path, hcatPotfilePath)
+    hcatPotfilePath = os.path.expanduser(_raw_pot)
+    if not os.path.isabs(hcatPotfilePath):
+        hcatPotfilePath = os.path.join(hate_path, hcatPotfilePath)
 
 
 def _normalize_ollama_url(host: str) -> str:
@@ -5881,8 +5879,8 @@ def main():
             default=None,
             help=(
                 "Only show wordlists with this rank (use 0 to show all, -1 for "
-                "the built-in >4 rule). Overrides WEAKPASS_MIN_RANK in .env "
-                "for this run; defaults to that key (-1) when omitted."
+                "the built-in >4 rule). Overrides `weakpass_min_rank` in "
+                "config.json for this run; defaults to that key (-1) when omitted."
             ),
         )
         parser.add_argument(
@@ -5908,8 +5906,8 @@ def main():
             help=(
                 "Update to the latest nightly from nightly-dev instead of main. "
                 "Nightlies have passed CI but are not part of a cut release. "
-                "Overrides HATE_CRACK_UPDATE_CHANNEL in .env for this run; --no-nightly "
-                "forces the main channel even when .env selects nightly-dev."
+                "Overrides `update_channel` in config.json for this run; --no-nightly "
+                "forces the main channel even when config.json selects nightly-dev."
             ),
         )
         parser.add_argument(
@@ -5919,7 +5917,7 @@ def main():
             action="store_true",
             help=(
                 "Never pass -O to hashcat, for every attack this run. Overrides "
-                "OPTIMIZED_KERNEL_ATTACKS in .env and drops any -O in "
+                "`optimizedKernelAttacks` in config.json and drops any -O in "
                 "hcatTuning. Use when a candidate exceeds the password or salt "
                 "length ceiling the optimized kernels impose."
             ),
@@ -5929,8 +5927,8 @@ def main():
             action=argparse.BooleanOptionalAction,
             default=None,
             help=(
-                "Enable debug mode. Overrides HATE_CRACK_DEBUG in .env for this run; "
-                "--no-debug forces it off even when .env enables it."
+                "Enable debug mode. Overrides `debug` in config.json for this run; "
+                "--no-debug forces it off even when config.json enables it."
             ),
         )
         parser.add_argument(
@@ -5939,7 +5937,7 @@ def main():
             default=None,
             help=(
                 "Override hashcat potfile path (equivalent to hashcat --potfile-path). "
-                "Overrides HCAT_POTFILE_PATH in .env for this run. Use empty string "
+                "Overrides `hcatPotfilePath` in config.json for this run. Use empty string "
                 "to disable overriding and use hashcat's built-in default."
             ),
         )
@@ -5951,8 +5949,8 @@ def main():
             help=(
                 "Rebuild <hashfile>.out from the POT file at startup, replacing "
                 "any existing contents, then continue as normal. Overrides "
-                "RESTORE_POTFILE_ON_START in .env for this run; "
-                "--no-restore-potfile forces it off even when .env enables it."
+                "`restore_potfile_on_start` in config.json for this run; "
+                "--no-restore-potfile forces it off even when config.json enables it."
             ),
         )
         parser.add_argument(
@@ -6101,7 +6099,8 @@ def main():
 
     # Six flags are per-run overrides of schema-backed keys; resolve_flag_overrides
     # layers the flag (when present) on top of what the loader already merged
-    # from os.environ / .env / config.json / the schema default.
+    # from os.environ, the key's own home file (config.json for all six) and
+    # the schema default.
     flags = resolve_flag_overrides(
         args,
         config_parser,
@@ -6147,7 +6146,7 @@ def main():
     if args.update or args.nightly:
         # --nightly implies the upgrade action, so `--nightly` alone works and
         # `--update --nightly` reads as "update, to the nightly channel".
-        # Note the trigger is still an explicit flag: HATE_CRACK_UPDATE_CHANNEL in .env
+        # Note the trigger is still an explicit flag: `update_channel` in config.json
         # selects *which* channel an upgrade uses, it never starts one.
         _run_upgrade(branch=flags.update_channel)
 

@@ -409,10 +409,10 @@ def load_config_or_exit(
         shown = "<redacted>" if exc.key in SECRET_ENV_KEYS else exc.raw
         print("\nError: invalid configuration value")
         print(f"  File: {source}")
-        if exc.key not in ("<config.json>", "<.env>"):
-            print(f"  Key: {exc.key}")
-        if shown:
-            print(f"  Value: {shown!r}")
+        print(f"  Key: {exc.key}")
+        # Printed unconditionally: an empty raw value is exactly the case where
+        # seeing ``Value: ''`` tells the user what is wrong (e.g. ``PIPAL_COUNT=``).
+        print(f"  Value: {shown!r}")
         print(f"  Problem: {exc.reason}")
         print("\nTo fix:")
         print(f"  1. Edit {source} and correct the value, or")

@@ -366,6 +366,22 @@ def test_malformed_int_exits_with_key_name(tmp_path, capsys):
     assert "PIPAL_COUNT" in captured.out
 
 
+def test_malformed_empty_value_is_shown_explicitly(tmp_path, capsys):
+    """An empty value is the case that most needs printing, not hiding.
+
+    ``PIPAL_COUNT=`` in a ``.env`` fails int coercion; suppressing the
+    ``Value:`` line for a falsy raw value left the user with "not a valid int"
+    and no hint that the value was empty.
+    """
+    env_path = _write_env(tmp_path, {"PIPAL_COUNT": ""})
+    with pytest.raises(SystemExit) as exc_info:
+        load_config_or_exit(env_path=env_path, legacy_json_path=None, environ={})
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert "PIPAL_COUNT" in captured.out
+    assert "Value: ''" in captured.out
+
+
 # ---------------------------------------------------------------------------
 # 8. Secret key with malformed value -> value redacted in output
 # ---------------------------------------------------------------------------
