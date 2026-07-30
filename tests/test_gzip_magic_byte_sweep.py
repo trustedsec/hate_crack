@@ -27,7 +27,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 def _load_main():
     if str(PROJECT_ROOT) not in sys.path:
         sys.path.insert(0, str(PROJECT_ROOT))
-    import hate_crack.main as m  # noqa: PLC0415
+    import hate_crack.main as m
 
     return importlib.reload(m)
 
@@ -35,7 +35,7 @@ def _load_main():
 def _load_attacks():
     if str(PROJECT_ROOT) not in sys.path:
         sys.path.insert(0, str(PROJECT_ROOT))
-    import hate_crack.attacks as attacks  # noqa: PLC0415
+    import hate_crack.attacks as attacks
 
     return attacks
 

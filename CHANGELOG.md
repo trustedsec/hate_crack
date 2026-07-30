@@ -73,7 +73,7 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   downloads wordlists as gzip and names them from a server-supplied
   `Content-Disposition` header, and Hashmob/Weakpass ship gzip too, so a
   compressed body routinely lands under a `.txt` name. The binary does not
-  error on that -- it runs to completion and produces meaningless
+  error on that — it runs to completion and produces meaningless
   candidates, no `UnicodeDecodeError`, no non-zero exit. The correct
   magic-byte check already existed for `hcatNgramX`; it is now the single
   shared `hate_crack.plaintext.is_gzipped`, and `_open_wordlist` (covering
