@@ -98,6 +98,12 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   the PRINCE attack, which tests its own name — use `hcatPrince` to control
   `-O` for both.
 
+- **`combinator3_crack`, `combinatorX_crack`, and `combinator_3plus_crack` are
+  gone from `attacks.py`, along with their `main.py` proxies.** They were
+  delegation shims left behind when the combinator attacks merged into one
+  handler; neither menu mapping nor any test referenced them, so they were
+  unreachable dead code.
+
 ### Fixed
 
 - **`--download-hashview` prompted for a menu choice and then ignored it.** The

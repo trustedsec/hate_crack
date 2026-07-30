@@ -4580,18 +4580,6 @@ def middle_combinator():
     return _attacks.middle_combinator(_attack_ctx())
 
 
-def combinator3_crack():
-    return _attacks.combinator3_crack(_attack_ctx())
-
-
-def combinatorX_crack():
-    return _attacks.combinatorX_crack(_attack_ctx())
-
-
-def combinator_3plus_crack():
-    return _attacks.combinator_3plus_crack(_attack_ctx())
-
-
 def ngram_attack():
     return _attacks.ngram_attack(_attack_ctx())
 
