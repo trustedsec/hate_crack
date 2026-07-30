@@ -11,6 +11,19 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ### Added
 
+- **Rosetta Attack (main menu option 23)** — mines hashcat `--debug-mode 4`
+  logs for the basewords and rules that already cracked something, then runs
+  their full cross product. hate_crack already writes these logs for every
+  rule-based attack, so the input accumulates in `hcatDebugLogPath` without any
+  setup; a mode 4 log contains only successful candidates, which makes both
+  halves known-productive against the target population. The recorded pairs
+  themselves are spent, but a rule that worked on one baseword has usually
+  never been tried against the others. Rules can be ranked by application
+  frequency, by baseword spread, or by unique candidates generated, and both
+  the rule and baseword counts are capped interactively (defaults: top 100
+  rules, all basewords). Derived files land in `<hash file>.rosetta/` and are
+  removed by the existing temp-file cleanup. Powered by HashcatRosetta, the
+  same submodule behind the rule opcode analyzer.
 - **The Spoonman Attack's rule derivation now bounds its own memory instead of
   being OOM-killed on a very large corpus.** `rulegen.generate()` held every
   distinct baseword and every distinct rule in a `Counter` until the whole

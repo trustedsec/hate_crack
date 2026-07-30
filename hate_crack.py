@@ -96,6 +96,7 @@ def get_main_menu_options():
         "20": _attacks.pcfg_attack,
         "21": _attacks.prince_ling_attack,
         "22": _attacks.spoonman_attack,
+        "23": _attacks.rosetta_attack,
         "80": _attacks.wordlist_tools_submenu,
         "81": _attacks.rule_tools_submenu,
         "82": notifications_submenu,

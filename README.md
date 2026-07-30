@@ -614,8 +614,8 @@ opt in:
 Names are matched exactly, and an unrecognized entry is reported at startup
 rather than ignored. Note that attacks which delegate to another attack are
 controlled by the attack they delegate to, not by their own name: PRINCE-LING
-follows `hcatPrince`, while Spoonman and the LLM pattern-rule modes follow
-`hcatQuickDictionary`.
+follows `hcatPrince`, while Spoonman, Rosetta, and the LLM pattern-rule modes
+follow `hcatQuickDictionary`.
 
 ### Notifications (menu option 82)
 
@@ -852,6 +852,7 @@ All tests use mocked API calls, so they can run without connectivity to a Hashvi
   (20) PCFG Attack
   (21) PRINCE-LING Attack
   (22) Spoonman Attack
+  (23) Rosetta Attack
 
   (80) Wordlist Tools
   (81) Rule File Tools
@@ -1107,6 +1108,19 @@ Each password is split into its letters-only lowercased core (the baseword) plus
 * Passwords that cannot be expressed as a rule are written verbatim as their own baseword with a `:` no-op, so coverage stays complete. This covers two hashcat limits: rule positions cannot address past index 35, and hashcat rejects any rule with more than 31 functions — silently, when valid rules share the file
 * The derivation self-checks every password by reconstructing it in-process, and reports any failures rather than reporting success
 * Corpus lines may carry a hash in front of the password, as cracked output does. A leading field is dropped only when it has the shape of a hash (a hex digest at a known length, or a crypt-style `$id$` string), so `hash:salt:plain` is handled while a plaintext or wordlist entry containing a colon survives intact. `$HEX[...]` plaintexts are decoded. If most lines look like an uncracked dump rather than cracked output, `coverage.txt` records the count and the attack warns — the derived basewords and rules would otherwise be meaningless without any error being raised
+
+#### Rosetta Attack
+Mines hashcat `--debug-mode 4` logs for the basewords and rules that already cracked something, then runs their full cross product. Powered by [HashcatRosetta](https://github.com/bandrel/HashcatRosetta), the same library behind [Analyze Hashcat Rules](#analyze-hashcat-rules-rule-file-tools-option-5).
+
+No setup is needed to feed it: `_add_debug_mode_for_rules` appends `--debug-mode 4 --debug-file` to every rule-based hashcat invocation hate_crack makes, so the logs accumulate in `hcatDebugLogPath` (`./hashcat_debug` by default, one file per session) as a side effect of normal use. A mode 4 log records only candidates that cracked a hash, in the form `baseword rule candidate`, which is what makes both halves known-productive against this target population.
+
+The value is in the cross product rather than the recorded pairs. A pair present in a log has already cracked its hash and will not crack another, but a rule that worked on one baseword has usually never been tried against the others — so N basewords and M rules yield close to N x M untried candidates.
+
+* Lists the logs found in `hcatDebugLogPath` newest-first with their sizes; pick one, pick all of them (up to 20), or type a path to a log from elsewhere
+* Rules can be ranked by application frequency, by how many distinct basewords each one worked on, or by how many unique candidates each one generated. Frequency is the default; baseword spread is the better choice when the goal is a rule set that generalizes past the specific words it was learned from
+* Prompts for how many top rules to keep (default 100) and how many top basewords (default all). Zero means unlimited for either. The keyspace is the product of the two and is printed before hashcat starts
+* Output is written beside the hash file in `<hash file>.rosetta/` as `basewords.txt` and `rules.rule`, alongside the other ephemeral wordlists, and the directory is removed on exit by the temp-file cleanup
+* Reading stops at 1,000,000 debug lines, since the analyzer needs the whole batch in memory at once. Truncation is reported on the console rather than assumed harmless — logs from a long run routinely exceed this, in which case the newest log is the one worth selecting
 
 #### Wordlist Tools (option 80)
 A submenu of wordlist preprocessing utilities using hashcat-utils binaries. All tools read from and write to files on disk. All file and directory path prompts support tab completion.

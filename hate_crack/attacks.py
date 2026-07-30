@@ -484,6 +484,117 @@ def spoonman_attack(ctx: Any) -> None:
     ctx.hcatSpoonman(ctx.hcatHashType, ctx.hcatHashFile, corpus, coverage=coverage)
 
 
+def _prompt_positive_int(prompt: str, default: int | None) -> int | None:
+    """Prompt for a positive integer. Blank keeps *default*, 0 means unlimited."""
+    while True:
+        raw = input(prompt).strip()
+        if not raw:
+            return default
+        try:
+            value = int(raw)
+        except ValueError:
+            print("[!] Enter a number.")
+            continue
+        if value < 0:
+            print("[!] Enter zero or a positive number.")
+            continue
+        return value or None
+
+
+def _select_debug_logs(ctx) -> list[str] | None:
+    """Pick the hashcat --debug-mode 4 logs to mine. None if cancelled."""
+    logs = ctx.rosetta_debug_logs()
+    items = []
+    for idx, path in enumerate(logs[:20], 1):
+        # Size rather than a line count: these logs routinely reach hundreds of
+        # megabytes, and stat'ing 20 of them must stay instant. A log can also
+        # be rotated away between the listing and the stat, which is not worth
+        # aborting the menu over.
+        try:
+            label = (
+                f"{os.path.basename(path)} ({os.path.getsize(path) / 1048576:.1f} MB)"
+            )
+        except OSError:
+            label = f"{os.path.basename(path)} (unreadable)"
+        items.append((str(idx), label))
+    if logs:
+        items.append(("a", "All logs listed above"))
+    items.append(("p", "Enter a debug log path manually"))
+    items.append(("99", "Back to Main Menu"))
+
+    title = f"\nDebug logs in {ctx.hcatDebugLogPath}:"
+    if not logs:
+        title = f"\nNo debug logs found in {ctx.hcatDebugLogPath}."
+    choice = interactive_menu(items, title=title)
+    if choice is None or choice == "99":
+        return None
+    if choice == "a":
+        return logs[:20]
+    if choice == "p":
+        path = ctx.select_file_with_autocomplete(
+            "\n[*] Enter path to hashcat debug log", base_dir=ctx.hcatDebugLogPath
+        ).strip()
+        if not path:
+            print("[!] No debug log specified.")
+            return None
+        if not os.path.isfile(path):
+            print(f"[!] Debug log not found: {path}")
+            return None
+        return [path]
+    if choice.isdigit() and 1 <= int(choice) <= len(logs[:20]):
+        return [logs[int(choice) - 1]]
+    print("[!] Invalid selection.")
+    return None
+
+
+def rosetta_attack(ctx: Any) -> None:
+    """Mine hashcat --debug-mode 4 logs for winning basewords and rules."""
+    print("\n" + "=" * 60)
+    print("ROSETTA ATTACK")
+    print("=" * 60)
+    print("Mines hashcat --debug-mode 4 logs, which hate_crack writes for every")
+    print("rule-based attack, for the basewords and rules that actually cracked")
+    print("something. Those are then run as a full cross product: each winning")
+    print("rule gets tried against every winning baseword, not just the one it")
+    print("was originally paired with.")
+    print("=" * 60)
+
+    debug_files = _select_debug_logs(ctx)
+    if not debug_files:
+        return
+
+    items = [
+        ("1", "Application frequency (rules applied most often)"),
+        ("2", "Baseword spread (rules that worked across the most basewords)"),
+        ("3", "Candidate variety (rules producing the most unique candidates)"),
+        ("99", "Back to Main Menu"),
+    ]
+    choice = interactive_menu(items, title="\nRank rules by:")
+    if choice is None or choice == "99":
+        return
+    metric = {"1": "frequency", "2": "basewords", "3": "candidates"}.get(choice)
+    if metric is None:
+        print("[!] Invalid selection.")
+        return
+
+    top_rules = _prompt_positive_int(
+        "\n[*] Number of top rules to keep [default 100, 0 for all]: ", 100
+    )
+    top_basewords = _prompt_positive_int(
+        "[*] Number of top basewords to keep [default all, 0 for all]: ", None
+    )
+
+    _notify.prompt_notify_for_attack("Rosetta")
+    ctx.hcatRosetta(
+        ctx.hcatHashType,
+        ctx.hcatHashFile,
+        debug_files,
+        metric=metric,
+        top_rules=top_rules,
+        top_basewords=top_basewords,
+    )
+
+
 def yolo_combination(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("YOLO Combination")
     ctx.hcatYoloCombination(ctx.hcatHashType, ctx.hcatHashFile)
