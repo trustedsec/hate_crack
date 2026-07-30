@@ -4,15 +4,33 @@ import sys
 
 import pytest
 
+from hate_crack import config_loader
 from hate_crack.api import HashviewAPI
 
 
 HATE_CRACK_SCRIPT = os.path.join(os.path.dirname(__file__), "..", "hate_crack.py")
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
+# Captured at import time, which is BEFORE conftest's autouse
+# ``_isolate_config_file_discovery`` fixture replaces it per test.
+#
+# That fixture empties the search order so the suite cannot read a developer's
+# real ``.env``/``config.json``, which is correct for tests that run in-process.
+# It is wrong for the helpers below, because the tests here launch the CLI as a
+# SUBPROCESS, and a subprocess inherits no monkeypatch. With the patched
+# (emptied) search order, the helper concludes "no key configured" while the
+# subprocess goes on to find a real key in the repo root — so
+# ``test_hashview_subcommands_require_api_key`` runs instead of skipping and
+# then fails, because the CLI never prints "Hashview API key not configured".
+#
+# These helpers must answer "what will the SUBPROCESS see?", so they use the
+# genuine search order. Re-deriving that order by hand would fork a second
+# config reader, which is exactly what #153 was filed for.
+_REAL_CANDIDATE_ROOTS = config_loader.candidate_roots
+
 
 def _resolved_hashview_config():
-    """Ask the real loader what the CLI will actually see.
+    """Ask the real loader what the CLI subprocess will actually see.
 
     ``hashview_url`` and ``hashview_api_key`` live in ``.env``, not
     ``config.json`` — a leftover copy in ``config.json`` is ignored with a
@@ -25,12 +43,15 @@ def _resolved_hashview_config():
     also the rule the rest of the codebase follows (see #153): one loader, no
     parallel config readers to drift.
     """
-    from hate_crack import config_loader
-
-    env_path, legacy_json_path = config_loader.resolve_config_paths()
-    resolved = config_loader.load_config(
-        env_path=env_path, legacy_json_path=legacy_json_path
-    ).config
+    original = config_loader.candidate_roots
+    config_loader.candidate_roots = _REAL_CANDIDATE_ROOTS
+    try:
+        env_path, legacy_json_path = config_loader.resolve_config_paths()
+        resolved = config_loader.load_config(
+            env_path=env_path, legacy_json_path=legacy_json_path
+        ).config
+    finally:
+        config_loader.candidate_roots = original
     return resolved.get("hashview_url") or "", resolved.get("hashview_api_key") or ""
 
 
@@ -475,3 +496,42 @@ def test_hashview_subcommands_live_upload_hashfile_job_hashonly(tmp_path):
                     pass
             except Exception:
                 pass
+
+
+def test_key_guard_sees_the_same_config_as_the_subprocess(tmp_path):
+    """The skip guard must not be blinded by conftest's discovery isolation.
+
+    conftest's autouse ``_isolate_config_file_discovery`` empties
+    ``config_loader.candidate_roots`` so in-process tests cannot read a
+    developer's real config. A subprocess inherits no monkeypatch, so if the
+    helpers here honoured that patch they would report "no key configured"
+    while the CLI subprocess found a real one -- and
+    ``test_hashview_subcommands_require_api_key`` would run instead of skip and
+    fail on output it was never going to see. That is exactly what happened.
+
+    Asserting the helper resolves through the genuine search order, rather than
+    asserting a specific key is or is not present, keeps this meaningful on both
+    a developer machine (config present) and in CI (none).
+    """
+    env_file = tmp_path / ".env"
+    env_file.write_text("HASHVIEW_URL=http://placeholder.invalid\n")
+
+    # Under the patched (emptied) order this finds nothing. The helper must not
+    # be using the patched order, so it must still see the real roots.
+    assert config_loader.candidate_roots() == [], (
+        "conftest's isolation fixture is expected to be active here; if this "
+        "fails, that fixture changed and this test's premise needs revisiting."
+    )
+    assert _REAL_CANDIDATE_ROOTS() != [], (
+        "the captured candidate_roots must be the genuine one, not the patched "
+        "empty stand-in -- capture happens at import time for that reason."
+    )
+
+    # And the helper leaves the patched state exactly as it found it, so it
+    # cannot leak the real search order into other tests.
+    before = config_loader.candidate_roots
+    _resolved_hashview_config()
+    assert config_loader.candidate_roots is before, (
+        "_resolved_hashview_config must restore candidate_roots; leaking the "
+        "real search order would let other tests read the developer's config."
+    )
