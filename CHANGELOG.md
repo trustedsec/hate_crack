@@ -7,54 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
-## [Unreleased]
-
-### Fixed
-
-- **Analysing or exporting a plain hash list destroyed every cracked password.**
-  `combine_ntlm_output()` merges cracked passwords back onto pwdump lines, reading
-  `<hashfile>.out` and writing `<original>.out`. For a hash file that is not pwdump
-  format those are the same path, and the function opened its own input with mode
-  `w+`, truncating it, then matched against lines that no longer existed — so a
-  populated `.out` became 0 bytes. It now returns early when there is nothing to
-  merge onto, and builds the merged file beside its destination and moves it into
-  place only once it has content, so a run that matches nothing can no longer
-  replace a good result with an empty one.
-- **`--update` (and the startup upgrade prompt) no longer dead-ends on a clone
-  whose tags diverge from the remote's.** If any local tag pointed at a
-  different object than `origin`'s, `git fetch --tags` exited non-zero with
-  `would clobber existing tag`; `_run_upgrade()` treated that as fatal and
-  aborted, so the affected clone could never upgrade itself again. Worse, the
-  manual recovery commands the tool printed omitted `--force` too, so following
-  its own advice failed the same way. Both fetches in the upgrade path — the
-  pre-checkout one and the one inside the final shell chain — now pass
-  `--tags --force`, as do the four printed fallback command strings. `--force`
-  affects tag updates only and cannot discard commits or working-tree state.
-- **`--update` now advances the checkout by resetting to `origin`, not by
-  merging, so it also works on a clone whose history was rewritten.** Forcing
-  the tag fetch alone was not enough: the upgrade went on to run
-  `git pull origin <branch>`, and a clone predating the July 2026 history
-  rewrite shares no ancestor with `origin/main`, so the pull aborted with
-  `Need to specify how to reconcile divergent branches` and the upgrade never
-  reached `make install`. `_run_upgrade()` now runs `git checkout -B <branch>
-  origin/<branch>` on every upgrade — previously only when HEAD was on some
-  other branch, which is why users already sitting on `main` were the ones who
-  hit this — and the final shell chain is reduced to `make install`. The
-  uncommitted-changes guard became unconditional to match, since the reset now
-  fires on every run; the printed recovery commands use the reset form too.
-  Users stranded by the earlier versions need a one-time manual recovery,
-  documented under Troubleshooting in the README.
-
-### Added
-
-- Real-git coverage for the upgrade path (`tests/test_upgrade_real_git.py`).
-  The existing tests mock `subprocess.run` wholesale, so they only assert which
-  command strings get built — a mocked `git pull` always succeeds, which is why
-  both bugs above reached users with the suite green. The new tests construct a
-  remote and a clone whose history has been rewritten out from under it, then
-  run the real git commands, and additionally assert that `_run_upgrade()`
-  constructs no `pull` at all.
-
 ## [2.18.0] - 2026-07-29
 
 ### Added
@@ -141,6 +93,14 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   model output is normalized to lowercase letters only, since the rules supply
   case, digits, and punctuation. Basewords land in `<hashfile>.llm_patterns`,
   which `cleanup()` removes on exit.
+- Real-git coverage for the upgrade path (`tests/test_upgrade_real_git.py`).
+  The existing tests mock `subprocess.run` wholesale, so they only assert which
+  command strings get built — a mocked `git pull` always succeeds, which is why
+  the two `--update` bugs listed under Fixed reached users with the suite green.
+  The new tests construct a remote and a clone whose history has been rewritten
+  out from under it, then run the real git commands, and additionally assert
+  that `_run_upgrade()` constructs no `pull` at all.
+
 ### Changed
 
 
@@ -252,6 +212,15 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ### Fixed
 
+- **Analysing or exporting a plain hash list destroyed every cracked password.**
+  `combine_ntlm_output()` merges cracked passwords back onto pwdump lines, reading
+  `<hashfile>.out` and writing `<original>.out`. For a hash file that is not pwdump
+  format those are the same path, and the function opened its own input with mode
+  `w+`, truncating it, then matched against lines that no longer existed — so a
+  populated `.out` became 0 bytes. It now returns early when there is nothing to
+  merge onto, and builds the merged file beside its destination and moves it into
+  place only once it has content, so a run that matches nothing can no longer
+  replace a good result with an empty one.
 - **`coverage.txt` now reports the rule count for 75% coverage.** Its milestone
   list ran 50/80/90/95/99/100, so an operator picking the new top-75% tier
   could not look its cost up in the one file meant to answer that question.
@@ -350,6 +319,30 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   consults the setting. README also overstated the scope: only Extensive Crack
   suppresses, and Quick Crack with N rule chains has always sent N
   notifications.
+- **`--update` (and the startup upgrade prompt) no longer dead-ends on a clone
+  whose tags diverge from the remote's.** If any local tag pointed at a
+  different object than `origin`'s, `git fetch --tags` exited non-zero with
+  `would clobber existing tag`; `_run_upgrade()` treated that as fatal and
+  aborted, so the affected clone could never upgrade itself again. Worse, the
+  manual recovery commands the tool printed omitted `--force` too, so following
+  its own advice failed the same way. Both fetches in the upgrade path — the
+  pre-checkout one and the one inside the final shell chain — now pass
+  `--tags --force`, as do the four printed fallback command strings. `--force`
+  affects tag updates only and cannot discard commits or working-tree state.
+- **`--update` now advances the checkout by resetting to `origin`, not by
+  merging, so it also works on a clone whose history was rewritten.** Forcing
+  the tag fetch alone was not enough: the upgrade went on to run
+  `git pull origin <branch>`, and a clone predating the July 2026 history
+  rewrite shares no ancestor with `origin/main`, so the pull aborted with
+  `Need to specify how to reconcile divergent branches` and the upgrade never
+  reached `make install`. `_run_upgrade()` now runs `git checkout -B <branch>
+  origin/<branch>` on every upgrade — previously only when HEAD was on some
+  other branch, which is why users already sitting on `main` were the ones who
+  hit this — and the final shell chain is reduced to `make install`. The
+  uncommitted-changes guard became unconditional to match, since the reset now
+  fires on every run; the printed recovery commands use the reset form too.
+  Users stranded by the earlier versions need a one-time manual recovery,
+  documented under Troubleshooting in the README.
 
 ## [2.17.2] - 2026-07-29
 
