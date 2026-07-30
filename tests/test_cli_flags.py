@@ -88,6 +88,35 @@ def test_download_hashview_flag_does_not_prompt(monkeypatch):
     assert called == [True]
 
 
+def test_no_hashfile_menu_treats_cancel_as_reprompt(monkeypatch, capsys):
+    """A cancel gesture must re-prompt silently, not be called invalid.
+
+    ``interactive_menu`` returns None for a bare Enter (numbered mode) and for
+    Escape (arrow mode). Every other menu treats that as its cancel option; the
+    main menu re-prompts. This one used to report it as "[!] Invalid selection".
+    """
+    monkeypatch.setattr(hc_main, "hashview_api_key", "dummy")
+    monkeypatch.setattr(hc_main, "ascii_art", lambda: None)
+    # "" -> interactive_menu returns None (cancel), then "4" exits.
+    answers = iter(["", "4"])
+    monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
+    code = _run_main(monkeypatch, [])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "Invalid selection" not in out, out
+
+
+def test_no_hashfile_menu_still_warns_on_unrecognized_answer(monkeypatch, capsys):
+    """A genuinely unrecognized answer must still warn."""
+    monkeypatch.setattr(hc_main, "hashview_api_key", "dummy")
+    monkeypatch.setattr(hc_main, "ascii_art", lambda: None)
+    answers = iter(["7", "4"])
+    monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
+    code = _run_main(monkeypatch, [])
+    assert code == 0
+    assert "Invalid selection" in capsys.readouterr().out
+
+
 def test_no_hashfile_menu_honours_wordlist_tools_choice(monkeypatch):
     """Without the flag, the menu's own choices must still be honoured."""
     monkeypatch.setattr(hc_main, "hashview_api_key", "dummy")

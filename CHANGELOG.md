@@ -165,6 +165,14 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ### Fixed
 
+- **Cancelling the no-hashfile menu was reported as an invalid selection.**
+  `interactive_menu` returns `None` for a bare Enter in numbered mode and for
+  Escape in arrow-key mode. Every other menu treats that as its cancel option,
+  but the menu shown when no hash file is given fell through to
+  `[!] Invalid selection` and re-prompted, so a deliberate cancel looked like a
+  typo. It now re-shows the menu silently, matching the main menu; an answer
+  that matches no menu key still warns.
+
 
 - **"Leave blank to skip" skipped every remaining custom charset, not just
   one.** The Ad-hoc Mask Attack prompts for charsets `-1` through `-4`, but a

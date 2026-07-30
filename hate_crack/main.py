@@ -5664,6 +5664,12 @@ def main():
                 title="No hash file provided. What would you like to do?",
                 prompt="\nSelect an option: ",
             )
+            if choice is None:
+                # A bare Enter (numbered mode) or Escape (arrow mode) is a
+                # cancel gesture, not a typo: re-show the menu without
+                # scolding the user. Matches the main menu, which likewise
+                # treats a None choice as "ask again".
+                continue
             if choice == "1":
                 hashview_api()
                 # Nothing loaded means the user backed out; re-show the menu.
@@ -5676,9 +5682,10 @@ def main():
             elif choice == "4":
                 sys.exit(0)
             else:
-                # --weakpass/--hashmob/--rules all exit before this loop, and
-                # --download-hashview is handled above, so the only way here
-                # is an unrecognized answer.
+                # --weakpass/--hashmob/--rules all exit before this loop,
+                # --download-hashview is handled above, and a cancel is
+                # handled as None, so the only way here is an answer that
+                # matches no menu key.
                 print("\n[!] Invalid selection.")
 
     # At this point, a hashfile must be loaded
