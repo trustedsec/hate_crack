@@ -466,13 +466,26 @@ class TestGetHashmobApiKey:
     and actually representative of how the value is found at runtime.
     """
 
-    def test_returns_key_from_legacy_config(self, tmp_path, monkeypatch):
+    def test_returns_key_from_the_env_file(self, tmp_path, monkeypatch):
+        """``hashmob_api_key`` is ``home="env"``, so the value comes from
+        `.env`. A leftover entry in ``config.json`` is deliberately ignored --
+        see test_returns_none_when_only_config_json_has_it."""
+        env_file = tmp_path / ".env"
+        env_file.write_text("HASHMOB_API_KEY=placeholder-dotenv\n")
+        monkeypatch.setattr(api, "_resolve_env_path", lambda: str(env_file))
+        monkeypatch.setattr(api, "_resolve_config_path", lambda: None)
+
+        assert get_hashmob_api_key() == "placeholder-dotenv"
+
+    def test_returns_none_when_only_config_json_has_it(self, tmp_path, monkeypatch):
+        """The key's home is `.env`; a stale ``config.json`` entry must not be
+        read, or a user who updated `.env` would keep getting the old value."""
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"hashmob_api_key": "placeholder-json"}))
         monkeypatch.setattr(api, "_resolve_env_path", lambda: None)
         monkeypatch.setattr(api, "_resolve_config_path", lambda: str(config_file))
 
-        assert get_hashmob_api_key() == "placeholder-json"
+        assert get_hashmob_api_key() is None
 
     def test_returns_none_when_missing(self, tmp_path, monkeypatch):
         config_file = tmp_path / "config.json"

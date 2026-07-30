@@ -199,7 +199,7 @@ def _resolve_env_path():
 
 
 def _resolve_config_path():
-    """Path of the legacy ``config.json``, or ``None``.
+    """Path of the ``config.json``, or ``None``.
 
     Kept as a named seam (the test suite patches it) but the directory search
     order itself now lives in :func:`hate_crack.config_loader.candidate_roots`
@@ -2160,9 +2160,10 @@ def get_hashmob_api_key():
     Goes through :func:`_load_merged_config` -- and therefore through
     ``config_loader`` -- like every other config read in this module. It used
     to walk its own two-directory list of ``config.json`` candidates, which
-    was #153's duplication in a third place and, after the `.env` migration,
-    plainly wrong: a user who updated ``HASHMOB_API_KEY`` in `.env` kept
-    getting the stale value out of a leftover ``config.json``.
+    was #153's duplication in a third place and, once ``hashmob_api_key``
+    became a `.env`-homed key, plainly wrong: a user who set
+    ``HASHMOB_API_KEY`` in `.env` kept getting the stale value out of a
+    leftover ``config.json`` entry.
 
     ``None`` rather than ``""`` for "not configured", because callers test it
     with ``if key:`` and one passes it straight into a request header.

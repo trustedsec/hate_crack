@@ -74,6 +74,7 @@ from hate_crack.cli import (  # noqa: E402
 )
 from hate_crack import attacks as _attacks  # noqa: E402
 from hate_crack import config_loader as _config_loader  # noqa: E402
+from hate_crack import config_schema as _config_schema  # noqa: E402
 from hate_crack import config_writer as _config_writer  # noqa: E402
 from hate_crack import llm  # noqa: E402
 from hate_crack import noninteractive as _noninteractive  # noqa: E402
@@ -384,51 +385,103 @@ _omen_dir = (
 )
 SKIP_INIT = os.environ.get("HATE_CRACK_SKIP_INIT") == "1"
 
+# The legacy names of the home="env" keys, derived from the schema so this
+# cannot drift when a thirteenth integration key is added.
+_INTEGRATION_LEGACY_KEYS = frozenset(entry.legacy for entry in _config_schema.ENV_KEYS)
 
-def _bootstrap_config_file(env_path, legacy_json_path):
-    """Ensure a `.env` exists (unless ``SKIP_INIT``) and return its path.
 
-    Four cases, in order:
+def _config_json_has_integration_keys(legacy_json_path):
+    """Does ``legacy_json_path`` hold any ``home="env"`` key?
 
-    1. ``.env`` present -> use it. A leftover ``config.json`` earns a one-line
-       deprecation notice; it is still read as a lower-precedence layer, so
-       the notice says what actually happens rather than claiming the file is
-       ignored outright.
-    2. ``.env`` absent, ``config.json`` present -> one-shot migration via
-       :func:`hate_crack.config_writer.write_env_from_legacy`. The legacy file
-       is never modified or deleted, so a downgrade stays possible.
-    3. both absent -> write a fresh `.env` from schema defaults.
-    4. ``SKIP_INIT`` -> write nothing at all, whatever is (or isn't) present.
-       The test suite imports this module constantly; creating a `.env` in the
-       repo or in ``~/.hate_crack`` as a side effect of an import is not
+    Distinguishes "a pre-split config.json that needs its integration
+    settings lifted into a .env" from "a config.json that was always in the
+    new shape". Any read failure answers ``False``: the loader will report a
+    malformed or unreadable file with its own diagnostic, and guessing here
+    would produce a second, worse one.
+    """
+    try:
+        with open(legacy_json_path) as fh:
+            data = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(data, dict):
+        return False
+    return any(key in data for key in _INTEGRATION_LEGACY_KEYS)
+
+
+def _bootstrap_config_files(env_path, legacy_json_path):
+    """Ensure both config files exist (unless ``SKIP_INIT``); return their paths.
+
+    Returns ``(env_path, legacy_json_path)``. Each file is created only if it
+    is missing; neither is ever rewritten, and ``config.json`` is never
+    modified.
+
+    The cases, in order:
+
+    0. ``SKIP_INIT`` -> write nothing at all, whatever is or isn't present.
+       The test suite imports this module constantly; creating config files in
+       the repo or in ``~/.hate_crack`` as a side effect of an import is not
        acceptable, so this branch comes first.
+    1. ``config.json`` present, `.env` absent, ``config.json`` holds at least
+       one integration key -> lift those keys into a new `.env` via
+       :func:`hate_crack.config_writer.write_env_from_legacy` and print its
+       notes, which name the keys the user must now delete from
+       ``config.json`` themselves.
+    2. ``config.json`` present, `.env` absent, no integration keys -> write a
+       `.env` from schema defaults anyway, so the file exists to be edited.
+       (Chosen over writing nothing: without it, a user who wants to set
+       ``HASHMOB_API_KEY`` has to know both that `.env` is where it goes and
+       that they must create it, and the post-condition "both files exist"
+       matches case 4.)
+    3. Both present -> nothing to do. Misplaced keys in either file are the
+       loader's business, and it warns about each one on every run.
+    4. Neither present -> create both, ``config.json`` from
+       ``config.json.example`` exactly as this module did before the split.
     """
     if SKIP_INIT:
-        return env_path
-    if env_path:
-        if legacy_json_path:
-            print(
-                f"[!] {legacy_json_path} is deprecated: configuration now lives in "
-                f"{env_path}, which wins key by key."
-            )
-        return env_path
+        return env_path, legacy_json_path
+
+    if legacy_json_path is None:
+        legacy_json_path = _initialize_config_json()
+
+    if env_path is None:
+        env_path = _initialize_env(legacy_json_path)
+
+    return env_path, legacy_json_path
+
+
+def _initialize_config_json():
+    """Copy ``config.json.example`` to the resolved config directory."""
+    src_config = os.path.abspath(os.path.join(_package_path, "config.json.example"))
+    destination = os.path.join(_resolve_config_destination(), "config.json")
+    print("Initializing config.json from config.json.example")
+    print(f"Config source: {src_config}")
+    print(f"Config destination: {destination}")
+    try:
+        shutil.copy(src_config, destination)
+    except OSError as exc:
+        print(f"[!] Could not write {destination}: {exc}")
+        return None
+    return destination
+
+
+def _initialize_env(legacy_json_path):
+    """Create the `.env`, migrating integration keys out of ``config.json``."""
     destination = os.path.join(_resolve_config_destination(), ".env")
-    if legacy_json_path:
+    migrating = legacy_json_path is not None and _config_json_has_integration_keys(
+        legacy_json_path
+    )
+    if migrating:
         try:
             notes = _config_writer.write_env_from_legacy(legacy_json_path, destination)
-        except json.JSONDecodeError:
-            # Let load_config_or_exit() render the malformed-JSON diagnostic;
-            # migrating a file we cannot parse is not possible anyway.
-            return None
         except OSError as exc:
             print(f"[!] Could not write {destination}: {exc}")
             return None
-        print("Migrating configuration from config.json to .env")
+        print("Copying third-party integration settings from config.json to .env")
         print(f"Config source: {legacy_json_path}")
         print(f"Config destination: {destination}")
         for note in notes:
             print(f"[!] {note}")
-        print(f"{legacy_json_path} was left unchanged and is no longer needed.")
         return destination
     print("Initializing .env from built-in defaults")
     print(f"Config destination: {destination}")
@@ -441,12 +494,12 @@ def _bootstrap_config_file(env_path, legacy_json_path):
 
 
 _env_path, _legacy_json_path = _config_loader.resolve_config_paths()
-_env_path = _bootstrap_config_file(_env_path, _legacy_json_path)
+_env_path, _legacy_json_path = _bootstrap_config_files(_env_path, _legacy_json_path)
 
-# The loader is the single definition of the precedence stack: schema
-# defaults < config.json < .env < os.environ. config_parser stays a plain
-# dict keyed by the legacy JSON key names, with values already coerced to
-# their final Python types, because ~180 lines below here read it that way.
+# The loader is the single definition of the precedence stack: for each key,
+# schema default < that key's own home file < os.environ. config_parser stays
+# a plain dict keyed by the legacy JSON key names, with values already coerced
+# to their final Python types, because ~180 lines below here read it that way.
 _config_result = _config_loader.load_config_or_exit(
     env_path=_env_path,
     legacy_json_path=_legacy_json_path,
@@ -455,10 +508,11 @@ config_parser = _config_result.config
 for _warning in _config_result.warnings:
     print(f"[!] {_warning}")
 
-# The real environment already outranks .env inside the loader (that is what
-# lets HASHVIEW_URL / HASHVIEW_API_KEY point the CLI at a local docker stack
-# without editing the persisted config), so these are read like every other
-# key. Do not re-apply os.environ here: a second application would bypass the
+# The real environment already outranks both config files inside the loader
+# (that is what
+# lets HASHVIEW_URL / HASHVIEW_API_KEY point the CLI at a local docker
+# stack without editing the persisted config), so these are read like every
+# other key. Do not re-apply os.environ here: a second application would bypass the
 # loader's coercion.
 hashview_url = config_parser["hashview_url"]
 hashview_api_key = config_parser["hashview_api_key"]
@@ -674,14 +728,16 @@ except KeyError:
 check_for_updates_enabled = config_parser.get("check_for_updates", True)
 
 # Notification subsystem bootstrap.  The notify module stores its own
-# settings snapshot; we just hand it the resolved `.env` path so it can
-# rewrite the notify_* keys in place (via dotenv.set_key) when the user
-# toggles enabled / answers "always" at a prompt.  ``None`` is legitimate
-# under SKIP_INIT with no config file on disk: the toggles then stay
-# in-memory rather than creating a `.env` as a side effect.
+# settings snapshot; we hand it the resolved `config.json` path so it can
+# rewrite the notify_enabled / notify_per_crack_enabled / notify_attack_allowlist
+# keys when the user toggles them or answers "always" at a prompt.  Those three
+# are home="json"; the Pushover credentials in `.env` are never written from
+# the menu.  ``None`` is legitimate under SKIP_INIT with no config file on
+# disk: the toggles then stay in-memory rather than creating one as a side
+# effect.
 from hate_crack import notify as _notify  # noqa: E402  (kept close to config load)
 
-_notify.init(_env_path, config_parser)
+_notify.init(_legacy_json_path, config_parser)
 
 hcatExpanderBin = "expander.bin"
 hcatCombinatorBin = "combinator.bin"

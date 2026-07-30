@@ -1,24 +1,30 @@
 """Tests for the six argparse flags promoted into schema-backed keys.
 
-Each flag is now a per-run override of a `.env`-settable default, resolved by
-``hate_crack.main.resolve_flag_overrides``. For every flag we cover the four
-states from the task brief:
+Each flag is now a per-run override of a config-file-settable default, resolved
+by ``hate_crack.main.resolve_flag_overrides``. All six of these keys are
+``home="json"``, so their persisted default comes from ``config.json``; the
+helper below routes a ``KEY=VALUE`` body to whichever file each key's home is,
+so a test cannot accidentally assert that the wrong file works. For every flag
+we cover the four states from the task brief:
 
 1. flag passed affirmatively -> flag wins
 2. flag passed negatively -> flag wins and the value is genuinely off/empty,
-   even when `.env` says on. **This is the state ``action="store_true"``
-   silently breaks**: with ``store_true``, absent and explicitly-false are both
-   ``False``, so the flag could never turn a `.env`-enabled setting off.
-3. flag absent, `.env` sets a value -> the `.env` value is used
+   even when the config file says on. **This is the state
+   ``action="store_true"`` silently breaks**: with ``store_true``, absent and
+   explicitly-false are both ``False``, so the flag could never turn a
+   config-enabled setting off.
+3. flag absent, the config file sets a value -> that value is used
 4. flag absent, nothing set -> the documented default, unchanged
 
-Plus the precedence edges (``os.environ`` > `.env`, flag > ``os.environ``), the
-fatal diagnostic for an out-of-range ``HATE_CRACK_UPDATE_CHANNEL``, and parser-level
-checks that the negative spellings actually exist.
+Plus the precedence edges (``os.environ`` > the home file, flag >
+``os.environ``), the fatal diagnostic for an out-of-range
+``HATE_CRACK_UPDATE_CHANNEL``, and parser-level checks that the negative
+spellings actually exist.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 from types import SimpleNamespace
@@ -27,15 +33,41 @@ import pytest
 
 import hate_crack.main as hc_main
 from hate_crack.config_loader import load_config, load_config_or_exit
-from hate_crack.config_schema import BY_ENV, SECRET_ENV_KEYS
+from hate_crack.config_schema import BY_ENV, SECRET_ENV_KEYS, coerce
 
 BASE_DIR = "/base/dir"
 
 
-def _write_env(tmp_path, body: str) -> str:
-    env_path = tmp_path / ".env"
-    env_path.write_text(body)
-    return str(env_path)
+def _write_config(tmp_path, body: str) -> tuple[str | None, str | None]:
+    """Write a ``KEY=VALUE`` body into each key's own home file.
+
+    Returns ``(env_path, json_path)``, either of which is ``None`` when the
+    body contained no key homed there. Routing by ``entry.home`` rather than
+    dumping everything into `.env` is deliberate: under the split a key written
+    to the wrong file is ignored, so a test that hard-coded `.env` would be
+    asserting on the schema default and passing for the wrong reason.
+    """
+    env_lines: list[str] = []
+    json_data: dict = {}
+    for line in body.splitlines():
+        if not line.strip():
+            continue
+        name, _, raw = line.partition("=")
+        entry = BY_ENV[name]
+        if entry.home == "env":
+            env_lines.append(line)
+        else:
+            json_data[entry.legacy] = coerce(entry, raw, "<test>")
+    env_path = json_path = None
+    if env_lines:
+        env_path = tmp_path / ".env"
+        env_path.write_text("\n".join(env_lines) + "\n")
+        env_path = str(env_path)
+    if json_data:
+        json_path = tmp_path / "config.json"
+        json_path.write_text(json.dumps(json_data))
+        json_path = str(json_path)
+    return env_path, json_path
 
 
 def _resolve(tmp_path, env_body="", environ=None, current_potfile_path=None, **flags):
@@ -44,10 +76,10 @@ def _resolve(tmp_path, env_body="", environ=None, current_potfile_path=None, **f
     ``flags`` uses the argparse ``dest`` names; anything omitted defaults to
     ``None``/absent, i.e. "flag not passed".
     """
-    env_path = _write_env(tmp_path, env_body) if env_body else None
+    env_path, json_path = _write_config(tmp_path, env_body)
     config = load_config(
         env_path=env_path,
-        legacy_json_path=None,
+        legacy_json_path=json_path,
         environ=environ or {},
     ).config
     args = SimpleNamespace(
@@ -168,16 +200,21 @@ def test_update_channel_default_is_main(tmp_path):
 
 
 def test_invalid_update_channel_exits_naming_the_key(tmp_path, capsys):
-    env_path = _write_env(tmp_path, "HATE_CRACK_UPDATE_CHANNEL=stable\n")
+    """Via os.environ, which is the one layer that hands the closed-set
+    validator a raw string for this json-homed key."""
     with pytest.raises(SystemExit) as exc:
-        load_config_or_exit(env_path=env_path, legacy_json_path=None, environ={})
+        load_config_or_exit(
+            env_path=None,
+            legacy_json_path=None,
+            environ={"HATE_CRACK_UPDATE_CHANNEL": "stable"},
+        )
     assert exc.value.code != 0
     out = capsys.readouterr().out
     assert "HATE_CRACK_UPDATE_CHANNEL" in out
     assert "main/nightly-dev" in out
 
 
-def test_invalid_update_channel_in_legacy_json_also_exits(tmp_path, capsys):
+def test_invalid_update_channel_in_config_json_also_exits(tmp_path, capsys):
     legacy = tmp_path / "config.json"
     legacy.write_text('{"update_channel": "stable"}')
     with pytest.raises(SystemExit):
@@ -274,22 +311,34 @@ def test_optimized_kernel_enabled_by_default(tmp_path):
     assert not _resolve(tmp_path).optimized_kernel_disabled
 
 
-def test_optimized_kernel_attacks_come_from_env(tmp_path):
-    """The affirmative side of this key is the list itself, not a flag: .env
-    picks which attacks get -O, and the flag is only a blanket off switch."""
+def test_optimized_kernel_attacks_come_from_config_json(tmp_path):
+    """The affirmative side of this key is the list itself, not a flag:
+    config.json picks which attacks get -O, and the flag is only a blanket off
+    switch."""
+    json_path = tmp_path / "config.json"
+    json_path.write_text(json.dumps({"optimizedKernelAttacks": ["hcatPrince"]}))
     config = load_config(
-        env_path=_write_env(tmp_path, "OPTIMIZED_KERNEL_ATTACKS=hcatPrince\n"),
-        legacy_json_path=None,
-        environ={},
+        env_path=None, legacy_json_path=str(json_path), environ={}
     ).config
     assert config["optimizedKernelAttacks"] == ["hcatPrince"]
 
 
-def test_empty_optimized_kernel_attacks_in_env_is_an_empty_list(tmp_path):
+def test_empty_optimized_kernel_attacks_in_config_json_is_an_empty_list(tmp_path):
+    json_path = tmp_path / "config.json"
+    json_path.write_text(json.dumps({"optimizedKernelAttacks": []}))
     config = load_config(
-        env_path=_write_env(tmp_path, "OPTIMIZED_KERNEL_ATTACKS=\n"),
+        env_path=None, legacy_json_path=str(json_path), environ={}
+    ).config
+    assert config["optimizedKernelAttacks"] == []
+
+
+def test_empty_optimized_kernel_attacks_in_environ_is_an_empty_list(tmp_path):
+    """The environ carve-out for list types: an explicitly-empty value means
+    "no attack gets -O", not "unset"."""
+    config = load_config(
+        env_path=None,
         legacy_json_path=None,
-        environ={},
+        environ={"OPTIMIZED_KERNEL_ATTACKS": ""},
     ).config
     assert config["optimizedKernelAttacks"] == []
 
@@ -299,7 +348,7 @@ def test_empty_optimized_kernel_attacks_in_env_is_an_empty_list(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_environ_outranks_dotenv_for_a_promoted_key(tmp_path):
+def test_environ_outranks_the_home_file_for_a_promoted_key(tmp_path):
     got = _resolve(
         tmp_path,
         "WEAKPASS_MIN_RANK=7\nHATE_CRACK_DEBUG=0\n",
@@ -331,7 +380,8 @@ def test_unrelated_bare_debug_env_var_does_not_enable_debug_mode(tmp_path):
     hate_crack's debug mode.
 
     This is why the key is ``HATE_CRACK_DEBUG`` and not ``DEBUG``: the environ
-    layer outranks `.env`, debug mode writes files under ``hcatDebugLogPath``,
+    layer outranks both config files, debug mode writes files under
+    ``hcatDebugLogPath``,
     and this tool handles cracked plaintexts. Somebody with ``export DEBUG=1``
     in their shell profile would get sensitive material written to disk they
     never asked for and would not think to look for. Do not "simplify" the key
