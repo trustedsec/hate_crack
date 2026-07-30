@@ -49,6 +49,16 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   blank answer broke out of the loop, so a mask using `?1` and `?3` without
   `?2` could not be entered and hashcat failed on the undefined token. Each
   slot is now independently skippable.
+- **README documented a menu environment variable that does not exist.** It
+  named `HATE_CRACK_PLAIN_MENU=1` (read by nothing) and claimed arrow-key
+  navigation is the default. Numbered menus are the default; arrow keys are
+  opt-in through `HATE_CRACK_ARROW_MENU=1`, which was undocumented.
+- **README told contributors to install a `post-commit` hook that does not
+  exist, and omitted the `pre-commit` stage that does.** `prek.toml` defines six
+  local `pre-push` hooks (the documented list was missing `ruff-format` and
+  `bandit`) plus six `pre-commit` hooks from `pre-commit/pre-commit-hooks`,
+  including the repo's only secret-scanning gate. Following the old
+  instructions left `detect-private-key` uninstalled.
 
 ### Added
 

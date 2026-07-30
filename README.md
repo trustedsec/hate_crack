@@ -380,20 +380,30 @@ uv run pytest --cov=hate_crack
 Git hooks are managed by [prek](https://github.com/j178/prek) (v0.3.3+). Install hooks with:
 
 ```bash
-prek install --hook-type pre-push --hook-type post-commit
+prek install --hook-type pre-push --hook-type pre-commit
 ```
 
-This installs hooks defined in `prek.toml` using the pre-commit local-repo TOML schema:
-- **pre-push**: ruff, ty, pytest, pytest-lima
-- **post-commit**: audit-docs
+This installs the hooks defined in `prek.toml` using the pre-commit local-repo
+TOML schema:
+- **pre-push** (local hooks): ruff, ruff-format, ty, pytest, pytest-lima, bandit
+- **pre-commit** (from `pre-commit/pre-commit-hooks`): trailing-whitespace,
+  end-of-file-fixer, check-yaml, check-merge-conflict, check-added-large-files,
+  detect-private-key
+
+The pre-commit auto-fixers rewrite files in place, so re-stage and commit again
+after they run.
 
 Note: prek 0.3.3 expects `repos = [...]` at the top level. The old `[hooks.<stage>] commands = [...]` format is not supported.
 
 ### Arrow-Key Menu Navigation
 
-Arrow-key menu navigation is enabled by default via the `simple-term-menu` dependency. When running in a terminal (TTY), menus render with arrow-key navigation and number-key shortcuts.
+Menus use classic numbered `print()` + `input()` selection by default, which
+accepts full multi-digit keys.
 
-To force the classic numbered `print()` + `input()` menu, set `HATE_CRACK_PLAIN_MENU=1`.
+To enable arrow-key navigation via `simple-term-menu`, set
+`HATE_CRACK_ARROW_MENU=1`. In that mode only single-digit shortcut keys work;
+options numbered 10 and above must be reached with the arrow keys. Arrow-key
+mode also requires a TTY, so it stays off when output is piped.
 
 ### Dev Dependencies
 
