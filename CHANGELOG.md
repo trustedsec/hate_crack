@@ -22,6 +22,22 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ### Changed
 
+- **Configuration is now split across two files, each owning a distinct set of
+  keys.** `config.json` keeps the 35 local settings (wordlists, masks, rules,
+  tuning, potfile, hashcat path, OMEN/PCFG/PRINCE limits, notification toggles,
+  update check) and gains the four persisted CLI preference defaults (`debug`,
+  `weakpass_min_rank`, `update_channel`, `restore_potfile_on_start`). A new
+  untracked `.env`, written at mode `0600`, owns the 12 third-party integration
+  keys: Hashview and Hashmob credentials, the Pushover token/user, the Ollama
+  settings, and `pipalPath`/`pipal_count`. `config.json` remains first-class and
+  is not deprecated. Each key has exactly one home; a key found in the other
+  file is ignored with a warning naming the file it belongs in, so there is no
+  cross-file precedence to reason about. `os.environ` still overrides any key,
+  which is what keeps the documented `HASHVIEW_URL` / `HASHVIEW_API_KEY`
+  overrides working. On first run both files are created; an existing
+  `config.json` holding integration keys has them copied into a new `.env`, and
+  hate_crack names the keys to delete from `config.json` rather than editing
+  that file itself.
 - **Debug logs now default to `~/.hate_crack/hashcat_debug` instead of the
   checkout-relative `./hashcat_debug`.** The old default resolved against
   whatever directory hate_crack was launched from, which for anyone running it

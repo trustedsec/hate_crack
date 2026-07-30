@@ -40,7 +40,12 @@ If you cloned without submodules, initialize them:
 git submodule update --init --recursive
 ```
 
-Then customize configuration in `config.json` if needed (wordlist paths, API keys, etc.). Most users can skip this step as default paths work out-of-the-box.
+Then customize configuration if needed. hate_crack uses two config files, each owning a distinct set of settings:
+
+- **`config.json`** — wordlist paths, masks, rules, tuning, potfile, hashcat path, candidate limits, notification toggles, CLI preference defaults (35 settings).
+- **`.env`** — third-party integration settings only: Hashview and Hashmob credentials, Pushover credentials, Ollama, and pipal (12 settings). Not tracked by git, created at mode `0600`.
+
+Each key has exactly one home. A key placed in the other file is ignored, and hate_crack prints a warning naming the file it belongs in. Any key can still be overridden for a single run by exporting its environment variable. Most users can skip this step as default paths work out-of-the-box.
 
 ### 3. Install dependencies and hate_crack
 
@@ -264,8 +269,10 @@ Most users can use defaults without customization:
 ```
 
 **Configuration loading:**
-- Missing config keys are automatically backfilled from `config.json.example` on startup
-- Config is searched in: repo root, package directory, `~/.hate_crack`
+- Precedence for each key: `os.environ` > that key's own home file (`.env` or `config.json`) > built-in default
+- Missing keys fall back to the built-in defaults; `config.json.example` documents every `config.json` key
+- Both files are searched in: repo root, package directory, `~/.hate_crack`
+- On first run, both are created — `config.json` from `config.json.example`, `.env` from the built-in defaults. If an older `config.json` still holds integration keys, they are copied into the new `.env` and hate_crack tells you which ones to delete from `config.json`; it never edits that file itself.
 
 ### Error: merge with ref 'refs/heads/master' but no such ref was fetched
 
@@ -523,35 +530,31 @@ hate_crack.py --hashview upload-hashfile-job --file hashes.txt --customer-id 1 \
 
 #### Configuration
 
-Set Hashview credentials in `config.json`:
-```json
-{
-  "hashview_url": "https://hashview.example.com",
-  "hashview_api_key": "your-api-key-here"
-}
+Set Hashview credentials in `.env` (they are integration settings, so they do not live in `config.json`):
+```
+HASHVIEW_URL=https://hashview.example.com
+HASHVIEW_API_KEY=your-api-key-here
 ```
 
 #### Ollama Configuration
 
-The LLM Attack (option 12) uses Ollama to generate password candidates. Configure the model, context window, and request timeout in `config.json`:
+The LLM Attack (option 12) uses Ollama to generate password candidates. Configure the model, context window, and request timeout in `.env`:
 
-```json
-{
-  "ollamaModel": "qwen2.5:32b",
-  "ollamaNumCtx": 8192,
-  "ollamaTimeout": 300
-}
+```
+OLLAMA_MODEL=qwen2.5:32b
+OLLAMA_NUM_CTX=8192
+OLLAMA_TIMEOUT=300
 ```
 
-- **`ollamaModel`** — The Ollama model used for candidate generation (default: `qwen2.5:32b`). The LLM attack uses structured (JSON) output, so choose a model with good tool/JSON support.
-- **`ollamaNumCtx`** — Context window size for the model (default: `8192`). This was `2048` before corpus statistics were introduced, which was too small to hold the prompt it was being given: 500 sampled plaintexts run roughly 2,000–3,500 tokens before the system prompt and response, so Ollama silently truncated part of the sample the sampler had carefully spread across the file.
-- **`ollamaTimeout`** — Seconds to wait for a generation response before giving up (default: `300`). Raise this if a large model is still loading into VRAM on the first request, which can otherwise exceed the timeout; hate_crack prints the elapsed timeout and this setting's name when it fires.
-- **`ollamaMaxSampleLines`** — The threshold below which the LLM modes also paste the literal plaintexts into the prompt (default: `500`). Values ≤ 0 are treated as 500.
+- **`OLLAMA_MODEL`** — The Ollama model used for candidate generation (default: `qwen2.5:32b`). The LLM attack uses structured (JSON) output, so choose a model with good tool/JSON support.
+- **`OLLAMA_NUM_CTX`** — Context window size for the model (default: `8192`). This was `2048` before corpus statistics were introduced, which was too small to hold the prompt it was being given: 500 sampled plaintexts run roughly 2,000–3,500 tokens before the system prompt and response, so Ollama silently truncated part of the sample the sampler had carefully spread across the file.
+- **`OLLAMA_TIMEOUT`** — Seconds to wait for a generation response before giving up (default: `300`). Raise this if a large model is still loading into VRAM on the first request, which can otherwise exceed the timeout; hate_crack prints the elapsed timeout and this setting's name when it fires.
+- **`OLLAMA_MAX_SAMPLE_LINES`** — The threshold below which the LLM modes also paste the literal plaintexts into the prompt (default: `500`). Values ≤ 0 are treated as 500.
 
   Corpus-derived modes (**Wordlist**, **Cracked passwords**, **Pattern rules**) always describe the *entire* corpus statistically — baseword shares, masks, casing, lengths, trailing digits and symbols, years — rather than pasting in a slice of it. Aggregation is bounded, so a 120,000-password dump costs about the same prompt space as a 500-line one. When the whole corpus fits under this threshold, the raw plaintexts are included as well, since nothing is gained by hiding a small corpus from the model.
 
   This replaces the previous behaviour of pasting an evenly-spaced sample of up to `ollamaMaxSampleLines` passwords. A sample of a large dump conveyed no frequency information at all: the model could not distinguish a baseword used by 8% of the organization from one used by a single person, which is precisely the signal that makes a guess worth running.
-- **`ollamaAutoResearch`** — When `true` (default), **Target info** mode asks the local model to suggest the industry and location as soon as you have typed the company name, and offers them as editable prompt defaults. Set to `false` to always get blank prompts (useful with a slow model, since research costs one extra round-trip before the attack starts).
+- **`OLLAMA_AUTO_RESEARCH`** — When `true` (default), **Target info** mode asks the local model to suggest the industry and location as soon as you have typed the company name, and offers them as editable prompt defaults. Set to `false` to always get blank prompts (useful with a slow model, since research costs one extra round-trip before the attack starts).
 - The Ollama URL defaults to `http://localhost:11434` (override via the `OLLAMA_HOST` env var). Ensure Ollama is running and the model is pulled (`ollama pull qwen2.5:32b`) before using the LLM Attack — hate_crack no longer auto-pulls missing models.
 
 The attack offers three generation modes:
@@ -633,9 +636,9 @@ main-menu option `82 — Notifications`:
 2. **Toggle Per-Crack Notifications [ON/OFF]** — when ON, a background tailer watches the `.out` file and pushes a notification per crack (with per-tick burst aggregation). Persists to `config.json` as `notify_per_crack_enabled`. Cannot be enabled while the master switch is OFF — enable option 1 first.
 3. **Send Test Pushover Notification** — fires a canned push so you can confirm your Pushover token/user pair works. Works even when the master switch is OFF.
 
-Credentials and tuning knobs remain config-file-only in `config.json`:
+Credentials live in `.env`; the remaining tuning knobs are config-file-only in `config.json`:
 
-- `notify_pushover_token`, `notify_pushover_user` — required for any push to fire.
+- `NOTIFY_PUSHOVER_TOKEN`, `NOTIFY_PUSHOVER_USER` (in `.env`) — required for any push to fire. Nothing in the menu writes these; edit `.env` yourself.
 - `notify_attack_allowlist` — attack names that auto-consent without the `[y/N/always]` prompt. Populated automatically when you answer `always`.
 - `notify_suppress_in_orchestrators` (default `true`) — silences the individual attacks chained by Extensive Crack, which fires a single summary instead. Set to `false` to get a notification per chained attack. Other menu entries that run several passes (for example Quick Crack with multiple rule chains) are not orchestrators and always notify per pass.
 - `notify_max_cracks_per_burst` (default `5`), `notify_poll_interval_seconds` (default `5.0`) — per-crack tailer tuning. See `hate_crack/notify/tailer.py` for the burst aggregation logic.
@@ -760,7 +763,7 @@ Set any of the following to enable live checks:
 ### Live Hashview Upload Test
 
 The live Hashview upload test is skipped by default. To run it, set the
-environment variable and provide valid credentials in `config.json`:
+environment variable and provide valid credentials in `.env`:
 
 ```bash
 HATE_CRACK_RUN_LIVE_TESTS=1 uv run pytest tests/test_upload_cracked_hashes.py -v
@@ -788,8 +791,8 @@ a customer, a hashfile, and cracked "effective task" data, then exports the
 - `HASHVIEW_LOCAL_PORT=5000` — host port the app is published on
 
 The hate_crack CLI honours the `HASHVIEW_URL` / `HASHVIEW_API_KEY` environment
-variables (overriding `config.json`), which is what lets the suite point the
-CLI at the local stack without editing your persisted config.
+variables (overriding the `.env` those two keys live in), which is what lets the
+suite point the CLI at the local stack without editing your persisted config.
 
 ### End-to-End Install Tests (Local + Docker)
 
@@ -875,7 +878,7 @@ All tests use mocked API calls, so they can run without connectivity to a Hashvi
 Select a task:
 ```
 
-Option `94 — Hashview API` is only listed when `hashview_api_key` is set in `config.json`.
+Option `94 — Hashview API` is only listed when `HASHVIEW_API_KEY` is set in `.env`.
 
 The YOLO, Middle, and Thorough Combinator attacks were previously at keys 10-12. They now live in the Combinator Attacks submenu (option 6) along with Combinator3 and CombinatorX.
 -------------------------------------------------------------------
@@ -994,7 +997,7 @@ Uses a local Ollama instance to generate password candidates for a capture-the-f
 
 * Requires a running Ollama instance (default: `http://localhost:11434`, override with `OLLAMA_HOST`) with the model already pulled — hate_crack does not auto-pull
 * Candidate generation uses structured (JSON) output via Atomic Agents, so pick a model with good schema adherence (default: `qwen2.5:32b`)
-* Configurable model, context window, request timeout, and sample size via `config.json` (see Ollama Configuration below)
+* Configurable model, context window, request timeout, and sample size via `.env` (see Ollama Configuration below)
 * Prompts for target company name, industry, and location. The industry and location prompts are pre-filled with the local model's guesses about the named organization (editable, and clearly labelled as guesses rather than verified OSINT); disable with `ollamaAutoResearch: false`
 * Alternatively derives basewords from a sample **wordlist**, or from the **cracked passwords** of the current session (`<hashfile>.out`) so the model mirrors the target organization's own password conventions and produces new candidates in that style (only offered once something has been cracked)
 * A live spinner with an elapsed-seconds counter runs during generation, and requests are bounded by `ollamaTimeout` so a model stuck loading into VRAM reports a timeout instead of hanging
