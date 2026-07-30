@@ -506,3 +506,39 @@ def test_generate_rules_dedupes_and_strips():
 
     assert out == ["c$1", "$!"]
     assert "x" in agent_instance.run.call_args[0][0].request
+
+
+def test_all_rules_rejected_says_how_many(pattern_env, capsys):
+    """ "nothing came back" and "everything came back invalid" need different
+    responses from the operator, so the failure message carries the count.
+
+    Four, not two: an empty first yield is retried, and the count covers every
+    rule the model returned across both attempts.
+    """
+    with (
+        pattern_globals(pattern_env.tmp_path),
+        mock.patch("hate_crack.main.llm.generate_candidates", return_value=["alpha"]),
+        mock.patch("hate_crack.main.llm.generate_rules", return_value=["QQQ", ""]),
+        mock.patch("hate_crack.main.hcatQuickDictionary"),
+    ):
+        hc_main.hcatOllamaPatterns("1000", pattern_env.hash_file, pattern_env.corpus)
+
+    out = capsys.readouterr().out
+    assert "No usable rules were inferred" in out
+    assert "all 4 returned rules were rejected as invalid" in out, out
+
+
+def test_no_rules_at_all_omits_the_count(pattern_env, capsys):
+    """With an empty model response there is nothing to have rejected, so the
+    message must not claim a count."""
+    with (
+        pattern_globals(pattern_env.tmp_path),
+        mock.patch("hate_crack.main.llm.generate_candidates", return_value=["alpha"]),
+        mock.patch("hate_crack.main.llm.generate_rules", return_value=[]),
+        mock.patch("hate_crack.main.hcatQuickDictionary"),
+    ):
+        hc_main.hcatOllamaPatterns("1000", pattern_env.hash_file, pattern_env.corpus)
+
+    out = capsys.readouterr().out
+    assert "No usable rules were inferred" in out
+    assert "rejected as invalid" not in out, out

@@ -2619,10 +2619,17 @@ def hcatOllamaPatterns(hcatHashType, hcatHashFile, source_path):
                 rule_summary += f" ({rules_discarded} rejected as invalid)"
             print(rule_summary)
     if not rule_chain:
+        # Say how many were rejected: "the model returned nothing" and "the
+        # model returned 40 rules and every one was invalid" call for
+        # different responses from the operator, and only the count tells
+        # them which happened.
+        reason = ""
+        if rules_discarded > 0:
+            reason = f" (all {rules_discarded} returned rules were rejected as invalid)"
         print(
-            "[!] No usable rules were inferred; running the basewords unmutated. "
-            "Re-run to try again, or use the Spoonman Attack for rules derived "
-            "mechanically from the same corpus."
+            f"[!] No usable rules were inferred{reason}; running the basewords "
+            "unmutated. Re-run to try again, or use the Spoonman Attack for "
+            "rules derived mechanically from the same corpus."
         )
 
     hcatQuickDictionary(
@@ -3753,7 +3760,10 @@ def cleanup():
         if os.path.exists(hcatHashFile + ".expanded"):
             os.remove(hcatHashFile + ".expanded")
         # A directory since the attack started generating its own rules; the
-        # isfile branch clears scratch left by a pre-2.17.3 run.
+        # isfile branch clears scratch from before that change, when this
+        # attack wrote a single patterns file at the same path. Deliberately
+        # names no version: the release number is computed at tag time, so a
+        # version in a comment here rots without anything noticing.
         if os.path.isdir(hcatHashFile + ".llm_patterns"):
             shutil.rmtree(hcatHashFile + ".llm_patterns", ignore_errors=True)
         elif os.path.isfile(hcatHashFile + ".llm_patterns"):
