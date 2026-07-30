@@ -862,8 +862,8 @@ def adhoc_mask_crack(ctx: Any) -> None:
         cs = input(f"Custom charset -{i} [leave blank to skip]: ").strip()
         if cs:
             charset_flags.extend([f"-{i}", cs])
-        else:
-            break
+        # A blank answer skips this slot only: a mask may use ?1 and ?3
+        # without defining ?2 (issue #205).
 
     ctx.hcatAdHocMask(
         ctx.hcatHashType,

@@ -42,6 +42,14 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   `rules.rule`, mirroring `.spoonman/`. Cleanup removes either shape, so
   scratch left by an earlier version is still cleared.
 
+### Fixed
+
+- **"Leave blank to skip" skipped every remaining custom charset, not just
+  one.** The Ad-hoc Mask Attack prompts for charsets `-1` through `-4`, but a
+  blank answer broke out of the loop, so a mask using `?1` and `?3` without
+  `?2` could not be entered and hashcat failed on the undefined token. Each
+  slot is now independently skippable.
+
 ### Added
 
 - **`optimizedKernelAttacks` now works for the N-gram, LLM, OMEN, and LM-to-NT

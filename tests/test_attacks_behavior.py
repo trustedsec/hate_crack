@@ -636,3 +636,27 @@ class TestMarkovPickTrainingSourceReprompt:
             markov_brute_force(ctx)
         ctx.hcatMarkovTrain.assert_not_called()
         ctx.hcatMarkovBruteForce.assert_not_called()
+
+
+class TestAdhocMaskCharsetSkipping:
+    """A blank charset answer must skip that slot, not abandon the rest."""
+
+    def test_blank_slot_does_not_abandon_later_slots(self):
+        import hate_crack.attacks as hc_attacks
+        from hate_crack.attacks import adhoc_mask_crack
+
+        ctx = MagicMock()
+        ctx.hcatHashType = "1000"
+        ctx.hcatHashFile = "/tmp/hashes.txt"
+        # Prompt order: "1" picks the type-a-mask path (option 2 is a mask
+        # file), then the mask, then charsets -1, -2 (blank), -3, -4 (blank).
+        answers = iter(["1", "?1?3?d", "?u?l", "", "?d?s", ""])
+        with (
+            patch("builtins.input", lambda _prompt="": next(answers)),
+            patch.object(hc_attacks._notify, "prompt_notify_for_attack"),
+        ):
+            adhoc_mask_crack(ctx)
+
+        ctx.hcatAdHocMask.assert_called_once()
+        charset_arg = ctx.hcatAdHocMask.call_args[0][3]
+        assert charset_arg == "-1 ?u?l -3 ?d?s", charset_arg

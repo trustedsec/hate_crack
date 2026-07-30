@@ -20,7 +20,7 @@ class TestAdHocMaskHandler:
         from hate_crack.attacks import adhoc_mask_crack
 
         ctx = _make_ctx()
-        with patch("builtins.input", side_effect=["1", "?l?l?l?l", ""]):
+        with patch("builtins.input", side_effect=["1", "?l?l?l?l", "", "", "", ""]):
             adhoc_mask_crack(ctx)
 
         ctx.hcatAdHocMask.assert_called_once_with(
@@ -32,7 +32,7 @@ class TestAdHocMaskHandler:
         from hate_crack.attacks import adhoc_mask_crack
 
         ctx = _make_ctx()
-        with patch("builtins.input", side_effect=["", "?d?d?d", ""]):
+        with patch("builtins.input", side_effect=["", "?d?d?d", "", "", "", ""]):
             adhoc_mask_crack(ctx)
 
         ctx.hcatAdHocMask.assert_called_once_with(
@@ -97,7 +97,7 @@ class TestAdHocMaskHandler:
         from hate_crack.attacks import adhoc_mask_crack
 
         ctx = _make_ctx()
-        with patch("builtins.input", side_effect=["1", "?1?1?1?1", "abc", ""]):
+        with patch("builtins.input", side_effect=["1", "?1?1?1?1", "abc", "", "", ""]):
             adhoc_mask_crack(ctx)
 
         ctx.hcatAdHocMask.assert_called_once()
