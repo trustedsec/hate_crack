@@ -71,14 +71,14 @@ jobs:
           # more. A merge into main is an explicit release event, so a
           # docs/chore-only merge still cuts a release.
           uvx --from 'commitizen==4.17.0' cz bump --yes --increment MINOR --dry-run \
-            > /tmp/cz-bump.log
-          cat /tmp/cz-bump.log
+            > "$RUNNER_TEMP/cz-bump.log"
+          cat "$RUNNER_TEMP/cz-bump.log"
 
           # Read the answer out of a file rather than piping cz straight into
           # grep/sed. Under `set -o pipefail` an early-exiting reader can leave
           # the producer killed by SIGPIPE (exit 141), which would fail the step
           # on a successful match. Several past bugs here came from exactly that.
-          new_tag=$(sed -n 's/^tag to create: //p' /tmp/cz-bump.log | head -1)
+          new_tag=$(sed -n 's/^tag to create: //p' "$RUNNER_TEMP/cz-bump.log" | head -1)
           if [ -z "$new_tag" ]; then
             echo "::error::could not determine the tag to create from cz output"
             exit 1

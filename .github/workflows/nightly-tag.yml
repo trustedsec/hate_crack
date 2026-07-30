@@ -79,15 +79,23 @@ jobs:
           # nightly push gets a tag and stays addressable -- including a
           # docs/chore-only one, which the old workflow also did deliberately.
           # Do not add commit-message inspection here.
+          # NOTE: this step FAILS with `[NO_VERSION_SPECIFIED]` (exit 4) on any
+          # nightly-dev commit whose pyproject.toml has no [tool.commitizen]
+          # section. That is a GUARANTEED red window between this landing on main
+          # and main being merged down into nightly-dev, because the config
+          # arrives with that merge. cz's error message says nothing about the
+          # cause, so: if you see [NO_VERSION_SPECIFIED] here, merge main into
+          # nightly-dev. Failing loudly is the intended behaviour -- it is much
+          # better than guessing a version -- but it is not self-explanatory.
           uvx --from 'commitizen==4.17.0' cz bump --yes --increment PATCH --dry-run \
-            > /tmp/cz-bump.log
-          cat /tmp/cz-bump.log
+            > "$RUNNER_TEMP/cz-bump.log"
+          cat "$RUNNER_TEMP/cz-bump.log"
 
           # Read the answer out of a file rather than piping cz straight into
           # grep/sed. Under `set -o pipefail` an early-exiting reader can leave
           # the producer killed by SIGPIPE (exit 141), which would fail the step
           # on a successful match. Several past bugs here came from exactly that.
-          new_tag=$(sed -n 's/^tag to create: //p' /tmp/cz-bump.log | head -1)
+          new_tag=$(sed -n 's/^tag to create: //p' "$RUNNER_TEMP/cz-bump.log" | head -1)
           if [ -z "$new_tag" ]; then
             echo "::error::could not determine the tag to create from cz output"
             exit 1

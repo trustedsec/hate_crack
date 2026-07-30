@@ -37,7 +37,13 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   that early exit is gone. `nightly-dev` already tagged unconditionally, so that
   every validated nightly commit stays addressable.
 
-- **No existing tag was moved or deleted.** The `-rc.N` tags remain as history.
+- **Transition.** With `v2.18.0` as the baseline on `main`, the first release
+  under the new scheme is `v2.19.0`, and `nightly-dev` then rolls `v2.19.1`,
+  `v2.19.2`, … Both are monotonic against the highest surviving tag,
+  `v2.19.0-rc.11` (`2.19.0rc11 < 2.19.0 < 2.19.1`). The three `v3.0.0-rc.*` tags
+  were deleted from the remote as part of this transition, as a deliberate human
+  decision — they advertised a `3.0.0` release that is not being cut. All other
+  `-rc.N` tags remain as history and must not be deleted.
 
 ### Removed
 
@@ -49,8 +55,28 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   an explicit human act: run `cz bump --increment MAJOR` and push the resulting
   tag.
 
+  Note that four commits already on `nightly-dev` are marked breaking and would
+  have cut a major release under the old rules — three `feat(config)!:` and one
+  `refactor(config)!:`, all part of the config-file split. Under the new rules
+  they do not; they ship inside the next minor release. That is the intended
+  trade-off, recorded here so it is a decision rather than a surprise.
+
 ### Notes
 
+- **Merge `main` down into `nightly-dev` immediately after this release.** Until
+  you do, every validated `nightly-dev` push fails its tagging job with
+  `[NO_VERSION_SPECIFIED]` (exit 4), because `nightly-dev`'s `pyproject.toml` has
+  no `[tool.commitizen]` section yet — the config arrives with that merge. The
+  failure is loud and cannot mistag anything, which is the right failure mode, but
+  commitizen's error text says nothing about the cause. Expect a conflict in
+  `pyproject.toml` during the merge.
+- One transition hazard, on the record: in a hypothetical state where the
+  commitizen config had reached `nightly-dev` but the new `v2.19.0` tag was not
+  yet reachable from it, the nightly job would compute `v2.19.0` — the same tag
+  `main` cuts — and the idempotency guard would then quietly leave that nightly
+  commit untagged. In practice this cannot happen, because the config and the tag
+  arrive in the same merge-down commit. It is noted because it is the one way the
+  two branches could contend for a version number.
 - Nightly tags are no longer PEP 440 pre-releases, so any tool that resolves
   "the latest version" from raw version numbers will now treat a nightly as
   latest. hate_crack's own startup update check is unaffected: it reads GitHub's
