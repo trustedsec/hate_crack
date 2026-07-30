@@ -286,13 +286,35 @@ def test_secret_key_malformed_via_or_exit_output_redacted(
 # ---------------------------------------------------------------------------
 
 
-def test_malformed_legacy_json_exits(tmp_path):
+def test_malformed_legacy_json_exits(tmp_path, capsys):
     json_path = os.path.join(tmp_path, "config.json")
     with open(json_path, "w") as fh:
         fh.write("{not valid json")
     with pytest.raises(SystemExit) as exc_info:
         load_config_or_exit(env_path=None, legacy_json_path=json_path, environ={})
     assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    # Regression guard: the JSON-parse diagnostic must not reuse the
+    # generic "malformed value" template, whose "remove the offending
+    # line" advice is actively wrong for a file that fails to parse at
+    # all. It must instead offer to delete the file and regenerate from
+    # defaults, matching main.py's own JSONDecodeError handler.
+    assert "offending line" not in captured.out
+    assert "invalid JSON" in captured.out
+    assert "Delete the file to regenerate from defaults" in captured.out
+    assert json_path in captured.out
+
+
+def test_malformed_legacy_json_message_names_file_not_generic_template(
+    tmp_path, capsys
+):
+    json_path = os.path.join(tmp_path, "config.json")
+    with open(json_path, "w") as fh:
+        fh.write("{")
+    with pytest.raises(SystemExit):
+        load_config_or_exit(env_path=None, legacy_json_path=json_path, environ={})
+    captured = capsys.readouterr()
+    assert "invalid configuration value" not in captured.out
 
 
 # ---------------------------------------------------------------------------
@@ -304,7 +326,7 @@ def test_malformed_legacy_json_exits(tmp_path):
     os.name != "posix" or os.geteuid() == 0,
     reason="permission bits are not enforced for root or on non-POSIX platforms",
 )
-def test_unreadable_dotenv_exits(tmp_path):
+def test_unreadable_dotenv_exits(tmp_path, capsys):
     env_path = _write_env(tmp_path, {"PIPAL_COUNT": "1"})
     os.chmod(env_path, 0)
     try:
@@ -313,6 +335,13 @@ def test_unreadable_dotenv_exits(tmp_path):
         with pytest.raises(SystemExit) as exc_info:
             load_config_or_exit(env_path=env_path, legacy_json_path=None, environ={})
         assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        # Regression guard: an unreadable file gets its own diagnostic
+        # shape ("could not be read" / permissions), not the generic
+        # malformed-value template.
+        assert "invalid configuration value" not in captured.out
+        assert "could not be read" in captured.out
+        assert env_path in captured.out
     finally:
         os.chmod(env_path, stat.S_IRUSR | stat.S_IWUSR)
 

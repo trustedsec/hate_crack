@@ -84,24 +84,48 @@ def resolve_config_paths() -> tuple[str | None, str | None]:
     return env_path, legacy_json_path
 
 
+class ConfigFileJSONError(Exception):
+    """A legacy ``config.json`` file exists but fails to parse as JSON.
+
+    Kept distinct from :class:`ConfigValueError` (a single malformed value)
+    because the fix is different: a truncated/invalid JSON document cannot be
+    repaired by removing "the offending value" -- the file itself needs to be
+    hand-fixed or deleted and regenerated from defaults.
+    """
+
+    def __init__(self, path: str, lineno: int, colno: int, msg: str) -> None:
+        self.path = path
+        self.lineno = lineno
+        self.colno = colno
+        self.msg = msg
+        super().__init__(f"{path}: line {lineno}, column {colno}: {msg}")
+
+
+class ConfigFileUnreadableError(Exception):
+    """A ``.env`` or ``config.json`` file exists but could not be opened.
+
+    Distinct from :class:`ConfigValueError` for the same reason as
+    :class:`ConfigFileJSONError`: "fix this value" is the wrong advice when
+    the problem is that the file could not be read at all (permissions, a
+    dangling symlink, etc.).
+    """
+
+    def __init__(self, path: str, os_error: OSError) -> None:
+        self.path = path
+        self.os_error = os_error
+        super().__init__(f"{path}: {os_error.strerror or os_error}")
+
+
 def _read_legacy_json(legacy_json_path: str) -> dict[str, Any]:
     try:
         with open(legacy_json_path) as fh:
             return json.load(fh)
     except json.JSONDecodeError as exc:
-        raise ConfigValueError(
-            "<config.json>",
-            "",
-            legacy_json_path,
-            f"line {exc.lineno}, column {exc.colno}: {exc.msg}",
+        raise ConfigFileJSONError(
+            legacy_json_path, exc.lineno, exc.colno, exc.msg
         ) from exc
     except OSError as exc:
-        raise ConfigValueError(
-            "<config.json>",
-            "",
-            legacy_json_path,
-            f"could not read file: {exc.strerror or exc}",
-        ) from exc
+        raise ConfigFileUnreadableError(legacy_json_path, exc) from exc
 
 
 def _read_dotenv(env_path: str) -> dict[str, str | None]:
@@ -112,12 +136,7 @@ def _read_dotenv(env_path: str) -> dict[str, str | None]:
         with open(env_path):
             pass
     except OSError as exc:
-        raise ConfigValueError(
-            "<.env>",
-            "",
-            env_path,
-            f"could not read file: {exc.strerror or exc}",
-        ) from exc
+        raise ConfigFileUnreadableError(env_path, exc) from exc
     return dotenv_values(env_path)
 
 
@@ -185,10 +204,12 @@ def load_config(
     final Python types, and whose ``warnings`` list holds human-readable,
     non-fatal problems encountered while loading.
 
-    Raises :class:`hate_crack.config_schema.ConfigValueError` on a value that
-    fails coercion or a legacy/``.env`` file that cannot be read. Callers
-    that want the process to exit on that error should use
-    :func:`load_config_or_exit` instead of catching it themselves.
+    Raises :class:`hate_crack.config_schema.ConfigValueError` on a single
+    malformed value, :class:`ConfigFileJSONError` on a legacy ``config.json``
+    that fails to parse as JSON, or :class:`ConfigFileUnreadableError` on a
+    ``.env``/``config.json`` that exists but could not be opened. Callers
+    that want the process to exit on any of these should use
+    :func:`load_config_or_exit` instead of catching them themselves.
     """
     if environ is None:
         environ = os.environ
@@ -231,6 +252,33 @@ def load_config_or_exit(
             legacy_json_path=legacy_json_path,
             environ=environ,
         )
+    except ConfigFileJSONError as exc:
+        # Mirrors main.py:300-310's JSONDecodeError handler exactly: this is
+        # a malformed file, not a malformed value, so "remove the offending
+        # line" is not actionable advice -- deleting the whole file and
+        # letting it regenerate from defaults is.
+        print(f"\nError: {exc.path} contains invalid JSON")
+        print(f"  File: {exc.path}")
+        print(f"  Line {exc.lineno}, column {exc.colno}: {exc.msg}")
+        print("\nTo fix:")
+        print("  1. Edit the file and fix the JSON syntax, or")
+        print("  2. Delete the file to regenerate from defaults")
+        sys.exit(1)
+    except ConfigFileUnreadableError as exc:
+        # Mirrors _load_config_defaults()'s OSError branch in main.py: name
+        # the file and, when detectable, call out a dangling symlink.
+        print(f"\nError: {exc.path} could not be read")
+        print(f"  File: {exc.path}")
+        if os.path.islink(exc.path) and not os.path.exists(exc.path):
+            print(
+                "  This is a dangling symlink: the link exists but its target is missing."
+            )
+        else:
+            print(f"  Reason: {exc.os_error.strerror or exc.os_error}")
+        print("\nTo fix:")
+        print("  1. Check the file's permissions and that its target exists, or")
+        print("  2. Remove or repair the file so it can be read")
+        sys.exit(1)
     except ConfigValueError as exc:
         source = exc.source
         shown = "<redacted>" if exc.key in SECRET_ENV_KEYS else exc.raw
