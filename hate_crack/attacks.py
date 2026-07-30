@@ -1,5 +1,4 @@
 import glob
-import gzip
 import os
 import readline
 from typing import Any
@@ -1025,7 +1024,7 @@ def combipow_crack(ctx: Any) -> None:
         if not os.path.isfile(path):
             print(f"[!] File not found: {path}")
             continue
-        with gzip.open(path, "rb") if path.endswith(".gz") else open(path, "rb") as fh:
+        with ctx._open_wordlist(path) as fh:
             line_count = sum(1 for _ in fh)
         if line_count > 63:
             print(

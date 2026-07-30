@@ -856,8 +856,8 @@ hcatUsernamePrefix: bool = False
 
 
 def _open_wordlist(path):
-    """Open a wordlist file, transparently decompressing gzip if the path ends with .gz."""
-    if path.endswith(".gz"):
+    """Open a wordlist file, transparently decompressing gzip by magic bytes."""
+    if _plaintext.is_gzipped(path):
         return gzip.open(path, "rb")
     return open(path, "rb")
 
@@ -960,11 +960,7 @@ def _run_hcat_cmd(
 
 
 def _is_gzipped(path: str) -> bool:
-    try:
-        with open(path, "rb") as f:
-            return f.read(2) == b"\x1f\x8b"
-    except OSError:
-        return False
+    return _plaintext.is_gzipped(path)
 
 
 @contextlib.contextmanager
@@ -3096,39 +3092,29 @@ def hcatCombipow(hcatHashType, hcatHashFile, wordlist, use_space_sep=True):
     hcatCombipowCount += 1
     combipow_bin = os.path.join(hate_path, "hashcat-utils/bin/combipow.bin")
 
-    tmp_file = None
-    if wordlist.endswith(".gz"):
-        tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".txt")
-        with gzip.open(wordlist, "rb") as gz_in:
-            tmp_file.write(gz_in.read())
-        tmp_file.close()
-        wordlist_path = tmp_file.name
-    else:
-        wordlist_path = wordlist
-
-    generator_cmd = [combipow_bin]
-    if use_space_sep:
-        generator_cmd.append("-s")
-    generator_cmd.append(wordlist_path)
-    session_name = re.sub(
-        r"[^a-zA-Z0-9_-]", "_", os.path.splitext(os.path.basename(hcatHashFile))[0]
-    )
-    hashcat_cmd = [
-        hcatBin,
-        "--session",
-        session_name,
-        "-m",
-        hcatHashType,
-        hcatHashFile,
-        "-o",
-        f"{hcatHashFile}.out",
-    ]
-    if _should_use_optimized_kernel("hcatCombipow"):
-        _insert_optimized_flag(hashcat_cmd)
-    hashcat_cmd.extend(shlex.split(hcatTuning))
-    _append_potfile_arg(hashcat_cmd)
-    generator_proc = subprocess.Popen(generator_cmd, stdout=subprocess.PIPE)
-    try:
+    with _wordlist_path(wordlist) as wordlist_path:
+        generator_cmd = [combipow_bin]
+        if use_space_sep:
+            generator_cmd.append("-s")
+        generator_cmd.append(wordlist_path)
+        session_name = re.sub(
+            r"[^a-zA-Z0-9_-]", "_", os.path.splitext(os.path.basename(hcatHashFile))[0]
+        )
+        hashcat_cmd = [
+            hcatBin,
+            "--session",
+            session_name,
+            "-m",
+            hcatHashType,
+            hcatHashFile,
+            "-o",
+            f"{hcatHashFile}.out",
+        ]
+        if _should_use_optimized_kernel("hcatCombipow"):
+            _insert_optimized_flag(hashcat_cmd)
+        hashcat_cmd.extend(shlex.split(hcatTuning))
+        _append_potfile_arg(hashcat_cmd)
+        generator_proc = subprocess.Popen(generator_cmd, stdout=subprocess.PIPE)
         _run_hcat_cmd(
             hashcat_cmd,
             attack_name="Combipow",
@@ -3138,10 +3124,6 @@ def hcatCombipow(hcatHashType, hcatHashFile, wordlist, use_space_sep=True):
         )
         if generator_proc.stdout:
             generator_proc.stdout.close()
-    finally:
-        if tmp_file is not None:
-            with contextlib.suppress(OSError):
-                os.unlink(tmp_file.name)
 
 
 # PRINCE Attack

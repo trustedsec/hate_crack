@@ -26,6 +26,26 @@ rulegen and corpus_stats can depend on it.
 
 import binascii
 
+# Magic bytes at the start of every gzip stream (RFC 1952 SS1FLG SS2FLG).
+_GZIP_MAGIC = b"\x1f\x8b"
+
+
+def is_gzipped(path: str) -> bool:
+    """True if *path* starts with the gzip magic bytes.
+
+    Filename extensions lie: hate_crack downloads wordlists as gzip and names
+    them from a server-supplied ``Content-Disposition`` header, so a
+    compressed body routinely lands under a plain ``.txt`` name. Checking the
+    actual bytes is the only way to catch that before handing raw gzip data to
+    an external binary that expects text.
+    """
+    try:
+        with open(path, "rb") as f:
+            return f.read(2) == _GZIP_MAGIC
+    except OSError:
+        return False
+
+
 # Lengths of a hex-encoded hash for the algorithms hate_crack actually sees:
 # LM/MySQL323 (16), MD4/MD5/NTLM (32), SHA1/MySQL41 (40), RIPEMD/SHA224 (48/56),
 # SHA256 (64), SHA384 (96), SHA512 (128).

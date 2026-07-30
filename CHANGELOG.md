@@ -67,6 +67,19 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ### Fixed
 
+- **Five wordlist call sites decided whether to gunzip a file by checking the
+  filename for a `.gz` suffix, so a gzip body under a plain name reached an
+  external hashcat-utils binary as raw compressed bytes.** hate_crack
+  downloads wordlists as gzip and names them from a server-supplied
+  `Content-Disposition` header, and Hashmob/Weakpass ship gzip too, so a
+  compressed body routinely lands under a `.txt` name. The binary does not
+  error on that -- it runs to completion and produces meaningless
+  candidates, no `UnicodeDecodeError`, no non-zero exit. The correct
+  magic-byte check already existed for `hcatNgramX`; it is now the single
+  shared `hate_crack.plaintext.is_gzipped`, and `_open_wordlist` (covering
+  `hcatMarkovTrain`, `hcatPrince`, `hcatPermute`), `hcatCombipow`, and
+  `combipow_crack`'s pre-flight line count all route through it instead of
+  re-deriving their own filename check (#215).
 - **Cracked plaintexts on the Hashview found/upload paths are no longer
   silently rewritten (issue #216).** Three reads of `hash:plaintext` data used
   `errors="ignore"`, which drops an undecodable byte instead of raising: a

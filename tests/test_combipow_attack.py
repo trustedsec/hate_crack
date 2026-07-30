@@ -39,6 +39,11 @@ def _make_ctx(hash_type="1000", hash_file="/tmp/hashes.txt"):
     ctx = MagicMock()
     ctx.hcatHashType = hash_type
     ctx.hcatHashFile = hash_file
+    # combipow_crack's pre-flight line count delegates to ctx._open_wordlist,
+    # which must behave like the real file-opening dispatch (see main.py's
+    # _open_wordlist) rather than a bare MagicMock, or reading it back
+    # produces no lines at all.
+    ctx._open_wordlist = _get_main_module()._open_wordlist
     return ctx
 
 
