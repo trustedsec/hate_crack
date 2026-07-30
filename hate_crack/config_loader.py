@@ -1,23 +1,38 @@
-"""Layered configuration loader for hate_crack.
+"""Split-home configuration loader for hate_crack.
 
-Loads configuration from four layers, lowest to highest precedence:
+Every configuration key has exactly one home file, declared by its ``home``
+field in :mod:`hate_crack.config_schema`: `.env` for the twelve third-party
+integration keys, ``config.json`` for the other thirty-five settings. Both
+files are first-class and permanent; neither is on its way out, and there is
+no removal timeline for either.
 
-1. Schema defaults from :mod:`hate_crack.config_schema`.
-2. A legacy ``config.json`` file, if present.
-3. A ``.env`` file (read via ``python-dotenv``'s ``dotenv_values``), if present.
-4. The real process environment.
+Precedence for a single key, highest first:
+
+1. The real process environment (``os.environ``).
+2. That key's own home file -- and only that file.
+3. The schema default.
+
+There is deliberately **no cross-file precedence**. A key found in the file
+that is not its home is ignored, with a warning naming the key and the file
+it belongs in; ``.env`` never wins for a ``config.json`` key, and vice
+versa. ``os.environ`` is exempt from the split because an environment
+variable is an ephemeral override rather than a home -- that exemption is
+what keeps the documented ``HASHVIEW_URL`` / ``HASHVIEW_API_KEY`` overrides
+(and the ``HASHVIEW_TEST_LOCAL=1`` harness) working, and it applies to
+``config.json``-homed keys too.
 
 This module intentionally does NOT import ``hate_crack.main`` -- ``main.py``
 imports this module, and an import back would be a cycle. It performs no
 hashcat-specific logic; it only produces the same ``dict`` shape that
 ``main.py``'s ``config_parser`` has today, keyed by legacy JSON key names.
 
-Layers 3 and 4 both hand this module raw strings, but they do not agree on
-what an empty string means -- deliberately. See :func:`_apply_string_layer`
-for the full rationale: in short, an empty value written to `.env` is an
-explicit user statement (e.g. "no potfile path"), while an empty value in
-the real environment is treated as unset, matching today's
-``os.environ.get(...) or config_parser[...]`` pattern in ``main.py``.
+The `.env` layer and the environment layer both hand this module raw strings,
+but they do not agree on what an empty string means -- deliberately. See
+:func:`_apply_string_layer` for the full rationale: in short, an empty value
+written to a *file* is an explicit user statement (e.g. "no potfile path"),
+while an empty value in the real environment is treated as unset, matching
+the ``os.environ.get(...) or config_parser[...]`` pattern ``main.py`` used
+before the loader existed.
 """
 
 from __future__ import annotations
@@ -79,10 +94,12 @@ def candidate_roots() -> list[str]:
 
 
 def resolve_config_paths() -> tuple[str | None, str | None]:
-    """Locate ``.env`` and legacy ``config.json`` using the shared search order.
+    """Locate ``.env`` and ``config.json`` using the shared search order.
 
-    Returns ``(env_path, legacy_json_path)``. Either element is ``None`` if
-    no matching file was found in any candidate directory.
+    Returns ``(env_path, json_path)``. Either element is ``None`` if no
+    matching file was found in any candidate directory. The two are resolved
+    independently -- they are separate, equally first-class files, and it is
+    normal for them to live in different candidate directories.
     """
     env_path: str | None = None
     legacy_json_path: str | None = None
@@ -99,7 +116,7 @@ def resolve_config_paths() -> tuple[str | None, str | None]:
 
 
 class ConfigFileJSONError(Exception):
-    """A legacy ``config.json`` file exists but fails to parse as JSON.
+    """A ``config.json`` file exists but fails to parse as JSON.
 
     Kept distinct from :class:`ConfigValueError` (a single malformed value)
     because the fix is different: a truncated/invalid JSON document cannot be
@@ -130,16 +147,14 @@ class ConfigFileUnreadableError(Exception):
         super().__init__(f"{path}: {os_error.strerror or os_error}")
 
 
-def _read_legacy_json(legacy_json_path: str) -> dict[str, Any]:
+def _read_json_file(json_path: str) -> dict[str, Any]:
     try:
-        with open(legacy_json_path) as fh:
+        with open(json_path) as fh:
             return json.load(fh)
     except json.JSONDecodeError as exc:
-        raise ConfigFileJSONError(
-            legacy_json_path, exc.lineno, exc.colno, exc.msg
-        ) from exc
+        raise ConfigFileJSONError(json_path, exc.lineno, exc.colno, exc.msg) from exc
     except OSError as exc:
-        raise ConfigFileUnreadableError(legacy_json_path, exc) from exc
+        raise ConfigFileUnreadableError(json_path, exc) from exc
 
 
 def _read_dotenv(env_path: str) -> dict[str, str | None]:
@@ -154,19 +169,33 @@ def _read_dotenv(env_path: str) -> dict[str, str | None]:
     return dotenv_values(env_path)
 
 
-def _apply_legacy_layer(
+def _apply_json_layer(
     result: dict[str, Any],
-    legacy_data: Mapping[str, Any],
-    legacy_json_path: str,
+    json_data: Mapping[str, Any],
+    json_path: str,
     warnings: list[str],
 ) -> None:
-    for key, value in legacy_data.items():
+    """Apply ``config.json``, which owns the ``home="json"`` keys only.
+
+    An integration key left behind in ``config.json`` -- typically after the
+    one-shot migration that copied it into `.env` -- is *ignored*, not merged
+    as a lower-precedence layer, and earns a warning naming the file it now
+    belongs in. Silently honouring it would recreate the cross-file
+    precedence the split exists to remove, and would mean a user who edited
+    ``HASHMOB_API_KEY`` in `.env` kept getting the stale value.
+    """
+    for key, value in json_data.items():
         entry = BY_LEGACY.get(key)
         if entry is None:
-            # Unknown legacy keys are not covered by the brief's warning
-            # requirements (only .env unrecognized keys / legacy type
-            # mismatches are); ignore silently, matching today's tolerance
-            # of extra keys in config.json.
+            # An unrecognized key in config.json is ignored silently, matching
+            # the long-standing tolerance of extra keys in that file (people
+            # keep notes and retired settings in there).
+            continue
+        if entry.home != "json":
+            warnings.append(
+                f"Config key {key!r} in {json_path} is ignored: it belongs in "
+                f"the .env file, as {entry.env}. Remove it from {json_path}."
+            )
             continue
         expected_type = type(entry.default)
         # bool is a subclass of int; treat them as distinct schema types so
@@ -177,14 +206,15 @@ def _apply_legacy_layer(
             type_ok = isinstance(value, expected_type)
         if not type_ok:
             warnings.append(
-                f"Legacy config.json key {key!r} in {legacy_json_path} has "
-                f"the wrong type; keeping schema default."
+                f"Config key {key!r} in {json_path} has the wrong type; "
+                f"keeping schema default."
             )
             continue
-        # Legacy values are checked, not coerced, so coerce()'s closed-set
+        # JSON values are checked, not coerced, so coerce()'s closed-set
         # validation never runs for them -- do it explicitly here so a bad
-        # UPDATE_CHANNEL in config.json fails exactly like one in .env.
-        validate_choices(entry, value, legacy_json_path)
+        # update_channel in config.json fails exactly like a bad
+        # HATE_CRACK_UPDATE_CHANNEL in the environment.
+        validate_choices(entry, value, json_path)
         result[entry.legacy] = value
 
 
@@ -198,20 +228,24 @@ def _apply_string_layer(
 ) -> None:
     """Apply one string-keyed layer (`.env` or the real environment).
 
-    The two layers disagree on what an empty string means, deliberately:
+    The `.env` layer is restricted to ``home="env"`` keys: a ``config.json``
+    setting written into `.env` is ignored and warned about, because a `.env`
+    value must never win for a json-homed key. The environment layer has no
+    such restriction -- ``os.environ`` may override anything.
+
+    The two layers also disagree on what an empty string means, deliberately:
 
     - **`.env` layer** (``is_dotenv=True``): presence is explicit, for every
       type, even when the value is empty. A `.env` is a config file we
       generate and the user edits deliberately, so a key written there with
-      an empty value (e.g. ``HCAT_POTFILE_PATH=``) is a statement -- "use no
-      potfile path" -- not an absence, and must not fall through to the
-      schema default. Only a key genuinely *absent* from the file, or a bare
-      ``KEY`` with no ``=`` (``dotenv_values()`` reports that as ``None``),
-      counts as unset. Do not "simplify" this back to matching the environ
-      layer -- see :func:`hate_crack.config_writer.write_env_from_legacy`'s
-      round-trip test, which is what caught the data loss this asymmetry
-      fixes (an explicitly-empty ``hcatPotfilePath`` silently reverting to
-      the default potfile path across a migration).
+      an empty value (e.g. ``PIPAL_PATH=``) is a statement -- "there is no
+      pipal here" -- not an absence, and must not fall through to the schema
+      default. Only a key genuinely *absent* from the file, or a bare ``KEY``
+      with no ``=`` (``dotenv_values()`` reports that as ``None``), counts as
+      unset. Do not "simplify" this back to matching the environ layer -- the
+      same rule is what keeps an explicitly-empty ``hcatPotfilePath`` in
+      ``config.json`` (a deliberate "pass no --potfile-path to hashcat") from
+      silently reverting to the default potfile path.
     - **environ layer** (``is_dotenv=False``): empty means unset and falls
       through to the next-lower layer, matching today's documented behavior
       (``main.py``'s ``os.environ.get("HASHVIEW_URL") or config_parser[...]``
@@ -225,6 +259,12 @@ def _apply_string_layer(
         if entry is None:
             if is_dotenv:
                 warnings.append(f"Unrecognized key {key!r} in {source} is ignored.")
+            continue
+        if is_dotenv and entry.home != "env":
+            warnings.append(
+                f"Config key {key!r} in {source} is ignored: it belongs in "
+                f"config.json, as {entry.legacy!r}. Remove it from {source}."
+            )
             continue
         if raw is None:
             continue
@@ -243,7 +283,7 @@ def load_config(
     legacy_json_path: str | None = None,
     environ: Mapping[str, str] | None = None,
 ) -> ConfigLoadResult:
-    """Load configuration through the four-layer precedence stack.
+    """Load configuration through the split-home precedence stack.
 
     Returns a :class:`ConfigLoadResult` whose ``config`` dict is keyed by
     legacy JSON key names (e.g. ``hcatPath``) with values coerced to their
@@ -251,7 +291,7 @@ def load_config(
     non-fatal problems encountered while loading.
 
     Raises :class:`hate_crack.config_schema.ConfigValueError` on a single
-    malformed value, :class:`ConfigFileJSONError` on a legacy ``config.json``
+    malformed value, :class:`ConfigFileJSONError` on a ``config.json``
     that fails to parse as JSON, or :class:`ConfigFileUnreadableError` on a
     ``.env``/``config.json`` that exists but could not be opened. Callers
     that want the process to exit on any of these should use
@@ -265,17 +305,19 @@ def load_config(
     # Layer 1: schema defaults.
     result: dict[str, Any] = {entry.legacy: entry.default for entry in CONFIG_SCHEMA}
 
-    # Layer 2: legacy config.json.
+    # Layer 2a: config.json, for the home="json" keys.
     if legacy_json_path and os.path.isfile(legacy_json_path):
-        legacy_data = _read_legacy_json(legacy_json_path)
-        _apply_legacy_layer(result, legacy_data, legacy_json_path, warnings)
+        json_data = _read_json_file(legacy_json_path)
+        _apply_json_layer(result, json_data, legacy_json_path, warnings)
 
-    # Layer 3: .env file.
+    # Layer 2b: .env, for the home="env" keys. Not a higher layer than 2a --
+    # the two are disjoint by key, so their order relative to each other is
+    # irrelevant by construction.
     if env_path and os.path.isfile(env_path):
         dotenv_data = _read_dotenv(env_path)
         _apply_string_layer(result, dotenv_data, env_path, warnings, is_dotenv=True)
 
-    # Layer 4: real process environment.
+    # Layer 3: real process environment, which may override any key.
     _apply_string_layer(result, environ, "<environment>", warnings, is_dotenv=False)
 
     _normalize_path_values(result)
@@ -288,15 +330,14 @@ def _normalize_path_values(result: dict[str, Any]) -> None:
     which layer supplied it.
 
     ``coerce()`` already does this for values sourced from ``.env`` and the
-    real environment (layers 3 and 4), but the schema-default layer (1) and
-    the legacy ``config.json`` layer (2) are never run through ``coerce()``
-    -- layer 2 intentionally does not, per Task 2's rule that JSON values are
-    typed already and only checked, not coerced. Without this pass,
-    ``load_config()`` could return a different string for the exact same
-    logical path depending on which layer happened to supply it (e.g. an
-    unexpanded default vs. an expanded ``.env`` override). Run once, after
-    all four layers have merged, so every ``path`` key ends up normalized
-    exactly once regardless of its source.
+    real environment, but the schema-default layer and the ``config.json``
+    layer are never run through ``coerce()`` -- the JSON layer intentionally
+    does not, because JSON values are typed already and are only checked, not
+    coerced. Without this pass, ``load_config()`` could return a different
+    string for the exact same logical path depending on which layer happened
+    to supply it (e.g. an unexpanded default vs. an expanded environment
+    override). Run once, after all layers have merged, so every ``path`` key
+    ends up normalized exactly once regardless of its source.
 
     ``""`` is left untouched -- an explicitly empty path is a real "disabled"
     sentinel (e.g. ``hcatPotfilePath``), not something to expand into the

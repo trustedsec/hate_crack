@@ -14,7 +14,7 @@ from hate_crack.config_loader import (
     load_config_or_exit,
     resolve_config_paths,
 )
-from hate_crack.config_schema import BY_LEGACY, CONFIG_SCHEMA
+from hate_crack.config_schema import BY_LEGACY, CONFIG_SCHEMA, ENV_KEYS, JSON_KEYS
 
 
 def _write_env(path, lines: dict[str, str]) -> str:
@@ -47,9 +47,7 @@ def test_defaults_only_matches_schema(tmp_path, monkeypatch):
     assert isinstance(result, ConfigLoadResult)
     expected_keys = {entry.legacy for entry in CONFIG_SCHEMA}
     assert set(result.config.keys()) == expected_keys
-    # 43 keys migrated from config.json.example + the 4 schema-only CLI
-    # preference keys promoted in Task 5 (see SCHEMA_ONLY_LEGACY_KEYS in
-    # tests/test_config_schema.py).
+    # 12 .env-homed integration keys + 35 config.json-homed settings.
     assert len(expected_keys) == 47
     for entry in CONFIG_SCHEMA:
         # path-typed defaults are expanded by load_config()'s uniform
@@ -67,20 +65,115 @@ def test_defaults_only_matches_schema(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_legacy_json_overrides_default(tmp_path):
-    json_path = _write_json(tmp_path, {"pipal_count": 99})
+def test_json_file_overrides_default_for_a_json_homed_key(tmp_path):
+    json_path = _write_json(tmp_path, {"bandrelmaxruntime": 99})
     result = load_config(env_path=None, legacy_json_path=json_path, environ={})
-    assert result.config["pipal_count"] == 99
+    assert result.config["bandrelmaxruntime"] == 99
 
 
-def test_dotenv_overrides_legacy_json(tmp_path):
-    json_path = _write_json(tmp_path, {"pipal_count": 99})
+def test_env_file_overrides_default_for_an_env_homed_key(tmp_path):
     env_path = _write_env(tmp_path, {"PIPAL_COUNT": "42"})
-    result = load_config(env_path=env_path, legacy_json_path=json_path, environ={})
+    result = load_config(env_path=env_path, legacy_json_path=None, environ={})
     assert result.config["pipal_count"] == 42
 
 
-def test_environ_overrides_dotenv(tmp_path):
+@pytest.mark.parametrize("entry", ENV_KEYS, ids=lambda entry: entry.env)
+def test_every_integration_key_resolves_from_the_env_file(tmp_path, entry):
+    """Requirement 1, first half: each of the twelve resolves from `.env`."""
+    raw = {"int": "7", "bool": "1", "path": "/tmp/synthetic", "str": "synthetic"}[
+        entry.type
+    ]
+    expected = {"int": 7, "bool": True, "path": "/tmp/synthetic", "str": "synthetic"}[
+        entry.type
+    ]
+    env_path = _write_env(tmp_path, {entry.env: raw})
+    result = load_config(env_path=env_path, legacy_json_path=None, environ={})
+    assert result.config[entry.legacy] == expected
+    assert result.warnings == []
+
+
+@pytest.mark.parametrize("entry", JSON_KEYS, ids=lambda entry: entry.legacy)
+def test_every_setting_resolves_from_config_json(tmp_path, entry):
+    """Requirement 1, second half: each of the thirty-five resolves from
+    ``config.json``. Uses a value of the right JSON type but distinguishable
+    from the default, so "resolved" cannot be confused with "defaulted"."""
+    if entry.choices:
+        value = next(c for c in entry.choices if c != entry.default)
+    elif entry.type == "bool":
+        value = not entry.default
+    elif entry.type == "int":
+        value = entry.default + 1
+    elif entry.type == "float":
+        value = entry.default + 1.0
+    elif entry.type in ("str", "path"):
+        value = "/tmp/synthetic" if entry.type == "path" else "synthetic-value"
+    else:  # csv_list / charset -- a JSON array either way
+        value = ["x", "y"]
+    json_path = _write_json(tmp_path, {entry.legacy: value})
+    result = load_config(env_path=None, legacy_json_path=json_path, environ={})
+    assert result.config[entry.legacy] == value
+    assert result.warnings == []
+
+
+# ---------------------------------------------------------------------------
+# 2b. One home per key: the wrong file is ignored, and says so
+# ---------------------------------------------------------------------------
+
+
+def test_setting_placed_in_the_env_file_is_ignored_and_warns(tmp_path):
+    """The core invariant of the split: a `.env` value must never win for a
+    home="json" key, however loudly it is written."""
+    env_path = _write_env(tmp_path, {"HCAT_TUNING": "-w 4 --from-the-wrong-file"})
+    result = load_config(env_path=env_path, legacy_json_path=None, environ={})
+    assert result.config["hcatTuning"] == BY_LEGACY["hcatTuning"].default
+    assert any(
+        "HCAT_TUNING" in w and "config.json" in w and "hcatTuning" in w
+        for w in result.warnings
+    ), result.warnings
+
+
+def test_env_file_cannot_beat_config_json_for_a_json_homed_key(tmp_path):
+    """Same invariant, with the json-homed key actually set in its own home --
+    the .env is not merely ignored in favour of the default, it loses to the
+    file that owns the key."""
+    json_path = _write_json(tmp_path, {"hcatTuning": "-w 3"})
+    env_path = _write_env(tmp_path, {"HCAT_TUNING": "-w 4"})
+    result = load_config(env_path=env_path, legacy_json_path=json_path, environ={})
+    assert result.config["hcatTuning"] == "-w 3"
+
+
+def test_integration_key_left_in_config_json_is_ignored_and_warns(tmp_path):
+    """The mirror case, which is what a user has right after the migration:
+    the key is still in config.json, and must not be read from there."""
+    json_path = _write_json(tmp_path, {"hashmob_api_key": "placeholder-not-a-key"})
+    result = load_config(env_path=None, legacy_json_path=json_path, environ={})
+    assert result.config["hashmob_api_key"] == ""
+    assert any(
+        "hashmob_api_key" in w and "HASHMOB_API_KEY" in w and ".env" in w
+        for w in result.warnings
+    ), result.warnings
+
+
+def test_config_json_cannot_beat_the_env_file_for_an_env_homed_key(tmp_path):
+    json_path = _write_json(tmp_path, {"ollamaModel": "from-json"})
+    env_path = _write_env(tmp_path, {"OLLAMA_MODEL": "from-dotenv"})
+    result = load_config(env_path=env_path, legacy_json_path=json_path, environ={})
+    assert result.config["ollamaModel"] == "from-dotenv"
+
+
+def test_misplaced_key_warning_never_leaks_a_secret_value(tmp_path):
+    json_path = _write_json(tmp_path, {"hashview_api_key": "synthetic-sentinel-value"})
+    result = load_config(env_path=None, legacy_json_path=json_path, environ={})
+    assert result.warnings
+    assert not any("synthetic-sentinel-value" in w for w in result.warnings)
+
+
+# ---------------------------------------------------------------------------
+# 2c. os.environ overrides either home
+# ---------------------------------------------------------------------------
+
+
+def test_environ_overrides_the_env_file(tmp_path):
     env_path = _write_env(tmp_path, {"PIPAL_COUNT": "42"})
     result = load_config(
         env_path=env_path,
@@ -90,20 +183,35 @@ def test_environ_overrides_dotenv(tmp_path):
     assert result.config["pipal_count"] == 7
 
 
-def test_full_four_layer_stack(tmp_path):
+def test_environ_overrides_config_json(tmp_path):
+    """os.environ may override *any* key, including a json-homed one: an
+    environment variable is an ephemeral override, not a home."""
+    json_path = _write_json(tmp_path, {"bandrelmaxruntime": 42})
+    result = load_config(
+        env_path=None,
+        legacy_json_path=json_path,
+        environ={"BANDRELMAXRUNTIME": "7"},
+    )
+    assert result.config["bandrelmaxruntime"] == 7
+    assert result.warnings == []
+
+
+def test_full_precedence_stack(tmp_path):
     json_path = _write_json(
         tmp_path,
-        {"pipal_count": 1, "bandrelmaxruntime": 2, "ollamaTimeout": 3},
+        {"bandrelmaxruntime": 2, "hcatTuning": "-w 3", "pcfgRuleset": "FromJson"},
     )
-    env_path = _write_env(tmp_path, {"PIPAL_COUNT": "10", "BANDRELMAXRUNTIME": "20"})
+    env_path = _write_env(tmp_path, {"PIPAL_COUNT": "10", "OLLAMA_TIMEOUT": "20"})
     result = load_config(
         env_path=env_path,
         legacy_json_path=json_path,
-        environ={"PIPAL_COUNT": "100"},
+        environ={"PIPAL_COUNT": "100", "HCAT_TUNING": "-w 4"},
     )
-    assert result.config["pipal_count"] == 100  # environ wins
-    assert result.config["bandrelmaxruntime"] == 20  # .env wins over json
-    assert result.config["ollamaTimeout"] == 3.0  # json wins over default
+    assert result.config["pipal_count"] == 100  # environ beats .env
+    assert result.config["hcatTuning"] == "-w 4"  # environ beats config.json
+    assert result.config["ollamaTimeout"] == 20  # .env, its own home
+    assert result.config["bandrelmaxruntime"] == 2  # config.json, its own home
+    assert result.config["pcfgRuleset"] == "FromJson"
 
 
 # ---------------------------------------------------------------------------
@@ -112,6 +220,7 @@ def test_full_four_layer_stack(tmp_path):
 
 
 def test_environ_outranks_dotenv_for_hashview_api_key(tmp_path):
+    """What HASHVIEW_TEST_LOCAL=1 depends on -- do not weaken this."""
     env_path = _write_env(tmp_path, {"HASHVIEW_API_KEY": "dotenv-placeholder-key"})
     result = load_config(
         env_path=env_path,
@@ -122,14 +231,14 @@ def test_environ_outranks_dotenv_for_hashview_api_key(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# 4. Empty string: environ falls through (except csv_list/charset), but the
-#    .env layer treats presence -- even of an empty value -- as explicit.
-#    This asymmetry is deliberate, not an inconsistency to "fix": a value
-#    written to `.env` is a statement the user (or a migration) made on
-#    purpose, e.g. HCAT_POTFILE_PATH= meaning "pass no --potfile-path to
-#    hashcat", whereas an accidentally-empty exported shell variable is
-#    common enough that the environ layer treating it as an override would
-#    be hostile. See _apply_string_layer's docstring in config_loader.py.
+# 4. Empty string: environ falls through (except csv_list/charset), but a
+#    value present in a *file* is explicit even when empty. This asymmetry is
+#    deliberate, not an inconsistency to "fix": a value written to a config
+#    file is a statement the user (or a migration) made on purpose, e.g.
+#    PIPAL_PATH= meaning "there is no pipal here", whereas an
+#    accidentally-empty exported shell variable is common enough that the
+#    environ layer treating it as an override would be hostile. See
+#    _apply_string_layer's docstring in config_loader.py.
 # ---------------------------------------------------------------------------
 
 
@@ -158,12 +267,6 @@ def test_empty_string_in_environ_falls_through_to_default(tmp_path):
     assert result.config["pipalPath"] == default
 
 
-def test_empty_csv_list_in_dotenv_yields_empty_list(tmp_path):
-    env_path = _write_env(tmp_path, {"NOTIFY_ATTACK_ALLOWLIST": ""})
-    result = load_config(env_path=env_path, legacy_json_path=None, environ={})
-    assert result.config["notify_attack_allowlist"] == []
-
-
 def test_empty_csv_list_in_environ_yields_empty_list(tmp_path):
     result = load_config(
         env_path=None, legacy_json_path=None, environ={"NOTIFY_ATTACK_ALLOWLIST": ""}
@@ -171,20 +274,13 @@ def test_empty_csv_list_in_environ_yields_empty_list(tmp_path):
     assert result.config["notify_attack_allowlist"] == []
 
 
-def test_empty_charset_in_dotenv_yields_empty_list(tmp_path):
-    env_path = _write_env(tmp_path, {"HCAT_MIDDLE_COMBINATOR_MASKS": ""})
-    result = load_config(env_path=env_path, legacy_json_path=None, environ={})
-    assert result.config["hcatMiddleCombinatorMasks"] == []
-
-
-def test_charset_preserves_leading_and_trailing_space(tmp_path):
-    env_path = os.path.join(tmp_path, ".env")
-    with open(env_path, "w") as fh:
-        fh.write('HCAT_MIDDLE_COMBINATOR_MASKS="24 -_+,.&"\n')
-    result = load_config(env_path=env_path, legacy_json_path=None, environ={})
-    value = result.config["hcatMiddleCombinatorMasks"]
-    assert value[0] == "2"
-    assert " " in value
+def test_empty_json_potfile_path_stays_explicitly_empty(tmp_path):
+    """The empty-is-explicit rule for the json home: an empty
+    ``hcatPotfilePath`` is a deliberate "pass no --potfile-path to hashcat",
+    not an absence to be filled in from the default."""
+    json_path = _write_json(tmp_path, {"hcatPotfilePath": ""})
+    result = load_config(env_path=None, legacy_json_path=json_path, environ={})
+    assert result.config["hcatPotfilePath"] == ""
 
 
 def test_charset_preserves_edge_spaces_via_environ(tmp_path):
@@ -204,9 +300,13 @@ def test_charset_preserves_edge_spaces_via_environ(tmp_path):
 
 
 def test_types_are_correct_for_each_schema_type(tmp_path):
-    env_path = _write_env(
-        tmp_path,
-        {
+    """Exercised through the environ layer, because that is the one layer that
+    sees raw strings for all seven types -- the `.env` layer only ever holds
+    the four types the twelve integration keys use."""
+    result = load_config(
+        env_path=None,
+        legacy_json_path=None,
+        environ={
             "HCAT_BIN": "hashcat",  # str
             "HCAT_PATH": "/opt/hashcat",  # path
             "PIPAL_COUNT": "15",  # int
@@ -216,7 +316,6 @@ def test_types_are_correct_for_each_schema_type(tmp_path):
             "HCAT_MIDDLE_COMBINATOR_MASKS": "ab",  # charset
         },
     )
-    result = load_config(env_path=env_path, legacy_json_path=None, environ={})
     assert isinstance(result.config["hcatBin"], str)
     assert isinstance(result.config["hcatPath"], str)
     assert isinstance(result.config["pipal_count"], int)
@@ -250,12 +349,12 @@ def test_load_config_does_not_mutate_process_environ(tmp_path):
 
 
 def test_malformed_bool_exits_with_key_name(tmp_path, capsys):
-    env_path = _write_env(tmp_path, {"NOTIFY_ENABLED": "maybe"})
+    env_path = _write_env(tmp_path, {"OLLAMA_AUTO_RESEARCH": "maybe"})
     with pytest.raises(SystemExit) as exc_info:
         load_config_or_exit(env_path=env_path, legacy_json_path=None, environ={})
     assert exc_info.value.code == 1
     captured = capsys.readouterr()
-    assert "NOTIFY_ENABLED" in captured.out
+    assert "OLLAMA_AUTO_RESEARCH" in captured.out
 
 
 def test_malformed_int_exits_with_key_name(tmp_path, capsys):
@@ -385,11 +484,11 @@ def test_unreadable_dotenv_exits(tmp_path, capsys):
 # ---------------------------------------------------------------------------
 
 
-def test_legacy_json_wrong_type_keeps_default_and_warns(tmp_path):
-    json_path = _write_json(tmp_path, {"pipal_count": "not-an-int"})
+def test_json_wrong_type_keeps_default_and_warns(tmp_path):
+    json_path = _write_json(tmp_path, {"bandrelmaxruntime": "not-an-int"})
     result = load_config(env_path=None, legacy_json_path=json_path, environ={})
-    assert result.config["pipal_count"] == BY_LEGACY["pipal_count"].default
-    assert any("pipal_count" in w for w in result.warnings)
+    assert result.config["bandrelmaxruntime"] == BY_LEGACY["bandrelmaxruntime"].default
+    assert any("bandrelmaxruntime" in w for w in result.warnings)
 
 
 # ---------------------------------------------------------------------------
@@ -403,15 +502,24 @@ def test_unrecognized_dotenv_key_warns_but_succeeds(tmp_path):
     assert any("SOME_UNKNOWN_KEY" in w for w in result.warnings)
 
 
+def test_unrecognized_config_json_key_is_tolerated_silently(tmp_path):
+    """config.json has always tolerated extra keys (people keep notes and
+    retired settings in there); that is unchanged, and is distinct from the
+    misplaced-key warning, which fires only for a key the schema knows."""
+    json_path = _write_json(tmp_path, {"some_retired_key": "value"})
+    result = load_config(env_path=None, legacy_json_path=json_path, environ={})
+    assert result.warnings == []
+
+
 # ---------------------------------------------------------------------------
 # 13. Legacy JSON missing keys added later -> schema defaults
 # ---------------------------------------------------------------------------
 
 
-def test_legacy_json_missing_new_keys_gets_defaults(tmp_path):
-    json_path = _write_json(tmp_path, {"pipal_count": 5})
+def test_json_missing_new_keys_gets_defaults(tmp_path):
+    json_path = _write_json(tmp_path, {"bandrelmaxruntime": 5})
     result = load_config(env_path=None, legacy_json_path=json_path, environ={})
-    assert result.config["pipal_count"] == 5
+    assert result.config["bandrelmaxruntime"] == 5
     assert (
         result.config["notify_poll_interval_seconds"]
         == BY_LEGACY["notify_poll_interval_seconds"].default
