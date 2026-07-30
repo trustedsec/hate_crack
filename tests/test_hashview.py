@@ -73,12 +73,20 @@ class TestHashviewAPI:
         # Regression detector for the mock leak: if a future fixture change
         # re-mocks requests.Session for a live test, fail here instead of
         # asserting against a MagicMock and reporting it as a skip.
+        #
+        # The Mock check goes FIRST deliberately. `patch("requests.Session")`
+        # replaces the class as well as the instance, so the isinstance() check
+        # below raises `TypeError: isinstance() arg 2 must be a type` in exactly
+        # the case this guard exists to diagnose -- failing loudly, but with a
+        # message that says nothing about a mock leak. Checking against Mock,
+        # whose class is never patched, reports the real cause.
+        assert not isinstance(real_api.session, (Mock, MagicMock)), (
+            "live client session is a mock: requests.Session is patched, most "
+            "likely because this live test was given the `api` fixture. See #223."
+        )
         assert isinstance(real_api.session, requests.Session), (
             f"live client session must be a real requests.Session, "
             f"got {type(real_api.session)!r}"
-        )
-        assert not isinstance(real_api.session, (Mock, MagicMock)), (
-            "live client session is a mock — requests.Session is patched"
         )
         return real_api
 
