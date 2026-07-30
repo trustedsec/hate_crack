@@ -5205,7 +5205,11 @@ def export_excel():
         )
         return
 
-    if hcatHashType == "1000":
+    # Same guard as cleanup() and pipal(): the merge, and the pwdump-shaped
+    # rows this export builds, both require pwdump format. Without the second
+    # half, a plain hash list had its cracked output truncated and then got an
+    # empty spreadsheet reported as a success (issues #195, #196).
+    if hcatHashType == "1000" and pwdump_format:
         combine_ntlm_output()
         output = openpyxl.Workbook()
         current_ws = output.create_sheet(title="hate_crack output", index=0)
@@ -5245,7 +5249,10 @@ def export_excel():
             output.save(hcatHashFile + ".xlsx")
             print("Output exported succesfully to {0}".format(hcatHashFile + ".xlsx"))
     else:
-        sys.stderr.write("Excel output only supported for pwdformat for NTLM hashes")
+        sys.stderr.write(
+            "Excel export is only supported for NTLM hashes in pwdump format "
+            "(user:rid:lm:nt:::). Nothing was written.\n"
+        )
         return
 
 
