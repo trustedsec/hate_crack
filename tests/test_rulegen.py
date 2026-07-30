@@ -1,5 +1,7 @@
 """Tests for hate_crack.rulegen (Spoonman Attack derivation, #169)."""
 
+from collections import Counter
+
 import pytest
 
 from hate_crack import rulegen
@@ -292,3 +294,159 @@ class TestCorpusLineParsing:
         )
         assert result["hash_shaped"] == 0
         assert not any("look like hashes" in m for m in messages)
+
+
+class TestMemoryBound:
+    """`generate()` bounds each counter so a huge corpus degrades gracefully."""
+
+    # A frequency skew with an unambiguous winner: three tokens repeated many
+    # times each, and a long tail of tokens seen exactly once. Every token is a
+    # synthetic phonetic-alphabet word, not a password.
+    HOT = ["alphaalpha", "bravobravo", "charliecharlie"]
+
+    def _skewed_corpus(self, tmp_path, tail=40):
+        lines = []
+        for token in self.HOT:
+            lines.extend([token] * 20)
+        # Unique in both counters: a distinct letter core (so a distinct
+        # baseword) and a distinct digit suffix (so a distinct rule).
+        lines.extend(
+            f"tail{chr(97 + i // 26)}{chr(97 + i % 26)}zulu{i}" for i in range(tail)
+        )
+        path = tmp_path / "corpus.txt"
+        path.write_text("\n".join(lines) + "\n", encoding="latin-1")
+        return str(path)
+
+    def _read(self, path):
+        with open(path, encoding="latin-1") as f:
+            return f.read()
+
+    def _outputs(self, outdir):
+        names = ("basewords.txt", "rules.full.rule", "coverage.txt")
+        return {n: self._read(str(outdir / n)) for n in names}
+
+    def test_default_bound_is_the_documented_constant(self):
+        assert rulegen.MAX_UNIQUE_KEYS == 20_000_000
+
+    def test_unbounded_matches_the_default_on_a_small_corpus(self, tmp_path):
+        """The bound must not silently change results for a corpus under it."""
+        corpus = self._skewed_corpus(tmp_path)
+        bounded = rulegen.generate(
+            corpus, str(tmp_path / "bounded"), print_fn=lambda *a: None
+        )
+        unbounded = rulegen.generate(
+            corpus,
+            str(tmp_path / "unbounded"),
+            print_fn=lambda *a: None,
+            max_unique=None,
+        )
+
+        for name, text in self._outputs(tmp_path / "bounded").items():
+            assert text == self._read(str(tmp_path / "unbounded" / name)), name
+        assert bounded["pruned"] is False
+        assert unbounded["pruned"] is False
+        for key in ("total", "basewords_count", "rules_count", "milestones"):
+            assert bounded[key] == unbounded[key]
+
+    def test_small_corpus_reports_no_pruning(self, tmp_path):
+        corpus = self._skewed_corpus(tmp_path)
+        result = rulegen.generate(
+            corpus, str(tmp_path / "out"), print_fn=lambda *a: None
+        )
+        assert result["pruned"] is False
+        assert result["pruned_basewords"] == 0
+        assert result["pruned_rules"] == 0
+        report = self._read(result["coverage"])
+        assert "pruned" not in report
+
+    def test_tiny_bound_prunes_the_low_frequency_tail(self, tmp_path, monkeypatch):
+        # The real check interval is a million lines; shrink it so a corpus
+        # small enough for a test can trip the bound.
+        monkeypatch.setattr(rulegen, "_PRUNE_CHECK_INTERVAL", 10)
+        corpus = self._skewed_corpus(tmp_path)
+        messages = []
+        result = rulegen.generate(
+            corpus,
+            str(tmp_path / "out"),
+            print_fn=messages.append,
+            max_unique=5,
+        )
+
+        assert result["pruned"] is True
+        assert result["pruned_basewords"] > 0
+        assert result["pruned_baseword_hits"] > 0
+        assert result["pruned_rules"] > 0
+        assert result["pruned_rule_hits"] > 0
+        # The repeated tokens survive; the once-seen tail is discarded, bar the
+        # few lines read after the final size check.
+        basewords = self._read(result["basewords"]).split()
+        for token in self.HOT:
+            assert token in basewords
+        assert len([w for w in basewords if w.startswith("tail")]) <= 2
+        assert result["basewords_count"] <= 5
+
+        report = self._read(result["coverage"])
+        assert "pruned (max_unique=5)" in report
+        assert f"basewords discarded: {result['pruned_basewords']}" in report
+        assert "retained" in report
+        assert any("Memory bound reached" in m for m in messages)
+        assert any("max_unique=5" in m for m in messages)
+        assert any("sample" in m for m in messages)
+
+    def test_pruning_does_not_cause_selfcheck_failures(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(rulegen, "_PRUNE_CHECK_INTERVAL", 10)
+        corpus = self._skewed_corpus(tmp_path)
+        result = rulegen.generate(
+            corpus,
+            str(tmp_path / "out"),
+            print_fn=lambda *a: None,
+            max_unique=2,
+            verify=True,
+        )
+        assert result["pruned"] is True
+        assert result["selfcheck_failures"] == []
+
+    def test_total_still_counts_every_password(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(rulegen, "_PRUNE_CHECK_INTERVAL", 10)
+        corpus = self._skewed_corpus(tmp_path)
+        result = rulegen.generate(
+            corpus, str(tmp_path / "out"), print_fn=lambda *a: None, max_unique=5
+        )
+        assert result["total"] == 3 * 20 + 40
+
+
+class TestPruneCounter:
+    def test_no_op_when_already_within_the_bound(self):
+        counter = Counter({"alpha": 3, "bravo": 1})
+        assert rulegen._prune_counter(counter, 5) == (0, 0)
+        assert counter == Counter({"alpha": 3, "bravo": 1})
+
+    def test_none_disables_the_bound(self):
+        counter = Counter({"alpha": 1, "bravo": 1})
+        assert rulegen._prune_counter(counter, None) == (0, 0)
+        assert len(counter) == 2
+
+    def test_removes_whole_frequency_tiers_from_the_bottom(self):
+        counter = Counter({"alpha": 9, "bravo": 5, "charlie": 2, "delta": 1, "echo": 1})
+        keys, hits = rulegen._prune_counter(counter, 3)
+        assert (keys, hits) == (2, 2)
+        assert counter == Counter({"alpha": 9, "bravo": 5, "charlie": 2})
+
+    def test_raises_the_threshold_until_the_bound_is_met(self):
+        counter = Counter({"alpha": 9, "bravo": 2, "charlie": 2, "delta": 1})
+        keys, hits = rulegen._prune_counter(counter, 1)
+        assert (keys, hits) == (3, 5)
+        assert counter == Counter({"alpha": 9})
+
+    def test_never_empties_the_counter(self):
+        """All keys tie at the bottom, so the last tier has to be kept."""
+        counter = Counter({"alpha": 1, "bravo": 1, "charlie": 1})
+        assert rulegen._prune_counter(counter, 1) == (0, 0)
+        assert len(counter) == 3
+
+    def test_overshooting_the_bound_is_allowed(self):
+        """Clearing a whole tier may leave far fewer keys than the bound."""
+        counter = Counter({"alpha": 4, "bravo": 1, "charlie": 1, "delta": 1})
+        keys, _ = rulegen._prune_counter(counter, 3)
+        assert keys == 3
+        assert len(counter) == 1

@@ -17,6 +17,19 @@ The baseword list and the rule list together reconstruct 100% of the corpus,
 so the rule file is truncatable: it is sorted by how many passwords each rule
 rebuilds, most productive first.
 
+That 100% guarantee holds only while :func:`generate` keeps every key it sees.
+A corpus large enough to threaten the machine's RAM makes that impossible: the
+per-key cost of the two counters is roughly 80 bytes, so a corpus with billions
+of distinct basewords would need tens of gigabytes before a single line of
+output is written, and an OOM kill mid-pass throws away the whole run. To
+degrade gracefully instead, :func:`generate` bounds each counter at
+``max_unique`` keys (see :data:`MAX_UNIQUE_KEYS`) and periodically discards the
+lowest-frequency ones. When that pruning fires the output no longer
+reconstructs 100% of the corpus — it reconstructs the retained keys, coverage
+percentages are relative to those, and both ``coverage.txt`` and the run's
+console output say so. Passing ``max_unique=None`` restores the exact,
+unbounded behaviour for anyone who has the memory to spare.
+
 Two hashcat limits bound what a rule can express, and both fall back to
 emitting the password verbatim as its own baseword with a ``:`` no-op rule:
 
@@ -40,6 +53,77 @@ POS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 # left" when the rule stands alone and is dropped without warning when it
 # shares a file with valid rules.
 MAX_RULE_FUNCTIONS = 31
+
+# Ceiling on how many distinct keys either of :func:`generate`'s counters may
+# hold before the lowest-frequency ones are discarded.
+#
+# Measured with tracemalloc against a Counter of 1,000,000 unique 8-character
+# string keys: 80 bytes per key, covering the dict entry, the index table, and
+# the key object itself. 20,000,000 keys is therefore ~1.6 GB per counter, or
+# ~3.2 GB for the baseword and rule counters together — an amount a cracking
+# host can spare alongside hashcat.
+#
+# The figure is not arbitrary caution. An unbounded pass over a 31 GB /
+# ~3.6-billion-password corpus reached 14.1 GB RSS at ~11% of the file with the
+# growth rate still climbing, and was projected to need 70-130 GB against 64 GB
+# of RAM. Nothing is written until the read loop ends, so the OOM kill would
+# have destroyed a multi-hour pass with no output at all.
+MAX_UNIQUE_KEYS = 20_000_000
+
+# How many corpus lines to read between counter-size checks. Checking every
+# line would cost two len() calls per password for no benefit; a million lines
+# can add at most a million keys to a counter, which is 5% of the default bound.
+_PRUNE_CHECK_INTERVAL = 1_000_000
+
+
+def _prune_counter(counter, max_unique):
+    """Discard the lowest-frequency keys of *counter* until it fits *max_unique*.
+
+    Removes whole frequency tiers from the bottom up — every key seen exactly
+    once first, then every key seen twice, and so on — stopping as soon as the
+    counter is at or below *max_unique*. Whole tiers rather than a partial cut
+    at the boundary: the tail of a password corpus is overwhelmingly keys seen
+    once, so clearing the tier outright drops the counter well below the bound
+    and buys many millions of lines before the next prune, whereas trimming to
+    exactly *max_unique* would re-trip on the very next check. The highest
+    remaining tier is never removed, so pruning cannot empty the counter.
+
+    Returns ``(keys_discarded, observations_discarded)``.
+
+    Deletes in place rather than rebuilding. A rebuild via a filtered
+    comprehension is the obvious implementation but transiently holds two
+    counters at once, roughly doubling the peak footprint this function exists
+    to lower. The only transient here is a list of the doomed keys: 8 bytes per
+    entry for the pointer (the key objects are already alive), so a worst-case
+    peak of ~10% of the counter's own size rather than ~100%. CPython frees
+    each key string as it is deleted and compacts the dict's table on the next
+    resize.
+    """
+    if max_unique is None or len(counter) <= max_unique:
+        return (0, 0)
+
+    # Histogram of frequencies. Bounded by the number of *distinct* counts, not
+    # by the number of keys, so it is negligible next to the counter itself.
+    histogram = Counter(counter.values())
+    remaining = len(counter)
+    threshold = 0
+    for freq in sorted(histogram):
+        if remaining <= max_unique:
+            break
+        if remaining - histogram[freq] <= 0:
+            # Removing this tier would leave nothing behind; keep it instead.
+            break
+        threshold = freq
+        remaining -= histogram[freq]
+    if threshold == 0:
+        return (0, 0)
+
+    doomed = [key for key, hits in counter.items() if hits <= threshold]
+    observations = 0
+    for key in doomed:
+        observations += counter[key]
+        del counter[key]
+    return (len(doomed), observations)
 
 
 def _pos(n):
@@ -269,12 +353,21 @@ def generate(
     ascii_only=False,
     verify=True,
     print_fn=print,
+    max_unique=MAX_UNIQUE_KEYS,
 ):
     """Derive basewords and rules from *corpus_path*, writing them under *outdir*.
 
     Returns a dict with the output paths and corpus statistics. ``verify``
     reconstructs every password through :func:`apply_rule` as a self-check;
     it is cheap relative to reading the corpus but can be skipped.
+
+    ``max_unique`` bounds how many distinct keys the baseword and rule counters
+    may each hold; once either exceeds it, its lowest-frequency keys are
+    discarded (see :func:`_prune_counter`). ``None`` disables the bound and
+    restores the exact but unbounded behaviour. When pruning fires the results
+    describe only the retained keys: the reported coverage percentages are
+    relative to the observations those keys account for, not to the whole
+    corpus, and ``pruned`` is True in the returned dict.
     """
     os.makedirs(outdir, exist_ok=True)
     base_counts = Counter()
@@ -284,9 +377,24 @@ def generate(
     literal_fallbacks = 0
     hash_shaped = 0
     selfcheck_failures = []
+    lines_read = 0
+    pruned_basewords = 0
+    pruned_baseword_hits = 0
+    pruned_rules = 0
+    pruned_rule_hits = 0
 
     with open(corpus_path, encoding="latin-1") as fh:
         for line in fh:
+            lines_read += 1
+            if max_unique is not None and lines_read % _PRUNE_CHECK_INTERVAL == 0:
+                # Each counter is checked independently: a corpus can blow the
+                # baseword bound long before the rule bound, or the reverse.
+                keys, hits = _prune_counter(base_counts, max_unique)
+                pruned_basewords += keys
+                pruned_baseword_hits += hits
+                keys, hits = _prune_counter(rule_counts, max_unique)
+                pruned_rules += keys
+                pruned_rule_hits += hits
             stripped = line.rstrip("\r\n")
             if looks_like_hash_line(stripped.strip()):
                 hash_shaped += 1
@@ -306,6 +414,8 @@ def generate(
             base, rule = derive(pw)
             if base == pw and rule == ":" and any(not _isalpha(c) for c in pw):
                 literal_fallbacks += 1
+            # The self-check runs against the password in hand, before either
+            # counter is touched, so pruning can never make it fail spuriously.
             if verify and apply_rule(base, rule) != pw:
                 selfcheck_failures.append(pw)
             base_counts[base] += 1
@@ -328,9 +438,16 @@ def generate(
         for rule, _ in ranked:
             f.write(rule + "\n")
 
+    pruned = bool(pruned_basewords or pruned_rules)
+    # Coverage is measured against the observations the retained rules actually
+    # account for. Without pruning that is every password, so the numbers are
+    # unchanged; with it, using `total` would silently understate every
+    # percentage by the share of the corpus that was discarded.
+    retained_hits = total - pruned_rule_hits
+
     capped_paths = {}
     for target in cover:
-        needed = float(target) / 100.0 * total
+        needed = float(target) / 100.0 * retained_hits
         cumulative = 0
         count = 0
         for _, hits in ranked:
@@ -349,8 +466,8 @@ def generate(
     cumulative = 0
     for i, (_, hits) in enumerate(ranked, start=1):
         cumulative += hits
-        pct = 100.0 * cumulative / total
-        for mark in (50, 80, 90, 95, 99, 100):
+        pct = 100.0 * cumulative / retained_hits
+        for mark in (50, 75, 80, 90, 95, 99, 100):
             if mark not in milestones and pct >= mark:
                 milestones[mark] = i
 
@@ -365,7 +482,27 @@ def generate(
         f.write(f"hash-shaped lines:   {hash_shaped}\n")
         if verify:
             f.write(f"self-check failures: {len(selfcheck_failures)} (must be 0)\n")
+        if pruned:
+            f.write(f"\npruned (max_unique={max_unique}):\n")
+            f.write(
+                f"  basewords discarded: {pruned_basewords} "
+                f"({pruned_baseword_hits} passwords)\n"
+            )
+            f.write(
+                f"  rules discarded:     {pruned_rules} "
+                f"({pruned_rule_hits} passwords)\n"
+            )
+            f.write(
+                "  These were the lowest-frequency keys, dropped while reading to\n"
+                "  keep memory bounded. The output no longer reconstructs 100% of\n"
+                "  the corpus.\n"
+            )
         f.write("\nrules needed for coverage:\n")
+        if pruned:
+            f.write(
+                f"  (percentages are of the {retained_hits} passwords the retained\n"
+                f"   rules cover, not of all {total} read)\n"
+            )
         for mark in sorted(milestones):
             f.write(f"  {mark:3d}%: {milestones[mark]} rules\n")
 
@@ -373,6 +510,18 @@ def generate(
         f"[*] {total} passwords -> {len(base_counts)} basewords, "
         f"{len(rule_counts)} rules ({literal_fallbacks} literal fallbacks)"
     )
+    if pruned:
+        print_fn(
+            f"[!] Memory bound reached: {pruned_basewords} basewords and "
+            f"{pruned_rules} rules were discarded to keep each counter under "
+            f"max_unique={max_unique} distinct keys. They were the "
+            "lowest-frequency keys, accounting for "
+            f"{pruned_rule_hits} of {total} passwords, so this run does NOT "
+            "reconstruct 100% of the corpus and the coverage percentages below "
+            "are relative to the retained keys. If you need exact figures, run "
+            "against a random sample of the corpus small enough to fit, or "
+            "raise max_unique if you have the RAM."
+        )
     if hash_shaped > total * 0.25:
         print_fn(
             f"[!] Warning: {hash_shaped} lines look like hashes rather than "
@@ -398,4 +547,9 @@ def generate(
         "hash_shaped": hash_shaped,
         "selfcheck_failures": selfcheck_failures,
         "milestones": milestones,
+        "pruned": pruned,
+        "pruned_basewords": pruned_basewords,
+        "pruned_rules": pruned_rules,
+        "pruned_baseword_hits": pruned_baseword_hits,
+        "pruned_rule_hits": pruned_rule_hits,
     }
