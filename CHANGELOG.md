@@ -194,6 +194,27 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   entries, and skips missing inputs instead of aborting.
 
 ### Fixed
+- **A silently discarded `ImportError` that turned one missing HashcatRosetta
+  submodule into 20 unrelated assertion failures (#231).** `main.py` wrapped the
+  HashcatRosetta import in a bare `except ImportError` and threw the exception
+  away, leaving `DebugAnalyzer = None`. Because `hate_crack.main` is imported
+  once per pytest session, that `None` was sticky for the whole run, and
+  `tests/test_main_rosetta.py` failed on assertions like
+  `'<candidate>:wl.txt' == '<candidate>'` — a message that points at rule
+  parsing and says nothing about a missing submodule, which is why the cause was
+  misdiagnosed four times. The exception is now captured in
+  `ROSETTA_IMPORT_ERROR` and surfaced by `rosetta_unavailable_reason()`, which
+  both `rosetta_derive`'s `RuntimeError` and `analyze_rules`' error path use, so
+  a genuinely broken HashcatRosetta is distinguishable from a merely absent one.
+  The graceful degradation is unchanged: hate_crack still starts and runs every
+  non-Rosetta attack without the submodule. `tests/test_main_rosetta.py` now
+  reports the cause once instead of 20 times — it skips when the submodule is
+  not checked out (a legitimate worktree state, since `git worktree add` does
+  not populate submodules) and fails loudly when it is checked out but the
+  import failed anyway, which skipping would hide in CI. The guard deliberately
+  does not fire on a healthy checkout; `tests/test_main_rosetta_import_guard.py`
+  pins that, because a guard that skips too eagerly would silently delete 20
+  tests.
 - **Four Hashview tests that passed without ever making a request.**
   `test_get_hashfiles_by_type_success`, `test_get_customer_hashfiles`,
   `test_download_left_hashes` and `test_download_wordlist` each took the `api`

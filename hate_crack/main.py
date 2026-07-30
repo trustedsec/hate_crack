@@ -85,13 +85,31 @@ from hate_crack.menu import interactive_menu  # noqa: E402
 from hate_crack.username_detect import detect_username_hash_format  # noqa: E402
 
 # Import HashcatRosetta for rule analysis functionality
+ROSETTA_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "HashcatRosetta")
+)
+# Holds the ImportError when HashcatRosetta could not be imported, else None.
+# Discarding it turned one missing submodule into a wall of unrelated assertion
+# failures (#231); keep the reason so it can be reported where it is noticed.
+ROSETTA_IMPORT_ERROR = None
 try:
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "HashcatRosetta"))
+    sys.path.insert(0, ROSETTA_DIR)
     from hashcat_rosetta.debug_analyzer import DebugAnalyzer
     from hashcat_rosetta.formatting import display_rule_opcodes_summary
-except ImportError:
+except ImportError as rosetta_import_error:
+    ROSETTA_IMPORT_ERROR = rosetta_import_error
     display_rule_opcodes_summary = None
     DebugAnalyzer = None
+
+
+def rosetta_unavailable_reason():
+    """Return a human-readable explanation for HashcatRosetta being missing."""
+    message = (
+        "HashcatRosetta is unavailable. Run: git submodule update --init HashcatRosetta"
+    )
+    if ROSETTA_IMPORT_ERROR is not None:
+        message += f" (import failed: {ROSETTA_IMPORT_ERROR!r})"
+    return message
 
 
 EXCLUDED_WORDLIST_EXTENSIONS = frozenset({".7z", ".torrent", ".out"})
@@ -3746,10 +3764,7 @@ def rosetta_derive(
     yield nothing usable.
     """
     if DebugAnalyzer is None:
-        raise RuntimeError(
-            "HashcatRosetta is unavailable. Run: "
-            "git submodule update --init HashcatRosetta"
-        )
+        raise RuntimeError(rosetta_unavailable_reason())
     if metric not in ROSETTA_RULE_METRICS:
         raise ValueError(f"unknown rule metric: {metric}")
 
@@ -5684,7 +5699,7 @@ def analyze_rules():
     """Analyze hashcat rule file and display opcode statistics."""
     if display_rule_opcodes_summary is None:
         print("\nError: HashcatRosetta formatting module not found.")
-        print("Make sure HashcatRosetta submodule is properly initialized.")
+        print(rosetta_unavailable_reason())
         return
 
     print("\n" + "=" * 60)

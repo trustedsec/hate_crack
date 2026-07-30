@@ -11,6 +11,44 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from hate_crack import attacks
+from hate_crack import main as _hate_crack_main
+
+
+def _rosetta_unavailable_reason():
+    """Return why HashcatRosetta is unusable, or None when it imported fine.
+
+    Reported once for the whole module rather than as a wall of unrelated
+    assertion failures in every test that needs the analyzer (#231).
+    """
+    if _hate_crack_main.DebugAnalyzer is not None:
+        return None
+    package_dir = os.path.join(_hate_crack_main.ROSETTA_DIR, "hashcat_rosetta")
+    if not os.path.isdir(package_dir):
+        return (
+            "HashcatRosetta submodule is not checked out "
+            f"({package_dir} does not exist). "
+            "Run: git submodule update --init HashcatRosetta"
+        )
+    # Checked out but still not importable: a real breakage, not a bare
+    # worktree. Skipping this would hide it in CI, so fail loudly instead.
+    raise AssertionError(
+        "HashcatRosetta is checked out at "
+        f"{_hate_crack_main.ROSETTA_DIR} but failed to import: "
+        f"{_hate_crack_main.ROSETTA_IMPORT_ERROR!r}"
+    )
+
+
+_ROSETTA_SKIP_REASON = _rosetta_unavailable_reason()
+if _ROSETTA_SKIP_REASON is not None:
+    pytest.skip(_ROSETTA_SKIP_REASON, allow_module_level=True)
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _require_rosetta():
+    """Catch a HashcatRosetta that went away after this module was imported."""
+    reason = _rosetta_unavailable_reason()
+    if reason is not None:
+        pytest.skip(reason)
 
 
 @pytest.fixture
