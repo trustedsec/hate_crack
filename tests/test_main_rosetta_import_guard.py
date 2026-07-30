@@ -142,8 +142,16 @@ class TestReportedOnceNotTwenty:
             tmp_path, submodule_present=False
         )
         output = result.stdout + result.stderr
-        assert "failed" not in output, output
+        # Assert on the exit status and the summary line, not a substring of the
+        # whole output: a developer's own config.json emits "Config key ... is
+        # ignored" warnings into this stream, so a bare `"failed" not in output`
+        # would break the day one of those messages happens to contain the word.
+        # 5 is pytest's "no tests ran", which is what a fully-skipped module
+        # gives; 0 would mean tests actually executed. Either is a pass here,
+        # and neither is the non-zero a failure would produce.
+        assert result.returncode in (0, 5), output
         assert "1 skipped" in output, output
+        assert " failed" not in output.splitlines()[-1], output
         assert "git submodule update --init HashcatRosetta" in output, output
 
     def test_present_but_broken_submodule_fails_loudly(self, tmp_path):
