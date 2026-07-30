@@ -29,7 +29,7 @@ from types import SimpleNamespace
 
 #!/usr/bin/env python3
 
-from typing import Any
+from typing import Any, NamedTuple
 
 requests: Any = None
 REQUESTS_AVAILABLE = False
@@ -201,6 +201,106 @@ def disable_optimized_kernel():
     global _optimized_kernel_disabled, hcatTuning
     _optimized_kernel_disabled = True
     hcatTuning = _strip_optimized_flags(hcatTuning)
+
+
+class FlagOverrides(NamedTuple):
+    """The per-run effective value of every schema-backed preference flag."""
+
+    debug: bool
+    update_channel: str
+    weakpass_min_rank: int
+    restore_potfile: bool
+    optimized_kernel_disabled: bool
+    potfile_path: str
+
+
+def _flag_or_config(flag_value, config_value):
+    """Resolve one tri-state flag against its config-supplied default.
+
+    ``None`` means the flag was absent, so the config value (which the loader
+    already resolved through .env / config.json / schema default / the real
+    environment) wins. Anything else -- including ``False`` and ``0`` -- is an
+    explicit per-run statement and outranks the config.
+
+    This tri-state is why none of the promoted booleans may use
+    ``action="store_true"``: that action makes "absent" and "explicitly false"
+    both ``False``, so the flag could never turn a `.env`-enabled setting off.
+    Each one uses ``argparse.BooleanOptionalAction`` with ``default=None``.
+    """
+    if flag_value is None:
+        return config_value
+    return flag_value
+
+
+def resolve_flag_overrides(args, config, *, base_dir, current_potfile_path=None):
+    """Resolve the six promoted preference flags against loaded ``config``.
+
+    ``args`` is anything with the argparse attribute names (a
+    ``SimpleNamespace`` is fine); ``config`` is a ``config_parser``-shaped
+    mapping of legacy key names to coerced values; ``base_dir`` is the
+    directory a relative ``--potfile-path`` is resolved against.
+
+    Precedence for each key is CLI flag > os.environ > .env > config.json >
+    schema default. The loader owns the bottom four and has already collapsed
+    them into ``config``; this function only layers the flag on top. It is
+    deliberately pure so it can be unit tested without building the parser.
+    """
+    nightly = getattr(args, "nightly", None)
+    if nightly is None:
+        update_channel = config.get("update_channel", "main")
+    else:
+        update_channel = "nightly-dev" if nightly else "main"
+
+    # --potfile-path is checked before --no-potfile-path: when both are passed
+    # the explicit path wins, matching the pre-existing dispatch order (see
+    # tests/test_cli_flags.py::test_potfile_path_and_no_potfile_path_conflict).
+    if getattr(args, "potfile_path", None) is not None:
+        raw = args.potfile_path.strip()
+        if raw == "":
+            # Empty string means: revert to hashcat's default behavior.
+            potfile_path = ""
+        else:
+            expanded = os.path.expanduser(raw)
+            if not os.path.isabs(expanded):
+                expanded = os.path.join(base_dir, expanded)
+            potfile_path = expanded
+    elif getattr(args, "no_potfile_path", False):
+        potfile_path = ""
+    elif current_potfile_path is not None:
+        # Module import time already normalized HCAT_POTFILE_PATH (expanduser,
+        # relative-to-hate_path, and the "no key at all" discovery fallback);
+        # re-deriving it from ``config`` here would drop that work, so the
+        # no-flag case keeps the value main() hands in.
+        potfile_path = current_potfile_path
+    else:
+        potfile_path = config.get("hcatPotfilePath", "")
+
+    return FlagOverrides(
+        debug=bool(_flag_or_config(getattr(args, "debug", None), config.get("debug"))),
+        update_channel=update_channel,
+        weakpass_min_rank=int(
+            _flag_or_config(
+                getattr(args, "rank", None), config.get("weakpass_min_rank", -1)
+            )
+        ),
+        restore_potfile=bool(
+            _flag_or_config(
+                getattr(args, "restore_potfile", None),
+                config.get("restore_potfile_on_start", False),
+            )
+        ),
+        # --no-optimized-kernel is a blanket override that empties the
+        # optimizedKernelAttacks list for this run; there is no affirmative
+        # form to re-enable a .env that disabled it, because the key is a list
+        # of attack names, not a bool -- setting OPTIMIZED_KERNEL_ATTACKS= in
+        # .env is how you turn it off persistently. Note that route is not
+        # folded in here: an empty list means "no attack gets -O", whereas the
+        # flag additionally strips a hand-written -O out of hcatTuning, and
+        # quietly extending that to the config list would change behavior for
+        # existing configs.
+        optimized_kernel_disabled=bool(getattr(args, "no_optimized_kernel", False)),
+        potfile_path=potfile_path,
+    )
 
 
 def _insert_optimized_flag(cmd):
@@ -5654,8 +5754,12 @@ def main():
         parser.add_argument(
             "--rank",
             type=int,
-            default=-1,
-            help="Only show wordlists with this rank (use 0 to show all, default: >4)",
+            default=None,
+            help=(
+                "Only show wordlists with this rank (use 0 to show all, -1 for "
+                "the built-in >4 rule). Overrides WEAKPASS_MIN_RANK in .env "
+                "for this run; defaults to that key (-1) when omitted."
+            ),
         )
         parser.add_argument(
             "--hashmob", action="store_true", help="Download wordlists from Hashmob.net"
@@ -5675,10 +5779,13 @@ def main():
         )
         parser.add_argument(
             "--nightly",
-            action="store_true",
+            action=argparse.BooleanOptionalAction,
+            default=None,
             help=(
                 "Update to the latest nightly from nightly-dev instead of main. "
-                "Nightlies have passed CI but are not part of a cut release."
+                "Nightlies have passed CI but are not part of a cut release. "
+                "Overrides UPDATE_CHANNEL in .env for this run; --no-nightly "
+                "forces the main channel even when .env selects nightly-dev."
             ),
         )
         parser.add_argument(
@@ -5688,28 +5795,40 @@ def main():
             action="store_true",
             help=(
                 "Never pass -O to hashcat, for every attack this run. Overrides "
-                "optimizedKernelAttacks in config.json and drops any -O in "
+                "OPTIMIZED_KERNEL_ATTACKS in .env and drops any -O in "
                 "hcatTuning. Use when a candidate exceeds the password or salt "
                 "length ceiling the optimized kernels impose."
             ),
         )
-        parser.add_argument("--debug", action="store_true", help="Enable debug mode")
+        parser.add_argument(
+            "--debug",
+            action=argparse.BooleanOptionalAction,
+            default=None,
+            help=(
+                "Enable debug mode. Overrides DEBUG in .env for this run; "
+                "--no-debug forces it off even when .env enables it."
+            ),
+        )
         parser.add_argument(
             "--potfile-path",
             dest="potfile_path",
             default=None,
             help=(
                 "Override hashcat potfile path (equivalent to hashcat --potfile-path). "
-                "Use empty string to disable overriding and use hashcat's built-in default."
+                "Overrides HCAT_POTFILE_PATH in .env for this run. Use empty string "
+                "to disable overriding and use hashcat's built-in default."
             ),
         )
         parser.add_argument(
             "--restore-potfile",
             dest="restore_potfile",
-            action="store_true",
+            action=argparse.BooleanOptionalAction,
+            default=None,
             help=(
                 "Rebuild <hashfile>.out from the POT file at startup, replacing "
-                "any existing contents, then continue as normal."
+                "any existing contents, then continue as normal. Overrides "
+                "RESTORE_POTFILE_ON_START in .env for this run; "
+                "--no-restore-potfile forces it off even when .env enables it."
             ),
         )
         parser.add_argument(
@@ -5853,26 +5972,25 @@ def main():
     )
     args = parser.parse_args(argv)
 
-    global debug_mode
-    debug_mode = args.debug
     if getattr(args, "command", None) in _noninteractive.ATTACK_COMMANDS:
         non_interactive = True
 
-    # CLI flags override config file.
-    if getattr(args, "no_optimized_kernel", False):
+    # Six flags are per-run overrides of schema-backed keys; resolve_flag_overrides
+    # layers the flag (when present) on top of what the loader already merged
+    # from os.environ / .env / config.json / the schema default.
+    flags = resolve_flag_overrides(
+        args,
+        config_parser,
+        base_dir=hate_path,
+        current_potfile_path=hcatPotfilePath,
+    )
+
+    global debug_mode
+    debug_mode = flags.debug
+    if flags.optimized_kernel_disabled:
         disable_optimized_kernel()
         print("[*] Optimized kernels (-O) disabled for this run")
-    if getattr(args, "no_potfile_path", False):
-        hcatPotfilePath = ""
-    if getattr(args, "potfile_path", None) is not None:
-        # Empty string means: revert to hashcat's default behavior.
-        if args.potfile_path.strip() == "":
-            hcatPotfilePath = ""
-        else:
-            p = os.path.expanduser(args.potfile_path.strip())
-            if not os.path.isabs(p):
-                p = os.path.join(hate_path, p)
-            hcatPotfilePath = p
+    hcatPotfilePath = flags.potfile_path
 
     setup_logging(logger, hate_path, debug_mode)
 
@@ -5905,7 +6023,9 @@ def main():
     if args.update or args.nightly:
         # --nightly implies the upgrade action, so `--nightly` alone works and
         # `--update --nightly` reads as "update, to the nightly channel".
-        _run_upgrade(branch="nightly-dev" if args.nightly else "main")
+        # Note the trigger is still an explicit flag: UPDATE_CHANNEL in .env
+        # selects *which* channel an upgrade uses, it never starts one.
+        _run_upgrade(branch=flags.update_channel)
 
     if args.download_torrent:
         download_weakpass_torrent(
@@ -6030,7 +6150,7 @@ def main():
         sys.exit(0)
 
     if args.weakpass:
-        weakpass_wordlist_menu(rank=args.rank)
+        weakpass_wordlist_menu(rank=flags.weakpass_min_rank)
         sys.exit(0)
 
     if args.hashmob:
@@ -6286,7 +6406,7 @@ def main():
     # Check POT File for Already Cracked Hashes. --restore-potfile forces the
     # rebuild even when .out already exists; the flag is the explicit request,
     # so it skips the interactive overwrite confirmation.
-    if getattr(args, "restore_potfile", False):
+    if flags.restore_potfile:
         check_potfile(force_overwrite=True)
     elif not os.path.isfile(hcatHashFile + ".out"):
         hcatOutput = open(hcatHashFile + ".out", "w+")

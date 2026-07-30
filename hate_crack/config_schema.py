@@ -67,12 +67,19 @@ class ConfigValueError(ValueError):
 
 @dataclass(frozen=True)
 class ConfigKey:
-    """One configuration key, describing both its .env and legacy identity."""
+    """One configuration key, describing both its .env and legacy identity.
+
+    ``choices``, when set, is the closed set of permitted values for a
+    ``str``-typed key. :func:`coerce` rejects anything outside it with a
+    :class:`ConfigValueError`, which the loader turns into the same fatal,
+    key-naming diagnostic a malformed ``int``/``bool`` already gets.
+    """
 
     env: str
     legacy: str
     type: CoerceType
     default: Any
+    choices: tuple[str, ...] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -262,6 +269,23 @@ CONFIG_SCHEMA: tuple[ConfigKey, ...] = (
         "float",
         5.0,
     ),
+    # ---------------------------------------------------------------------
+    # Promoted CLI preferences (Task 5). These four keys exist only in the
+    # schema -- deliberately NOT in the deprecated config.json.example, which
+    # is no longer the source of truth. Each one is the persisted default for
+    # an argparse flag that remains available as a per-run override; see
+    # main.py's resolve_flag_overrides().
+    # ---------------------------------------------------------------------
+    ConfigKey("DEBUG", "debug", "bool", False),
+    ConfigKey("WEAKPASS_MIN_RANK", "weakpass_min_rank", "int", -1),
+    ConfigKey(
+        "UPDATE_CHANNEL",
+        "update_channel",
+        "str",
+        "main",
+        choices=("main", "nightly-dev"),
+    ),
+    ConfigKey("RESTORE_POTFILE_ON_START", "restore_potfile_on_start", "bool", False),
 )
 
 BY_ENV: dict[str, ConfigKey] = {entry.env: entry for entry in CONFIG_SCHEMA}
@@ -320,6 +344,25 @@ def _coerce_charset(raw: str) -> list[str]:
     return list(raw)
 
 
+def validate_choices(entry: ConfigKey, value: Any, source: str) -> None:
+    """Raise :class:`ConfigValueError` if ``value`` is outside ``entry.choices``.
+
+    Exposed separately from :func:`coerce` because the legacy ``config.json``
+    layer is checked rather than coerced (its values are typed already), and
+    an out-of-range value there must fail the same way it does in `.env`.
+    """
+    if entry.choices is None:
+        return
+    if value in entry.choices:
+        return
+    raise ConfigValueError(
+        entry.env,
+        str(value),
+        source,
+        "expected one of " + "/".join(entry.choices),
+    )
+
+
 def coerce(entry: ConfigKey, raw: str, source: str = "<.env>") -> Any:
     """Coerce a raw string value according to ``entry.type``.
 
@@ -328,6 +371,7 @@ def coerce(entry: ConfigKey, raw: str, source: str = "<.env>") -> Any:
     a malformed ``int``/``float``/``bool``.
     """
     if entry.type == "str":
+        validate_choices(entry, raw, source)
         return raw
     if entry.type == "path":
         return _coerce_path(raw)

@@ -47,7 +47,10 @@ def test_defaults_only_matches_schema(tmp_path, monkeypatch):
     assert isinstance(result, ConfigLoadResult)
     expected_keys = {entry.legacy for entry in CONFIG_SCHEMA}
     assert set(result.config.keys()) == expected_keys
-    assert len(expected_keys) == 43
+    # 43 keys migrated from config.json.example + the 4 schema-only CLI
+    # preference keys promoted in Task 5 (see SCHEMA_ONLY_LEGACY_KEYS in
+    # tests/test_config_schema.py).
+    assert len(expected_keys) == 47
     for entry in CONFIG_SCHEMA:
         # path-typed defaults are expanded by load_config()'s uniform
         # post-merge normalization pass (see _normalize_path_values), so a

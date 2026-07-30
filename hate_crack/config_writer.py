@@ -117,6 +117,16 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "NOTIFY_POLL_INTERVAL_SECONDS",
         ),
     ),
+    (
+        "persisted defaults for per-run CLI flags (each flag still overrides "
+        "the value below for one run)",
+        (
+            "DEBUG",
+            "WEAKPASS_MIN_RANK",
+            "UPDATE_CHANNEL",
+            "RESTORE_POTFILE_ON_START",
+        ),
+    ),
 )
 
 _grouped_names = {name for _comment, names in _GROUPS for name in names}

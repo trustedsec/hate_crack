@@ -33,23 +33,57 @@ def _load_example() -> dict:
     return json.loads(EXAMPLE_PATH.read_text())
 
 
+# Legacy keys that exist ONLY in CONFIG_SCHEMA, deliberately not in the
+# deprecated config.json.example. These four are the CLI preferences promoted
+# into the schema in Task 5 (--debug, --rank, --nightly, --restore-potfile);
+# the schema is the source of truth now, so new keys are not backfilled into
+# the old file. Anything added here has to be declared on purpose, which is
+# what keeps a fifth key from sliding in unnoticed.
+SCHEMA_ONLY_LEGACY_KEYS = frozenset(
+    {
+        "debug",
+        "weakpass_min_rank",
+        "update_channel",
+        "restore_potfile_on_start",
+    }
+)
+
+
 # ---------------------------------------------------------------------------
 # 1. Drift guard
 # ---------------------------------------------------------------------------
 
 
-def test_legacy_keys_match_config_json_example():
-    example = _load_example()
-    example_keys = set(example.keys())
+def test_every_config_json_example_key_is_in_the_schema():
+    """Subset check: every key in the deprecated config.json.example must
+    still exist in CONFIG_SCHEMA. This is the drift that matters -- a key the
+    old file has and the schema doesn't is a setting that silently stops
+    working for anyone still on config.json.
+    """
+    example_keys = set(_load_example().keys())
     schema_keys = set(BY_LEGACY.keys())
 
     only_in_example = example_keys - schema_keys
-    only_in_schema = schema_keys - example_keys
-
-    assert not only_in_example and not only_in_schema, (
+    assert not only_in_example, (
         f"config.json.example has keys missing from CONFIG_SCHEMA: "
-        f"{sorted(only_in_example)}; CONFIG_SCHEMA has keys missing from "
-        f"config.json.example: {sorted(only_in_schema)}"
+        f"{sorted(only_in_example)}"
+    )
+
+
+def test_schema_only_keys_are_exactly_the_declared_allowlist():
+    """The other direction, gated by an explicit allowlist rather than
+    forbidden outright: the schema is allowed extra keys, but only the ones
+    named in SCHEMA_ONLY_LEGACY_KEYS. A fifth schema-only key has to be
+    declared there deliberately instead of appearing by accident.
+    """
+    example_keys = set(_load_example().keys())
+    schema_keys = set(BY_LEGACY.keys())
+
+    only_in_schema = schema_keys - example_keys
+    assert only_in_schema == set(SCHEMA_ONLY_LEGACY_KEYS), (
+        f"CONFIG_SCHEMA's schema-only keys are {sorted(only_in_schema)}, but "
+        f"the declared allowlist is {sorted(SCHEMA_ONLY_LEGACY_KEYS)}. Add the "
+        f"key to SCHEMA_ONLY_LEGACY_KEYS if it is intentionally schema-only."
     )
 
 
@@ -82,8 +116,12 @@ def test_type_counts_match_config_json_example_value_types():
         elif isinstance(value, str):
             json_type_counts["str_or_path"] = json_type_counts.get("str_or_path", 0) + 1
 
+    # Schema-only keys have no config.json.example counterpart by design, so
+    # they are excluded from the comparison (see SCHEMA_ONLY_LEGACY_KEYS).
     schema_type_counts: dict[str, int] = {}
     for entry in CONFIG_SCHEMA:
+        if entry.legacy in SCHEMA_ONLY_LEGACY_KEYS:
+            continue
         schema_type_counts[entry.type] = schema_type_counts.get(entry.type, 0) + 1
 
     # bool, int, float map straight across.
@@ -108,6 +146,8 @@ def test_defaults_match_config_json_example():
     example = _load_example()
     mismatches = []
     for entry in CONFIG_SCHEMA:
+        if entry.legacy in SCHEMA_ONLY_LEGACY_KEYS:
+            continue
         example_value = example[entry.legacy]
         if entry.default != example_value:
             mismatches.append(

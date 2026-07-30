@@ -38,6 +38,7 @@ from hate_crack.config_schema import (
     SECRET_ENV_KEYS,
     ConfigValueError,
     coerce,
+    validate_choices,
 )
 
 logger = logging.getLogger("hate_crack")
@@ -180,6 +181,10 @@ def _apply_legacy_layer(
                 f"the wrong type; keeping schema default."
             )
             continue
+        # Legacy values are checked, not coerced, so coerce()'s closed-set
+        # validation never runs for them -- do it explicitly here so a bad
+        # UPDATE_CHANNEL in config.json fails exactly like one in .env.
+        validate_choices(entry, value, legacy_json_path)
         result[entry.legacy] = value
 
 
