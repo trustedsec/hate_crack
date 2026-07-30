@@ -107,7 +107,7 @@ def _stub_hashcat(tmp_path, main_module, monkeypatch, *, exit_code=0, stdout="")
     monkeypatch.setattr(main_module, "hcatBin", str(stub))
     monkeypatch.setattr(main_module, "hcatPotfilePath", "")
     monkeypatch.setattr(main_module, "hcatHashType", "1000")
-    monkeypatch.setattr(main_module, "hcatUsernamePrefix", False, raising=False)
+    monkeypatch.setattr(main_module, "hcatUsernamePrefix", False)
     return stub
 
 

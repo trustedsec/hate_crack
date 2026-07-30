@@ -136,10 +136,18 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   error on that — it runs to completion and produces meaningless
   candidates, no `UnicodeDecodeError`, no non-zero exit. The correct
   magic-byte check already existed for `hcatNgramX`; it is now the single
-  shared `hate_crack.plaintext.is_gzipped`, and `_open_wordlist` (covering
-  `hcatMarkovTrain`, `hcatPrince`, `hcatPermute`), `hcatCombipow`, and
-  `combipow_crack`'s pre-flight line count all route through it instead of
-  re-deriving their own filename check (#215).
+  shared `hate_crack.plaintext.is_gzipped`, used by `hcatCombipow` and
+  `combipow_crack`'s pre-flight line count. `hcatMarkovTrain`, `hcatPrince`,
+  and `hcatPermute` route through `_wordlist_path` instead — decompressing
+  to a real temp file rather than opening a `gzip.GzipFile` handle, because
+  `subprocess.Popen(stdin=...)` resolves that handle through `fileno()`,
+  which for `GzipFile` is the fd of the *underlying compressed* file. A
+  `GzipFile` passed straight to `Popen` therefore feeds the child raw gzip
+  bytes even though reading it from Python decompresses correctly — the gap
+  the original fix for these three sites missed. `_open_wordlist` remains
+  correct for its one remaining caller, which only reads the handle in
+  Python, and its docstring now warns against ever handing it to
+  `subprocess` (#215).
 - **The Spoonman attack and the LLM pattern modes derived garbage basewords
   and rules from a gzipped corpus, with no error.** Both readers opened the
   corpus with `encoding="latin-1"`, under which every byte 0x00-0xFF decodes

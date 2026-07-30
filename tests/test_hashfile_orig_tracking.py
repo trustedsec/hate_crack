@@ -20,7 +20,7 @@ def _quiet_cleanup_state(main_module, monkeypatch, hash_file, orig):
     monkeypatch.setattr(main_module, "hcatHashFile", hash_file)
     monkeypatch.setattr(main_module, "hcatHashFileOrig", orig)
     monkeypatch.setattr(main_module, "hcatHashType", "1000")
-    monkeypatch.setattr(main_module, "pwdump_format", False, raising=False)
+    monkeypatch.setattr(main_module, "pwdump_format", False)
 
 
 class TestCleanupFallback:
@@ -62,7 +62,7 @@ class TestCleanupFallback:
             fh.write("\n")
 
         _quiet_cleanup_state(main_module, monkeypatch, hash_file, None)
-        monkeypatch.setattr(main_module, "pwdump_format", True, raising=False)
+        monkeypatch.setattr(main_module, "pwdump_format", True)
         with patch.object(main_module, "combine_ntlm_output") as combine:
             main_module.cleanup()
 

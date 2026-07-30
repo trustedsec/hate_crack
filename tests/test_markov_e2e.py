@@ -85,6 +85,23 @@ class TestMarkovE2E:
         )
         assert hcstat2_path.stat().st_size > 0, ".hcstat2 file should not be empty"
 
+        # A size-only assertion passes whether hcstat2gen trained on the
+        # decompressed plaintext or on raw gzip noise -- it emits *some*
+        # table from either. Train a second table from the equivalent
+        # plaintext wordlist (built above) and require the two tables to be
+        # byte-identical: that's the only check that actually fails if the
+        # gzip branch feeds the binary compressed bytes.
+        plain_hash_file = tmp_path / "hashes_plain.txt"
+        plain_hash_file.write_text("dummy")
+        plain_result = main.hcatMarkovTrain(str(wordlist_plain), str(plain_hash_file))
+        assert plain_result is True, "Markov training on plaintext should succeed"
+        plain_hcstat2_path = Path(str(plain_hash_file) + ".hcstat2")
+
+        assert hcstat2_path.read_bytes() == plain_hcstat2_path.read_bytes(), (
+            "Table trained from gzipped wordlist must match the table "
+            "trained from the equivalent plaintext wordlist"
+        )
+
     def test_markov_brute_force_handler_use_existing_table(
         self, tmp_path: Path
     ) -> None:

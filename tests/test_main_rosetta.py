@@ -139,9 +139,7 @@ class TestRosettaDebugLogs:
         os.utime(newer, (1_700_000_000, 1_700_000_000))
         (tmp_path / "subdir").mkdir()
 
-        monkeypatch.setattr(
-            main_module, "hcatDebugLogPath", str(tmp_path), raising=False
-        )
+        monkeypatch.setattr(main_module, "hcatDebugLogPath", str(tmp_path))
         assert main_module.rosetta_debug_logs() == [str(newer), str(older)]
 
     def test_missing_directory_is_not_an_error(self, main_module, tmp_path):
@@ -201,7 +199,7 @@ class TestHcatRosetta:
         monkeypatch.setattr(main_module, "hcatHashFile", hash_file)
         monkeypatch.setattr(main_module, "hcatHashFileOrig", hash_file)
         monkeypatch.setattr(main_module, "hcatHashType", "1000")
-        monkeypatch.setattr(main_module, "pwdump_format", False, raising=False)
+        monkeypatch.setattr(main_module, "pwdump_format", False)
         main_module.cleanup()
         assert not os.path.exists(hash_file + ".rosetta")
 

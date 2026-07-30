@@ -1088,7 +1088,18 @@ hcatUsernamePrefix: bool = False
 
 
 def _open_wordlist(path):
-    """Open a wordlist file, transparently decompressing gzip by magic bytes."""
+    """Open a wordlist file, transparently decompressing gzip by magic bytes.
+
+    WARNING: the returned handle must never be passed to
+    ``subprocess.Popen(stdin=...)``. When the file is gzip-compressed this
+    returns a ``gzip.GzipFile``, and ``GzipFile.fileno()`` resolves to the
+    fd of the *underlying compressed file* rather than the decompressed
+    stream -- a subprocess given this as stdin reads raw gzip bytes, not
+    decompressed text. Reading via ``.read()``/iteration in Python is fine
+    (that's what this function exists for); for an external binary use
+    ``_wordlist_path()`` instead, which materializes a real decompressed
+    path.
+    """
     if _plaintext.is_gzipped(path):
         return gzip.open(path, "rb")
     return open(path, "rb")
@@ -2581,6 +2592,12 @@ def _corpus_context(path, source_label="wordlist"):
                 )
                 if sampled:
                     context["sample"] = "\n".join(sampled)
+            # NOTE: this return sits inside the try, so a ValueError/OSError
+            # raised by format_summary() or _sample_plaintext_file() above is
+            # swallowed into the OSError handler below and this function
+            # returns None instead of propagating. Widened blast radius is
+            # incidental to this block, not intentional; inert today because
+            # neither helper currently raises those.
             return context
     except OSError as e:
         print(f"Error reading {source_label}: {e}")
@@ -3236,7 +3253,10 @@ def hcatMarkovTrain(source_file, hcatHashFile):
         return False
 
     try:
-        with _open_wordlist(source_file) as stdin_f:
+        with (
+            _wordlist_path(source_file) as resolved_source,
+            open(resolved_source, "rb") as stdin_f,
+        ):
             hcatProcess = subprocess.Popen(
                 [hcstat2gen_bin, hcstat2_path], stdin=stdin_f, stderr=subprocess.PIPE
             )
@@ -3400,7 +3420,10 @@ def hcatPrince(hcatHashType, hcatHashFile, attack_name="PRINCE"):
     hashcat_cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(hashcat_cmd)
     hashcat_cmd = _add_debug_mode_for_rules(hashcat_cmd)
-    with _open_wordlist(prince_base) as base:
+    with (
+        _wordlist_path(prince_base) as resolved_base,
+        open(resolved_base, "rb") as base,
+    ):
         prince_proc = subprocess.Popen(prince_cmd, stdin=base, stdout=subprocess.PIPE)
         _run_hcat_cmd(
             hashcat_cmd,
@@ -3820,7 +3843,10 @@ def hcatPermute(hcatHashType, hcatHashFile, wordlist):
         _insert_optimized_flag(hashcat_cmd)
     hashcat_cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(hashcat_cmd)
-    with _open_wordlist(wordlist) as wl_file:
+    with (
+        _wordlist_path(wordlist) as resolved_wordlist,
+        open(resolved_wordlist, "rb") as wl_file,
+    ):
         permute_proc = subprocess.Popen(
             [permute_path], stdin=wl_file, stdout=subprocess.PIPE
         )
