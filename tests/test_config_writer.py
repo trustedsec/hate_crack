@@ -137,6 +137,38 @@ def test_nondefault_values_roundtrip(tmp_path, env_name, value):
     assert got == _expected_after_roundtrip(entry, value)
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        " leading-space",
+        "trailing-space ",
+        "  both-ends  ",
+        "interior  double-space",
+    ],
+    ids=["leading", "trailing", "both", "interior"],
+)
+def test_plain_str_whitespace_survives_the_round_trip(tmp_path, value):
+    """#227 item 3: ``_needs_quoting`` is type-agnostic, and the ``charset``
+    keys prove that for values that always contain a space -- but no test
+    covered an ordinary ``str`` whose whitespace is only incidental. Written to
+    a real file and read back with ``dotenv_values()``, because asserting
+    against the emitter alone would not prove the quoting is right.
+    """
+    entry = BY_ENV_NAME["OLLAMA_MODEL"]
+    assert entry.type == "str"
+    config = dict(DEFAULTS)
+    config[entry.legacy] = value
+    env_path = tmp_path / ".env"
+    write_env(str(env_path), config)
+
+    parsed = dotenv_values(str(env_path))
+    raw = parsed["OLLAMA_MODEL"]
+    assert raw is not None
+    assert coerce(entry, raw) == value
+    # And through the loader, which is what actually consumes the file.
+    assert load_config(env_path=str(env_path), environ={}).config[entry.legacy] == value
+
+
 def test_string_with_newline_is_supported_and_roundtrips(tmp_path):
     """Decision: a str/csv-element value containing a newline is supported.
 
