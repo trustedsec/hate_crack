@@ -113,3 +113,79 @@ def test_pipal_missing_out_returns_empty(hc_module, tmp_path, capsys):
 
     assert result == []
     assert "No hashes were cracked" in captured.out
+
+
+def test_pipal_skips_the_merge_for_a_non_pwdump_hash_file(
+    hc_module, tmp_path, monkeypatch
+):
+    """Issue #196: the guard tested the hash type but not pwdump_format, so a
+    plain NTLM list took the pwdump-only merge path."""
+    from unittest.mock import patch
+
+    main_module = hc_module._main
+    hash_file = tmp_path / "hashes"
+    out_path = tmp_path / "hashes.out"
+    out_path.write_text("hash1:pw-a\nhash2:pw-b\n")
+
+    monkeypatch.setattr(main_module, "hcatHashFile", str(hash_file), raising=False)
+    monkeypatch.setattr(main_module, "hcatHashFileOrig", str(hash_file), raising=False)
+    monkeypatch.setattr(main_module, "hcatHashType", "1000", raising=False)
+    monkeypatch.setattr(main_module, "pwdump_format", False)
+    monkeypatch.setattr(main_module, "pipalPath", "/nonexistent/pipal")
+
+    with patch.object(main_module, "combine_ntlm_output") as combine:
+        main_module.pipal()
+
+    combine.assert_not_called()
+
+
+def test_pipal_still_merges_for_a_pwdump_hash_file(hc_module, tmp_path, monkeypatch):
+    """The pwdump path must keep calling the merge."""
+    from unittest.mock import patch
+
+    main_module = hc_module._main
+    orig = tmp_path / "hashes.txt"
+    orig.write_text("alice:1001:" + "0" * 32 + ":" + "a" * 32 + ":::\n")
+    cracked = tmp_path / "hashes.txt.nt"
+    (tmp_path / "hashes.txt.out").write_text("alice:1001::" + "a" * 32 + ":::pw-a\n")
+
+    monkeypatch.setattr(main_module, "hcatHashFile", str(cracked), raising=False)
+    monkeypatch.setattr(main_module, "hcatHashFileOrig", str(orig), raising=False)
+    monkeypatch.setattr(main_module, "hcatHashType", "1000", raising=False)
+    monkeypatch.setattr(main_module, "pwdump_format", True)
+    monkeypatch.setattr(main_module, "pipalPath", "/nonexistent/pipal")
+
+    with patch.object(main_module, "combine_ntlm_output") as combine:
+        main_module.pipal()
+
+    combine.assert_called_once()
+
+
+def test_pipal_warns_when_the_password_list_is_empty(
+    hc_module, tmp_path, monkeypatch, capsys
+):
+    """An empty report must not look like a successful analysis.
+
+    This one needs a real pipalPath: the .passwords file is written inside
+    ``if os.path.isfile(pipalPath):``, so a nonexistent path would skip the
+    code under test entirely.
+    """
+    main_module = hc_module._main
+    hash_file = tmp_path / "hashes"
+    (tmp_path / "hashes.out").write_text("")
+
+    pipal_stub = tmp_path / "pipal_stub.py"
+    _write_executable(
+        pipal_stub,
+        "#!/usr/bin/env python3\nraise SystemExit('pipal must not run on an empty list')\n",
+    )
+
+    monkeypatch.setattr(main_module, "hcatHashFile", str(hash_file), raising=False)
+    monkeypatch.setattr(main_module, "hcatHashFileOrig", str(hash_file), raising=False)
+    monkeypatch.setattr(main_module, "hcatHashType", "0", raising=False)
+    monkeypatch.setattr(main_module, "pipalPath", str(pipal_stub))
+
+    result = main_module.pipal()
+
+    assert result is None
+    assert "no cracked passwords" in capsys.readouterr().out.lower()

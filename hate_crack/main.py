@@ -5096,7 +5096,10 @@ def show_results():
 # Analyze Hashes with Pipal
 def pipal():
     hcatHashFilePipal = hcatHashFile
-    if hcatHashType == "1000":
+    # Both halves of the condition matter, and cleanup() has always had both:
+    # the merge is pwdump-only, and running it on a plain hash list used to
+    # truncate the cracked output (issues #195, #196).
+    if hcatHashType == "1000" and pwdump_format:
         combine_ntlm_output()
         hcatHashFilePipal = hcatHashFileOrig
 
@@ -5116,6 +5119,13 @@ def pipal():
                         clearTextPass += "\n"
                     pipalFile.write(clearTextPass)
                 pipalFile.close()
+
+            if os.path.getsize(hcatHashFilePipal + ".passwords") == 0:
+                print(
+                    "\n[!] No cracked passwords to analyse; Pipal would report "
+                    "zero entries. Crack some hashes first."
+                )
+                return None
 
             # List-form Popen (no shell=True) so paths/filenames containing
             # shell metacharacters can't be interpreted as commands. shlex.split
