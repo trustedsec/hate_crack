@@ -22,7 +22,24 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # Artifacts that can carry cracked plaintext or hashes.
-SECRET_ARTIFACT_PATTERNS = ("hashcat_debug*.log", "*.pot", "*.potfile")
+SECRET_ARTIFACT_PATTERNS = (
+    "hashcat_debug*.log",
+    "*.pot",
+    "*.potfile",
+    # `.out` is a hash:plaintext list, `.passwords` is pure plaintext, and the
+    # rest carry hashes or intermediate cracks.
+    "*.out",
+    "*.passwords",
+    "*.working",
+    "*.combined",
+    "*.nt",
+    "*.lm",
+    "*.cracked",
+    "*.xlsx",
+)
+
+# Per-attack scratch directories that hold basewords and candidate lists.
+SECRET_ARTIFACT_DIR_SUFFIXES = (".rosetta/", ".spoonman/", ".llm_patterns/")
 
 
 def _git(*args):
@@ -74,6 +91,16 @@ def test_no_tracked_file_lives_in_a_debug_log_directory():
     assert offenders == [], f"debug-log directory has tracked contents: {offenders}"
 
 
+def test_no_tracked_file_lives_in_an_attack_scratch_directory():
+    tracked = _git("ls-files").stdout.splitlines()
+    offenders = [
+        p for p in tracked if any(s in p for s in SECRET_ARTIFACT_DIR_SUFFIXES)
+    ]
+    assert offenders == [], (
+        f"attack scratch directory has tracked contents: {offenders}"
+    )
+
+
 @pytest.fixture(scope="module")
 def pristine_checkout(tmp_path_factory):
     """An empty repo holding only the tracked .gitignore.
@@ -99,9 +126,28 @@ def pristine_checkout(tmp_path_factory):
         "hashcat_debug/anything_at_all",
         "hashcat_debug_example.log",
         "some/nested/dir/hashcat_debug_example.log",
+        # Cracked-plaintext session artifacts. These were covered only by
+        # .git/info/exclude, which does not clone, so every other contributor's
+        # checkout would stage them on `git add -A`.
+        "hashes.txt.out",
+        "hashes.txt.passwords",
+        "hashes.txt.working",
+        "hashes.txt.combined",
+        "hashes.txt.nt",
+        "hashes.txt.lm",
+        "hashes.txt.lm.cracked",
+        "hashes.txt.nt.out",
+        "cracked.xlsx",
+        "hashcat.potfile",
+        "hashcat.pot",
+        "some/nested/dir/hashes.txt.out",
+        # Scratch directories, matched by their contents.
+        "hashes.txt.rosetta/basewords.txt",
+        "hashes.txt.spoonman/candidates.txt",
+        "hashes.txt.llm_patterns/patterns.rule",
     ],
 )
-def test_gitignore_covers_debug_logs(pristine_checkout, path):
+def test_gitignore_covers_cracked_plaintext_artifacts(pristine_checkout, path):
     # check-ignore exits 0 only when a rule matches.
     result = subprocess.run(
         ["git", "check-ignore", "-q", "--no-index", "--", path],

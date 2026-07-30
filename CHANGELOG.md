@@ -42,12 +42,29 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   wordlist actually produced each crack. Mode 4 logs written before the switch
   still parse.
 
+- **A POT file lookup that came back empty no longer wipes the cracked output
+  file.** `check_potfile()` rewrote `<hashfile>.out` from `hashcat --show`
+  unconditionally, so any run where `--show` produced nothing truncated it to
+  zero bytes — cracks captured via `-o` only, an empty or stale
+  `hcatPotfilePath`, a `--username` parse mismatch, or a hashcat failure that was
+  invisible because stderr was discarded. On the pwdump path `cleanup()` reaches
+  this before the merged file exists, so that was the only surviving copy.
+  `_run_hashcat_show` now preserves a populated output file when it has nothing
+  to write, refuses to touch it on a non-zero hashcat exit and reports the error,
+  and replaces content atomically. The deliberate rebuild (`--restore-potfile`
+  and menu option 93) still overwrites, but only after confirming.
+- **Cracked-plaintext artifacts are no longer stageable in a fresh clone.**
+  `.out`, `.passwords`, `.working`, `.combined`, `.nt`, `.lm`, `.cracked`,
+  `.xlsx`, `hashcat.potfile` and the per-attack scratch directories were ignored
+  only by `.git/info/exclude`, which does not clone, or by nothing at all. They
+  are now in the tracked `.gitignore` and pinned by `tests/test_repo_hygiene.py`.
 - **hashcat debug logs are no longer committable, and one that had been
   committed is now untracked.** `_add_debug_mode_for_rules` appends
   `--debug-mode 4 --debug-file` to every rule-based attack unconditionally, and
   each line of the resulting log pairs a rule with the plaintext it cracked. The
-  default `hcatDebugLogPath` is the relative `./hashcat_debug`, so any session
-  launched from a checkout writes them into the working tree of a public repo.
+  default `hcatDebugLogPath` was the relative `./hashcat_debug` at the time, so
+  any session launched from a checkout wrote them into the working tree of a
+  public repo; the default is now absolute, as described under Changed above.
   Nothing had been ignoring them except a `*.log` line in `.git/info/exclude`,
   which is local-only and does not clone, and one such log was already tracked
   on `main`. It was zero bytes, so no plaintext was published. `hashcat_debug/`

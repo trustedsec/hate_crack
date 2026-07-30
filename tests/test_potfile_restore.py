@@ -12,8 +12,8 @@ def _stub_show(monkeypatch, lines):
     """Make _run_hashcat_show write `lines` to its output path, as hashcat would."""
     calls = []
 
-    def fake_show(hash_type, hash_file, output_path):
-        calls.append((hash_type, hash_file, output_path))
+    def fake_show(hash_type, hash_file, output_path, force_overwrite=False):
+        calls.append((hash_type, hash_file, output_path, force_overwrite))
         with open(output_path, "w") as fh:
             for line in lines:
                 fh.write(line + "\n")
@@ -39,7 +39,9 @@ def test_overwrites_truncated_out_file(monkeypatch, tmp_path):
     assert main.restore_from_potfile() is True
 
     assert len(calls) == 1
-    assert calls[0] == ("1000", str(hash_file), f"{hash_file}.out")
+    assert calls[0] == ("1000", str(hash_file), f"{hash_file}.out", True), (
+        "the deliberate rebuild must force the overwrite it already confirmed"
+    )
     assert (
         tmp_path / "hashes.txt.out"
     ).read_text() == "fb5699c234f878ce6be8182c2d2bcac8:PLAINTEXT_A\n"
@@ -96,7 +98,7 @@ def test_non_interactive_overwrites_without_prompting(monkeypatch, tmp_path):
 def test_no_hashfile_loaded_is_reported(monkeypatch, capsys):
     monkeypatch.setattr(main, "hcatHashFile", "", raising=False)
     calls = []
-    monkeypatch.setattr(main, "check_potfile", lambda: calls.append(1))
+    monkeypatch.setattr(main, "check_potfile", lambda *a, **k: calls.append(1))
 
     assert main.restore_from_potfile() is False
 
@@ -151,7 +153,7 @@ def test_restore_potfile_flag_rebuilds_existing_out(monkeypatch, tmp_path):
 
     calls = []
     monkeypatch.setattr(main, "ascii_art", lambda: None)
-    monkeypatch.setattr(main, "check_potfile", lambda: calls.append(1))
+    monkeypatch.setattr(main, "check_potfile", lambda *a, **k: calls.append(1))
     monkeypatch.setattr(
         main, "get_main_menu_options", lambda: {"q": lambda: sys.exit(0)}
     )
@@ -173,7 +175,7 @@ def test_startup_skips_restore_without_the_flag(monkeypatch, tmp_path):
 
     calls = []
     monkeypatch.setattr(main, "ascii_art", lambda: None)
-    monkeypatch.setattr(main, "check_potfile", lambda: calls.append(1))
+    monkeypatch.setattr(main, "check_potfile", lambda *a, **k: calls.append(1))
     monkeypatch.setattr(
         main, "get_main_menu_options", lambda: {"q": lambda: sys.exit(0)}
     )

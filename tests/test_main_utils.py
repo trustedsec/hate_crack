@@ -161,6 +161,10 @@ class TestRunHashcatShow:
     def _make_mock_result(self, stdout_bytes):
         mock_result = MagicMock()
         mock_result.stdout = stdout_bytes
+        # A successful hashcat run; a non-zero code now means "leave the output
+        # file alone", which is a separate case with its own tests.
+        mock_result.returncode = 0
+        mock_result.stderr = b""
         return mock_result
 
     def test_show_flag_present(self, main_module, tmp_path):
