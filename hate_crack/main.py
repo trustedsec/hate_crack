@@ -141,10 +141,14 @@ DEFAULT_OPTIMIZED_ATTACKS = frozenset(
 # on by default would silently shrink the keyspace of an attack a user had
 # already tuned.
 #
-# A name recognised here but never passed to _should_use_optimized_kernel is
-# an inert config knob (hcatPrinceLing was one for several releases, because
-# PRINCE-LING delegates to hcatPrince and that function checks its own name).
-# tests/test_config_json_example.py enforces both directions.
+# Nothing at runtime reads this set -- an unknown name in config.json is
+# ignored by the membership test in _should_use_optimized_kernel. It exists so
+# tests/test_config_json_example.py can enforce that the documented names and
+# the names actually checked stay the same set: a name here that is never
+# passed to _should_use_optimized_kernel is an inert config knob
+# (hcatPrinceLing was one for several releases, because PRINCE-LING delegates
+# to hcatPrince and that function checks its own name), and a name checked but
+# missing here is one the docs never told the user about.
 KNOWN_OPTIMIZABLE_ATTACKS = DEFAULT_OPTIMIZED_ATTACKS | {
     "hcatNgramX",
     "hcatOllama",
@@ -827,16 +831,6 @@ try:
     _cfg_optimized = config_parser["optimizedKernelAttacks"]
     if isinstance(_cfg_optimized, list):
         _optimized_kernel_attacks = frozenset(_cfg_optimized)
-        # A misspelled or retired name is silently ignored by the membership
-        # test, so the user sees an attack running without -O and no reason why.
-        _unknown_optimized = sorted(
-            str(name) for name in set(_cfg_optimized) - KNOWN_OPTIMIZABLE_ATTACKS
-        )
-        if _unknown_optimized:
-            print(
-                "[!] Unrecognized optimizedKernelAttacks entries in config.json "
-                f"(ignored): {', '.join(_unknown_optimized)}"
-            )
 except KeyError:
     pass
 check_for_updates_enabled = config_parser.get("check_for_updates", True)

@@ -111,8 +111,7 @@ def test_every_recognized_attack_name_is_checked(hc_module):
 
 def test_every_checked_attack_name_is_recognized(hc_module):
     """No unreachable knobs: an attack that consults the setting must be a name
-    the user can actually put in optimizedKernelAttacks, and one the config
-    loader will not warn about as unrecognized."""
+    the user can actually put in optimizedKernelAttacks."""
     assert _checked_attack_names() <= set(hc_module.KNOWN_OPTIMIZABLE_ATTACKS)
 
 
