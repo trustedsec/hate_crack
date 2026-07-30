@@ -1,8 +1,18 @@
 import importlib.util
+import os
 import sys
 from pathlib import Path
 
 import pytest
+
+# Set before any test module -- and therefore before anything imports
+# hate_crack.main -- rather than per-test. main.py's config bootstrap writes a
+# `.env` (from a legacy config.json, or from schema defaults) unless SKIP_INIT
+# is set, and whichever test module happens to import main first would
+# otherwise create one in the repo root or in ~/.hate_crack as a side effect
+# of collection. Individual tests that want the un-skipped path still
+# monkeypatch this themselves.
+os.environ.setdefault("HATE_CRACK_SKIP_INIT", "1")
 
 
 def load_hate_crack_module(monkeypatch):
@@ -20,6 +30,25 @@ def load_hate_crack_module(monkeypatch):
 @pytest.fixture
 def hc_module(monkeypatch):
     return load_hate_crack_module(monkeypatch)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_config_file_discovery(monkeypatch):
+    """Keep the suite from finding the developer's real config files.
+
+    ``config_loader.candidate_roots()`` searches the repo root, the package
+    directory, and ``~/.hate_crack`` -- so on a machine where hate_crack has
+    actually been run, ``api.py``'s helpers would silently load a real
+    ``.env``/``config.json`` (complete with real API keys) instead of the
+    fixture the test set up. Emptying the search order makes "no config file"
+    the hermetic default; a test that wants specific files passes their paths
+    explicitly, or re-patches this itself (an autouse fixture is applied
+    before the test body, so the test's own monkeypatch wins).
+    """
+    from hate_crack import config_loader
+
+    monkeypatch.setattr(config_loader, "candidate_roots", list)
+    yield
 
 
 @pytest.fixture(autouse=True)

@@ -1,10 +1,11 @@
 """Unit tests for the toggle_per_crack_enabled runtime toggle."""
 
 import importlib.util
-import json
 from pathlib import Path
 
 from hate_crack import notify as _notify
+from hate_crack.config_loader import load_config
+from hate_crack.config_writer import write_env
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 _CLI_SPEC = importlib.util.spec_from_file_location(
@@ -15,8 +16,8 @@ _CLI_SPEC.loader.exec_module(CLI_MODULE)
 
 
 def _init_with(tmp_path: Path, **overrides) -> Path:
-    """Seed a config file with defaults + overrides and init the notify module."""
-    config_path = tmp_path / "config.json"
+    """Seed a `.env` with defaults + overrides and init the notify module."""
+    env_path = tmp_path / ".env"
     cfg = {
         "notify_enabled": False,
         "notify_per_crack_enabled": False,
@@ -24,9 +25,14 @@ def _init_with(tmp_path: Path, **overrides) -> Path:
         "notify_pushover_user": "",
     }
     cfg.update(overrides)
-    config_path.write_text(json.dumps(cfg))
-    _notify.init(str(config_path), cfg)
-    return config_path
+    write_env(str(env_path), cfg)
+    _notify.init(str(env_path), cfg)
+    return env_path
+
+
+def _read_back(env_path: Path) -> dict:
+    """Reload the persisted `.env` through the shared loader."""
+    return load_config(env_path=str(env_path), environ={}).config
 
 
 class TestTogglePerCrackEnabled:
@@ -36,8 +42,7 @@ class TestTogglePerCrackEnabled:
             new_state = _notify.toggle_per_crack_enabled()
             assert new_state is True
             assert _notify.get_settings().per_crack_enabled is True
-            data = json.loads(config_path.read_text())
-            assert data["notify_per_crack_enabled"] is True
+            assert _read_back(config_path)["notify_per_crack_enabled"] is True
         finally:
             _notify.clear_state_for_tests()
 
@@ -47,8 +52,7 @@ class TestTogglePerCrackEnabled:
             new_state = _notify.toggle_per_crack_enabled()
             assert new_state is False
             assert _notify.get_settings().per_crack_enabled is False
-            data = json.loads(config_path.read_text())
-            assert data["notify_per_crack_enabled"] is False
+            assert _read_back(config_path)["notify_per_crack_enabled"] is False
         finally:
             _notify.clear_state_for_tests()
 
@@ -68,7 +72,7 @@ class TestTogglePerCrackEnabled:
         config_path = _init_with(tmp_path, notify_enabled=False)
         try:
             _notify.toggle_per_crack_enabled()
-            data = json.loads(config_path.read_text())
+            data = _read_back(config_path)
             # notify_enabled stays False; only per-crack flipped.
             assert data["notify_enabled"] is False
             assert data["notify_per_crack_enabled"] is True

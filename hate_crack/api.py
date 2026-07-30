@@ -14,6 +14,13 @@ from typing import Callable, Optional, Tuple
 import requests  # type: ignore[import-untyped]
 
 from hate_crack.cli import orig_cwd
+from hate_crack.config_loader import (
+    ConfigFileJSONError,
+    ConfigFileUnreadableError,
+    load_config,
+    resolve_config_paths,
+)
+from hate_crack.config_schema import CONFIG_SCHEMA, ConfigValueError
 from hate_crack.formatting import print_multicolumn_list
 from hate_crack.plaintext import encode_hex_wrapper
 
@@ -186,20 +193,20 @@ def _get_hate_path():
     return _package_path
 
 
-def _candidate_roots():
-    home = os.path.expanduser("~")
-    return [
-        _get_hate_path(),
-        os.path.join(home, ".hate_crack"),
-    ]
+def _resolve_env_path():
+    """Path of the `.env` the loader would read, or ``None``."""
+    return resolve_config_paths()[0]
 
 
 def _resolve_config_path():
-    for candidate in _candidate_roots():
-        config_path = os.path.join(candidate, "config.json")
-        if os.path.isfile(config_path):
-            return config_path
-    return None
+    """Path of the legacy ``config.json``, or ``None``.
+
+    Kept as a named seam (the test suite patches it) but the directory search
+    order itself now lives in :func:`hate_crack.config_loader.candidate_roots`
+    -- api.py used to keep its own near-copy of main.py's order, which is
+    exactly the drift that produced #153.
+    """
+    return resolve_config_paths()[1]
 
 
 def check_7z():
@@ -499,44 +506,25 @@ class TransmissionSession:
                     self.remove(entry["id"])
 
 
-def _load_config_defaults():
-    """Load config.json.example, searching the same candidate order main.py
-    uses: alongside the resolved config.json (if any), then this package's
-    directory. Returns {} if no readable, well-formed example is found —
-    callers fall back to their own hardcoded defaults in that case.
-    """
-    candidates = []
-    config_path = _resolve_config_path()
-    if config_path:
-        candidates.append(os.path.dirname(config_path))
-    candidates.append(os.path.dirname(os.path.realpath(__file__)))
-    for candidate_dir in candidates:
-        example_path = os.path.join(candidate_dir, "config.json.example")
-        if os.path.isfile(example_path):
-            try:
-                with open(example_path) as f:
-                    return json.load(f)
-            except (OSError, json.JSONDecodeError):
-                continue
-    return {}
-
-
 def _load_merged_config():
-    """config.json.example defaults overlaid with config.json, mirroring
-    the merge main.py performs at import time. Fixes #153: api.py's
-    helpers previously read config.json directly and fell back to their
-    own hardcoded (cwd-relative) defaults when a key was absent, silently
-    diverging from main.py whenever a user's config.json predated a key.
+    """The same merged config ``main.py`` runs on, via the shared loader.
+
+    Delegates to :func:`hate_crack.config_loader.load_config`, so api.py and
+    main.py cannot disagree about defaults, precedence, or coercion. That
+    duplication is what #153 was: api.py's helpers reimplemented the
+    example-plus-user merge and drifted from main.py's copy.
+
+    Unlike main.py, a bad config file must not take the process down here --
+    these helpers are called from deep inside menu actions. Any load failure
+    degrades to the schema defaults.
     """
-    merged = _load_config_defaults()
-    config_path = _resolve_config_path()
-    if config_path:
-        try:
-            with open(config_path) as f:
-                merged.update(json.load(f))
-        except (OSError, json.JSONDecodeError):
-            pass
-    return merged
+    try:
+        return load_config(
+            env_path=_resolve_env_path(),
+            legacy_json_path=_resolve_config_path(),
+        ).config
+    except (ConfigValueError, ConfigFileJSONError, ConfigFileUnreadableError):
+        return {entry.legacy: entry.default for entry in CONFIG_SCHEMA}
 
 
 def get_hcat_wordlists_dir():

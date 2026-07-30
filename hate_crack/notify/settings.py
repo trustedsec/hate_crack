@@ -1,30 +1,43 @@
-"""Notification settings: dataclass + atomic config persistence.
+"""Notification settings: dataclass + `.env` write-back.
 
-Settings live in the same ``config.json`` that drives the rest of hate_crack.
-This module isolates (a) the typed shape of notification config and
-(b) the read-modify-write persistence primitives used by the runtime toggle
-and the ``[yes/no/always]`` per-attack prompt.
+Settings live in the same `.env` that drives the rest of hate_crack. This
+module isolates (a) the typed shape of notification config and (b) the
+persistence primitives used by the runtime toggles (menu option 82) and the
+``[yes/no/always]`` per-attack prompt.
 
-Persistence follows the same pattern as ``main.py`` (``json.load`` ->
-mutate -> ``json.dump(..., indent=2)`` via a temp file and ``os.replace``)
-so a crash mid-write cannot corrupt the config.
+Persistence goes through ``dotenv.set_key()``, which edits the file in place
+-- comments, key order, and unrelated keys all survive a toggle, and the
+write itself is a temp-file-plus-``os.replace`` that also restores the
+original mode (so a `.env` at ``0600`` stays at ``0600``). The emitted text
+for a value comes from :func:`hate_crack.config_writer.emit_value`, so this
+module never invents its own spelling of a boolean.
+
+A missing `.env` is an error here, deliberately: toggling a notification
+setting must not be the thing that creates a config file (which would also
+mean writing one during a ``HATE_CRACK_SKIP_INIT`` run). Callers in
+``hate_crack.notify`` already catch ``OSError`` around these functions and
+degrade to an in-memory toggle with a warning.
 """
 
 from __future__ import annotations
 
-import json
+import errno
 import os
-import tempfile
 from dataclasses import dataclass, field
 from typing import Any
+
+from dotenv import get_key, set_key
+
+from hate_crack.config_schema import BY_ENV, coerce
+from hate_crack.config_writer import emit_value
 
 
 @dataclass
 class NotifySettings:
-    """Typed view of the ``notify_*`` keys from ``config.json``.
+    """Typed view of the ``notify_*`` keys from the merged config.
 
-    Defaults mirror ``config.json.example`` so freshly-loaded configs and
-    in-memory fallbacks agree.
+    Defaults mirror ``config_schema.CONFIG_SCHEMA`` so freshly-loaded
+    configs and in-memory fallbacks agree.
     """
 
     enabled: bool = False
@@ -107,73 +120,53 @@ def load_settings(config_parser: dict | None) -> NotifySettings:
     )
 
 
-def _atomic_rewrite(config_path: str, mutator) -> None:
-    """Read config_path, apply ``mutator(dict)`` in place, write atomically.
+def _require_env_file(env_path: str) -> None:
+    if not os.path.isfile(env_path):
+        raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), env_path)
 
-    - Missing file is treated as empty dict (mutator runs on ``{}``).
-    - Invalid JSON is silently replaced with the mutator's output; we do not
-      want to block a notification toggle on a pre-existing bad config.
-    - Write goes to a temp file in the same directory and is swapped in
-      via ``os.replace`` so readers never see a half-written file.
+
+def _set_env_key(env_path: str, env_name: str, value: Any) -> None:
+    """Write one schema key into an existing `.env`, in place.
+
+    ``quote_mode="auto"`` leaves ``1``/``0`` bare and quotes anything else
+    (including an empty value), which is what round-trips through
+    ``dotenv_values()``.
     """
-    data: dict = {}
-    if os.path.isfile(config_path):
-        try:
-            with open(config_path) as f:
-                loaded = json.load(f)
-                if isinstance(loaded, dict):
-                    data = loaded
-        except (OSError, json.JSONDecodeError):
-            data = {}
-    mutator(data)
-    directory = os.path.dirname(os.path.abspath(config_path)) or "."
-    os.makedirs(directory, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(prefix=".config-", suffix=".json", dir=directory)
-    try:
-        with os.fdopen(fd, "w") as tmp:
-            json.dump(data, tmp, indent=2)
-        os.replace(tmp_path, config_path)
-    except Exception:
-        # Best-effort cleanup of stale temp file on failure.
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
+    _require_env_file(env_path)
+    entry = BY_ENV[env_name]
+    set_key(env_path, env_name, emit_value(entry, value), quote_mode="auto")
 
 
-def save_enabled(config_path: str, enabled: bool) -> None:
-    """Persist ``notify_enabled`` without disturbing other config keys."""
-
-    def _apply(data: dict) -> None:
-        data["notify_enabled"] = bool(enabled)
-
-    _atomic_rewrite(config_path, _apply)
-
-
-def save_per_crack_enabled(config_path: str, enabled: bool) -> None:
-    """Persist ``notify_per_crack_enabled`` without disturbing other config keys."""
-
-    def _apply(data: dict) -> None:
-        data["notify_per_crack_enabled"] = bool(enabled)
-
-    _atomic_rewrite(config_path, _apply)
+def _get_env_key(env_path: str, env_name: str) -> Any:
+    """Read one schema key back out of ``env_path``, coerced to its type."""
+    entry = BY_ENV[env_name]
+    raw = get_key(env_path, env_name)
+    if raw is None:
+        return entry.default
+    return coerce(entry, raw, env_path)
 
 
-def add_to_allowlist(config_path: str, attack_name: str) -> None:
-    """Append ``attack_name`` to ``notify_attack_allowlist`` if absent.
+def save_enabled(env_path: str, enabled: bool) -> None:
+    """Persist ``NOTIFY_ENABLED`` without disturbing the rest of the `.env`."""
+    _set_env_key(env_path, "NOTIFY_ENABLED", bool(enabled))
+
+
+def save_per_crack_enabled(env_path: str, enabled: bool) -> None:
+    """Persist ``NOTIFY_PER_CRACK_ENABLED`` without disturbing other keys."""
+    _set_env_key(env_path, "NOTIFY_PER_CRACK_ENABLED", bool(enabled))
+
+
+def add_to_allowlist(env_path: str, attack_name: str) -> None:
+    """Append ``attack_name`` to ``NOTIFY_ATTACK_ALLOWLIST`` if absent.
 
     Idempotent: already-present entries are a no-op.
     """
     if not attack_name:
         return
-
-    def _apply(data: dict) -> None:
-        current = data.get("notify_attack_allowlist")
-        if not isinstance(current, list):
-            current = []
-        if attack_name not in current:
-            current.append(attack_name)
-        data["notify_attack_allowlist"] = current
-
-    _atomic_rewrite(config_path, _apply)
+    _require_env_file(env_path)
+    current = _get_env_key(env_path, "NOTIFY_ATTACK_ALLOWLIST")
+    if not isinstance(current, list):
+        current = []
+    if attack_name in current:
+        return
+    _set_env_key(env_path, "NOTIFY_ATTACK_ALLOWLIST", [*current, attack_name])

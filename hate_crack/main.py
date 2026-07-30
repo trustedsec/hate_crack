@@ -73,6 +73,8 @@ from hate_crack.cli import (  # noqa: E402
     setup_logging,
 )
 from hate_crack import attacks as _attacks  # noqa: E402
+from hate_crack import config_loader as _config_loader  # noqa: E402
+from hate_crack import config_writer as _config_writer  # noqa: E402
 from hate_crack import llm  # noqa: E402
 from hate_crack import noninteractive as _noninteractive  # noqa: E402
 from hate_crack.progress import spinner  # noqa: E402
@@ -233,20 +235,14 @@ def _has_hate_crack_assets(path):
 
 
 def _candidate_roots():
-    home = os.path.expanduser("~")
-    return [
-        _repo_root,
-        _package_path,
-        os.path.join(home, ".hate_crack"),
-    ]
+    """Directory search order for configuration files.
 
-
-def _resolve_config_path():
-    for candidate in _candidate_roots():
-        config_path = os.path.join(candidate, "config.json")
-        if os.path.isfile(config_path):
-            return config_path
-    return None
+    Delegates to :func:`hate_crack.config_loader.candidate_roots`, which is
+    the single definition of this order (``api.py`` uses it too). Kept as a
+    thin wrapper because ``_resolve_config_destination()`` and the test suite
+    both reference it by this name.
+    """
+    return _config_loader.candidate_roots()
 
 
 def _resolve_config_destination():
@@ -286,74 +282,86 @@ _omen_dir = (
     if os.path.isdir(os.path.join(hate_path, "omen"))
     else os.path.join(_repo_root, "omen")
 )
-_config_path = _resolve_config_path()
-if not _config_path:
-    print("Initializing config.json from config.json.example")
-    src_config = os.path.abspath(os.path.join(_package_path, "config.json.example"))
-    config_dir = _resolve_config_destination()
-    dst_config = os.path.abspath(os.path.join(config_dir, "config.json"))
-    shutil.copy(src_config, dst_config)
-    print(f"Config source: {src_config}")
-    print(f"Config destination: {dst_config}")
-    _config_path = dst_config
-
-try:
-    with open(_config_path) as config:
-        config_parser = json.load(config)
-except json.JSONDecodeError as e:
-    print("\nError: config.json contains invalid JSON")
-    print(f"  File: {_config_path}")
-    print(f"  Line {e.lineno}, column {e.colno}: {e.msg}")
-    print("\nTo fix:")
-    print("  1. Edit the file and fix the JSON syntax, or")
-    print("  2. Delete the file to regenerate from defaults")
-    sys.exit(1)
-
-
-def _load_config_defaults(defaults_path):
-    """Load config.json.example, exiting with a clear diagnostic on
-    malformed JSON or an unreadable/missing file (see #155 — a dangling
-    symlink surfaces as FileNotFoundError, which used to escape uncaught).
-    """
-    try:
-        with open(defaults_path) as defaults:
-            return json.load(defaults)
-    except json.JSONDecodeError:
-        print("\nError: config.json.example contains invalid JSON")
-        print(f"  File: {defaults_path}")
-        print("  This is a package installation issue. Try reinstalling hate_crack.")
-        sys.exit(1)
-    except OSError:
-        print("\nError: config.json.example could not be read")
-        print(f"  File: {defaults_path}")
-        if os.path.islink(defaults_path) and not os.path.exists(defaults_path):
-            print(
-                "  This is a dangling symlink: the link exists but its target is missing."
-            )
-        print("  This is a package installation issue. Try reinstalling hate_crack.")
-        sys.exit(1)
-
-
-config_dir = os.path.dirname(_config_path)
-defaults_path = os.path.join(config_dir, "config.json.example")
-if not os.path.isfile(defaults_path):
-    defaults_path = os.path.join(_package_path, "config.json.example")
-default_config = _load_config_defaults(defaults_path)
-
-for _key, _value in default_config.items():
-    if _key not in config_parser:
-        config_parser[_key] = _value
-
-# Environment variables override config.json so the CLI can be pointed at a
-# different Hashview instance (e.g. a local docker stack for the live test
-# suite) without editing the persisted config. Empty/unset env vars fall back
-# to config.json.
-hashview_url = os.environ.get("HASHVIEW_URL") or config_parser["hashview_url"]
-hashview_api_key = (
-    os.environ.get("HASHVIEW_API_KEY") or config_parser["hashview_api_key"]
-)
-
 SKIP_INIT = os.environ.get("HATE_CRACK_SKIP_INIT") == "1"
+
+
+def _bootstrap_config_file(env_path, legacy_json_path):
+    """Ensure a `.env` exists (unless ``SKIP_INIT``) and return its path.
+
+    Four cases, in order:
+
+    1. ``.env`` present -> use it. A leftover ``config.json`` earns a one-line
+       deprecation notice; it is still read as a lower-precedence layer, so
+       the notice says what actually happens rather than claiming the file is
+       ignored outright.
+    2. ``.env`` absent, ``config.json`` present -> one-shot migration via
+       :func:`hate_crack.config_writer.write_env_from_legacy`. The legacy file
+       is never modified or deleted, so a downgrade stays possible.
+    3. both absent -> write a fresh `.env` from schema defaults.
+    4. ``SKIP_INIT`` -> write nothing at all, whatever is (or isn't) present.
+       The test suite imports this module constantly; creating a `.env` in the
+       repo or in ``~/.hate_crack`` as a side effect of an import is not
+       acceptable, so this branch comes first.
+    """
+    if SKIP_INIT:
+        return env_path
+    if env_path:
+        if legacy_json_path:
+            print(
+                f"[!] {legacy_json_path} is deprecated: configuration now lives in "
+                f"{env_path}, which wins key by key."
+            )
+        return env_path
+    destination = os.path.join(_resolve_config_destination(), ".env")
+    if legacy_json_path:
+        try:
+            notes = _config_writer.write_env_from_legacy(legacy_json_path, destination)
+        except json.JSONDecodeError:
+            # Let load_config_or_exit() render the malformed-JSON diagnostic;
+            # migrating a file we cannot parse is not possible anyway.
+            return None
+        except OSError as exc:
+            print(f"[!] Could not write {destination}: {exc}")
+            return None
+        print("Migrating configuration from config.json to .env")
+        print(f"Config source: {legacy_json_path}")
+        print(f"Config destination: {destination}")
+        for note in notes:
+            print(f"[!] {note}")
+        print(f"{legacy_json_path} was left unchanged and is no longer needed.")
+        return destination
+    print("Initializing .env from built-in defaults")
+    print(f"Config destination: {destination}")
+    try:
+        _config_writer.write_env(destination, {})
+    except OSError as exc:
+        print(f"[!] Could not write {destination}: {exc}")
+        return None
+    return destination
+
+
+_env_path, _legacy_json_path = _config_loader.resolve_config_paths()
+_env_path = _bootstrap_config_file(_env_path, _legacy_json_path)
+
+# The loader is the single definition of the precedence stack: schema
+# defaults < config.json < .env < os.environ. config_parser stays a plain
+# dict keyed by the legacy JSON key names, with values already coerced to
+# their final Python types, because ~180 lines below here read it that way.
+_config_result = _config_loader.load_config_or_exit(
+    env_path=_env_path,
+    legacy_json_path=_legacy_json_path,
+)
+config_parser = _config_result.config
+for _warning in _config_result.warnings:
+    print(f"[!] {_warning}")
+
+# The real environment already outranks .env inside the loader (that is what
+# lets HASHVIEW_URL / HASHVIEW_API_KEY point the CLI at a local docker stack
+# without editing the persisted config), so these are read like every other
+# key. Do not re-apply os.environ here: a second application would bypass the
+# loader's coercion.
+hashview_url = config_parser["hashview_url"]
+hashview_api_key = config_parser["hashview_api_key"]
 
 logger = logging.getLogger("hate_crack")
 if not logger.handlers:
@@ -566,12 +574,14 @@ except KeyError:
 check_for_updates_enabled = config_parser.get("check_for_updates", True)
 
 # Notification subsystem bootstrap.  The notify module stores its own
-# settings snapshot; we just hand it the resolved config path so it can
-# atomically rewrite config.json when the user toggles enabled / answers
-# "always" at a prompt.
+# settings snapshot; we just hand it the resolved `.env` path so it can
+# rewrite the notify_* keys in place (via dotenv.set_key) when the user
+# toggles enabled / answers "always" at a prompt.  ``None`` is legitimate
+# under SKIP_INIT with no config file on disk: the toggles then stay
+# in-memory rather than creating a `.env` as a side effect.
 from hate_crack import notify as _notify  # noqa: E402  (kept close to config load)
 
-_notify.init(_config_path, config_parser)
+_notify.init(_env_path, config_parser)
 
 hcatExpanderBin = "expander.bin"
 hcatCombinatorBin = "combinator.bin"

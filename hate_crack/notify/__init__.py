@@ -11,8 +11,8 @@ module-level ``_settings`` object, a handful of helper functions, and one
 Wiring
 ======
 
-At startup ``main.py`` calls :func:`init` with the resolved config path and
-parsed config dict.  After that, the rest of the codebase interacts with
+At startup ``main.py`` calls :func:`init` with the resolved `.env` path and
+the merged config dict.  After that, the rest of the codebase interacts with
 this package via:
 
 - :func:`prompt_notify_for_attack`  -- called by attacks.py before an attack
@@ -100,6 +100,11 @@ __all__ = [
 def init(config_path: str | None, config_parser: dict | None) -> None:
     """Bootstrap the notify subsystem from the resolved config.
 
+    ``config_path`` is the path of the resolved `.env` file (``None`` when no
+    config file exists on disk, e.g. under ``HATE_CRACK_SKIP_INIT``). It is
+    only ever used as the write-back target for the toggles and for the
+    ``always`` answer; nothing else in this package reads it.
+
     Called once from ``main.py`` after its config-loading block.  Safe to
     call multiple times — the second call replaces settings but does not
     reset per-run consent (the user may already have answered prompts).
@@ -130,7 +135,7 @@ def clear_state_for_tests() -> None:
 
 
 def toggle_enabled() -> bool:
-    """Flip ``notify_enabled``, persist to ``config.json``, return new state.
+    """Flip ``notify_enabled``, persist to the `.env`, return new state.
 
     If ``init`` was never called we still toggle an in-memory default — the
     UI update must not crash even if the config file is unreachable.
@@ -148,7 +153,7 @@ def toggle_enabled() -> bool:
 
 
 def toggle_per_crack_enabled() -> bool:
-    """Flip ``notify_per_crack_enabled``, persist to ``config.json``, return new state.
+    """Flip ``notify_per_crack_enabled``, persist to the `.env`, return new state.
 
     If ``init`` was never called we still toggle an in-memory default — the
     UI update must not crash even if the config file is unreachable.

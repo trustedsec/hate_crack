@@ -57,11 +57,15 @@ class ConfigLoadResult(NamedTuple):
     warnings: list[str]
 
 
-def _candidate_roots() -> list[str]:
+def candidate_roots() -> list[str]:
     """Directory search order for ``.env`` and ``config.json``.
 
-    Mirrors ``hate_crack.main._candidate_roots()``: the repo root, the
-    installed package directory, and ``~/.hate_crack``.
+    **This is the single definition of that order.**
+    ``hate_crack.main._candidate_roots()`` and ``hate_crack.api``'s config
+    resolution both delegate here; they used to keep their own copies, which
+    is a drift that stays invisible until someone's config stops being found.
+    The order is: the repo root, the installed package directory, then
+    ``~/.hate_crack``.
     """
     package_path = os.path.dirname(os.path.realpath(__file__))
     repo_root = os.path.dirname(package_path)
@@ -81,7 +85,7 @@ def resolve_config_paths() -> tuple[str | None, str | None]:
     """
     env_path: str | None = None
     legacy_json_path: str | None = None
-    for candidate in _candidate_roots():
+    for candidate in candidate_roots():
         if env_path is None:
             candidate_env = os.path.join(candidate, ".env")
             if os.path.isfile(candidate_env):

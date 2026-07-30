@@ -1,8 +1,12 @@
 """Unit tests for hate_crack.notify.settings."""
 
-import json
+import stat
 from pathlib import Path
 
+import pytest
+
+from hate_crack.config_loader import load_config
+from hate_crack.config_writer import write_env
 from hate_crack.notify.settings import (
     NotifySettings,
     add_to_allowlist,
@@ -10,6 +14,22 @@ from hate_crack.notify.settings import (
     save_enabled,
     save_per_crack_enabled,
 )
+
+
+def _seed_env(tmp_path: Path, **overrides) -> Path:
+    """Write a full `.env` (mode 0600) and return its path."""
+    env_path = tmp_path / ".env"
+    write_env(str(env_path), overrides)
+    return env_path
+
+
+def _read_back(env_path: Path) -> dict:
+    """Reload the persisted `.env` through the shared loader."""
+    return load_config(env_path=str(env_path), environ={}).config
+
+
+def _mode(env_path: Path) -> int:
+    return stat.S_IMODE(env_path.stat().st_mode)
 
 
 class TestNotifySettingsDataclass:
@@ -81,118 +101,122 @@ class TestLoadSettings:
 
 
 class TestSaveEnabled:
-    def test_writes_new_config(self, tmp_path: Path) -> None:
-        config_path = tmp_path / "config.json"
-        save_enabled(str(config_path), True)
-        data = json.loads(config_path.read_text())
-        assert data["notify_enabled"] is True
+    def test_writes_notify_enabled(self, tmp_path: Path) -> None:
+        env_path = _seed_env(tmp_path)
+        save_enabled(str(env_path), True)
+        assert _read_back(env_path)["notify_enabled"] is True
 
-    def test_preserves_existing_keys(self, tmp_path: Path) -> None:
-        config_path = tmp_path / "config.json"
-        initial = {
-            "hcatBin": "hashcat",
-            "hashview_api_key": "secret",
-            "notify_enabled": False,
-        }
-        config_path.write_text(json.dumps(initial))
-        save_enabled(str(config_path), True)
-        data = json.loads(config_path.read_text())
-        assert data["hcatBin"] == "hashcat"
-        assert data["hashview_api_key"] == "secret"
+    def test_preserves_existing_keys_and_comments(self, tmp_path: Path) -> None:
+        env_path = _seed_env(tmp_path, hcatBin="hashcat-6.2.6", pipal_count=42)
+        before = env_path.read_text()
+        save_enabled(str(env_path), True)
+        after = env_path.read_text()
+
+        data = _read_back(env_path)
+        assert data["hcatBin"] == "hashcat-6.2.6"
+        assert data["pipal_count"] == 42
         assert data["notify_enabled"] is True
+        # set_key() edits in place: the generated comment headers and every
+        # unrelated line survive untouched. Exactly one line differs.
+        differing = [
+            (a, b) for a, b in zip(before.splitlines(), after.splitlines()) if a != b
+        ]
+        assert len(differing) == 1
+        assert differing[0][0].startswith("NOTIFY_ENABLED=")
+        assert before.count("# hate_crack configuration.") == 1
+        assert after.count("# hate_crack configuration.") == 1
 
     def test_toggles_back_and_forth(self, tmp_path: Path) -> None:
-        config_path = tmp_path / "config.json"
-        save_enabled(str(config_path), True)
-        save_enabled(str(config_path), False)
-        data = json.loads(config_path.read_text())
-        assert data["notify_enabled"] is False
+        env_path = _seed_env(tmp_path)
+        save_enabled(str(env_path), True)
+        save_enabled(str(env_path), False)
+        assert _read_back(env_path)["notify_enabled"] is False
 
-    def test_invalid_existing_config_replaced(self, tmp_path: Path) -> None:
-        config_path = tmp_path / "config.json"
-        config_path.write_text("this is not json")
-        save_enabled(str(config_path), True)
-        data = json.loads(config_path.read_text())
-        assert data == {"notify_enabled": True}
+    def test_booleans_are_written_as_one_and_zero(self, tmp_path: Path) -> None:
+        env_path = _seed_env(tmp_path)
+        save_enabled(str(env_path), True)
+        assert "NOTIFY_ENABLED=1" in env_path.read_text().splitlines()
+        save_enabled(str(env_path), False)
+        assert "NOTIFY_ENABLED=0" in env_path.read_text().splitlines()
 
-    def test_atomic_no_half_write(self, tmp_path: Path) -> None:
-        # A partial write should never leave the main file invalid. We
-        # check that after save_enabled, parsing always succeeds.
-        config_path = tmp_path / "config.json"
-        for flag in (True, False, True, False, True):
-            save_enabled(str(config_path), flag)
-            json.loads(config_path.read_text())  # must not raise
+    def test_mode_stays_0600(self, tmp_path: Path) -> None:
+        env_path = _seed_env(tmp_path)
+        assert _mode(env_path) == 0o600
+        save_enabled(str(env_path), True)
+        assert _mode(env_path) == 0o600
+
+    def test_missing_env_is_an_error_and_creates_nothing(self, tmp_path: Path) -> None:
+        """Toggling a notification setting must never be what creates a
+        config file -- notably not during a HATE_CRACK_SKIP_INIT run.
+        notify.toggle_enabled() catches this OSError and warns."""
+        env_path = tmp_path / ".env"
+        with pytest.raises(OSError):
+            save_enabled(str(env_path), True)
+        assert list(tmp_path.iterdir()) == []
 
 
 class TestAddToAllowlist:
     def test_adds_to_empty_list(self, tmp_path: Path) -> None:
-        config_path = tmp_path / "config.json"
-        add_to_allowlist(str(config_path), "Brute Force")
-        data = json.loads(config_path.read_text())
-        assert data["notify_attack_allowlist"] == ["Brute Force"]
+        env_path = _seed_env(tmp_path)
+        add_to_allowlist(str(env_path), "Brute Force")
+        assert _read_back(env_path)["notify_attack_allowlist"] == ["Brute Force"]
 
     def test_idempotent(self, tmp_path: Path) -> None:
-        config_path = tmp_path / "config.json"
-        add_to_allowlist(str(config_path), "Brute Force")
-        add_to_allowlist(str(config_path), "Brute Force")
-        add_to_allowlist(str(config_path), "Brute Force")
-        data = json.loads(config_path.read_text())
-        assert data["notify_attack_allowlist"] == ["Brute Force"]
+        env_path = _seed_env(tmp_path)
+        add_to_allowlist(str(env_path), "Brute Force")
+        add_to_allowlist(str(env_path), "Brute Force")
+        add_to_allowlist(str(env_path), "Brute Force")
+        assert _read_back(env_path)["notify_attack_allowlist"] == ["Brute Force"]
 
     def test_preserves_other_entries(self, tmp_path: Path) -> None:
-        config_path = tmp_path / "config.json"
-        config_path.write_text(
-            json.dumps(
-                {
-                    "hcatBin": "hashcat",
-                    "notify_attack_allowlist": ["Existing"],
-                }
-            )
+        env_path = _seed_env(
+            tmp_path,
+            hcatBin="hashcat-6.2.6",
+            notify_attack_allowlist=["Existing"],
         )
-        add_to_allowlist(str(config_path), "Brute Force")
-        data = json.loads(config_path.read_text())
-        assert data["hcatBin"] == "hashcat"
+        add_to_allowlist(str(env_path), "Brute Force")
+        data = _read_back(env_path)
+        assert data["hcatBin"] == "hashcat-6.2.6"
         assert data["notify_attack_allowlist"] == ["Existing", "Brute Force"]
 
     def test_empty_attack_name_is_noop(self, tmp_path: Path) -> None:
-        config_path = tmp_path / "config.json"
-        config_path.write_text(json.dumps({"notify_attack_allowlist": ["A"]}))
-        add_to_allowlist(str(config_path), "")
-        data = json.loads(config_path.read_text())
-        assert data["notify_attack_allowlist"] == ["A"]
+        env_path = _seed_env(tmp_path, notify_attack_allowlist=["A"])
+        add_to_allowlist(str(env_path), "")
+        assert _read_back(env_path)["notify_attack_allowlist"] == ["A"]
 
-    def test_repairs_non_list_allowlist(self, tmp_path: Path) -> None:
-        config_path = tmp_path / "config.json"
-        config_path.write_text(json.dumps({"notify_attack_allowlist": "bogus"}))
-        add_to_allowlist(str(config_path), "Brute Force")
-        data = json.loads(config_path.read_text())
-        assert data["notify_attack_allowlist"] == ["Brute Force"]
+    def test_mode_stays_0600(self, tmp_path: Path) -> None:
+        env_path = _seed_env(tmp_path)
+        add_to_allowlist(str(env_path), "Brute Force")
+        assert _mode(env_path) == 0o600
+
+    def test_missing_env_is_an_error_and_creates_nothing(self, tmp_path: Path) -> None:
+        env_path = tmp_path / ".env"
+        with pytest.raises(OSError):
+            add_to_allowlist(str(env_path), "Brute Force")
+        assert list(tmp_path.iterdir()) == []
 
 
 class TestSavePerCrackEnabled:
-    def test_writes_new_config(self, tmp_path: Path) -> None:
-        config_path = tmp_path / "config.json"
-        save_per_crack_enabled(str(config_path), True)
-        data = json.loads(config_path.read_text())
-        assert data["notify_per_crack_enabled"] is True
+    def test_writes_notify_per_crack_enabled(self, tmp_path: Path) -> None:
+        env_path = _seed_env(tmp_path)
+        save_per_crack_enabled(str(env_path), True)
+        assert _read_back(env_path)["notify_per_crack_enabled"] is True
 
     def test_preserves_existing_keys(self, tmp_path: Path) -> None:
-        config_path = tmp_path / "config.json"
-        initial = {
-            "hcatBin": "hashcat",
-            "notify_enabled": True,
-            "notify_per_crack_enabled": False,
-        }
-        config_path.write_text(json.dumps(initial))
-        save_per_crack_enabled(str(config_path), True)
-        data = json.loads(config_path.read_text())
-        assert data["hcatBin"] == "hashcat"
+        env_path = _seed_env(tmp_path, hcatBin="hashcat-6.2.6", notify_enabled=True)
+        save_per_crack_enabled(str(env_path), True)
+        data = _read_back(env_path)
+        assert data["hcatBin"] == "hashcat-6.2.6"
         assert data["notify_enabled"] is True
         assert data["notify_per_crack_enabled"] is True
 
     def test_toggles_back_and_forth(self, tmp_path: Path) -> None:
-        config_path = tmp_path / "config.json"
-        save_per_crack_enabled(str(config_path), True)
-        save_per_crack_enabled(str(config_path), False)
-        data = json.loads(config_path.read_text())
-        assert data["notify_per_crack_enabled"] is False
+        env_path = _seed_env(tmp_path)
+        save_per_crack_enabled(str(env_path), True)
+        save_per_crack_enabled(str(env_path), False)
+        assert _read_back(env_path)["notify_per_crack_enabled"] is False
+
+    def test_mode_stays_0600(self, tmp_path: Path) -> None:
+        env_path = _seed_env(tmp_path)
+        save_per_crack_enabled(str(env_path), True)
+        assert _mode(env_path) == 0o600
