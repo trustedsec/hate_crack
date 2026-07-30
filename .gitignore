@@ -10,6 +10,14 @@ config.json~
 # Playwright MCP scratch output (console logs, traces, screenshots).
 .playwright-mcp/
 hashcat.pot
+# hashcat --debug-mode 4 output. hate_crack writes one of these for every
+# rule-based attack without being asked (see _add_debug_mode_for_rules), and
+# each line pairs a rule with the plaintext it cracked. The default
+# hcatDebugLogPath is the relative "./hashcat_debug", so on any run launched
+# from a checkout they land in the repo. The second pattern catches the same
+# logs when hcatDebugLogPath points somewhere else inside the tree.
+hashcat_debug/
+hashcat_debug*.log
 hate_crack/__init__.pyc
 hate_crack/_version.py
 __pycache__/

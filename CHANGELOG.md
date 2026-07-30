@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [Unreleased]
+
+### Fixed
+
+- **hashcat debug logs are no longer committable, and one that had been
+  committed is now untracked.** `_add_debug_mode_for_rules` appends
+  `--debug-mode 4 --debug-file` to every rule-based attack unconditionally, and
+  each line of the resulting log pairs a rule with the plaintext it cracked. The
+  default `hcatDebugLogPath` is the relative `./hashcat_debug`, so any session
+  launched from a checkout writes them into the working tree of a public repo.
+  Nothing had been ignoring them except a `*.log` line in `.git/info/exclude`,
+  which is local-only and does not clone, and one such log was already tracked
+  on `main`. It was zero bytes, so no plaintext was published. `hashcat_debug/`
+  and `hashcat_debug*.log` are now in the tracked `.gitignore`, the tracked file
+  is removed from the index, and `tests/test_repo_hygiene.py` fails the build if
+  either protection regresses.
+- **The Rosetta Attack no longer lists empty debug logs.** hashcat creates the
+  debug file when the attack starts but only writes on a crack, so a rule-based
+  run that cracks nothing leaves a zero-byte log. `rosetta_debug_logs()`
+  returned those alongside real ones; since the picker shows only the newest 20
+  by mtime, dead files could crowd out logs that still had something to mine.
+
 ## [2.18.0] - 2026-07-29
 
 ### Added

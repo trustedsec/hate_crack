@@ -3315,15 +3315,25 @@ def rosetta_debug_logs(directory=None):
     Defaults to hcatDebugLogPath, which is where _add_debug_mode_for_rules
     parks the --debug-mode 4 output of every rule-based attack, so a normal
     hate_crack session accumulates these without the operator doing anything.
+
+    Zero-byte logs are skipped. hashcat creates the debug file up front but only
+    writes on a crack, so a rule-based attack that cracks nothing leaves an empty
+    one behind. They carry no basewords or rules for Rosetta to mine, and the
+    picker only shows the newest 20 entries, so leaving them in would let dead
+    files crowd out logs that still have something in them.
     """
     directory = directory or hcatDebugLogPath
     if not os.path.isdir(directory):
         return []
-    found = [
-        os.path.join(directory, name)
-        for name in sorted(os.listdir(directory))
-        if os.path.isfile(os.path.join(directory, name))
-    ]
+    found = []
+    for name in sorted(os.listdir(directory)):
+        path = os.path.join(directory, name)
+        try:
+            if os.path.isfile(path) and os.path.getsize(path) > 0:
+                found.append(path)
+        except OSError:
+            # Rotated or removed between listdir and stat; not worth aborting.
+            continue
     return sorted(found, key=os.path.getmtime, reverse=True)
 
 

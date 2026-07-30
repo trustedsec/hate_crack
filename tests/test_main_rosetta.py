@@ -146,6 +146,22 @@ class TestRosettaDebugLogs:
     def test_missing_directory_is_not_an_error(self, main_module, tmp_path):
         assert main_module.rosetta_debug_logs(str(tmp_path / "nope")) == []
 
+    def test_skips_empty_logs(self, main_module, tmp_path):
+        # hashcat opens the debug file up front but only writes on a crack, so an
+        # attack that cracks nothing leaves a zero-byte log with nothing to mine.
+        empty = tmp_path / "empty.log"
+        empty.touch()
+        populated = tmp_path / "populated.log"
+        populated.write_text("word:rule:candidate\n")
+
+        assert main_module.rosetta_debug_logs(str(tmp_path)) == [str(populated)]
+
+    def test_all_empty_reads_as_no_logs(self, main_module, tmp_path):
+        (tmp_path / "a.log").touch()
+        (tmp_path / "b.log").touch()
+
+        assert main_module.rosetta_debug_logs(str(tmp_path)) == []
+
 
 class TestHcatRosetta:
     def _run(self, main_module, tmp_path, debug_files, **kwargs):
