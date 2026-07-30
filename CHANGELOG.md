@@ -9,6 +9,17 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ## [Unreleased]
 
+### Added
+
+- **`--no-optimized-kernel` (alias `--no-optimize`) disables hashcat's `-O` for
+  an entire run.** Until now the only way to turn optimized kernels off was to
+  edit `optimizedKernelAttacks` in `config.json`, which persists and has to be
+  undone by hand — awkward when a single target has candidates past the length
+  ceiling `-O` imposes. The flag overrides the config list for every attack and
+  also strips a hand-written `-O` from `hcatTuning`, which is appended verbatim
+  to every invocation and would otherwise survive the flag and make it a lie.
+  Nothing is written back to `config.json`.
+
 ### Changed
 
 - **Debug logs now default to `~/.hate_crack/hashcat_debug` instead of the

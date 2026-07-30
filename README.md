@@ -458,6 +458,7 @@ Common options:
 - `--bandrel-basewords <PATH>`: Override bandrel basewords file.
 - `--update`: Update to the latest release and reinstall. Switches the checkout to `main` if it is on another branch, since release tags live there.
 - `--nightly`: Update to the latest nightly instead, from the `nightly-dev` branch. Nightlies have passed CI but are not part of a cut release. Can also be written `--update --nightly`.
+- `--no-optimized-kernel` (or `--no-optimize`): Never pass `-O` to hashcat for the whole run. Overrides `optimizedKernelAttacks` in `config.json` and strips any `-O` you put in `hcatTuning`. Nothing is written back to the config, so it applies to this run only. With a subcommand, put it before the subcommand: `./hate_crack.py --no-optimize quick hashes.txt 1000 --wordlist words.txt`.
 - `--debug`: Enable debug logging (writes to stderr).
 
 ### Hashview Integration
@@ -610,6 +611,11 @@ they feed candidates that can exceed the `-O` ceiling — add them to the list t
 opt in:
 
 - `hcatNgramX`, `hcatOllama`, `hcatOmen`, `hcatLMtoNT`
+
+To turn `-O` off everywhere for a single run without editing the config, pass
+`--no-optimized-kernel` (short form `--no-optimize`). It overrides the list for
+every attack and also drops an `-O` written into `hcatTuning`, which would
+otherwise reach hashcat regardless of the list.
 
 Names are matched exactly, and an unrecognized entry is reported at startup
 rather than ignored. Note that attacks which delegate to another attack are

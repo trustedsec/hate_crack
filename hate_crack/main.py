@@ -152,6 +152,12 @@ KNOWN_OPTIMIZABLE_ATTACKS = DEFAULT_OPTIMIZED_ATTACKS | {
 
 _optimized_kernel_attacks = DEFAULT_OPTIMIZED_ATTACKS
 
+# Set by --no-optimized-kernel for the lifetime of one run. A separate switch
+# rather than an emptied _optimized_kernel_attacks so config.json keeps its
+# meaning for the next run, and so the override is visible to anything that
+# needs to explain why an attack is not optimized.
+_optimized_kernel_disabled = False
+
 # Whether the loaded hash file is pwdump format (user:rid:lm:nt:::). Set by
 # main()'s detection block; defaulted here because cleanup() and the analysis
 # menu entries read it, and a run that never reached detection used to raise
@@ -162,7 +168,37 @@ pwdump_format = False
 
 def _should_use_optimized_kernel(attack_name):
     """Return True if *attack_name* should use hashcat's -O (optimized kernels)."""
+    if _optimized_kernel_disabled:
+        return False
     return attack_name in _optimized_kernel_attacks
+
+
+def _strip_optimized_flags(tuning):
+    """Return *tuning* with any hand-written -O removed.
+
+    ``hcatTuning`` is passed through verbatim to every hashcat invocation, so an
+    ``-O`` living there would survive --no-optimized-kernel and make the flag a
+    lie. Split and rejoin with shlex so quoting in the rest of the string is
+    preserved.
+    """
+    kept = [
+        token
+        for token in shlex.split(tuning or "")
+        if token not in ("-O", "--optimized-kernel-enable")
+    ]
+    return " ".join(shlex.quote(token) for token in kept)
+
+
+def disable_optimized_kernel():
+    """Turn off hashcat's -O for every attack in this run.
+
+    Covers both routes it can reach the command line: the per-attack
+    ``optimizedKernelAttacks`` config list, and a literal ``-O`` in
+    ``hcatTuning``.
+    """
+    global _optimized_kernel_disabled, hcatTuning
+    _optimized_kernel_disabled = True
+    hcatTuning = _strip_optimized_flags(hcatTuning)
 
 
 def _insert_optimized_flag(cmd):
@@ -5635,6 +5671,18 @@ def main():
                 "Nightlies have passed CI but are not part of a cut release."
             ),
         )
+        parser.add_argument(
+            "--no-optimized-kernel",
+            "--no-optimize",
+            dest="no_optimized_kernel",
+            action="store_true",
+            help=(
+                "Never pass -O to hashcat, for every attack this run. Overrides "
+                "optimizedKernelAttacks in config.json and drops any -O in "
+                "hcatTuning. Use when a candidate exceeds the password or salt "
+                "length ceiling the optimized kernels impose."
+            ),
+        )
         parser.add_argument("--debug", action="store_true", help="Enable debug mode")
         parser.add_argument(
             "--potfile-path",
@@ -5801,6 +5849,9 @@ def main():
         non_interactive = True
 
     # CLI flags override config file.
+    if getattr(args, "no_optimized_kernel", False):
+        disable_optimized_kernel()
+        print("[*] Optimized kernels (-O) disabled for this run")
     if getattr(args, "no_potfile_path", False):
         hcatPotfilePath = ""
     if getattr(args, "potfile_path", None) is not None:
