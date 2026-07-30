@@ -21,6 +21,30 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   pre-checkout one and the one inside the final shell chain — now pass
   `--tags --force`, as do the four printed fallback command strings. `--force`
   affects tag updates only and cannot discard commits or working-tree state.
+- **`--update` now advances the checkout by resetting to `origin`, not by
+  merging, so it also works on a clone whose history was rewritten.** Forcing
+  the tag fetch alone was not enough: the upgrade went on to run
+  `git pull origin <branch>`, and a clone predating the July 2026 history
+  rewrite shares no ancestor with `origin/main`, so the pull aborted with
+  `Need to specify how to reconcile divergent branches` and the upgrade never
+  reached `make install`. `_run_upgrade()` now runs `git checkout -B <branch>
+  origin/<branch>` on every upgrade — previously only when HEAD was on some
+  other branch, which is why users already sitting on `main` were the ones who
+  hit this — and the final shell chain is reduced to `make install`. The
+  uncommitted-changes guard became unconditional to match, since the reset now
+  fires on every run; the printed recovery commands use the reset form too.
+  Users stranded by the earlier versions need a one-time manual recovery,
+  documented under Troubleshooting in the README.
+
+### Added
+
+- Real-git coverage for the upgrade path (`tests/test_upgrade_real_git.py`).
+  The existing tests mock `subprocess.run` wholesale, so they only assert which
+  command strings get built — a mocked `git pull` always succeeds, which is why
+  both bugs above reached users with the suite green. The new tests construct a
+  remote and a clone whose history has been rewritten out from under it, then
+  run the real git commands, and additionally assert that `_run_upgrade()`
+  constructs no `pull` at all.
 
 ## [2.18.0] - 2026-07-29
 

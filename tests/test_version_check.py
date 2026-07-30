@@ -6,6 +6,42 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
+def _proc(returncode=0, stdout=""):
+    p = MagicMock()
+    p.returncode = returncode
+    p.stdout = stdout
+    return p
+
+
+def upgrade_procs(current_branch="main", dirty=False, final_returncode=0):
+    """Build the subprocess.run side_effect sequence _run_upgrade() consumes.
+
+    The order is: rev-parse --show-toplevel, fetch, symbolic-ref HEAD, status
+    --porcelain, checkout -B, branch --set-upstream-to, then the shell chain.
+    The status/checkout/upstream calls happen on every run, not just when HEAD
+    is on some other branch -- _run_upgrade() always resets to origin's tip
+    because a pull cannot advance a rewritten-history clone.
+    """
+    procs = [
+        _proc(stdout="/fake/repo\n"),  # rev-parse --show-toplevel
+        _proc(),  # fetch --tags --force
+        _proc(stdout=f"{current_branch}\n") if current_branch else _proc(128),
+        _proc(stdout=" M foo.py\n" if dirty else ""),  # status --porcelain
+    ]
+    if dirty:
+        return procs
+    procs += [
+        _proc(),  # checkout -B
+        _proc(),  # branch --set-upstream-to
+        _proc(final_returncode),  # shell chain
+    ]
+    return procs
+
+
+# Index of the shell chain within upgrade_procs()' clean sequence.
+FINAL_CALL = 6
+
+
 @pytest.fixture
 def hc_module():
     """Load hate_crack.main with SKIP_INIT enabled."""
@@ -149,38 +185,23 @@ class TestCheckForUpdates:
         mock_resp.json.return_value = {"tag_name": "v99.0.0"}
         mock_resp.raise_for_status = MagicMock()
 
-        git_root_proc = MagicMock()
-        git_root_proc.returncode = 0
-        git_root_proc.stdout = "/fake/repo\n"
-
-        fetch_proc = MagicMock()
-        fetch_proc.returncode = 0
-
-        branch_proc = MagicMock()
-        branch_proc.returncode = 0
-        branch_proc.stdout = "main\n"
-
-        make_proc = MagicMock()
-        make_proc.returncode = 0
-
         with (
             patch.object(hc_module, "requests") as mock_requests,
             patch.object(hc_module, "REQUESTS_AVAILABLE", True),
             patch("builtins.input", return_value="y"),
-            patch(
-                "subprocess.run",
-                side_effect=[git_root_proc, fetch_proc, branch_proc, make_proc],
-            ) as mock_run,
+            patch("subprocess.run", side_effect=upgrade_procs()) as mock_run,
             pytest.raises(SystemExit),
         ):
             mock_requests.get.return_value = mock_resp
             hc_module.check_for_updates()
 
-        assert mock_run.call_count == 4
-        make_cmd = mock_run.call_args_list[3][0][0]
-        assert "git pull origin main" in make_cmd
+        assert mock_run.call_count == 7
+        make_cmd = mock_run.call_args_list[FINAL_CALL][0][0]
         assert "make install" in make_cmd
-        assert mock_run.call_args_list[3][1]["cwd"] == "/fake/repo"
+        # A pull would abort on a rewritten-history clone; the checkout already
+        # moved the branch to origin's tip.
+        assert "git pull" not in make_cmd
+        assert mock_run.call_args_list[FINAL_CALL][1]["cwd"] == "/fake/repo"
         output = capsys.readouterr().out
         assert "Upgrade complete" in output
 
@@ -189,28 +210,11 @@ class TestCheckForUpdates:
         mock_resp.json.return_value = {"tag_name": "v99.0.0"}
         mock_resp.raise_for_status = MagicMock()
 
-        git_root_proc = MagicMock()
-        git_root_proc.returncode = 0
-        git_root_proc.stdout = "/fake/repo\n"
-
-        fetch_proc = MagicMock()
-        fetch_proc.returncode = 0
-
-        branch_proc = MagicMock()
-        branch_proc.returncode = 0
-        branch_proc.stdout = "main\n"
-
-        make_proc = MagicMock()
-        make_proc.returncode = 1
-
         with (
             patch.object(hc_module, "requests") as mock_requests,
             patch.object(hc_module, "REQUESTS_AVAILABLE", True),
             patch("builtins.input", return_value="y"),
-            patch(
-                "subprocess.run",
-                side_effect=[git_root_proc, fetch_proc, branch_proc, make_proc],
-            ),
+            patch("subprocess.run", side_effect=upgrade_procs(final_returncode=1)),
             patch("shutil.which", return_value="/usr/local/bin/uv"),
             patch("os.path.isfile", return_value=True),
             pytest.raises(SystemExit),
@@ -248,31 +252,14 @@ class TestRunUpgrade:
     """Tests for _run_upgrade() called directly via --update flag."""
 
     def test_run_upgrade_success(self, hc_module, capsys):
-        git_root_proc = MagicMock()
-        git_root_proc.returncode = 0
-        git_root_proc.stdout = "/fake/repo\n"
-
-        fetch_proc = MagicMock()
-        fetch_proc.returncode = 0
-
-        branch_proc = MagicMock()
-        branch_proc.returncode = 0
-        branch_proc.stdout = "main\n"
-
-        make_proc = MagicMock()
-        make_proc.returncode = 0
-
         with (
-            patch(
-                "subprocess.run",
-                side_effect=[git_root_proc, fetch_proc, branch_proc, make_proc],
-            ) as mock_run,
+            patch("subprocess.run", side_effect=upgrade_procs()) as mock_run,
             pytest.raises(SystemExit) as exc,
         ):
             hc_module._run_upgrade()
 
         assert exc.value.code == 0
-        assert mock_run.call_count == 4
+        assert mock_run.call_count == 7
         # The fetch happens before the branch inspection.
         assert mock_run.call_args_list[1][0][0] == [
             "git",
@@ -281,10 +268,9 @@ class TestRunUpgrade:
             "--force",
             "origin",
         ]
-        make_cmd = mock_run.call_args_list[3][0][0]
-        assert "git pull origin main" in make_cmd
+        make_cmd = mock_run.call_args_list[FINAL_CALL][0][0]
         assert "make install" in make_cmd
-        assert mock_run.call_args_list[3][1]["cwd"] == "/fake/repo"
+        assert mock_run.call_args_list[FINAL_CALL][1]["cwd"] == "/fake/repo"
         output = capsys.readouterr().out
         assert "Upgrade complete" in output
 
@@ -293,29 +279,10 @@ class TestRunUpgrade:
 
         A clone whose local tag points at a different object than origin's makes
         a plain `git fetch --tags` exit non-zero ("would clobber existing tag"),
-        which permanently dead-ended --update. Both the pre-checkout fetch and
-        the fetch inside the final shell chain must carry --force, or a stale
-        clone can never upgrade.
+        which permanently dead-ended --update.
         """
-        git_root_proc = MagicMock()
-        git_root_proc.returncode = 0
-        git_root_proc.stdout = "/fake/repo\n"
-
-        fetch_proc = MagicMock()
-        fetch_proc.returncode = 0
-
-        branch_proc = MagicMock()
-        branch_proc.returncode = 0
-        branch_proc.stdout = "main\n"
-
-        make_proc = MagicMock()
-        make_proc.returncode = 0
-
         with (
-            patch(
-                "subprocess.run",
-                side_effect=[git_root_proc, fetch_proc, branch_proc, make_proc],
-            ) as mock_run,
+            patch("subprocess.run", side_effect=upgrade_procs()) as mock_run,
             pytest.raises(SystemExit),
         ):
             hc_module._run_upgrade()
@@ -333,29 +300,36 @@ class TestRunUpgrade:
                     f"shell-chain fetch missing --force: {cmd}"
                 )
 
-        # Guards against the assertion silently passing if the fetches move.
-        assert fetches == 2, f"expected 2 fetches in the upgrade path, saw {fetches}"
+        # Guards against the assertion silently passing if the fetch moves.
+        assert fetches == 1, f"expected 1 fetch in the upgrade path, saw {fetches}"
+
+    def test_run_upgrade_never_pulls(self, hc_module):
+        """No `git pull` anywhere in the upgrade path.
+
+        A pre-purge clone shares no ancestor with origin/main, so a pull aborts
+        with "Need to specify how to reconcile divergent branches" (or "refusing
+        to merge unrelated histories") and the upgrade never reaches make
+        install. The branch must be moved with `checkout -B`, not merged.
+        """
+        with (
+            patch("subprocess.run", side_effect=upgrade_procs()) as mock_run,
+            pytest.raises(SystemExit),
+        ):
+            hc_module._run_upgrade()
+
+        for call in mock_run.call_args_list:
+            cmd = call[0][0]
+            joined = " ".join(cmd) if isinstance(cmd, list) else cmd
+            assert "pull" not in joined, f"upgrade path still pulls: {joined}"
+
+        # The branch is moved by resetting it to origin's tip instead.
+        assert ["git", "checkout", "-B", "main", "origin/main"] in [
+            c[0][0] for c in mock_run.call_args_list
+        ]
 
     def test_run_upgrade_make_failure(self, hc_module, capsys):
-        git_root_proc = MagicMock()
-        git_root_proc.returncode = 0
-        git_root_proc.stdout = "/fake/repo\n"
-
-        fetch_proc = MagicMock()
-        fetch_proc.returncode = 0
-
-        branch_proc = MagicMock()
-        branch_proc.returncode = 0
-        branch_proc.stdout = "main\n"
-
-        make_proc = MagicMock()
-        make_proc.returncode = 1
-
         with (
-            patch(
-                "subprocess.run",
-                side_effect=[git_root_proc, fetch_proc, branch_proc, make_proc],
-            ),
+            patch("subprocess.run", side_effect=upgrade_procs(final_returncode=1)),
             pytest.raises(SystemExit) as exc,
         ):
             hc_module._run_upgrade()
@@ -450,18 +424,18 @@ class TestRunUpgrade:
             "--set-upstream-to=origin/main",
             "main",
         ]
-        # Final call is the shell upgrade.
+        # Final call is the shell upgrade -- install only, no pull.
         upgrade_cmd = mock_run.call_args_list[6][0][0]
-        assert "git pull origin main" in upgrade_cmd
-        assert "git fetch --tags --force" in upgrade_cmd
+        assert "make install" in upgrade_cmd
+        assert "git pull" not in upgrade_cmd
         output = capsys.readouterr().out
         assert "Switching from 'dev' to 'main'" in output
 
     def test_run_upgrade_migrates_master_only_renamed_clone(self, hc_module, capsys):
         """An old clone still sitting on `master` (default branch renamed
         master -> main upstream) must be migrated: fetch BEFORE checkout,
-        checkout/create `main` from origin/main, set upstream to origin/main,
-        and the final pull must be `git pull origin main` (never bare)."""
+        checkout/create `main` from origin/main, and set upstream to
+        origin/main. The reset replaces what used to be a pull."""
         git_root_proc = MagicMock(returncode=0, stdout="/fake/repo\n")
         fetch_proc = MagicMock(returncode=0, stdout="", stderr="")
         branch_proc = MagicMock(returncode=0, stdout="master\n")
@@ -501,10 +475,10 @@ class TestRunUpgrade:
         )
         assert checkout_idx < upstream_idx
 
-        # Final pull is explicit, not a bare `git pull`.
+        # The reset above is what advances the branch; nothing pulls.
         upgrade_cmd = mock_run.call_args_list[-1][0][0]
-        assert "git pull origin main" in upgrade_cmd
         assert "make install" in upgrade_cmd
+        assert "git pull" not in upgrade_cmd
 
         output = capsys.readouterr().out
         assert "Switching from 'master' to 'main'" in output
@@ -585,77 +559,70 @@ class TestRunUpgrade:
         assert "Failed to switch to main" in output
         assert "already checked out" in output
 
-    def test_run_upgrade_skips_switch_when_already_on_main(self, hc_module, capsys):
-        git_root_proc = MagicMock(returncode=0, stdout="/fake/repo\n")
-        fetch_proc = MagicMock(returncode=0, stdout="", stderr="")
-        branch_proc = MagicMock(returncode=0, stdout="main\n")
-        make_proc = MagicMock(returncode=0)
+    def test_run_upgrade_resets_to_origin_when_already_on_main(self, hc_module, capsys):
+        """Already on main still gets the reset.
 
+        This used to skip the checkout and rely on the shell chain's pull, which
+        is precisely the case that broke for a rewritten-history clone: dell3
+        and a second user's box were both sitting on main. The checkout must fire
+        regardless, but without printing a misleading "Switching from" line.
+        """
         with (
-            patch(
-                "subprocess.run",
-                side_effect=[git_root_proc, fetch_proc, branch_proc, make_proc],
-            ) as mock_run,
+            patch("subprocess.run", side_effect=upgrade_procs()) as mock_run,
             pytest.raises(SystemExit) as exc,
         ):
             hc_module._run_upgrade()
 
         assert exc.value.code == 0
-        # rev-parse + fetch + symbolic-ref + upgrade shell. No checkout.
-        assert mock_run.call_count == 4
         all_call_args = [c[0][0] for c in mock_run.call_args_list]
-        assert ["git", "checkout", "-B", "main", "origin/main"] not in all_call_args
+        assert ["git", "checkout", "-B", "main", "origin/main"] in all_call_args
         output = capsys.readouterr().out
         assert "Switching from" not in output
 
-    def test_run_upgrade_skips_switch_on_detached_head(self, hc_module, capsys):
-        """Detached HEAD: symbolic-ref returns non-zero. We should not
-        attempt a branch switch (there's nothing to switch from) — let
-        the existing upgrade flow proceed."""
-        git_root_proc = MagicMock(returncode=0, stdout="/fake/repo\n")
-        fetch_proc = MagicMock(returncode=0, stdout="", stderr="")
-        branch_proc = MagicMock(
-            returncode=1, stdout="", stderr="fatal: ref HEAD is not a symbolic ref\n"
-        )
-        make_proc = MagicMock(returncode=0)
+    def test_run_upgrade_resets_on_detached_head(self, hc_module, capsys):
+        """Detached HEAD: symbolic-ref returns non-zero.
 
+        There's no branch to switch *from*, so no "Switching from" line, but the
+        checkout still has to run to put HEAD back on a branch at origin's tip.
+        """
         with (
             patch(
-                "subprocess.run",
-                side_effect=[git_root_proc, fetch_proc, branch_proc, make_proc],
+                "subprocess.run", side_effect=upgrade_procs(current_branch=None)
             ) as mock_run,
             pytest.raises(SystemExit) as exc,
         ):
             hc_module._run_upgrade()
 
         assert exc.value.code == 0
-        assert mock_run.call_count == 4
         all_call_args = [c[0][0] for c in mock_run.call_args_list]
-        assert ["git", "checkout", "-B", "main", "origin/main"] not in all_call_args
+        assert ["git", "checkout", "-B", "main", "origin/main"] in all_call_args
+        assert "Switching from" not in capsys.readouterr().out
 
 
 class TestNightlyChannel:
     """Tests for the --nightly update channel (_run_upgrade(branch=...))."""
 
-    def test_nightly_pulls_from_nightly_dev(self, hc_module, capsys):
-        git_root_proc = MagicMock(returncode=0, stdout="/fake/repo\n")
-        fetch_proc = MagicMock(returncode=0, stdout="", stderr="")
-        branch_proc = MagicMock(returncode=0, stdout="nightly-dev\n")
-        make_proc = MagicMock(returncode=0)
-
+    def test_nightly_resets_to_nightly_dev(self, hc_module, capsys):
         with (
             patch(
                 "subprocess.run",
-                side_effect=[git_root_proc, fetch_proc, branch_proc, make_proc],
+                side_effect=upgrade_procs(current_branch="nightly-dev"),
             ) as mock_run,
             pytest.raises(SystemExit) as exc,
         ):
             hc_module._run_upgrade(branch="nightly-dev")
 
         assert exc.value.code == 0
-        make_cmd = mock_run.call_args_list[3][0][0]
-        assert "git pull origin nightly-dev" in make_cmd
-        assert "git pull origin main" not in make_cmd
+        all_call_args = [c[0][0] for c in mock_run.call_args_list]
+        # The channel is selected by the checkout target, not by a pull refspec.
+        assert [
+            "git",
+            "checkout",
+            "-B",
+            "nightly-dev",
+            "origin/nightly-dev",
+        ] in all_call_args
+        assert ["git", "checkout", "-B", "main", "origin/main"] not in all_call_args
 
     def test_nightly_switches_from_main_to_nightly_dev(self, hc_module, capsys):
         """The inverse of the main-channel switch: a user sitting on main who
@@ -703,22 +670,16 @@ class TestNightlyChannel:
         assert "Switching from 'main' to 'nightly-dev'" in capsys.readouterr().out
 
     def test_default_branch_is_still_main(self, hc_module):
-        """--update must keep pulling releases from main."""
-        git_root_proc = MagicMock(returncode=0, stdout="/fake/repo\n")
-        fetch_proc = MagicMock(returncode=0, stdout="", stderr="")
-        branch_proc = MagicMock(returncode=0, stdout="main\n")
-        make_proc = MagicMock(returncode=0)
-
+        """--update must keep taking releases from main."""
         with (
-            patch(
-                "subprocess.run",
-                side_effect=[git_root_proc, fetch_proc, branch_proc, make_proc],
-            ) as mock_run,
+            patch("subprocess.run", side_effect=upgrade_procs()) as mock_run,
             pytest.raises(SystemExit),
         ):
             hc_module._run_upgrade()
 
-        assert "git pull origin main" in mock_run.call_args_list[3][0][0]
+        assert ["git", "checkout", "-B", "main", "origin/main"] in [
+            c[0][0] for c in mock_run.call_args_list
+        ]
 
     def test_uncommitted_changes_message_names_target_branch(self, hc_module, capsys):
         git_root_proc = MagicMock(returncode=0, stdout="/fake/repo\n")
@@ -738,7 +699,10 @@ class TestNightlyChannel:
         assert exc.value.code == 1
         out = capsys.readouterr().out
         assert "uncommitted changes on 'main'" in out
-        assert "git checkout nightly-dev" in out
+        # The suggested recovery must name the target channel and must be the
+        # reset form, since the pull form fails on a rewritten-history clone.
+        assert "git checkout -B nightly-dev origin/nightly-dev" in out
+        assert "git pull" not in out
 
 
 class TestNightlyFlagWiring:
