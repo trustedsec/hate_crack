@@ -28,6 +28,18 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   run that cracks nothing leaves a zero-byte log. `rosetta_debug_logs()`
   returned those alongside real ones; since the picker shows only the newest 20
   by mtime, dead files could crowd out logs that still had something to mine.
+- **Pipal analysis (option 95) ran the pwdump-only merge on any NTLM run.** The
+  guard tested the hash type but not `pwdump_format`, unlike the identical guard
+  in `cleanup()`, so a plain NTLM list took a code path meant for pwdump files —
+  which used to truncate the cracked output and produce a report reading
+  `Total entries = 0`. Pipal now also says so plainly when there are no cracked
+  passwords to analyse, instead of emitting a zeroed report.
+- **Excel export (option 96) had the same missing guard as Pipal analysis.** It
+  ran the pwdump-only merge for any NTLM hash type, so a plain hash list took a
+  path that used to truncate the cracked output, and then produced an empty
+  spreadsheet because the pwdump-shaped rows it looks for were not there. All
+  three callers of the merge now guard identically, and a test enforces that a
+  fourth cannot be added without the guard.
 
 ## [2.18.0] - 2026-07-29
 
@@ -262,12 +274,6 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   merge onto, and builds the merged file beside its destination and moves it into
   place only once it has content, so a run that matches nothing can no longer
   replace a good result with an empty one.
-- **Pipal analysis (option 95) ran the pwdump-only merge on any NTLM run.** The
-  guard tested the hash type but not `pwdump_format`, unlike the identical guard
-  in `cleanup()`, so a plain NTLM list took a code path meant for pwdump files —
-  which used to truncate the cracked output and produce a report reading
-  `Total entries = 0`. Pipal now also says so plainly when there are no cracked
-  passwords to analyse, instead of emitting a zeroed report.
 - **`coverage.txt` now reports the rule count for 75% coverage.** Its milestone
   list ran 50/80/90/95/99/100, so an operator picking the new top-75% tier
   could not look its cost up in the one file meant to answer that question.
