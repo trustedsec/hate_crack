@@ -194,6 +194,24 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   entries, and skips missing inputs instead of aborting.
 
 ### Fixed
+- **Four Hashview tests that passed without ever making a request.**
+  `test_get_hashfiles_by_type_success`, `test_get_customer_hashfiles`,
+  `test_download_left_hashes` and `test_download_wordlist` each took the `api`
+  fixture — which holds `patch("requests.Session")` open for the whole test body
+  — and then built a second client inside that body from `config.json`. That
+  client's session was a `MagicMock`, so no HTTP happened and the assertions held
+  against the mock. `get_hashfiles_by_type`'s own `except Exception: return []`
+  made `assert isinstance(result, list)` true for a call that never left the
+  process. Each is now split into a mocked test and a `*_live` test built through
+  `_live_api()` (added in #223), which takes credentials from the environment
+  only and asserts the session is a real `requests.Session`. The
+  "real if possible, else mock" shape is gone: it was what hid this, because a
+  green dot never said which branch ran. `test_download_wordlist_live` uploads its
+  own synthetic wordlist and downloads it back, so it cannot skip for lack of
+  seeded data. The `_get_hashview_config()` helper is deleted with its last
+  caller — it read `config.json`, and was therefore a path by which a plain
+  `pytest` run could reach a developer's real Hashview. (#228)
+
 - **A host-port conflict starting the local Hashview test stack is now named
   instead of surfacing as `exit status 1`.** `docker compose up` is captured, and
   a `Bind for ...: port is already allocated` failure reports the port, the

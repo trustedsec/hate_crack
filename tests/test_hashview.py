@@ -2,6 +2,7 @@
 Tests for Hashview integration - Mocked API calls for CI/CD
 """
 
+import gzip
 import pytest
 import requests
 import sys
@@ -51,23 +52,6 @@ NTLM_EMPTY = "31d6cfe0d16ae931b73c59d7e0c089c0"
 class TestHashviewAPI:
     """Test suite for HashviewAPI class with mocked API calls"""
 
-    def _get_hashview_config(self):
-        env_url = os.environ.get("HASHVIEW_URL")
-        env_key = os.environ.get("HASHVIEW_API_KEY")
-        if env_url and env_key:
-            return env_url, env_key
-        config_path = os.path.join(os.path.dirname(__file__), "..", "config.json")
-        try:
-            with open(config_path) as f:
-                config = json.load(f)
-            url = config.get("hashview_url")
-            key = config.get("hashview_api_key")
-            if url and key:
-                return url, key
-        except Exception:
-            pass
-        return env_url, env_key
-
     def _live_api(self):
         """Return a genuinely live HashviewAPI, or skip.
 
@@ -97,6 +81,39 @@ class TestHashviewAPI:
             "live client session is a mock — requests.Session is patched"
         )
         return real_api
+
+    @staticmethod
+    def _live_hash_type():
+        """The hashcat mode the live stack has data seeded for."""
+        return os.environ.get("HASHVIEW_HASH_TYPE", "1000")
+
+    @staticmethod
+    def _live_env_int(name):
+        """Return ``name`` from the environment as an int, or skip."""
+        raw = os.environ.get(name)
+        if not raw:
+            pytest.skip(f"Set {name} to run this live Hashview test.")
+        return int(raw)
+
+    @staticmethod
+    def _raw_hashfiles_by_type(real_api, hash_type):
+        """GET the type-scoped listing straight off the wire.
+
+        ``get_hashfiles_by_type`` swallows every exception and returns ``[]``, so
+        ``isinstance(result, list)`` alone cannot tell a real answer from a
+        failure (issue #228). Reading the raw response gives the live tests a
+        server-derived expectation to compare the client's parse against.
+        """
+        url = f"{real_api.base_url}/v1/hashfiles/hash_type/{hash_type}"
+        resp = real_api.session.get(url, headers=real_api._auth_headers())
+        assert resp.status_code == 200, (
+            f"{url} answered {resp.status_code}: {resp.text[:200]!r}"
+        )
+        payload = resp.json()
+        assert isinstance(payload, dict), f"expected a JSON object, got {payload!r}"
+        hashfiles = payload.get("hashfiles")
+        assert isinstance(hashfiles, list), f"no hashfiles list in {payload!r}"
+        return hashfiles
 
     @pytest.fixture
     def api(self):
@@ -144,26 +161,39 @@ class TestHashviewAPI:
         return _make
 
     def test_get_hashfiles_by_type_success(self, api):
-        """The /v1/hashfiles/hash_type/<type> endpoint returns a list (real API if possible)."""
-        hashview_url, hashview_api_key = self._get_hashview_config()
-        if hashview_url and hashview_api_key:
-            real_api = HashviewAPI(hashview_url, hashview_api_key)
-            result = real_api.get_hashfiles_by_type("1000")
-            assert isinstance(result, list)
-            if result:
-                assert "name" in result[0]
-        else:
-            mock_response = Mock()
-            mock_response.json.return_value = [
-                {"id": 1, "customer_id": 1, "name": "hashfile1.txt", "hash_type": 1000},
-                {"id": 2, "customer_id": 2, "name": "hashfile2.txt", "hash_type": 1000},
-            ]
-            mock_response.raise_for_status = Mock()
-            api.session.get.return_value = mock_response
-            result = api.get_hashfiles_by_type("1000")
-            assert isinstance(result, list)
-            assert len(result) == 2
-            assert result[0]["name"] == "hashfile1.txt"
+        """The /v1/hashfiles/hash_type/<type> endpoint returns a list (mocked transport)."""
+        mock_response = Mock()
+        mock_response.json.return_value = [
+            {"id": 1, "customer_id": 1, "name": "hashfile1.txt", "hash_type": 1000},
+            {"id": 2, "customer_id": 2, "name": "hashfile2.txt", "hash_type": 1000},
+        ]
+        mock_response.raise_for_status = Mock()
+        api.session.get.return_value = mock_response
+        result = api.get_hashfiles_by_type("1000")
+        assert isinstance(result, list)
+        assert len(result) == 2
+        assert result[0]["name"] == "hashfile1.txt"
+
+    def test_get_hashfiles_by_type_success_live(self):
+        """Live Hashview lists hashfiles of a hash_type, parsed as the server sent them.
+
+        Deliberately does not take the ``api`` fixture — see ``_live_api``.
+        """
+        real_api = self._live_api()
+        hash_type = self._live_hash_type()
+        try:
+            expected = self._raw_hashfiles_by_type(real_api, hash_type)
+            result = real_api.get_hashfiles_by_type(hash_type)
+        except requests.RequestException as exc:
+            pytest.skip(f"Hashview hashfile listing request failed: {exc}")
+
+        assert isinstance(result, list), f"expected a list, got {result!r}"
+        # The client must surface exactly the server's hashfiles — not the []
+        # that its own ``except Exception`` produces when the call really failed.
+        assert [hf.get("id") for hf in result] == [hf.get("id") for hf in expected]
+        for hashfile in result:
+            assert "name" in hashfile, f"no name in hashfile: {hashfile!r}"
+            assert str(hashfile.get("hash_type")) == str(hash_type), hashfile
 
     def test_get_customer_hashfiles_requires_hash_type(self, api):
         """Without a hash_type there is no Hashview list route, so we return []."""
@@ -224,28 +254,46 @@ class TestHashviewAPI:
         assert [hf["id"] for hf in result] == [9]
 
     def test_get_customer_hashfiles(self, api):
-        """Filter the type-scoped hashfile list by customer_id (real API if possible)."""
-        hashview_url, hashview_api_key = self._get_hashview_config()
-        customer_id = os.environ.get("HASHVIEW_CUSTOMER_ID")
-        if hashview_url and hashview_api_key and customer_id:
-            real_api = HashviewAPI(hashview_url, hashview_api_key)
-            result = real_api.get_customer_hashfiles(int(customer_id), hash_type="1000")
-            assert isinstance(result, list)
-            # If there are hashfiles, all should match customer_id
-            if result:
-                assert all(hf["customer_id"] == int(customer_id) for hf in result)
-        else:
-            api.get_hashfiles_by_type = Mock(
-                return_value=[
-                    {"id": 1, "customer_id": 1, "name": "hashfile1.txt"},
-                    {"id": 2, "customer_id": 2, "name": "hashfile2.txt"},
-                    {"id": 3, "customer_id": 1, "name": "hashfile3.txt"},
-                ]
-            )
-            result = api.get_customer_hashfiles(1, hash_type="1000")
-            assert len(result) == 2
-            assert all(hf["customer_id"] == 1 for hf in result)
-            api.get_hashfiles_by_type.assert_called_once_with("1000")
+        """Filter the type-scoped hashfile list by customer_id (mocked transport)."""
+        api.get_hashfiles_by_type = Mock(
+            return_value=[
+                {"id": 1, "customer_id": 1, "name": "hashfile1.txt"},
+                {"id": 2, "customer_id": 2, "name": "hashfile2.txt"},
+                {"id": 3, "customer_id": 1, "name": "hashfile3.txt"},
+            ]
+        )
+        result = api.get_customer_hashfiles(1, hash_type="1000")
+        assert len(result) == 2
+        assert all(hf["customer_id"] == 1 for hf in result)
+        api.get_hashfiles_by_type.assert_called_once_with("1000")
+
+    def test_get_customer_hashfiles_live(self):
+        """Live Hashview: the customer filter keeps exactly that customer's files.
+
+        Deliberately does not take the ``api`` fixture — see ``_live_api``.
+        """
+        real_api = self._live_api()
+        customer_id = self._live_env_int("HASHVIEW_CUSTOMER_ID")
+        hash_type = self._live_hash_type()
+        try:
+            all_hashfiles = self._raw_hashfiles_by_type(real_api, hash_type)
+            result = real_api.get_customer_hashfiles(customer_id, hash_type=hash_type)
+        except requests.RequestException as exc:
+            pytest.skip(f"Hashview hashfile listing request failed: {exc}")
+
+        expected_ids = [
+            hf.get("id")
+            for hf in all_hashfiles
+            if int(hf.get("customer_id", 0)) == customer_id
+        ]
+        assert [hf.get("id") for hf in result] == expected_ids
+        assert all(int(hf["customer_id"]) == customer_id for hf in result)
+        # The seeded customer owns at least one hashfile of the seeded type, so
+        # an empty result here means the filter (or the listing) is broken.
+        assert result, (
+            f"customer {customer_id} has no hash_type {hash_type} hashfiles in "
+            f"the server's listing of {len(all_hashfiles)} file(s)"
+        )
 
     def test_display_customers_multicolumn_empty(self, api, capsys):
         """Test display_customers_multicolumn with no customers (mock only, as real API not needed)."""
@@ -649,103 +697,156 @@ class TestHashviewAPI:
         assert customer_id, f"no customer id in response: {result!r}"
         assert int(customer_id) > 0
 
-    def test_download_left_hashes(self, api, tmp_path):
-        """Test downloading left hashes: real API if possible, else mock."""
-        hashview_url, hashview_api_key = self._get_hashview_config()
-        customer_id = os.environ.get("HASHVIEW_CUSTOMER_ID")
-        hashfile_id = os.environ.get("HASHVIEW_HASHFILE_ID")
-        if all([hashview_url, hashview_api_key, customer_id, hashfile_id]):
-            # Real API test
-            real_api = HashviewAPI(hashview_url, hashview_api_key)
-            output_file = tmp_path / f"left_{customer_id}_{hashfile_id}.txt"
-            result = real_api.download_left_hashes(
-                int(customer_id), int(hashfile_id), output_file=str(output_file)
+    def test_download_left_hashes_live(self, tmp_path):
+        """Live Hashview: GET /v1/hashfiles/<id> streams the uncracked hashes to disk.
+
+        Deliberately does not take the ``api`` fixture — see ``_live_api``.
+        """
+        real_api = self._live_api()
+        customer_id = self._live_env_int("HASHVIEW_CUSTOMER_ID")
+        hashfile_id = self._live_env_int("HASHVIEW_HASHFILE_ID")
+        output_file = tmp_path / f"left_{customer_id}_{hashfile_id}.txt"
+        potfile = tmp_path / "hashcat.potfile"
+
+        url = f"{real_api.base_url}/v1/hashfiles/{hashfile_id}"
+        try:
+            probe = real_api.session.get(url, headers=real_api._auth_headers())
+            assert probe.status_code == 200, (
+                f"{url} answered {probe.status_code}: {probe.text[:200]!r}"
             )
-            assert os.path.exists(result["output_file"])
-            with open(result["output_file"], "rb") as f:
-                content = f.read()
-            print(f"[DEBUG] Downloaded {len(content)} bytes to {result['output_file']}")
-            assert result["size"] == len(content)
-        else:
-            # Mock test
-            mock_response = Mock()
-            mock_response.content = b"hash1\nhash2\n"
-            mock_response.raise_for_status = Mock()
-            mock_response.headers = {"content-length": "0"}
-            mock_response.status_code = 404  # For the found file lookup
+            expected_body = probe.content
+            result = real_api.download_left_hashes(
+                customer_id,
+                hashfile_id,
+                output_file=str(output_file),
+                potfile_path=str(potfile),
+            )
+        except requests.RequestException as exc:
+            pytest.skip(f"Hashview left-hash download request failed: {exc}")
 
-            def iter_content(chunk_size=8192):
-                yield mock_response.content
+        assert result["output_file"] == str(output_file)
+        assert os.path.exists(result["output_file"])
+        with open(result["output_file"], "rb") as f:
+            content = f.read()
+        # The downloaded file must be exactly what the endpoint served (the
+        # found-merge is a no-op on stock Hashview, which has no found route).
+        assert content == expected_body
+        assert result["size"] == len(content)
+        # Left hashes are ciphertext only; a plaintext must never land here.
+        for line in content.decode("utf-8", "replace").splitlines():
+            assert line.strip(), "blank line in the left-hash download"
 
-            mock_response.iter_content = iter_content
-            api.session.get.return_value = mock_response
+    def test_download_left_hashes(self, api, tmp_path):
+        """Test downloading left hashes (mocked transport)."""
+        mock_response = Mock()
+        mock_response.content = b"hash1\nhash2\n"
+        mock_response.raise_for_status = Mock()
+        mock_response.headers = {"content-length": "0"}
+        mock_response.status_code = 404  # For the found file lookup
 
-            output_file = tmp_path / "left_1_2.txt"
-            result = api.download_left_hashes(1, 2, output_file=str(output_file))
-            assert os.path.exists(result["output_file"])
-            with open(result["output_file"], "rb") as f:
-                content = f.read()
-            assert content == b"hash1\nhash2\n"
-            assert result["size"] == len(content)
+        def iter_content(chunk_size=8192):
+            yield mock_response.content
 
-            # Verify auth headers were passed in the left hashes download call.
-            # The uncracked ("left") hashes come from GET /v1/hashfiles/<id>
-            # (the trailing /found call is a separate lookup).
-            call_args_list = api.session.get.call_args_list
-            left_call = [
-                c
-                for c in call_args_list
-                if "/v1/hashfiles/2" in str(c) and "found" not in str(c)
-            ][0]
-            assert left_call.kwargs.get("headers") is not None
-            auth_headers = left_call.kwargs.get("headers")
-            assert "Cookie" in auth_headers or "uuid" in str(auth_headers)
-            assert HASHVIEW_API_KEY in str(auth_headers)
+        mock_response.iter_content = iter_content
+        api.session.get.return_value = mock_response
+
+        output_file = tmp_path / "left_1_2.txt"
+        result = api.download_left_hashes(1, 2, output_file=str(output_file))
+        assert os.path.exists(result["output_file"])
+        with open(result["output_file"], "rb") as f:
+            content = f.read()
+        assert content == b"hash1\nhash2\n"
+        assert result["size"] == len(content)
+
+        # Verify auth headers were passed in the left hashes download call.
+        # The uncracked ("left") hashes come from GET /v1/hashfiles/<id>
+        # (the trailing /found call is a separate lookup).
+        call_args_list = api.session.get.call_args_list
+        left_call = [
+            c
+            for c in call_args_list
+            if "/v1/hashfiles/2" in str(c) and "found" not in str(c)
+        ][0]
+        assert left_call.kwargs.get("headers") is not None
+        auth_headers = left_call.kwargs.get("headers")
+        assert "Cookie" in auth_headers or "uuid" in str(auth_headers)
+        assert HASHVIEW_API_KEY in str(auth_headers)
 
     def test_download_wordlist(self, api, tmp_path):
-        """Test downloading a wordlist: real API if possible, else mock."""
-        hashview_url, hashview_api_key = self._get_hashview_config()
-        wordlist_id = os.environ.get("HASHVIEW_WORDLIST_ID")
-        if all([hashview_url, hashview_api_key, wordlist_id]):
-            real_api = HashviewAPI(hashview_url, hashview_api_key)
+        """Test downloading a wordlist (mocked transport)."""
+        mock_response = Mock()
+        mock_response.content = b"gzipdata"
+        mock_response.raise_for_status = Mock()
+        mock_response.headers = {"content-length": "0"}
+
+        def iter_content(chunk_size=8192):
+            yield mock_response.content
+
+        mock_response.iter_content = iter_content
+        api.session.get.return_value = mock_response
+
+        output_file = tmp_path / "wordlist_1.gz"
+        result = api.download_wordlist(1, output_file=str(output_file))
+        assert os.path.exists(result["output_file"])
+        with open(result["output_file"], "rb") as f:
+            content = f.read()
+        assert content == b"gzipdata"
+        assert result["size"] == len(content)
+
+        # Verify auth headers were passed in the download call
+        # session.get should be called with headers containing the auth cookie
+        call_args_list = api.session.get.call_args_list
+        # Last call should be the download (not the update call for id 1)
+        download_call = [c for c in call_args_list if "wordlists/1" in str(c)][0]
+        assert download_call.kwargs.get("headers") is not None
+        auth_headers = download_call.kwargs.get("headers")
+        assert "Cookie" in auth_headers or "uuid" in str(auth_headers)
+        assert HASHVIEW_API_KEY in str(auth_headers)
+
+    def test_download_wordlist_live(self, tmp_path):
+        """Live Hashview: a wordlist uploaded by this test downloads back intact.
+
+        The local seeder creates no wordlist, so rather than skip for lack of
+        seeded data the test uploads its own synthetic fixture and asserts the
+        round trip. Hashview serves wordlists gzip-compressed, so the download
+        is gunzipped before comparison.
+
+        Deliberately does not take the ``api`` fixture — see ``_live_api``.
+        """
+        real_api = self._live_api()
+        words = [SYNTH_PLAIN_A, SYNTH_PLAIN_B, SYNTH_PLAIN_C]
+        payload = "".join(w + "\n" for w in words).encode("utf-8")
+        source = tmp_path / "hate_crack_live_wordlist.txt"
+        source.write_bytes(payload)
+        name = f"hate-crack-test-{uuid.uuid4().hex[:8]}.txt"
+
+        try:
+            upload_result = real_api.upload_wordlist_file(str(source), name)
+            assert isinstance(upload_result, dict), (
+                f"expected a JSON object, got {upload_result!r}"
+            )
+            wordlist_id = upload_result.get("wordlist_id") or upload_result.get("id")
+            assert wordlist_id, f"no wordlist id in response: {upload_result!r}"
+
             output_file = tmp_path / f"wordlist_{wordlist_id}.gz"
             result = real_api.download_wordlist(
                 int(wordlist_id), output_file=str(output_file)
             )
-            assert os.path.exists(result["output_file"])
-            with open(result["output_file"], "rb") as f:
-                content = f.read()
-            print(f"[DEBUG] Downloaded {len(content)} bytes to {result['output_file']}")
-            assert result["size"] == len(content)
-        else:
-            mock_response = Mock()
-            mock_response.content = b"gzipdata"
-            mock_response.raise_for_status = Mock()
-            mock_response.headers = {"content-length": "0"}
+        except requests.RequestException as exc:
+            pytest.skip(f"Hashview wordlist round-trip request failed: {exc}")
 
-            def iter_content(chunk_size=8192):
-                yield mock_response.content
-
-            mock_response.iter_content = iter_content
-            api.session.get.return_value = mock_response
-
-            output_file = tmp_path / "wordlist_1.gz"
-            result = api.download_wordlist(1, output_file=str(output_file))
-            assert os.path.exists(result["output_file"])
-            with open(result["output_file"], "rb") as f:
-                content = f.read()
-            assert content == b"gzipdata"
-            assert result["size"] == len(content)
-
-            # Verify auth headers were passed in the download call
-            # session.get should be called with headers containing the auth cookie
-            call_args_list = api.session.get.call_args_list
-            # Last call should be the download (not the update call for id 1)
-            download_call = [c for c in call_args_list if "wordlists/1" in str(c)][0]
-            assert download_call.kwargs.get("headers") is not None
-            auth_headers = download_call.kwargs.get("headers")
-            assert "Cookie" in auth_headers or "uuid" in str(auth_headers)
-            assert HASHVIEW_API_KEY in str(auth_headers)
+        assert result["output_file"] == str(output_file)
+        assert os.path.exists(result["output_file"])
+        with open(result["output_file"], "rb") as f:
+            downloaded = f.read()
+        assert result["size"] == len(downloaded)
+        assert downloaded, "downloaded wordlist is empty"
+        try:
+            body = gzip.decompress(downloaded)
+        except (OSError, EOFError):
+            # A fork may serve the wordlist uncompressed; compare as-is.
+            body = downloaded
+        assert body.splitlines() == [w.encode("utf-8") for w in words]
 
     def test_download_wordlist_saves_to_wordlists_dir(self, api, tmp_path):
         """When output_file is relative, it should resolve to get_hcat_wordlists_dir()."""
