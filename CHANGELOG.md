@@ -33,7 +33,7 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   byte-identical output to before.
 
 - **Spoonman Attack now offers a top-50% and top-75% coverage tier, and top 50%
-  is the new default.** Rule-set coverage against a large corpus is extremely
+  is listed first as the recommended choice.** Rule-set coverage against a large corpus is extremely
   long-tailed: on a 98.2M-password sample, 50% coverage needed 4,120 rules
   while 95% needed 16,119,661 and 100% needed 21,029,696. The old menu only
   offered the full set, top 99%, or top 95% — all three sat past the knee of

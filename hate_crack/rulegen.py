@@ -127,11 +127,12 @@ def _prune_counter(counter, max_unique):
 
     doomed = [key for key, hits in counter.items() if hits <= threshold]
     if remaining > max_unique:
-        # Only the tied top tier is left and it still overflows. Take the
-        # overflow from it, arbitrarily, so the bound actually holds. `keep` is
-        # overflow is appended as it is found rather than materialised as a
-        # second list of every survivor, so the transient stays proportional to
-        # what is discarded, not to what is kept.
+        # Only the tied top tier is left and it still overflows. Cut it down
+        # arbitrarily so the bound actually holds: keep the first `max_unique`
+        # keys encountered and append the rest to `doomed` as they are found,
+        # rather than materialising a second list of every survivor, so the
+        # transient stays proportional to what is discarded, not to what is
+        # kept.
         kept = 0
         for key, hits in counter.items():
             if hits > threshold:
