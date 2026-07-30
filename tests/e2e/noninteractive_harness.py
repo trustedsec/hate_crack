@@ -1,6 +1,5 @@
 """Subprocess harness for hate_crack.py's non-interactive CLI subcommands
-(quick, dict, brute, topmask). See
-docs/superpowers/specs/2026-07-28-cli-e2e-testing-design.md.
+(quick, dict, brute, topmask).
 """
 
 import os
