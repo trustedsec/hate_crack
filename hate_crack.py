@@ -16,6 +16,14 @@ for _name, _value in _main.__dict__.items():
         continue
     globals().setdefault(_name, _value)
 
+# NOTE: globals().setdefault() above copies main's import-time values into
+# this shim's module dict, which shadows __getattr__ for those names. Reading
+# e.g. hate_crack.hcatHashFile therefore returns this frozen copy rather than
+# proxying to main's live value. Latent today because nothing reads these
+# names that way and the snapshot guard below prevents the stale copy from
+# ever being pushed back onto main, but it will bite the first caller that
+# expects live-attribute semantics here.
+#
 # Snapshot of the import-time values above, so _sync_globals_to_main() can
 # tell "this global was actually changed on the shim" apart from "this global
 # still holds the stale copy we grabbed at import." Without this, syncing a

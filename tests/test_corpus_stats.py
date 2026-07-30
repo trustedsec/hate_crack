@@ -185,7 +185,7 @@ def test_summarize_counts_hash_shaped_lines(tmp_path):
 
 
 def test_corpus_context_warns_on_a_hash_dump(tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr(hc_main, "ollamaMaxSampleLines", 500, raising=False)
+    monkeypatch.setattr(hc_main, "ollamaMaxSampleLines", 500)
     dump = [
         f"user{i}:{i}:aad3b435b51404eeaad3b435b51404ee:"
         "31d6cfe0d16ae931b73c59d7e0c089c0:::"
@@ -196,7 +196,7 @@ def test_corpus_context_warns_on_a_hash_dump(tmp_path, monkeypatch, capsys):
 
 
 def test_corpus_context_does_not_warn_on_plaintexts(tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr(hc_main, "ollamaMaxSampleLines", 500, raising=False)
+    monkeypatch.setattr(hc_main, "ollamaMaxSampleLines", 500)
     path = _corpus(tmp_path, ["Alpha2024!", "Bravo2025!"])
     hc_main._corpus_context(path)
     assert "look like hashes" not in capsys.readouterr().out
@@ -307,7 +307,7 @@ def test_format_summary_handles_empty_sections(tmp_path):
 
 
 def test_corpus_context_includes_plaintexts_when_all_fit(tmp_path, monkeypatch):
-    monkeypatch.setattr(hc_main, "ollamaMaxSampleLines", 500, raising=False)
+    monkeypatch.setattr(hc_main, "ollamaMaxSampleLines", 500)
     path = _corpus(tmp_path, ["Alpha2024!", "Bravo2024"])
 
     context = hc_main._corpus_context(path)
@@ -316,7 +316,7 @@ def test_corpus_context_includes_plaintexts_when_all_fit(tmp_path, monkeypatch):
 
 
 def test_corpus_context_drops_plaintexts_above_the_cap(tmp_path, monkeypatch):
-    monkeypatch.setattr(hc_main, "ollamaMaxSampleLines", 10, raising=False)
+    monkeypatch.setattr(hc_main, "ollamaMaxSampleLines", 10)
     path = _corpus(tmp_path, [f"Alpha{i:04d}!" for i in range(100)])
 
     context = hc_main._corpus_context(path)
@@ -326,7 +326,7 @@ def test_corpus_context_drops_plaintexts_above_the_cap(tmp_path, monkeypatch):
 
 
 def test_corpus_context_invalid_cap_falls_back_to_500(tmp_path, monkeypatch):
-    monkeypatch.setattr(hc_main, "ollamaMaxSampleLines", 0, raising=False)
+    monkeypatch.setattr(hc_main, "ollamaMaxSampleLines", 0)
     path = _corpus(tmp_path, ["alpha", "beta"])
     assert "sample" in hc_main._corpus_context(path)
 

@@ -458,7 +458,7 @@ def test_llm_patterns_removed_by_cleanup(tmp_path, monkeypatch):
     monkeypatch.setattr(hc_main, "hcatHashFile", hash_file)
     monkeypatch.setattr(hc_main, "hcatHashFileOrig", hash_file)
     monkeypatch.setattr(hc_main, "hcatHashType", "1000")
-    monkeypatch.setattr(hc_main, "pwdump_format", False, raising=False)
+    monkeypatch.setattr(hc_main, "pwdump_format", False)
     hc_main.cleanup()
 
     assert not os.path.exists(patterns_path)

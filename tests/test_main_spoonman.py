@@ -71,7 +71,7 @@ class TestHcatSpoonman:
         monkeypatch.setattr(main_module, "hcatHashFile", hash_file)
         monkeypatch.setattr(main_module, "hcatHashFileOrig", hash_file)
         monkeypatch.setattr(main_module, "hcatHashType", "1000")
-        monkeypatch.setattr(main_module, "pwdump_format", False, raising=False)
+        monkeypatch.setattr(main_module, "pwdump_format", False)
         main_module.cleanup()
         assert not os.path.exists(hash_file + ".spoonman")
 
