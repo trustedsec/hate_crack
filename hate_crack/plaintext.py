@@ -112,6 +112,22 @@ def decode_hex_wrapper(plaintext):
         return plaintext
 
 
+def encode_hex_wrapper(raw):
+    """Return *raw* password bytes as text, wrapping in ``$HEX[...]`` if needed.
+
+    The inverse of :func:`decode_hex_wrapper`, and the safe way to move a
+    cracked plaintext out of a byte stream and into a text file. Bytes that are
+    not valid UTF-8 — a Latin-1 accent, a Windows-1252 quote, anything hashcat
+    emitted raw — cannot be decoded without loss, so they are hex-wrapped
+    exactly as hashcat itself would. Decoding such a plaintext with
+    ``errors="ignore"`` instead yields a *different* password with no error.
+    """
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return "$HEX[" + raw.hex() + "]"
+
+
 def usable_plaintext(raw):
     """Return the password from a raw corpus line, or "" if there is none.
 

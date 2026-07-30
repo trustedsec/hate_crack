@@ -160,3 +160,25 @@ def test_flags_uncracked_dump_lines(line):
 )
 def test_does_not_flag_cracked_or_plain_lines(line):
     assert not plaintext.looks_like_hash_line(line)
+
+
+# --------------------------------------------------------------------------
+# encode_hex_wrapper
+# --------------------------------------------------------------------------
+
+
+def test_encode_hex_wrapper_passes_through_valid_utf8():
+    assert plaintext.encode_hex_wrapper(b"Alpha2024!") == "Alpha2024!"
+    assert plaintext.encode_hex_wrapper("café".encode("utf-8")) == "café"
+
+
+def test_encode_hex_wrapper_wraps_undecodable_bytes():
+    raw = b"abc\xffdef"
+    assert plaintext.encode_hex_wrapper(raw) == "$HEX[616263ff646566]"
+    # Round trip: the wrapper decodes back to the same bytes.
+    assert (
+        plaintext.decode_hex_wrapper(plaintext.encode_hex_wrapper(raw)).encode(
+            "latin-1"
+        )
+        == raw
+    )

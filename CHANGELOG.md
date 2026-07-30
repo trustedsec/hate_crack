@@ -32,6 +32,18 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ### Fixed
 
+- **Cracked plaintexts on the Hashview found/upload paths are no longer
+  silently rewritten (issue #216).** Three reads of `hash:plaintext` data used
+  `errors="ignore"`, which drops an undecodable byte instead of raising: a
+  password holding a Latin-1 accent, a Windows-1252 quote, or any byte hashcat
+  emitted raw decoded to a *different* password with no error, and the potfile
+  append persisted that altered value so a later `--show` reported a plaintext
+  that does not hash to the stored hash. All three now read bytes and wrap a
+  non-UTF-8 plaintext in `$HEX[...]` via the new
+  `hate_crack.plaintext.encode_hex_wrapper`, matching what hashcat itself
+  writes and what `_wire_field_bytes` already understood. A line whose *hash*
+  field is undecodable is reported to the operator rather than dropped
+  silently.
 - **Bumped the HashcatRosetta submodule from v0.2.0 to v0.4.0, which parses
   `--debug-mode 5` natively.** The pinned v0.2.0 predated mode 5 support: its
   parser split on the first two colons only, so the trailing wordlist field was

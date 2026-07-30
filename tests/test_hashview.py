@@ -381,6 +381,34 @@ class TestHashviewAPI:
         out = capsys.readouterr().out
         assert "Skipped 1 line" in out
 
+    def test_upload_preserves_non_utf8_plaintext(self, api, tmp_path):
+        """A plaintext byte that is not valid UTF-8 reaches Hashview intact.
+
+        The file is read as bytes and the plaintext hex-wrapped, so validation
+        still recognizes it as the true NTLM pre-image instead of seeing the
+        lossy decode (which would be skipped as a mode mismatch).
+        """
+        plain_bytes = b"abc\xffdef"
+        cracked_file = tmp_path / "cracked.txt"
+        cracked_file.write_bytes(
+            b"fec45000e0d53e0e103cb66c1fa7fc45:" + plain_bytes + b"\n"
+        )
+        mock_response = Mock()
+        mock_response.json.return_value = {"imported": 1}
+        mock_response.raise_for_status = Mock()
+        api.session.post.return_value = mock_response
+
+        api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
+
+        sent = api.session.post.call_args.kwargs.get("data")
+        if sent is None:
+            sent = api.session.post.call_args.args[1]
+        # mode 1000: $HEX[...] is inlined as the latin-1 code points re-encoded
+        # as UTF-8, which is what the server re-hashes.
+        assert sent == b"fec45000e0d53e0e103cb66c1fa7fc45:" + plain_bytes.decode(
+            "latin-1"
+        ).encode("utf-8")
+
     def test_upload_surfaces_client_counts(self, api, tmp_path):
         """upload_cracked_hashes reports uploaded/skipped even when the server
         returns a bare OK with no counts of its own."""
@@ -1056,6 +1084,49 @@ class TestHashviewAPI:
         )
         assert "s3cr3t" not in contents, (
             "Plaintext password must not appear in the left file"
+        )
+
+    def test_download_left_hex_wraps_non_utf8_plaintext(
+        self, api, tmp_path, monkeypatch
+    ):
+        """A non-UTF-8 plaintext byte survives to the potfile as $HEX[...].
+
+        A lossy decode would drop the byte and persist a plaintext that no
+        longer hashes to the stored hash.
+        """
+        potfile = str(tmp_path / "hashcat.potfile")
+        monkeypatch.setattr("hate_crack.api.get_hcat_potfile_path", lambda: potfile)
+
+        plain_bytes = b"abc\xffdef"
+        found_line = b"found_hash1:" + plain_bytes + b"\n"
+
+        mock_left = Mock()
+        mock_left.content = b"uncracked_hash1\n"
+        mock_left.raise_for_status = Mock()
+        mock_left.headers = {"content-length": "0"}
+        mock_left.iter_content = lambda chunk_size=8192: iter([mock_left.content])
+
+        mock_found = Mock()
+        mock_found.content = found_line
+        mock_found.raise_for_status = Mock()
+        mock_found.headers = {"content-length": "0"}
+        mock_found.iter_content = lambda chunk_size=8192: iter([mock_found.content])
+        mock_found.status_code = 200
+
+        api.session.get.side_effect = [mock_left, mock_found]
+
+        left_file = tmp_path / "left_1_2.txt"
+        api.download_left_hashes(1, 2, output_file=str(left_file))
+
+        with open(potfile, "r", encoding="utf-8") as f:
+            contents = f.read()
+
+        expected = "found_hash1:$HEX[" + plain_bytes.hex() + "]"
+        assert expected in contents, (
+            "Non-UTF-8 plaintext must be hex-wrapped, not silently altered"
+        )
+        assert "abcdef" not in contents, (
+            "The lossy decode of the plaintext must not reach the potfile"
         )
 
     def test_download_left_potfile_path_param_overrides_config(self, api, tmp_path):

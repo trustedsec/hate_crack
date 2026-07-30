@@ -15,6 +15,7 @@ import requests  # type: ignore[import-untyped]
 
 from hate_crack.cli import orig_cwd
 from hate_crack.formatting import print_multicolumn_list
+from hate_crack.plaintext import encode_hex_wrapper
 
 _TORRENT_CLEANUP_REGISTERED = False
 _WEAKPASS_INERTIA_VERSION: str | None = None
@@ -1143,6 +1144,33 @@ def _decode_plaintext(plaintext: str) -> bytes:
     return plaintext.encode("utf-8", "surrogateescape")
 
 
+def _read_found_pairs(path) -> Tuple[list, list]:
+    """Return ``(pairs, undecodable)`` for a hashcat-style ``hash:plain`` file.
+
+    Read as bytes so a plaintext holding a non-UTF-8 byte survives as
+    ``$HEX[...]`` instead of being silently rewritten into a different password
+    — these values are appended to the potfile and uploaded to Hashview, where
+    a lossy decode becomes durable corruption. A line whose *hash* field is not
+    decodable is returned in ``undecodable`` for the caller to report rather
+    than dropped without a word.
+    """
+    pairs: list = []
+    undecodable: list = []
+    with open(path, "rb") as fh:
+        for raw_line in fh:
+            raw_line = raw_line.strip()
+            if not raw_line or b":" not in raw_line:
+                continue
+            hash_raw, plain_raw = raw_line.rsplit(b":", 1)
+            try:
+                hash_text = hash_raw.decode("utf-8")
+            except UnicodeDecodeError:
+                undecodable.append(raw_line)
+                continue
+            pairs.append((hash_text, encode_hex_wrapper(plain_raw)))
+    return pairs, undecodable
+
+
 def _digest_for_type(hash_type: str, raw: bytes) -> Optional[str]:
     """Compute the digest of ``raw`` under ``hash_type``.
 
@@ -1704,24 +1732,23 @@ class HashviewAPI:
                     out_dir, f"found_clears_{customer_id}_{hashfile_id}.txt"
                 )
 
-                hashes_count = 0
-                clears_count = 0
+                found_pairs, undecodable_lines = _read_found_pairs(found_file)
+                hashes_count = len(found_pairs)
+                clears_count = len(found_pairs)
 
                 with (
                     open(found_hashes_file, "w", encoding="utf-8") as hf,
                     open(found_clears_file, "w", encoding="utf-8") as cf,
                 ):
-                    with open(found_file, "r", encoding="utf-8", errors="ignore") as f:
-                        for line in f:
-                            line = line.strip()
-                            if line:
-                                parts = line.rsplit(":", 1)
-                                if len(parts) == 2:
-                                    hash_part, clear_part = parts
-                                    hf.write(hash_part + "\n")
-                                    cf.write(clear_part + "\n")
-                                    hashes_count += 1
-                                    clears_count += 1
+                    for hash_part, clear_part in found_pairs:
+                        hf.write(hash_part + "\n")
+                        cf.write(clear_part + "\n")
+
+                if undecodable_lines:
+                    print(
+                        f"⚠ Skipped {len(undecodable_lines)} found line(s) with an "
+                        "undecodable hash field"
+                    )
 
                 # Append found hashes to the left file to reconstruct the full hashlist
                 with open(output_abs, "a", encoding="utf-8") as lf:
@@ -1742,14 +1769,9 @@ class HashviewAPI:
                 if resolved_potfile:
                     appended = 0
                     with open(resolved_potfile, "a", encoding="utf-8") as pf:
-                        with open(
-                            found_file, "r", encoding="utf-8", errors="ignore"
-                        ) as ff:
-                            for line in ff:
-                                line = line.strip()
-                                if line and ":" in line:
-                                    pf.write(line + "\n")
-                                    appended += 1
+                        for hash_part, clear_part in found_pairs:
+                            pf.write(f"{hash_part}:{clear_part}\n")
+                            appended += 1
                     combined_count = appended
                     print(
                         f"✓ Appended {appended} found hashes to potfile: {resolved_potfile}"
@@ -1780,18 +1802,23 @@ class HashviewAPI:
     def upload_cracked_hashes(self, file_path, hash_type="1000", *, validate=True):
         valid_lines = []
         skipped = []
-        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-            for lineno, line in enumerate(f, 1):
-                line = line.strip()
-                if "31d6cfe0d16ae931b73c59d7e0c089c0" in line:
+        # Bytes, not a lossy text read: a plaintext with a non-UTF-8 byte must
+        # reach Hashview intact (as $HEX[...]) rather than as a different
+        # password -- see _read_found_pairs.
+        with open(file_path, "rb") as f:
+            for lineno, raw_line in enumerate(f, 1):
+                raw_line = raw_line.strip()
+                if b"31d6cfe0d16ae931b73c59d7e0c089c0" in raw_line:
                     continue
-                if not line or ":" not in line:
+                if not raw_line or b":" not in raw_line:
                     continue
-                parts = line.split(":", 1)
-                if len(parts) != 2:
-                    break
-                hash_value = parts[0].strip()
-                plaintext = parts[1].strip()
+                hash_raw, plain_raw = raw_line.split(b":", 1)
+                try:
+                    hash_value = hash_raw.strip().decode("utf-8")
+                except UnicodeDecodeError:
+                    skipped.append((lineno, "<undecodable>", "hash field is not UTF-8"))
+                    continue
+                plaintext = encode_hex_wrapper(plain_raw.strip())
                 if validate:
                     ok, reason = _validate_cracked_pair(
                         hash_type, hash_value, plaintext
