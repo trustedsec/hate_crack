@@ -53,6 +53,18 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   reached from two wordlists, misranking rules exactly when several logs were
   mined together.
 
+### Removed
+
+- **The standalone `wordlist_optimizer.py` script.** Its per-length split and
+  dedupe is now `wordlist_optimize()` in `hate_crack/main.py`, reachable as
+  Wordlist Tools option 8 ("Optimize Wordlists"). Nothing in the tree referenced
+  the script — not the README, the tests, or packaging (`pyproject.toml` ships
+  `hate_crack*` only, so a root-level module was never installed) — and it had
+  drifted behind the in-tree version, which uses `tempfile` instead of the fixed
+  `/tmp/splitlen` paths the script would clobber when two runs overlapped, opens
+  wordlists in binary mode rather than raising `UnicodeDecodeError` on non-UTF-8
+  entries, and skips missing inputs instead of aborting.
+
 ### Fixed
 
 - **Cracked plaintexts on the Hashview found/upload paths are no longer
