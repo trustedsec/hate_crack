@@ -904,8 +904,8 @@ def test_first_run_migrating_names_each_path_once_and_keeps_the_source(
     # the .env line points at rather than repeating the path.
     assert "migrated from the config.json above" in out
     assert f"[*] config.json: {json_path}" in out
-    # The per-key cleanup notes are unique information and still print.
-    assert "Delete them from" in out
+    # The per-key migration notes are unique information and still print.
+    assert "Removed them from" in out
 
 
 def test_first_run_with_nothing_to_migrate_names_each_path_once(
