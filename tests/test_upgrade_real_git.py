@@ -12,6 +12,7 @@ published history: every commit got a new SHA, so a clone predating it shares no
 ancestor with origin and holds tags pointing at objects origin no longer has.
 """
 
+import os
 import subprocess
 from pathlib import Path
 from unittest.mock import patch
@@ -215,3 +216,35 @@ def test_upgrade_path_has_no_pull(hc_module_real_git):
     ]
     offenders = [lit for lit in literals if "pull" in lit]
     assert not offenders, f"_run_upgrade() must not pull: {offenders}"
+
+
+def test_inherited_git_repo_vars_do_not_leak_into_throwaway_repos(tmp_path):
+    """The session fixture in conftest must strip git's repo-location vars.
+
+    Git exports these to its own hooks, so `git push` running the prek pre-push
+    hook leaks them into pytest, and every test in this file then operates on
+    the outer repo's index rather than its own tmp_path repo. Asserted here
+    rather than in a conftest test because this is the file that broke.
+    """
+    for key in (
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_COMMON_DIR",
+        "GIT_PREFIX",
+    ):
+        assert key not in os.environ, (
+            f"{key} is set during the test session; a test that shells out to "
+            "git will operate on the wrong repository. See "
+            "_isolate_git_environment in tests/conftest.py."
+        )
+
+    # And prove the practical consequence is gone: a commit in a fresh repo works.
+    repo = tmp_path / "scratch"
+    _init(repo)
+    (repo / "f.txt").write_text("x\n")
+    _git("add", "f.txt", cwd=repo)
+    _git("commit", "-qm", "initial", cwd=repo)
+    assert _git("rev-parse", "--short", "HEAD", cwd=repo).stdout.strip()

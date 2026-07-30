@@ -678,10 +678,17 @@ hate_crack can automatically check GitHub for newer releases on startup. This fe
 | Release | `--update` | `main` | The latest cut release. This is the default and what the startup check offers. |
 | Nightly | `--nightly` | `nightly-dev` | Work that has passed CI but has not been released yet. |
 
-The startup check only ever offers releases. It reads GitHub's "latest release"
-endpoint, which excludes pre-releases, and nightly builds publish no GitHub
-release at all — so enabling `check_for_updates` will never pull you onto a
-nightly.
+Versions follow a rolling scheme: `main` is stable and always `X.Y.0`, while
+`nightly-dev` consumes the patch numbers above it (`X.Y.1`, `X.Y.2`, …), one per
+validated push. Merging `nightly-dev` into `main` cuts the next `X.(Y+1).0`.
+
+The startup check only ever offers releases, because nightly builds publish no
+GitHub release at all and the check reads GitHub's "latest release" endpoint — so
+enabling `check_for_updates` will never pull you onto a nightly. Note that this
+is now the *only* thing separating the two channels: a nightly tag is an
+ordinary release tag rather than a pre-release, so a tool that ranks raw version
+numbers (rather than GitHub releases) will consider a nightly to be the latest
+version.
 
 Either flag switches your checkout to the corresponding branch first (and
 refuses to do so if you have uncommitted changes). If you are running a nightly

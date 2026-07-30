@@ -1,5 +1,14 @@
 name: Auto Tag
 
+# Cuts the stable release on main. main is always X.Y.0: merging nightly-dev
+# down is the release event, and it is always a MINOR bump.
+#
+# The version arithmetic is done by commitizen (`cz bump`), configured in
+# pyproject.toml under [tool.commitizen] with version_provider = "scm" and
+# tag_format = "v$version". Nothing here parses or increments a version number;
+# that used to be ~70 lines of `cut -d.` and `$((minor + 1))` duplicated with
+# nightly-tag.yml, and it is deliberately gone. Do not reintroduce it.
+#
 # Runs only after the CI workflow finishes successfully on main, so a broken
 # commit never gets tagged or released.
 on:
@@ -32,6 +41,9 @@ jobs:
           # workflow_run defaults to the tip of the default branch, which is not
           # necessarily the commit CI validated.
           ref: ${{ github.event.workflow_run.head_sha }}
+          # commitizen resolves the current version from git tags, so it needs
+          # the full history and all tags. Under a shallow clone it would read
+          # the project version as 0.0.0 and tag nonsense.
           fetch-depth: 0
 
       - name: Configure git identity
@@ -39,88 +51,47 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
 
-      - name: Determine version bump
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Compute release tag
         id: bump
         run: |
-          # Get the latest semver tag. The `|| true` keeps `set -o pipefail`
-          # from aborting the step when there are no matching tags yet.
-          latest_tag=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
-          if [ -z "$latest_tag" ]; then
-            echo "No semver tag found, starting at v0.1.0"
-            echo "new_tag=v0.1.0" >> "$GITHUB_OUTPUT"
-            exit 0
+          set -euo pipefail
+          # --increment MINOR is what expresses "a merge into main is a
+          # release". It is forced rather than inferred from commit messages,
+          # which means a `type!:` subject or a BREAKING CHANGE: footer no
+          # longer auto-bumps major. That is intentional: a major release is a
+          # rare, explicit human act (`cz bump --increment MAJOR`, run by hand
+          # and pushed). Do not add breaking-change detection here -- that is
+          # exactly the hand-rolled version decisioning this rewrite removed.
+          #
+          # There is also no "no feat/fix/perf commits, skip" early exit any
+          # more. A merge into main is an explicit release event, so a
+          # docs/chore-only merge still cuts a release.
+          uvx --from 'commitizen==4.17.0' cz bump --yes --increment MINOR --dry-run \
+            > "$RUNNER_TEMP/cz-bump.log"
+          cat "$RUNNER_TEMP/cz-bump.log"
+
+          # Read the answer out of a file rather than piping cz straight into
+          # grep/sed. Under `set -o pipefail` an early-exiting reader can leave
+          # the producer killed by SIGPIPE (exit 141), which would fail the step
+          # on a successful match. Several past bugs here came from exactly that.
+          new_tag=$(sed -n 's/^tag to create: //p' "$RUNNER_TEMP/cz-bump.log" | head -1)
+          if [ -z "$new_tag" ]; then
+            echo "::error::could not determine the tag to create from cz output"
+            exit 1
           fi
-
-          echo "Latest tag: $latest_tag"
-
-          # Commit SHAs since the last tag. We iterate SHAs rather than reading
-          # subjects line-by-line so that commit *bodies* (and therefore
-          # BREAKING CHANGE footers) are visible.
-          shas=$(git log "$latest_tag"..HEAD --format=%H)
-
-          if [ -z "$shas" ]; then
-            echo "No new commits since $latest_tag"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Parse current version
-          version="${latest_tag#v}"
-          major=$(echo "$version" | cut -d. -f1)
-          minor=$(echo "$version" | cut -d. -f2)
-          patch=$(echo "$version" | cut -d. -f3)
-
-          # Determine bump type. Precedence: major > minor > patch.
-          bump="none"
-          while IFS= read -r sha; do
-            [ -n "$sha" ] || continue
-            body=$(git log -1 --format=%B "$sha")
-            subject=${body%%$'\n'*}
-
-            # Note: matches are done with bash [[ =~ ]] / here-strings rather
-            # than pipelines, so `set -o pipefail` cannot turn an early-exiting
-            # `grep -q` (SIGPIPE, status 141) into a false negative.
-            if [[ "$subject" =~ ^[a-zA-Z]+(\(.+\))?!: ]]; then
-              # e.g. "feat!: ..." / "refactor(api)!: ..."
-              bump="major"
-            elif grep -qE '^(BREAKING CHANGE|BREAKING-CHANGE):' <<<"$body"; then
-              # Conventional Commits breaking-change footer in the body.
-              bump="major"
-            elif [[ "$subject" =~ ^feat(\(.+\))?: ]] && [ "$bump" != "major" ]; then
-              bump="minor"
-            elif [[ "$subject" =~ ^(fix|perf)(\(.+\))?: ]] && [ "$bump" = "none" ]; then
-              bump="patch"
-            fi
-          done <<EOF
-          $shas
-          EOF
-
-          if [ "$bump" = "none" ]; then
-            echo "No feat/fix/perf/breaking commits, skipping tag"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [ "$bump" = "major" ]; then
-            major=$((major + 1))
-            minor=0
-            patch=0
-          elif [ "$bump" = "minor" ]; then
-            minor=$((minor + 1))
-            patch=0
-          else
-            patch=$((patch + 1))
-          fi
-
-          new_tag="v${major}.${minor}.${patch}"
-          echo "Bump: $bump -> $new_tag"
+          echo "Release tag: $new_tag"
           echo "new_tag=$new_tag" >> "$GITHUB_OUTPUT"
 
       - name: Create tag
-        if: steps.bump.outputs.skip != 'true'
         env:
           NEW_TAG: ${{ steps.bump.outputs.new_tag }}
         run: |
+          set -euo pipefail
+          # Idempotent: a re-run of this workflow must not fail the job.
           if git rev-parse -q --verify "refs/tags/$NEW_TAG" >/dev/null; then
             echo "Tag $NEW_TAG already exists, nothing to push"
           else
@@ -133,11 +104,11 @@ jobs:
       # release here instead. release.yml remains the path for tags pushed
       # manually by a human.
       - name: Create GitHub release
-        if: steps.bump.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NEW_TAG: ${{ steps.bump.outputs.new_tag }}
         run: |
+          set -euo pipefail
           if gh release view "$NEW_TAG" >/dev/null 2>&1; then
             echo "Release $NEW_TAG already exists, nothing to do"
             exit 0

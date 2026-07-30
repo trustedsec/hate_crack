@@ -1,8 +1,45 @@
 import importlib.util
+import os
 import sys
 from pathlib import Path
 
 import pytest
+
+# Environment variables that point git at a specific repository, index, or
+# object store. Git sets these for its own hooks, so a `git push` running the
+# prek pre-push hook exports them into pytest -- and any test that shells out to
+# git in a throwaway repo then operates on the OUTER repo's index instead of its
+# own. That surfaced as `git commit` failing during setup in
+# tests/test_upgrade_real_git.py, but only under the hook, never on a bare
+# `pytest` run, which makes it the kind of failure that gets dismissed as flaky.
+#
+# GIT_AUTHOR_* / GIT_COMMITTER_* are deliberately NOT stripped: they only affect
+# identity, and a hook-supplied identity is harmless.
+_GIT_REPO_LOCATION_VARS = (
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_COMMON_DIR",
+    "GIT_PREFIX",
+)
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _isolate_git_environment():
+    """Unset inherited git repo-location variables for the whole session.
+
+    Session-scoped and autouse so it also covers tests that shell out to git
+    from a fixture's setup, which is where this bit first.
+    """
+    saved = {k: os.environ[k] for k in _GIT_REPO_LOCATION_VARS if k in os.environ}
+    for key in saved:
+        del os.environ[key]
+    try:
+        yield
+    finally:
+        os.environ.update(saved)
 
 
 def load_hate_crack_module(monkeypatch):

@@ -37,6 +37,28 @@ hate_crack = [
 version_scheme = "no-guess-dev"
 local_scheme = "no-local-version"
 
+[tool.commitizen]
+# The release workflows drive `cz bump` instead of hand-rolling version
+# arithmetic in bash. Both settings below are load-bearing:
+#
+#   version_provider = "scm" - read the current version from git tags rather
+#   than from a version string in a file. There is nothing to rewrite and no
+#   version-bump commit, which is what lets commitizen compose with the
+#   setuptools_scm config above.
+#
+#   tag_format = "v$version" - the repo's tags have always been v-prefixed.
+#   Commitizen defaults to a bare "$version", which would create tags that
+#   neither setuptools_scm nor any existing tooling recognises and would break
+#   continuity with every tag already published.
+#
+# The bump size is NOT inferred from commit messages. Each workflow forces it
+# with --increment, because in this repo the branch decides the bump: main is
+# MINOR (stable X.Y.0), nightly-dev is PATCH (rolling X.Y.1, X.Y.2, ...).
+version_provider = "scm"
+tag_format = "v$version"
+# No CHANGELOG.md rewrite on bump; the changelog is maintained by hand.
+update_changelog_on_bump = false
+
 [tool.ruff]
 exclude = [
     "build",
@@ -113,4 +135,8 @@ dev = [
     "pytest-cov==7.1.0",
     "pytest-timeout>=2.4.0",
     "pexpect>=4.9.0",
+    # Drives version bumps in the release workflows; see [tool.commitizen].
+    "commitizen==4.17.0",
+    # Used by tests/test_release_versioning.py to parse the workflow YAML.
+    "pyyaml==6.0.3",
 ]
