@@ -1,4 +1,3 @@
-import json
 import os
 import subprocess
 import sys
@@ -12,16 +11,31 @@ HATE_CRACK_SCRIPT = os.path.join(os.path.dirname(__file__), "..", "hate_crack.py
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 
+def _resolved_hashview_config():
+    """Ask the real loader what the CLI will actually see.
+
+    ``hashview_url`` and ``hashview_api_key`` live in ``.env``, not
+    ``config.json`` — a leftover copy in ``config.json`` is ignored with a
+    warning. These helpers used to read ``config.json`` directly, which stopped
+    reflecting reality when the two files split: a developer with a legacy
+    ``hashview_api_key`` in ``config.json`` silently skipped four of the tests
+    below, because the helper reported a key the CLI no longer reads.
+
+    Going through ``config_loader`` rather than re-reading a file by hand is
+    also the rule the rest of the codebase follows (see #153): one loader, no
+    parallel config readers to drift.
+    """
+    from hate_crack import config_loader
+
+    env_path, legacy_json_path = config_loader.resolve_config_paths()
+    resolved = config_loader.load_config(
+        env_path=env_path, legacy_json_path=legacy_json_path
+    ).config
+    return resolved.get("hashview_url") or "", resolved.get("hashview_api_key") or ""
+
+
 def _config_has_hashview_key():
-    config_path = os.path.join(REPO_ROOT, "config.json")
-    if not os.path.isfile(config_path):
-        return False
-    try:
-        with open(config_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return bool(data.get("hashview_api_key"))
-    except Exception:
-        return False
+    return bool(_resolved_hashview_config()[1])
 
 
 def _get_hashview_config():
@@ -29,23 +43,16 @@ def _get_hashview_config():
     env_key = os.environ.get("HASHVIEW_API_KEY")
     if env_url and env_key:
         return env_url, env_key
-    config_path = os.path.join(REPO_ROOT, "config.json")
-    try:
-        with open(config_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        url = data.get("hashview_url")
-        key = data.get("hashview_api_key")
-        if url and key:
-            return url, key
-    except Exception:
-        pass
+    url, key = _resolved_hashview_config()
+    if url and key:
+        return url, key
     return env_url, env_key
 
 
 def _ensure_customer_one():
     url, key = _get_hashview_config()
     if not url or not key:
-        pytest.skip("Missing hashview_url/hashview_api_key in config.json or env.")
+        pytest.skip("Missing HASHVIEW_URL/HASHVIEW_API_KEY in .env or environment.")
     api = HashviewAPI(url, key)
 
     # Get customer ID from environment or default to 1
@@ -95,7 +102,8 @@ def _ensure_customer_one():
 def test_hashview_subcommands_require_api_key(tmp_path, args):
     if _config_has_hashview_key():
         pytest.skip(
-            "config.json has hashview_api_key set; skip API-key missing checks."
+            "A Hashview API key is configured (.env or environment); "
+            "skip the API-key-missing checks."
         )
 
     # Ensure any dummy files referenced exist to avoid confusion if the code path changes.
@@ -141,7 +149,7 @@ def test_hashview_subcommands_live_downloads():
 
     url, key = _get_hashview_config()
     if not url or not key:
-        pytest.skip("Missing hashview_url/hashview_api_key in config.json or env.")
+        pytest.skip("Missing HASHVIEW_URL/HASHVIEW_API_KEY in .env or environment.")
     env = {
         **os.environ,
         "PYTHONUNBUFFERED": "1",
@@ -184,7 +192,7 @@ def test_hashview_subcommands_live_upload_hashfile_job(tmp_path):
 
     url, key = _get_hashview_config()
     if not url or not key:
-        pytest.skip("Missing hashview_url/hashview_api_key in config.json or env.")
+        pytest.skip("Missing HASHVIEW_URL/HASHVIEW_API_KEY in .env or environment.")
     env = {
         **os.environ,
         "PYTHONUNBUFFERED": "1",
@@ -283,7 +291,7 @@ def test_hashview_subcommands_live_upload_hashfile_job_pwdump(tmp_path):
 
     url, key = _get_hashview_config()
     if not url or not key:
-        pytest.skip("Missing hashview_url/hashview_api_key in config.json or env.")
+        pytest.skip("Missing HASHVIEW_URL/HASHVIEW_API_KEY in .env or environment.")
     env = {
         **os.environ,
         "PYTHONUNBUFFERED": "1",
@@ -385,7 +393,7 @@ def test_hashview_subcommands_live_upload_hashfile_job_hashonly(tmp_path):
 
     url, key = _get_hashview_config()
     if not url or not key:
-        pytest.skip("Missing hashview_url/hashview_api_key in config.json or env.")
+        pytest.skip("Missing HASHVIEW_URL/HASHVIEW_API_KEY in .env or environment.")
     env = {
         **os.environ,
         "PYTHONUNBUFFERED": "1",
