@@ -194,6 +194,18 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   entries, and skips missing inputs instead of aborting.
 
 ### Fixed
+- **A host-port conflict starting the local Hashview test stack is now named
+  instead of surfacing as `exit status 1`.** `docker compose up` is captured, and
+  a `Bind for ...: port is already allocated` failure reports the port, the
+  `docker ps --filter publish=<port>` command to find the container holding it,
+  and the option of pointing the live tests at that instance via
+  `HASHVIEW_URL`/`HASHVIEW_API_KEY` instead. hashview's compose file publishes
+  fixed host ports and `HASHVIEW_LOCAL_PORT` only moves the app's `SERVER_NAME`,
+  so a separate long-running hashview project silently owns them and no
+  environment variable routes around it; reported opaquely, the live tests skipped
+  for a reason that read like docker being broken. Other `up` failures now
+  surface their last output line rather than the exception repr. (#225)
+
 
 - **Mask statistics claimed coverage hashcat cannot deliver for non-ASCII
   passwords (#230).** `corpus_stats._mask()` mapped any non-ASCII character to

@@ -19,10 +19,14 @@ Config via env:
   HASHVIEW_TEST_LOCAL=1     enable the stack
   HASHVIEW_REPO=<path>      hashview checkout (default ~/projects/hashview)
   HASHVIEW_KEEP=1           leave containers running after the session
-  HASHVIEW_LOCAL_PORT=5000  host port the app is published on
+  HASHVIEW_LOCAL_PORT=5000  the app's SERVER_NAME port. NOTE: this does NOT move
+                            the published host port -- hashview's compose file
+                            fixes those -- so it cannot route around a port
+                            conflict with another compose project.
 """
 
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -204,6 +208,39 @@ def _export_env() -> None:
     os.environ.setdefault("HASHVIEW_HASH_TYPE", HASH_TYPE)
 
 
+_PORT_CONFLICT_RE = re.compile(
+    r"Bind for (?:[\d.]+:)?(\d+) failed: port is already allocated"
+)
+
+
+def _describe_compose_up_failure(exc: subprocess.CalledProcessError) -> str:
+    """Turn a `docker compose up` failure into something actionable.
+
+    The port-conflict case is called out specifically because it is both the
+    most likely failure on a developer machine and the least self-explanatory:
+    hashview's compose file publishes fixed host ports, and ``HASHVIEW_LOCAL_PORT``
+    only changes the app's ``SERVER_NAME`` -- not the published port -- so a
+    second hashview project (a long-running lab instance, say) silently owns them
+    and there is no environment variable that moves this stack out of the way.
+
+    Without this the whole thing surfaces as ``exit status 1`` and the live tests
+    skip for a reason that reads like docker being broken.
+    """
+    output = exc.output or ""
+    match = _PORT_CONFLICT_RE.search(output)
+    if match:
+        port = match.group(1)
+        return (
+            f"host port {port} is already allocated, so the local hashview stack "
+            f"could not start. Another container is publishing it -- find it with "
+            f"`docker ps --filter publish={port}` (a separate hashview compose "
+            f"project is the usual culprit) and stop it, or run the live tests "
+            f"against that instance directly with HASHVIEW_URL/HASHVIEW_API_KEY."
+        )
+    detail = output.strip().splitlines()[-1] if output.strip() else str(exc)
+    return f"docker compose up failed: {detail}"
+
+
 def setup():
     """Bring the stack up + seed. Returns a skip reason string, or None on success."""
     if shutil.which("docker") is None:
@@ -216,9 +253,13 @@ def setup():
 
     (repo / "hashview" / "config.conf").write_text(_CONFIG_CONF.format(port=_port()))
     try:
-        _compose(repo, "up", "-d", "--build")
+        # Captured, unlike the other calls: on failure the reason is in the
+        # output, and a bare CalledProcessError carries none of it. The most
+        # common failure -- another compose project already holding the ports --
+        # is otherwise reported as an unactionable "exit status 1".
+        _compose(repo, "up", "-d", "--build", capture=True)
     except subprocess.CalledProcessError as exc:
-        return f"docker compose up failed: {exc}"
+        return _describe_compose_up_failure(exc)
     if not _wait_ready():
         return f"hashview app did not become ready at {_base_url()}"
     try:
