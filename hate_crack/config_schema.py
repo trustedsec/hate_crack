@@ -2,19 +2,31 @@
 
 This module defines the full table of configuration keys hate_crack
 understands, along with the coercion logic used to parse the string values
-that a `.env` file (loaded via python-dotenv) hands back.
+that a `.env` file (or the real environment) hands back.
 
-This module intentionally does NOT import ``hate_crack.main`` and does not
-perform any I/O, config-file reading, or ``sys.exit()``. It is a pure,
-unit-testable schema + coercion layer. The four-layer precedence (schema
-default < config.json < .env < os.environ) and the decision to exit the
-process on a bad value belong to the loader that consumes this module
-(``config_loader.py``, added in a later task).
+Every key has exactly one **home** file, named by its ``home`` field:
 
-The ``legacy`` field of every entry is the corresponding top-level key in
-``hate_crack/config.json.example``; the table's ``legacy`` key set and each
-entry's ``default`` are kept in lock-step with that file by
-``tests/test_config_schema.py``.
+- ``home="env"`` -- third-party integration settings (Hashview, Hashmob,
+  Pushover credentials, Ollama, Pipal). These live in `.env`, which is not
+  tracked and can hold secrets.
+- ``home="json"`` -- everything else: wordlists, masks, rules, tuning,
+  potfile, hashcat paths, candidate limits, notification toggles, update
+  check, and the persisted defaults for the per-run CLI preference flags.
+  These live in ``config.json``, which is a permanent, first-class
+  configuration file with no removal timeline.
+
+A key found in the *other* file is ignored with a warning; the real
+``os.environ`` may override any key regardless of home, because an
+environment variable is an ephemeral override rather than a home. That
+precedence (schema default < home file < os.environ) and the decision to
+exit the process on a bad value belong to ``config_loader.py``; this module
+is a pure, unit-testable schema + coercion layer and does no I/O.
+
+The ``legacy`` field of every entry is the key name used in ``config.json``
+and in ``main.py``'s ``config_parser`` dict. For ``home="json"`` entries it
+is also the top-level key in ``hate_crack/config.json.example``; that file
+and the ``home="json"`` subset of this table are kept in exact,
+bidirectional lock-step by ``tests/test_config_schema.py``.
 """
 
 from __future__ import annotations
@@ -24,15 +36,10 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 CoerceType = Literal["str", "int", "float", "bool", "csv_list", "path", "charset"]
+Home = Literal["env", "json"]
 
 _TRUE_TOKENS = frozenset({"1", "true", "yes", "on"})
 _FALSE_TOKENS = frozenset({"0", "false", "no", "off"})
-
-# Types whose raw string can start/end with a space that is semantically
-# significant (a real element, not incidental whitespace). python-dotenv
-# strips unquoted values, so Task 3 must emit these quoted or a leading/
-# trailing space element is silently lost on the next read.
-QUOTE_REQUIRED_TYPES: frozenset[str] = frozenset({"charset"})
 
 # Secret-bearing env keys. Their raw values must never appear in an error
 # message (or anywhere else this module chooses to render a value).
@@ -73,6 +80,13 @@ class ConfigKey:
     ``str``-typed key. :func:`coerce` rejects anything outside it with a
     :class:`ConfigValueError`, which the loader turns into the same fatal,
     key-naming diagnostic a malformed ``int``/``bool`` already gets.
+
+    ``home`` names the one file the key is read from: ``"env"`` for `.env`,
+    ``"json"`` for ``config.json``. It defaults to ``"json"`` because that is
+    where a new hate_crack setting belongs unless it is credentials for, or
+    configuration of, a third-party service -- so a row added without
+    thinking about it lands in the tracked example file and the drift guard
+    notices, rather than silently becoming an untracked `.env` key.
     """
 
     env: str
@@ -80,6 +94,7 @@ class ConfigKey:
     type: CoerceType
     default: Any
     choices: tuple[str, ...] | None = None
+    home: Home = "json"
 
 
 # ---------------------------------------------------------------------------
@@ -191,8 +206,9 @@ CONFIG_SCHEMA: tuple[ConfigKey, ...] = (
         "rockyou.txt",
     ),
     ConfigKey("HCAT_PRINCE_BASE_LIST", "hcatPrinceBaseList", "str", "rockyou.txt"),
-    ConfigKey("PIPAL_PATH", "pipalPath", "str", "/path/to/pipal"),
-    ConfigKey("PIPAL_COUNT", "pipal_count", "int", 10),
+    # -- Pipal (a third-party tool hate_crack does not ship): home="env".
+    ConfigKey("PIPAL_PATH", "pipalPath", "path", "/path/to/pipal", home="env"),
+    ConfigKey("PIPAL_COUNT", "pipal_count", "int", 10, home="env"),
     ConfigKey("BANDRELMAXRUNTIME", "bandrelmaxruntime", "int", 300),
     ConfigKey(
         "BANDREL_COMMON_BASEDWORDS",
@@ -204,14 +220,19 @@ CONFIG_SCHEMA: tuple[ConfigKey, ...] = (
         "august,september,october,november,december,christmas,easter,"
         "covid19",
     ),
-    ConfigKey("HASHVIEW_URL", "hashview_url", "str", "http://localhost:8443"),
-    ConfigKey("HASHVIEW_API_KEY", "hashview_api_key", "str", ""),
-    ConfigKey("HASHMOB_API_KEY", "hashmob_api_key", "str", ""),
-    ConfigKey("OLLAMA_MODEL", "ollamaModel", "str", "qwen2.5:32b"),
-    ConfigKey("OLLAMA_NUM_CTX", "ollamaNumCtx", "int", 8192),
-    ConfigKey("OLLAMA_TIMEOUT", "ollamaTimeout", "int", 300),
-    ConfigKey("OLLAMA_MAX_SAMPLE_LINES", "ollamaMaxSampleLines", "int", 500),
-    ConfigKey("OLLAMA_AUTO_RESEARCH", "ollamaAutoResearch", "bool", True),
+    # -- Hashview / Hashmob / Ollama: remote services, home="env".
+    ConfigKey(
+        "HASHVIEW_URL", "hashview_url", "str", "http://localhost:8443", home="env"
+    ),
+    ConfigKey("HASHVIEW_API_KEY", "hashview_api_key", "str", "", home="env"),
+    ConfigKey("HASHMOB_API_KEY", "hashmob_api_key", "str", "", home="env"),
+    ConfigKey("OLLAMA_MODEL", "ollamaModel", "str", "qwen2.5:32b", home="env"),
+    ConfigKey("OLLAMA_NUM_CTX", "ollamaNumCtx", "int", 8192, home="env"),
+    ConfigKey("OLLAMA_TIMEOUT", "ollamaTimeout", "int", 300, home="env"),
+    ConfigKey(
+        "OLLAMA_MAX_SAMPLE_LINES", "ollamaMaxSampleLines", "int", 500, home="env"
+    ),
+    ConfigKey("OLLAMA_AUTO_RESEARCH", "ollamaAutoResearch", "bool", True, home="env"),
     ConfigKey("OMEN_MAX_CANDIDATES", "omenMaxCandidates", "int", 100000000),
     ConfigKey("PCFG_RULESET", "pcfgRuleset", "str", "Default"),
     ConfigKey("PCFG_MAX_CANDIDATES", "pcfgMaxCandidates", "int", 50000000),
@@ -252,8 +273,11 @@ CONFIG_SCHEMA: tuple[ConfigKey, ...] = (
         ],
     ),
     ConfigKey("NOTIFY_ENABLED", "notify_enabled", "bool", False),
-    ConfigKey("NOTIFY_PUSHOVER_TOKEN", "notify_pushover_token", "str", ""),
-    ConfigKey("NOTIFY_PUSHOVER_USER", "notify_pushover_user", "str", ""),
+    # Pushover credentials are third-party service secrets: home="env". The
+    # notification *toggles* around them are local preferences and stay in
+    # config.json, which is why this pair is interleaved with json-homed keys.
+    ConfigKey("NOTIFY_PUSHOVER_TOKEN", "notify_pushover_token", "str", "", home="env"),
+    ConfigKey("NOTIFY_PUSHOVER_USER", "notify_pushover_user", "str", "", home="env"),
     ConfigKey("NOTIFY_PER_CRACK_ENABLED", "notify_per_crack_enabled", "bool", False),
     ConfigKey("NOTIFY_ATTACK_ALLOWLIST", "notify_attack_allowlist", "csv_list", []),
     ConfigKey(
@@ -270,11 +294,11 @@ CONFIG_SCHEMA: tuple[ConfigKey, ...] = (
         5.0,
     ),
     # ---------------------------------------------------------------------
-    # Promoted CLI preferences (Task 5). These four keys exist only in the
-    # schema -- deliberately NOT in the deprecated config.json.example, which
-    # is no longer the source of truth. Each one is the persisted default for
-    # an argparse flag that remains available as a per-run override; see
-    # main.py's resolve_flag_overrides().
+    # Promoted CLI preferences. Each one is the persisted default for an
+    # argparse flag that remains available as a per-run override; see
+    # main.py's resolve_flag_overrides(). They are local preferences, so
+    # home="json" and they appear in config.json.example like any other
+    # setting.
     # ---------------------------------------------------------------------
     ConfigKey("HATE_CRACK_DEBUG", "debug", "bool", False),
     ConfigKey("WEAKPASS_MIN_RANK", "weakpass_min_rank", "int", -1),
@@ -290,6 +314,16 @@ CONFIG_SCHEMA: tuple[ConfigKey, ...] = (
 
 BY_ENV: dict[str, ConfigKey] = {entry.env: entry for entry in CONFIG_SCHEMA}
 BY_LEGACY: dict[str, ConfigKey] = {entry.legacy: entry for entry in CONFIG_SCHEMA}
+
+# The one definition of the split. The loader, the writer, config.json.example
+# and the drift-guard test all read these rather than re-deriving the
+# membership from a hand-maintained list.
+ENV_KEYS: tuple[ConfigKey, ...] = tuple(e for e in CONFIG_SCHEMA if e.home == "env")
+JSON_KEYS: tuple[ConfigKey, ...] = tuple(e for e in CONFIG_SCHEMA if e.home == "json")
+
+# Name-keyed views, for callers that only have a key name in hand.
+ENV_HOMED_ENV_NAMES: frozenset[str] = frozenset(e.env for e in ENV_KEYS)
+JSON_HOMED_LEGACY_NAMES: frozenset[str] = frozenset(e.legacy for e in JSON_KEYS)
 
 
 # ---------------------------------------------------------------------------

@@ -17,7 +17,8 @@ from hate_crack.config_schema import (
     BY_ENV,
     BY_LEGACY,
     CONFIG_SCHEMA,
-    QUOTE_REQUIRED_TYPES,
+    ENV_KEYS,
+    JSON_KEYS,
     SECRET_ENV_KEYS,
     ConfigKey,
     ConfigValueError,
@@ -33,58 +34,79 @@ def _load_example() -> dict:
     return json.loads(EXAMPLE_PATH.read_text())
 
 
-# Legacy keys that exist ONLY in CONFIG_SCHEMA, deliberately not in the
-# deprecated config.json.example. These four are the CLI preferences promoted
-# into the schema in Task 5 (--debug, --rank, --nightly, --restore-potfile);
-# the schema is the source of truth now, so new keys are not backfilled into
-# the old file. Anything added here has to be declared on purpose, which is
-# what keeps a fifth key from sliding in unnoticed.
-SCHEMA_ONLY_LEGACY_KEYS = frozenset(
+# The twelve third-party integration keys: the exact home="env" set. Pinned
+# literally so a key cannot quietly change home -- moving one is a
+# user-visible change of which file it must be written in, and it should not
+# be possible to make it by editing one word of the schema.
+EXPECTED_ENV_HOMED = frozenset(
     {
-        "debug",
-        "weakpass_min_rank",
-        "update_channel",
-        "restore_potfile_on_start",
+        "HASHVIEW_URL",
+        "HASHVIEW_API_KEY",
+        "HASHMOB_API_KEY",
+        "NOTIFY_PUSHOVER_TOKEN",
+        "NOTIFY_PUSHOVER_USER",
+        "OLLAMA_MODEL",
+        "OLLAMA_NUM_CTX",
+        "OLLAMA_TIMEOUT",
+        "OLLAMA_MAX_SAMPLE_LINES",
+        "OLLAMA_AUTO_RESEARCH",
+        "PIPAL_PATH",
+        "PIPAL_COUNT",
     }
 )
 
 
 # ---------------------------------------------------------------------------
-# 1. Drift guard
+# 1. Drift guard -- config.json.example IS the home="json" subset
 # ---------------------------------------------------------------------------
 
 
-def test_every_config_json_example_key_is_in_the_schema():
-    """Subset check: every key in the deprecated config.json.example must
-    still exist in CONFIG_SCHEMA. This is the drift that matters -- a key the
-    old file has and the schema doesn't is a setting that silently stops
-    working for anyone still on config.json.
+def test_config_json_example_is_exactly_the_json_homed_schema_subset():
+    """Plain bidirectional equality, no allowlist.
+
+    ``config.json`` is a first-class, permanent config file, so its example
+    must document every ``home="json"`` key and nothing else. A key only in
+    the example is a setting that silently stops working; a key only in the
+    schema is a setting nobody can discover.
     """
     example_keys = set(_load_example().keys())
-    schema_keys = set(BY_LEGACY.keys())
+    json_homed = {entry.legacy for entry in JSON_KEYS}
 
-    only_in_example = example_keys - schema_keys
-    assert not only_in_example, (
-        f"config.json.example has keys missing from CONFIG_SCHEMA: "
-        f"{sorted(only_in_example)}"
+    assert example_keys == json_homed, (
+        f"only in config.json.example: {sorted(example_keys - json_homed)}; "
+        f"only in CONFIG_SCHEMA (home='json'): {sorted(json_homed - example_keys)}"
     )
 
 
-def test_schema_only_keys_are_exactly_the_declared_allowlist():
-    """The other direction, gated by an explicit allowlist rather than
-    forbidden outright: the schema is allowed extra keys, but only the ones
-    named in SCHEMA_ONLY_LEGACY_KEYS. A fifth schema-only key has to be
-    declared there deliberately instead of appearing by accident.
-    """
+def test_env_homed_keys_are_absent_from_config_json_example():
+    """The other half of one-home-per-key: an integration key must not be
+    documented in config.json.example, where the loader would ignore it."""
     example_keys = set(_load_example().keys())
-    schema_keys = set(BY_LEGACY.keys())
+    env_homed = {entry.legacy for entry in ENV_KEYS}
+    assert example_keys.isdisjoint(env_homed)
 
-    only_in_schema = schema_keys - example_keys
-    assert only_in_schema == set(SCHEMA_ONLY_LEGACY_KEYS), (
-        f"CONFIG_SCHEMA's schema-only keys are {sorted(only_in_schema)}, but "
-        f"the declared allowlist is {sorted(SCHEMA_ONLY_LEGACY_KEYS)}. Add the "
-        f"key to SCHEMA_ONLY_LEGACY_KEYS if it is intentionally schema-only."
-    )
+
+def test_env_homed_key_set_is_pinned():
+    assert {entry.env for entry in ENV_KEYS} == EXPECTED_ENV_HOMED
+
+
+def test_key_counts_are_twelve_and_thirty_five():
+    assert len(ENV_KEYS) == 12
+    assert len(JSON_KEYS) == 35
+    assert len(CONFIG_SCHEMA) == 47
+
+
+def test_every_key_has_exactly_one_home():
+    assert {entry.home for entry in CONFIG_SCHEMA} == {"env", "json"}
+    assert len(ENV_KEYS) + len(JSON_KEYS) == len(CONFIG_SCHEMA)
+
+
+def test_secret_keys_are_a_strict_subset_of_the_env_homed_keys():
+    """ "is a secret" and "lives in .env" are different questions -- every
+    secret is .env-homed, but most .env-homed keys (URLs, model names, a
+    timeout) are not secrets, and the redaction logic needs the narrower set.
+    """
+    assert SECRET_ENV_KEYS < EXPECTED_ENV_HOMED
 
 
 def test_type_counts_match_config_json_example_value_types():
@@ -94,6 +116,9 @@ def test_type_counts_match_config_json_example_value_types():
     by whatever cast happens to appear at a main.py read site. Counting
     types is what catches a systematic derivation error that individual key
     checks would miss.
+
+    Scoped to the ``home="json"`` keys, since those are exactly the ones
+    config.json.example documents.
 
     ``list`` splits into ``csv_list`` (5) and ``charset`` (2):
     hcatMiddleCombinatorMasks and hcatThoroughCombinatorMasks are lists of
@@ -116,17 +141,13 @@ def test_type_counts_match_config_json_example_value_types():
         elif isinstance(value, str):
             json_type_counts["str_or_path"] = json_type_counts.get("str_or_path", 0) + 1
 
-    # Schema-only keys have no config.json.example counterpart by design, so
-    # they are excluded from the comparison (see SCHEMA_ONLY_LEGACY_KEYS).
     schema_type_counts: dict[str, int] = {}
-    for entry in CONFIG_SCHEMA:
-        if entry.legacy in SCHEMA_ONLY_LEGACY_KEYS:
-            continue
+    for entry in JSON_KEYS:
         schema_type_counts[entry.type] = schema_type_counts.get(entry.type, 0) + 1
 
     # bool, int, float map straight across.
-    assert schema_type_counts.get("bool", 0) == json_type_counts.get("bool", 0) == 5
-    assert schema_type_counts.get("int", 0) == json_type_counts.get("int", 0) == 9
+    assert schema_type_counts.get("bool", 0) == json_type_counts.get("bool", 0) == 6
+    assert schema_type_counts.get("int", 0) == json_type_counts.get("int", 0) == 6
     assert schema_type_counts.get("float", 0) == json_type_counts.get("float", 0) == 1
     # list splits into csv_list/charset; the two must sum to the JSON list count.
     list_derived = schema_type_counts.get("csv_list", 0) + schema_type_counts.get(
@@ -137,17 +158,15 @@ def test_type_counts_match_config_json_example_value_types():
     assert schema_type_counts.get("charset", 0) == 2
     # str splits into str/path; the two must sum to the JSON str count.
     str_and_path = schema_type_counts.get("str", 0) + schema_type_counts.get("path", 0)
-    assert str_and_path == json_type_counts.get("str_or_path", 0) == 21
+    assert str_and_path == json_type_counts.get("str_or_path", 0) == 15
     assert schema_type_counts.get("path", 0) == 3
-    assert schema_type_counts.get("str", 0) == 18
+    assert schema_type_counts.get("str", 0) == 12
 
 
 def test_defaults_match_config_json_example():
     example = _load_example()
     mismatches = []
-    for entry in CONFIG_SCHEMA:
-        if entry.legacy in SCHEMA_ONLY_LEGACY_KEYS:
-            continue
+    for entry in JSON_KEYS:
         example_value = example[entry.legacy]
         if entry.default != example_value:
             mismatches.append(
@@ -384,14 +403,15 @@ def test_charset_defaults_round_trip_through_join_and_coerce(entry):
     assert coerce(entry, emitted) == entry.default
 
 
-def test_charset_is_in_quote_required_types():
-    # python-dotenv strips unquoted values, so Task 3 must quote charset
-    # values in the .env file or a leading/trailing space element is lost.
-    assert "charset" in QUOTE_REQUIRED_TYPES
+def test_no_env_homed_key_is_list_typed():
+    """Why QUOTE_REQUIRED_TYPES and the charset/csv_list emitters are gone.
 
-
-def test_quote_required_types_does_not_include_ordinary_types():
-    assert QUOTE_REQUIRED_TYPES.isdisjoint({"str", "int", "float", "bool", "path"})
+    Unconditional quoting existed for ``charset``, whose leading/trailing
+    space elements python-dotenv would otherwise strip. No integration key is
+    list-typed, so nothing is ever emitted to `.env` that needs it -- and the
+    day one is, this test fails before the silently-lossy write can ship.
+    """
+    assert all(entry.type not in ("charset", "csv_list") for entry in ENV_KEYS)
 
 
 # ---------------------------------------------------------------------------
