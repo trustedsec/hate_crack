@@ -1036,3 +1036,38 @@ class TestMatchEntry:
         # "hashmob.net_2025.micro.found" has no .txt to strip; base == filename
         result = _api_mod._match_entry(self._entries(), "hashmob.net_2025.micro.found")
         assert result == (30, "hashmob.net_2025.micro.found.7z.torrent")
+
+
+class TestStreamedDownloadChunkSize:
+    """chunk_size was accepted by _streamed_download and never forwarded, so
+    tuning it did nothing (the writer hardcoded 8192)."""
+
+    def _fake_response(self):
+        r = MagicMock()
+        r.__enter__ = lambda s: s
+        r.__exit__ = lambda s, *a: False
+        r.headers = {}
+        r.iter_content = MagicMock(return_value=[b"data"])
+        return r
+
+    def test_custom_chunk_size_reaches_iter_content(self, tmp_path):
+        r = self._fake_response()
+        with patch.object(_api_mod.requests, "get", return_value=r):
+            ok = _streamed_download(
+                "http://example.invalid/f.txt",
+                str(tmp_path / "f.txt"),
+                chunk_size=4096,
+                show_progress=False,
+            )
+        assert ok is True
+        r.iter_content.assert_called_once_with(chunk_size=4096)
+
+    def test_default_chunk_size_is_unchanged(self, tmp_path):
+        r = self._fake_response()
+        with patch.object(_api_mod.requests, "get", return_value=r):
+            _streamed_download(
+                "http://example.invalid/f.txt",
+                str(tmp_path / "f.txt"),
+                show_progress=False,
+            )
+        r.iter_content.assert_called_once_with(chunk_size=8192)
