@@ -114,21 +114,57 @@ def test_case1_migrates_integration_keys_and_leaves_config_json_alone(
     assert config["hcatPotfilePath"] == ""
 
 
-def test_case1_migration_defers_a_malformed_config_json_to_the_loader(
-    bootstrap, tmp_path
+@pytest.mark.parametrize(
+    "make_unusable",
+    [
+        lambda p: p.write_text("{not valid json"),
+        lambda p: (p.write_text("{}"), p.chmod(0o000)),
+    ],
+    ids=["malformed-json", "unreadable"],
+)
+def test_unusable_config_json_writes_nothing_at_all(
+    bootstrap, tmp_path, capsys, make_unusable
 ):
-    """A config.json we cannot parse holds no discoverable integration keys, so
-    it is not migrated -- and it is not diagnosed here either;
-    load_config_or_exit() owns that message."""
+    """A config.json that cannot be read or parsed must not produce a stray
+    .env on the way to the loader's fatal exit.
+
+    Startup is about to exit(1) with the file-shaped diagnostic that names
+    permissions and dangling symlinks, so a .env written here is a file left
+    behind by a run that never got anywhere -- and because the write target is
+    _resolve_config_destination() rather than the directory the bad file was
+    found in, it lands somewhere the user is not even looking (typically
+    ~/.hate_crack/.env while they are staring at a config.json in the repo,
+    which is exactly how this went unnoticed).
+
+    Nothing is diagnosed here either: load_config_or_exit() owns that message.
+    """
+    legacy_path = tmp_path / "config.json"
+    make_unusable(legacy_path)
+    try:
+        env_path_result, json_path_result = bootstrap(None, str(legacy_path))
+
+        assert env_path_result is None
+        assert json_path_result == str(legacy_path)
+        assert not (tmp_path / ".env").exists()
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["config.json"]
+        assert capsys.readouterr().out == ""
+    finally:
+        legacy_path.chmod(0o600)
+
+
+def test_unusable_config_json_still_exits_fatally_from_the_loader(tmp_path, capsys):
+    """The other half of the contract above: writing nothing must not mean
+    swallowing the problem. The loader is still the one that reports it."""
     legacy_path = tmp_path / "config.json"
     legacy_path.write_text("{not valid json")
 
-    env_path_result, _ = bootstrap(None, str(legacy_path))
+    with pytest.raises(SystemExit) as exc:
+        config_loader.load_config_or_exit(
+            env_path=None, legacy_json_path=str(legacy_path), environ={}
+        )
 
-    # A .env still gets created from defaults; what must not happen is a
-    # second, worse diagnostic or a migration from an unparseable file.
-    assert env_path_result == str(tmp_path / ".env")
-    assert (tmp_path / ".env").read_text() == render_env({})
+    assert exc.value.code == 1
+    assert "invalid JSON" in capsys.readouterr().out
 
 
 # ---------------------------------------------------------------------------

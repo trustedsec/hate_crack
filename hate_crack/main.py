@@ -390,23 +390,33 @@ SKIP_INIT = os.environ.get("HATE_CRACK_SKIP_INIT") == "1"
 _INTEGRATION_LEGACY_KEYS = frozenset(entry.legacy for entry in _config_schema.ENV_KEYS)
 
 
-def _config_json_has_integration_keys(legacy_json_path):
-    """Does ``legacy_json_path`` hold any ``home="env"`` key?
+# Sentinel for "config.json exists but could not be read or parsed", which is
+# distinct from both "no integration keys" and "some integration keys".
+_CONFIG_JSON_UNUSABLE = object()
 
-    Distinguishes "a pre-split config.json that needs its integration
-    settings lifted into a .env" from "a config.json that was always in the
-    new shape". Any read failure answers ``False``: the loader will report a
-    malformed or unreadable file with its own diagnostic, and guessing here
-    would produce a second, worse one.
+
+def _read_config_json_for_bootstrap(legacy_json_path):
+    """Parse ``legacy_json_path``, or return :data:`_CONFIG_JSON_UNUSABLE`.
+
+    Deliberately does not raise and does not print: the loader reports a
+    malformed or unreadable ``config.json`` fatally a few lines later, with the
+    file-shaped diagnostic that names permissions and dangling symlinks, and a
+    second guess from here would only compete with it.
+
+    The three-way answer matters. Collapsing the failure case into "no
+    integration keys" made the bootstrap create a ``.env`` from defaults for a
+    startup that was about to exit(1) anyway -- and because the write target is
+    ``_resolve_config_destination()`` rather than the directory the unreadable
+    file was found in, that stray file landed somewhere the user was not even
+    looking (typically ``~/.hate_crack/.env`` while they were staring at a
+    ``config.json`` in the repo). See
+    tests/test_config_startup_wiring.py::test_unusable_config_json_writes_nothing_at_all.
     """
     try:
         with open(legacy_json_path) as fh:
-            data = json.load(fh)
+            return json.load(fh)
     except (OSError, json.JSONDecodeError):
-        return False
-    if not isinstance(data, dict):
-        return False
-    return any(key in data for key in _INTEGRATION_LEGACY_KEYS)
+        return _CONFIG_JSON_UNUSABLE
 
 
 def _bootstrap_config_files(env_path, legacy_json_path):
@@ -437,6 +447,12 @@ def _bootstrap_config_files(env_path, legacy_json_path):
        loader's business, and it warns about each one on every run.
     4. Neither present -> create both, ``config.json`` from
        ``config.json.example`` exactly as this module did before the split.
+
+    One cross-cutting rule: if ``config.json`` exists but cannot be read or
+    parsed, **nothing is written at all**. Startup is about to exit(1) with the
+    loader's file diagnostic, so creating a `.env` on the way out would leave a
+    stray file behind (in the resolved config destination, not necessarily
+    beside the file that failed) for a run that never got anywhere.
     """
     if SKIP_INIT:
         return env_path, legacy_json_path
@@ -466,11 +482,20 @@ def _initialize_config_json():
 
 
 def _initialize_env(legacy_json_path):
-    """Create the `.env`, migrating integration keys out of ``config.json``."""
+    """Create the `.env`, migrating integration keys out of ``config.json``.
+
+    Returns ``None`` without writing anything when ``config.json`` exists but is
+    unusable -- see :func:`_read_config_json_for_bootstrap`.
+    """
+    migrating = False
+    if legacy_json_path is not None:
+        data = _read_config_json_for_bootstrap(legacy_json_path)
+        if data is _CONFIG_JSON_UNUSABLE:
+            return None
+        migrating = isinstance(data, dict) and any(
+            key in data for key in _INTEGRATION_LEGACY_KEYS
+        )
     destination = os.path.join(_resolve_config_destination(), ".env")
-    migrating = legacy_json_path is not None and _config_json_has_integration_keys(
-        legacy_json_path
-    )
     if migrating:
         try:
             notes = _config_writer.write_env_from_legacy(legacy_json_path, destination)
