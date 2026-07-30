@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [Unreleased]
+
+### Fixed
+
+- **`--update` (and the startup upgrade prompt) no longer dead-ends on a clone
+  whose tags diverge from the remote's.** If any local tag pointed at a
+  different object than `origin`'s, `git fetch --tags` exited non-zero with
+  `would clobber existing tag`; `_run_upgrade()` treated that as fatal and
+  aborted, so the affected clone could never upgrade itself again. Worse, the
+  manual recovery commands the tool printed omitted `--force` too, so following
+  its own advice failed the same way. Both fetches in the upgrade path — the
+  pre-checkout one and the one inside the final shell chain — now pass
+  `--tags --force`, as do the four printed fallback command strings. `--force`
+  affects tag updates only and cannot discard commits or working-tree state.
+
 ## [2.18.0] - 2026-07-29
 
 ### Added

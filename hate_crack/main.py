@@ -1030,7 +1030,7 @@ def ascii_art():
 
 
 def _run_upgrade(branch="main"):
-    """Run `git pull && git fetch --tags && make install` in the repo root.
+    """Run `git pull && git fetch --tags --force && make install` in the repo root.
 
     *branch* selects the update channel. ``"main"`` is the released channel that
     ``--update`` uses; ``"nightly-dev"`` is the pre-release channel behind
@@ -1051,7 +1051,7 @@ def _run_upgrade(branch="main"):
     if git_root_result.returncode != 0:
         print(
             "\n  Could not find a git repository to upgrade from."
-            f"\n  Run manually: git pull origin {branch} && git fetch --tags && make install\n"
+            f"\n  Run manually: git pull origin {branch} && git fetch --tags --force && make install\n"
         )
         raise SystemExit(1)
     repo_root = git_root_result.stdout.strip()
@@ -1060,8 +1060,14 @@ def _run_upgrade(branch="main"):
     # never been fetched since the default branch was renamed master -> main.
     # Without this, `git checkout main` on a master-only clone fails because
     # there's no origin/main ref to auto-create a tracking branch from.
+    #
+    # --force is required, not cosmetic: a clone holding a tag that points at a
+    # different object than origin's makes a plain `git fetch --tags` exit
+    # non-zero with "would clobber existing tag", which used to dead-end the
+    # upgrade permanently. --force scopes to tag updates only, so it cannot
+    # discard the user's commits or working tree.
     fetch_result = subprocess.run(
-        ["git", "fetch", "--tags", "origin"],
+        ["git", "fetch", "--tags", "--force", "origin"],
         cwd=repo_root,
         capture_output=True,
         text=True,
@@ -1069,7 +1075,7 @@ def _run_upgrade(branch="main"):
     if fetch_result.returncode != 0:
         print(
             f"\n  Failed to fetch from origin:\n  {fetch_result.stderr.strip()}\n"
-            f"\n  Upgrade manually: git fetch --tags && git checkout {branch} && git pull origin {branch} && make install\n"
+            f"\n  Upgrade manually: git fetch --tags --force && git checkout {branch} && git pull origin {branch} && make install\n"
         )
         raise SystemExit(1)
 
@@ -1143,11 +1149,13 @@ def _run_upgrade(branch="main"):
     result = subprocess.run(
         # `git pull origin main` is explicit so it never consults the possibly
         # broken branch.<current>.merge config on a renamed clone.
-        # git fetch --tags ensures new release tags are visible to setuptools-scm.
+        # git fetch --tags --force ensures new release tags are visible to
+        # setuptools-scm, and --force keeps a divergent local tag from aborting
+        # the chain (see the earlier fetch for why).
         # make install handles system deps and the CLI shim.
         # uv sync --reinstall-package forces setuptools-scm to regenerate the
         # version from the new tag so the version number updates correctly.
-        f"git pull origin {branch} && git fetch --tags && make install "
+        f"git pull origin {branch} && git fetch --tags --force && make install "
         f"&& {uv} sync --reinstall-package hate_crack",
         shell=True,
         cwd=repo_root,

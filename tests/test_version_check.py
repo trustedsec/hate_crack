@@ -274,13 +274,67 @@ class TestRunUpgrade:
         assert exc.value.code == 0
         assert mock_run.call_count == 4
         # The fetch happens before the branch inspection.
-        assert mock_run.call_args_list[1][0][0] == ["git", "fetch", "--tags", "origin"]
+        assert mock_run.call_args_list[1][0][0] == [
+            "git",
+            "fetch",
+            "--tags",
+            "--force",
+            "origin",
+        ]
         make_cmd = mock_run.call_args_list[3][0][0]
         assert "git pull origin main" in make_cmd
         assert "make install" in make_cmd
         assert mock_run.call_args_list[3][1]["cwd"] == "/fake/repo"
         output = capsys.readouterr().out
         assert "Upgrade complete" in output
+
+    def test_run_upgrade_forces_tag_updates(self, hc_module):
+        """Every fetch in the upgrade path must pass --tags --force.
+
+        A clone whose local tag points at a different object than origin's makes
+        a plain `git fetch --tags` exit non-zero ("would clobber existing tag"),
+        which permanently dead-ended --update. Both the pre-checkout fetch and
+        the fetch inside the final shell chain must carry --force, or a stale
+        clone can never upgrade.
+        """
+        git_root_proc = MagicMock()
+        git_root_proc.returncode = 0
+        git_root_proc.stdout = "/fake/repo\n"
+
+        fetch_proc = MagicMock()
+        fetch_proc.returncode = 0
+
+        branch_proc = MagicMock()
+        branch_proc.returncode = 0
+        branch_proc.stdout = "main\n"
+
+        make_proc = MagicMock()
+        make_proc.returncode = 0
+
+        with (
+            patch(
+                "subprocess.run",
+                side_effect=[git_root_proc, fetch_proc, branch_proc, make_proc],
+            ) as mock_run,
+            pytest.raises(SystemExit),
+        ):
+            hc_module._run_upgrade()
+
+        fetches = 0
+        for call in mock_run.call_args_list:
+            cmd = call[0][0]
+            if isinstance(cmd, list):
+                if cmd[:2] == ["git", "fetch"]:
+                    fetches += 1
+                    assert "--force" in cmd, f"fetch missing --force: {cmd}"
+            elif "git fetch" in cmd:
+                fetches += 1
+                assert "git fetch --tags --force" in cmd, (
+                    f"shell-chain fetch missing --force: {cmd}"
+                )
+
+        # Guards against the assertion silently passing if the fetches move.
+        assert fetches == 2, f"expected 2 fetches in the upgrade path, saw {fetches}"
 
     def test_run_upgrade_make_failure(self, hc_module, capsys):
         git_root_proc = MagicMock()
@@ -379,7 +433,13 @@ class TestRunUpgrade:
         assert exc.value.code == 0
         assert mock_run.call_count == 7
         # Fetch happens before the checkout.
-        assert mock_run.call_args_list[1][0][0] == ["git", "fetch", "--tags", "origin"]
+        assert mock_run.call_args_list[1][0][0] == [
+            "git",
+            "fetch",
+            "--tags",
+            "--force",
+            "origin",
+        ]
         # The checkout creates/resets main from origin/main.
         checkout_call = mock_run.call_args_list[4]
         assert checkout_call[0][0] == ["git", "checkout", "-B", "main", "origin/main"]
@@ -393,7 +453,7 @@ class TestRunUpgrade:
         # Final call is the shell upgrade.
         upgrade_cmd = mock_run.call_args_list[6][0][0]
         assert "git pull origin main" in upgrade_cmd
-        assert "git fetch --tags" in upgrade_cmd
+        assert "git fetch --tags --force" in upgrade_cmd
         output = capsys.readouterr().out
         assert "Switching from 'dev' to 'main'" in output
 
@@ -431,7 +491,7 @@ class TestRunUpgrade:
         calls = [c[0][0] for c in mock_run.call_args_list]
 
         # A fetch must occur before any checkout.
-        fetch_idx = calls.index(["git", "fetch", "--tags", "origin"])
+        fetch_idx = calls.index(["git", "fetch", "--tags", "--force", "origin"])
         checkout_idx = calls.index(["git", "checkout", "-B", "main", "origin/main"])
         assert fetch_idx < checkout_idx
 
