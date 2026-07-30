@@ -2,15 +2,17 @@
 
 hate_crack writes hashcat `--debug-mode 4` logs for every rule-based attack
 without being asked (`_add_debug_mode_for_rules`), and each line pairs a rule
-with the plaintext it produced. The default `hcatDebugLogPath` is the relative
-`./hashcat_debug`, so a session launched from a checkout drops them straight
-into the working tree. One such log was tracked on `main` before these guards
-existed; it happened to be zero bytes, so nothing leaked.
+with the plaintext it produced. `hcatDebugLogPath` used to default to the
+relative `./hashcat_debug`, so a session launched from a checkout dropped them
+straight into the working tree. One such log was tracked on `main` before these
+guards existed; it happened to be zero bytes, so nothing leaked.
 
 These run real git commands rather than mocking subprocess: the thing under test
 is what git actually tracks and ignores, which a mocked call cannot observe.
 """
 
+import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -37,6 +39,25 @@ pytestmark = pytest.mark.skipif(
     shutil.which("git") is None or not (REPO_ROOT / ".git").exists(),
     reason="not a git checkout",
 )
+
+
+def test_default_debug_log_path_is_absolute_and_outside_any_checkout():
+    """The shipped default must not resolve relative to the launch directory.
+
+    A relative default put the logs wherever the operator happened to `cd`,
+    which for anyone running hate_crack from a clone meant inside the repo. It
+    also split the logs across directories, so the Rosetta picker showed a
+    different set depending on where the tool was started.
+    """
+    example = json.loads((REPO_ROOT / "config.json.example").read_text())
+    raw = example["hcatDebugLogPath"]
+    resolved = Path(os.path.expanduser(raw))
+
+    assert not raw.startswith("."), f"debug log default is checkout-relative: {raw}"
+    assert resolved.is_absolute(), f"debug log default is not absolute: {raw}"
+    assert REPO_ROOT not in resolved.parents and resolved != REPO_ROOT, (
+        f"debug log default resolves inside the checkout: {resolved}"
+    )
 
 
 def test_no_secret_artifacts_are_tracked():

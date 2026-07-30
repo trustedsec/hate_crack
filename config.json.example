@@ -3,7 +3,7 @@
   "hcatBin": "hashcat",
   "hcatTuning": "",
   "hcatPotfilePath": "~/.hashcat/hashcat.potfile",
-  "hcatDebugLogPath": "./hashcat_debug",
+  "hcatDebugLogPath": "~/.hate_crack/hashcat_debug",
   "hcatWordlists": "./wordlists",
   "hcatOptimizedWordlists": "./optimized_wordlists",
   "rules_directory": "./hashcat/rules",

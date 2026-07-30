@@ -1,7 +1,8 @@
 """Tests for hcatRosetta and the Rosetta Attack handler.
 
-The attack mines hashcat --debug-mode 4 logs, so the fixtures below are
-synthetic logs in that format: ``baseword rule candidate``, one per line.
+The attack mines hashcat debug logs. hate_crack writes mode 5
+(``baseword:rule:candidate:wordlist``); mode 4 logs written before that switch
+are still readable, and the space-separated fixtures below exercise that path.
 """
 
 import os
@@ -108,7 +109,7 @@ class TestRosettaDerive:
     def test_unparseable_log_rejected(self, main_module, tmp_path):
         junk = tmp_path / "junk.log"
         junk.write_text("Session..........: hashcat\nRecovered........: 0/1\n")
-        with pytest.raises(ValueError, match="debug-mode 4"):
+        with pytest.raises(ValueError, match="hashcat debug entries"):
             main_module.rosetta_derive([str(junk)], str(tmp_path / "out"))
 
     def test_max_lines_truncates_and_says_so(
@@ -375,3 +376,94 @@ class TestRosettaMenuWiring:
     def test_listed_in_the_menu_display(self, hc_module):
         labels = dict(hc_module._main.get_main_menu_items())
         assert labels["23"] == "Rosetta Attack"
+
+
+class TestDebugModeFive:
+    """hate_crack writes mode 5; HashcatRosetta's parser only understands mode 4.
+
+    The sample lines here are verbatim hashcat output, captured by cracking a
+    known md5 with a one-rule file under --debug-mode 4 and 5 in turn.
+    """
+
+    MODE_5 = "orangecrate:$1 $2:orangecrate12:wl.txt"
+    MODE_4 = "orangecrate:$1 $2:orangecrate12"
+
+    def test_writer_requests_mode_5(self, main_module, tmp_path, monkeypatch):
+        monkeypatch.setattr(main_module, "hcatDebugLogPath", str(tmp_path))
+        cmd = main_module._add_debug_mode_for_rules(["hashcat", "-r", "best64.rule"])
+
+        assert cmd[cmd.index("--debug-mode") + 1] == "5"
+
+    def test_source_field_is_stripped(self, main_module):
+        assert main_module._strip_debug_source_field([self.MODE_5]) == [self.MODE_4]
+
+    def test_mode_4_logs_are_left_alone(self, main_module):
+        lines = [self.MODE_4] * 5
+        assert main_module._strip_debug_source_field(lines) == lines
+
+    def test_candidate_survives_the_round_trip(self, main_module, tmp_path):
+        # Without the strip, the parser glues the wordlist onto the candidate.
+        log = tmp_path / "mode5.log"
+        log.write_text(
+            "\n".join(
+                [
+                    "orangecrate:$1 $2:orangecrate12:wl.txt",
+                    "orangecrate:c:Orangecrate:wl.txt",
+                    "bluecrate:$1 $2:bluecrate12:wl.txt",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        result = main_module.rosetta_derive([str(log)], str(tmp_path / "out"))
+
+        basewords = _read(result["basewords"])
+        assert "orangecrate" in basewords
+        assert "wl.txt" not in _read(result["rules"])
+
+    def test_unique_candidate_metric_is_not_inflated_across_wordlists(
+        self, main_module, tmp_path
+    ):
+        # The same rule reaching the same candidate from two wordlists is one
+        # unique candidate, not two. Only the strip makes that true.
+        log = tmp_path / "two_lists.log"
+        log.write_text(
+            "orangecrate:$1 $2:orangecrate12:a.txt\n"
+            "orangecrate:$1 $2:orangecrate12:b.txt\n",
+            encoding="utf-8",
+        )
+        main_module.rosetta_derive(
+            [str(log)], str(tmp_path / "out"), metric="candidates"
+        )
+
+        analyzer = main_module.DebugAnalyzer()
+        analyzer.analyze_debug_lines(
+            main_module._strip_debug_source_field(
+                log.read_text(encoding="utf-8").splitlines()
+            )
+        )
+        assert analyzer.get_top_rules_by_unique_candidates(1) == [("$1 $2", 1)]
+
+    def test_mixed_mode_logs_are_detected_per_file(self, main_module, tmp_path):
+        # Both files are colon-separated, which is what hashcat writes for mode
+        # 4 and 5 alike; only the trailing wordlist field differs. Detection has
+        # to be per file, since a batch-wide check would see the mode 4 lines as
+        # a counterexample and skip the strip for everything.
+        mode5 = tmp_path / "new.log"
+        mode5.write_text("alpha:$1:alpha1:wl.txt\n" * 3, encoding="utf-8")
+        mode4 = tmp_path / "old.log"
+        mode4.write_text("bravo:$1:bravo1\n" * 3, encoding="utf-8")
+
+        result = main_module.rosetta_derive(
+            [str(mode5), str(mode4)], str(tmp_path / "out")
+        )
+
+        basewords = _read(result["basewords"])
+        assert "alpha" in basewords and "bravo" in basewords
+        assert "wl.txt" not in basewords
+
+    def test_colon_bearing_candidates_are_not_truncated(self, main_module):
+        # Mode 4 candidates that happen to contain a colon must survive: the
+        # trailing fields here are all distinct, so this is not a mode 5 log.
+        lines = [f"alpha:$1:a:{n}:{n * 3}" for n in range(20)]
+        assert main_module._strip_debug_source_field(lines) == lines

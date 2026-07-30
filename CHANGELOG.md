@@ -9,6 +9,27 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ## [Unreleased]
 
+### Changed
+
+- **Debug logs now default to `~/.hate_crack/hashcat_debug` instead of the
+  checkout-relative `./hashcat_debug`.** The old default resolved against
+  whatever directory hate_crack was launched from, which for anyone running it
+  out of a clone meant writing cracked plaintext into the repo, and which split
+  the logs across directories so the Rosetta picker showed a different set
+  depending on where the tool was started. `tests/test_repo_hygiene.py` fails
+  the build if the shipped default goes back to being relative.
+- **Rule-based attacks now request `--debug-mode 5` rather than mode 4.** Mode 5
+  appends the source wordlist to each line
+  (`baseword:rule:candidate:wordlist`), so a log from a multi-wordlist run
+  records which list is actually producing cracks. HashcatRosetta's parser
+  splits on the first two colons only, so it would silently glue that field onto
+  the candidate; `_strip_debug_source_field` normalises mode 5 lines back to the
+  mode 4 shape before parsing. Detection is per file, so mode 4 logs written
+  before this change are still read correctly alongside new ones. Without the
+  normalisation the unique-candidate rule metric double-counted a candidate
+  reached from two wordlists, misranking rules exactly when several logs were
+  mined together.
+
 ### Fixed
 
 - **hashcat debug logs are no longer committable, and one that had been
