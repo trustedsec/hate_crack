@@ -7,6 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [Unreleased]
+
+### Changed
+
+- **Release versioning is now rolling, and driven by [commitizen](https://commitizen-tools.github.io/commitizen/)
+  instead of hand-rolled bash.** `main` is stable and always `X.Y.0`; merging
+  `nightly-dev` down cuts the release as a minor bump. `nightly-dev` consumes the
+  patch numbers above it — `X.Y.1`, `X.Y.2`, … — one per validated push. So
+  stable `2.19.0` is followed by nightlies `2.19.1`, `2.19.2`, and the next merge
+  to `main` cuts `2.20.0`.
+
+  This replaces the `-rc.N` pre-release scheme. Both tagging workflows previously
+  duplicated the same version arithmetic in shell (`cut -d.` to split the
+  version, `$((minor + 1))` to bump it, a `sed`/`sort -n` pipeline to advance the
+  rc counter); all of it is deleted. `cz bump --increment {MINOR,PATCH}` does the
+  arithmetic, configured under `[tool.commitizen]` with `version_provider = "scm"`
+  so the version is read from git tags and there is no version string in a file
+  and no version-bump commit.
+
+  Because nightly tags are now ordinary release tags, the `setuptools-scm`
+  workaround that the old scheme existed for is retired: `-rc` was chosen only
+  because `setuptools-scm` rejects tags ending in `.devN` for `N > 0`, which
+  ruled out an incrementing `-dev.N` counter.
+
+- **A merge into `main` now always cuts a release**, including a docs- or
+  chore-only one. The old workflow skipped tagging when it found no
+  `feat`/`fix`/`perf` commits; a merge to `main` is an explicit release event, so
+  that early exit is gone. `nightly-dev` already tagged unconditionally, so that
+  every validated nightly commit stays addressable.
+
+- **No existing tag was moved or deleted.** The `-rc.N` tags remain as history.
+
+### Removed
+
+- **Automatic major version bumps.** A `type!:` subject or a `BREAKING CHANGE:`
+  footer no longer bumps the major version by itself, because the increment is
+  now forced per branch rather than inferred from commit messages. This is
+  deliberate — reintroducing breaking-change detection would reintroduce the
+  hand-rolled version decisioning this change removes. A major release is instead
+  an explicit human act: run `cz bump --increment MAJOR` and push the resulting
+  tag.
+
+### Notes
+
+- Nightly tags are no longer PEP 440 pre-releases, so any tool that resolves
+  "the latest version" from raw version numbers will now treat a nightly as
+  latest. hate_crack's own startup update check is unaffected: it reads GitHub's
+  "latest release" endpoint and nightly builds publish no GitHub release. The
+  package is not published to PyPI (only a defensive name placeholder exists), so
+  nothing installs from an index today, but this is a real property of the scheme
+  rather than an oversight.
+- `release.yml` is unchanged and remains the path for tags pushed by a human;
+  tags pushed with `GITHUB_TOKEN` do not dispatch workflow events, so it never
+  fires for the bot-pushed tags above.
+
 ## [2.18.0] - 2026-07-29
 
 ### Added
