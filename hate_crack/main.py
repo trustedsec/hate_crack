@@ -518,8 +518,48 @@ def _initialize_env(legacy_json_path):
     return destination
 
 
+def _describe_config_source(path, created):
+    """One right-hand side for :func:`_print_config_sources`."""
+    if path is None:
+        return "not found -- using built-in defaults"
+    return f"{path} (created this run)" if created else path
+
+
+def _print_config_sources(env_path, legacy_json_path, *, env_created, json_created):
+    """Name the two config files this run actually loaded.
+
+    Two lines, always the same two lines, printed before the loader's warnings
+    so each warning reads against a file the user has just been shown.
+
+    This is not decoration. ``config_loader.candidate_roots()`` searches the
+    repo root *before* ``~/.hate_crack``, so a stray `.env` left in any
+    checkout silently outranks the user's real one -- and running the tool from
+    a checkout is exactly what creates such a file. Separately, a `.env` in the
+    current working directory is never consulted at all: that is deliberate
+    (engagement directories are full of files nobody intends as configuration)
+    but it is invisible without this output. Printing the resolved paths
+    answers all three questions -- which directory won, whether a file was just
+    created, and whether the file being edited is even in the search order --
+    in the two lines before anything else happens.
+
+    Silent under ``SKIP_INIT``: the test suite imports this module constantly.
+    """
+    if SKIP_INIT:
+        return
+    print(f"[*] config.json: {_describe_config_source(legacy_json_path, json_created)}")
+    print(f"[*] .env:        {_describe_config_source(env_path, env_created)}")
+
+
 _env_path, _legacy_json_path = _config_loader.resolve_config_paths()
+_env_missing_before_bootstrap = _env_path is None
+_json_missing_before_bootstrap = _legacy_json_path is None
 _env_path, _legacy_json_path = _bootstrap_config_files(_env_path, _legacy_json_path)
+_print_config_sources(
+    _env_path,
+    _legacy_json_path,
+    env_created=_env_missing_before_bootstrap,
+    json_created=_json_missing_before_bootstrap,
+)
 
 # The loader is the single definition of the precedence stack: for each key,
 # schema default < that key's own home file < os.environ. config_parser stays
@@ -2635,7 +2675,7 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
         print(f"Error: the Ollama request timed out after {ollamaTimeout:g} seconds.")
         print(
             f"The model ({ollamaModel}) may still be loading into VRAM. Retry, or "
-            'raise "ollamaTimeout" in config.json to wait longer.'
+            "raise OLLAMA_TIMEOUT in the .env file to wait longer."
         )
         return
     except ValueError as e:
@@ -2864,7 +2904,7 @@ def hcatOllamaPatterns(hcatHashType, hcatHashFile, source_path):
         print(f"Error: the Ollama request timed out after {ollamaTimeout:g} seconds.")
         print(
             f"The model ({ollamaModel}) may still be loading into VRAM. Retry, or "
-            'raise "ollamaTimeout" in config.json to wait longer.'
+            "raise OLLAMA_TIMEOUT in the .env file to wait longer."
         )
         return
     except ValueError as e:
@@ -4352,7 +4392,7 @@ def hashview_api():
     # Get Hashview connection details from config
     if not hashview_api_key:
         print("\nError: Hashview API key not configured.")
-        print("Please set 'hashview_api_key' in config.json")
+        print("Please set HASHVIEW_API_KEY in the .env file")
         return
 
     print(f"\nConnecting to Hashview at: {hashview_url}")
@@ -5499,7 +5539,10 @@ def pipal():
             print("No hashes were cracked :(")
             return []
     else:
-        print("The path to pipal.rb is either not set, or is incorrect.")
+        print(
+            "The path to pipal.rb is either not set, or is incorrect. "
+            "Set PIPAL_PATH in the .env file."
+        )
         return
 
 
@@ -5622,8 +5665,8 @@ def toggle_notifications():
         settings = _notify.get_settings()
         if not settings.pushover_token or not settings.pushover_user:
             print(
-                "[!] notify_pushover_token / notify_pushover_user are empty in "
-                "config.json — notifications will silently no-op until set."
+                "[!] NOTIFY_PUSHOVER_TOKEN / NOTIFY_PUSHOVER_USER are empty in "
+                "the .env file — notifications will silently no-op until set."
             )
 
 
@@ -5663,8 +5706,8 @@ def test_pushover_notification():
     user = settings.pushover_user
     if not token or not user:
         print(
-            "\n[!] Pushover credentials missing. Set notify_pushover_token "
-            "and notify_pushover_user in config.json."
+            "\n[!] Pushover credentials missing. Set NOTIFY_PUSHOVER_TOKEN "
+            "and NOTIFY_PUSHOVER_USER in the .env file."
         )
         return
 
@@ -6119,7 +6162,7 @@ def main():
     if getattr(args, "command", None) == "hashview":
         if not hashview_api_key:
             print("\nError: Hashview API key not configured.")
-            print("Please set 'hashview_api_key' in config.json")
+            print("Please set HASHVIEW_API_KEY in the .env file")
             sys.exit(1)
 
         api_harness = HashviewAPI(hashview_url, hashview_api_key, debug=debug_mode)
@@ -6225,7 +6268,7 @@ def main():
         if not hashview_api_key:
             print("Available Customers:")
             print("\nError: Hashview API key not configured.")
-            print("Please set 'hashview_api_key' in config.json")
+            print("Please set HASHVIEW_API_KEY in the .env file")
             sys.exit(1)
         hashview_api()
         sys.exit(0)

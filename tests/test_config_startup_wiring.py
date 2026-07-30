@@ -733,3 +733,81 @@ def test_notify_settings_keys_are_all_json_homed(tmp_path):
     # And the credentials, which nothing writes from the menu, are .env-homed.
     env_homed = {entry.legacy for entry in ENV_KEYS}
     assert {"notify_pushover_token", "notify_pushover_user"} <= env_homed
+
+
+# ---------------------------------------------------------------------------
+# The startup line naming the config files actually loaded.
+#
+# It exists because candidate_roots() searches a repo checkout before
+# ~/.hate_crack (so a stray .env in a checkout silently outranks the real one)
+# and because a .env in the current working directory is never read at all.
+# Both traps are invisible without this output.
+# ---------------------------------------------------------------------------
+
+
+def _config_source_output(capsys, monkeypatch, *, skip_init, **kwargs):
+    monkeypatch.setattr(hc_main, "SKIP_INIT", skip_init)
+    hc_main._print_config_sources(**kwargs)
+    return capsys.readouterr().out
+
+
+def test_startup_names_both_resolved_config_paths(capsys, monkeypatch, tmp_path):
+    env_path = str(tmp_path / ".env")
+    json_path = str(tmp_path / "config.json")
+    out = _config_source_output(
+        capsys,
+        monkeypatch,
+        skip_init=False,
+        env_path=env_path,
+        legacy_json_path=json_path,
+        env_created=False,
+        json_created=False,
+    )
+    assert env_path in out
+    assert json_path in out
+    # Two lines, no more: this is orientation, not a report.
+    assert len(out.strip().splitlines()) == 2
+
+
+def test_startup_says_when_a_config_file_was_created_this_run(
+    capsys, monkeypatch, tmp_path
+):
+    env_path = str(tmp_path / ".env")
+    out = _config_source_output(
+        capsys,
+        monkeypatch,
+        skip_init=False,
+        env_path=env_path,
+        legacy_json_path=str(tmp_path / "config.json"),
+        env_created=True,
+        json_created=False,
+    )
+    assert f"{env_path} (created this run)" in out
+    # Still two lines -- creation is reported inline, not on a third line.
+    assert len(out.strip().splitlines()) == 2
+
+
+def test_startup_reports_a_missing_config_file_as_defaults(capsys, monkeypatch):
+    out = _config_source_output(
+        capsys,
+        monkeypatch,
+        skip_init=False,
+        env_path=None,
+        legacy_json_path=None,
+        env_created=True,
+        json_created=True,
+    )
+    assert out.count("not found -- using built-in defaults") == 2
+
+
+def test_startup_prints_nothing_under_skip_init(capsys, monkeypatch, tmp_path):
+    out = _config_source_output(
+        capsys,
+        monkeypatch,
+        skip_init=True,
+        env_path=str(tmp_path / ".env"),
+        legacy_json_path=str(tmp_path / "config.json"),
+        env_created=False,
+        json_created=False,
+    )
+    assert out == ""
