@@ -1,7 +1,7 @@
 """Split-home configuration loader for hate_crack.
 
 Every configuration key has exactly one home file, declared by its ``home``
-field in :mod:`hate_crack.config_schema`: `.env` for the twelve third-party
+field in :mod:`hate_crack.config_schema`: `.env` for the third-party
 integration keys, ``config.json`` for the other thirty-five settings. Both
 files are first-class and permanent; neither is on its way out, and there is
 no removal timeline for either.
@@ -207,10 +207,10 @@ def _apply_json_layer(
 ) -> None:
     """Apply ``config.json``, which owns the ``home="json"`` keys only.
 
-    An integration key left behind in ``config.json`` -- typically after the
-    one-shot migration that copied it into `.env` -- is *ignored*, not merged
-    as a lower-precedence layer, and earns a warning naming the file it now
-    belongs in. Silently honouring it would recreate the cross-file
+    An integration key found in ``config.json`` -- hand-written there, or left
+    behind by a migration whose prune of the file failed -- is *ignored*, not
+    merged as a lower-precedence layer, and earns a warning naming the file it
+    now belongs in. Silently honouring it would recreate the cross-file
     precedence the split exists to remove, and would mean a user who edited
     ``HASHMOB_API_KEY`` in `.env` kept getting the stale value.
     """

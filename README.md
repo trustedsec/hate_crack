@@ -49,13 +49,15 @@ git submodule update --init --recursive
 Then customize configuration if needed. hate_crack uses two config files, each owning a distinct set of settings:
 
 - **`config.json`** — wordlist paths, masks, rules, tuning, potfile, hashcat path, candidate limits, notification toggles, CLI preference defaults (35 settings).
-- **`.env`** — third-party integration settings only: Hashview and Hashmob credentials, Pushover credentials, Ollama, and pipal (12 settings). Not tracked by git, created at mode `0600`.
+- **`.env`** — third-party integration settings only: Hashview and Hashmob credentials, Pushover credentials, Ollama, and pipal (13 settings). Not tracked by git, created at mode `0600`.
 
 The line falls there for one reason: `.env` is the file that can hold secrets. Credentials for, and configuration of, third-party services go in the untracked, `0600` file; everything hate_crack does locally stays in `config.json`, which is safe to share, diff and check into your own notes. That is also why the Pushover *credentials* are in `.env` while the Pushover on/off *toggles* are in `config.json` — the toggles are local preferences, not secrets.
 
 Each key has exactly one home. A key placed in the other file is ignored, and hate_crack prints a warning naming the file it belongs in. Any key can still be overridden for a single run by exporting its environment variable. Most users can skip this step as default paths work out-of-the-box.
 
-`config.json` is permanent and first-class — it is not deprecated and there is no removal timeline for it. Only the 12 integration settings moved.
+`config.json` is permanent and first-class — it is not deprecated and there is no removal timeline for it. Only the integration settings moved.
+
+**Upgrading from a single `config.json`?** hate_crack migrates it for you on first run: the integration settings are copied into a new `0600` `.env`, then removed from `config.json` so the two files do not both claim them. It prints which keys moved (never their values), and saves your original as `config.json.pre-split.bak` before touching it. Everything else in `config.json` is left exactly as it was, key order included.
 
 **First run:** hate_crack creates both files for you, so there is nothing to do. To set up `.env` by hand instead, copy the tracked template:
 
@@ -585,7 +587,8 @@ OLLAMA_TIMEOUT=300
 
   This replaces the previous behaviour of pasting an evenly-spaced sample of up to `ollamaMaxSampleLines` passwords. A sample of a large dump conveyed no frequency information at all: the model could not distinguish a baseword used by 8% of the organization from one used by a single person, which is precisely the signal that makes a guess worth running.
 - **`OLLAMA_AUTO_RESEARCH`** — When `true` (default), **Target info** mode asks the local model to suggest the industry and location as soon as you have typed the company name, and offers them as editable prompt defaults. Set to `false` to always get blank prompts (useful with a slow model, since research costs one extra round-trip before the attack starts).
-- The Ollama URL defaults to `http://localhost:11434` (override via the `OLLAMA_HOST` env var). Ensure Ollama is running and the model is pulled (`ollama pull qwen2.5:32b`) before using the LLM Attack — hate_crack no longer auto-pulls missing models.
+- **`OLLAMA_HOST`** — Where Ollama is listening. Accepts a bare `host:port` (`theplague.lan:11434`) or a full URL with a scheme (`https://ollama.example.com`); either way the base URL is normalized before use. Defaults to `localhost:11434`. Set it in `.env`, or export it as a real environment variable to override that for a single run — it is the same variable name Ollama's own CLI reads.
+- Ensure Ollama is running and the model is pulled (`ollama pull qwen2.5:32b`) before using the LLM Attack — hate_crack no longer auto-pulls missing models.
 
 The attack offers three generation modes:
 
@@ -1032,7 +1035,7 @@ Uses hashcat's loopback mode to feed cracked passwords from the current session 
 #### LLM Attack
 Uses a local Ollama instance to generate password candidates for a capture-the-flag scenario. Prompts for the fake company name, industry, and location, then sends these details to the configured LLM model to produce likely password candidates using industry terms and company name permutations. The generated candidates are fed into a hashcat wordlist+rules attack.
 
-* Requires a running Ollama instance (default: `http://localhost:11434`, override with `OLLAMA_HOST`) with the model already pulled — hate_crack does not auto-pull
+* Requires a running Ollama instance (default: `http://localhost:11434`, override with `OLLAMA_HOST` in `.env` or the environment) with the model already pulled — hate_crack does not auto-pull
 * Candidate generation uses structured (JSON) output via Atomic Agents, so pick a model with good schema adherence (default: `qwen2.5:32b`)
 * Configurable model, context window, request timeout, and sample size via `.env` (see Ollama Configuration below)
 * Prompts for target company name, industry, and location. The industry and location prompts are pre-filled with the local model's guesses about the named organization (editable, and clearly labelled as guesses rather than verified OSINT); disable with `ollamaAutoResearch: false`

@@ -1,11 +1,12 @@
 """`.env` serializer and the one-shot ``config.json`` -> `.env` migration.
 
-This module is the write-side counterpart to :mod:`hate_crack.config_loader`,
-and it writes **only** the `.env` file -- that is, only the twelve
-``home="env"`` third-party integration keys. ``config.json`` is written by
-``main.py`` (first-run bootstrap, by copying ``config.json.example``) and by
-:mod:`hate_crack.notify.settings` (the notification toggles); nothing here
-touches it except to read it during migration.
+This module is the write-side counterpart to :mod:`hate_crack.config_loader`.
+It owns the `.env` file outright -- the ``home="env"`` third-party integration
+keys -- and touches ``config.json`` in exactly one place: the migration prunes
+the keys it copied out of it (see :func:`write_env_from_legacy`). Otherwise
+``config.json`` is written by ``main.py`` (first-run bootstrap, by copying
+``config.json.example``) and by :mod:`hate_crack.notify.settings` (the
+notification toggles).
 
 This module intentionally does NOT import ``hate_crack.main`` for the same
 reason ``config_loader.py`` doesn't: ``main.py`` imports this module, and an
@@ -16,7 +17,8 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Mapping
+import shutil
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from hate_crack.config_schema import (
@@ -48,6 +50,7 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
         "Ollama-backed AI research",
         (
+            "OLLAMA_HOST",
             "OLLAMA_MODEL",
             "OLLAMA_NUM_CTX",
             "OLLAMA_TIMEOUT",
@@ -129,7 +132,7 @@ def emit_value(entry: ConfigKey, value: Any) -> str:
     """Serialize an already-typed Python ``value`` to its `.env` RHS text.
 
     Inverse of :func:`hate_crack.config_schema.coerce` for the four types the
-    twelve ``home="env"`` keys actually use: for every such entry,
+    ``home="env"`` keys actually use: for every such entry,
     ``coerce(entry, emit_value(entry, v)) == v``. Does not include quoting --
     see :func:`render_line` for the quoted, ``KEY=VALUE`` line.
 
@@ -217,7 +220,7 @@ def render_env(
 ) -> str:
     """Render a complete, grouped, commented `.env` document as text.
 
-    Covers the twelve ``home="env"`` integration keys and nothing else; every
+    Covers the ``home="env"`` integration keys and nothing else; every
     other setting belongs in ``config.json``. ``config`` is keyed by legacy
     JSON key names (the same shape
     :func:`hate_crack.config_loader.load_config` returns) and may contain
@@ -257,7 +260,7 @@ def env_example_path() -> str:
 
 
 def write_env(path: str, config: Mapping[str, Any], *, overwrite: bool = False) -> None:
-    """Write a complete `.env` file (the twelve integration keys) to ``path``.
+    """Write a complete `.env` file (the integration keys) to ``path``.
 
     Mode ``0600``, atomic (temp file + ``os.replace`` in the same directory),
     and idempotent (byte-identical output for byte-identical input). Refuses
@@ -298,20 +301,24 @@ def write_env_from_legacy(
     """Create ``env_path`` from the integration keys in ``legacy_json_path``.
 
     Reads a ``config.json`` written before the split, extracts whichever of
-    the twelve ``home="env"`` keys it contains, and writes a ``0600`` `.env`
-    holding them (keys it does not contain get the schema default). Returns a
-    list of human-readable notes to print once.
+    the ``home="env"`` keys it contains, and writes a ``0600`` `.env` holding
+    them (keys it does not contain get the schema default). Returns a list of
+    human-readable notes to print once.
 
-    **``config.json`` is never modified, moved or deleted.** It remains the
-    home of the other thirty-five settings, so rewriting it here would mean
-    this function owned a file it has no business owning. The consequence is
-    that the migrated integration keys are still sitting in ``config.json``
-    where they are now ignored -- so the notes say so explicitly, by key name,
-    and tell the user to delete them. Every subsequent load also warns about
-    each one (see ``config_loader._apply_json_layer``), so the instruction is
-    not a one-shot message the user can miss.
+    Once the `.env` is safely in place, the keys that moved are **deleted from**
+    ``config.json``, because a key left there is one the loader ignores and
+    warns about on every subsequent load -- a permanent nag for a migration the
+    user cannot finish except by hand-editing JSON. The original file is copied
+    to ``<config.json>.pre-split.bak`` first, and the rewrite only touches the
+    keys named in the notes: every ``home="json"`` setting is preserved
+    verbatim, as is any unrecognized key the user was keeping as a note.
 
-    Notes name keys only, never values -- several of the twelve are secrets.
+    Deletion is deliberately scoped to keys that were actually copied. A key
+    whose value had the wrong type is left in place, since the `.env` got the
+    schema default rather than the user's value and dropping it would destroy
+    the only record of what they had meant to set.
+
+    Notes name keys only, never values -- several of these keys are secrets.
     """
     with open(legacy_json_path) as fh:
         legacy_data = json.load(fh)
@@ -352,12 +359,62 @@ def write_env_from_legacy(
             "Copied these third-party integration settings into "
             f"{env_path}: {', '.join(sorted(migrated))}."
         )
-        notes.append(
-            f"They are now read from {env_path} only. Delete them from "
-            f"{legacy_json_path} yourself -- hate_crack will not edit that "
-            "file, and will warn about each one until you do."
-        )
+        try:
+            backup_path = _prune_migrated_keys(legacy_json_path, migrated)
+        except OSError as exc:
+            notes.append(
+                f"Could not rewrite {legacy_json_path} to drop the copied keys "
+                f"({exc}); they are now read from {env_path} only, so delete "
+                "them by hand to stop the warnings."
+            )
+        else:
+            notes.append(
+                f"Removed them from {legacy_json_path}, where they would now be "
+                f"ignored. The original is saved as {backup_path}."
+            )
     return notes
+
+
+def _prune_migrated_keys(legacy_json_path: str, migrated: Sequence[str]) -> str:
+    """Delete ``migrated`` from ``legacy_json_path``; return the backup path.
+
+    Back up first, then rewrite atomically, so a failure part-way through
+    leaves either the original file or a complete new one -- never a truncated
+    ``config.json``, which would cost the user all thirty-five of their other
+    settings. Key order is preserved for the keys that survive: this is a file
+    people read and hand-edit, and reordering it would make the migration's
+    diff unreviewable.
+
+    The original file's permissions are carried over to the replacement.
+    ``config.json`` holds no secrets after this runs, but it may well have been
+    tightened to ``0600`` while it did, and silently widening that is not this
+    function's call to make.
+    """
+    with open(legacy_json_path) as fh:
+        data = json.load(fh)
+
+    backup_path = f"{legacy_json_path}.pre-split.bak"
+    shutil.copy2(legacy_json_path, backup_path)
+
+    drop = set(migrated)
+    kept = {key: value for key, value in data.items() if key not in drop}
+
+    directory = os.path.dirname(os.path.abspath(legacy_json_path)) or "."
+    tmp_path = os.path.join(directory, f".config-{os.urandom(8).hex()}.tmp")
+    try:
+        with open(tmp_path, "w") as tmp:
+            json.dump(kept, tmp, indent=2)
+            tmp.write("\n")
+        shutil.copymode(legacy_json_path, tmp_path)
+        os.replace(tmp_path, legacy_json_path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+    return backup_path
 
 
 def _regenerate_env_example() -> str:

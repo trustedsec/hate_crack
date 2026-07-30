@@ -48,8 +48,8 @@ def test_defaults_only_matches_schema(tmp_path, monkeypatch):
     assert isinstance(result, ConfigLoadResult)
     expected_keys = {entry.legacy for entry in CONFIG_SCHEMA}
     assert set(result.config.keys()) == expected_keys
-    # 12 .env-homed integration keys + 35 config.json-homed settings.
-    assert len(expected_keys) == 47
+    # 13 .env-homed integration keys + 35 config.json-homed settings.
+    assert len(expected_keys) == 48
     for entry in CONFIG_SCHEMA:
         # path-typed defaults are expanded by load_config()'s uniform
         # post-merge normalization pass (see _normalize_path_values), so a

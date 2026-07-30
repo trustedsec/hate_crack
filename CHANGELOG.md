@@ -24,6 +24,19 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   install hashcat. This oracle is what found #230. (#230)
 
 
+- **`OLLAMA_HOST` is a real config key, so setting it in `.env` now works.** It
+  was read straight off `os.environ`, but the loader parses `.env` with
+  python-dotenv's `dotenv_values()` — which returns a mapping and deliberately
+  does *not* export into the process environment. An `OLLAMA_HOST` written into
+  `.env`, which is where every other Ollama setting lives and where `.env.example`
+  implies it belongs, was therefore reported as an unrecognized key, ignored, and
+  the run silently talked to `localhost:11434` instead of the operator's actual
+  Ollama box. It is now a `home="env"` schema key (`ollamaHost`, default
+  `localhost:11434`), read through `config_parser` like its neighbours, so it
+  resolves from `.env`, and a real exported `OLLAMA_HOST` still overrides that
+  for a single run via the environment layer. Both spellings — bare `host:port`
+  and a full URL with a scheme — keep working; normalization is unchanged.
+
 - **Two `pre-commit` guards that enforce the publication boundary and catch a
   corrupt index, in `.github/scripts/`.** The boundary was documented but not
   enforced: on 2026-07-30 a prek `pre-push` stash/restore cycle corrupted the
@@ -80,6 +93,22 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   Nothing is written back to `config.json`.
 
 ### Changed
+
+- **The `config.json` -> `.env` migration now deletes the keys it copied, instead
+  of telling you to.** It used to leave `config.json` byte-identical on the
+  principle that the migration did not own that file, which meant the integration
+  keys stayed behind where the loader ignores them — and warns about every one of
+  them, on every subsequent run, until the user hand-edits JSON. That is a
+  permanent nag for a migration the tool could finish itself. The original file is
+  copied to `config.json.pre-split.bak` first, and the rewrite is atomic and
+  scoped: it drops only the keys named in the migration notes, preserves every
+  `home="json"` setting, keeps unrecognized keys the user was using as notes,
+  holds the original key order so the diff is reviewable, and carries the original
+  file's permissions over. A key whose value had the wrong type is deliberately
+  *not* deleted — the `.env` got the schema default rather than the user's value,
+  so removing it would destroy the only record of what they meant to set. If the
+  rewrite fails, the migration still succeeds and says so, with the manual
+  instruction as the fallback.
 
 - **Configuration is now split across two files, each owning a distinct set of
   keys.** `config.json` keeps the 35 local settings (wordlists, masks, rules,

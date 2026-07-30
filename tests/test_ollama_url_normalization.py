@@ -10,6 +10,7 @@ from unittest import mock
 
 import pytest
 
+from hate_crack import config_loader
 from hate_crack import main as hc_main
 
 
@@ -63,6 +64,43 @@ def test_module_level_ollamaUrl_honours_a_scheme_in_the_env():
         finally:
             # Restore the module to the ambient environment for other tests.
             importlib.reload(reloaded)
+
+
+def test_ollama_host_in_a_dotenv_resolves(tmp_path):
+    """OLLAMA_HOST is a schema key, so a .env value reaches ollamaUrl.
+
+    It used to be read straight off ``os.environ``, but the loader parses
+    `.env` with ``dotenv_values()`` -- which returns a mapping and never
+    exports into the process environment -- so ``OLLAMA_HOST`` written in a
+    `.env` was reported as an unrecognized key and silently ignored, and the
+    run talked to localhost instead.
+    """
+    env_path = tmp_path / ".env"
+    env_path.write_text("OLLAMA_HOST=theplague.example.local:11434\n")
+
+    result = config_loader.load_config(
+        env_path=str(env_path), legacy_json_path=None, environ={}
+    )
+
+    assert result.warnings == []
+    assert result.config["ollamaHost"] == "theplague.example.local:11434"
+    assert (
+        hc_main._normalize_ollama_url(result.config["ollamaHost"])
+        == "http://theplague.example.local:11434"
+    )
+
+
+def test_a_real_ollama_host_env_var_still_overrides_the_dotenv():
+    """The variable Ollama's own CLI reads keeps winning, so exporting it for a
+    one-off run does not require editing `.env`."""
+    env_path = None
+    result = config_loader.load_config(
+        env_path=env_path,
+        legacy_json_path=None,
+        environ={"OLLAMA_HOST": "https://ollama.example.com"},
+    )
+
+    assert result.config["ollamaHost"] == "https://ollama.example.com"
 
 
 def test_module_level_ollamaUrl_defaults_to_localhost():

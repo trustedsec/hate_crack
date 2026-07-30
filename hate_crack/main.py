@@ -813,7 +813,7 @@ hcatGoodMeasureBaseList = config_parser["hcatGoodMeasureBaseList"]
 
 hcatDebugLogPath = os.path.expanduser(config_parser["hcatDebugLogPath"])
 
-ollamaUrl = _normalize_ollama_url(os.environ.get("OLLAMA_HOST", "localhost:11434"))
+ollamaUrl = _normalize_ollama_url(config_parser.get("ollamaHost", "localhost:11434"))
 ollamaModel = config_parser.get("ollamaModel", "qwen2.5:32b")
 ollamaNumCtx = int(config_parser.get("ollamaNumCtx", 8192))
 ollamaTimeout = float(config_parser.get("ollamaTimeout", 300))

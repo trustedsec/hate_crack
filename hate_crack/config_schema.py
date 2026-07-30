@@ -226,6 +226,11 @@ CONFIG_SCHEMA: tuple[ConfigKey, ...] = (
     ),
     ConfigKey("HASHVIEW_API_KEY", "hashview_api_key", "str", "", home="env"),
     ConfigKey("HASHMOB_API_KEY", "hashmob_api_key", "str", "", home="env"),
+    # Bare host:port or a full URL; main.py normalizes either into a base URL.
+    # The default matches Ollama's own, and the name matches the variable
+    # Ollama's tooling already reads, so an operator who exports OLLAMA_HOST
+    # for the ollama CLI gets the same target here without a second setting.
+    ConfigKey("OLLAMA_HOST", "ollamaHost", "str", "localhost:11434", home="env"),
     ConfigKey("OLLAMA_MODEL", "ollamaModel", "str", "qwen2.5:32b", home="env"),
     ConfigKey("OLLAMA_NUM_CTX", "ollamaNumCtx", "int", 8192, home="env"),
     ConfigKey("OLLAMA_TIMEOUT", "ollamaTimeout", "int", 300, home="env"),

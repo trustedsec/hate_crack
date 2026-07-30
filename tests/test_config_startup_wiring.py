@@ -69,7 +69,7 @@ def bootstrap(monkeypatch, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_case1_migrates_integration_keys_and_leaves_config_json_alone(
+def test_case1_migrates_integration_keys_and_prunes_config_json(
     bootstrap, tmp_path, capsys
 ):
     legacy_path = tmp_path / "config.json"
@@ -91,15 +91,19 @@ def test_case1_migrates_integration_keys_and_leaves_config_json_alone(
     assert env_path.is_file()
     assert _mode(env_path) == 0o600
 
-    # config.json is byte-unchanged: it is still the home of the other 35.
-    assert legacy_path.read_bytes() == legacy_bytes
+    # The keys that moved are gone from config.json; the other 35 stay, and the
+    # pre-migration file is recoverable.
+    remaining = json.loads(legacy_path.read_text())
+    assert not ({entry.legacy for entry in ENV_KEYS} & set(remaining))
+    assert {entry.legacy for entry in JSON_KEYS} <= set(remaining)
+    assert (tmp_path / "config.json.pre-split.bak").read_bytes() == legacy_bytes
 
     out = capsys.readouterr().out
     assert str(legacy_path) in out
     assert str(env_path) in out
     assert "ollamaModel" in out
     assert "hashmob_api_key" in out
-    assert "Delete them from" in out
+    assert "Removed them from" in out
     # The bootstrap no longer prints its own "Config source/destination" block:
     # that is _print_config_sources()'s job now (#227).
     assert "Config source:" not in out
@@ -458,19 +462,22 @@ def test_a_clean_pair_of_files_produces_no_warnings(tmp_path, capsys):
 
 
 def test_every_warning_reaches_the_user_exactly_once_at_scale(tmp_path, capsys):
-    """A full pre-split config.json: twelve misplaced keys, twelve lines.
+    """A full pre-split config.json: one misplaced key, one line, each.
 
-    Before the channel was consolidated this printed twenty-four
-    near-identical lines -- once from load_config_or_exit()'s logger, once from
-    main.py's print of the same list -- which reads like a bug in the very
-    messages that are the whole user-facing story for the split.
+    Before the channel was consolidated this printed each warning twice --
+    once from load_config_or_exit()'s logger, once from main.py's print of the
+    same list -- which reads like a bug in the very messages that are the whole
+    user-facing story for the split.
+
+    Counted off ENV_KEYS rather than a literal so adding an integration key
+    does not turn a real doubling regression into an off-by-one edit here.
     """
     warnings, combined = _startup_warning_output(
         tmp_path, capsys, json_body=_pre_split_config()
     )
-    assert len(warnings) == 12
+    assert len(warnings) == len(ENV_KEYS)
     _assert_reported_once(combined, warnings, *[e.legacy for e in ENV_KEYS])
-    assert combined.count("[!] ") == 12
+    assert combined.count("[!] ") == len(ENV_KEYS)
 
 
 def test_load_config_or_exit_does_not_log_warnings(tmp_path, caplog):

@@ -1,8 +1,9 @@
 """Tests for hate_crack.config_writer: the `.env` serializer and the
 one-shot lift of the integration keys out of an old config.json.
 
-The writer covers the twelve ``home="env"`` keys and nothing else, so every
-assertion below is scoped to ``ENV_KEYS``.
+The writer owns the ``home="env"`` keys, so every assertion below is scoped to
+``ENV_KEYS``. Its one reach into ``config.json`` is the migration's prune of
+the keys it just copied out.
 
 No real-looking passwords, API keys, or tokens appear anywhere below --
 synthetic placeholders only (e.g. "synthetic-token-not-a-real-secret").
@@ -57,8 +58,8 @@ def test_all_defaults_roundtrip_through_dotenv_values(tmp_path):
         assert got == _expected_after_roundtrip(entry, entry.default), entry.env
 
 
-def test_env_file_holds_exactly_the_twelve_integration_keys(tmp_path):
-    """The writer no longer emits all 47 keys. A json-homed key appearing here
+def test_env_file_holds_exactly_the_integration_keys(tmp_path):
+    """The writer no longer emits all 48 keys. A json-homed key appearing here
     would be a key the loader then ignores with a warning -- i.e. a file we
     generated and then complained about."""
     env_path = tmp_path / ".env"
@@ -66,7 +67,7 @@ def test_env_file_holds_exactly_the_twelve_integration_keys(tmp_path):
 
     parsed = dotenv_values(str(env_path))
     assert set(parsed) == {entry.env for entry in ENV_KEYS}
-    assert len(parsed) == 12
+    assert len(parsed) == 13
 
 
 def test_json_homed_values_in_the_input_are_not_rendered(tmp_path):
@@ -298,8 +299,8 @@ def test_migration_notes_name_the_keys_and_no_values(tmp_path):
     assert "synthetic-sentinel-key" not in joined
     assert "another-synthetic-sentinel" not in joined
     assert "synthetic-model" not in joined
-    # And the user is told, once and explicitly, to clean up config.json.
-    assert "Delete them from" in joined
+    # And the user is told, once and explicitly, what happened to config.json.
+    assert "Removed them from" in joined
     assert str(legacy_path) in joined
 
 
@@ -331,18 +332,117 @@ def test_migration_type_mismatch_writes_default_with_note(tmp_path):
     assert not any("not-an-int" in note for note in notes)
 
 
-def test_migration_leaves_config_json_byte_identical(tmp_path):
-    """config.json is not this function's file to rewrite -- it stays the home
-    of the other 35 settings."""
+def test_migration_deletes_the_copied_keys_from_config_json(tmp_path):
+    """A copied key left in config.json is one the loader ignores and warns
+    about forever, so the migration finishes the job."""
+    legacy = _legacy_config_json(hashmob_api_key="synthetic-sentinel")
+    legacy_path = tmp_path / "config.json"
+    legacy_path.write_text(json.dumps(legacy, indent=2))
+
+    env_path = tmp_path / ".env"
+    write_env_from_legacy(str(legacy_path), str(env_path))
+
+    remaining = json.loads(legacy_path.read_text())
+    assert not ({entry.legacy for entry in ENV_KEYS} & set(remaining))
+
+
+def test_migration_keeps_json_homed_and_unrecognized_keys(tmp_path):
+    """Pruning is scoped to the keys that moved. The other 35 settings are the
+    whole reason config.json still exists, and an unrecognized key is usually a
+    note or a retired setting the user chose to keep."""
+    legacy = _legacy_config_json(
+        hashmob_api_key="synthetic-sentinel",
+        hcatBin="hashcat-custom",
+        some_retired_key="keep me",
+    )
+    legacy_path = tmp_path / "config.json"
+    legacy_path.write_text(json.dumps(legacy, indent=2))
+
+    env_path = tmp_path / ".env"
+    write_env_from_legacy(str(legacy_path), str(env_path))
+
+    remaining = json.loads(legacy_path.read_text())
+    assert remaining["hcatBin"] == "hashcat-custom"
+    assert remaining["some_retired_key"] == "keep me"
+    for entry in JSON_KEYS:
+        assert entry.legacy in remaining
+
+
+def test_migration_backs_config_json_up_before_pruning(tmp_path):
     legacy = _legacy_config_json(hashmob_api_key="synthetic-sentinel")
     legacy_path = tmp_path / "config.json"
     original_bytes = json.dumps(legacy, indent=2).encode()
     legacy_path.write_bytes(original_bytes)
 
     env_path = tmp_path / ".env"
+    notes = write_env_from_legacy(str(legacy_path), str(env_path))
+
+    backup = tmp_path / "config.json.pre-split.bak"
+    assert backup.read_bytes() == original_bytes
+    assert str(backup) in "\n".join(notes)
+
+
+def test_migration_preserves_the_order_of_surviving_keys(tmp_path):
+    """config.json is hand-edited, so the migration's diff has to be readable:
+    only removed lines, never a wholesale reshuffle."""
+    legacy_path = tmp_path / "config.json"
+    legacy_path.write_text(
+        json.dumps(
+            {
+                "hcatBin": "hashcat",
+                "hashmob_api_key": "synthetic-sentinel",
+                "hcatTuning": "-w 4",
+                "ollamaModel": "synthetic-model",
+                "hcatPath": "/opt/hashcat",
+            },
+            indent=2,
+        )
+    )
+
+    env_path = tmp_path / ".env"
     write_env_from_legacy(str(legacy_path), str(env_path))
 
+    remaining = json.loads(legacy_path.read_text())
+    assert list(remaining) == ["hcatBin", "hcatTuning", "hcatPath"]
+
+
+def test_migration_keeps_a_type_mismatched_key_in_config_json(tmp_path):
+    """The .env got the schema default, not the user's value, so deleting the
+    key would destroy the only record of what they meant to set."""
+    legacy = _legacy_config_json(pipal_count="not-an-int")
+    legacy_path = tmp_path / "config.json"
+    legacy_path.write_text(json.dumps(legacy, indent=2))
+
+    env_path = tmp_path / ".env"
+    write_env_from_legacy(str(legacy_path), str(env_path))
+
+    remaining = json.loads(legacy_path.read_text())
+    assert remaining["pipal_count"] == "not-an-int"
+
+
+def test_migration_preserves_config_json_permissions(tmp_path):
+    legacy_path = tmp_path / "config.json"
+    legacy_path.write_text(json.dumps(_legacy_config_json(), indent=2))
+    os.chmod(legacy_path, 0o600)
+
+    env_path = tmp_path / ".env"
+    write_env_from_legacy(str(legacy_path), str(env_path))
+
+    assert stat.S_IMODE(os.stat(legacy_path).st_mode) == 0o600
+
+
+def test_migration_with_nothing_to_move_leaves_config_json_alone(tmp_path):
+    """No prune, no backup, no notes -- a post-split config.json is untouched."""
+    legacy_path = tmp_path / "config.json"
+    original_bytes = json.dumps({"hcatBin": "hashcat"}, indent=2).encode()
+    legacy_path.write_bytes(original_bytes)
+
+    env_path = tmp_path / ".env"
+    notes = write_env_from_legacy(str(legacy_path), str(env_path))
+
+    assert notes == []
     assert legacy_path.read_bytes() == original_bytes
+    assert not (tmp_path / "config.json.pre-split.bak").exists()
 
 
 def test_migration_writes_the_env_at_0600(tmp_path):
