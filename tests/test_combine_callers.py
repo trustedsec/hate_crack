@@ -59,9 +59,9 @@ def test_export_excel_skips_the_merge_for_a_non_pwdump_hash_file(
     out_path = tmp_path / "hashes.txt.out"
     out_path.write_text("a" * 32 + ":pw-a\n")
     before = out_path.read_bytes()
-    monkeypatch.setattr(main_module, "hcatHashFile", str(hash_file), raising=False)
-    monkeypatch.setattr(main_module, "hcatHashFileOrig", str(hash_file), raising=False)
-    monkeypatch.setattr(main_module, "hcatHashType", "1000", raising=False)
+    monkeypatch.setattr(main_module, "hcatHashFile", str(hash_file))
+    monkeypatch.setattr(main_module, "hcatHashFileOrig", str(hash_file))
+    monkeypatch.setattr(main_module, "hcatHashType", "1000")
     monkeypatch.setattr(main_module, "pwdump_format", False)
 
     with patch.object(main_module, "combine_ntlm_output") as combine:
@@ -83,9 +83,9 @@ def test_export_excel_still_exports_for_a_pwdump_hash_file(
     (tmp_path / "hashes.txt.out").write_text(
         f"alice:1001:{'0' * 32}:{'a' * 32}:::pw-a\n"
     )
-    monkeypatch.setattr(main_module, "hcatHashFile", str(cracked), raising=False)
-    monkeypatch.setattr(main_module, "hcatHashFileOrig", str(orig), raising=False)
-    monkeypatch.setattr(main_module, "hcatHashType", "1000", raising=False)
+    monkeypatch.setattr(main_module, "hcatHashFile", str(cracked))
+    monkeypatch.setattr(main_module, "hcatHashFileOrig", str(orig))
+    monkeypatch.setattr(main_module, "hcatHashType", "1000")
     monkeypatch.setattr(main_module, "pwdump_format", True)
 
     with patch.object(main_module, "combine_ntlm_output"):

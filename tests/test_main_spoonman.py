@@ -68,9 +68,9 @@ class TestHcatSpoonman:
         self._run(main_module, tmp_path, corpus, monkeypatch)
         assert os.path.isdir(hash_file + ".spoonman")
 
-        monkeypatch.setattr(main_module, "hcatHashFile", hash_file, raising=False)
-        monkeypatch.setattr(main_module, "hcatHashFileOrig", hash_file, raising=False)
-        monkeypatch.setattr(main_module, "hcatHashType", "1000", raising=False)
+        monkeypatch.setattr(main_module, "hcatHashFile", hash_file)
+        monkeypatch.setattr(main_module, "hcatHashFileOrig", hash_file)
+        monkeypatch.setattr(main_module, "hcatHashType", "1000")
         monkeypatch.setattr(main_module, "pwdump_format", False, raising=False)
         main_module.cleanup()
         assert not os.path.exists(hash_file + ".spoonman")

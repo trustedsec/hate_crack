@@ -198,9 +198,9 @@ class TestHcatRosetta:
         self._run(main_module, tmp_path, [debug_log])
         assert os.path.isdir(hash_file + ".rosetta")
 
-        monkeypatch.setattr(main_module, "hcatHashFile", hash_file, raising=False)
-        monkeypatch.setattr(main_module, "hcatHashFileOrig", hash_file, raising=False)
-        monkeypatch.setattr(main_module, "hcatHashType", "1000", raising=False)
+        monkeypatch.setattr(main_module, "hcatHashFile", hash_file)
+        monkeypatch.setattr(main_module, "hcatHashFileOrig", hash_file)
+        monkeypatch.setattr(main_module, "hcatHashType", "1000")
         monkeypatch.setattr(main_module, "pwdump_format", False, raising=False)
         main_module.cleanup()
         assert not os.path.exists(hash_file + ".rosetta")

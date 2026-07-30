@@ -90,7 +90,7 @@ def test_hcatFingerprint_uses_selected_expander_and_calls_hybrid(monkeypatch, tm
     monkeypatch.setattr(hc_main.subprocess, "Popen", FakePopen)
 
     # Run with expander24 and ensure secondary hybrid gets the expanded file.
-    monkeypatch.setattr(hc_main, "hcatHashFile", str(hashfile), raising=False)
+    monkeypatch.setattr(hc_main, "hcatHashFile", str(hashfile))
     hc_main.hcatFingerprint(
         "1000", str(hashfile), expander_len=24, run_hybrid_on_expanded=True
     )
@@ -162,7 +162,7 @@ def test_hcatFingerprint_skips_hashcat_and_hybrid_when_expanded_is_empty(
             return None
 
     monkeypatch.setattr(hc_main.subprocess, "Popen", FakePopen)
-    monkeypatch.setattr(hc_main, "hcatHashFile", str(hashfile), raising=False)
+    monkeypatch.setattr(hc_main, "hcatHashFile", str(hashfile))
 
     hc_main.hcatFingerprint(
         "1000", str(hashfile), expander_len=7, run_hybrid_on_expanded=True

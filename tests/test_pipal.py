@@ -127,9 +127,9 @@ def test_pipal_skips_the_merge_for_a_non_pwdump_hash_file(
     out_path = tmp_path / "hashes.out"
     out_path.write_text("hash1:pw-a\nhash2:pw-b\n")
 
-    monkeypatch.setattr(main_module, "hcatHashFile", str(hash_file), raising=False)
-    monkeypatch.setattr(main_module, "hcatHashFileOrig", str(hash_file), raising=False)
-    monkeypatch.setattr(main_module, "hcatHashType", "1000", raising=False)
+    monkeypatch.setattr(main_module, "hcatHashFile", str(hash_file))
+    monkeypatch.setattr(main_module, "hcatHashFileOrig", str(hash_file))
+    monkeypatch.setattr(main_module, "hcatHashType", "1000")
     monkeypatch.setattr(main_module, "pwdump_format", False)
     monkeypatch.setattr(main_module, "pipalPath", "/nonexistent/pipal")
 
@@ -149,9 +149,9 @@ def test_pipal_still_merges_for_a_pwdump_hash_file(hc_module, tmp_path, monkeypa
     cracked = tmp_path / "hashes.txt.nt"
     (tmp_path / "hashes.txt.out").write_text("alice:1001::" + "a" * 32 + ":::pw-a\n")
 
-    monkeypatch.setattr(main_module, "hcatHashFile", str(cracked), raising=False)
-    monkeypatch.setattr(main_module, "hcatHashFileOrig", str(orig), raising=False)
-    monkeypatch.setattr(main_module, "hcatHashType", "1000", raising=False)
+    monkeypatch.setattr(main_module, "hcatHashFile", str(cracked))
+    monkeypatch.setattr(main_module, "hcatHashFileOrig", str(orig))
+    monkeypatch.setattr(main_module, "hcatHashType", "1000")
     monkeypatch.setattr(main_module, "pwdump_format", True)
     monkeypatch.setattr(main_module, "pipalPath", "/nonexistent/pipal")
 
@@ -180,9 +180,9 @@ def test_pipal_warns_when_the_password_list_is_empty(
         "#!/usr/bin/env python3\nraise SystemExit('pipal must not run on an empty list')\n",
     )
 
-    monkeypatch.setattr(main_module, "hcatHashFile", str(hash_file), raising=False)
-    monkeypatch.setattr(main_module, "hcatHashFileOrig", str(hash_file), raising=False)
-    monkeypatch.setattr(main_module, "hcatHashType", "0", raising=False)
+    monkeypatch.setattr(main_module, "hcatHashFile", str(hash_file))
+    monkeypatch.setattr(main_module, "hcatHashFileOrig", str(hash_file))
+    monkeypatch.setattr(main_module, "hcatHashType", "0")
     monkeypatch.setattr(main_module, "pipalPath", str(pipal_stub))
 
     result = main_module.pipal()

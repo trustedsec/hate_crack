@@ -67,6 +67,22 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ### Fixed
 
+- **`hcatHashFile`, `hcatHashFileOrig`, and `hcatHashType` did not exist until
+  `main()` assigned them, so 53 test call sites needed
+  `monkeypatch.setattr(..., raising=False)` — a flag that silently creates the
+  attribute on a typo instead of failing the test.** They now have
+  module-level defaults matching the types `main()` assigns
+  (`hcatHashFile = ""`, `hcatHashFileOrig = None`, `hcatHashType = ""`),
+  restoring the typo protection at all 53 sites. That exposed a latent
+  clobber in the `hate_crack.py` CLI proxy: `_sync_globals_to_main()` only
+  pushed a name back to `hate_crack.main` `if name in globals()`, so these
+  three were skipped while absent — once present, the proxy's stale
+  import-time copy would overwrite whatever `main()` had legitimately set,
+  breaking option 95 (Analyze hashes with Pipal) for anyone reaching it
+  through the shim. `_sync_globals_to_main()` now snapshots the proxy's
+  import-time values and only pushes a name when its current value differs
+  from that snapshot, which also closes the same latent clobber for
+  `pipalPath`, `debug_mode`, `pipal_count`, and `hcatUsernamePrefix` (#213).
 - **Five wordlist call sites decided whether to gunzip a file by checking the
   filename for a `.gz` suffix, so a gzip body under a plain name reached an
   external hashcat-utils binary as raw compressed bytes.** hate_crack

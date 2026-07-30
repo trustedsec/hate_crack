@@ -836,6 +836,9 @@ if not SKIP_INIT:
 
 hcatHashCount = 0
 hcatHashCracked = 0
+hcatHashFile = ""
+hcatHashFileOrig = None
+hcatHashType = ""
 hcatBruteCount = 0
 hcatDictionaryCount = 0
 hcatMaskCount = 0

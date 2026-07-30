@@ -25,16 +25,16 @@ def _setup(tmp_path, main_module, monkeypatch, *, pwdump):
         cracked = tmp_path / "hashes.txt.nt"
         out = tmp_path / "hashes.txt.nt.out"
         out.write_text(f"{'a' * 32}:pw-a\n{'b' * 32}:pw-b\n")
-        monkeypatch.setattr(main_module, "hcatHashFile", str(cracked), raising=False)
-        monkeypatch.setattr(main_module, "hcatHashFileOrig", str(orig), raising=False)
+        monkeypatch.setattr(main_module, "hcatHashFile", str(cracked))
+        monkeypatch.setattr(main_module, "hcatHashFileOrig", str(orig))
         return orig, out
     # Non-pwdump: one bare hash per line, and the two globals are the same path.
     plain = tmp_path / "hashes.txt"
     plain.write_text(f"{'a' * 32}\n{'b' * 32}\n")
     out = tmp_path / "hashes.txt.out"
     out.write_text(f"{'a' * 32}:pw-a\n{'b' * 32}:pw-b\n")
-    monkeypatch.setattr(main_module, "hcatHashFile", str(plain), raising=False)
-    monkeypatch.setattr(main_module, "hcatHashFileOrig", str(plain), raising=False)
+    monkeypatch.setattr(main_module, "hcatHashFile", str(plain))
+    monkeypatch.setattr(main_module, "hcatHashFileOrig", str(plain))
     return plain, out
 
 
@@ -71,8 +71,8 @@ def test_zero_matches_leaves_an_existing_destination_intact(
     (tmp_path / "hashes.txt.nt.out").write_text(f"{'a' * 32}:pw-a\n")
     destination = tmp_path / "hashes.txt.out"
     destination.write_text("previous good output\n")
-    monkeypatch.setattr(main_module, "hcatHashFile", str(cracked), raising=False)
-    monkeypatch.setattr(main_module, "hcatHashFileOrig", str(orig), raising=False)
+    monkeypatch.setattr(main_module, "hcatHashFile", str(cracked))
+    monkeypatch.setattr(main_module, "hcatHashFileOrig", str(orig))
 
     with patch.object(main_module, "check_potfile"):
         main_module.combine_ntlm_output()
@@ -106,7 +106,7 @@ def _stub_hashcat(tmp_path, main_module, monkeypatch, *, exit_code=0, stdout="")
     stub.chmod(0o755)
     monkeypatch.setattr(main_module, "hcatBin", str(stub))
     monkeypatch.setattr(main_module, "hcatPotfilePath", "")
-    monkeypatch.setattr(main_module, "hcatHashType", "1000", raising=False)
+    monkeypatch.setattr(main_module, "hcatHashType", "1000")
     monkeypatch.setattr(main_module, "hcatUsernamePrefix", False, raising=False)
     return stub
 

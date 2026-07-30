@@ -455,9 +455,9 @@ def test_llm_patterns_removed_by_cleanup(tmp_path, monkeypatch):
     with open(os.path.join(patterns_path, "basewords.txt"), "w") as f:
         f.write("delta\n")
 
-    monkeypatch.setattr(hc_main, "hcatHashFile", hash_file, raising=False)
-    monkeypatch.setattr(hc_main, "hcatHashFileOrig", hash_file, raising=False)
-    monkeypatch.setattr(hc_main, "hcatHashType", "1000", raising=False)
+    monkeypatch.setattr(hc_main, "hcatHashFile", hash_file)
+    monkeypatch.setattr(hc_main, "hcatHashFileOrig", hash_file)
+    monkeypatch.setattr(hc_main, "hcatHashType", "1000")
     monkeypatch.setattr(hc_main, "pwdump_format", False, raising=False)
     hc_main.cleanup()
 

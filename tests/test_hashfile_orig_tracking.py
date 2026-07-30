@@ -17,9 +17,9 @@ def main_module(hc_module):
 
 
 def _quiet_cleanup_state(main_module, monkeypatch, hash_file, orig):
-    monkeypatch.setattr(main_module, "hcatHashFile", hash_file, raising=False)
-    monkeypatch.setattr(main_module, "hcatHashFileOrig", orig, raising=False)
-    monkeypatch.setattr(main_module, "hcatHashType", "1000", raising=False)
+    monkeypatch.setattr(main_module, "hcatHashFile", hash_file)
+    monkeypatch.setattr(main_module, "hcatHashFileOrig", orig)
+    monkeypatch.setattr(main_module, "hcatHashType", "1000")
     monkeypatch.setattr(main_module, "pwdump_format", False, raising=False)
 
 
@@ -87,10 +87,8 @@ class TestHashviewSwitchSetsOrig:
         with open(downloaded, "w") as fh:
             fh.write("\n")
 
-        monkeypatch.setattr(main_module, "hcatHashFile", None, raising=False)
-        monkeypatch.setattr(
-            main_module, "hcatHashFileOrig", initial_orig, raising=False
-        )
+        monkeypatch.setattr(main_module, "hcatHashFile", None)
+        monkeypatch.setattr(main_module, "hcatHashFileOrig", initial_orig)
         monkeypatch.setattr(main_module, "hashview_api_key", "k", raising=False)
         monkeypatch.setattr(main_module, "hashview_url", "http://x", raising=False)
 

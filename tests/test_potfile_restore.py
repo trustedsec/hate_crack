@@ -27,8 +27,8 @@ def _load(monkeypatch, tmp_path, existing=None):
     hash_file.write_text("fb5699c234f878ce6be8182c2d2bcac8\n")
     if existing is not None:
         (tmp_path / "hashes.txt.out").write_text(existing)
-    monkeypatch.setattr(main, "hcatHashFile", str(hash_file), raising=False)
-    monkeypatch.setattr(main, "hcatHashType", "1000", raising=False)
+    monkeypatch.setattr(main, "hcatHashFile", str(hash_file))
+    monkeypatch.setattr(main, "hcatHashType", "1000")
     return hash_file
 
 
@@ -96,7 +96,7 @@ def test_non_interactive_overwrites_without_prompting(monkeypatch, tmp_path):
 
 
 def test_no_hashfile_loaded_is_reported(monkeypatch, capsys):
-    monkeypatch.setattr(main, "hcatHashFile", "", raising=False)
+    monkeypatch.setattr(main, "hcatHashFile", "")
     calls = []
     monkeypatch.setattr(main, "check_potfile", lambda *a, **k: calls.append(1))
 

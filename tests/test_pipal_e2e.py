@@ -103,8 +103,8 @@ def _run_pipal(monkeypatch, m, tmp_path, cracked_lines, pipal_count):
     monkeypatch.setattr(m, "pipalPath", str(fake))
     monkeypatch.setattr(m, "pipal_count", pipal_count)
     # hcatHashFile / hcatHashType only exist after main() runs; create them.
-    monkeypatch.setattr(m, "hcatHashFile", str(hashfile), raising=False)
-    monkeypatch.setattr(m, "hcatHashType", "0", raising=False)  # not NTLM
+    monkeypatch.setattr(m, "hcatHashFile", str(hashfile))
+    monkeypatch.setattr(m, "hcatHashType", "0")  # not NTLM
     return m.pipal(), hashfile
 
 
@@ -149,8 +149,8 @@ class TestPipalE2E:
 
         monkeypatch.setattr(m, "pipalPath", str(fake))
         monkeypatch.setattr(m, "pipal_count", 3)
-        monkeypatch.setattr(m, "hcatHashFile", str(hashfile), raising=False)
-        monkeypatch.setattr(m, "hcatHashType", "0", raising=False)
+        monkeypatch.setattr(m, "hcatHashFile", str(hashfile))
+        monkeypatch.setattr(m, "hcatHashType", "0")
         assert m.pipal() == []
 
     def test_missing_pipal_path_returns_none(self, monkeypatch, tmp_path):
@@ -161,8 +161,8 @@ class TestPipalE2E:
 
         monkeypatch.setattr(m, "pipalPath", str(tmp_path / "does-not-exist"))
         monkeypatch.setattr(m, "pipal_count", 3)
-        monkeypatch.setattr(m, "hcatHashFile", str(hashfile), raising=False)
-        monkeypatch.setattr(m, "hcatHashType", "0", raising=False)
+        monkeypatch.setattr(m, "hcatHashFile", str(hashfile))
+        monkeypatch.setattr(m, "hcatHashType", "0")
         assert m.pipal() is None
 
     def test_handles_shell_metacharacters_in_path(self, monkeypatch, tmp_path):
@@ -184,8 +184,8 @@ class TestPipalE2E:
 
         monkeypatch.setattr(m, "pipalPath", str(fake))
         monkeypatch.setattr(m, "pipal_count", 3)
-        monkeypatch.setattr(m, "hcatHashFile", str(hashfile), raising=False)
-        monkeypatch.setattr(m, "hcatHashType", "0", raising=False)
+        monkeypatch.setattr(m, "hcatHashFile", str(hashfile))
+        monkeypatch.setattr(m, "hcatHashType", "0")
 
         result = m.pipal()
 

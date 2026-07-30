@@ -50,6 +50,30 @@ class TestSyncGlobalsToMain:
         hc_module._sync_globals_to_main()
         assert getattr(hc_module._main, "pipal_count", None) == original
 
+    def test_does_not_clobber_a_value_main_set(self, hc_module):
+        """A value main() itself set must survive the sync, even though the shim
+        still carries a stale import-time copy of the same name in its globals.
+
+        This is the #213 proxy clobber: hc_module's globals snapshot
+        hate_crack.main's values at import time and never change unless a test
+        (or hate_crack.py code) explicitly assigns them. Before the
+        import-time-snapshot guard, calling _sync_globals_to_main() (which
+        cli_main()/pipal() do on every call) would push that stale copy back
+        over whatever main() had legitimately assigned in the meantime.
+        """
+        sentinel = "/tmp/set-by-main-not-the-shim.txt"
+        hc_module._main.hcatHashFile = sentinel
+        hc_module._sync_globals_to_main()
+        assert hc_module._main.hcatHashFile == sentinel
+
+    def test_still_syncs_a_value_genuinely_set_on_the_shim(self, hc_module):
+        """The snapshot guard must not disable syncing outright: a value set on
+        the shim's own globals (not just on main) still propagates.
+        """
+        hc_module.__dict__["hcatHashFile"] = "/tmp/set-on-the-shim.txt"
+        hc_module._sync_globals_to_main()
+        assert hc_module._main.hcatHashFile == "/tmp/set-on-the-shim.txt"
+
 
 class TestSyncCallablesToMain:
     def test_syncs_callable_to_main(self, hc_module):
@@ -104,6 +128,60 @@ class TestSyncCallablesToMain:
         hc_module._sync_callables_to_main()
         for name, fn in fakes.items():
             assert getattr(hc_module._main, name) is fn
+
+
+class TestHashfileGlobalsHaveImportTimeDefaults:
+    """#213: hcatHashFile, hcatHashFileOrig, and hcatHashType used to be
+    assigned only inside main(), so they did not exist at import. That forced
+    every test touching them to pass raising=False to monkeypatch.setattr,
+    which silently creates the attribute on a typo instead of failing. They
+    now have module-level defaults, matching the types main() assigns.
+    """
+
+    def test_defaults_at_a_fresh_import(self):
+        """hate_crack.main is session-shared and other tests in this suite
+        legitimately mutate hcatHashFile/hcatHashFileOrig/hcatHashType, so
+        asserting their value against an already-imported module instance is
+        order-dependent. Import in a subprocess instead, to observe the
+        actual module-level defaults untouched by any test.
+        """
+        import subprocess
+        import sys
+
+        script = (
+            "import os\n"
+            "os.environ['HATE_CRACK_SKIP_INIT'] = '1'\n"
+            "import hate_crack.main as m\n"
+            "assert isinstance(m.hcatHashFile, str), repr(m.hcatHashFile)\n"
+            "assert m.hcatHashFile == '', repr(m.hcatHashFile)\n"
+            "assert m.hcatHashFileOrig is None, repr(m.hcatHashFileOrig)\n"
+            "assert isinstance(m.hcatHashType, str), repr(m.hcatHashType)\n"
+            "assert m.hcatHashType == '', repr(m.hcatHashType)\n"
+            "print('OK')\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "OK" in result.stdout
+
+    def test_typo_protection_restored(self, hc_module, monkeypatch):
+        """monkeypatch.setattr (default raising=True) must reject a misspelled
+        global name rather than silently creating a new attribute. This is
+        the concrete regression #213 restores: before the module-level
+        defaults existed, hcatHashFile/hcatHashFileOrig/hcatHashType were
+        absent at import, so every call site needed raising=False, and that
+        flag would just as happily accept "hcatHashfile" (wrong case).
+        """
+        import pytest
+
+        with pytest.raises(AttributeError):
+            monkeypatch.setattr(
+                hc_module._main, "hcatHashfile", "wrong case, should not exist"
+            )
 
 
 class TestSymbolReexport:

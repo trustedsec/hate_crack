@@ -30,9 +30,9 @@ def test_cleanup_does_not_raise_when_detection_never_ran(
     # raising=False: these globals (like pwdump_format before this fix) are
     # only ever assigned inside main(), so a bare, main()-never-ran test
     # module has no such attribute yet to monkeypatch over.
-    monkeypatch.setattr(main_module, "hcatHashFile", str(hash_file), raising=False)
-    monkeypatch.setattr(main_module, "hcatHashFileOrig", str(hash_file), raising=False)
-    monkeypatch.setattr(main_module, "hcatHashType", "1000", raising=False)
+    monkeypatch.setattr(main_module, "hcatHashFile", str(hash_file))
+    monkeypatch.setattr(main_module, "hcatHashFileOrig", str(hash_file))
+    monkeypatch.setattr(main_module, "hcatHashType", "1000")
 
     with patch.object(main_module, "check_potfile"):
         main_module.cleanup()  # must not raise NameError

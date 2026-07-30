@@ -16,13 +16,35 @@ for _name, _value in _main.__dict__.items():
         continue
     globals().setdefault(_name, _value)
 
+# Snapshot of the import-time values above, so _sync_globals_to_main() can
+# tell "this global was actually changed on the shim" apart from "this global
+# still holds the stale copy we grabbed at import." Without this, syncing a
+# name that main() later assigns a real value to (e.g. hcatHashFile) would
+# clobber that real value with the shim's stale import-time copy.
+_IMPORT_TIME_SNAPSHOT = {
+    name: globals()[name]
+    for name in (
+        "hcatHashType",
+        "pipal_count",
+        "hcatHashFile",
+        "hcatHashFileOrig",
+        "pipalPath",
+        "debug_mode",
+        "hcatUsernamePrefix",
+    )
+    if name in globals()
+}
+
 
 def __getattr__(name):
     return getattr(_main, name)
 
 
 def _sync_globals_to_main():
-    # Keep commonly-mutated globals aligned for tests and wrappers.
+    # Keep commonly-mutated globals aligned for tests and wrappers, but only
+    # push a name whose current shim value differs from its import-time
+    # snapshot — otherwise a stale shim copy would clobber a real value that
+    # main() itself set (see _IMPORT_TIME_SNAPSHOT above).
     for name in (
         "hcatHashType",
         "pipal_count",
@@ -32,7 +54,9 @@ def _sync_globals_to_main():
         "debug_mode",
         "hcatUsernamePrefix",
     ):
-        if name in globals():
+        if name in globals() and globals()[name] != _IMPORT_TIME_SNAPSHOT.get(
+            name, object()
+        ):
             setattr(_main, name, globals()[name])
 
 

@@ -103,7 +103,7 @@ def test_hcatFingerprint_sort_uses_C_locale(monkeypatch, tmp_path):
     monkeypatch.setattr(hc_main, "hcatHashCracked", 0)
     monkeypatch.setattr(hc_main, "ensure_binary", lambda binary_path, **_k: binary_path)
     monkeypatch.setattr(hc_main, "hcatHybrid", lambda *a, **kw: None)
-    monkeypatch.setattr(hc_main, "hcatHashFile", str(hashfile), raising=False)
+    monkeypatch.setattr(hc_main, "hcatHashFile", str(hashfile))
 
     calls = _collect_sort_calls(monkeypatch, hc_main)
     hc_main.hcatFingerprint(
