@@ -2,8 +2,7 @@
 
 These helpers translate parsed argparse namespaces into calls against the
 existing ``hcat*`` attack functions on the main module (passed in as ``ctx``,
-the same pattern ``attacks.py`` uses). See
-``docs/superpowers/specs/2026-07-24-cli-noninteractive-design.md``.
+the same pattern ``attacks.py`` uses).
 """
 
 import os

@@ -187,7 +187,7 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   `_run_hashcat_show` now preserves a populated output file when it has nothing
   to write, refuses to touch it on a non-zero hashcat exit and reports the error,
   and replaces content atomically. The deliberate rebuild (`--restore-potfile`
-  and menu option 93) still overwrites, but only after confirming.
+  and menu option 93) still overwrites, but only after confirming (#195).
 - **Cracked-plaintext artifacts are no longer stageable in a fresh clone.**
   `.out`, `.passwords`, `.working`, `.combined`, `.nt`, `.lm`, `.cracked`,
   `.xlsx`, `hashcat.potfile` and the per-attack scratch directories were ignored
@@ -216,13 +216,23 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   in `cleanup()`, so a plain NTLM list took a code path meant for pwdump files —
   which used to truncate the cracked output and produce a report reading
   `Total entries = 0`. Pipal now also says so plainly when there are no cracked
-  passwords to analyse, instead of emitting a zeroed report.
+  passwords to analyse, instead of emitting a zeroed report (#196).
 - **Excel export (option 96) had the same missing guard as Pipal analysis.** It
   ran the pwdump-only merge for any NTLM hash type, so a plain hash list took a
   path that used to truncate the cracked output, and then produced an empty
   spreadsheet because the pwdump-shaped rows it looks for were not there. All
   three callers of the merge now guard identically, and a test enforces that a
-  fourth cannot be added without the guard.
+  fourth cannot be added without the guard (#196).
+- **Two shipped docstrings cited `docs/superpowers/specs/...` design specs.**
+  `docs/superpowers/` is a gitignored local development aid purged from git
+  history on 2026-07-25, so the citations in `hate_crack/noninteractive.py` and
+  `tests/e2e/noninteractive_harness.py` pointed an outside contributor at a
+  path that does not exist in their clone. Both docstrings now keep the prose
+  that actually helps a reader and drop the dead pointer, and
+  `tests/test_repo_hygiene.py` gained a guard that fails the build if any
+  tracked file cites `CLAUDE.md`, `.claude/`, `docs/plans/`, or
+  `docs/superpowers/` again, with `CHANGELOG.md` and
+  `tests/test_upgrade_real_git.py` as the only exemptions (#212).
 
 ## [2.18.0] - 2026-07-29
 
