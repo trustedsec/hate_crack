@@ -2321,7 +2321,8 @@ def _corpus_context(path, source_label="wordlist"):
     """
     try:
         with spinner(f"Analyzing {source_label}..."):
-            stats = _corpus_stats.summarize(path)
+            with _wordlist_path(path) as resolved_path:
+                stats = _corpus_stats.summarize(resolved_path)
     except OSError as e:
         print(f"Error reading {source_label}: {e}")
         return None
@@ -3349,7 +3350,8 @@ def hcatSpoonman(hcatHashType, hcatHashFile, corpus, coverage=None):
     else:
         print(f"[*] Deriving basewords and rules from {corpus}")
         try:
-            result = _rulegen.generate(corpus, cache_dir)
+            with _wordlist_path(corpus) as resolved_corpus:
+                result = _rulegen.generate(resolved_corpus, cache_dir)
         except (OSError, ValueError) as e:
             print(f"Rule derivation failed: {e}")
             return

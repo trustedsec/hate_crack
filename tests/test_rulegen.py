@@ -202,6 +202,18 @@ class TestGenerate:
         with pytest.raises(ValueError, match="no passwords"):
             rulegen.generate(corpus, str(out), print_fn=lambda *a: None)
 
+    def test_gzip_corpus_raises(self, tmp_path):
+        """Defensive backstop (#214): generate() must refuse a gzipped path
+        outright rather than reading it as latin-1 mojibake."""
+        import gzip
+
+        corpus = tmp_path / "corpus.txt.gz"
+        with gzip.open(str(corpus), "wt", encoding="latin-1") as f:
+            f.write("password\nsecret\n")
+        out = tmp_path / "out"
+        with pytest.raises(ValueError, match="gzip"):
+            rulegen.generate(str(corpus), str(out), print_fn=lambda *a: None)
+
     def test_coverage_report_names_the_corpus(self, tmp_path):
         corpus = self._write_corpus(tmp_path, ["password", "Password"])
         out = tmp_path / "out"

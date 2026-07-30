@@ -80,6 +80,21 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   `hcatMarkovTrain`, `hcatPrince`, `hcatPermute`), `hcatCombipow`, and
   `combipow_crack`'s pre-flight line count all route through it instead of
   re-deriving their own filename check (#215).
+- **The Spoonman attack and the LLM pattern modes derived garbage basewords
+  and rules from a gzipped corpus, with no error.** Both readers opened the
+  corpus with `encoding="latin-1"`, under which every byte 0x00-0xFF decodes
+  to a valid character, so a gzip stream decodes cleanly into mojibake instead
+  of raising `UnicodeDecodeError` — there was nothing to alert anyone that the
+  input was wrong. Gzipped corpora are the normal case here, not the
+  exception: hate_crack downloads wordlists as gzip, and Hashmob and Weakpass
+  ship them that way too. `hcatSpoonman` and the LLM corpus summarizer
+  (`_corpus_context`) now decompress through the same `_wordlist_path` helper
+  `hcatNgramX` already used, and `rulegen.generate()` /
+  `corpus_stats.summarize()` each gained a defensive `ValueError` on a
+  gzipped path as a backstop against a caller that forgets to decompress.
+  Spoonman's staleness check still compares against the original corpus
+  path rather than the decompressed temp file, so its basewords/rules cache
+  keeps working across runs (#214).
 - **Cracked plaintexts on the Hashview found/upload paths are no longer
   silently rewritten (issue #216).** Three reads of `hash:plaintext` data used
   `errors="ignore"`, which drops an undecodable byte instead of raising: a

@@ -1,5 +1,6 @@
 """Unit tests for hate_crack.corpus_stats (pure aggregation, no LLM involved)."""
 
+import gzip
 import os
 
 import pytest
@@ -363,3 +364,54 @@ def test_corpus_block_omits_absent_sections():
     assert "PASSWORDS" not in llm._corpus_block({"summary": "STATS"})
     assert "CORPUS STATISTICS" not in llm._corpus_block({"sample": "pw1"})
     assert llm._corpus_block({}) == ""
+
+
+# --------------------------------------------------------------------------
+# gzip handling (#214) — a gzipped corpus must be decompressed before
+# summarize() ever sees it, not read as latin-1 mojibake.
+# --------------------------------------------------------------------------
+
+
+def _gzip_corpus(tmp_path, lines, name="corpus.txt.gz"):
+    """Write *lines* of "hash:plaintext" as a gzip-compressed corpus."""
+    path = tmp_path / name
+    with gzip.open(str(path), "wt", encoding="latin-1") as f:
+        f.write("\n".join(lines) + "\n")
+    return str(path)
+
+
+def test_summarize_rejects_gzip_input_directly(tmp_path):
+    """The defensive backstop: summarize() must refuse a gzipped path outright."""
+    path = _gzip_corpus(tmp_path, [f"{NTLM}:Spring2026", f"{NTLM}:Summer2026"])
+    with pytest.raises(ValueError):
+        corpus_stats.summarize(path)
+
+
+def test_corpus_stats_summarize_on_decompressed_gzip_has_ascii_basewords(tmp_path):
+    """Direct summarize() call on the decompressed temp file behind gzip input."""
+    lines = [f"{NTLM}:Spring2026", f"{NTLM}:Summer2026"]
+    path = _gzip_corpus(tmp_path, lines)
+
+    with hc_main._wordlist_path(path) as resolved:
+        stats = corpus_stats.summarize(resolved)
+
+    basewords = set(dict(stats["basewords"]))
+    assert basewords == {"spring", "summer"}
+    for word in basewords:
+        assert all(0x20 <= ord(c) <= 0x7E for c in word), word
+
+
+def test_corpus_context_end_to_end_gzip_yields_real_basewords(tmp_path, capsys):
+    """_corpus_context on a gzip path must summarize real plaintexts, not mojibake."""
+    lines = [f"{NTLM}:Spring2026", f"{NTLM}:Summer2026"]
+    path = _gzip_corpus(tmp_path, lines)
+
+    context = hc_main._corpus_context(path)
+
+    assert context is not None
+    summary_text = context["summary"]
+    assert "spring" in summary_text.lower()
+    assert "summer" in summary_text.lower()
+    # The aggregate summary must describe real ASCII basewords, not mojibake
+    # bytes from the raw gzip stream.
+    assert all(0x20 <= ord(c) <= 0x7E or c == "\n" for c in summary_text)

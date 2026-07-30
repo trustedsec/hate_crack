@@ -21,6 +21,7 @@ from collections import Counter
 from hate_crack import rulegen
 from hate_crack.plaintext import (
     decode_hex_wrapper,
+    is_gzipped,
     looks_like_hash_line,
     usable_plaintext,
 )
@@ -99,6 +100,11 @@ def summarize(path):
     it holds no usable passwords, matching how rulegen.generate reports an
     empty corpus.
     """
+    if is_gzipped(path):
+        raise ValueError(
+            f"{path} is gzip-compressed; decompress it before calling summarize()"
+        )
+
     basewords = Counter()
     masks = Counter()
     lengths = Counter()

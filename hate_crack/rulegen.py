@@ -44,7 +44,7 @@ emitting the password verbatim as its own baseword with a ``:`` no-op rule:
 import os
 from collections import Counter
 
-from hate_crack.plaintext import looks_like_hash_line, usable_plaintext
+from hate_crack.plaintext import is_gzipped, looks_like_hash_line, usable_plaintext
 
 POS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
@@ -390,6 +390,11 @@ def generate(
     relative to the observations those keys account for, not to the whole
     corpus, and ``pruned`` is True in the returned dict.
     """
+    if is_gzipped(corpus_path):
+        raise ValueError(
+            f"{corpus_path} is gzip-compressed; decompress it before calling generate()"
+        )
+
     os.makedirs(outdir, exist_ok=True)
     base_counts = Counter()
     rule_counts = Counter()

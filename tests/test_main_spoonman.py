@@ -1,5 +1,6 @@
 """Tests for hcatSpoonman and the Spoonman Attack handler (#169)."""
 
+import gzip
 import os
 from unittest.mock import MagicMock, patch
 
@@ -121,6 +122,66 @@ class TestHcatSpoonman:
         self._run(main_module, tmp_path, corpus, monkeypatch)
         quick = self._run(main_module, tmp_path, corpus, monkeypatch, coverage=99)
         assert quick.call_args[0][2].endswith("rules.top99.rule")
+
+
+class TestHcatSpoonmanGzip:
+    """#214: a gzipped corpus must be decompressed before derivation, not read
+    as latin-1 mojibake — the tool downloads wordlists gzipped as a matter of
+    course (Hashmob, Weakpass), so this is a normal input, not an exotic one.
+    """
+
+    def _hash_file(self, tmp_path):
+        return str(tmp_path / "hashes.txt")
+
+    # A 32-character digest: hash fields are recognized by digest length, so
+    # a short stand-in like "hash1" is treated as part of the password.
+    _NTLM = "31d6cfe0d16ae931b73c59d7e0c089c0"
+
+    def _gzip_corpus(self, tmp_path, name="cracked.txt.gz"):
+        path = tmp_path / name
+        with gzip.open(str(path), "wt", encoding="latin-1") as f:
+            f.write(f"{self._NTLM}:Spring2026\n{self._NTLM}:Summer2026\n")
+        return str(path)
+
+    def test_derives_real_basewords_not_mojibake(self, main_module, tmp_path):
+        corpus = self._gzip_corpus(tmp_path)
+        with patch.object(main_module, "hcatQuickDictionary") as quick:
+            main_module.hcatSpoonman("1000", self._hash_file(tmp_path), corpus)
+
+        basewords_path = quick.call_args[0][3]
+        with open(basewords_path, encoding="latin-1") as f:
+            words = {line.strip() for line in f if line.strip()}
+
+        assert words == {"spring", "summer"}
+        # This is the assertion that alone would have caught the original
+        # bug: a gzip stream decodes cleanly as latin-1 (every byte 0x00-0xFF
+        # is valid), so without decompression these bytes would be non-ASCII
+        # mojibake rather than raising.
+        for word in words:
+            assert all(0x20 <= ord(c) <= 0x7E for c in word), word
+
+    def test_staleness_check_compares_original_corpus_not_temp_file(
+        self, main_module, tmp_path
+    ):
+        """The trap: getmtime(corpus) must stay pinned to the gzip path.
+
+        Every decompressed temp file is newly created, so if the staleness
+        check were pointed at the temp file instead of the original gzip
+        path, the cache would invalidate on every single run.
+        """
+        corpus = self._gzip_corpus(tmp_path)
+        hash_file = self._hash_file(tmp_path)
+
+        with patch.object(main_module, "hcatQuickDictionary"):
+            main_module.hcatSpoonman("1000", hash_file, corpus)
+
+        with (
+            patch.object(main_module, "hcatQuickDictionary"),
+            patch("hate_crack.rulegen.generate") as generate,
+        ):
+            main_module.hcatSpoonman("1000", hash_file, corpus)
+
+        generate.assert_not_called()
 
 
 class TestSpoonmanAttackHandler:
