@@ -452,6 +452,9 @@ def spoonman_attack(ctx: Any) -> None:
     print("passwords, such as a previous engagement's cracked output. The rule")
     print("file is sorted most-productive-first, so a capped set gets most of")
     print("the coverage for a fraction of the keyspace.")
+    print("Coverage is long-tailed: the last few percent typically costs orders")
+    print("of magnitude more rules than the first half, so the smallest tier is")
+    print("usually the right choice.")
     print("=" * 60)
 
     corpus = ctx.select_file_with_autocomplete(
@@ -465,15 +468,17 @@ def spoonman_attack(ctx: Any) -> None:
         return
 
     items = [
-        ("1", "Full rule set (reconstructs 100% of the corpus)"),
-        ("2", "Top 99% coverage"),
+        ("1", "Top 50% coverage (smallest, most productive rules)"),
+        ("2", "Top 75% coverage"),
         ("3", "Top 95% coverage"),
+        ("4", "Top 99% coverage"),
+        ("5", "Full rule set (largest; can be millions of rules)"),
         ("99", "Back to Main Menu"),
     ]
     choice = interactive_menu(items, title="\nRule set size:")
     if choice is None or choice == "99":
         return
-    coverage = {"1": None, "2": 99, "3": 95}.get(choice)
+    coverage = {"1": 50, "2": 75, "3": 95, "4": 99, "5": None}.get(choice)
 
     _notify.prompt_notify_for_attack("Spoonman")
     ctx.hcatSpoonman(ctx.hcatHashType, ctx.hcatHashFile, corpus, coverage=coverage)

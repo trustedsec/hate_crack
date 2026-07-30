@@ -3221,9 +3221,11 @@ def hcatSpoonman(hcatHashType, hcatHashFile, corpus, coverage=None):
     """Spoonman Attack: derive basewords + rules from *corpus*, then crack with them.
 
     ``coverage`` picks which generated rule file to run: ``None`` for the full
-    set (100% corpus reconstruction), or an int matching one of the capped
-    files (e.g. ``95`` for rules.top95.rule). See hate_crack/rulegen.py and
-    issue #169.
+    set, or an int matching one of the capped files (e.g. ``95`` for
+    rules.top95.rule). The full set only reconstructs 100% of the corpus while
+    rulegen.generate()'s Counter pruning stays out of the way; once pruning
+    fires, coverage is relative to the retained keys instead. See
+    hate_crack/rulegen.py and issue #169.
     """
     if not os.path.isfile(corpus):
         print(f"Error: corpus not found: {corpus}")

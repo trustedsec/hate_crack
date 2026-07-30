@@ -11,6 +11,38 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ### Added
 
+- **The Spoonman Attack's rule derivation now bounds its own memory instead of
+  being OOM-killed on a very large corpus.** `rulegen.generate()` held every
+  distinct baseword and every distinct rule in a `Counter` until the whole
+  corpus had been read, and wrote nothing before that point — so a corpus big
+  enough to exhaust RAM lost the entire multi-hour pass with no output at all.
+  A measured run against a 31 GB corpus reached 14.1 GB resident at 11% of the
+  file with the growth rate still climbing. Each counter is now capped at a new
+  `max_unique` keyword argument (default `rulegen.MAX_UNIQUE_KEYS`,
+  20,000,000 keys, about 1.6 GB per counter at a measured 80 bytes per key);
+  once a counter passes the cap its lowest-frequency keys are discarded while
+  reading. Pass `max_unique=None` for the previous unbounded behaviour. When
+  pruning fires the run reports it: new `pruned`, `pruned_basewords` and
+  `pruned_rules` keys in the returned dict, a section in `coverage.txt`, and a
+  console warning naming the limit — because the output then reconstructs only
+  the retained keys rather than 100% of the corpus, and the coverage
+  percentages are relative to those. A password needs both its baseword and
+  its rule to survive and the two counters are pruned independently, so the
+  report gives the range of passwords still reconstructable rather than a
+  number it cannot know. A corpus that never reaches the cap produces
+  byte-identical output to before.
+
+- **Spoonman Attack now offers a top-50% and top-75% coverage tier, and top 50%
+  is listed first as the recommended choice.** Rule-set coverage against a large corpus is extremely
+  long-tailed: on a 98.2M-password sample, 50% coverage needed 4,120 rules
+  while 95% needed 16,119,661 and 100% needed 21,029,696. The old menu only
+  offered the full set, top 99%, or top 95% — all three sat past the knee of
+  that curve, so every option produced a rule file with tens of millions of
+  entries on a large corpus. The menu now reads top 50% (smallest, most
+  productive rules) / top 75% / top 95% / top 99% / full set, and
+  `rulegen.generate()`'s `cover` default changed from `(95, 99)` to
+  `(50, 75, 95, 99)` to match.
+
 - **A test that every documented config key is actually read.** The existing
   guard pins the key set, so a key added to `config.json.example` and to the
   expected-key list in one commit passes it while being read by nothing —
@@ -171,6 +203,10 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   unreachable dead code.
 
 ### Fixed
+
+- **`coverage.txt` now reports the rule count for 75% coverage.** Its milestone
+  list ran 50/80/90/95/99/100, so an operator picking the new top-75% tier
+  could not look its cost up in the one file meant to answer that question.
 
 - **The LLM Pattern Rules attack hid why it had no rules to run.** When every
   rule the model returned was rejected as invalid, the fallback message said

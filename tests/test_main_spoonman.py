@@ -134,13 +134,15 @@ class TestSpoonmanAttackHandler:
 
     def test_passes_corpus_and_full_coverage(self, tmp_path, corpus):
         ctx = self._ctx(tmp_path, corpus)
-        with patch("hate_crack.attacks.interactive_menu", return_value="1"):
+        with patch("hate_crack.attacks.interactive_menu", return_value="5"):
             attacks.spoonman_attack(ctx)
         ctx.hcatSpoonman.assert_called_once_with(
             "1000", "hashes.txt", corpus, coverage=None
         )
 
-    @pytest.mark.parametrize(("choice", "expected"), [("2", 99), ("3", 95)])
+    @pytest.mark.parametrize(
+        ("choice", "expected"), [("1", 50), ("2", 75), ("3", 95), ("4", 99)]
+    )
     def test_passes_capped_coverage(self, tmp_path, corpus, choice, expected):
         ctx = self._ctx(tmp_path, corpus)
         with patch("hate_crack.attacks.interactive_menu", return_value=choice):
