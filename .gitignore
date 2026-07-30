@@ -10,6 +10,27 @@ config.json~
 # Playwright MCP scratch output (console logs, traces, screenshots).
 .playwright-mcp/
 hashcat.pot
+# hcatPotfilePath falls back to "hashcat.potfile" inside the checkout, so the
+# name hate_crack itself writes needs covering too, not just hashcat's default.
+hashcat.potfile
+# Cracked-plaintext session artifacts. `.out` is a hash:plaintext list and
+# `.passwords` is pure plaintext; the rest carry hashes or intermediate cracks.
+# These were ignored only by .git/info/exclude, which is local-only and does not
+# clone, so on any other contributor's machine `git add -A` staged them into a
+# public repo. No tracked file matches any of these patterns.
+*.out
+*.passwords
+*.working
+*.combined
+*.nt
+*.lm
+*.cracked
+*.xlsx
+# Per-attack scratch directories (basewords, candidate lists, LLM patterns),
+# removed by cleanup() but left behind by a crash or a hard interrupt.
+*.rosetta/
+*.spoonman/
+*.llm_patterns/
 # hashcat --debug-mode 4 output. hate_crack writes one of these for every
 # rule-based attack without being asked (see _add_debug_mode_for_rules), and
 # each line pairs a rule with the plaintext it cracked. The default
