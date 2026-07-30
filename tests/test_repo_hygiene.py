@@ -101,9 +101,10 @@ def test_no_tracked_file_lives_in_an_attack_scratch_directory():
     )
 
 
-# Unpublished local development aids (see CLAUDE.md's Publication Boundary
-# section): CLAUDE.md, .claude/, docs/plans/, and docs/superpowers/ were purged
-# from git history on 2026-07-25 and are gitignored. Shipped files must not cite
+# --- begin guard constants: these must name the forbidden paths ---
+# Unpublished local development aids (see the Publication Boundary section of
+# the project's local dev-notes file): these paths were purged from git
+# history on 2026-07-25 and are gitignored. Shipped files must not cite
 # them — an outside contributor following such a pointer finds nothing.
 UNPUBLISHED_PATH_REFERENCES = (
     "CLAUDE.md",
@@ -124,10 +125,31 @@ UNPUBLISHED_PATH_REFERENCE_EXEMPTIONS = (
     # Lists these paths so git ignores them; that's the mechanism that keeps
     # them unpublished, not a dead-end pointer for a reader.
     ".gitignore",
-    # This test file itself: it must name the very strings it forbids, in the
-    # constants and assertion message above.
-    "tests/test_repo_hygiene.py",
 )
+# --- end guard constants ---
+
+# This test file legitimately names the forbidden strings, but only inside the
+# marker block above. Everywhere else in this file is scanned like any other
+# tracked file, so a stray citation added elsewhere (a new test's docstring, a
+# new fixture) is still caught.
+_SELF_PATH = "tests/test_repo_hygiene.py"
+_GUARD_BLOCK_START = (
+    "# --- begin guard constants: these must name the forbidden paths ---"
+)
+_GUARD_BLOCK_END = "# --- end guard constants ---"
+
+
+def _strip_self_exemption_block(text: str) -> str:
+    """Remove the marked constants block from this file's own text.
+
+    Raises if either marker is missing, so a reorder or accidental deletion
+    makes the guard fail loudly instead of silently scanning nothing (if both
+    markers vanished along with the block) or the whole file including the
+    legitimate constants (if the strip silently no-ops).
+    """
+    start = text.index(_GUARD_BLOCK_START)
+    end = text.index(_GUARD_BLOCK_END, start) + len(_GUARD_BLOCK_END)
+    return text[:start] + text[end:]
 
 
 def test_no_tracked_file_references_unpublished_dev_paths():
@@ -143,14 +165,19 @@ def test_no_tracked_file_references_unpublished_dev_paths():
             text = full.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
+        if path == _SELF_PATH:
+            # Markers are required, not optional: index() raises ValueError if
+            # either is missing, which fails this test loudly rather than
+            # letting the scan quietly cover nothing or everything.
+            text = _strip_self_exemption_block(text)
         if any(ref in text for ref in UNPUBLISHED_PATH_REFERENCES):
             offenders.append(path)
 
     assert offenders == [], (
-        f"tracked files reference unpublished dev-only paths: {offenders}. "
-        "CLAUDE.md, .claude/, docs/plans/, and docs/superpowers/ are gitignored "
-        "and were purged from history; a shipped file citing them is a dead end "
-        "for outside contributors."
+        "tracked files reference unpublished dev-only paths: "
+        + repr(offenders)
+        + ". See UNPUBLISHED_PATH_REFERENCES in this file for what is forbidden "
+        "and why."
     )
 
 
