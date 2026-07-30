@@ -38,7 +38,6 @@ before the loader existed.
 from __future__ import annotations
 
 import json
-import logging
 import os
 import sys
 from collections.abc import Mapping
@@ -55,8 +54,6 @@ from hate_crack.config_schema import (
     coerce,
     validate_choices,
 )
-
-logger = logging.getLogger("hate_crack")
 
 # environ layer only (see _apply_string_layer): csv_list and charset treat an
 # explicitly-present empty string as "empty list", not "unset", even though
@@ -360,8 +357,19 @@ def load_config_or_exit(
 ) -> ConfigLoadResult:
     """Like :func:`load_config`, but prints a diagnostic and exits on failure.
 
-    Also logs any accumulated warnings to ``logging.getLogger("hate_crack")``
-    at warning level before returning.
+    Accumulated warnings are returned in the result and **not** emitted here.
+    They used to also be logged to ``logging.getLogger("hate_crack")``, which
+    meant every warning surfaced twice -- once from that logger and once from
+    ``main.py``'s own ``print()`` of the same list. Under the split that is not
+    cosmetic: a pre-split ``config.json`` produces one misplaced-key warning per
+    integration key, so a migrating user's first sight of the tool was twelve
+    warnings rendered as twenty-four near-identical lines, which reads like a
+    bug in the very messages that are the whole user-facing story for the split.
+
+    ``main.py`` owns the single channel because these are user guidance, not
+    diagnostics for a log file: they tell the reader which key to move to which
+    file, and they must be visible on a terminal with no logging handler
+    configured. Do not re-add a logging call here without removing that print.
     """
     try:
         result = load_config(
@@ -410,8 +418,5 @@ def load_config_or_exit(
         print(f"  1. Edit {source} and correct the value, or")
         print("  2. Remove the offending line to fall back to the default")
         sys.exit(1)
-
-    for warning in result.warnings:
-        logger.warning(warning)
 
     return result

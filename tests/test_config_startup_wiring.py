@@ -11,6 +11,7 @@ tests touch (``SKIP_INIT``, ``_resolve_config_destination``) is patched via
 """
 
 import json
+import logging
 import os
 import stat
 from pathlib import Path
@@ -311,6 +312,75 @@ def test_case5_skip_init_still_loads_what_exists(bootstrap, tmp_path):
     ).config
     assert config["hcatBin"] == "hashcat-6.2.6"
     assert config["ollamaModel"] == "synthetic-model"
+
+
+# ---------------------------------------------------------------------------
+# Warnings reach the user exactly once
+# ---------------------------------------------------------------------------
+
+
+def test_each_warning_is_reported_exactly_once(tmp_path, capsys, caplog):
+    """A pre-split config.json produces one misplaced-key warning per
+    integration key. They used to be emitted twice -- once by
+    load_config_or_exit()'s logger and once by main.py's print of the same list
+    -- so a migrating user's first sight of the tool was twelve warnings
+    rendered as twenty-four near-identical lines. Doubled output reads like a
+    bug in the very messages that are the whole user-facing story for the
+    split, so there is exactly one channel now: main.py's print.
+    """
+    legacy_path = tmp_path / "config.json"
+    legacy_path.write_text(
+        json.dumps(
+            {
+                "hcatBin": "hashcat",
+                "hashview_url": "http://example.invalid:8443",
+                "hashmob_api_key": "placeholder",
+                "ollamaModel": "synthetic-model",
+                "pipal_count": 3,
+            }
+        )
+    )
+
+    with caplog.at_level(logging.DEBUG, logger="hate_crack"):
+        result = config_loader.load_config_or_exit(
+            env_path=None, legacy_json_path=str(legacy_path), environ={}
+        )
+        # main.py's startup block, reproduced verbatim -- it is module-level
+        # code and cannot be called directly.
+        for warning in result.warnings:
+            print(f"[!] {warning}")
+
+    assert len(result.warnings) == 4
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+    for warning in result.warnings:
+        assert combined.count(warning) == 1, warning
+    # And the logger channel is silent, so nothing a handler is attached to
+    # can reintroduce the duplicate.
+    assert [r for r in caplog.records if r.name == "hate_crack"] == []
+
+
+def test_load_config_or_exit_does_not_log_warnings(tmp_path, caplog):
+    """Guard the choice of channel directly: re-adding a logging call in the
+    loader without removing main.py's print silently doubles the output
+    again."""
+    legacy_path = tmp_path / "config.json"
+    legacy_path.write_text(json.dumps({"hashmob_api_key": "placeholder"}))
+
+    with caplog.at_level(logging.DEBUG):
+        result = config_loader.load_config_or_exit(
+            env_path=None, legacy_json_path=str(legacy_path), environ={}
+        )
+
+    assert result.warnings
+    assert caplog.records == []
+
+
+def test_main_py_is_the_channel_that_prints_the_warnings():
+    """The print must actually be there -- the pair of tests above would both
+    pass just as happily if nobody reported the warnings at all."""
+    source = Path(hc_main.__file__).read_text()
+    assert 'print(f"[!] {_warning}")' in source
 
 
 # ---------------------------------------------------------------------------
