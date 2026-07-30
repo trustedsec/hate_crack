@@ -11,6 +11,13 @@ This module intentionally does NOT import ``hate_crack.main`` -- ``main.py``
 imports this module, and an import back would be a cycle. It performs no
 hashcat-specific logic; it only produces the same ``dict`` shape that
 ``main.py``'s ``config_parser`` has today, keyed by legacy JSON key names.
+
+Layers 3 and 4 both hand this module raw strings, but they do not agree on
+what an empty string means -- deliberately. See :func:`_apply_string_layer`
+for the full rationale: in short, an empty value written to `.env` is an
+explicit user statement (e.g. "no potfile path"), while an empty value in
+the real environment is treated as unset, matching today's
+``os.environ.get(...) or config_parser[...]`` pattern in ``main.py``.
 """
 
 from __future__ import annotations
@@ -35,9 +42,11 @@ from hate_crack.config_schema import (
 
 logger = logging.getLogger("hate_crack")
 
-# csv_list and charset: an explicitly-present empty string means "empty list",
-# not "unset". Every other type treats "" as unset and falls through to the
-# next-lower layer.
+# environ layer only (see _apply_string_layer): csv_list and charset treat an
+# explicitly-present empty string as "empty list", not "unset", even though
+# every other type in that layer treats "" as unset and falls through to the
+# next-lower layer. The .env layer has no need for this carve-out -- there,
+# presence is explicit for every type, empty string included.
 _EMPTY_STRING_MEANS_EMPTY_LIST: frozenset[str] = frozenset({"csv_list", "charset"})
 
 
@@ -178,6 +187,30 @@ def _apply_string_layer(
     *,
     is_dotenv: bool,
 ) -> None:
+    """Apply one string-keyed layer (`.env` or the real environment).
+
+    The two layers disagree on what an empty string means, deliberately:
+
+    - **`.env` layer** (``is_dotenv=True``): presence is explicit, for every
+      type, even when the value is empty. A `.env` is a config file we
+      generate and the user edits deliberately, so a key written there with
+      an empty value (e.g. ``HCAT_POTFILE_PATH=``) is a statement -- "use no
+      potfile path" -- not an absence, and must not fall through to the
+      schema default. Only a key genuinely *absent* from the file, or a bare
+      ``KEY`` with no ``=`` (``dotenv_values()`` reports that as ``None``),
+      counts as unset. Do not "simplify" this back to matching the environ
+      layer -- see :func:`hate_crack.config_writer.write_env_from_legacy`'s
+      round-trip test, which is what caught the data loss this asymmetry
+      fixes (an explicitly-empty ``hcatPotfilePath`` silently reverting to
+      the default potfile path across a migration).
+    - **environ layer** (``is_dotenv=False``): empty means unset and falls
+      through to the next-lower layer, matching today's documented behavior
+      (``main.py``'s ``os.environ.get("HASHVIEW_URL") or config_parser[...]``
+      pattern). An accidentally-empty exported shell variable is common
+      enough that treating it as an explicit override would be hostile.
+      ``csv_list``/``charset`` keep their own carve-out here: an
+      explicitly-present empty string still means "empty list", not "unset".
+    """
     for key, raw in data.items():
         entry = BY_ENV.get(key)
         if entry is None:
@@ -186,7 +219,11 @@ def _apply_string_layer(
             continue
         if raw is None:
             continue
-        if raw == "" and entry.type not in _EMPTY_STRING_MEANS_EMPTY_LIST:
+        if (
+            not is_dotenv
+            and raw == ""
+            and entry.type not in _EMPTY_STRING_MEANS_EMPTY_LIST
+        ):
             continue
         result[entry.legacy] = coerce(entry, raw, source)
 

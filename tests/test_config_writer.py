@@ -266,9 +266,18 @@ def test_migration_notes_never_contain_secret_values(tmp_path):
 def test_migration_then_load_matches_loading_legacy_directly(tmp_path):
     """load_config() must return the identical dict (all 43 keys) whether it
     reads the original config.json or the .env migrated from it -- including
-    for a "~"-containing path override and the untouched path defaults.
-    load_config() now normalizes every path-typed value once, after all
-    layers merge, so this holds regardless of which layer supplied the value.
+    for a "~"-containing path override, an explicitly-empty path override,
+    and the untouched path defaults. load_config() normalizes every
+    path-typed value once, after all layers merge, so this holds regardless
+    of which layer supplied the value.
+
+    hcatPotfilePath="" is deliberately included and deliberately not blank
+    by accident: it is the case that motivated the .env layer's
+    empty-is-explicit rule (see _apply_string_layer's docstring) -- an
+    explicitly-empty potfile path means "pass no --potfile-path to
+    hashcat", and a migration that silently turned it back into the default
+    potfile path would be a real, data-losing regression, not a cosmetic
+    one.
     """
     legacy = _legacy_defaults_json()
     legacy["hcatBin"] = "hashcat-custom"
@@ -280,7 +289,8 @@ def test_migration_then_load_matches_loading_legacy_directly(tmp_path):
     legacy["hcatDictionaryWordlist"] = ["custom.txt", "extra.txt"]
     legacy["hcatMiddleCombinatorMasks"] = [" ", ",", "\\", '"', "'"]
     legacy["notify_attack_allowlist"] = []
-    legacy["hcatPotfilePath"] = "~/custom/other.potfile"  # "~"-containing override
+    legacy["hcatDebugLogPath"] = "~/custom/debug"  # "~"-containing override
+    legacy["hcatPotfilePath"] = ""  # explicitly-empty override
     legacy_path = tmp_path / "config.json"
     legacy_path.write_text(json.dumps(legacy))
 
@@ -294,12 +304,9 @@ def test_migration_then_load_matches_loading_legacy_directly(tmp_path):
 
     assert set(via_migration) == {entry.legacy for entry in CONFIG_SCHEMA}
     assert via_migration == via_legacy_directly
-    # hcatDebugLogPath and hcatPrinceBaseList/etc. path defaults ("~/...")
-    # also went through neither an .env nor a legacy override in this test,
-    # proving the schema-default layer is normalized too.
-    assert via_migration["hcatPotfilePath"] == os.path.expanduser(
-        "~/custom/other.potfile"
-    )
-    assert via_migration["hcatDebugLogPath"] == os.path.expanduser(
-        "~/.hate_crack/hashcat_debug"
-    )
+    assert via_migration["hcatDebugLogPath"] == os.path.expanduser("~/custom/debug")
+    assert via_migration["hcatPotfilePath"] == ""
+    # hcatPath's default ("/path/to/hashcat") went through neither a .env
+    # nor a legacy override in this test, proving the schema-default layer
+    # is normalized too (a no-op here since it has no "~" to expand).
+    assert via_migration["hcatPath"] == "/path/to/hashcat"

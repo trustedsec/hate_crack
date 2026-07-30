@@ -119,12 +119,29 @@ def test_environ_outranks_dotenv_for_hashview_api_key(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# 4. Empty string falls through; csv_list/charset exception
+# 4. Empty string: environ falls through (except csv_list/charset), but the
+#    .env layer treats presence -- even of an empty value -- as explicit.
+#    This asymmetry is deliberate, not an inconsistency to "fix": a value
+#    written to `.env` is a statement the user (or a migration) made on
+#    purpose, e.g. HCAT_POTFILE_PATH= meaning "pass no --potfile-path to
+#    hashcat", whereas an accidentally-empty exported shell variable is
+#    common enough that the environ layer treating it as an override would
+#    be hostile. See _apply_string_layer's docstring in config_loader.py.
 # ---------------------------------------------------------------------------
 
 
-def test_empty_string_in_dotenv_falls_through_to_default(tmp_path):
+def test_empty_string_in_dotenv_is_explicit_not_a_fallthrough(tmp_path):
     env_path = _write_env(tmp_path, {"PIPAL_PATH": ""})
+    result = load_config(env_path=env_path, legacy_json_path=None, environ={})
+    assert result.config["pipalPath"] == ""
+
+
+def test_bare_key_with_no_value_in_dotenv_falls_through_to_default(tmp_path):
+    # dotenv_values() reports a bare `KEY` with no `=` as None, distinct from
+    # an explicitly-empty `KEY=`; that still counts as unset.
+    env_path = os.path.join(tmp_path, ".env")
+    with open(env_path, "w") as fh:
+        fh.write("PIPAL_PATH\n")
     result = load_config(env_path=env_path, legacy_json_path=None, environ={})
     default = BY_LEGACY["pipalPath"].default
     assert result.config["pipalPath"] == default
@@ -141,6 +158,13 @@ def test_empty_string_in_environ_falls_through_to_default(tmp_path):
 def test_empty_csv_list_in_dotenv_yields_empty_list(tmp_path):
     env_path = _write_env(tmp_path, {"NOTIFY_ATTACK_ALLOWLIST": ""})
     result = load_config(env_path=env_path, legacy_json_path=None, environ={})
+    assert result.config["notify_attack_allowlist"] == []
+
+
+def test_empty_csv_list_in_environ_yields_empty_list(tmp_path):
+    result = load_config(
+        env_path=None, legacy_json_path=None, environ={"NOTIFY_ATTACK_ALLOWLIST": ""}
+    )
     assert result.config["notify_attack_allowlist"] == []
 
 
