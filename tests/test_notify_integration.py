@@ -1,5 +1,6 @@
 """Integration-style tests for the notify public API."""
 
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -7,7 +8,6 @@ import pytest
 
 from hate_crack import notify
 from hate_crack.config_loader import load_config
-from hate_crack.config_writer import write_env
 
 
 @pytest.fixture(autouse=True)
@@ -18,22 +18,32 @@ def _reset_notify_state():
 
 
 def _init_with(tmp_path: Path, **kwargs) -> Path:
-    """Create a `.env` and initialize notify against it."""
+    """Create a ``config.json`` and initialize notify against it.
+
+    The three settings notify persists are all ``home="json"``, so the
+    write-back target is ``config.json``. The Pushover credentials are passed
+    in-memory only: they are `.env`-homed and nothing writes them from the
+    menu, so no `.env` is involved here at all.
+    """
     cfg = {
         "notify_enabled": True,
         "notify_pushover_token": "tok",
         "notify_pushover_user": "usr",
     }
     cfg.update(kwargs)
-    env_path = tmp_path / ".env"
-    write_env(str(env_path), cfg)
-    notify.init(str(env_path), cfg)
-    return env_path
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {k: v for k, v in cfg.items() if not k.startswith("notify_pushover")}
+        )
+    )
+    notify.init(str(config_path), cfg)
+    return config_path
 
 
-def _read_back(env_path: Path) -> dict:
-    """Reload the persisted `.env` through the shared loader."""
-    return load_config(env_path=str(env_path), environ={}).config
+def _read_back(config_path: Path) -> dict:
+    """Reload the persisted ``config.json`` through the shared loader."""
+    return load_config(legacy_json_path=str(config_path), environ={}).config
 
 
 class TestNotifyJobDone:

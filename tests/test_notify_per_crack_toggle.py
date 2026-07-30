@@ -1,11 +1,11 @@
 """Unit tests for the toggle_per_crack_enabled runtime toggle."""
 
 import importlib.util
+import json
 from pathlib import Path
 
 from hate_crack import notify as _notify
 from hate_crack.config_loader import load_config
-from hate_crack.config_writer import write_env
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 _CLI_SPEC = importlib.util.spec_from_file_location(
@@ -16,23 +16,25 @@ _CLI_SPEC.loader.exec_module(CLI_MODULE)
 
 
 def _init_with(tmp_path: Path, **overrides) -> Path:
-    """Seed a `.env` with defaults + overrides and init the notify module."""
-    env_path = tmp_path / ".env"
+    """Seed a ``config.json`` with defaults + overrides and init notify.
+
+    ``notify_per_crack_enabled`` is ``home="json"``, so that is the file the
+    toggle writes back to.
+    """
+    config_path = tmp_path / "config.json"
     cfg = {
         "notify_enabled": False,
         "notify_per_crack_enabled": False,
-        "notify_pushover_token": "",
-        "notify_pushover_user": "",
     }
     cfg.update(overrides)
-    write_env(str(env_path), cfg)
-    _notify.init(str(env_path), cfg)
-    return env_path
+    config_path.write_text(json.dumps(cfg))
+    _notify.init(str(config_path), cfg)
+    return config_path
 
 
-def _read_back(env_path: Path) -> dict:
-    """Reload the persisted `.env` through the shared loader."""
-    return load_config(env_path=str(env_path), environ={}).config
+def _read_back(config_path: Path) -> dict:
+    """Reload the persisted ``config.json`` through the shared loader."""
+    return load_config(legacy_json_path=str(config_path), environ={}).config
 
 
 class TestTogglePerCrackEnabled:
