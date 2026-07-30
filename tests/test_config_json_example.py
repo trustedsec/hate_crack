@@ -4,6 +4,8 @@ import json
 import os
 import re
 
+from hate_crack.config_schema import ENV_KEYS
+
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROOT_EXAMPLE = os.path.join(REPO_ROOT, "config.json.example")
 PACKAGED_EXAMPLE = os.path.join(REPO_ROOT, "hate_crack", "config.json.example")
@@ -227,4 +229,32 @@ def test_every_documented_config_key_has_a_read_site():
     assert dead == [], (
         "config.json.example documents keys that nothing reads, so setting "
         "them has no effect. Either wire them up or remove them: " + "; ".join(dead)
+    )
+
+
+def test_every_env_homed_key_has_a_read_site():
+    """The same guard, for the `.env` side of the split.
+
+    The test above is driven by config.json.example, so it only ever covered
+    the home="json" keys -- an integration key could be documented in
+    .env.example, warned about if you put it in the wrong file, and still be
+    read by nothing at all. That gap is not hypothetical: OLLAMA_HOST was a
+    documented, user-set .env key that main.py read off os.environ instead, so
+    the .env value was silently ignored on every run.
+    """
+    loads, load_lines = _config_loads()
+
+    dead = []
+    for entry in ENV_KEYS:
+        globals_for_key = loads.get(entry.legacy, set())
+        if any(_read_sites(name, load_lines) for name in globals_for_key):
+            continue
+        if _literal_read_sites(entry.legacy):
+            continue
+        dead.append(f"{entry.env} (globals: {sorted(globals_for_key) or 'none'})")
+
+    assert dead == [], (
+        ".env.example documents integration keys that nothing reads, so "
+        "setting them has no effect. Either wire them up or remove them: "
+        + "; ".join(dead)
     )

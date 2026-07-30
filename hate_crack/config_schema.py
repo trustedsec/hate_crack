@@ -232,6 +232,11 @@ CONFIG_SCHEMA: tuple[ConfigKey, ...] = (
     # for the ollama CLI gets the same target here without a second setting.
     ConfigKey("OLLAMA_HOST", "ollamaHost", "str", "localhost:11434", home="env"),
     ConfigKey("OLLAMA_MODEL", "ollamaModel", "str", "qwen2.5:32b", home="env"),
+    # Refuse Ollama cloud models, which the local daemon proxies to
+    # ollama.com. Off by default: turning it on for everyone would break a
+    # user who deliberately configured a cloud model. Worth having because
+    # LLM prompts here carry recovered plaintexts and client target details.
+    ConfigKey("OLLAMA_NO_CLOUD", "ollamaNoCloud", "bool", False, home="env"),
     ConfigKey("OLLAMA_NUM_CTX", "ollamaNumCtx", "int", 8192, home="env"),
     ConfigKey("OLLAMA_TIMEOUT", "ollamaTimeout", "int", 300, home="env"),
     ConfigKey(

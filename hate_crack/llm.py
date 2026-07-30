@@ -27,6 +27,45 @@ class LLMTimeoutError(Exception):
     """
 
 
+class CloudModelRefused(Exception):
+    """``OLLAMA_NO_CLOUD`` is set and the configured model is cloud-hosted."""
+
+    def __init__(self, model: str) -> None:
+        self.model = model
+        super().__init__(
+            f"{model!r} is an Ollama cloud model and OLLAMA_NO_CLOUD is set. "
+            "Prompts carry client corpus and target details, so this request "
+            "was not sent. Pick a locally-hosted model, or unset "
+            "OLLAMA_NO_CLOUD in your .env."
+        )
+
+
+def is_cloud_model(model: str) -> bool:
+    """Is *model* one Ollama proxies to ollama.com rather than running locally?
+
+    Cloud models are identified by a ``-cloud`` suffix on the tag
+    (``gpt-oss:120b-cloud``, ``deepseek-v3.1:671b-cloud``) or, untagged, on the
+    name itself. The local daemon accepts them at the same ``/v1`` endpoint as
+    a local model and forwards the prompt offsite, so the request looks
+    identical from here -- the name is the only signal available before the
+    data has already left.
+    """
+    return model.strip().rsplit(":", 1)[-1].endswith("-cloud")
+
+
+def ensure_model_allowed(model: str, *, no_cloud: bool) -> None:
+    """Raise :class:`CloudModelRefused` for a cloud model when *no_cloud*.
+
+    Called by every public entry point in this module rather than by their
+    callers, so the guard cannot be bypassed by reaching past ``main.py``.
+    ``no_cloud`` is keyword-only and has no default for the same reason: a new
+    call site has to state its policy instead of silently inheriting a
+    permissive one.
+    """
+    if no_cloud and is_cloud_model(model):
+        raise CloudModelRefused(model)
+
+
 class GenerationInput(BaseIOSchema):
     """Instruction and context for a password-candidate generation request."""
 
@@ -365,6 +404,8 @@ def research_target(
     num_ctx: int,
     company: str,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    *,
+    no_cloud: bool,
 ) -> TargetResearchOutput:
     """Ask the local model what it already knows about *company*.
 
@@ -374,8 +415,10 @@ def research_target(
 
     Uses only the configured local Ollama server — no web lookups, so the client
     name never leaves the host. Raises LLMTimeoutError if the request exceeds
-    ``timeout``; other client/connection errors propagate to the caller.
+    ``timeout``, CloudModelRefused when ``no_cloud`` rules out ``model``; other
+    client/connection errors propagate to the caller.
     """
+    ensure_model_allowed(model, no_cloud=no_cloud)
     client = _build_client(url, timeout)
 
     agent = AtomicAgent[TargetResearchInput, TargetResearchOutput](
@@ -407,6 +450,8 @@ def generate_candidates(
     mode: str,
     context_data: dict,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    *,
+    no_cloud: bool,
 ) -> list[str]:
     """Generate password candidates via an Ollama-backed AtomicAgent.
 
@@ -416,9 +461,11 @@ def generate_candidates(
     cannot hang the caller forever.
 
     Returns a deduped, length-capped list of candidate strings (may be empty).
-    Raises ValueError for an unknown mode and LLMTimeoutError if the request
-    exceeds ``timeout``. Other client/connection errors propagate to the caller.
+    Raises ValueError for an unknown mode, LLMTimeoutError if the request
+    exceeds ``timeout``, and CloudModelRefused when ``no_cloud`` rules out
+    ``model``. Other client/connection errors propagate to the caller.
     """
+    ensure_model_allowed(model, no_cloud=no_cloud)
     request = _build_request(mode, context_data)
 
     client = _build_client(url, timeout)
@@ -460,6 +507,8 @@ def generate_rules(
     num_ctx: int,
     context_data: dict,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    *,
+    no_cloud: bool,
 ) -> list[str]:
     """Generate hashcat rules describing a corpus's decoration habits.
 
@@ -474,9 +523,11 @@ def generate_rules(
     before handing the file to hashcat, since an invalid rule is dropped
     silently rather than reported.
 
-    Raises LLMTimeoutError if the request exceeds ``timeout``; other
+    Raises LLMTimeoutError if the request exceeds ``timeout``,
+    CloudModelRefused when ``no_cloud`` rules out ``model``; other
     client/connection errors propagate to the caller.
     """
+    ensure_model_allowed(model, no_cloud=no_cloud)
     request = _build_request("rules", context_data)
     client = _build_client(url, timeout)
 

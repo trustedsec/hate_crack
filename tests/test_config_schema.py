@@ -47,6 +47,7 @@ EXPECTED_ENV_HOMED = frozenset(
         "NOTIFY_PUSHOVER_USER",
         "OLLAMA_HOST",
         "OLLAMA_MODEL",
+        "OLLAMA_NO_CLOUD",
         "OLLAMA_NUM_CTX",
         "OLLAMA_TIMEOUT",
         "OLLAMA_MAX_SAMPLE_LINES",
@@ -91,10 +92,10 @@ def test_env_homed_key_set_is_pinned():
     assert {entry.env for entry in ENV_KEYS} == EXPECTED_ENV_HOMED
 
 
-def test_key_counts_are_thirteen_and_thirty_five():
-    assert len(ENV_KEYS) == 13
+def test_key_counts_are_fourteen_and_thirty_five():
+    assert len(ENV_KEYS) == 14
     assert len(JSON_KEYS) == 35
-    assert len(CONFIG_SCHEMA) == 48
+    assert len(CONFIG_SCHEMA) == 49
 
 
 def test_every_key_has_exactly_one_home():

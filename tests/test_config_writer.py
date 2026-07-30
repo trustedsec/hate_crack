@@ -59,7 +59,7 @@ def test_all_defaults_roundtrip_through_dotenv_values(tmp_path):
 
 
 def test_env_file_holds_exactly_the_integration_keys(tmp_path):
-    """The writer no longer emits all 48 keys. A json-homed key appearing here
+    """The writer no longer emits all 49 keys. A json-homed key appearing here
     would be a key the loader then ignores with a warning -- i.e. a file we
     generated and then complained about."""
     env_path = tmp_path / ".env"
@@ -67,7 +67,7 @@ def test_env_file_holds_exactly_the_integration_keys(tmp_path):
 
     parsed = dotenv_values(str(env_path))
     assert set(parsed) == {entry.env for entry in ENV_KEYS}
-    assert len(parsed) == 13
+    assert len(parsed) == 14
 
 
 def test_json_homed_values_in_the_input_are_not_rendered(tmp_path):

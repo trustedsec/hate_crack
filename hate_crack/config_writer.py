@@ -52,6 +52,7 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
         (
             "OLLAMA_HOST",
             "OLLAMA_MODEL",
+            "OLLAMA_NO_CLOUD",
             "OLLAMA_NUM_CTX",
             "OLLAMA_TIMEOUT",
             "OLLAMA_MAX_SAMPLE_LINES",

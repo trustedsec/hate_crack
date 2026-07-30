@@ -24,6 +24,25 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   install hashcat. This oracle is what found #230. (#230)
 
 
+- **`OLLAMA_NO_CLOUD`, an opt-in refusal of Ollama's cloud-hosted models.** Ollama
+  proxies a `-cloud`-tagged model (`gpt-oss:120b-cloud`, `deepseek-v3.1:671b-cloud`)
+  to ollama.com through the same local `/v1` endpoint a local model uses, so nothing
+  about the request shape signals that the prompt is leaving the host — and these
+  prompts carry recovered plaintexts, corpus statistics, and the client's name,
+  industry and location. The model name is the only thing checkable before the data
+  is already gone. Set `OLLAMA_NO_CLOUD=1` in `.env` and a cloud model is refused
+  before a client is built or a request assembled. It defaults to off, so anyone
+  deliberately using a cloud model is unaffected. The check lives at the three
+  `hate_crack.llm` entry points rather than at their call sites, and its `no_cloud`
+  parameter is keyword-only with no default, so a new call site has to state a
+  policy instead of silently inheriting a permissive one.
+
+- **A read-site guard for `.env`-homed keys, in `tests/test_config_json_example.py`.**
+  The existing no-inert-knobs test is driven by `config.json.example`, so it only ever
+  covered the `home="json"` keys: an integration key could be documented in
+  `.env.example`, warned about when placed in the wrong file, and read by nothing at
+  all. That gap is what let the `OLLAMA_HOST` bug below survive.
+
 - **`OLLAMA_HOST` is a real config key, so setting it in `.env` now works.** It
   was read straight off `os.environ`, but the loader parses `.env` with
   python-dotenv's `dotenv_values()` — which returns a mapping and deliberately

@@ -502,7 +502,9 @@ def test_generate_rules_dedupes_and_strips():
         mock.patch("hate_crack.llm.OpenAI"),
         mock.patch("hate_crack.llm.AtomicAgent", agent_cls),
     ):
-        out = llm.generate_rules(OLLAMA_URL, MODEL, 2048, {"summary": "x"})
+        out = llm.generate_rules(
+            OLLAMA_URL, MODEL, 2048, {"summary": "x"}, no_cloud=False
+        )
 
     assert out == ["c$1", "$!"]
     assert "x" in agent_instance.run.call_args[0][0].request

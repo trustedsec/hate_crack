@@ -50,6 +50,7 @@ def test_target_mode_returns_candidates():
             2048,
             "target",
             {"company": "AcmeCorp", "industry": "Finance", "location": "NYC"},
+            no_cloud=False,
         )
     assert out == ["AcmeCorp2024", "Finance123"]
     # The instruction the agent received must include the target context.
@@ -68,6 +69,7 @@ def test_wordlist_mode_includes_sample_in_request():
             2048,
             "wordlist",
             {"sample": "password\nletmein\nsummer2024"},
+            no_cloud=False,
         )
     run_arg = agent_instance.run.call_args[0][0]
     assert "letmein" in run_arg.request
@@ -84,6 +86,7 @@ def test_cracked_mode_includes_sample_in_request():
             2048,
             "cracked",
             {"sample": "Summer2024!\nAcme2023\nP@ssw0rd1"},
+            no_cloud=False,
         )
     assert out == ["Winter2025!"]
     run_arg = agent_instance.run.call_args[0][0]
@@ -103,6 +106,7 @@ def test_cracked_mode_uses_its_own_prompt_not_the_denylist_one():
             2048,
             "cracked",
             {"sample": "Summer2024!"},
+            no_cloud=False,
         )
     config = agent_cls.__getitem__.return_value.call_args.kwargs["config"]
     assert config.system_prompt_generator is llm._CRACKED_PROMPT
@@ -118,6 +122,7 @@ def test_wordlist_mode_still_uses_wordlist_prompt():
             2048,
             "wordlist",
             {"sample": "password"},
+            no_cloud=False,
         )
     config = agent_cls.__getitem__.return_value.call_args.kwargs["config"]
     assert config.system_prompt_generator is llm._WORDLIST_PROMPT
@@ -132,6 +137,7 @@ def test_target_mode_still_uses_target_prompt():
             2048,
             "target",
             {"company": "X", "industry": "Y", "location": "Z"},
+            no_cloud=False,
         )
     config = agent_cls.__getitem__.return_value.call_args.kwargs["config"]
     assert config.system_prompt_generator is llm._TARGET_PROMPT
@@ -161,6 +167,7 @@ def test_dedupes_and_caps_length():
             2048,
             "target",
             {"company": "X", "industry": "Y", "location": "Z"},
+            no_cloud=False,
         )
     assert out == ["keep", "dup"]  # trimmed, deduped, blank + >128 dropped
 
@@ -174,6 +181,7 @@ def test_num_ctx_forwarded_via_model_api_parameters():
             4096,
             "target",
             {"company": "X", "industry": "Y", "location": "Z"},
+            no_cloud=False,
         )
     # AtomicAgent[In, Out](config=<AgentConfig>) — inspect the config.
     config = agent_cls.__getitem__.return_value.call_args.kwargs["config"]
@@ -191,11 +199,7 @@ def test_generate_candidates_rejects_unknown_mode_before_building_client():
     """generate_candidates surfaces _build_request's ValueError to its caller."""
     with pytest.raises(ValueError, match="Unknown LLM generation mode: bogus"):
         llm.generate_candidates(
-            "http://localhost:11434",
-            "qwen2.5:32b",
-            2048,
-            "bogus",
-            {},
+            "http://localhost:11434", "qwen2.5:32b", 2048, "bogus", {}, no_cloud=False
         )
 
 
@@ -209,6 +213,7 @@ def test_timeout_forwarded_to_openai_client():
             "target",
             {"company": "X", "industry": "Y", "location": "Z"},
             timeout=42.5,
+            no_cloud=False,
         )
     assert openai_cls.call_args.kwargs["timeout"] == 42.5
 
@@ -222,6 +227,7 @@ def test_default_timeout_used_when_omitted():
             2048,
             "target",
             {"company": "X", "industry": "Y", "location": "Z"},
+            no_cloud=False,
         )
     assert llm.DEFAULT_TIMEOUT_SECONDS == 300.0
     assert openai_cls.call_args.kwargs["timeout"] == llm.DEFAULT_TIMEOUT_SECONDS
@@ -242,6 +248,7 @@ def test_api_timeout_reraised_as_domain_error():
                 "target",
                 {"company": "X", "industry": "Y", "location": "Z"},
                 timeout=1.0,
+                no_cloud=False,
             )
 
 
@@ -280,7 +287,11 @@ def test_research_target_returns_fields_and_passes_company():
     )
     with p_instr, p_openai, p_agent:
         out = llm.research_target(
-            "http://localhost:11434", "qwen2.5:32b", 2048, "Acme Rail Services"
+            "http://localhost:11434",
+            "qwen2.5:32b",
+            2048,
+            "Acme Rail Services",
+            no_cloud=False,
         )
     assert out.industry == "freight rail maintenance"
     assert out.location == "Omaha, Nebraska"
@@ -292,7 +303,9 @@ def test_research_target_uses_research_prompt_and_num_ctx():
         "x", "y"
     )
     with p_instr, p_openai, p_agent:
-        llm.research_target("http://localhost:11434", "qwen2.5:32b", 4096, "Acme")
+        llm.research_target(
+            "http://localhost:11434", "qwen2.5:32b", 4096, "Acme", no_cloud=False
+        )
     config = agent_cls.__getitem__.return_value.call_args.kwargs["config"]
     assert config.system_prompt_generator is llm._RESEARCH_PROMPT
     assert config.model_api_parameters["extra_body"]["options"]["num_ctx"] == 4096
@@ -309,7 +322,9 @@ def test_research_target_strips_and_blanks_whitespace_only():
         "  healthcare  ", "   "
     )
     with p_instr, p_openai, p_agent:
-        out = llm.research_target("http://localhost:11434", "m", 2048, "Acme")
+        out = llm.research_target(
+            "http://localhost:11434", "m", 2048, "Acme", no_cloud=False
+        )
     assert out.industry == "healthcare"
     assert out.location == ""
 
@@ -319,7 +334,9 @@ def test_research_target_caps_overlong_values():
         "A" * 500, "B" * (llm.MAX_RESEARCH_FIELD_LEN + 1)
     )
     with p_instr, p_openai, p_agent:
-        out = llm.research_target("http://localhost:11434", "m", 2048, "Acme")
+        out = llm.research_target(
+            "http://localhost:11434", "m", 2048, "Acme", no_cloud=False
+        )
     assert len(out.industry) == llm.MAX_RESEARCH_FIELD_LEN
     assert len(out.location) == llm.MAX_RESEARCH_FIELD_LEN
 
@@ -329,7 +346,9 @@ def test_research_target_tolerates_non_string_fields():
         None, 42
     )
     with p_instr, p_openai, p_agent:
-        out = llm.research_target("http://localhost:11434", "m", 2048, "Acme")
+        out = llm.research_target(
+            "http://localhost:11434", "m", 2048, "Acme", no_cloud=False
+        )
     assert out.industry == ""
     assert out.location == ""
 
@@ -344,7 +363,7 @@ def test_research_target_timeout_forwarded_and_translated():
     with p_instr, p_openai as openai_cls, p_agent:
         with pytest.raises(llm.LLMTimeoutError):
             llm.research_target(
-                "http://localhost:11434", "m", 2048, "Acme", timeout=7.5
+                "http://localhost:11434", "m", 2048, "Acme", timeout=7.5, no_cloud=False
             )
     assert openai_cls.call_args.kwargs["timeout"] == 7.5
 

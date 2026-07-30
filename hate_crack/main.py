@@ -815,6 +815,7 @@ hcatDebugLogPath = os.path.expanduser(config_parser["hcatDebugLogPath"])
 
 ollamaUrl = _normalize_ollama_url(config_parser.get("ollamaHost", "localhost:11434"))
 ollamaModel = config_parser.get("ollamaModel", "qwen2.5:32b")
+ollamaNoCloud = bool(config_parser.get("ollamaNoCloud", False))
 ollamaNumCtx = int(config_parser.get("ollamaNumCtx", 8192))
 ollamaTimeout = float(config_parser.get("ollamaTimeout", 300))
 ollamaMaxSampleLines = int(config_parser.get("ollamaMaxSampleLines", 500))
@@ -2675,6 +2676,7 @@ def hcatOllamaResearchTarget(company):
                 ollamaNumCtx,
                 company,
                 timeout=ollamaTimeout,
+                no_cloud=ollamaNoCloud,
             )
     except llm.LLMTimeoutError:
         print(
@@ -2734,6 +2736,7 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
                 mode,
                 gen_context,
                 timeout=ollamaTimeout,
+                no_cloud=ollamaNoCloud,
             )
     except llm.LLMTimeoutError:
         print(f"Error: the Ollama request timed out after {ollamaTimeout:g} seconds.")
@@ -2900,6 +2903,7 @@ def _llm_pattern_rules(gen_context):
                     ollamaNumCtx,
                     gen_context,
                     timeout=ollamaTimeout,
+                    no_cloud=ollamaNoCloud,
                 )
         except llm.LLMTimeoutError:
             print(
@@ -2963,6 +2967,7 @@ def hcatOllamaPatterns(hcatHashType, hcatHashFile, source_path):
                 "pattern",
                 gen_context,
                 timeout=ollamaTimeout,
+                no_cloud=ollamaNoCloud,
             )
     except llm.LLMTimeoutError:
         print(f"Error: the Ollama request timed out after {ollamaTimeout:g} seconds.")
