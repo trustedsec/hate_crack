@@ -100,6 +100,10 @@ def test_case1_migrates_integration_keys_and_leaves_config_json_alone(
     assert "ollamaModel" in out
     assert "hashmob_api_key" in out
     assert "Delete them from" in out
+    # The bootstrap no longer prints its own "Config source/destination" block:
+    # that is _print_config_sources()'s job now (#227).
+    assert "Config source:" not in out
+    assert "Config destination:" not in out
     # Never the values.
     assert "synthetic-sentinel" not in out
     assert "synthetic-model" not in out
@@ -192,10 +196,10 @@ def test_case2_writes_a_default_env_when_there_is_nothing_to_migrate(
     assert env_path_result == str(env_path)
     assert env_path.read_text() == render_env({})
     assert _mode(env_path) == 0o600
-    out = capsys.readouterr().out
-    assert "Initializing .env" in out
-    # Nothing was migrated, so no cleanup instruction is printed.
-    assert "Delete them from" not in out
+    # Silent: the file it created is named once, by _print_config_sources (#227).
+    # Nothing was migrated, so there is no cleanup instruction either.
+    assert capsys.readouterr().out == ""
+    assert hc_main._config_bootstrap_detail["env"] == "from built-in defaults"
 
 
 # ---------------------------------------------------------------------------
@@ -261,9 +265,11 @@ def test_case4_creates_both_files_from_defaults(bootstrap, tmp_path, capsys):
     written = json.loads(json_path.read_text())
     assert set(written) == {entry.legacy: None for entry in JSON_KEYS}.keys()
 
-    out = capsys.readouterr().out
-    assert "Initializing config.json from config.json.example" in out
-    assert "Initializing .env" in out
+    # Both files created, nothing printed here: the two _print_config_sources
+    # lines carry the paths and their provenance (#227).
+    assert capsys.readouterr().out == ""
+    assert hc_main._config_bootstrap_detail["json"] == "from config.json.example"
+    assert hc_main._config_bootstrap_detail["env"] == "from built-in defaults"
 
     # The pair loads to exactly the schema defaults.
     config = load_config(
@@ -798,6 +804,166 @@ def test_startup_reports_a_missing_config_file_as_defaults(capsys, monkeypatch):
         json_created=True,
     )
     assert out.count("not found -- using built-in defaults") == 2
+
+
+def test_startup_says_how_a_created_file_was_created(capsys, monkeypatch, tmp_path):
+    """The provenance the removed bootstrap prints used to carry (#227) rides
+    on the same line as the path, so it is still said -- once."""
+    env_path = str(tmp_path / ".env")
+    json_path = str(tmp_path / "config.json")
+    out = _config_source_output(
+        capsys,
+        monkeypatch,
+        skip_init=False,
+        env_path=env_path,
+        legacy_json_path=json_path,
+        env_created=True,
+        json_created=True,
+        env_detail="from built-in defaults",
+        json_detail="from config.json.example",
+    )
+    assert f"{json_path} (created this run, from config.json.example)" in out
+    assert f"{env_path} (created this run, from built-in defaults)" in out
+    assert len(out.strip().splitlines()) == 2
+
+
+# ---------------------------------------------------------------------------
+# First-run output says each path once, not twice (#227 item 1)
+# ---------------------------------------------------------------------------
+
+
+def _first_run_output(bootstrap, monkeypatch, capsys, tmp_path, legacy_json_path):
+    """Do what startup does -- bootstrap, then print the source lines -- and
+    return the combined output plus the resolved paths."""
+    env_missing = True
+    json_missing = legacy_json_path is None
+    env_path, json_path = bootstrap(None, legacy_json_path)
+    monkeypatch.setattr(hc_main, "SKIP_INIT", False)
+    hc_main._print_config_sources(
+        env_path,
+        json_path,
+        env_created=env_missing,
+        json_created=json_missing,
+        env_detail=hc_main._config_bootstrap_detail.get("env"),
+        json_detail=hc_main._config_bootstrap_detail.get("json"),
+    )
+    return capsys.readouterr().out, env_path, json_path
+
+
+def _assert_named_once_in_the_source_lines(out, *paths):
+    """Each path appears at least once overall AND exactly once among the
+    ``[*]`` orientation lines.
+
+    Both halves are needed: "exactly once" alone passes trivially when a path
+    appears zero times, which is exactly how PR #222's dropped output hid.
+    """
+    source_lines = "\n".join(
+        line for line in out.splitlines() if line.startswith("[*] ")
+    )
+    assert len(source_lines.splitlines()) == 2, out
+    for path in paths:
+        assert out.count(path) >= 1, f"{path!r} never reached the user:\n{out}"
+        assert source_lines.count(path) == 1, (
+            f"{path!r} named {source_lines.count(path)}x in the source lines:\n{out}"
+        )
+
+
+def test_first_run_from_scratch_names_each_path_once(
+    bootstrap, monkeypatch, capsys, tmp_path
+):
+    out, env_path, json_path = _first_run_output(
+        bootstrap, monkeypatch, capsys, tmp_path, None
+    )
+    _assert_named_once_in_the_source_lines(out, env_path, json_path)
+    # And the whole first run is those two lines: no bootstrap chatter above.
+    assert len(out.strip().splitlines()) == 2
+    assert "config.json.example" in out
+
+
+def test_first_run_migrating_names_each_path_once_and_keeps_the_source(
+    bootstrap, monkeypatch, capsys, tmp_path
+):
+    """The migrated case is the one where the *source* path is real
+    information -- the user needs to know their config.json was read."""
+    legacy_path = tmp_path / "config.json"
+    legacy_path.write_text(json.dumps(_pre_split_config(ollamaModel="synthetic-model")))
+
+    out, env_path, json_path = _first_run_output(
+        bootstrap, monkeypatch, capsys, tmp_path, str(legacy_path)
+    )
+
+    _assert_named_once_in_the_source_lines(out, env_path, json_path)
+    # The source is not lost: it is the config.json line directly above, which
+    # the .env line points at rather than repeating the path.
+    assert "migrated from the config.json above" in out
+    assert f"[*] config.json: {json_path}" in out
+    # The per-key cleanup notes are unique information and still print.
+    assert "Delete them from" in out
+
+
+def test_first_run_with_nothing_to_migrate_names_each_path_once(
+    bootstrap, monkeypatch, capsys, tmp_path
+):
+    legacy_path = tmp_path / "config.json"
+    legacy_path.write_text(json.dumps(_post_split_config()))
+
+    out, env_path, json_path = _first_run_output(
+        bootstrap, monkeypatch, capsys, tmp_path, str(legacy_path)
+    )
+
+    _assert_named_once_in_the_source_lines(out, env_path, json_path)
+    assert len(out.strip().splitlines()) == 2
+
+
+def test_a_second_run_names_each_path_once_with_no_creation_claim(
+    bootstrap, monkeypatch, capsys, tmp_path
+):
+    """Case 3: both files already exist. Nothing is created, so no line may
+    claim otherwise -- and the paths are still named exactly once each."""
+    env_path = tmp_path / ".env"
+    write_env(str(env_path), {})
+    legacy_path = tmp_path / "config.json"
+    legacy_path.write_text(json.dumps(_post_split_config()))
+
+    bootstrap(str(env_path), str(legacy_path))
+    monkeypatch.setattr(hc_main, "SKIP_INIT", False)
+    hc_main._print_config_sources(
+        str(env_path),
+        str(legacy_path),
+        env_created=False,
+        json_created=False,
+        env_detail=hc_main._config_bootstrap_detail.get("env"),
+        json_detail=hc_main._config_bootstrap_detail.get("json"),
+    )
+    out = capsys.readouterr().out
+
+    _assert_named_once_in_the_source_lines(out, str(env_path), str(legacy_path))
+    assert "created this run" not in out
+
+
+# ---------------------------------------------------------------------------
+# A dangling config symlink is fatal at startup, not silently ignored (#227)
+# ---------------------------------------------------------------------------
+
+
+def test_startup_routes_a_discovery_failure_to_the_fatal_diagnostic(capsys):
+    """``main.py`` calls ``resolve_config_paths()`` before the loader, so the
+    exception discovery now raises has to be handled there too -- otherwise a
+    dangling `.env` symlink trades a silent wrong-config run for a traceback."""
+    source = Path(hc_main.__file__).read_text()
+    assert "except _config_loader.ConfigFileUnreadableError as _exc:" in source
+    assert "_config_loader.exit_unreadable_config(_exc)" in source
+
+    exc = config_loader.ConfigFileUnreadableError(
+        "/nonexistent/link/.env", FileNotFoundError(2, "No such file or directory")
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        config_loader.exit_unreadable_config(exc)
+
+    assert exc_info.value.code == 1
+    out = capsys.readouterr().out
+    assert "/nonexistent/link/.env" in out
+    assert "could not be read" in out
 
 
 def test_startup_prints_nothing_under_skip_init(capsys, monkeypatch, tmp_path):
