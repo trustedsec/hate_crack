@@ -11,6 +11,13 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ### Added
 
+- **A test that every documented config key is actually read.** The existing
+  guard pins the key set, so a key added to `config.json.example` and to the
+  expected-key list in one commit passes it while being read by nothing —
+  which is how three dead keys shipped. The new test traces each key to the
+  global it loads into and then to a read site anywhere in the package,
+  including consumption through the attack handlers' `ctx` proxy.
+
 
 - **`optimizedKernelAttacks` now works for the N-gram, LLM, OMEN, and LM-to-NT
   attacks, and is documented.** All four built their hashcat command without
@@ -164,6 +171,18 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   unreachable dead code.
 
 ### Fixed
+
+- **The LLM Pattern Rules attack hid why it had no rules to run.** When every
+  rule the model returned was rejected as invalid, the fallback message said
+  only that no usable rules were inferred. It now reports how many were
+  rejected, which distinguishes "the model returned nothing" from "the model
+  returned rules and all of them were malformed" — a difference that decides
+  whether re-running is worth it.
+
+- **`_streamed_download` accepted a `chunk_size` and ignored it.** The value
+  was never forwarded to the function that does the writing, which hardcoded
+  8192, so tuning it had no effect. No caller passed a non-default value, so
+  nothing was mis-downloading; the knob simply did not work.
 
 - **Cancelling the no-hashfile menu was reported as an invalid selection.**
   `interactive_menu` returns `None` for a bare Enter in numbered mode and for
