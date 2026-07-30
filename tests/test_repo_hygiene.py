@@ -141,6 +141,14 @@ UNPUBLISHED_PATH_REFERENCE_EXEMPTIONS = (
     # Lists these paths so git ignores them; that's the mechanism that keeps
     # them unpublished, not a dead-end pointer for a reader.
     ".gitignore",
+    # Same reasoning as .gitignore: this script's whole job is to refuse a
+    # commit that touches these paths, so it has to name them. It is the
+    # enforcement mechanism, not a pointer at missing content.
+    ".github/scripts/check-publication-boundary.sh",
+    # Executes that script against throwaway repos and asserts the refusal, so
+    # it must name the paths it stages. Confined to its own guard-constants
+    # block, mirroring this file's convention.
+    "tests/test_commit_guards.py",
 )
 # --- end guard constants ---
 

@@ -11,6 +11,29 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ### Added
 
+- **Two `pre-commit` guards that enforce the publication boundary and catch a
+  corrupt index, in `.github/scripts/`.** The boundary was documented but not
+  enforced: on 2026-07-30 a prek `pre-push` stash/restore cycle corrupted the
+  index and produced a commit that deleted 85,280 lines and staged gitignored
+  local-only files, and it reached this public remote before being force-pushed
+  away. `detect-private-key` was the only secret-scanning gate and does not look
+  at this, and CI has none at all.
+  `check-publication-boundary.sh` refuses any commit that adds or modifies a
+  local-only development path, reading the staged changeset from the index
+  rather than trusting `.gitignore` — `git add -f` past `.gitignore` is exactly
+  the failure mode. Deletions stay allowed so an accidentally tracked file can
+  still be removed. `check-mass-deletion.sh` aborts a commit deleting more than
+  50 tracked files (override: `HATE_CRACK_ALLOW_MASS_DELETE=1`); no commit in
+  the last 400 of this repo's history deleted more than one, so the threshold
+  cannot fire on real work. Both messages carry the actual recovery
+  (`git config core.bare false`, `git reset HEAD`), since the incident's
+  symptom is `fatal: this operation must be run in a work tree` and nothing on
+  disk is ever lost. They are `pre-commit`, not `pre-push`: by pre-push time the
+  bad commit already exists locally, and the pre-push stash is the thing that
+  corrupts the index. `tests/test_commit_guards.py` executes the scripts as a
+  real hook against throwaway repos and asserts on whether `git commit`
+  actually succeeded, rather than grepping `prek.toml` for hook ids. (#224)
+
 - **A defensive `hate_crack` name placeholder for PyPI, in
   `packaging/pypi-placeholder/`.** The name was unclaimed on the index, which is
   a name an operator could plausibly type into `pip install` or `uvx` expecting

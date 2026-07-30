@@ -55,6 +55,31 @@ stages = ["pre-push"]
 pass_filenames = false
 always_run = true
 
+# Publication-boundary and index-corruption guards. These are pre-commit, not
+# pre-push, on purpose: by pre-push time the bad commit already exists locally,
+# and the pre-push stash/restore cycle is itself what corrupts the index
+# (issue #224). Both scripts read the staged changeset from the index rather
+# than trusting .gitignore, since `git add -f` past .gitignore is the exact
+# failure mode. They live in .github/scripts/ because a tracked hook must not
+# execute a script from an untracked path.
+[[repos.hooks]]
+id = "publication-boundary"
+name = "publication boundary (no local-only dev aids in a public repo)"
+entry = ".github/scripts/check-publication-boundary.sh"
+language = "system"
+stages = ["pre-commit"]
+pass_filenames = false
+always_run = true
+
+[[repos.hooks]]
+id = "mass-deletion"
+name = "mass-deletion sanity check (corrupt index guard)"
+entry = ".github/scripts/check-mass-deletion.sh"
+language = "system"
+stages = ["pre-commit"]
+pass_filenames = false
+always_run = true
+
 # General hygiene hooks (mirrors hashview's .pre-commit-config.yaml). These run
 # at the pre-commit stage, so `prek install` must include `--hook-type pre-commit`.
 # Auto-fixers modify files in place; re-stage and commit again.
