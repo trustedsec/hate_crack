@@ -241,6 +241,84 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   tracked file cites `CLAUDE.md`, `.claude/`, `docs/plans/`, or
   `docs/superpowers/` again, with `CHANGELOG.md` and
   `tests/test_upgrade_real_git.py` as the only exemptions (#212).
+### Changed
+
+- **Release versioning is now rolling, and driven by [commitizen](https://commitizen-tools.github.io/commitizen/)
+  instead of hand-rolled bash.** `main` is stable and always `X.Y.0`; merging
+  `nightly-dev` down cuts the release as a minor bump. `nightly-dev` consumes the
+  patch numbers above it — `X.Y.1`, `X.Y.2`, … — one per validated push. So
+  stable `2.19.0` is followed by nightlies `2.19.1`, `2.19.2`, and the next merge
+  to `main` cuts `2.20.0`.
+
+  This replaces the `-rc.N` pre-release scheme. Both tagging workflows previously
+  duplicated the same version arithmetic in shell (`cut -d.` to split the
+  version, `$((minor + 1))` to bump it, a `sed`/`sort -n` pipeline to advance the
+  rc counter); all of it is deleted. `cz bump --increment {MINOR,PATCH}` does the
+  arithmetic, configured under `[tool.commitizen]` with `version_provider = "scm"`
+  so the version is read from git tags and there is no version string in a file
+  and no version-bump commit.
+
+  Because nightly tags are now ordinary release tags, the `setuptools-scm`
+  workaround that the old scheme existed for is retired: `-rc` was chosen only
+  because `setuptools-scm` rejects tags ending in `.devN` for `N > 0`, which
+  ruled out an incrementing `-dev.N` counter.
+
+- **A merge into `main` now always cuts a release**, including a docs- or
+  chore-only one. The old workflow skipped tagging when it found no
+  `feat`/`fix`/`perf` commits; a merge to `main` is an explicit release event, so
+  that early exit is gone. `nightly-dev` already tagged unconditionally, so that
+  every validated nightly commit stays addressable.
+
+- **Transition.** With `v2.18.0` as the baseline on `main`, the first release
+  under the new scheme is `v2.19.0`, and `nightly-dev` then rolls `v2.19.1`,
+  `v2.19.2`, … Both are monotonic against the highest surviving tag,
+  `v2.19.0-rc.11` (`2.19.0rc11 < 2.19.0 < 2.19.1`). The three `v3.0.0-rc.*` tags
+  were deleted from the remote as part of this transition, as a deliberate human
+  decision — they advertised a `3.0.0` release that is not being cut. All other
+  `-rc.N` tags remain as history and must not be deleted.
+
+### Removed
+
+- **Automatic major version bumps.** A `type!:` subject or a `BREAKING CHANGE:`
+  footer no longer bumps the major version by itself, because the increment is
+  now forced per branch rather than inferred from commit messages. This is
+  deliberate — reintroducing breaking-change detection would reintroduce the
+  hand-rolled version decisioning this change removes. A major release is instead
+  an explicit human act: run `cz bump --increment MAJOR` and push the resulting
+  tag.
+
+  Note that four commits already on `nightly-dev` are marked breaking and would
+  have cut a major release under the old rules — three `feat(config)!:` and one
+  `refactor(config)!:`, all part of the config-file split. Under the new rules
+  they do not; they ship inside the next minor release. That is the intended
+  trade-off, recorded here so it is a decision rather than a surprise.
+
+### Notes
+
+- **Merge `main` down into `nightly-dev` immediately after this release.** Until
+  you do, every validated `nightly-dev` push fails its tagging job with
+  `[NO_VERSION_SPECIFIED]` (exit 4), because `nightly-dev`'s `pyproject.toml` has
+  no `[tool.commitizen]` section yet — the config arrives with that merge. The
+  failure is loud and cannot mistag anything, which is the right failure mode, but
+  commitizen's error text says nothing about the cause. Expect a conflict in
+  `pyproject.toml` during the merge.
+- One transition hazard, on the record: in a hypothetical state where the
+  commitizen config had reached `nightly-dev` but the new `v2.19.0` tag was not
+  yet reachable from it, the nightly job would compute `v2.19.0` — the same tag
+  `main` cuts — and the idempotency guard would then quietly leave that nightly
+  commit untagged. In practice this cannot happen, because the config and the tag
+  arrive in the same merge-down commit. It is noted because it is the one way the
+  two branches could contend for a version number.
+- Nightly tags are no longer PEP 440 pre-releases, so any tool that resolves
+  "the latest version" from raw version numbers will now treat a nightly as
+  latest. hate_crack's own startup update check is unaffected: it reads GitHub's
+  "latest release" endpoint and nightly builds publish no GitHub release. The
+  package is not published to PyPI (only a defensive name placeholder exists), so
+  nothing installs from an index today, but this is a real property of the scheme
+  rather than an oversight.
+- `release.yml` is unchanged and remains the path for tags pushed by a human;
+  tags pushed with `GITHUB_TOKEN` do not dispatch workflow events, so it never
+  fires for the bot-pushed tags above.
 
 ## [2.18.0] - 2026-07-29
 

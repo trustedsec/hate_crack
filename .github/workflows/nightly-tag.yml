@@ -1,17 +1,26 @@
 name: Nightly Tag
 
-# Tags nightly-dev with a PEP 440 pre-release (e.g. v2.17.0-rc.3) after CI
-# passes. Full releases are cut only by auto-tag.yml, and only on main, when
-# nightly-dev is merged down at the batch integration.
+# Tags nightly-dev after CI passes. nightly-dev is the rolling branch and it
+# consumes PATCH numbers: with main stable at X.Y.0, validated nightly pushes
+# become X.Y.1, X.Y.2, ... one per push. The weekly merge into main then cuts
+# the next stable X.(Y+1).0 via auto-tag.yml.
 #
-# The tag names the version the batch merge will cut, so v2.17.0-rc.3 means
-# "third validated nightly build heading for 2.17.0". setuptools-scm resolves it
-# to 2.17.0rc3, which PEP 440 orders after 2.16.0 and before 2.17.0.
+# The version arithmetic is done by commitizen (`cz bump`), configured in
+# pyproject.toml under [tool.commitizen]. Nothing here parses or increments a
+# version number; that used to be duplicated bash (`cut -d.`, `$((patch + 1))`,
+# plus an rc-counter `sed`/`sort -n` pipeline) and it is deliberately gone. Do
+# not reintroduce it.
 #
-# -rc is used rather than -dev because setuptools-scm rejects any tag ending in
-# .devN for N>0 ("create a new supported one ending in .dev0"), reserving the
-# dev segment for its own commit-distance counting. That rules out an
-# incrementing dev scheme.
+# These are now ORDINARY release tags, not -rc.N pre-releases. That retires the
+# whole reason the old pre-release scheme existed (setuptools-scm rejects tags
+# ending in .devN for N>0, which ruled out an incrementing -dev.N scheme, so -rc
+# was used instead). Consequence to be aware of: because a nightly tag is no
+# longer a PEP 440 pre-release, any tool resolving "the latest version" will now
+# consider a nightly to be latest. The package is not published to PyPI, so
+# nothing installs from an index today, but this is a real property of the
+# scheme rather than an oversight.
+#
+# No GitHub release is created here -- see the end of this file.
 #
 # This file MUST live on the default branch (main). GitHub only dispatches
 # workflow_run for workflows present on the default branch, so a copy that
@@ -28,9 +37,9 @@ on:
 permissions:
   contents: write
 
-# Two merges landing back-to-back would otherwise both compute the same rc
-# counter and the second push would fail. Serialize instead of cancelling so no
-# merge gets skipped.
+# Two pushes landing back-to-back would otherwise both compute the same tag and
+# the second push would fail. Serialize instead of cancelling so no push gets
+# skipped.
 concurrency:
   group: nightly-tag
   cancel-in-progress: false
@@ -47,6 +56,9 @@ jobs:
           # workflow_run defaults to the tip of the default branch, which is not
           # the commit CI validated.
           ref: ${{ github.event.workflow_run.head_sha }}
+          # commitizen resolves the current version from git tags, so it needs
+          # the full history and all tags. Under a shallow clone it would read
+          # the project version as 0.0.0 and tag nonsense.
           fetch-depth: 0
 
       - name: Configure git identity
@@ -54,88 +66,49 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
 
-      - name: Determine pre-release tag
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Compute nightly tag
         id: bump
         run: |
-          # Latest FULL release tag. The anchored pattern deliberately excludes
-          # pre-release tags, so this matches auto-tag.yml's baseline exactly.
-          latest_tag=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
-          if [ -z "$latest_tag" ]; then
-            base_version="0.1.0"
-            shas=$(git log --format=%H)
-          else
-            echo "Latest release tag: $latest_tag"
-            base_version="${latest_tag#v}"
-            shas=$(git log "$latest_tag"..HEAD --format=%H)
+          set -euo pipefail
+          # --increment PATCH is what expresses "nightly-dev consumes patch
+          # numbers". It is forced rather than inferred, so every validated
+          # nightly push gets a tag and stays addressable -- including a
+          # docs/chore-only one, which the old workflow also did deliberately.
+          # Do not add commit-message inspection here.
+          # NOTE: this step FAILS with `[NO_VERSION_SPECIFIED]` (exit 4) on any
+          # nightly-dev commit whose pyproject.toml has no [tool.commitizen]
+          # section. That is a GUARANTEED red window between this landing on main
+          # and main being merged down into nightly-dev, because the config
+          # arrives with that merge. cz's error message says nothing about the
+          # cause, so: if you see [NO_VERSION_SPECIFIED] here, merge main into
+          # nightly-dev. Failing loudly is the intended behaviour -- it is much
+          # better than guessing a version -- but it is not self-explanatory.
+          uvx --from 'commitizen==4.17.0' cz bump --yes --increment PATCH --dry-run \
+            > "$RUNNER_TEMP/cz-bump.log"
+          cat "$RUNNER_TEMP/cz-bump.log"
+
+          # Read the answer out of a file rather than piping cz straight into
+          # grep/sed. Under `set -o pipefail` an early-exiting reader can leave
+          # the producer killed by SIGPIPE (exit 141), which would fail the step
+          # on a successful match. Several past bugs here came from exactly that.
+          new_tag=$(sed -n 's/^tag to create: //p' "$RUNNER_TEMP/cz-bump.log" | head -1)
+          if [ -z "$new_tag" ]; then
+            echo "::error::could not determine the tag to create from cz output"
+            exit 1
           fi
-
-          if [ -z "$shas" ]; then
-            echo "No new commits since $latest_tag"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          major=$(echo "$base_version" | cut -d. -f1)
-          minor=$(echo "$base_version" | cut -d. -f2)
-          patch=$(echo "$base_version" | cut -d. -f3)
-
-          # Same bump precedence as auto-tag.yml (major > minor > patch), so the
-          # tag names the version the batch merge to main will cut.
-          bump="none"
-          while IFS= read -r sha; do
-            [ -n "$sha" ] || continue
-            body=$(git log -1 --format=%B "$sha")
-            subject=${body%%$'\n'*}
-
-            if [[ "$subject" =~ ^[a-zA-Z]+(\(.+\))?!: ]]; then
-              bump="major"
-            elif grep -qE '^(BREAKING CHANGE|BREAKING-CHANGE):' <<<"$body"; then
-              bump="major"
-            elif [[ "$subject" =~ ^feat(\(.+\))?: ]] && [ "$bump" != "major" ]; then
-              bump="minor"
-            elif [[ "$subject" =~ ^(fix|perf)(\(.+\))?: ]] && [ "$bump" = "none" ]; then
-              bump="patch"
-            fi
-          done <<EOF
-          $shas
-          EOF
-
-          if [ "$bump" = "none" ]; then
-            # Unlike auto-tag.yml, a chore/docs-only nightly still gets a tag so
-            # every validated nightly commit is addressable. It carries the next
-            # patch version, since that is what a release would be.
-            echo "No feat/fix/perf/breaking commits; tagging as a patch pre-release"
-            bump="patch"
-          fi
-
-          if [ "$bump" = "major" ]; then
-            major=$((major + 1)); minor=0; patch=0
-          elif [ "$bump" = "minor" ]; then
-            minor=$((minor + 1)); patch=0
-          else
-            patch=$((patch + 1))
-          fi
-
-          next="${major}.${minor}.${patch}"
-
-          # Increment the rc counter for this target version. Tags for other
-          # versions are irrelevant.
-          last_n=$(git tag --list "v${next}-rc.*" \
-            | sed -E "s/^v${next}-rc\.([0-9]+)$/\1/" \
-            | grep -E '^[0-9]+$' \
-            | sort -n \
-            | tail -1 || true)
-          n=$(( ${last_n:-0} + 1 ))
-
-          new_tag="v${next}-rc.${n}"
-          echo "Bump: $bump -> $new_tag"
+          echo "Nightly tag: $new_tag"
           echo "new_tag=$new_tag" >> "$GITHUB_OUTPUT"
 
-      - name: Create pre-release tag
-        if: steps.bump.outputs.skip != 'true'
+      - name: Create tag
         env:
           NEW_TAG: ${{ steps.bump.outputs.new_tag }}
         run: |
+          set -euo pipefail
+          # Idempotent: a re-run of this workflow must not fail the job.
           if git rev-parse -q --verify "refs/tags/$NEW_TAG" >/dev/null; then
             echo "Tag $NEW_TAG already exists, nothing to push"
           else
