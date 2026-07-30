@@ -8,6 +8,7 @@ import pytest
 from hate_crack.config_loader import load_config
 from hate_crack.config_writer import write_env
 from hate_crack.notify.settings import (
+    AllowlistNameError,
     NotifySettings,
     add_to_allowlist,
     load_settings,
@@ -188,6 +189,30 @@ class TestAddToAllowlist:
         env_path = _seed_env(tmp_path)
         add_to_allowlist(str(env_path), "Brute Force")
         assert _mode(env_path) == 0o600
+
+    def test_name_with_a_comma_is_rejected(self, tmp_path: Path) -> None:
+        """NOTIFY_ATTACK_ALLOWLIST is a csv_list: a comma in a name would be
+        written as one element and read back as two, silently, surfacing much
+        later as an allowlist entry that never matches. No attack name contains
+        one today, which is why this has to fail loudly at the write."""
+        env_path = _seed_env(tmp_path, notify_attack_allowlist=["Existing"])
+        before = env_path.read_text()
+
+        with pytest.raises(AllowlistNameError):
+            add_to_allowlist(str(env_path), "Brute Force, Dictionary")
+
+        # And the file is untouched -- no partial write.
+        assert env_path.read_text() == before
+        assert _read_back(env_path)["notify_attack_allowlist"] == ["Existing"]
+
+    def test_comma_is_rejected_before_the_file_is_even_checked(
+        self, tmp_path: Path
+    ) -> None:
+        """The name check precedes the "does the .env exist" check, so the
+        diagnostic names the real problem rather than a missing file."""
+        with pytest.raises(AllowlistNameError):
+            add_to_allowlist(str(tmp_path / ".env"), "a,b")
+        assert list(tmp_path.iterdir()) == []
 
     def test_missing_env_is_an_error_and_creates_nothing(self, tmp_path: Path) -> None:
         env_path = tmp_path / ".env"

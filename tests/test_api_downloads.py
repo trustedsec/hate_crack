@@ -4,6 +4,7 @@ import os
 import pytest
 from unittest.mock import MagicMock, patch
 import hate_crack.api as _api_mod
+from hate_crack import api
 
 from hate_crack.api import (
     check_7z,
@@ -24,6 +25,8 @@ from hate_crack.api import (
     list_and_download_official_wordlists,
 )
 import requests as req_lib
+
+from hate_crack.config_writer import write_env
 
 
 class TestSanitizeFilename:
@@ -456,41 +459,83 @@ class TestGetHcatPotfileArgs:
 
 
 class TestGetHashmobApiKey:
-    def test_returns_key_from_config(self, tmp_path):
-        config_data = {"hashmob_api_key": "abc123secret"}
-        config_file = tmp_path / "config.json"
-        config_file.write_text(json.dumps(config_data))
-        config_path = str(config_file)
-        # Patch isfile so the function sees our config file as the pkg_dir config,
-        # and patch open so reads come from it.
-        with (
-            patch(
-                "hate_crack.api.os.path.isfile", side_effect=lambda p: p == config_path
-            ),
-            patch("hate_crack.api.os.path.dirname", return_value=str(tmp_path)),
-            patch("hate_crack.api.os.path.abspath", side_effect=lambda p: p),
-        ):
-            result = get_hashmob_api_key()
-        assert result == "abc123secret"
+    """These used to patch ``os.path.isfile``/``dirname``/``abspath`` wholesale so
+    the helper's own hand-rolled config.json walk would land on a fixture. That
+    walk is gone -- the helper goes through ``_load_merged_config()`` now -- so
+    the tests patch the two path-resolution seams instead, which is both narrower
+    and actually representative of how the value is found at runtime.
+    """
 
-    def test_returns_none_when_missing(self, tmp_path):
+    def test_returns_key_from_legacy_config(self, tmp_path, monkeypatch):
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"hashmob_api_key": "placeholder-json"}))
+        monkeypatch.setattr(api, "_resolve_env_path", lambda: None)
+        monkeypatch.setattr(api, "_resolve_config_path", lambda: str(config_file))
+
+        assert get_hashmob_api_key() == "placeholder-json"
+
+    def test_returns_none_when_missing(self, tmp_path, monkeypatch):
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({}))
-        config_path = str(config_file)
-        with (
-            patch(
-                "hate_crack.api.os.path.isfile", side_effect=lambda p: p == config_path
-            ),
-            patch("hate_crack.api.os.path.dirname", return_value=str(tmp_path)),
-            patch("hate_crack.api.os.path.abspath", side_effect=lambda p: p),
-        ):
-            result = get_hashmob_api_key()
-        assert result is None
+        monkeypatch.setattr(api, "_resolve_env_path", lambda: None)
+        monkeypatch.setattr(api, "_resolve_config_path", lambda: str(config_file))
 
-    def test_returns_none_when_no_config(self):
-        with patch("hate_crack.api.os.path.isfile", return_value=False):
-            result = get_hashmob_api_key()
-        assert result is None
+        # Schema default is "", which callers test with `if key:` -- so this
+        # helper must keep normalising it to None.
+        assert get_hashmob_api_key() is None
+
+    def test_returns_none_when_no_config(self, monkeypatch):
+        monkeypatch.setattr(api, "_resolve_env_path", lambda: None)
+        monkeypatch.setattr(api, "_resolve_config_path", lambda: None)
+
+        assert get_hashmob_api_key() is None
+
+    def test_env_file_wins_over_a_leftover_config_json(self, tmp_path, monkeypatch):
+        """The regression this fix is for: after migrating to `.env`, updating
+        HASHMOB_API_KEY there must take effect. The old private search order read
+        config.json only, so a user kept getting the stale value with nothing to
+        indicate why.
+        """
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"hashmob_api_key": "placeholder-stale"}))
+        env_file = tmp_path / ".env"
+        write_env(str(env_file), {"hashmob_api_key": "placeholder-current"})
+        monkeypatch.setattr(api, "_resolve_env_path", lambda: str(env_file))
+        monkeypatch.setattr(api, "_resolve_config_path", lambda: str(config_file))
+
+        assert get_hashmob_api_key() == "placeholder-current"
+
+    def test_process_environment_wins_over_the_env_file(self, tmp_path, monkeypatch):
+        env_file = tmp_path / ".env"
+        write_env(str(env_file), {"hashmob_api_key": "placeholder-dotenv"})
+        monkeypatch.setattr(api, "_resolve_env_path", lambda: str(env_file))
+        monkeypatch.setattr(api, "_resolve_config_path", lambda: None)
+        monkeypatch.setenv("HASHMOB_API_KEY", "placeholder-environ")
+
+        assert get_hashmob_api_key() == "placeholder-environ"
+
+
+class TestFetchTorrentMetadataApiKey:
+    def test_api_key_header_comes_from_the_env_file(self, tmp_path, monkeypatch):
+        """fetch_torrent_metadata() had its own copy of the same config.json
+        walk; it must now see a `.env`-only value too."""
+        env_file = tmp_path / ".env"
+        write_env(str(env_file), {"hashmob_api_key": "placeholder-current"})
+        monkeypatch.setattr(api, "_resolve_env_path", lambda: str(env_file))
+        monkeypatch.setattr(api, "_resolve_config_path", lambda: None)
+        monkeypatch.setattr(api, "register_torrent_cleanup", lambda: None)
+
+        seen = {}
+
+        def _fake_get(url, headers=None, timeout=None, **kwargs):
+            seen["headers"] = headers
+            raise RuntimeError("stop here: the header is all this test needs")
+
+        monkeypatch.setattr(api.requests, "get", _fake_get)
+        with pytest.raises(RuntimeError):
+            api.fetch_torrent_metadata("http://example.invalid/a.torrent")
+
+        assert seen["headers"]["api-key"] == "placeholder-current"
 
 
 class TestExtractWith7z:

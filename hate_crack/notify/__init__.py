@@ -45,6 +45,7 @@ from hate_crack.notify._suppress import (
 )
 from hate_crack.notify.pushover import _send_pushover
 from hate_crack.notify.settings import (
+    AllowlistNameError,
     NotifySettings,
     add_to_allowlist,
     load_settings,
@@ -76,6 +77,7 @@ _input_func: Callable[[str], str] = input
 
 
 __all__ = [
+    "AllowlistNameError",
     "CrackTailer",
     "NotifySettings",
     "add_to_allowlist",
@@ -215,7 +217,10 @@ def prompt_notify_for_attack(attack_name: str) -> bool:
                 # same session sees the allowlist without re-reading config.
                 if attack_name not in settings.attack_allowlist:
                     settings.attack_allowlist.append(attack_name)
-            except OSError as exc:
+            except (OSError, AllowlistNameError) as exc:
+                # A name a csv_list cannot represent must not take down the
+                # attack the user was starting; warn and keep the per-run
+                # consent that was already granted above.
                 logger.warning("Could not persist allowlist entry: %s", exc)
         return True
     if answer in ("y", "yes"):

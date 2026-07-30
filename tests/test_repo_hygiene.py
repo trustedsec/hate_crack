@@ -85,6 +85,22 @@ def test_no_secret_artifacts_are_tracked():
     )
 
 
+def test_no_env_file_is_tracked():
+    """`.env` holds the API keys and Pushover credentials that config.json used
+    to, and hate_crack creates it at first startup rather than waiting to be
+    asked -- so a populated one exists in the checkout of anyone who has run the
+    tool. `detect-private-key` is this repo's only secret-scanning hook and CI
+    has none at all, so a tracked `.env` would not be caught anywhere else.
+    `.env.example` is tracked on purpose and must not trip this.
+    """
+    tracked = _git("ls-files", "--", ".env", ".env.*", "**/.env").stdout.split()
+    offenders = [p for p in tracked if not p.endswith(".example")]
+    assert offenders == [], (
+        f"tracked files may contain API keys: {offenders}. "
+        "Remove with `git rm --cached` and confirm .gitignore covers them."
+    )
+
+
 def test_no_tracked_file_lives_in_a_debug_log_directory():
     tracked = _git("ls-files").stdout.splitlines()
     offenders = [p for p in tracked if "hashcat_debug/" in p]
@@ -140,6 +156,16 @@ def pristine_checkout(tmp_path_factory):
         "cracked.xlsx",
         "hashcat.potfile",
         "hashcat.pot",
+        # The .env that replaced config.json, and its backup spellings.
+        ".env",
+        ".env.bak",
+        ".env.bak.20260730",
+        ".env.20260730.bak",
+        ".env.orig",
+        ".env.save",
+        ".env~",
+        "hate_crack/.env",
+        "some/nested/dir/.env",
         "some/nested/dir/hashes.txt.out",
         # Scratch directories, matched by their contents.
         "hashes.txt.rosetta/basewords.txt",
@@ -157,3 +183,17 @@ def test_gitignore_covers_cracked_plaintext_artifacts(pristine_checkout, path):
         check=False,
     )
     assert result.returncode == 0, f"{path} is not covered by the tracked .gitignore"
+
+
+def test_gitignore_does_not_swallow_the_tracked_env_example(pristine_checkout):
+    """`.env.example` is generated from schema defaults, holds no values, and is
+    meant to be tracked. A broad `.env*` rule would silently un-track it.
+    """
+    result = subprocess.run(
+        ["git", "check-ignore", "-q", "--no-index", "--", ".env.example"],
+        cwd=pristine_checkout,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0, ".env.example must not be gitignored"

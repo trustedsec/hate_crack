@@ -303,6 +303,31 @@ def test_api_merged_config_degrades_to_defaults_on_bad_file(monkeypatch, tmp_pat
     assert merged == {entry.legacy: entry.default for entry in CONFIG_SCHEMA}
 
 
+def test_no_api_helper_reads_a_config_file_on_its_own(monkeypatch, tmp_path):
+    """Global constraint: one loader, no second implementation.
+
+    Every api.py path that wants a config value must go through
+    ``_load_merged_config()``. Two of them (``get_hashmob_api_key`` and the
+    torrent-header lookup that now calls it) each kept a private
+    two-directory config.json walk, which is #153 in a third and fourth
+    place and which the .env migration turned into a real regression.
+    Patching the one seam must therefore be enough to control them all.
+    """
+    monkeypatch.setattr(
+        api,
+        "_load_merged_config",
+        lambda: {"hashmob_api_key": "placeholder", "hcatTuning": "-w 3"},
+    )
+
+    assert api.get_hashmob_api_key() == "placeholder"
+    assert api.get_hcat_tuning_args() == ["-w", "3"]
+
+    # And nothing in api.py resolves config paths by hand any more.
+    source = Path(api.__file__).read_text()
+    assert 'os.path.join(pkg_dir, "config.json")' not in source
+    assert source.count('"config.json"') == 0
+
+
 def test_api_and_main_share_one_candidate_root_order(monkeypatch):
     # Opt out of the suite-wide discovery isolation: this test is about the
     # real search order, and the autouse fixture empties it.

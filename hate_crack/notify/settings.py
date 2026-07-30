@@ -156,13 +156,32 @@ def save_per_crack_enabled(env_path: str, enabled: bool) -> None:
     _set_env_key(env_path, "NOTIFY_PER_CRACK_ENABLED", bool(enabled))
 
 
+class AllowlistNameError(ValueError):
+    """Raised when an attack name cannot be stored in the allowlist.
+
+    ``NOTIFY_ATTACK_ALLOWLIST`` is a ``csv_list``, so a name containing a comma
+    would be written as one element and read back as two -- silently, and only
+    noticeable later as an allowlist entry that never matches. No attack name
+    contains a comma today (they are Python identifiers), which is exactly why
+    this needs to be an explicit error rather than a comment: the day one does,
+    the failure should be loud and at the write, not a notification that
+    quietly stops firing.
+    """
+
+
 def add_to_allowlist(env_path: str, attack_name: str) -> None:
     """Append ``attack_name`` to ``NOTIFY_ATTACK_ALLOWLIST`` if absent.
 
-    Idempotent: already-present entries are a no-op.
+    Idempotent: already-present entries are a no-op. Raises
+    :class:`AllowlistNameError` for a name a ``csv_list`` cannot represent.
     """
     if not attack_name:
         return
+    if "," in attack_name:
+        raise AllowlistNameError(
+            f"attack name {attack_name!r} contains a comma and cannot be stored "
+            "in NOTIFY_ATTACK_ALLOWLIST"
+        )
     _require_env_file(env_path)
     current = _get_env_key(env_path, "NOTIFY_ATTACK_ALLOWLIST")
     if not isinstance(current, list):

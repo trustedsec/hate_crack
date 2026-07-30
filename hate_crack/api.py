@@ -876,24 +876,7 @@ def fetch_torrent_metadata(torrent_url, save_dir=None, wordlist_id=None):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
-    hashmob_api_key = None
-    # Try to get hashmob_api_key from config
-    pkg_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.abspath(os.path.join(pkg_dir, os.pardir))
-    for cfg in (
-        os.path.join(pkg_dir, "config.json"),
-        os.path.join(project_root, "config.json"),
-    ):
-        if os.path.isfile(cfg):
-            try:
-                with open(cfg) as f:
-                    config = json.load(f)
-                    key = config.get("hashmob_api_key")
-                    if key:
-                        hashmob_api_key = key
-                        break
-            except Exception:
-                continue
+    hashmob_api_key = get_hashmob_api_key()
     if hashmob_api_key:
         headers["api-key"] = hashmob_api_key
 
@@ -2172,23 +2155,19 @@ def sanitize_filename(filename):
 
 
 def get_hashmob_api_key():
-    """Return hashmob_api_key from config.json in package or project root."""
-    pkg_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.abspath(os.path.join(pkg_dir, os.pardir))
-    for cfg in (
-        os.path.join(pkg_dir, "config.json"),
-        os.path.join(project_root, "config.json"),
-    ):
-        if os.path.isfile(cfg):
-            try:
-                with open(cfg) as f:
-                    config = json.load(f)
-                    key = config.get("hashmob_api_key")
-                    if key:
-                        return key
-            except Exception:
-                continue
-    return None
+    """Return ``hashmob_api_key`` from the merged config, or ``None``.
+
+    Goes through :func:`_load_merged_config` -- and therefore through
+    ``config_loader`` -- like every other config read in this module. It used
+    to walk its own two-directory list of ``config.json`` candidates, which
+    was #153's duplication in a third place and, after the `.env` migration,
+    plainly wrong: a user who updated ``HASHMOB_API_KEY`` in `.env` kept
+    getting the stale value out of a leftover ``config.json``.
+
+    ``None`` rather than ``""`` for "not configured", because callers test it
+    with ``if key:`` and one passes it straight into a request header.
+    """
+    return _load_merged_config().get("hashmob_api_key") or None
 
 
 def download_hashmob_wordlist_list():
