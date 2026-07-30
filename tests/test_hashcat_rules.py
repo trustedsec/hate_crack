@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import shutil
 import subprocess
 import shlex
@@ -9,6 +10,14 @@ import pytest
 
 
 _TEST_HASH = "994a24ad0d9ac6f1fd7d4d75adffeda2"
+
+# Hashcat's own --loopback session bookkeeping races under concurrent/rapid
+# runs sharing ~/.hashcat/sessions/hashcat.induct/: the timestamp+counter
+# filename it just wrote can already be gone (renamed) by the time it re-reads
+# it. That's noise about hashcat's session directory, not about rule parsing.
+_LOOPBACK_SESSION_NOISE_RE = re.compile(
+    r"^.*[/\\]hashcat\.induct[/\\]hashcat\.loopback\.\d+_\d+: No such file or directory$"
+)
 
 
 def _format_hashcat_cmd(cmd: list[str]) -> str:
@@ -104,6 +113,17 @@ def _run_hashcat(
         )
         if opencl_noise:
             pytest.skip(f"hashcat OpenCL device error (environment issue): {stderr!r}")
+
+        loopback_session_noise = all(
+            line == "" or _LOOPBACK_SESSION_NOISE_RE.match(line)
+            for line in stderr.splitlines()
+        )
+        if loopback_session_noise:
+            pytest.skip(
+                "hashcat --loopback session bookkeeping race "
+                f"(environment issue, unrelated to rule parsing): {stderr!r}"
+            )
+
         pytest.fail(
             f"hashcat wrote to stderr (treated as failure). cmd={_format_hashcat_cmd(cmd)!r} stderr={stderr!r}"
         )
@@ -148,6 +168,11 @@ def test_toggle_rule_parses_with_and_without_loopback(tmp_path: Path, capsys):
     # Equivalent to: `echo > empty.txt`
     (tmp_path / "empty.txt").write_text("")
 
+    # Unique per invocation (test name + tmp_path basename, which pytest
+    # already makes unique) so concurrent/back-to-back runs don't share
+    # induct state under ~/.hashcat/sessions/hashcat.induct/.
+    session_base = f"hate_crack_test_toggle_rule_{tmp_path.name}"
+
     cmd_with_loopback = [
         "hashcat",
         *tuning_args,
@@ -158,6 +183,8 @@ def test_toggle_rule_parses_with_and_without_loopback(tmp_path: Path, capsys):
         "--loopback",
         "-r",
         "rules/toggles-lm-ntlm.rule",
+        "--session",
+        f"{session_base}_loopback",
     ]
     cmd_without_loopback = [
         "hashcat",
@@ -168,6 +195,8 @@ def test_toggle_rule_parses_with_and_without_loopback(tmp_path: Path, capsys):
         "empty.txt",
         "-r",
         "rules/toggles-lm-ntlm.rule",
+        "--session",
+        f"{session_base}_no_loopback",
     ]
 
     _run_hashcat(
