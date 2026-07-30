@@ -11,6 +11,17 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ### Added
 
+- **A tracked `.env.example` template, and a startup line naming the config
+  files actually loaded.** `.env.example` is generated from the configuration
+  schema (`uv run python -m hate_crack.config_writer`), so it cannot drift from
+  the key set hate_crack understands, and every credential key ships empty — it
+  is a committed file in a public repo. Startup now prints the resolved
+  `config.json` and `.env` paths, saying so inline when a file was created that
+  run. The search order prefers a repo checkout over `~/.hate_crack`, so a stray
+  `.env` in a checkout silently outranks the real one, and a `.env` in the
+  current working directory is never read at all; two lines of output make both
+  visible instead of leaving them to be rediscovered. Nothing is printed under
+  `HATE_CRACK_SKIP_INIT`. (#217)
 - **`--no-optimized-kernel` (alias `--no-optimize`) disables hashcat's `-O` for
   an entire run.** Until now the only way to turn optimized kernels off was to
   edit `optimizedKernelAttacks` in `config.json`, which persists and has to be
@@ -37,7 +48,16 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   overrides working. On first run both files are created; an existing
   `config.json` holding integration keys has them copied into a new `.env`, and
   hate_crack names the keys to delete from `config.json` rather than editing
-  that file itself.
+  that file itself. **Breaking** for anyone whose integration settings currently
+  live in `config.json`: those keys are no longer read from that file. The
+  migration is automatic and non-destructive — nothing is deleted, moved or
+  rewritten, and until you remove the stale keys yourself every run reminds you
+  which ones they are. Two of the promoted preference keys are namespaced as
+  `HATE_CRACK_DEBUG` and `HATE_CRACK_UPDATE_CHANNEL` on purpose: a bare `DEBUG=1`
+  exported by some unrelated tool must not switch on debug logging in a tool
+  that writes cracked plaintexts to disk. The other two keep their bare spellings
+  (`WEAKPASS_MIN_RANK`, `RESTORE_POTFILE_ON_START`). Adds a dependency on
+  `python-dotenv`. (#217)
 - **Debug logs now default to `~/.hate_crack/hashcat_debug` instead of the
   checkout-relative `./hashcat_debug`.** The old default resolved against
   whatever directory hate_crack was launched from, which for anyone running it

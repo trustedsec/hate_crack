@@ -247,7 +247,10 @@ def test_timeout_error_reports_timeout_guidance(ollama_env, capsys):
     captured = capsys.readouterr()
     assert "timed out" in captured.out.lower()
     assert "300" in captured.out
-    assert "ollamaTimeout" in captured.out
+    # Names the .env key, not the config.json legacy name: OLLAMA_TIMEOUT is a
+    # home="env" key after the split.
+    assert "OLLAMA_TIMEOUT" in captured.out
+    assert ".env" in captured.out
     assert "Ensure Ollama is running" not in captured.out
     popen.assert_not_called()
     assert not os.path.isfile(f"{ollama_env.hash_file}.ollama_candidates")

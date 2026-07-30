@@ -45,7 +45,20 @@ Then customize configuration if needed. hate_crack uses two config files, each o
 - **`config.json`** — wordlist paths, masks, rules, tuning, potfile, hashcat path, candidate limits, notification toggles, CLI preference defaults (35 settings).
 - **`.env`** — third-party integration settings only: Hashview and Hashmob credentials, Pushover credentials, Ollama, and pipal (12 settings). Not tracked by git, created at mode `0600`.
 
+The line falls there for one reason: `.env` is the file that can hold secrets. Credentials for, and configuration of, third-party services go in the untracked, `0600` file; everything hate_crack does locally stays in `config.json`, which is safe to share, diff and check into your own notes. That is also why the Pushover *credentials* are in `.env` while the Pushover on/off *toggles* are in `config.json` — the toggles are local preferences, not secrets.
+
 Each key has exactly one home. A key placed in the other file is ignored, and hate_crack prints a warning naming the file it belongs in. Any key can still be overridden for a single run by exporting its environment variable. Most users can skip this step as default paths work out-of-the-box.
+
+`config.json` is permanent and first-class — it is not deprecated and there is no removal timeline for it. Only the 12 integration settings moved.
+
+**First run:** hate_crack creates both files for you, so there is nothing to do. To set up `.env` by hand instead, copy the tracked template:
+
+```bash
+cp .env.example .env
+chmod 600 .env
+```
+
+`.env.example` is committed and ships with every credential key empty. `.env` itself must **never** be committed — it is gitignored, along with its usual backup spellings, and hate_crack always creates it at mode `0600` (owner read/write only). `.env.example` is generated from the schema; regenerate it after changing `hate_crack/config_schema.py` with `uv run python -m hate_crack.config_writer`.
 
 ### 3. Install dependencies and hate_crack
 
@@ -271,8 +284,19 @@ Most users can use defaults without customization:
 **Configuration loading:**
 - Precedence for each key: `os.environ` > that key's own home file (`.env` or `config.json`) > built-in default
 - Missing keys fall back to the built-in defaults; `config.json.example` documents every `config.json` key
-- Both files are searched in: repo root, package directory, `~/.hate_crack`
+- Both files are searched, independently of each other, in this order: **repo root**, then the **installed package directory**, then **`~/.hate_crack`**. First match wins; it is normal for the two files to come from different directories.
 - On first run, both are created — `config.json` from `config.json.example`, `.env` from the built-in defaults. If an older `config.json` still holds integration keys, they are copied into the new `.env` and hate_crack tells you which ones to delete from `config.json`; it never edits that file itself.
+- On every run, hate_crack prints the two files it actually loaded:
+
+  ```
+  [*] config.json: /home/you/.hate_crack/config.json
+  [*] .env:        /home/you/.hate_crack/.env
+  ```
+
+  Read those two lines before debugging a setting that "isn't taking effect". They exist because of two traps in the search order:
+
+  - **A checkout outranks your home directory.** The repo root is searched first, so a `.env` or `config.json` sitting in *any* checkout you run the tool from wins over the one in `~/.hate_crack` — and running the tool from a checkout is exactly what creates those files there in the first place.
+  - **The current working directory is never searched.** A `.env` in the directory you happen to be standing in is ignored, deliberately: engagement directories are full of files nobody intended as configuration. Put it in the repo root or `~/.hate_crack`.
 
 ### Error: merge with ref 'refs/heads/master' but no such ref was fetched
 
