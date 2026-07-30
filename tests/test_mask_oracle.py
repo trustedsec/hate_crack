@@ -11,8 +11,11 @@ and hashcat exhausted the whole keyspace without a hit, because every hashcat
 built-in charset is ASCII-only (`?a` is exactly 95 candidates) and because
 hashcat masks are byte-oriented while `_mask()` is character-oriented.
 
-Scope is therefore deliberately ASCII. Non-ASCII masks are known-broken and
-tracked in #230; asserting the current broken behaviour here would lock it in.
+Scope is deliberately ASCII, and since #230 that is also what
+``corpus_stats.summarize()`` reports: non-ASCII passwords are excluded from the
+mask counters rather than described by an unusable mask. The last test below
+closes that loop -- it takes every mask ``summarize()`` reports for a *mixed*
+ASCII/non-ASCII corpus and makes hashcat crack it.
 """
 
 import hashlib
@@ -23,6 +26,7 @@ from pathlib import Path
 
 import pytest
 
+from hate_crack import corpus_stats
 from hate_crack.corpus_stats import _mask
 
 
@@ -176,3 +180,51 @@ def test_every_builtin_charset_is_ascii_only():
         "95 is the printable-ASCII set; a different total means masks can now "
         "describe non-ASCII input and #230's analysis needs redoing."
     )
+
+
+# A corpus mixing ASCII with three flavours of non-ASCII: a superscript (the
+# character from #229), an accented letter, and a CJK character. None are
+# password-like. Kept to 3-4 characters so each keyspace exhausts in seconds.
+_MIXED_ASCII = ["ab2x", "Qz7", "kk90"]
+_MIXED_NON_ASCII = ["ab²x", "abéx", "ab中x"]
+
+
+@_requires_hashcat
+def test_every_mask_summarize_reports_for_a_mixed_corpus_is_crackable(
+    tmp_path, request
+):
+    """The fix for #230, proven by the oracle that found the bug.
+
+    Before the fix, `summarize()` reported `?l?l?s?l` for the non-ASCII entries
+    and hashcat exhausted that keyspace without a hit. Now every mask it
+    reports must come from an ASCII password and be crackable.
+    """
+    if not _sessions_writable():
+        pytest.skip("hashcat session directory (~/.hashcat/sessions) is not writable")
+
+    corpus = tmp_path / "mixed.txt"
+    # UTF-8 bytes, as hashcat emits plaintexts.
+    corpus.write_bytes(("\n".join(_MIXED_ASCII + _MIXED_NON_ASCII) + "\n").encode())
+    stats = corpus_stats.summarize(str(corpus))
+
+    assert stats["total"] == len(_MIXED_ASCII) + len(_MIXED_NON_ASCII)
+    assert stats["mask_excluded_non_ascii"] == len(_MIXED_NON_ASCII)
+    assert stats["masks"], "the ASCII half of the corpus must still yield masks"
+
+    by_mask = {_mask(pw): pw for pw in _MIXED_ASCII}
+    for index, (mask, _count) in enumerate(stats["masks"]):
+        assert mask in by_mask, (
+            f"summarize() reported mask {mask!r}, which no ASCII password in the "
+            "corpus produced -- a non-ASCII password leaked into the mask "
+            "counters and hashcat cannot generate its mask (#230)"
+        )
+        plaintext = by_mask[mask]
+        md5_hash = _md5(plaintext)
+        result = _run_mask(
+            md5_hash, mask, session=f"maskoracle_mixed_{index}_{request.node.name}"
+        )
+        combined = result.stdout + result.stderr
+        assert f"{md5_hash}:{plaintext}" in combined, (
+            f"hashcat did not recover {plaintext!r} from the reported mask "
+            f"{mask!r}. exit={result.returncode} output={combined!r}"
+        )

@@ -316,6 +316,107 @@ def test_ascii_digit_behaviour_unchanged_years_masks_suffixes(tmp_path):
 
 
 # --------------------------------------------------------------------------
+# Non-ASCII passwords carry no mask (#230). Every hashcat built-in charset is
+# ASCII-only and hashcat masks are byte-oriented while _mask is
+# character-oriented, so a mask for a non-ASCII password is unusable in two
+# independent ways. Such passwords are excluded from the mask counters and the
+# exclusion is reported; every other statistic is unaffected.
+# --------------------------------------------------------------------------
+
+# Non-ASCII samples, deliberately not password-like: a superscript (#229's
+# character), an accented letter, and a CJK character.
+SUPERSCRIPT = "ab²x"
+ACCENTED = "abéx"
+CJK = "ab中x"
+
+
+def _corpus_utf8(tmp_path, passwords, name="corpus_utf8.txt"):
+    """Write a corpus as UTF-8 bytes, which is how hashcat emits plaintexts.
+
+    summarize() reads latin-1, so a multi-byte character arrives as several
+    non-ASCII characters -- exactly the byte/character mismatch #230 is about.
+    """
+    path = tmp_path / name
+    path.write_bytes(("\n".join(passwords) + "\n").encode("utf-8"))
+    return str(path)
+
+
+def test_non_ascii_passwords_contribute_no_mask_but_count_everywhere_else(tmp_path):
+    path = _corpus_utf8(tmp_path, ["abcx", SUPERSCRIPT, ACCENTED, CJK])
+    stats = corpus_stats.summarize(path)
+
+    assert stats["total"] == 4
+    assert stats["mask_total"] == 1
+    assert stats["mask_excluded_non_ascii"] == 3
+    # The only mask reported is the ASCII password's, once.
+    assert stats["masks"] == [("?l?l?l?l", 1)]
+    # Lengths still cover all four (byte lengths, since the file is read as
+    # latin-1), and the non-ASCII passwords still produce basewords.
+    assert sum(count for _n, count in stats["lengths"]) == 4
+    assert dict(stats["basewords"])
+    assert sum(dict(stats["basewords"]).values()) == 4
+
+
+def test_mask_shares_use_the_mask_eligible_denominator(tmp_path):
+    """A wrong denominator (total) would render 30%, not 50%."""
+    ascii_pws = ["abcx", "defx", "ghix"]
+    non_ascii = [SUPERSCRIPT, ACCENTED, CJK, "zé", "y中", "x²", "wé"]
+    path = _corpus_utf8(tmp_path, ascii_pws + non_ascii)
+    stats = corpus_stats.summarize(path)
+
+    assert stats["total"] == 10
+    assert stats["mask_total"] == 3
+    assert stats["masks"] == [("?l?l?l?l", 3)]
+
+    text = corpus_stats.format_summary(stats)
+    mask_line = next(line for line in text.splitlines() if line.startswith("Masks"))
+    assert "?l?l?l?l (3x, 100%)" in mask_line
+    # 3/10 would be the whole-corpus share and is the bug this guards.
+    assert "30%" not in mask_line
+
+
+def test_format_summary_names_the_exclusion_counts(tmp_path):
+    path = _corpus_utf8(tmp_path, ["abcx", "defx", SUPERSCRIPT, CJK])
+    text = corpus_stats.format_summary(corpus_stats.summarize(path))
+    assert "Masks (over 2 of 4; 2 excluded as non-ASCII):" in text
+
+
+def test_format_summary_reports_exclusion_when_no_masks_survive(tmp_path):
+    path = _corpus_utf8(tmp_path, [SUPERSCRIPT, ACCENTED, CJK])
+    stats = corpus_stats.summarize(path)
+    assert stats["masks"] == []
+    text = corpus_stats.format_summary(stats)
+    assert "Masks (over 0 of 3; 3 excluded as non-ASCII): none" in text
+
+
+def test_format_summary_is_byte_identical_for_an_all_ascii_corpus(tmp_path):
+    """The regression guard that matters most: this text goes into an LLM
+    prompt, so its shape must not change for the all-ASCII corpora every
+    existing user has. Expected value written out in full, not derived.
+    """
+    path = _corpus(tmp_path, ["Alpha2024!", "alpha1", "alpha1", "BRAVO"])
+    text = corpus_stats.format_summary(corpus_stats.summarize(path))
+    assert text == (
+        "Corpus: 4 passwords (3 distinct, 2 distinct basewords). "
+        "These figures cover the ENTIRE corpus, not a sample.\n"
+        "Lengths: 5 chars (1x, 25%), 6 chars (2x, 50%), 10 chars (1x, 25%)\n"
+        "Casing: all lowercase (2x, 50%), Capitalized (1x, 25%), "
+        "ALL UPPERCASE (1x, 25%)\n"
+        "Masks: ?l?l?l?l?l?d (2x, 50%), ?u?l?l?l?l?d?d?d?d?s (1x, 25%), "
+        "?u?u?u?u?u (1x, 25%)\n"
+        "Trailing digits: 1 (2x, 50%)\n"
+        "Trailing symbols: ! (1x, 25%)\n"
+        "Symbols used: ! (1x, 25%)\n"
+        "Years: 2024 (1x, 25%)\n"
+        "\nTop basewords by share of corpus (of 2 distinct):\n"
+        "  alpha (3x, 75%)\n"
+        "  bravo (1x, 25%)\n"
+    )
+    # "Masks:" with no parenthetical is the pre-#230 rendering.
+    assert "excluded as non-ASCII" not in text
+
+
+# --------------------------------------------------------------------------
 # format_summary
 # --------------------------------------------------------------------------
 

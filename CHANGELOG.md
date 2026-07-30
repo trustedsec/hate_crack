@@ -195,6 +195,24 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ### Fixed
 
+- **Mask statistics claimed coverage hashcat cannot deliver for non-ASCII
+  passwords (#230).** `corpus_stats._mask()` mapped any non-ASCII character to
+  `?s`, but every hashcat built-in charset is ASCII-only (`?a` is exactly 95
+  candidates), and worse, hashcat masks are *byte*-oriented while `_mask()` is
+  *character*-oriented — `ab²x` is four characters but five UTF-8 bytes, so no
+  four-position mask can describe it under any charset. The reported masks were
+  therefore wrong in both charset and length, and `format_summary()` fed them to
+  the LLM as if they were usable. Non-ASCII passwords are now excluded from the
+  mask counters, and the exclusion is stated on the Masks line, e.g.
+  `Masks (over 9,412 of 9,533; 121 excluded as non-ASCII): ...`. Mask shares are
+  divided by the mask-eligible count rather than the corpus total, so a corpus
+  that is 30% non-ASCII no longer understates every mask by that fraction. Every
+  other statistic — lengths, casing, basewords, suffixes, symbols, years — still
+  counts the excluded passwords exactly as before, and for an all-ASCII corpus
+  the rendered summary is byte-identical to the previous release. The hashcat
+  oracle added under this issue now also proves that every mask `summarize()`
+  reports for a mixed corpus is crackable by real hashcat.
+
 - **A Unicode digit (e.g. the superscript `²`) in a wordlist crashed corpus
   analysis for the LLM attack modes (#229).** `corpus_stats._years` guarded an
   `int()` call with `str.isdigit()`, which is `True` for Unicode digits that

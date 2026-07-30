@@ -65,8 +65,29 @@ def _is_ascii_digit(c):
     return "0" <= c <= "9"
 
 
+def _mask_eligible(pw):
+    """Return True iff a hashcat mask can describe *pw* at all.
+
+    hashcat masks are ASCII-only in two independent ways (#230): every built-in
+    charset is ASCII (``?a`` is exactly the 95 printable ASCII characters), and
+    masks are *byte*-oriented while :func:`_mask` is *character*-oriented, so a
+    4-character/5-byte string such as ``ab\xb2x`` cannot be described by any
+    4-position mask regardless of which charset symbols are chosen. Rather than
+    report a mask an operator cannot paste into a hashcat command, non-ASCII
+    passwords are left out of the mask counters entirely and the exclusion is
+    reported alongside them.
+    """
+    return pw.isascii()
+
+
 def _mask(pw):
-    """Return the hashcat-style character-class mask for *pw*."""
+    """Return the hashcat-style character-class mask for *pw*.
+
+    Only meaningful for ASCII input; see :func:`_mask_eligible`. It is left
+    total rather than made to raise so that the ASCII contract its callers and
+    tests rely on is untouched by #230 — :func:`summarize` simply stops calling
+    it for non-ASCII passwords.
+    """
     out = []
     for c in pw:
         if _is_ascii_digit(c):
@@ -132,6 +153,8 @@ def summarize(path):
     specials = Counter()
     years = Counter()
     total = 0
+    mask_total = 0
+    mask_excluded_non_ascii = 0
     hash_shaped = 0
     unique = set()
 
@@ -145,7 +168,11 @@ def summarize(path):
                 hash_shaped += 1
             unique.add(pw)
             lengths[len(pw)] += 1
-            masks[_mask(pw)] += 1
+            if _mask_eligible(pw):
+                mask_total += 1
+                masks[_mask(pw)] += 1
+            else:
+                mask_excluded_non_ascii += 1
             shapes[_case_shape(pw)] += 1
 
             base, _rule = rulegen.derive(pw)
@@ -190,6 +217,11 @@ def summarize(path):
         "basewords": ranked_basewords,
         "baseword_total": len(basewords),
         "masks": masks.most_common(TOP_MASKS),
+        # Mask shares are computed over the passwords a mask could describe,
+        # not over the whole corpus: dividing by "total" would understate every
+        # mask by the non-ASCII fraction.
+        "mask_total": mask_total,
+        "mask_excluded_non_ascii": mask_excluded_non_ascii,
         "lengths": sorted(lengths.items()),
         "shapes": shapes.most_common(),
         "digit_suffixes": digit_suffixes.most_common(TOP_SUFFIXES),
@@ -253,7 +285,27 @@ def format_summary(stats):
         )
 
     out.append(_line("Casing", stats["shapes"], total))
-    out.append(_line("Masks", stats["masks"], total))
+    # Non-ASCII passwords carry no mask (#230), so masks are shares of the
+    # mask-eligible population. A stats dict without the key falls back to the
+    # whole corpus, which is also the correct denominator whenever nothing was
+    # excluded. When nothing is excluded the label and the shares are
+    # byte-identical to what this rendered before #230.
+    mask_total = stats.get("mask_total", total)
+    mask_excluded = stats.get("mask_excluded_non_ascii", 0)
+    if mask_excluded:
+        mask_label = (
+            f"Masks (over {mask_total:,} of {total:,}; "
+            f"{mask_excluded:,} excluded as non-ASCII)"
+        )
+    else:
+        mask_label = "Masks"
+    if stats["masks"]:
+        out.append(_line(mask_label, stats["masks"], mask_total))
+    elif mask_excluded:
+        # An all-non-ASCII corpus has no masks at all; _line would render
+        # nothing and the omission would look like an absent statistic rather
+        # than a deliberate exclusion.
+        out.append(f"{mask_label}: none\n")
     out.append(_line("Trailing digits", stats["digit_suffixes"], total))
     out.append(_line("Trailing symbols", stats["special_suffixes"], total))
     out.append(_line("Symbols used", stats["specials"], total))
