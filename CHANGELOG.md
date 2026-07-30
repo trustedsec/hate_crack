@@ -10,6 +10,19 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 ## [Unreleased]
 
 ### Added
+- **A hashcat-backed correctness oracle for the mask generator, in
+  `tests/test_mask_oracle.py`.** Every other `_mask()` test compares against a
+  hand-written expected string, which only proves the function agrees with our
+  own belief about what `?l`/`?d`/`?s` mean. These tests ask hashcat instead:
+  hash a short synthetic plaintext, hand hashcat the mask `_mask()` produced,
+  and assert hashcat recovers the plaintext. A negative control asserts a
+  deliberately wrong mask is *not* cracked, so a potfile hit or an output-format
+  change cannot make the positive cases pass vacuously (`--potfile-disable` is
+  passed for the same reason). A third test pins that `?a` is exactly 95
+  candidates -- the printable-ASCII set -- which is the fact #230 rests on.
+  Skips when hashcat is absent, so it is effectively local-only: CI does not
+  install hashcat. This oracle is what found #230. (#230)
+
 
 - **Two `pre-commit` guards that enforce the publication boundary and catch a
   corrupt index, in `.github/scripts/`.** The boundary was documented but not
