@@ -142,14 +142,36 @@ _GUARD_BLOCK_END = "# --- end guard constants ---"
 def _strip_self_exemption_block(text: str) -> str:
     """Remove the marked constants block from this file's own text.
 
-    Raises if either marker is missing, so a reorder or accidental deletion
-    makes the guard fail loudly instead of silently scanning nothing (if both
-    markers vanished along with the block) or the whole file including the
-    legitimate constants (if the strip silently no-ops).
+    Matches markers by whole-line equality, not substring, so the constant
+    definitions below (``_GUARD_BLOCK_START = "..."`` /
+    ``_GUARD_BLOCK_END = "..."``) — which contain the marker text but are not
+    equal to it as a line — cannot be mistaken for the real markers.
+
+    Requires exactly one start line and exactly one end line, with the end
+    strictly after the start, and raises a marker-specific ``ValueError``
+    otherwise. That makes a renamed/deleted/duplicated marker fail this test
+    loudly instead of silently stripping the wrong range (too little, too
+    much, or nothing).
     """
-    start = text.index(_GUARD_BLOCK_START)
-    end = text.index(_GUARD_BLOCK_END, start) + len(_GUARD_BLOCK_END)
-    return text[:start] + text[end:]
+    lines = text.splitlines(keepends=True)
+    start_idxs = [
+        i for i, line in enumerate(lines) if line.strip() == _GUARD_BLOCK_START
+    ]
+    end_idxs = [i for i, line in enumerate(lines) if line.strip() == _GUARD_BLOCK_END]
+
+    if len(start_idxs) != 1:
+        raise ValueError(
+            f"expected exactly one guard-block start marker, found {len(start_idxs)}"
+        )
+    if len(end_idxs) != 1:
+        raise ValueError(
+            f"expected exactly one guard-block end marker, found {len(end_idxs)}"
+        )
+    start_idx, end_idx = start_idxs[0], end_idxs[0]
+    if end_idx <= start_idx:
+        raise ValueError("guard-block end marker does not follow start marker")
+
+    return "".join(lines[:start_idx] + lines[end_idx + 1 :])
 
 
 def test_no_tracked_file_references_unpublished_dev_paths():
@@ -166,9 +188,9 @@ def test_no_tracked_file_references_unpublished_dev_paths():
         except (UnicodeDecodeError, OSError):
             continue
         if path == _SELF_PATH:
-            # Markers are required, not optional: index() raises ValueError if
-            # either is missing, which fails this test loudly rather than
-            # letting the scan quietly cover nothing or everything.
+            # Markers are required, exactly-once, and ordered: see
+            # _strip_self_exemption_block's docstring for why a missing,
+            # duplicated, or reordered marker must fail this test loudly.
             text = _strip_self_exemption_block(text)
         if any(ref in text for ref in UNPUBLISHED_PATH_REFERENCES):
             offenders.append(path)
