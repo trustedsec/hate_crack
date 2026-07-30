@@ -42,7 +42,7 @@ No PyPI API token is created or stored in repository secrets.
 referenced by `auto-tag.yml`, `nightly-tag.yml`, or `release.yml`
 (`tests/test_pypi_placeholder.py` asserts this). Because the workflow must exist
 on the default branch to appear in the Actions UI, dispatch it from `main` after
-the weekly integration merge.
+the batch integration merge.
 
 ```
 Actions → Publish PyPI name placeholder → Run workflow

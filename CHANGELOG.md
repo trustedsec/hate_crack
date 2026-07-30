@@ -21,7 +21,7 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   `pip install hate-crack` aborts with source install instructions rather than
   silently succeeding. Publishing is a `workflow_dispatch`-only workflow using
   Trusted Publishing (OIDC, no stored token) that the release tag automation
-  cannot reach. Source install remains the only supported path.
+  cannot reach. Source install remains the only supported path. (#218)
 
 - **`--no-optimized-kernel` (alias `--no-optimize`) disables hashcat's `-O` for
   an entire run.** Until now the only way to turn optimized kernels off was to

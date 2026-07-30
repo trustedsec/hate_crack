@@ -7,7 +7,7 @@ updates:
   # since 2025-12).
   - package-ecosystem: "uv"
     directory: "/"
-    # All PRs target nightly-dev; main receives work only via the weekly
+    # All PRs target nightly-dev; main receives work only via the batch
     # integration merge. Without this, Dependabot opens against the repo
     # default branch (main) and bypasses that cadence.
     target-branch: "nightly-dev"

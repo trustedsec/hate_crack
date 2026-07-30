@@ -2,9 +2,9 @@ name: Nightly Tag
 
 # Tags nightly-dev with a PEP 440 pre-release (e.g. v2.17.0-rc.3) after CI
 # passes. Full releases are cut only by auto-tag.yml, and only on main, when
-# nightly-dev is merged down at the weekly integration.
+# nightly-dev is merged down at the batch integration.
 #
-# The tag names the version the weekly merge will cut, so v2.17.0-rc.3 means
+# The tag names the version the batch merge will cut, so v2.17.0-rc.3 means
 # "third validated nightly build heading for 2.17.0". setuptools-scm resolves it
 # to 2.17.0rc3, which PEP 440 orders after 2.16.0 and before 2.17.0.
 #
@@ -80,7 +80,7 @@ jobs:
           patch=$(echo "$base_version" | cut -d. -f3)
 
           # Same bump precedence as auto-tag.yml (major > minor > patch), so the
-          # tag names the version the weekly merge to main will cut.
+          # tag names the version the batch merge to main will cut.
           bump="none"
           while IFS= read -r sha; do
             [ -n "$sha" ] || continue
