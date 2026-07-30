@@ -1477,7 +1477,21 @@ def _dedup_netntlm_by_username(
     return total, duplicates
 
 
-def _run_hashcat_show(hash_type, hash_file, output_path):
+def _run_hashcat_show(hash_type, hash_file, output_path, force_overwrite=False):
+    """Rewrite `output_path` from `hashcat --show`, refusing to destroy data.
+
+    `--show` can legitimately come back empty (cracks captured via `-o` only, an
+    empty or stale `hcatPotfilePath`, a `--username` parse mismatch) and hashcat
+    can fail outright. Either case used to truncate an already populated
+    `<hashfile>.out` to zero bytes, which on the pwdump path is the only copy of
+    the cracked passwords at the time `cleanup()` runs (issue #195).
+
+    So: a non-zero exit never touches the file, and empty output only replaces an
+    existing non-empty file when `force_overwrite` is set - which is what
+    `restore_from_potfile()` asks for after confirming with the operator. The
+    replacement itself goes through a temp file so an interrupted write cannot
+    leave a half-file behind. Returns True when `output_path` was written.
+    """
     cmd = [
         hcatBin,
         "--show",
@@ -1494,14 +1508,48 @@ def _run_hashcat_show(hash_type, hash_file, output_path):
     result = subprocess.run(
         cmd,
         stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
         check=False,
     )
-    with open(output_path, "w") as out:
-        for line in result.stdout.decode("utf-8", errors="ignore").splitlines():
-            # hashcat --show prints parse errors to stdout; skip non-result lines
-            if ":" in line and not line.startswith(("Hash parsing error", "* ")):
+    if result.returncode != 0:
+        print(
+            f"Warning: hashcat --show exited with code {result.returncode};"
+            f" leaving {output_path} unchanged."
+        )
+        stderr_output = result.stderr.decode("utf-8", errors="replace").strip()
+        if stderr_output:
+            print(f"  hashcat: {stderr_output.splitlines()[-1]}")
+        return False
+    lines = [
+        line
+        for line in result.stdout.decode("utf-8", errors="ignore").splitlines()
+        # hashcat --show prints parse errors to stdout; skip non-result lines
+        if ":" in line and not line.startswith(("Hash parsing error", "* "))
+    ]
+    if not lines and not force_overwrite:
+        try:
+            already_populated = os.path.getsize(output_path) > 0
+        except OSError:
+            already_populated = False
+        if already_populated:
+            print(
+                f"Warning: hashcat --show returned no results; preserving the"
+                f" existing contents of {output_path}."
+            )
+            return False
+    temp_path = output_path + ".show.tmp"
+    try:
+        with open(temp_path, "w") as out:
+            for line in lines:
                 out.write(line + "\n")
+        os.replace(temp_path, output_path)
+    finally:
+        if os.path.isfile(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+    return True
 
 
 # Brute Force Attack
@@ -3924,9 +3972,20 @@ def hcatGenerateRules(hcatHashType, hcatHashFile, rule_count, wordlist):
     hcatGenerateRulesCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
 
-def check_potfile():
+def check_potfile(force_overwrite=False):
+    """Refresh `<hashfile>.out` from the POT file.
+
+    `force_overwrite` is for the deliberate rebuild path (`restore_from_potfile`
+    and `--restore-potfile`), which has already confirmed with the operator that
+    an empty POT file may replace whatever is there.
+    """
     print("Checking POT file for already cracked hashes...")
-    _run_hashcat_show(hcatHashType, hcatHashFile, f"{hcatHashFile}.out")
+    _run_hashcat_show(
+        hcatHashType,
+        hcatHashFile,
+        f"{hcatHashFile}.out",
+        force_overwrite=force_overwrite,
+    )
     hcatHashCracked = lineCount(hcatHashFile + ".out")
     if hcatHashCracked > 0:
         print(
@@ -3965,24 +4024,30 @@ def restore_from_potfile():
     ):
         print("Left the existing output file untouched.")
         return False
-    check_potfile()
+    check_potfile(force_overwrite=True)
     return True
 
 
 # creating the combined output for pwdformat + cleartext
 def combine_ntlm_output():
     hashes = {}
+    # Nothing to merge onto: without a pwdump original these are the same file,
+    # and the old code opened its own input with "w+", truncating every cracked
+    # password it had just read (issue #195). Compare resolved paths so a
+    # different spelling of the same file is caught too. This runs *before*
+    # check_potfile() deliberately: in the same-path case the function has no
+    # work to do, so rewriting `.out` from the POT file here is pure risk with no
+    # upside - every attack already passes `-o <hashfile>.out`, so that file is
+    # hashcat's own record of the cracks, and a POT file that is empty or holds a
+    # subset of them can only subtract.
+    orig_path = str(hcatHashFileOrig)
+    live_path = str(hcatHashFile)
+    if os.path.abspath(orig_path) == os.path.abspath(live_path):
+        print("Hash file is not pwdump format; nothing to combine.")
+        return
     check_potfile()
     if not os.path.isfile(hcatHashFile + ".out"):
         print("No hashes found in POT file.")
-        return
-    # Nothing to merge onto: without a pwdump original these are the same file
-    # (every assignment site sets hcatHashFileOrig = hcatHashFile verbatim, so a
-    # plain equality check is sufficient here), and the old code opened its own
-    # input with "w+", truncating every cracked password it had just read
-    # (issue #195).
-    if hcatHashFileOrig == hcatHashFile:
-        print("Hash file is not pwdump format; nothing to combine.")
         return
     with open(hcatHashFile + ".out", "r") as hcatCrackedFile:
         for crackedLine in hcatCrackedFile:
@@ -6201,7 +6266,7 @@ def main():
     # rebuild even when .out already exists; the flag is the explicit request,
     # so it skips the interactive overwrite confirmation.
     if getattr(args, "restore_potfile", False):
-        check_potfile()
+        check_potfile(force_overwrite=True)
     elif not os.path.isfile(hcatHashFile + ".out"):
         hcatOutput = open(hcatHashFile + ".out", "w+")
         hcatOutput.close()

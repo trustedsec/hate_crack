@@ -88,3 +88,134 @@ def test_no_temp_file_is_left_behind(main_module, tmp_path, monkeypatch):
 
     leftovers = [p.name for p in tmp_path.iterdir() if ".combine" in p.name]
     assert leftovers == []
+
+
+def _stub_hashcat(tmp_path, main_module, monkeypatch, *, exit_code=0, stdout=""):
+    """Install a stub `hcatBin` so check_potfile() can run for real.
+
+    The existing tests above all mock check_potfile out, which is precisely the
+    call that truncated the cracked output, so they cannot see the bug. These
+    drive the real code path with a hashcat that reports no cracks.
+    """
+    stub = tmp_path / "hashcat_stub.sh"
+    body = "#!/bin/sh\n"
+    if stdout:
+        body += f"cat <<'HCEOF'\n{stdout}HCEOF\n"
+    body += f"exit {exit_code}\n"
+    stub.write_text(body)
+    stub.chmod(0o755)
+    monkeypatch.setattr(main_module, "hcatBin", str(stub))
+    monkeypatch.setattr(main_module, "hcatPotfilePath", "")
+    monkeypatch.setattr(main_module, "hcatHashType", "1000", raising=False)
+    monkeypatch.setattr(main_module, "hcatUsernamePrefix", False, raising=False)
+    return stub
+
+
+def test_non_pwdump_out_survives_unmocked_check_potfile(
+    main_module, tmp_path, monkeypatch
+):
+    """Same-path case with the real check_potfile: nothing may be truncated."""
+    _, out = _setup(tmp_path, main_module, monkeypatch, pwdump=False)
+    _stub_hashcat(tmp_path, main_module, monkeypatch)
+    before = out.read_bytes()
+
+    main_module.combine_ntlm_output()
+
+    assert out.read_bytes() == before
+
+
+def test_pwdump_out_survives_unmocked_check_potfile_with_no_destination_yet(
+    main_module, tmp_path, monkeypatch
+):
+    """cleanup()'s worst case: the merged file does not exist yet, so
+    `<hcatHashFile>.out` is the only copy of the cracked passwords."""
+    orig, out = _setup(tmp_path, main_module, monkeypatch, pwdump=True)
+    _stub_hashcat(tmp_path, main_module, monkeypatch)
+    destination = tmp_path / "hashes.txt.out"
+    assert not destination.exists()
+    before = out.read_bytes()
+
+    main_module.combine_ntlm_output()
+
+    assert out.read_bytes() == before, "cracked output was destroyed"
+    combined = destination.read_text()
+    assert "alice" in combined and "bob" in combined
+
+
+def test_hashcat_show_failure_leaves_output_intact(
+    main_module, tmp_path, monkeypatch, capsys
+):
+    """A non-zero hashcat exit must neither truncate nor pass silently."""
+    _, out = _setup(tmp_path, main_module, monkeypatch, pwdump=True)
+    _stub_hashcat(tmp_path, main_module, monkeypatch, exit_code=255)
+    before = out.read_bytes()
+
+    main_module.combine_ntlm_output()
+
+    assert out.read_bytes() == before
+    assert "exited with code 255" in capsys.readouterr().out
+
+
+def test_run_hashcat_show_preserves_populated_output_on_empty_result(
+    main_module, tmp_path, monkeypatch
+):
+    _stub_hashcat(tmp_path, main_module, monkeypatch)
+    hash_file = tmp_path / "hashes.txt"
+    hash_file.write_text(f"{'a' * 32}\n")
+    out = tmp_path / "hashes.txt.out"
+    out.write_text(f"{'a' * 32}:pw-a\n")
+
+    wrote = main_module._run_hashcat_show("1000", str(hash_file), str(out))
+
+    assert wrote is False
+    assert out.read_text() == f"{'a' * 32}:pw-a\n"
+
+
+def test_run_hashcat_show_force_overwrite_still_replaces_content(
+    main_module, tmp_path, monkeypatch
+):
+    """restore_from_potfile() asks the operator first, then means it."""
+    _stub_hashcat(tmp_path, main_module, monkeypatch)
+    hash_file = tmp_path / "hashes.txt"
+    hash_file.write_text(f"{'a' * 32}\n")
+    out = tmp_path / "hashes.txt.out"
+    out.write_text(f"{'a' * 32}:pw-a\n")
+
+    wrote = main_module._run_hashcat_show(
+        "1000", str(hash_file), str(out), force_overwrite=True
+    )
+
+    assert wrote is True
+    assert out.read_text() == ""
+
+
+def test_run_hashcat_show_writes_results_and_leaves_no_temp_file(
+    main_module, tmp_path, monkeypatch
+):
+    _stub_hashcat(tmp_path, main_module, monkeypatch, stdout=f"{'a' * 32}:pw-a\n")
+    hash_file = tmp_path / "hashes.txt"
+    hash_file.write_text(f"{'a' * 32}\n")
+    out = tmp_path / "hashes.txt.out"
+
+    assert main_module._run_hashcat_show("1000", str(hash_file), str(out)) is True
+    assert out.read_text() == f"{'a' * 32}:pw-a\n"
+    assert [p.name for p in tmp_path.iterdir() if ".show.tmp" in p.name] == []
+
+
+def test_same_path_guard_catches_a_different_spelling(
+    main_module, tmp_path, monkeypatch, capsys
+):
+    plain, out = _setup(tmp_path, main_module, monkeypatch, pwdump=False)
+    monkeypatch.setattr(
+        main_module,
+        "hcatHashFileOrig",
+        str(tmp_path / "." / "hashes.txt"),
+        raising=False,
+    )
+    _stub_hashcat(tmp_path, main_module, monkeypatch)
+    before = out.read_bytes()
+
+    main_module.combine_ntlm_output()
+
+    assert "not pwdump format" in capsys.readouterr().out
+    assert out.read_bytes() == before
