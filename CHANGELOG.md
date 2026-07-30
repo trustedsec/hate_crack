@@ -9,7 +9,53 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ## [Unreleased]
 
+### Added
+
+
+- **`optimizedKernelAttacks` now works for the N-gram, LLM, OMEN, and LM-to-NT
+  attacks, and is documented.** All four built their hashcat command without
+  ever consulting the setting, so listing them had no effect. They honour it
+  now, but stay out of the default set — each feeds candidates that can exceed
+  the length ceiling `-O` imposes, so enabling it is opt-in rather than a
+  silent keyspace reduction for anyone already running them. An unrecognized
+  entry in the list is now reported at startup instead of being ignored, and
+  README documents the flag's trade-off along with the delegation rule that
+  makes PRINCE-LING follow `hcatPrince` and Spoonman follow
+  `hcatQuickDictionary`.
+
+- **The Ad-hoc Mask Attack (option 14) now accepts a mask file.** The attack
+  opens with a choice between typing a mask and selecting a `.hcmask` file, the
+  latter with tab completion rooted at the bundled `masks/` directory. Mask
+  files carry their own charset definitions, so the `-1` through `-4` prompts are
+  skipped on that path. This makes the hundreds of masks already shipped in
+  `masks/` usable without retyping them, and lets a generated or hand-written
+  mask list run without a dedicated menu entry.
+
+
+- **On-demand regeneration of `<hashfile>.out` from the POT file.** New main
+  menu option **93** ("Regenerate .out from POT file") and a matching
+  `--restore-potfile` startup flag. `check_potfile()` already rebuilt the
+  output file from `hashcat --show`, but it was only reachable as a side effect
+  of `combine_ntlm_output()`, and the startup POT lookup ran only when `.out`
+  did not already exist — so a truncated or lost output file could not be
+  restored without deleting it and restarting. The menu path prints the
+  existing cracked-hash count and asks for confirmation before overwriting
+  (auto-confirming when stdin is not a TTY); the flag is treated as an explicit
+  request and skips the prompt.
+- **LLM Pattern Rules mode** (option 4 in the LLM Attack submenu). Mirrors the
+  Spoonman Attack's shape — a baseword list run through hashcat rules — but
+  infers the basewords rather than extracting them. Spoonman's `rulegen` is
+  lossless and therefore literal: it can only emit cores that already appear in
+  its corpus. This mode instead asks the local model to identify the word
+  families behind a sample (company and products, site names, local teams,
+  seasons, mascots) and enumerate members the sample does not contain, then runs
+  those basewords against rule file(s) chosen from the rules directory. The
+  pattern source is either the session's cracked passwords or a sample wordlist;
+  model output is normalized to lowercase letters only, since the rules supply
+  case, digits, and punctuation. Basewords land in `<hashfile>.llm_patterns`,
+  which `cleanup()` removes on exit.
 ### Changed
+
 
 - **LLM Pattern Rules (LLM submenu option 4) now generates its own rule file
   instead of prompting for one.** The mode was named for rules it never wrote:
@@ -42,46 +88,59 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   `rules.rule`, mirroring `.spoonman/`. Cleanup removes either shape, so
   scratch left by an earlier version is still cleared.
 
-### Fixed
 
-- **"Leave blank to skip" skipped every remaining custom charset, not just
-  one.** The Ad-hoc Mask Attack prompts for charsets `-1` through `-4`, but a
-  blank answer broke out of the loop, so a mask using `?1` and `?3` without
-  `?2` could not be entered and hashcat failed on the undefined token. Each
-  slot is now independently skippable.
-- **README documented a menu environment variable that does not exist.** It
-  named `HATE_CRACK_PLAIN_MENU=1` (read by nothing) and claimed arrow-key
-  navigation is the default. Numbered menus are the default; arrow keys are
-  opt-in through `HATE_CRACK_ARROW_MENU=1`, which was undocumented.
-- **README told contributors to install a `post-commit` hook that does not
-  exist, and omitted the `pre-commit` stage that does.** `prek.toml` defines six
-  local `pre-push` hooks (the documented list was missing `ruff-format` and
-  `bandit`) plus six `pre-commit` hooks from `pre-commit/pre-commit-hooks`,
-  including the repo's only secret-scanning gate. Following the old
-  instructions left `detect-private-key` uninstalled.
+- **Hash-prefix stripping is now based on digest shape rather than the first
+  colon.** New module `hate_crack/plaintext.py` holds the single implementation
+  shared by the LLM read path, `corpus_stats`, and `rulegen`. A leading field is
+  dropped only when it has the shape of a hash — a hex digest at a known length,
+  or a crypt-style `$id$` string — so `hash:salt:plain` is handled, a plaintext
+  containing colons survives intact, and a wordlist entry that merely contains a
+  colon (a URL, a ratio, a time of day) is no longer truncated. Previously the
+  LLM modes split unconditionally on the first colon.
 
-### Added
+- **The LLM modes now describe the whole corpus statistically instead of pasting
+  in a sample of it.** New module `hate_crack/corpus_stats.py` aggregates every
+  password in the source file — baseword shares (reusing `rulegen.derive`, the
+  same extraction the Spoonman attack uses), masks, casing, lengths, trailing
+  digits and symbols, and years — and the prompt carries that summary. Output is
+  bounded, so a 120,000-password dump costs roughly the prompt space a 500-line
+  sample did. Literal plaintexts are still included when the whole corpus fits
+  under `ollamaMaxSampleLines`.
 
-- **`optimizedKernelAttacks` now works for the N-gram, LLM, OMEN, and LM-to-NT
-  attacks, and is documented.** All four built their hashcat command without
-  ever consulting the setting, so listing them had no effect. They honour it
-  now, but stay out of the default set — each feeds candidates that can exceed
-  the length ceiling `-O` imposes, so enabling it is opt-in rather than a
-  silent keyspace reduction for anyone already running them. An unrecognized
-  entry in the list is now reported at startup instead of being ignored, and
-  README documents the flag's trade-off along with the delegation rule that
-  makes PRINCE-LING follow `hcatPrince` and Spoonman follow
-  `hcatQuickDictionary`.
+  An evenly-spaced sample conveyed no frequency information, so the model could
+  not tell a baseword used by 8% of an organization from one used by a single
+  person. It also did not reliably fit: at the old `ollamaNumCtx` of 2048, 500
+  plaintexts (~2,000–3,500 tokens) plus the system prompt and response exceeded
+  the context window, and Ollama silently truncated part of the sample.
+  `ollamaMaxSampleLines` keeps its meaning as the "small enough to send
+  verbatim" threshold.
 
-- **The Ad-hoc Mask Attack (option 14) now accepts a mask file.** The attack
-  opens with a choice between typing a mask and selecting a `.hcmask` file, the
-  latter with tab completion rooted at the bundled `masks/` directory. Mask
-  files carry their own charset definitions, so the `-1` through `-4` prompts are
-  skipped on that path. This makes the hundreds of masks already shipped in
-  `masks/` usable without retyping them, and lets a generated or hand-written
-  mask list run without a dedicated menu entry.
+- **`ollamaNumCtx` default raised from 2048 to 8192**, so the prompt fits with
+  headroom.
+
+- **The LLM modes now warn when the chosen corpus looks like an uncracked hash
+  dump.** A raw NTDS dump (`user:rid:lm:nt:::`) and a cracked-output file sit in
+  the same working directory with similar names, and the dump produces confident
+  nonsense rather than an error: splitting on the first colon yields the rest of
+  the hash line, so the statistics describe hex strings. Validated against real
+  files — 99% of lines flagged in a 40,765-line NTDS dump, zero flagged in two
+  genuine 22k/41k-line cracked-output files.
+
+- **Digit-only basewords are excluded from the baseword list.** `rulegen.derive`
+  falls back to the password itself when it holds no letters, so a PIN-heavy
+  corpus filled the list with digit strings and crowded out the word families it
+  exists to surface. The digit-only share is still reported via the casing and
+  mask lines.
+
+- **`$HEX[...]` plaintexts are now decoded** when reading a corpus for the LLM
+  modes. hashcat wraps any plaintext holding non-ASCII bytes or the output
+  separator; read literally, the wrapper polluted baseword and mask statistics
+  with the letters of `$HEX[` and the corpus's hex digits. Malformed wrappers
+  pass through unchanged. Note this fixes the LLM read path only — the Spoonman
+  attack's `rulegen` reads corpora directly and is unaffected.
 
 ### Removed
+
 
 - **`omenTrainingList` is gone from `config.json.example`.** It was loaded and
   path-normalized but never read: the OMEN attack always shows the wordlist
@@ -105,6 +164,24 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   unreachable dead code.
 
 ### Fixed
+
+
+- **"Leave blank to skip" skipped every remaining custom charset, not just
+  one.** The Ad-hoc Mask Attack prompts for charsets `-1` through `-4`, but a
+  blank answer broke out of the loop, so a mask using `?1` and `?3` without
+  `?2` could not be entered and hashcat failed on the undefined token. Each
+  slot is now independently skippable.
+- **README documented a menu environment variable that does not exist.** It
+  named `HATE_CRACK_PLAIN_MENU=1` (read by nothing) and claimed arrow-key
+  navigation is the default. Numbered menus are the default; arrow keys are
+  opt-in through `HATE_CRACK_ARROW_MENU=1`, which was undocumented.
+- **README told contributors to install a `post-commit` hook that does not
+  exist, and omitted the `pre-commit` stage that does.** `prek.toml` defines six
+  local `pre-push` hooks (the documented list was missing `ruff-format` and
+  `bandit`) plus six `pre-commit` hooks from `pre-commit/pre-commit-hooks`,
+  including the repo's only secret-scanning gate. Following the old
+  instructions left `detect-private-key` uninstalled.
+
 
 - **`--download-hashview` prompted for a menu choice and then ignored it.** The
   no-hashfile menu's first branch was guarded by `or args.download_hashview`,
@@ -162,83 +239,6 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   consults the setting. README also overstated the scope: only Extensive Crack
   suppresses, and Quick Crack with N rule chains has always sent N
   notifications.
-
-### Changed
-
-- **Hash-prefix stripping is now based on digest shape rather than the first
-  colon.** New module `hate_crack/plaintext.py` holds the single implementation
-  shared by the LLM read path, `corpus_stats`, and `rulegen`. A leading field is
-  dropped only when it has the shape of a hash — a hex digest at a known length,
-  or a crypt-style `$id$` string — so `hash:salt:plain` is handled, a plaintext
-  containing colons survives intact, and a wordlist entry that merely contains a
-  colon (a URL, a ratio, a time of day) is no longer truncated. Previously the
-  LLM modes split unconditionally on the first colon.
-
-- **The LLM modes now describe the whole corpus statistically instead of pasting
-  in a sample of it.** New module `hate_crack/corpus_stats.py` aggregates every
-  password in the source file — baseword shares (reusing `rulegen.derive`, the
-  same extraction the Spoonman attack uses), masks, casing, lengths, trailing
-  digits and symbols, and years — and the prompt carries that summary. Output is
-  bounded, so a 120,000-password dump costs roughly the prompt space a 500-line
-  sample did. Literal plaintexts are still included when the whole corpus fits
-  under `ollamaMaxSampleLines`.
-
-  An evenly-spaced sample conveyed no frequency information, so the model could
-  not tell a baseword used by 8% of an organization from one used by a single
-  person. It also did not reliably fit: at the old `ollamaNumCtx` of 2048, 500
-  plaintexts (~2,000–3,500 tokens) plus the system prompt and response exceeded
-  the context window, and Ollama silently truncated part of the sample.
-  `ollamaMaxSampleLines` keeps its meaning as the "small enough to send
-  verbatim" threshold.
-
-- **`ollamaNumCtx` default raised from 2048 to 8192**, so the prompt fits with
-  headroom.
-
-- **The LLM modes now warn when the chosen corpus looks like an uncracked hash
-  dump.** A raw NTDS dump (`user:rid:lm:nt:::`) and a cracked-output file sit in
-  the same working directory with similar names, and the dump produces confident
-  nonsense rather than an error: splitting on the first colon yields the rest of
-  the hash line, so the statistics describe hex strings. Validated against real
-  files — 99% of lines flagged in a 40,765-line NTDS dump, zero flagged in two
-  genuine 22k/41k-line cracked-output files.
-
-- **Digit-only basewords are excluded from the baseword list.** `rulegen.derive`
-  falls back to the password itself when it holds no letters, so a PIN-heavy
-  corpus filled the list with digit strings and crowded out the word families it
-  exists to surface. The digit-only share is still reported via the casing and
-  mask lines.
-
-- **`$HEX[...]` plaintexts are now decoded** when reading a corpus for the LLM
-  modes. hashcat wraps any plaintext holding non-ASCII bytes or the output
-  separator; read literally, the wrapper polluted baseword and mask statistics
-  with the letters of `$HEX[` and the corpus's hex digits. Malformed wrappers
-  pass through unchanged. Note this fixes the LLM read path only — the Spoonman
-  attack's `rulegen` reads corpora directly and is unaffected.
-
-### Added
-
-- **On-demand regeneration of `<hashfile>.out` from the POT file.** New main
-  menu option **93** ("Regenerate .out from POT file") and a matching
-  `--restore-potfile` startup flag. `check_potfile()` already rebuilt the
-  output file from `hashcat --show`, but it was only reachable as a side effect
-  of `combine_ntlm_output()`, and the startup POT lookup ran only when `.out`
-  did not already exist — so a truncated or lost output file could not be
-  restored without deleting it and restarting. The menu path prints the
-  existing cracked-hash count and asks for confirmation before overwriting
-  (auto-confirming when stdin is not a TTY); the flag is treated as an explicit
-  request and skips the prompt.
-- **LLM Pattern Rules mode** (option 4 in the LLM Attack submenu). Mirrors the
-  Spoonman Attack's shape — a baseword list run through hashcat rules — but
-  infers the basewords rather than extracting them. Spoonman's `rulegen` is
-  lossless and therefore literal: it can only emit cores that already appear in
-  its corpus. This mode instead asks the local model to identify the word
-  families behind a sample (company and products, site names, local teams,
-  seasons, mascots) and enumerate members the sample does not contain, then runs
-  those basewords against rule file(s) chosen from the rules directory. The
-  pattern source is either the session's cracked passwords or a sample wordlist;
-  model output is normalized to lowercase letters only, since the rules supply
-  case, digits, and punctuation. Basewords land in `<hashfile>.llm_patterns`,
-  which `cleanup()` removes on exit.
 
 ## [2.17.2] - 2026-07-29
 
