@@ -11,6 +11,15 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ### Fixed
 
+- **Analysing or exporting a plain hash list destroyed every cracked password.**
+  `combine_ntlm_output()` merges cracked passwords back onto pwdump lines, reading
+  `<hashfile>.out` and writing `<original>.out`. For a hash file that is not pwdump
+  format those are the same path, and the function opened its own input with mode
+  `w+`, truncating it, then matched against lines that no longer existed — so a
+  populated `.out` became 0 bytes. It now returns early when there is nothing to
+  merge onto, and builds the merged file beside its destination and moves it into
+  place only once it has content, so a run that matches nothing can no longer
+  replace a good result with an empty one.
 - **`--update` (and the startup upgrade prompt) no longer dead-ends on a clone
   whose tags diverge from the remote's.** If any local tag pointed at a
   different object than `origin`'s, `git fetch --tags` exited non-zero with

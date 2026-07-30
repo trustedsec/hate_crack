@@ -3734,6 +3734,14 @@ def combine_ntlm_output():
     if not os.path.isfile(hcatHashFile + ".out"):
         print("No hashes found in POT file.")
         return
+    # Nothing to merge onto: without a pwdump original these are the same file
+    # (every assignment site sets hcatHashFileOrig = hcatHashFile verbatim, so a
+    # plain equality check is sufficient here), and the old code opened its own
+    # input with "w+", truncating every cracked password it had just read
+    # (issue #195).
+    if hcatHashFileOrig == hcatHashFile:
+        print("Hash file is not pwdump format; nothing to combine.")
+        return
     with open(hcatHashFile + ".out", "r") as hcatCrackedFile:
         for crackedLine in hcatCrackedFile:
             parts = crackedLine.split(":", 1)
@@ -3744,16 +3752,35 @@ def combine_ntlm_output():
     if not hashes:
         print("No hashes found in POT file.")
         return
-    with open(hcatHashFileOrig + ".out", "w+") as hcatCombinedHashes:
-        with open(hcatHashFileOrig, "r") as hcatOrigFile:
-            for origLine in hcatOrigFile:
-                orig_parts = origLine.split(":")
-                if len(orig_parts) < 4:
-                    continue
-                ntlm_hash = orig_parts[3]
-                if ntlm_hash in hashes:
-                    password = hashes[ntlm_hash]
-                    hcatCombinedHashes.write(origLine.strip() + password + "\n")
+
+    # Build the merged file beside its destination and move it into place only
+    # once it has content, so a run that matches nothing cannot replace a good
+    # result with an empty one.
+    destination = hcatHashFileOrig + ".out"
+    temp_path = destination + ".combine.tmp"
+    written = 0
+    try:
+        with open(temp_path, "w") as hcatCombinedHashes:
+            with open(hcatHashFileOrig, "r") as hcatOrigFile:
+                for origLine in hcatOrigFile:
+                    orig_parts = origLine.split(":")
+                    if len(orig_parts) < 4:
+                        continue
+                    ntlm_hash = orig_parts[3]
+                    if ntlm_hash in hashes:
+                        password = hashes[ntlm_hash]
+                        hcatCombinedHashes.write(origLine.strip() + password + "\n")
+                        written += 1
+        if written:
+            os.replace(temp_path, destination)
+        else:
+            print("No cracked hashes matched the original file; leaving it as is.")
+    finally:
+        if os.path.isfile(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
 
 
 # Cleanup Temp Files
