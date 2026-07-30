@@ -972,8 +972,13 @@ def _add_debug_mode_for_rules(cmd):
     """Add debug mode arguments to hashcat command if rules are being used.
 
     This function detects if rules are present in the command (by looking for -r flags)
-    and adds --debug-mode=1 and --debug-file=<path> if rules are found.
+    and adds --debug-mode=5 and --debug-file=<path> if rules are found.
     Debug log path is configurable via hcatDebugLogPath in config.json
+
+    Mode 5 is mode 4 (baseword:rule:candidate) plus the wordlist the baseword
+    came from, so a log from a multi-wordlist run records which list is actually
+    producing cracks. Readers must strip that fourth field before parsing --
+    see _strip_debug_source_field.
     """
     if "-r" in cmd:
         # Create debug output directory if it doesn't exist
@@ -988,7 +993,7 @@ def _add_debug_mode_for_rules(cmd):
                     hcatDebugLogPath, f"hashcat_debug_{cmd[session_idx]}.log"
                 )
 
-        cmd.extend(["--debug-mode", "4", "--debug-file", debug_filename])
+        cmd.extend(["--debug-mode", "5", "--debug-file", debug_filename])
     return cmd
 
 
@@ -3313,7 +3318,7 @@ def rosetta_debug_logs(directory=None):
     """Return hashcat debug logs under *directory*, newest first.
 
     Defaults to hcatDebugLogPath, which is where _add_debug_mode_for_rules
-    parks the --debug-mode 4 output of every rule-based attack, so a normal
+    parks the --debug-mode 5 output of every rule-based attack, so a normal
     hate_crack session accumulates these without the operator doing anything.
 
     Zero-byte logs are skipped. hashcat creates the debug file up front but only
@@ -3343,6 +3348,41 @@ def rosetta_debug_logs(directory=None):
 ROSETTA_MAX_LINES = 1_000_000
 
 
+# Lines sampled per log when deciding whether it is mode 5, and the ceiling on
+# distinct trailing fields that still reads as "these are wordlist names".
+_DEBUG_SOURCE_SAMPLE = 200
+_DEBUG_SOURCE_MAX_DISTINCT = 10
+
+
+def _strip_debug_source_field(lines):
+    """Normalise --debug-mode 5 lines to the mode 4 shape HashcatRosetta parses.
+
+    Mode 5 appends the source wordlist: `baseword:rule:candidate:wordlist`.
+    HashcatRosetta's parser splits on the first two colons only, so the wordlist
+    silently ends up glued to the candidate ("secret123" becomes
+    "secret123:rockyou.txt") rather than raising. Basewords and rules survive
+    that, but the unique-candidate rule metric does not: the same candidate
+    reached from two wordlists counts twice, which misranks rules exactly when
+    several logs are mined together.
+
+    Detection rather than an unconditional strip, because logs written before
+    the switch to mode 5 are still on disk and a candidate may legitimately
+    contain a colon. A log reads as mode 5 when nearly every sampled line has a
+    fourth colon field and those fields repeat -- a run draws from a handful of
+    wordlists, while colons inside candidates do not repeat that way.
+    """
+    sample = [line for line in lines[:_DEBUG_SOURCE_SAMPLE] if line.strip()]
+    if not sample:
+        return lines
+    with_fourth = [line for line in sample if line.count(":") >= 3]
+    if len(with_fourth) < len(sample) * 0.8:
+        return lines
+    trailing = {line.rsplit(":", 1)[1] for line in with_fourth}
+    if len(trailing) > _DEBUG_SOURCE_MAX_DISTINCT:
+        return lines
+    return [line.rsplit(":", 1)[0] if line.count(":") >= 3 else line for line in lines]
+
+
 def rosetta_derive(
     debug_files,
     out_dir,
@@ -3351,9 +3391,11 @@ def rosetta_derive(
     top_basewords=None,
     max_lines=ROSETTA_MAX_LINES,
 ):
-    """Derive a baseword list and rule file from hashcat --debug-mode 4 logs.
+    """Derive a baseword list and rule file from hashcat debug logs.
 
-    Every line in a mode 4 log records a candidate that actually cracked a
+    Accepts mode 5 (the current writer) and mode 4 (logs predating the switch);
+    _strip_debug_source_field normalises the former. Every line records a
+    candidate that actually cracked a
     hash, so the basewords and rules recovered here are known-productive
     against this target population. ``top_rules``/``top_basewords`` of None or
     0 mean "keep everything".
@@ -3375,10 +3417,13 @@ def rosetta_derive(
     for path in debug_files:
         if truncated:
             break
+        # Detected per file, not across the batch: a mode 4 log written before
+        # the switch and a mode 5 one written after can be selected together.
+        file_lines = []
         with open(path, encoding="utf-8", errors="ignore") as debug_log:
             for line in debug_log:
-                lines.append(line.rstrip("\n"))
-                if len(lines) >= max_lines:
+                file_lines.append(line.rstrip("\n"))
+                if len(lines) + len(file_lines) >= max_lines:
                     truncated = True
                     print(
                         f"[!] Stopped at {max_lines} debug lines; the remainder "
@@ -3386,6 +3431,7 @@ def rosetta_derive(
                         "not read."
                     )
                     break
+        lines.extend(_strip_debug_source_field(file_lines))
     if not lines:
         raise ValueError("the selected debug logs are empty")
 
@@ -3393,8 +3439,9 @@ def rosetta_derive(
     analyzer.analyze_debug_lines(lines)
     if not analyzer.rule_stats or not analyzer.baseword_stats:
         raise ValueError(
-            "no --debug-mode 4 entries found. Expected lines of the form "
-            "'baseword rule candidate'"
+            "no hashcat debug entries found. Expected lines of the form "
+            "'baseword:rule:candidate' (--debug-mode 4) or "
+            "'baseword:rule:candidate:wordlist' (--debug-mode 5)"
         )
 
     getter = ROSETTA_RULE_METRICS[metric][0]
@@ -3434,7 +3481,7 @@ def hcatRosetta(
 ):
     """Rosetta Attack: replay the basewords and rules that already cracked.
 
-    Reads hashcat --debug-mode 4 logs, keeps the winning basewords and the
+    Reads hashcat --debug-mode 5 logs, keeps the winning basewords and the
     highest-ranked winning rules, and runs their full cross product. The value
     is in that cross product rather than in the pairs themselves: a pair that
     appears in a log already cracked its hash, but a rule that worked on one
