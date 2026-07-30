@@ -134,6 +134,19 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ### Fixed
 
+- **A Unicode digit (e.g. the superscript `²`) in a wordlist crashed corpus
+  analysis for the LLM attack modes (#229).** `corpus_stats._years` guarded an
+  `int()` call with `str.isdigit()`, which is `True` for Unicode digits that
+  `int()` rejects, raising `ValueError` mid-analysis (silently swallowed by a
+  broad handler in `main.py`, so the symptom looked like a config error rather
+  than a parsing bug). The same wrong notion of "digit" also let `_mask` map
+  such characters to hashcat's `?d` — a mask claiming a candidate hashcat's
+  `?d` charset (ASCII `0-9`) cannot actually generate — and let the trailing
+  digit-suffix stats count them. All three sites now share one
+  `_is_ascii_digit` predicate. `str.isdecimal()` alone would have fixed the
+  crash but not the mask/suffix correctness, since it is also `True` for
+  non-ASCII decimal digits (e.g. Arabic-Indic `١٢٣`) that hashcat's `?d` still
+  cannot match; this predicate is ASCII-only for all three sites.
 - **A dangling `.env` or `config.json` symlink was read as "no config
   present", so hate_crack silently ran on schema defaults (#227).** Config
   discovery and both file layers gated on `os.path.isfile()`, which is `False`

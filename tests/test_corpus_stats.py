@@ -250,6 +250,72 @@ def test_singletons_kept_on_small_corpus(tmp_path):
 
 
 # --------------------------------------------------------------------------
+# Unicode digits (#229) — str.isdigit() is True for Unicode digits that
+# int() rejects (e.g. the superscript "²"), which used to crash
+# summarize() outright. The fix is a single ASCII-only digit predicate used
+# by _mask, _years, and the trailing-digit-suffix run.
+# --------------------------------------------------------------------------
+
+
+def test_summarize_survives_unicode_digit_and_returns_usable_stats(tmp_path):
+    """The crash from #229: a superscript digit must not raise, and the rest
+    of the corpus must still be summarized normally."""
+    path = _corpus(tmp_path, ["password1", "summer2019", "²123"])
+    stats = corpus_stats.summarize(path)
+    assert stats["total"] == 3
+    assert dict(stats["years"])["2019"] == 1
+
+
+def test_years_excludes_unicode_digit_chunk_but_finds_ascii_year():
+    assert list(corpus_stats._years("²123")) == []
+    assert list(corpus_stats._years("summer2019")) == ["2019"]
+
+
+def test_mask_does_not_classify_unicode_digit_as_d():
+    mask = corpus_stats._mask("²123")
+    # The superscript falls through to the symbol class, not ?d: hashcat's
+    # ?d charset is ASCII 0-9 and cannot generate this character.
+    assert mask == "?s?d?d?d"
+
+
+def test_trailing_digit_suffix_does_not_count_unicode_digit(tmp_path):
+    path = _corpus(tmp_path, ["abc²123"])
+    stats = corpus_stats.summarize(path)
+    # Only the ASCII run "123" counts as the trailing digit suffix; the
+    # superscript breaks the run rather than extending it.
+    assert dict(stats["digit_suffixes"])["123"] == 1
+    assert "²123" not in dict(stats["digit_suffixes"])
+
+
+def test_arabic_indic_decimals_do_not_crash_and_are_not_ascii_digits():
+    """Arabic-Indic digits (e.g. '123' in ٠-prefixed form) are Unicode
+    *decimal* digits: str.isdecimal() is True and int() succeeds on them, so
+    isdecimal() alone would not be a sufficient fix here. hashcat's ?d mask
+    charset is ASCII 0-9 only, so this module classifies them as NOT ASCII
+    digits -- consistent with _mask and the digit-suffix run, which both
+    exist to describe what hashcat can actually generate.
+    """
+    arabic_123 = "١٢٣"
+    assert arabic_123.isdecimal()
+    assert int(arabic_123) == 123
+    assert not corpus_stats._is_ascii_digit(arabic_123[0])
+    assert corpus_stats._mask(arabic_123) == "?s?s?s"
+    assert list(corpus_stats._years("a" + arabic_123)) == []
+
+
+def test_ascii_digit_behaviour_unchanged_years_masks_suffixes(tmp_path):
+    """Regression guard: ordinary ASCII passwords must analyze exactly as
+    before this change."""
+    path = _corpus(tmp_path, ["Alpha2024!", "alpha1"])
+    stats = corpus_stats.summarize(path)
+    assert dict(stats["years"])["2024"] == 1
+    assert dict(stats["digit_suffixes"])["1"] == 1
+    assert ("?u?l?l?l?l?d?d?d?d?s", 1) in stats["masks"]
+    assert list(corpus_stats._years("summer2019")) == ["2019"]
+    assert corpus_stats._mask("abc123") == "?l?l?l?d?d?d"
+
+
+# --------------------------------------------------------------------------
 # format_summary
 # --------------------------------------------------------------------------
 

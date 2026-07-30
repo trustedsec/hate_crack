@@ -47,11 +47,29 @@ TOP_SPECIALS = 10
 MIN_BASEWORD_HITS = 2
 
 
+def _is_ascii_digit(c):
+    """Return True iff *c* is an ASCII decimal digit, ``0``-``9``.
+
+    ``str.isdigit()`` is True for Unicode digits that ``int()`` rejects (e.g.
+    the superscript ``²``), which crashes anything downstream that assumes
+    ``isdigit()`` implies ``int()`` will succeed. ``str.isdecimal()`` fixes
+    that crash but is still too broad for our purposes: it is also True for
+    non-ASCII decimal digits such as Arabic-Indic ``١٢٣`` (``int('١٢٣')``
+    returns 123 without raising), and hashcat's ``?d`` mask charset and its
+    digit-suffix candidates are ASCII ``0-9`` only. So neither built-in alone
+    is the right predicate everywhere in this module; both the year-parsing
+    guard and the mask/suffix classification actually want ASCII-only
+    digits, hence one shared predicate rather than three different
+    spellings of "digit".
+    """
+    return "0" <= c <= "9"
+
+
 def _mask(pw):
     """Return the hashcat-style character-class mask for *pw*."""
     out = []
     for c in pw:
-        if c.isdigit():
+        if _is_ascii_digit(c):
             out.append("?d")
         elif "a" <= c <= "z":
             out.append("?l")
@@ -89,7 +107,7 @@ def _years(pw):
     """Yield plausible 4-digit years appearing anywhere in *pw*."""
     for i in range(len(pw) - 3):
         chunk = pw[i : i + 4]
-        if chunk.isdigit() and (1900 <= int(chunk) <= 2099):
+        if all(_is_ascii_digit(c) for c in chunk) and (1900 <= int(chunk) <= 2099):
             yield chunk
 
 
@@ -139,7 +157,7 @@ def summarize(path):
             if base and any(c.isalpha() for c in base):
                 basewords[base] += 1
 
-            digits = _trailing_run(pw, str.isdigit)
+            digits = _trailing_run(pw, _is_ascii_digit)
             if digits:
                 digit_suffixes[digits] += 1
             trailing_specials = _trailing_run(
