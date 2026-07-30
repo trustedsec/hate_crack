@@ -8,6 +8,7 @@ import stat
 
 import pytest
 
+from hate_crack import config_loader
 from hate_crack.config_loader import (
     ConfigLoadResult,
     load_config,
@@ -552,3 +553,73 @@ def test_resolve_config_paths_returns_tuple():
     env_path, legacy_json_path = resolve_config_paths()
     assert env_path is None or isinstance(env_path, str)
     assert legacy_json_path is None or isinstance(legacy_json_path, str)
+
+
+def _require_symlinks(tmp_path):
+    """Skip rather than fail where symlink creation is not permitted."""
+    probe = tmp_path / "_symlink-probe"
+    try:
+        os.symlink(tmp_path / "nothing", probe)
+    except (OSError, NotImplementedError, AttributeError) as exc:
+        pytest.skip(f"symlinks not supported here: {exc}")
+    os.unlink(probe)
+
+
+def _discover_in(monkeypatch, tmp_path):
+    """Run real discovery over ``tmp_path`` only.
+
+    conftest's ``_isolate_config_file_discovery`` empties the search order for
+    every test, so a test that wants discovery to actually look at something
+    has to re-patch it -- which is the point of doing it here rather than
+    passing explicit paths: the bug in #227 was in discovery, not in load.
+    """
+    monkeypatch.setattr(config_loader, "candidate_roots", lambda: [str(tmp_path)])
+    return config_loader.resolve_config_paths()
+
+
+@pytest.mark.parametrize("name", [".env", "config.json"])
+def test_discovery_treats_a_dangling_symlink_as_fatal(monkeypatch, tmp_path, name):
+    """#227: ``os.path.isfile()`` reports a link with a missing target as
+    absent, so discovery skipped it and startup ran on schema defaults -- wrong
+    wordlists, wrong potfile path, no diagnostic. Discovery now raises so the
+    existing dangling-symlink message fires."""
+    _require_symlinks(tmp_path)
+    link_path = tmp_path / name
+    os.symlink(tmp_path / "does-not-exist", link_path)
+
+    with pytest.raises(config_loader.ConfigFileUnreadableError) as exc_info:
+        _discover_in(monkeypatch, tmp_path)
+
+    assert exc_info.value.path == str(link_path)
+
+
+@pytest.mark.parametrize("name", [".env", "config.json"])
+def test_discovery_follows_a_valid_symlink(monkeypatch, tmp_path, name):
+    """Regression guard: one config file symlinked into several checkouts is a
+    supported setup and must keep resolving."""
+    _require_symlinks(tmp_path)
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    target = shared / name
+    target.write_text("OLLAMA_MODEL=synthetic-model\n" if name == ".env" else "{}")
+    link_path = tmp_path / name
+    os.symlink(target, link_path)
+
+    env_path, json_path = _discover_in(monkeypatch, tmp_path)
+
+    found = env_path if name == ".env" else json_path
+    assert found == str(link_path)
+
+
+def test_discovery_ignores_a_directory_named_like_a_config_file(monkeypatch, tmp_path):
+    """Why ``os.path.isfile()`` stays the positive test instead of collapsing
+    the gate into ``os.path.exists()``: a *directory* called ``.env`` is not a
+    config file, and must be neither read nor treated as a broken link."""
+    (tmp_path / ".env").mkdir()
+    (tmp_path / "config.json").mkdir()
+
+    assert _discover_in(monkeypatch, tmp_path) == (None, None)
+
+
+def test_discovery_reports_a_genuinely_absent_file_as_none(monkeypatch, tmp_path):
+    assert _discover_in(monkeypatch, tmp_path) == (None, None)

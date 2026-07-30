@@ -11,7 +11,9 @@ that exists but cannot be read (including a dangling symlink, which surfaces
 as ``FileNotFoundError`` rather than ``PermissionError``) must produce a
 named, actionable message and ``exit(1)`` instead of an uncaught traceback.
 That now belongs to ``load_config_or_exit()``, so these tests assert it
-there, against both file kinds it can be handed.
+there, against both file kinds it can be handed. Since #227 a dangling
+symlink is fatal on the *discovery* path too (see
+``test_config_loader.py``); a valid symlink to a real file stays supported.
 """
 
 import json
@@ -20,6 +22,16 @@ import os
 import pytest
 
 from hate_crack.config_loader import load_config, load_config_or_exit
+
+
+def _require_symlinks(tmp_path):
+    """Skip rather than fail where symlink creation is not permitted."""
+    probe = tmp_path / "_symlink-probe"
+    try:
+        os.symlink(tmp_path / "nothing", probe)
+    except (OSError, NotImplementedError, AttributeError) as exc:
+        pytest.skip(f"symlinks not supported here: {exc}")
+    os.unlink(probe)
 
 
 def test_missing_config_file_is_not_an_error(tmp_path):
@@ -60,23 +72,48 @@ def test_unreadable_config_file_names_the_cause(tmp_path, capsys, kind):
 
 
 @pytest.mark.parametrize("name", [".env", "config.json"])
-def test_dangling_symlink_config_falls_back_to_defaults(tmp_path, name):
-    """Documents deliberate behaviour, not an oversight: the loader gates
-    every file layer on ``os.path.isfile()``, which a dangling symlink fails,
-    so the layer is skipped and the schema defaults stand. Before the .env
-    migration a dangling ``config.json`` symlink was equally non-fatal (the
-    old bootstrap's ``shutil.copy`` followed the link and materialised the
-    target), so nothing regresses here -- but note that the "dangling
-    symlink" branch of ConfigFileUnreadableError's diagnostic is therefore
-    only reachable for a path a caller passes in explicitly.
+def test_dangling_symlink_config_is_fatal_and_named(tmp_path, capsys, name):
+    """A dangling config symlink is a broken setup, not an absent file (#227).
+
+    It used to be silently skipped -- ``os.path.isfile()`` is ``False`` for a
+    link with no target -- which meant hate_crack ran on schema defaults with
+    the wrong wordlists and the wrong potfile path and said nothing at all.
     """
+    _require_symlinks(tmp_path)
     link_path = tmp_path / name
     os.symlink(tmp_path / "does-not-exist", link_path)
     kind = "env_path" if name == ".env" else "legacy_json_path"
 
+    with pytest.raises(SystemExit) as exc_info:
+        load_config_or_exit(**{kind: str(link_path)}, environ={})
+
+    assert exc_info.value.code == 1
+    out = capsys.readouterr().out
+    assert str(link_path) in out
+    assert "dangling symlink" in out
+
+
+@pytest.mark.parametrize("name", [".env", "config.json"])
+def test_valid_symlink_to_a_real_config_is_read_normally(tmp_path, name):
+    """The regression guard for the change above: sharing one config file
+    across several checkouts by symlink is a legitimate, supported setup, and
+    breaking it would be worse than the bug being fixed."""
+    _require_symlinks(tmp_path)
+    target_dir = tmp_path / "shared"
+    target_dir.mkdir()
+    target = target_dir / name
+    if name == ".env":
+        target.write_text("OLLAMA_MODEL=synthetic-model\n")
+        kind, key, expected = "env_path", "ollamaModel", "synthetic-model"
+    else:
+        target.write_text(json.dumps({"hcatBin": "hashcat-6.2.6"}))
+        kind, key, expected = "legacy_json_path", "hcatBin", "hashcat-6.2.6"
+    link_path = tmp_path / name
+    os.symlink(target, link_path)
+
     result = load_config_or_exit(**{kind: str(link_path)}, environ={})
 
-    assert result.config["hcatBin"] == "hashcat"
+    assert result.config[key] == expected
 
 
 def test_malformed_legacy_json_exits_with_clear_message(tmp_path, capsys):

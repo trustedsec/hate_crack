@@ -421,6 +421,14 @@ def _read_config_json_for_bootstrap(legacy_json_path):
         return _CONFIG_JSON_UNUSABLE
 
 
+# How each config file came to exist, when this run created it. Filled in by
+# the two _initialize_* helpers and read once, at startup, by
+# _print_config_sources() -- keys "env" and "json". It exists so the bootstrap
+# can stop printing its own near-duplicate path block (#227) without losing the
+# one fact only it knows: which template or source file was used.
+_config_bootstrap_detail: dict[str, str] = {}
+
+
 def _bootstrap_config_files(env_path, legacy_json_path):
     """Ensure both config files exist (unless ``SKIP_INIT``); return their paths.
 
@@ -469,17 +477,22 @@ def _bootstrap_config_files(env_path, legacy_json_path):
 
 
 def _initialize_config_json():
-    """Copy ``config.json.example`` to the resolved config directory."""
+    """Copy ``config.json.example`` to the resolved config directory.
+
+    Prints nothing on success: the destination, and the fact it was created
+    this run, are reported once by :func:`_print_config_sources` via
+    :data:`_config_bootstrap_detail` (#227). The bootstrap used to print a
+    three-line "Initializing / source / destination" block immediately above
+    those lines, saying the same thing in different words.
+    """
     src_config = os.path.abspath(os.path.join(_package_path, "config.json.example"))
     destination = os.path.join(_resolve_config_destination(), "config.json")
-    print("Initializing config.json from config.json.example")
-    print(f"Config source: {src_config}")
-    print(f"Config destination: {destination}")
     try:
         shutil.copy(src_config, destination)
     except OSError as exc:
         print(f"[!] Could not write {destination}: {exc}")
         return None
+    _config_bootstrap_detail["json"] = f"from {os.path.basename(src_config)}"
     return destination
 
 
@@ -488,6 +501,12 @@ def _initialize_env(legacy_json_path):
 
     Returns ``None`` without writing anything when ``config.json`` exists but is
     unusable -- see :func:`_read_config_json_for_bootstrap`.
+
+    Like :func:`_initialize_config_json`, says nothing about paths itself; the
+    migration's *source* (which the user does need -- it tells them their
+    ``config.json`` was read) travels to the single startup line via
+    :data:`_config_bootstrap_detail`. The per-key migration notes are unique
+    information and are still printed here.
     """
     migrating = False
     if legacy_json_path is not None:
@@ -504,30 +523,45 @@ def _initialize_env(legacy_json_path):
         except OSError as exc:
             print(f"[!] Could not write {destination}: {exc}")
             return None
-        print("Copying third-party integration settings from config.json to .env")
-        print(f"Config source: {legacy_json_path}")
-        print(f"Config destination: {destination}")
         for note in notes:
             print(f"[!] {note}")
+        # "the config.json above" rather than the path again: that path is the
+        # one _print_config_sources() prints on the immediately preceding line,
+        # and it is always this migration's source, so repeating it in full
+        # would reintroduce exactly the duplication #227 is about.
+        _config_bootstrap_detail["env"] = (
+            "third-party integration settings migrated from the config.json above"
+        )
         return destination
-    print("Initializing .env from built-in defaults")
-    print(f"Config destination: {destination}")
     try:
         _config_writer.write_env(destination, {})
     except OSError as exc:
         print(f"[!] Could not write {destination}: {exc}")
         return None
+    _config_bootstrap_detail["env"] = "from built-in defaults"
     return destination
 
 
-def _describe_config_source(path, created):
+def _describe_config_source(path, created, detail=None):
     """One right-hand side for :func:`_print_config_sources`."""
     if path is None:
         return "not found -- using built-in defaults"
-    return f"{path} (created this run)" if created else path
+    if not created:
+        return path
+    if detail:
+        return f"{path} (created this run, {detail})"
+    return f"{path} (created this run)"
 
 
-def _print_config_sources(env_path, legacy_json_path, *, env_created, json_created):
+def _print_config_sources(
+    env_path,
+    legacy_json_path,
+    *,
+    env_created,
+    json_created,
+    env_detail=None,
+    json_detail=None,
+):
     """Name the two config files this run actually loaded.
 
     Two lines, always the same two lines, printed before the loader's warnings
@@ -544,15 +578,30 @@ def _print_config_sources(env_path, legacy_json_path, *, env_created, json_creat
     created, and whether the file being edited is even in the search order --
     in the two lines before anything else happens.
 
+    Also the only place a just-created file's provenance is reported -- the
+    ``detail`` arguments carry what the removed bootstrap prints used to say
+    (#227).
+
     Silent under ``SKIP_INIT``: the test suite imports this module constantly.
     """
     if SKIP_INIT:
         return
-    print(f"[*] config.json: {_describe_config_source(legacy_json_path, json_created)}")
-    print(f"[*] .env:        {_describe_config_source(env_path, env_created)}")
+    print(
+        "[*] config.json: "
+        f"{_describe_config_source(legacy_json_path, json_created, json_detail)}"
+    )
+    print(
+        f"[*] .env:        {_describe_config_source(env_path, env_created, env_detail)}"
+    )
 
 
-_env_path, _legacy_json_path = _config_loader.resolve_config_paths()
+try:
+    _env_path, _legacy_json_path = _config_loader.resolve_config_paths()
+except _config_loader.ConfigFileUnreadableError as _exc:
+    # Discovery itself can fail now: a dangling `.env`/config.json symlink is
+    # fatal rather than silently ignored (#227). Same diagnostic the loader
+    # would have printed had the path been readable enough to reach it.
+    _config_loader.exit_unreadable_config(_exc)
 _env_missing_before_bootstrap = _env_path is None
 _json_missing_before_bootstrap = _legacy_json_path is None
 _env_path, _legacy_json_path = _bootstrap_config_files(_env_path, _legacy_json_path)
@@ -561,6 +610,8 @@ _print_config_sources(
     _legacy_json_path,
     env_created=_env_missing_before_bootstrap,
     json_created=_json_missing_before_bootstrap,
+    env_detail=_config_bootstrap_detail.get("env"),
+    json_detail=_config_bootstrap_detail.get("json"),
 )
 
 # The loader is the single definition of the precedence stack: for each key,

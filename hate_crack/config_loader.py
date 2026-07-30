@@ -37,11 +37,12 @@ before the loader existed.
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import sys
 from collections.abc import Mapping
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, NoReturn
 
 from dotenv import dotenv_values
 
@@ -97,17 +98,20 @@ def resolve_config_paths() -> tuple[str | None, str | None]:
     matching file was found in any candidate directory. The two are resolved
     independently -- they are separate, equally first-class files, and it is
     normal for them to live in different candidate directories.
+
+    Raises :class:`ConfigFileUnreadableError` when a candidate path exists as a
+    symlink whose target is missing -- see :func:`_config_file_is_usable`.
     """
     env_path: str | None = None
     legacy_json_path: str | None = None
     for candidate in candidate_roots():
         if env_path is None:
             candidate_env = os.path.join(candidate, ".env")
-            if os.path.isfile(candidate_env):
+            if _config_file_is_usable(candidate_env):
                 env_path = candidate_env
         if legacy_json_path is None:
             candidate_json = os.path.join(candidate, "config.json")
-            if os.path.isfile(candidate_json):
+            if _config_file_is_usable(candidate_json):
                 legacy_json_path = candidate_json
     return env_path, legacy_json_path
 
@@ -142,6 +146,35 @@ class ConfigFileUnreadableError(Exception):
         self.path = path
         self.os_error = os_error
         super().__init__(f"{path}: {os_error.strerror or os_error}")
+
+
+def _config_file_is_usable(path: str) -> bool:
+    """Whether *path* is a config file this loader should read.
+
+    ``True`` for a regular file (following symlinks, so the legitimate "one
+    shared config symlinked into several checkouts" setup keeps working).
+    ``False`` when nothing is there at all, which is the normal "no config
+    present, use defaults" case.
+
+    A path that exists as a link but whose target does not
+    (:func:`os.path.lexists` yes, :func:`os.path.exists` no) raises
+    :class:`ConfigFileUnreadableError` instead. ``os.path.isfile()`` alone
+    reports such a link as absent, so a broken `.env` symlink used to mean a
+    silent fall back to schema defaults -- wrong wordlists, wrong potfile path,
+    no indication anything was wrong (#227). A dangling config symlink is far
+    more likely a broken setup than an intentional absence, so it is fatal and
+    named.
+
+    ``os.path.isfile()`` stays the positive test on purpose: ``os.path.exists()``
+    would accept a *directory* called ``.env``.
+    """
+    if os.path.isfile(path):
+        return True
+    if os.path.lexists(path) and not os.path.exists(path):
+        raise ConfigFileUnreadableError(
+            path, OSError(errno.ENOENT, os.strerror(errno.ENOENT), path)
+        )
+    return False
 
 
 def _read_json_file(json_path: str) -> dict[str, Any]:
@@ -303,14 +336,14 @@ def load_config(
     result: dict[str, Any] = {entry.legacy: entry.default for entry in CONFIG_SCHEMA}
 
     # Layer 2a: config.json, for the home="json" keys.
-    if legacy_json_path and os.path.isfile(legacy_json_path):
+    if legacy_json_path and _config_file_is_usable(legacy_json_path):
         json_data = _read_json_file(legacy_json_path)
         _apply_json_layer(result, json_data, legacy_json_path, warnings)
 
     # Layer 2b: .env, for the home="env" keys. Not a higher layer than 2a --
     # the two are disjoint by key, so their order relative to each other is
     # irrelevant by construction.
-    if env_path and os.path.isfile(env_path):
+    if env_path and _config_file_is_usable(env_path):
         dotenv_data = _read_dotenv(env_path)
         _apply_string_layer(result, dotenv_data, env_path, warnings, is_dotenv=True)
 
@@ -347,6 +380,31 @@ def _normalize_path_values(result: dict[str, Any]) -> None:
         if value == "":
             continue
         result[entry.legacy] = os.path.expanduser(value)
+
+
+def exit_unreadable_config(exc: ConfigFileUnreadableError) -> NoReturn:
+    """Print the file-shaped diagnostic for *exc* and exit non-zero.
+
+    Mirrors ``_load_config_defaults()``'s OSError branch in ``main.py``: name
+    the file and, when detectable, call out a dangling symlink.
+
+    Public because path *discovery* can raise this too, before
+    :func:`load_config_or_exit` is ever reached -- ``main.py`` calls
+    :func:`resolve_config_paths` first and routes the failure here so both
+    entry points produce one identical diagnostic (#227).
+    """
+    print(f"\nError: {exc.path} could not be read")
+    print(f"  File: {exc.path}")
+    if os.path.islink(exc.path) and not os.path.exists(exc.path):
+        print(
+            "  This is a dangling symlink: the link exists but its target is missing."
+        )
+    else:
+        print(f"  Reason: {exc.os_error.strerror or exc.os_error}")
+    print("\nTo fix:")
+    print("  1. Check the file's permissions and that its target exists, or")
+    print("  2. Remove or repair the file so it can be read")
+    sys.exit(1)
 
 
 def load_config_or_exit(
@@ -390,20 +448,7 @@ def load_config_or_exit(
         print("  2. Delete the file to regenerate from defaults")
         sys.exit(1)
     except ConfigFileUnreadableError as exc:
-        # Mirrors _load_config_defaults()'s OSError branch in main.py: name
-        # the file and, when detectable, call out a dangling symlink.
-        print(f"\nError: {exc.path} could not be read")
-        print(f"  File: {exc.path}")
-        if os.path.islink(exc.path) and not os.path.exists(exc.path):
-            print(
-                "  This is a dangling symlink: the link exists but its target is missing."
-            )
-        else:
-            print(f"  Reason: {exc.os_error.strerror or exc.os_error}")
-        print("\nTo fix:")
-        print("  1. Check the file's permissions and that its target exists, or")
-        print("  2. Remove or repair the file so it can be read")
-        sys.exit(1)
+        exit_unreadable_config(exc)
     except ConfigValueError as exc:
         source = exc.source
         shown = "<redacted>" if exc.key in SECRET_ENV_KEYS else exc.raw
