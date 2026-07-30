@@ -319,45 +319,152 @@ def test_case5_skip_init_still_loads_what_exists(bootstrap, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_each_warning_is_reported_exactly_once(tmp_path, capsys, caplog):
-    """A pre-split config.json produces one misplaced-key warning per
-    integration key. They used to be emitted twice -- once by
-    load_config_or_exit()'s logger and once by main.py's print of the same list
-    -- so a migrating user's first sight of the tool was twelve warnings
-    rendered as twenty-four near-identical lines. Doubled output reads like a
-    bug in the very messages that are the whole user-facing story for the
-    split, so there is exactly one channel now: main.py's print.
+def _startup_warning_output(tmp_path, capsys, *, env_body=None, json_body=None):
+    """Load a config pair and emit its warnings the way ``main.py`` does.
+
+    Returns ``(warnings, combined_output)``. ``main.py``'s reporting block is
+    module-level code that cannot be called directly, so it is reproduced here;
+    ``test_main_py_is_the_channel_that_prints_the_warnings`` pins that the real
+    one still matches.
     """
-    legacy_path = tmp_path / "config.json"
-    legacy_path.write_text(
-        json.dumps(
-            {
-                "hcatBin": "hashcat",
-                "hashview_url": "http://example.invalid:8443",
-                "hashmob_api_key": "placeholder",
-                "ollamaModel": "synthetic-model",
-                "pipal_count": 3,
-            }
+    env_path = json_path = None
+    if env_body is not None:
+        env_path = tmp_path / ".env"
+        env_path.write_text(env_body)
+        env_path = str(env_path)
+    if json_body is not None:
+        json_path = tmp_path / "config.json"
+        json_path.write_text(json.dumps(json_body))
+        json_path = str(json_path)
+
+    result = config_loader.load_config_or_exit(
+        env_path=env_path, legacy_json_path=json_path, environ={}
+    )
+    for warning in result.warnings:
+        print(f"[!] {warning}")
+
+    captured = capsys.readouterr()
+    return result.warnings, captured.out + captured.err
+
+
+def _assert_reported_once(combined, warnings, *must_name):
+    """Every warning appears exactly once AND at least once, naming each key.
+
+    The "exactly once" half alone passes trivially when a warning appears zero
+    times, which is precisely how a dropped warning hides: the count is 0 == 0
+    for a list that is itself empty. So this asserts the key names are present
+    in the output first, then that nothing is doubled.
+    """
+    for name in must_name:
+        assert any(name in w for w in warnings), (
+            f"no warning mentions {name!r}; got {warnings}"
         )
+        assert combined.count(name) >= 1, f"{name!r} never reached the user"
+    assert warnings, "expected warnings, got none"
+    for warning in warnings:
+        assert combined.count(warning) == 1, (
+            f"reported {combined.count(warning)}x: {warning}"
+        )
+
+
+def test_misplaced_config_json_key_warns_exactly_once(tmp_path, capsys):
+    """Case 1: an integration key left in config.json."""
+    warnings, combined = _startup_warning_output(
+        tmp_path,
+        capsys,
+        json_body={"hcatBin": "hashcat", "hashmob_api_key": "placeholder"},
+    )
+    assert len(warnings) == 1
+    _assert_reported_once(combined, warnings, "hashmob_api_key", "HASHMOB_API_KEY")
+
+
+def test_misplaced_env_key_warns_exactly_once(tmp_path, capsys):
+    """Case 2: a setting written into `.env`.
+
+    This is the case that catches a dropped `.env`-side warning -- the most
+    likely user mistake given the design just changed, and the exact thing the
+    warnings exist to catch.
+    """
+    warnings, combined = _startup_warning_output(
+        tmp_path, capsys, env_body="HCAT_TUNING=-w 1\n"
+    )
+    assert len(warnings) == 1
+    _assert_reported_once(combined, warnings, "HCAT_TUNING", "hcatTuning")
+
+
+def test_both_sides_misplaced_each_warn_exactly_once(tmp_path, capsys):
+    """Case 3: both files hold a key belonging in the other, at once.
+
+    Both lists feed one merged report, so neither may overwrite or filter the
+    other.
+    """
+    warnings, combined = _startup_warning_output(
+        tmp_path,
+        capsys,
+        env_body="HCAT_TUNING=-w 1\n",
+        json_body={
+            "hashmob_api_key": "placeholder",
+            "pipal_count": 3,
+            "ollamaModel": "synthetic-model",
+        },
+    )
+    assert len(warnings) == 4
+    _assert_reported_once(
+        combined,
+        warnings,
+        "HCAT_TUNING",
+        "hashmob_api_key",
+        "pipal_count",
+        "ollamaModel",
     )
 
-    with caplog.at_level(logging.DEBUG, logger="hate_crack"):
-        result = config_loader.load_config_or_exit(
-            env_path=None, legacy_json_path=str(legacy_path), environ={}
-        )
-        # main.py's startup block, reproduced verbatim -- it is module-level
-        # code and cannot be called directly.
-        for warning in result.warnings:
-            print(f"[!] {warning}")
 
-    assert len(result.warnings) == 4
-    captured = capsys.readouterr()
-    combined = captured.out + captured.err
-    for warning in result.warnings:
-        assert combined.count(warning) == 1, warning
-    # And the logger channel is silent, so nothing a handler is attached to
-    # can reintroduce the duplicate.
-    assert [r for r in caplog.records if r.name == "hate_crack"] == []
+def test_unrecognized_env_key_warns_exactly_once(tmp_path, capsys):
+    """Case 4: a key in `.env` that the schema does not know at all."""
+    warnings, combined = _startup_warning_output(
+        tmp_path, capsys, env_body="BOGUS_KEY=x\n"
+    )
+    assert len(warnings) == 1
+    _assert_reported_once(combined, warnings, "BOGUS_KEY")
+
+
+def test_wrong_typed_config_json_value_warns_exactly_once(tmp_path, capsys):
+    """The third warning source, for completeness: a badly-typed JSON value."""
+    warnings, combined = _startup_warning_output(
+        tmp_path, capsys, json_body={"bandrelmaxruntime": "not-an-int"}
+    )
+    assert len(warnings) == 1
+    _assert_reported_once(combined, warnings, "bandrelmaxruntime")
+
+
+def test_a_clean_pair_of_files_produces_no_warnings(tmp_path, capsys):
+    """Case 5: correctly-placed keys are silent -- the warnings must not be so
+    eager that users learn to ignore them."""
+    write_env(str(tmp_path / ".env"), {"ollamaModel": "synthetic-model"})
+    warnings, combined = _startup_warning_output(
+        tmp_path,
+        capsys,
+        env_body=(tmp_path / ".env").read_text(),
+        json_body=_post_split_config(hcatBin="hashcat-6.2.6"),
+    )
+    assert warnings == []
+    assert combined == ""
+
+
+def test_every_warning_reaches_the_user_exactly_once_at_scale(tmp_path, capsys):
+    """A full pre-split config.json: twelve misplaced keys, twelve lines.
+
+    Before the channel was consolidated this printed twenty-four
+    near-identical lines -- once from load_config_or_exit()'s logger, once from
+    main.py's print of the same list -- which reads like a bug in the very
+    messages that are the whole user-facing story for the split.
+    """
+    warnings, combined = _startup_warning_output(
+        tmp_path, capsys, json_body=_pre_split_config()
+    )
+    assert len(warnings) == 12
+    _assert_reported_once(combined, warnings, *[e.legacy for e in ENV_KEYS])
+    assert combined.count("[!] ") == 12
 
 
 def test_load_config_or_exit_does_not_log_warnings(tmp_path, caplog):
@@ -377,7 +484,7 @@ def test_load_config_or_exit_does_not_log_warnings(tmp_path, caplog):
 
 
 def test_main_py_is_the_channel_that_prints_the_warnings():
-    """The print must actually be there -- the pair of tests above would both
+    """The print must actually be there -- the logger-silence test above would
     pass just as happily if nobody reported the warnings at all."""
     source = Path(hc_main.__file__).read_text()
     assert 'print(f"[!] {_warning}")' in source
