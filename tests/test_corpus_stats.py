@@ -415,3 +415,32 @@ def test_corpus_context_end_to_end_gzip_yields_real_basewords(tmp_path, capsys):
     # The aggregate summary must describe real ASCII basewords, not mojibake
     # bytes from the raw gzip stream.
     assert all(0x20 <= ord(c) <= 0x7E or c == "\n" for c in summary_text)
+
+
+def test_corpus_context_gzip_sample_branch_yields_real_plaintexts(tmp_path):
+    """A small gzipped corpus (line count <= ollamaMaxSampleLines) takes the
+    literal-sample branch in _corpus_context, at main.py's
+    ``_sample_plaintext_file(path, cap, ...)`` call. That call used to read
+    the *original*, still-gzipped path directly -- outside the
+    ``_wordlist_path`` decompression the summarize() call already went
+    through -- so ``context["sample"]`` carried raw gzip bytes straight into
+    the LLM prompt even after the summary was fixed. This is squarely inside
+    issue #214's title ("...read a gzipped corpus as binary garbage"), so the
+    sample field must be checked independently of the summary field.
+    """
+    lines = [f"{NTLM}:Spring2026", f"{NTLM}:Summer2026"]
+    path = _gzip_corpus(tmp_path, lines)
+    # Well under the default 500-line cap, so the sample branch fires.
+    assert len(lines) <= 500
+
+    context = hc_main._corpus_context(path)
+
+    assert context is not None
+    assert "sample" in context
+    sample_text = context["sample"]
+    assert "Spring2026" in sample_text
+    assert "Summer2026" in sample_text
+    # The discriminating assertion: no byte outside printable ASCII. A raw
+    # gzip stream decodes cleanly under latin-1, so this is the one check
+    # that would have caught the original bug in the sample path.
+    assert all(0x20 <= ord(c) <= 0x7E or c == "\n" for c in sample_text)

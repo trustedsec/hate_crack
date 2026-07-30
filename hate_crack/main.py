@@ -2323,35 +2323,39 @@ def _corpus_context(path, source_label="wordlist"):
         with spinner(f"Analyzing {source_label}..."):
             with _wordlist_path(path) as resolved_path:
                 stats = _corpus_stats.summarize(resolved_path)
+
+                context = {"summary": _corpus_stats.format_summary(stats)}
+                print(
+                    f"Analyzed all {stats['total']:,} passwords in {source_label} "
+                    f"({stats['baseword_total']:,} distinct basewords)."
+                )
+                # A raw NTDS dump and a cracked-output file both live in the
+                # working directory with similar names, and the dump produces
+                # confident nonsense rather than an error, so say so instead of
+                # letting it through quietly.
+                hash_shaped = stats.get("hash_shaped", 0)
+                if hash_shaped > stats["total"] * 0.25:
+                    print(
+                        f"[!] Warning: {hash_shaped:,} of {stats['total']:,} lines "
+                        "look like hashes, not plaintexts. This file may be an "
+                        "uncracked dump rather than cracked output; the statistics "
+                        "below will be meaningless if so."
+                    )
+
+                cap = ollamaMaxSampleLines if ollamaMaxSampleLines > 0 else 500
+                if stats["total"] <= cap:
+                    sampled = _sample_plaintext_file(
+                        resolved_path, cap, source_label=source_label
+                    )
+                    if sampled:
+                        context["sample"] = "\n".join(sampled)
+                return context
     except OSError as e:
         print(f"Error reading {source_label}: {e}")
         return None
     except ValueError as e:
         print(f"Error: {e}")
         return None
-
-    context = {"summary": _corpus_stats.format_summary(stats)}
-    print(
-        f"Analyzed all {stats['total']:,} passwords in {source_label} "
-        f"({stats['baseword_total']:,} distinct basewords)."
-    )
-    # A raw NTDS dump and a cracked-output file both live in the working
-    # directory with similar names, and the dump produces confident nonsense
-    # rather than an error, so say so instead of letting it through quietly.
-    hash_shaped = stats.get("hash_shaped", 0)
-    if hash_shaped > stats["total"] * 0.25:
-        print(
-            f"[!] Warning: {hash_shaped:,} of {stats['total']:,} lines look like "
-            "hashes, not plaintexts. This file may be an uncracked dump rather "
-            "than cracked output; the statistics below will be meaningless if so."
-        )
-
-    cap = ollamaMaxSampleLines if ollamaMaxSampleLines > 0 else 500
-    if stats["total"] <= cap:
-        sampled = _sample_plaintext_file(path, cap, source_label=source_label)
-        if sampled:
-            context["sample"] = "\n".join(sampled)
-    return context
 
 
 def hcatOllamaResearchTarget(company):
