@@ -193,6 +193,35 @@ hate_crack topmask hashes.txt 1000 --target-time 4
 -------------------------------------------------------------------
 ## Troubleshooting
 
+### Error: "would clobber existing tag" when updating
+
+An older clone can refuse to update, printing a long list of lines like:
+
+```
+ ! [rejected]        v2.5.0     -> v2.5.0  (would clobber existing tag)
+```
+
+This affects clones created before July 2026. Published history was rewritten
+then to remove some files that should never have been committed, which gave
+every commit a new ID; an older clone's tags therefore point at objects this
+repository no longer contains, and git refuses to move a tag it already has.
+Nothing is wrong with your checkout and no cracking data is at risk.
+
+Recover with a one-time reset. This discards local commits and edits in the
+checkout, so if you have customized anything tracked by git (as opposed to
+`config.json`, which is not tracked), commit it to a branch first:
+
+```bash
+cd /path/to/hate_crack
+git fetch --tags --force origin
+git checkout -B main origin/main
+make install
+```
+
+`--force` here only updates tags; it cannot touch your commits. Afterwards the
+built-in updater works normally. Versions before 2.18 could not perform this
+recovery themselves, which is why it has to be done by hand once.
+
 ### Error: Build directory does not exist
 
 If you see an error like:

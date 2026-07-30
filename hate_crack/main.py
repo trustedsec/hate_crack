@@ -1030,12 +1030,16 @@ def ascii_art():
 
 
 def _run_upgrade(branch="main"):
-    """Run `git pull && git fetch --tags --force && make install` in the repo root.
+    """Reset the repo root to origin's tip and reinstall.
+
+    Fetches with `--tags --force`, resets *branch* to `origin/<branch>` via
+    `checkout -B`, then runs `make install`. Deliberately does not merge; see the
+    comment above the checkout for why that cannot work here.
 
     *branch* selects the update channel. ``"main"`` is the released channel that
     ``--update`` uses; ``"nightly-dev"`` is the pre-release channel behind
     ``--nightly``, carrying work that has passed CI but has not been cut into a
-    release yet. See the Branching Policy in CLAUDE.md.
+    release yet.
     """
     import subprocess
 
@@ -1051,7 +1055,7 @@ def _run_upgrade(branch="main"):
     if git_root_result.returncode != 0:
         print(
             "\n  Could not find a git repository to upgrade from."
-            f"\n  Run manually: git pull origin {branch} && git fetch --tags --force && make install\n"
+            f"\n  Run manually: git fetch --tags --force origin && git checkout -B {branch} origin/{branch} && make install\n"
         )
         raise SystemExit(1)
     repo_root = git_root_result.stdout.strip()
@@ -1075,7 +1079,7 @@ def _run_upgrade(branch="main"):
     if fetch_result.returncode != 0:
         print(
             f"\n  Failed to fetch from origin:\n  {fetch_result.stderr.strip()}\n"
-            f"\n  Upgrade manually: git fetch --tags --force && git checkout {branch} && git pull origin {branch} && make install\n"
+            f"\n  Upgrade manually: git fetch --tags --force origin && git checkout -B {branch} origin/{branch} && make install\n"
         )
         raise SystemExit(1)
 
@@ -1099,64 +1103,75 @@ def _run_upgrade(branch="main"):
         branch_result.stdout.strip() if branch_result.returncode == 0 else ""
     )
 
-    if current_branch and current_branch != branch:
-        status = subprocess.run(
-            ["git", "status", "--porcelain"],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
+    # The checkout below runs unconditionally, including when HEAD is already on
+    # *branch*. It used to be skipped in that case, leaving the shell chain's
+    # `git pull` to advance the branch -- and that is precisely the case that
+    # broke in the field, because a merge cannot advance a clone whose history
+    # was rewritten. The 2026-07-25 purge rewrote every published commit, so a
+    # clone predating it shares no ancestor with origin/main; git then aborts
+    # with "Need to specify how to reconcile divergent branches" (or "refusing
+    # to merge unrelated histories") and the upgrade never reaches make install.
+    # `checkout -B` moves the branch to origin's tip instead of merging into it,
+    # which recovers those clones. It discards local commits on the branch, so
+    # the dirty check above it is load-bearing and must stay unconditional too.
+    status = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+    if status.stdout.strip():
+        print(
+            f"\n  Cannot auto-upgrade: uncommitted changes on '{current_branch or 'HEAD'}'."
+            "\n  Commit or stash them, then re-run."
+            f"\n  Or upgrade manually: git checkout -B {branch} origin/{branch} && make install\n"
         )
-        if status.stdout.strip():
-            print(
-                f"\n  Cannot auto-upgrade: uncommitted changes on '{current_branch}'."
-                "\n  Commit or stash them, then re-run."
-                f"\n  Or upgrade manually: git checkout {branch} && git pull origin {branch} && make install\n"
-            )
-            raise SystemExit(1)
+        raise SystemExit(1)
 
+    if current_branch and current_branch != branch:
         print(
             f"\n  Switching from '{current_branch}' to '{branch}' to pick up the new tag..."
         )
-        checkout = subprocess.run(
-            # -B creates/resets a local `main` pointing at origin/main so this
-            # works whether or not a local `main` already exists (e.g. a stale
-            # master-only clone that has never had a main branch).
-            ["git", "checkout", "-B", branch, f"origin/{branch}"],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-        )
-        if checkout.returncode != 0:
-            print(
-                f"\n  Failed to switch to {branch}:\n  {checkout.stderr.strip()}\n"
-                f"\n  Upgrade manually: git checkout {branch} && git pull origin {branch} && make install\n"
-            )
-            raise SystemExit(1)
 
-        # Repair the upstream so a later manual `git pull` consults
-        # origin/main rather than a dangling branch.master.merge ref.
-        subprocess.run(
-            ["git", "branch", f"--set-upstream-to=origin/{branch}", branch],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
+    checkout = subprocess.run(
+        # -B creates/resets a local `main` pointing at origin/main so this works
+        # whether or not a local `main` already exists (e.g. a stale master-only
+        # clone that has never had a main branch), and whether or not its
+        # history is related to origin's.
+        ["git", "checkout", "-B", branch, f"origin/{branch}"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+    if checkout.returncode != 0:
+        print(
+            f"\n  Failed to switch to {branch}:\n  {checkout.stderr.strip()}\n"
+            f"\n  Upgrade manually: git checkout -B {branch} origin/{branch} && make install\n"
         )
+        raise SystemExit(1)
+
+    # Repair the upstream so a later manual `git pull` consults
+    # origin/main rather than a dangling branch.master.merge ref.
+    subprocess.run(
+        ["git", "branch", f"--set-upstream-to=origin/{branch}", branch],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
 
     import shutil
 
     uv = shutil.which("uv") or os.path.expanduser("~/.local/bin/uv")
 
     result = subprocess.run(
-        # `git pull origin main` is explicit so it never consults the possibly
-        # broken branch.<current>.merge config on a renamed clone.
-        # git fetch --tags --force ensures new release tags are visible to
-        # setuptools-scm, and --force keeps a divergent local tag from aborting
-        # the chain (see the earlier fetch for why).
+        # No fetch or merge here: the fetch above already made the new tags
+        # visible to setuptools-scm and the checkout already put the branch at
+        # origin's tip. Re-adding either would reintroduce the failures this
+        # function exists to survive.
         # make install handles system deps and the CLI shim.
         # uv sync --reinstall-package forces setuptools-scm to regenerate the
         # version from the new tag so the version number updates correctly.
-        f"git pull origin {branch} && git fetch --tags --force && make install "
-        f"&& {uv} sync --reinstall-package hate_crack",
+        f"make install && {uv} sync --reinstall-package hate_crack",
         shell=True,
         cwd=repo_root,
     )
