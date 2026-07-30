@@ -134,6 +134,31 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ### Fixed
 
+- **A dangling `.env` or `config.json` symlink was read as "no config
+  present", so hate_crack silently ran on schema defaults (#227).** Config
+  discovery and both file layers gated on `os.path.isfile()`, which is `False`
+  for a symlink whose target is missing — the wrong wordlists directory and the
+  wrong potfile path, with nothing printed to say so. All four gates now route
+  such a path to the existing `ConfigFileUnreadableError` diagnostic, whose
+  dangling-symlink branch was previously unreachable through discovery, and
+  startup exits 1 naming the link. `os.path.isfile()` remains the positive
+  test, so a *directory* called `.env` is still ignored rather than read, and a
+  **valid** symlink to a real config file keeps working — sharing one config
+  across several checkouts that way is a supported setup.
+- **First run printed the config file paths twice, in different words
+  (#227).** The bootstrap's own "Initializing / Config source / Config
+  destination" block sat directly above the two `[*] config.json:` /
+  `[*] .env:` lines that already name the resolved paths. The bootstrap is now
+  silent about paths and passes what only it knew — the template or migration
+  source — to those two lines, which report it inline (e.g.
+  `(created this run, from config.json.example)`). The per-key migration notes
+  telling the user which settings to delete from `config.json` are unchanged.
+- **No test covered a plain `str` config value with surrounding whitespace
+  surviving a `.env` round trip (#227).** `config_writer._needs_quoting` is
+  type-agnostic and the `charset` keys exercised it only because their values
+  always contain a space. Leading, trailing, both, and interior-double-space
+  values now round-trip through a real file read back with `dotenv_values()`
+  and through the loader.
 - **Three Hashview tests claimed to hit the real API "if possible" but never
   did, and could not fail even when their assertions did (#223).** The `api`
   fixture holds `patch("requests.Session")` open for the whole test body, so a
