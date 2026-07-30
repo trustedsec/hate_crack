@@ -452,6 +452,9 @@ def spoonman_attack(ctx: Any) -> None:
     print("passwords, such as a previous engagement's cracked output. The rule")
     print("file is sorted most-productive-first, so a capped set gets most of")
     print("the coverage for a fraction of the keyspace.")
+    print("Coverage is long-tailed: the last few percent typically costs orders")
+    print("of magnitude more rules than the first half, so the smallest tier is")
+    print("usually the right choice.")
     print("=" * 60)
 
     corpus = ctx.select_file_with_autocomplete(
@@ -465,18 +468,131 @@ def spoonman_attack(ctx: Any) -> None:
         return
 
     items = [
-        ("1", "Full rule set (reconstructs 100% of the corpus)"),
-        ("2", "Top 99% coverage"),
+        ("1", "Top 50% coverage (smallest, most productive rules)"),
+        ("2", "Top 75% coverage"),
         ("3", "Top 95% coverage"),
+        ("4", "Top 99% coverage"),
+        ("5", "Full rule set (largest; can be millions of rules)"),
         ("99", "Back to Main Menu"),
     ]
     choice = interactive_menu(items, title="\nRule set size:")
     if choice is None or choice == "99":
         return
-    coverage = {"1": None, "2": 99, "3": 95}.get(choice)
+    coverage = {"1": 50, "2": 75, "3": 95, "4": 99, "5": None}.get(choice)
 
     _notify.prompt_notify_for_attack("Spoonman")
     ctx.hcatSpoonman(ctx.hcatHashType, ctx.hcatHashFile, corpus, coverage=coverage)
+
+
+def _prompt_positive_int(prompt: str, default: int | None) -> int | None:
+    """Prompt for a positive integer. Blank keeps *default*, 0 means unlimited."""
+    while True:
+        raw = input(prompt).strip()
+        if not raw:
+            return default
+        try:
+            value = int(raw)
+        except ValueError:
+            print("[!] Enter a number.")
+            continue
+        if value < 0:
+            print("[!] Enter zero or a positive number.")
+            continue
+        return value or None
+
+
+def _select_debug_logs(ctx) -> list[str] | None:
+    """Pick the hashcat --debug-mode 4 logs to mine. None if cancelled."""
+    logs = ctx.rosetta_debug_logs()
+    items = []
+    for idx, path in enumerate(logs[:20], 1):
+        # Size rather than a line count: these logs routinely reach hundreds of
+        # megabytes, and stat'ing 20 of them must stay instant. A log can also
+        # be rotated away between the listing and the stat, which is not worth
+        # aborting the menu over.
+        try:
+            label = (
+                f"{os.path.basename(path)} ({os.path.getsize(path) / 1048576:.1f} MB)"
+            )
+        except OSError:
+            label = f"{os.path.basename(path)} (unreadable)"
+        items.append((str(idx), label))
+    if logs:
+        items.append(("a", "All logs listed above"))
+    items.append(("p", "Enter a debug log path manually"))
+    items.append(("99", "Back to Main Menu"))
+
+    title = f"\nDebug logs in {ctx.hcatDebugLogPath}:"
+    if not logs:
+        title = f"\nNo debug logs found in {ctx.hcatDebugLogPath}."
+    choice = interactive_menu(items, title=title)
+    if choice is None or choice == "99":
+        return None
+    if choice == "a":
+        return logs[:20]
+    if choice == "p":
+        path = ctx.select_file_with_autocomplete(
+            "\n[*] Enter path to hashcat debug log", base_dir=ctx.hcatDebugLogPath
+        ).strip()
+        if not path:
+            print("[!] No debug log specified.")
+            return None
+        if not os.path.isfile(path):
+            print(f"[!] Debug log not found: {path}")
+            return None
+        return [path]
+    if choice.isdigit() and 1 <= int(choice) <= len(logs[:20]):
+        return [logs[int(choice) - 1]]
+    print("[!] Invalid selection.")
+    return None
+
+
+def rosetta_attack(ctx: Any) -> None:
+    """Mine hashcat --debug-mode 4 logs for winning basewords and rules."""
+    print("\n" + "=" * 60)
+    print("ROSETTA ATTACK")
+    print("=" * 60)
+    print("Mines hashcat --debug-mode 4 logs, which hate_crack writes for every")
+    print("rule-based attack, for the basewords and rules that actually cracked")
+    print("something. Those are then run as a full cross product: each winning")
+    print("rule gets tried against every winning baseword, not just the one it")
+    print("was originally paired with.")
+    print("=" * 60)
+
+    debug_files = _select_debug_logs(ctx)
+    if not debug_files:
+        return
+
+    items = [
+        ("1", "Application frequency (rules applied most often)"),
+        ("2", "Baseword spread (rules that worked across the most basewords)"),
+        ("3", "Candidate variety (rules producing the most unique candidates)"),
+        ("99", "Back to Main Menu"),
+    ]
+    choice = interactive_menu(items, title="\nRank rules by:")
+    if choice is None or choice == "99":
+        return
+    metric = {"1": "frequency", "2": "basewords", "3": "candidates"}.get(choice)
+    if metric is None:
+        print("[!] Invalid selection.")
+        return
+
+    top_rules = _prompt_positive_int(
+        "\n[*] Number of top rules to keep [default 100, 0 for all]: ", 100
+    )
+    top_basewords = _prompt_positive_int(
+        "[*] Number of top basewords to keep [default all, 0 for all]: ", None
+    )
+
+    _notify.prompt_notify_for_attack("Rosetta")
+    ctx.hcatRosetta(
+        ctx.hcatHashType,
+        ctx.hcatHashFile,
+        debug_files,
+        metric=metric,
+        top_rules=top_rules,
+        top_basewords=top_basewords,
+    )
 
 
 def yolo_combination(ctx: Any) -> None:
@@ -540,21 +656,6 @@ def _prompt_wordlist_paths(ctx, max_count: int) -> list[str]:
     return collected
 
 
-def combinator3_crack(ctx: Any) -> None:
-    """3-way combinator attack (delegates to unified combinator_crack)."""
-    combinator_crack(ctx)
-
-
-def combinatorX_crack(ctx: Any) -> None:
-    """N-way combinator attack (delegates to unified combinator_crack)."""
-    combinator_crack(ctx)
-
-
-def combinator_3plus_crack(ctx: Any) -> None:
-    """3+ wordlist combinator (delegates to unified combinator_crack)."""
-    combinator_crack(ctx)
-
-
 def bandrel_method(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("Bandrel")
     ctx.hcatBandrel(ctx.hcatHashType, ctx.hcatHashFile)
@@ -601,6 +702,36 @@ def _prompt_with_default(label: str, default: Any) -> str:
     return input(f"{label}: ").strip()
 
 
+def _pick_pattern_source(ctx: Any, cracked_path: str | None):
+    """Pick the corpus the LLM infers patterns from. Returns a path or None.
+
+    Cracked passwords are offered first and only when *cracked_path* is set,
+    because plaintexts already recovered from this target reveal its real
+    conventions — a generic wordlist only reveals the internet's.
+    """
+    if cracked_path:
+        items = [
+            ("1", "Cracked passwords (current session)"),
+            ("2", "Sample wordlist"),
+            ("99", "Cancel"),
+        ]
+        while True:
+            choice = interactive_menu(
+                items,
+                title="\nLLM Pattern Rules — pattern source",
+                prompt="\n\tSelect source: ",
+            )
+            if choice is None or choice == "99":
+                return None
+            if choice == "1":
+                return cracked_path
+            if choice == "2":
+                break
+            print("\t[!] Invalid selection.")
+
+    return _pick_training_wordlist(ctx, title="LLM Pattern Source Wordlists")
+
+
 def ollama_attack(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("LLM")
     # Cracked-password mode is only offered when this session actually has
@@ -614,6 +745,9 @@ def ollama_attack(ctx: Any) -> None:
     ]
     if has_cracked:
         items.append(("3", "Cracked passwords (current session)"))
+    # Deliberately "4" whether or not "3" was offered: renumbering it per
+    # session would move the option under an operator between runs.
+    items.append(("4", "Pattern rules (LLM generates basewords and hashcat rules)"))
     items.append(("99", "Cancel"))
 
     while True:
@@ -642,6 +776,14 @@ def ollama_attack(ctx: Any) -> None:
             return
         elif choice == "3" and has_cracked:
             ctx.hcatOllama(ctx.hcatHashType, ctx.hcatHashFile, "cracked", out_path)
+            return
+        elif choice == "4":
+            source = _pick_pattern_source(ctx, out_path if has_cracked else None)
+            if not source:
+                return
+            # No rule prompt: the model writes the rule file too, which is the
+            # point of the mode — see hcatOllamaPatterns.
+            ctx.hcatOllamaPatterns(ctx.hcatHashType, ctx.hcatHashFile, source)
             return
         else:
             # Without this the menu just silently redraws and the user cannot
@@ -789,6 +931,26 @@ def _markov_pick_training_source(ctx: Any):
 
 def adhoc_mask_crack(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("Ad-hoc Mask")
+    print("\n\tAd-hoc Mask Attack")
+    print("\t1. Type a mask")
+    print("\t2. Use a mask file (.hcmask)")
+    choice = input("\tSelect [1]: ").strip() or "1"
+
+    if choice == "2":
+        masks_dir = os.path.join(ctx.hate_path, "masks")
+        mask = ctx.select_file_with_autocomplete(
+            "\tPath to mask file (tab to autocomplete)",
+            base_dir=masks_dir,
+        )
+        mask = mask.strip() if mask else ""
+        if not mask:
+            return
+        if not os.path.isfile(mask):
+            print(f"\t[!] Mask file not found: {mask}")
+            return
+        ctx.hcatAdHocMask(ctx.hcatHashType, ctx.hcatHashFile, mask, "")
+        return
+
     print(
         "\nEnter a hashcat mask. Tokens: ?l=lower ?u=upper ?d=digit ?s=special ?a=all ?b=binary ?1-?4=custom"
     )
@@ -801,8 +963,8 @@ def adhoc_mask_crack(ctx: Any) -> None:
         cs = input(f"Custom charset -{i} [leave blank to skip]: ").strip()
         if cs:
             charset_flags.extend([f"-{i}", cs])
-        else:
-            break
+        # A blank answer skips this slot only: a mask may use ?1 and ?3
+        # without defining ?2 (issue #205).
 
     ctx.hcatAdHocMask(
         ctx.hcatHashType,
@@ -962,6 +1124,18 @@ def generate_rules_crack(ctx: Any) -> None:
     ctx.hcatGenerateRules(
         ctx.hcatHashType, ctx.hcatHashFile, rule_count, wordlist_choice
     )
+
+
+def restore_potfile_output(ctx: Any) -> None:
+    print("\n" + "=" * 60)
+    print("REGENERATE .out FROM POT FILE")
+    print("=" * 60)
+    print("Rebuilds <hashfile>.out from the hashcat POT file, replacing its")
+    print("current contents. Useful when the output file has been truncated or")
+    print("lost but the POT file still holds the cracked hashes.")
+    print("=" * 60 + "\n")
+
+    ctx.restore_from_potfile()
 
 
 def ngram_attack(ctx: Any) -> None:

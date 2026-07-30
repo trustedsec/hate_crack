@@ -50,6 +50,7 @@ def _stream_response_to_file(
     *,
     label: str | None = None,
     show_progress: bool = True,
+    chunk_size: int = 8192,
 ) -> bool:
     """Write an already-opened streaming response to dest_path atomically via a .part file."""
     temp_path = dest_path + ".part"
@@ -62,7 +63,7 @@ def _stream_response_to_file(
         downloaded = 0
         os.makedirs(os.path.dirname(os.path.abspath(dest_path)), exist_ok=True)
         with open(temp_path, "wb") as f:
-            for chunk in r.iter_content(chunk_size=8192):
+            for chunk in r.iter_content(chunk_size=chunk_size):
                 if chunk:
                     f.write(chunk)
                     downloaded += len(chunk)
@@ -132,7 +133,11 @@ def _streamed_download(
         ) as r:
             r.raise_for_status()
             return _stream_response_to_file(
-                r, dest_path, label=label, show_progress=show_progress
+                r,
+                dest_path,
+                label=label,
+                show_progress=show_progress,
+                chunk_size=chunk_size,
             )
     except KeyboardInterrupt:
         raise
@@ -1623,7 +1628,6 @@ class HashviewAPI:
         customer_id,
         hashfile_id,
         output_file=None,
-        hash_type=None,
         potfile_path=None,
     ):
         import sys
@@ -2132,7 +2136,6 @@ def download_hashes_from_hashview(
         customer_id,
         hashfile_id,
         output_file,
-        hash_type=selected_hash_type,
         potfile_path=potfile_path,
     )
     print_fn(f"\n✓ Success: Downloaded {download_result['size']} bytes")

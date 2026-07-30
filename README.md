@@ -96,6 +96,8 @@ Core logic is now split into modules under `hate_crack/`:
 - `hate_crack/api.py`: Hashview, Weakpass, and Hashmob integrations (downloads/menus/helpers).
 - `hate_crack/attacks.py`: menu attack handlers.
 - `hate_crack/hashmob_wordlist.py`: Hashmob wordlist utilities (thin wrapper; calls into api.py).
+- `hate_crack/corpus_stats.py`: whole-corpus password statistics used to describe a corpus to the LLM.
+- `hate_crack/plaintext.py`: recovers the password from a corpus line (hash-prefix stripping, `$HEX[...]` decoding); shared by the LLM modes, corpus_stats, and rulegen.
 - `hate_crack/llm.py`: structured (JSON) LLM candidate generation via Atomic Agents.
 - `hate_crack/menu.py`: shared menu renderer, including optional arrow-key navigation.
 - `hate_crack/noninteractive.py`: dispatcher for the scripted attack subcommands.
@@ -190,6 +192,35 @@ hate_crack topmask hashes.txt 1000 --target-time 4
 
 -------------------------------------------------------------------
 ## Troubleshooting
+
+### Error: "would clobber existing tag" when updating
+
+An older clone can refuse to update, printing a long list of lines like:
+
+```
+ ! [rejected]        v2.5.0     -> v2.5.0  (would clobber existing tag)
+```
+
+This affects clones created before July 2026. Published history was rewritten
+then to remove some files that should never have been committed, which gave
+every commit a new ID; an older clone's tags therefore point at objects this
+repository no longer contains, and git refuses to move a tag it already has.
+Nothing is wrong with your checkout and no cracking data is at risk.
+
+Recover with a one-time reset. This discards local commits and edits in the
+checkout, so if you have customized anything tracked by git (as opposed to
+`config.json`, which is not tracked), commit it to a branch first:
+
+```bash
+cd /path/to/hate_crack
+git fetch --tags --force origin
+git checkout -B main origin/main
+make install
+```
+
+`--force` here only updates tags; it cannot touch your commits. Afterwards the
+built-in updater works normally. Versions before 2.18 could not perform this
+recovery themselves, which is why it has to be done by hand once.
 
 ### Error: Build directory does not exist
 
@@ -378,20 +409,30 @@ uv run pytest --cov=hate_crack
 Git hooks are managed by [prek](https://github.com/j178/prek) (v0.3.3+). Install hooks with:
 
 ```bash
-prek install --hook-type pre-push --hook-type post-commit
+prek install --hook-type pre-push --hook-type pre-commit
 ```
 
-This installs hooks defined in `prek.toml` using the pre-commit local-repo TOML schema:
-- **pre-push**: ruff, ty, pytest, pytest-lima
-- **post-commit**: audit-docs
+This installs the hooks defined in `prek.toml` using the pre-commit local-repo
+TOML schema:
+- **pre-push** (local hooks): ruff, ruff-format, ty, pytest, pytest-lima, bandit
+- **pre-commit** (from `pre-commit/pre-commit-hooks`): trailing-whitespace,
+  end-of-file-fixer, check-yaml, check-merge-conflict, check-added-large-files,
+  detect-private-key
+
+The pre-commit auto-fixers rewrite files in place, so re-stage and commit again
+after they run.
 
 Note: prek 0.3.3 expects `repos = [...]` at the top level. The old `[hooks.<stage>] commands = [...]` format is not supported.
 
 ### Arrow-Key Menu Navigation
 
-Arrow-key menu navigation is enabled by default via the `simple-term-menu` dependency. When running in a terminal (TTY), menus render with arrow-key navigation and number-key shortcuts.
+Menus use classic numbered `print()` + `input()` selection by default, which
+accepts full multi-digit keys.
 
-To force the classic numbered `print()` + `input()` menu, set `HATE_CRACK_PLAIN_MENU=1`.
+To enable arrow-key navigation via `simple-term-menu`, set
+`HATE_CRACK_ARROW_MENU=1`. In that mode only single-digit shortcut keys work;
+options numbered 10 and above must be reached with the arrow keys. Arrow-key
+mode also requires a TTY, so it stays off when output is piped.
 
 ### Dev Dependencies
 
@@ -412,6 +453,7 @@ Common options:
 - `--download-all-torrents`: Download all available Weakpass torrents from cache.
 - `--wordlists-dir <PATH>` / `--optimized-wordlists-dir <PATH>`: Override wordlist directories.
 - `--pipal-path <PATH>`: Override pipal path.
+- `--restore-potfile`: Rebuild `<hashfile>.out` from the hashcat POT file at startup, replacing any existing contents, then continue into the normal menu. Without this flag the POT lookup only runs when `.out` does not already exist. Menu option 93 does the same thing on demand, with a confirmation prompt.
 - `--maxruntime <SECONDS>`: Override max runtime.
 - `--bandrel-basewords <PATH>`: Override bandrel basewords file.
 - `--update`: Update to the latest release and reinstall. Switches the checkout to `main` if it is on another branch, since release tags live there.
@@ -495,15 +537,19 @@ The LLM Attack (option 12) uses Ollama to generate password candidates. Configur
 ```json
 {
   "ollamaModel": "qwen2.5:32b",
-  "ollamaNumCtx": 2048,
+  "ollamaNumCtx": 8192,
   "ollamaTimeout": 300
 }
 ```
 
 - **`ollamaModel`** — The Ollama model used for candidate generation (default: `qwen2.5:32b`). The LLM attack uses structured (JSON) output, so choose a model with good tool/JSON support.
-- **`ollamaNumCtx`** — Context window size for the model (default: `2048`).
+- **`ollamaNumCtx`** — Context window size for the model (default: `8192`). This was `2048` before corpus statistics were introduced, which was too small to hold the prompt it was being given: 500 sampled plaintexts run roughly 2,000–3,500 tokens before the system prompt and response, so Ollama silently truncated part of the sample the sampler had carefully spread across the file.
 - **`ollamaTimeout`** — Seconds to wait for a generation response before giving up (default: `300`). Raise this if a large model is still loading into VRAM on the first request, which can otherwise exceed the timeout; hate_crack prints the elapsed timeout and this setting's name when it fires.
-- **`ollamaMaxSampleLines`** — Maximum number of lines drawn from the source file and included in the LLM prompt when using **Wordlist** or **Cracked passwords** mode (default: `500`). Lines are sampled evenly across the whole file so the prompt reflects the wordlist's full character range rather than just the head. Set to a larger value if the model has a big context window (`ollamaNumCtx`) and you want richer coverage; set it lower to reduce prompt size and generation latency. Values ≤ 0 are treated as 500.
+- **`ollamaMaxSampleLines`** — The threshold below which the LLM modes also paste the literal plaintexts into the prompt (default: `500`). Values ≤ 0 are treated as 500.
+
+  Corpus-derived modes (**Wordlist**, **Cracked passwords**, **Pattern rules**) always describe the *entire* corpus statistically — baseword shares, masks, casing, lengths, trailing digits and symbols, years — rather than pasting in a slice of it. Aggregation is bounded, so a 120,000-password dump costs about the same prompt space as a 500-line one. When the whole corpus fits under this threshold, the raw plaintexts are included as well, since nothing is gained by hiding a small corpus from the model.
+
+  This replaces the previous behaviour of pasting an evenly-spaced sample of up to `ollamaMaxSampleLines` passwords. A sample of a large dump conveyed no frequency information at all: the model could not distinguish a baseword used by 8% of the organization from one used by a single person, which is precisely the signal that makes a guess worth running.
 - **`ollamaAutoResearch`** — When `true` (default), **Target info** mode asks the local model to suggest the industry and location as soon as you have typed the company name, and offers them as editable prompt defaults. Set to `false` to always get blank prompts (useful with a slow model, since research costs one extra round-trip before the attack starts).
 - The Ollama URL defaults to `http://localhost:11434` (override via the `OLLAMA_HOST` env var). Ensure Ollama is running and the model is pulled (`ollama pull qwen2.5:32b`) before using the LLM Attack — hate_crack no longer auto-pulls missing models.
 
@@ -532,7 +578,7 @@ The attack offers three generation modes:
 
    A research failure — timeout, Ollama not running, empty answer — never blocks the attack; it just falls back to blank prompts. Set `ollamaAutoResearch` to `false` to skip research entirely.
 2. **Wordlist** — derive basewords from a sample wordlist.
-3. **Cracked passwords** — feed the plaintexts already recovered this session (`<hashfile>.out`) back to the model so it can infer the target organization's own password conventions (basewords, seasons, years, suffixes, leetspeak) and generate *new* candidates in the same style. This option is only listed once at least one hash has been cracked; the sample is capped by `ollamaMaxSampleLines` exactly like Wordlist mode.
+3. **Cracked passwords** — feed the plaintexts already recovered this session (`<hashfile>.out`) back to the model so it can infer the target organization's own password conventions (basewords, seasons, years, suffixes, leetspeak) and generate *new* candidates in the same style. This option is only listed once at least one hash has been cracked; the whole file is analyzed statistically exactly like Wordlist mode (see `ollamaMaxSampleLines` above).
 
 #### PCFG Configuration
 
@@ -550,6 +596,27 @@ The PCFG Attack (option 20) and PRINCE-LING Attack (option 21) use the `pcfg_cra
 - **`pcfgMaxCandidates`** — Maximum candidates `pcfg_guesser.py` emits for the PCFG attack (default: `50000000`).
 - **`pcfgPrinceLingMaxCandidates`** — Maximum base words `prince_ling.py` writes into the cached PRINCE base wordlist (default: `10000000`).
 
+### Optimized kernels (`optimizedKernelAttacks`)
+
+hashcat's `-O` flag selects optimized kernels, which are substantially faster
+but cap candidate length (roughly 31 characters, lower for some modes) and
+silently skip anything longer. `optimizedKernelAttacks` in `config.json` lists
+the attacks that run with `-O`; omit an attack from the list to run it with
+full-length kernels. The list in `config.json.example` matches the built-in
+default that applies when no `config.json` exists.
+
+Four attacks honour the setting but are **not** optimized by default, because
+they feed candidates that can exceed the `-O` ceiling — add them to the list to
+opt in:
+
+- `hcatNgramX`, `hcatOllama`, `hcatOmen`, `hcatLMtoNT`
+
+Names are matched exactly, and an unrecognized entry is reported at startup
+rather than ignored. Note that attacks which delegate to another attack are
+controlled by the attack they delegate to, not by their own name: PRINCE-LING
+follows `hcatPrince`, while Spoonman, Rosetta, and the LLM pattern-rule modes
+follow `hcatQuickDictionary`.
+
 ### Notifications (menu option 82)
 
 hate_crack can send Pushover push notifications when attacks complete and,
@@ -564,7 +631,7 @@ Credentials and tuning knobs remain config-file-only in `config.json`:
 
 - `notify_pushover_token`, `notify_pushover_user` — required for any push to fire.
 - `notify_attack_allowlist` — attack names that auto-consent without the `[y/N/always]` prompt. Populated automatically when you answer `always`.
-- `notify_suppress_in_orchestrators` (default `true`) — silences nested attacks launched by Quick/Extensive/Brute-Force wrappers; the wrapper fires a single summary instead.
+- `notify_suppress_in_orchestrators` (default `true`) — silences the individual attacks chained by Extensive Crack, which fires a single summary instead. Set to `false` to get a notification per chained attack. Other menu entries that run several passes (for example Quick Crack with multiple rule chains) are not orchestrators and always notify per pass.
 - `notify_max_cracks_per_burst` (default `5`), `notify_poll_interval_seconds` (default `5.0`) — per-crack tailer tuning. See `hate_crack/notify/tailer.py` for the burst aggregation logic.
 
 ### Wordlist Tools (menu option 80)
@@ -785,11 +852,13 @@ All tests use mocked API calls, so they can run without connectivity to a Hashvi
   (20) PCFG Attack
   (21) PRINCE-LING Attack
   (22) Spoonman Attack
+  (23) Rosetta Attack
 
   (80) Wordlist Tools
   (81) Rule File Tools
   (82) Notifications
 
+  (93) Regenerate .out from POT file
   (94) Hashview API
   (95) Analyze hashes with Pipal
   (96) Export Output to Excel Format
@@ -924,6 +993,16 @@ Uses a local Ollama instance to generate password candidates for a capture-the-f
 * Alternatively derives basewords from a sample **wordlist**, or from the **cracked passwords** of the current session (`<hashfile>.out`) so the model mirrors the target organization's own password conventions and produces new candidates in that style (only offered once something has been cracked)
 * A live spinner with an elapsed-seconds counter runs during generation, and requests are bounded by `ollamaTimeout` so a model stuck loading into VRAM reports a timeout instead of hanging
 
+**Pattern rules mode** (option 4 in the LLM submenu) takes the same shape as the [Spoonman Attack](#spoonman-attack) — a baseword list run through a rule file, both derived from one corpus — but infers each side with the model instead of extracting it. Spoonman is exact and therefore bounded: its basewords all appear in the corpus and its rules only reproduce transformations the corpus already shows. This asks the model to generalize on both axes, so it can name the *word families* behind a sample (the company and its products, site names, local sports teams, seasons, mascots) and write decorations the corpus does not contain.
+
+* Pattern source is either the current session's cracked passwords (offered first, and only once something has been cracked, since those reveal the target's real conventions) or a sample wordlist
+* **You are not asked to pick a rule file.** The model writes one, from the same corpus statistics — a stock rule file encodes the internet's habits, and the point of spending a model round trip is to encode *this* organization's
+* Basewords are normalized to lowercase letters only, discarding anything under 3 characters, so the generated rules supply case, digits, and punctuation exactly once
+* Generated rules are validated before hashcat sees them, and anything using an op hashcat does not have, a position argument outside `0-9A-Z`, more than 31 functions, or a stray comment or non-ASCII character is discarded. hashcat drops an invalid rule *silently* when valid rules share the file, so an unscreened line would become missing coverage rather than an error. The op table was established by testing hashcat itself, not from its rule documentation, which lists ops hashcat will not actually run
+* Local-model yield varies a lot run to run, so a thin answer is asked again once and the two rounds are merged — a handful of rules would waste the pass they are spent on
+* If no rule survives validation the basewords still run, unmutated, rather than throwing away the expensive half of the run
+* Output lands in `<hashfile>.llm_patterns/` as `basewords.txt` and `rules.rule` — per-run scratch, laid out like `.spoonman/` and removed on exit
+
 #### OMEN Attack
 Uses the Ordered Markov ENumerator (OMEN) to train a statistical password model from a wordlist and generate password candidates. This attack learns patterns from known passwords and generates new candidates based on those patterns.
 
@@ -948,9 +1027,11 @@ Opens an interactive submenu with six combinator attack variants (formerly at me
 #### Ad-hoc Mask Attack
 Runs hashcat mask attack (mode 3) with a user-specified custom mask string. Allows fine-grained control over character-set brute forcing.
 
+* Opens with a choice between typing a mask and selecting a mask file
 * Prompts for a hashcat mask (e.g., `?u?l?l?l?d?d` for uppercase + lowercase + lowercase + lowercase + digit + digit)
 * Supports custom character sets (`-1`, `-2`, `-3`, `-4`) for specialized character combinations
 * Interactive charset entry with early exit on blank input
+* Mask files (`.hcmask`) can be selected with tab completion, defaulting to the bundled `masks/` directory; hashcat runs every mask in the file in order. Because a mask file defines its own charsets inline, the `-1` through `-4` prompts are skipped when one is chosen
 * Useful for targeted brute forcing when you know password structure patterns
 
 #### Markov Brute Force Attack
@@ -1016,15 +1097,30 @@ Uses pcfg_cracker's `prince_ling.py` to derive an optimized PRINCE base wordlist
 * Base wordlist size is capped by `pcfgPrinceLingMaxCandidates` (default 10,000,000)
 
 #### Spoonman Attack
-Derives a baseword list and a hashcat rule file from a corpus of known plaintext passwords — a previous engagement's cracked output, a leak dump, or any password list — such that the baseword x rule cross product reconstructs the corpus exactly. Contributed as issue #169 by @Spoonman1091.
+Derives a baseword list and a hashcat rule file from a corpus of known plaintext passwords — a previous engagement's cracked output, a leak dump, or any password list — such that the baseword x rule cross product reconstructs the corpus exactly (see the memory bound below for the one case where it does not). Contributed as issue #169 by @Spoonman1091.
 
 Each password is split into its letters-only lowercased core (the baseword) plus a rule that rebuilds the original from it, using `l`/`u`/`c` for casing, `T{p}` toggles, `${x}`/`^{x}` for trailing and leading characters, and `i{p}{x}` for interior ones.
 
-* Prompts for the corpus, then for how much of the rule file to run: the full set, top 99%, or top 95%
-* Rules are sorted by how many passwords each one rebuilds, so a truncated file keeps the most productive rules — top 95% coverage typically needs a small fraction of the rules
+* Prompts for the corpus, then for how much of the rule file to run: top 50% coverage (listed first and recommended), top 75%, top 95%, top 99%, or the full set
+* Rules are sorted by how many passwords each one rebuilds, so a truncated file keeps the most productive rules. Coverage is extremely long-tailed: on a 98.2M-password sample, 50% coverage needed 4,120 rules while 95% needed 16,119,661 and 100% needed 21,029,696 — the last few percent typically costs orders of magnitude more rules than the first half, which is why the smallest tier is listed first and is usually the right choice
 * Output is written beside the hash file in `<hash file>.spoonman/`, alongside the other ephemeral wordlists: `basewords.txt`, `rules.full.rule`, the capped rule files, and `coverage.txt` with per-milestone rule counts. Derivation is skipped on later runs of the same hash file unless the corpus has been modified since, and the directory is removed on exit by the temp-file cleanup
+* Derivation is bounded in memory. Both counters would otherwise grow for the whole read with nothing written until the end, so a corpus large enough to exhaust RAM lost the entire pass to an OOM kill and produced no output; a measured run against a 31 GB corpus reached 14.1 GB resident at 11% of the file and was still accelerating. Each counter is now capped at 20 million distinct keys (about 1.6 GB apiece), and the lowest-frequency keys are discarded once it is exceeded. If that happens, the run says so on the console and in `coverage.txt`, the output reconstructs the retained keys rather than 100% of the corpus, and the coverage percentages are relative to those. Corpora below the cap are unaffected
 * Passwords that cannot be expressed as a rule are written verbatim as their own baseword with a `:` no-op, so coverage stays complete. This covers two hashcat limits: rule positions cannot address past index 35, and hashcat rejects any rule with more than 31 functions — silently, when valid rules share the file
 * The derivation self-checks every password by reconstructing it in-process, and reports any failures rather than reporting success
+* Corpus lines may carry a hash in front of the password, as cracked output does. A leading field is dropped only when it has the shape of a hash (a hex digest at a known length, or a crypt-style `$id$` string), so `hash:salt:plain` is handled while a plaintext or wordlist entry containing a colon survives intact. `$HEX[...]` plaintexts are decoded. If most lines look like an uncracked dump rather than cracked output, `coverage.txt` records the count and the attack warns — the derived basewords and rules would otherwise be meaningless without any error being raised
+
+#### Rosetta Attack
+Mines hashcat `--debug-mode 4` logs for the basewords and rules that already cracked something, then runs their full cross product. Powered by [HashcatRosetta](https://github.com/bandrel/HashcatRosetta), the same library behind [Analyze Hashcat Rules](#analyze-hashcat-rules-rule-file-tools-option-5).
+
+No setup is needed to feed it: `_add_debug_mode_for_rules` appends `--debug-mode 4 --debug-file` to every rule-based hashcat invocation hate_crack makes, so the logs accumulate in `hcatDebugLogPath` (`./hashcat_debug` by default, one file per session) as a side effect of normal use. A mode 4 log records only candidates that cracked a hash, in the form `baseword rule candidate`, which is what makes both halves known-productive against this target population.
+
+The value is in the cross product rather than the recorded pairs. A pair present in a log has already cracked its hash and will not crack another, but a rule that worked on one baseword has usually never been tried against the others — so N basewords and M rules yield close to N x M untried candidates.
+
+* Lists the logs found in `hcatDebugLogPath` newest-first with their sizes; pick one, pick all of them (up to 20), or type a path to a log from elsewhere
+* Rules can be ranked by application frequency, by how many distinct basewords each one worked on, or by how many unique candidates each one generated. Frequency is the default; baseword spread is the better choice when the goal is a rule set that generalizes past the specific words it was learned from
+* Prompts for how many top rules to keep (default 100) and how many top basewords (default all). Zero means unlimited for either. The keyspace is the product of the two and is printed before hashcat starts
+* Output is written beside the hash file in `<hash file>.rosetta/` as `basewords.txt` and `rules.rule`, alongside the other ephemeral wordlists, and the directory is removed on exit by the temp-file cleanup
+* Reading stops at 1,000,000 debug lines, since the analyzer needs the whole batch in memory at once. Truncation is reported on the console rather than assumed harmless — logs from a long run routinely exceed this, in which case the newest log is the one worth selecting
 
 #### Wordlist Tools (option 80)
 A submenu of wordlist preprocessing utilities using hashcat-utils binaries. All tools read from and write to files on disk. All file and directory path prompts support tab completion.

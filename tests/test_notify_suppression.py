@@ -73,3 +73,36 @@ class TestSuppressionThreadLocal:
         t.join(timeout=2.0)
         assert worker_done.is_set()
         assert is_suppressed() is False
+
+
+class TestSuppressionRespectsSetting:
+    """notify_suppress_in_orchestrators must actually gate suppression."""
+
+    def setup_method(self) -> None:
+        from hate_crack import notify
+
+        notify.clear_state_for_tests()
+
+    def teardown_method(self) -> None:
+        from hate_crack import notify
+
+        notify.clear_state_for_tests()
+
+    def test_setting_false_disables_suppression(self) -> None:
+        from hate_crack import notify
+
+        notify.init(None, {"notify_suppress_in_orchestrators": False})
+        with suppressed_notifications():
+            assert is_suppressed() is False
+
+    def test_setting_true_still_suppresses(self) -> None:
+        from hate_crack import notify
+
+        notify.init(None, {"notify_suppress_in_orchestrators": True})
+        with suppressed_notifications():
+            assert is_suppressed() is True
+
+    def test_default_when_init_never_ran_suppresses(self) -> None:
+        # get_settings() falls back to NotifySettings(), whose default is True.
+        with suppressed_notifications():
+            assert is_suppressed() is True

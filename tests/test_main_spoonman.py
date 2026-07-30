@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from hate_crack import attacks
+from hate_crack import attacks, rulegen
 
 
 @pytest.fixture
@@ -134,13 +134,15 @@ class TestSpoonmanAttackHandler:
 
     def test_passes_corpus_and_full_coverage(self, tmp_path, corpus):
         ctx = self._ctx(tmp_path, corpus)
-        with patch("hate_crack.attacks.interactive_menu", return_value="1"):
+        with patch("hate_crack.attacks.interactive_menu", return_value="5"):
             attacks.spoonman_attack(ctx)
         ctx.hcatSpoonman.assert_called_once_with(
             "1000", "hashes.txt", corpus, coverage=None
         )
 
-    @pytest.mark.parametrize(("choice", "expected"), [("2", 99), ("3", 95)])
+    @pytest.mark.parametrize(
+        ("choice", "expected"), [("1", 50), ("2", 75), ("3", 95), ("4", 99)]
+    )
     def test_passes_capped_coverage(self, tmp_path, corpus, choice, expected):
         ctx = self._ctx(tmp_path, corpus)
         with patch("hate_crack.attacks.interactive_menu", return_value=choice):
@@ -166,3 +168,90 @@ class TestSpoonmanAttackHandler:
         with patch("hate_crack.attacks.interactive_menu", return_value=choice):
             attacks.spoonman_attack(ctx)
         ctx.hcatSpoonman.assert_not_called()
+
+
+# --------------------------------------------------------------------------
+# validate_rule — screens rule text this module did not write
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "rule",
+    [
+        ":",
+        "l",
+        "c$2$0$2$5",
+        "$!",
+        "^a",
+        "T3",
+        "TA",
+        "sao",
+        "i3x",
+        "x12",
+        "p2",
+        "c $2 $0",  # spaces are legal function separators
+        "$ ",  # ...and a space is also a legal argument
+        "[]",
+        "u$1$2$3",
+        "d",
+        "r",
+    ],
+)
+def test_validate_rule_accepts(rule):
+    assert rulegen.validate_rule(rule) is True
+
+
+@pytest.mark.parametrize(
+    "rule",
+    [
+        "",
+        None,
+        123,
+        "QQQ",  # not a hashcat op
+        "$",  # argument runs off the end
+        "i3",  # second argument missing
+        "M",  # memory op: documented, but this hashcat will not run it
+        "<5",  # reject-plain op: same
+        "X123",  # memory extract: same
+        "# comment",
+        "c\t$1",  # non-printable
+        "c$é",  # non-ASCII
+        "   ",  # separators only, no functions
+        "$1" * (rulegen.MAX_RULE_FUNCTIONS + 1),  # over the function ceiling
+        "l" * (rulegen.MAX_RULE_LENGTH + 1),  # over the line-length ceiling
+    ],
+)
+def test_validate_rule_rejects(rule):
+    assert rulegen.validate_rule(rule) is False
+
+
+def test_validate_rule_accepts_everything_derive_emits():
+    """derive's output must survive the screen it shares a module with."""
+    for pw in ["alpha", "Alpha2024!", "!!Delta-99", "sTuVwX", "12345", "a"]:
+        _, rule = rulegen.derive(pw)
+        assert rulegen.validate_rule(rule) is True, pw
+
+
+@pytest.mark.parametrize("rule", ["h", "H", "S", "v23", "B23"])
+def test_validate_rule_rejects_v7_only_ops(rule):
+    """Deliberate: hashcat v7 runs these, v6 does not, and v6 drops them silently."""
+    assert rulegen.validate_rule(rule) is False
+
+
+@pytest.mark.parametrize(
+    "rule",
+    ["Ta", "T!", "Tz", "z!", "D!", "'!", "i!x", "x!2", "*!2", "y!", "O!2", "p!", "3!x"],
+)
+def test_validate_rule_rejects_bad_position_arguments(rule):
+    """Counting arguments is not enough: a position must come from POS.
+
+    hashcat rejects 'Ta' exactly as silently as it rejects an unknown op, so an
+    arity-only check would let this class straight through to the rule file.
+    """
+    assert rulegen.validate_rule(rule) is False
+
+
+@pytest.mark.parametrize("rule", ["e!", "@!", "s!x", "i2!", "o2!", "32!", "$!", "^!"])
+def test_validate_rule_allows_any_literal_character_argument(rule):
+    """The other half of the same rule: literal-argument slots take punctuation."""
+    assert rulegen.validate_rule(rule) is True

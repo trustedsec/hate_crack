@@ -1,5 +1,8 @@
+import ast
+import glob
 import json
 import os
+import re
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROOT_EXAMPLE = os.path.join(REPO_ROOT, "config.json.example")
@@ -22,8 +25,6 @@ EXPECTED_KEYS = {
     "rules_directory",
     "hcatDictionaryWordlist",
     "hcatCombinationWordlist",
-    "hcatCombinator3Wordlist",
-    "hcatCombinatorXWordlist",
     "hcatHybridlist",
     "hcatMiddleCombinatorMasks",
     "hcatMiddleBaseList",
@@ -43,7 +44,6 @@ EXPECTED_KEYS = {
     "ollamaTimeout",
     "ollamaMaxSampleLines",
     "ollamaAutoResearch",
-    "omenTrainingList",
     "omenMaxCandidates",
     "pcfgRuleset",
     "pcfgMaxCandidates",
@@ -84,3 +84,154 @@ def test_packaged_example_matches_root_content():
     with open(PACKAGED_EXAMPLE) as f:
         packaged_config = json.load(f)
     assert packaged_config == root_config
+
+
+def test_optimized_kernel_attacks_matches_code_default(hc_module):
+    """A user with no config.json must get the same -O behaviour as one who
+    copied the example verbatim.
+
+    These two lists drifted once already: the example shipped hcatPCFG while
+    DEFAULT_OPTIMIZED_ATTACKS omitted it, so the same attack ran with -O or
+    without depending only on whether a config file existed.
+    """
+    with open(ROOT_EXAMPLE) as f:
+        example_attacks = set(json.load(f)["optimizedKernelAttacks"])
+    assert example_attacks == set(hc_module.DEFAULT_OPTIMIZED_ATTACKS)
+
+
+def _checked_attack_names():
+    """Names actually passed to _should_use_optimized_kernel in main.py."""
+    with open(os.path.join(REPO_ROOT, "hate_crack", "main.py")) as f:
+        source = f.read()
+    return set(re.findall(r'_should_use_optimized_kernel\("([A-Za-z0-9]+)"\)', source))
+
+
+def test_every_recognized_attack_name_is_checked(hc_module):
+    """No inert knobs: a recognized name must reach a real -O decision.
+
+    hcatPrinceLing was recognized but never checked — PRINCE-LING delegates to
+    hcatPrince, which tests its own name — so setting it did nothing at all.
+    """
+    assert set(hc_module.KNOWN_OPTIMIZABLE_ATTACKS) <= _checked_attack_names()
+
+
+def test_every_checked_attack_name_is_recognized(hc_module):
+    """No unreachable knobs: an attack that consults the setting must be a name
+    the user can actually put in optimizedKernelAttacks, and one the config
+    loader will not warn about as unrecognized."""
+    assert _checked_attack_names() <= set(hc_module.KNOWN_OPTIMIZABLE_ATTACKS)
+
+
+def test_default_optimized_attacks_are_recognized(hc_module):
+    assert set(hc_module.DEFAULT_OPTIMIZED_ATTACKS) <= set(
+        hc_module.KNOWN_OPTIMIZABLE_ATTACKS
+    )
+
+
+# ---------------------------------------------------------------------------
+# Every documented config key must have a read site.
+#
+# EXPECTED_KEYS above pins the key SET, which catches a key vanishing or
+# appearing unannounced. What it cannot catch is a key that is documented,
+# loaded, and then never read by anything -- a knob the user can set with no
+# effect. Three of those shipped before being found by hand: omenTrainingList,
+# hcatCombinator3Wordlist, and hcatCombinatorXWordlist. A new key is added to
+# both the example and EXPECTED_KEYS in the same commit, so the set test waves
+# it through. This one does not.
+# ---------------------------------------------------------------------------
+
+MAIN_PY = os.path.join(REPO_ROOT, "hate_crack", "main.py")
+
+
+def _package_files():
+    paths = glob.glob(
+        os.path.join(REPO_ROOT, "hate_crack", "**", "*.py"), recursive=True
+    )
+    paths.append(os.path.join(REPO_ROOT, "hate_crack.py"))
+    return [p for p in paths if os.path.isfile(p)]
+
+
+def _config_loads():
+    """Map each config key to the module globals main.py loads it into.
+
+    Also returns the line numbers those load statements occupy, so a later
+    search can tell "this name is being loaded" from "this name is being used".
+    """
+    with open(MAIN_PY) as f:
+        source = f.read()
+    tree = ast.parse(source)
+    loads: dict[str, set[str]] = {}
+    load_lines: set[int] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        segment = ast.get_source_segment(source, node) or ""
+        if "config_parser" not in segment:
+            continue
+        names = [t.id for t in node.targets if isinstance(t, ast.Name)]
+        if not names:
+            # e.g. `config_parser[_key] = _value` in the defaults merge.
+            continue
+        for key in re.findall(
+            r'config_parser(?:\.get)?\(?\[?\s*"([A-Za-z_0-9]+)"', segment
+        ):
+            loads.setdefault(key, set()).update(names)
+        for line in range(node.lineno, (node.end_lineno or node.lineno) + 1):
+            load_lines.add(line)
+    return loads, load_lines
+
+
+def _read_sites(name, load_lines):
+    """Occurrences of `name` that are neither its load nor its self-normalize.
+
+    Consumption through the root module's attribute proxy (`ctx.<name>` in
+    attacks.py) counts, which is why this searches the whole package rather
+    than main.py alone.
+    """
+    pattern = re.compile(r"\b" + re.escape(name) + r"\b")
+    self_assign = re.compile(r"\s*" + re.escape(name) + r"\s*=\s*(_normalize|$)")
+    hits = []
+    for path in _package_files():
+        with open(path) as f:
+            for lineno, line in enumerate(f.read().splitlines(), start=1):
+                if not pattern.search(line):
+                    continue
+                if path == MAIN_PY and lineno in load_lines:
+                    continue
+                if self_assign.match(line):
+                    continue
+                hits.append(f"{os.path.relpath(path, REPO_ROOT)}:{lineno}")
+    return hits
+
+
+def _literal_read_sites(key):
+    """Keys read by literal name outside main.py, e.g. notify/settings.py."""
+    hits = []
+    for path in _package_files():
+        if path == MAIN_PY:
+            continue
+        with open(path) as f:
+            for lineno, line in enumerate(f.read().splitlines(), start=1):
+                if f'"{key}"' in line:
+                    hits.append(f"{os.path.relpath(path, REPO_ROOT)}:{lineno}")
+    return hits
+
+
+def test_every_documented_config_key_has_a_read_site():
+    with open(ROOT_EXAMPLE) as f:
+        keys = list(json.load(f).keys())
+    loads, load_lines = _config_loads()
+
+    dead = []
+    for key in keys:
+        globals_for_key = loads.get(key, set())
+        if any(_read_sites(name, load_lines) for name in globals_for_key):
+            continue
+        if _literal_read_sites(key):
+            continue
+        dead.append(f"{key} (globals: {sorted(globals_for_key) or 'none'})")
+
+    assert dead == [], (
+        "config.json.example documents keys that nothing reads, so setting "
+        "them has no effect. Either wire them up or remove them: " + "; ".join(dead)
+    )

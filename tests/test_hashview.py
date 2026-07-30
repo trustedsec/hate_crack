@@ -1185,5 +1185,13 @@ class TestHashviewAPI:
         assert os.path.exists(original_path), "Original file should still exist"
 
 
+def test_download_left_hashes_has_no_hash_type_parameter():
+    """hash_type was accepted from two call sites and never used (issue #204)."""
+    import inspect
+
+    sig = inspect.signature(HashviewAPI.download_left_hashes)
+    assert "hash_type" not in sig.parameters
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

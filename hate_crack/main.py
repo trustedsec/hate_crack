@@ -76,6 +76,8 @@ from hate_crack import attacks as _attacks  # noqa: E402
 from hate_crack import llm  # noqa: E402
 from hate_crack import noninteractive as _noninteractive  # noqa: E402
 from hate_crack.progress import spinner  # noqa: E402
+from hate_crack import corpus_stats as _corpus_stats  # noqa: E402
+from hate_crack import plaintext as _plaintext  # noqa: E402
 from hate_crack import rulegen as _rulegen  # noqa: E402
 from hate_crack.menu import interactive_menu  # noqa: E402
 from hate_crack.username_detect import detect_username_hash_format  # noqa: E402
@@ -83,9 +85,11 @@ from hate_crack.username_detect import detect_username_hash_format  # noqa: E402
 # Import HashcatRosetta for rule analysis functionality
 try:
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "HashcatRosetta"))
+    from hashcat_rosetta.debug_analyzer import DebugAnalyzer
     from hashcat_rosetta.formatting import display_rule_opcodes_summary
 except ImportError:
     display_rule_opcodes_summary = None
+    DebugAnalyzer = None
 
 
 EXCLUDED_WORDLIST_EXTENSIONS = frozenset({".7z", ".torrent", ".out"})
@@ -124,10 +128,36 @@ DEFAULT_OPTIMIZED_ATTACKS = frozenset(
         "hcatCombipow",
         "hcatPrince",
         "hcatPermute",
+        "hcatPCFG",
     }
 )
 
+# Every attack that consults the setting, whether or not it is optimized by
+# default. The four names below honour optimizedKernelAttacks but are absent
+# from the default set, so -O is opt-in for them: each pipes or feeds
+# candidates that may exceed the length ceiling -O imposes, and turning them
+# on by default would silently shrink the keyspace of an attack a user had
+# already tuned.
+#
+# A name recognised here but never passed to _should_use_optimized_kernel is
+# an inert config knob (hcatPrinceLing was one for several releases, because
+# PRINCE-LING delegates to hcatPrince and that function checks its own name).
+# tests/test_config_json_example.py enforces both directions.
+KNOWN_OPTIMIZABLE_ATTACKS = DEFAULT_OPTIMIZED_ATTACKS | {
+    "hcatNgramX",
+    "hcatOllama",
+    "hcatOmen",
+    "hcatLMtoNT",
+}
+
 _optimized_kernel_attacks = DEFAULT_OPTIMIZED_ATTACKS
+
+# Whether the loaded hash file is pwdump format (user:rid:lm:nt:::). Set by
+# main()'s detection block; defaulted here because cleanup() and the analysis
+# menu entries read it, and a run that never reached detection used to raise
+# NameError on exit (issue #211). False is the conservative default: it makes
+# the pwdump-only merge a no-op rather than a data-loss risk.
+pwdump_format = False
 
 
 def _should_use_optimized_kernel(attack_name):
@@ -458,12 +488,6 @@ pipalPath = config_parser["pipalPath"]
 hcatDictionaryWordlist = config_parser["hcatDictionaryWordlist"]
 hcatHybridlist = config_parser["hcatHybridlist"]
 hcatCombinationWordlist = config_parser["hcatCombinationWordlist"]
-hcatCombinator3Wordlist = config_parser.get(
-    "hcatCombinator3Wordlist", ["rockyou.txt", "rockyou.txt", "rockyou.txt"]
-)
-hcatCombinatorXWordlist = config_parser.get(
-    "hcatCombinatorXWordlist", ["rockyou.txt", "rockyou.txt"]
-)
 hcatMiddleCombinatorMasks = config_parser["hcatMiddleCombinatorMasks"]
 hcatMiddleBaseList = config_parser["hcatMiddleBaseList"]
 hcatThoroughCombinatorMasks = config_parser["hcatThoroughCombinatorMasks"]
@@ -475,12 +499,11 @@ hcatDebugLogPath = os.path.expanduser(config_parser["hcatDebugLogPath"])
 
 ollamaUrl = _normalize_ollama_url(os.environ.get("OLLAMA_HOST", "localhost:11434"))
 ollamaModel = config_parser.get("ollamaModel", "qwen2.5:32b")
-ollamaNumCtx = int(config_parser.get("ollamaNumCtx", 2048))
+ollamaNumCtx = int(config_parser.get("ollamaNumCtx", 8192))
 ollamaTimeout = float(config_parser.get("ollamaTimeout", 300))
 ollamaMaxSampleLines = int(config_parser.get("ollamaMaxSampleLines", 500))
 ollamaAutoResearch = bool(config_parser.get("ollamaAutoResearch", True))
 
-omenTrainingList = config_parser.get("omenTrainingList", "rockyou.txt")
 omenMaxCandidates = int(config_parser.get("omenMaxCandidates", 100000000))
 pcfgRuleset = config_parser.get("pcfgRuleset", "Default")
 pcfgMaxCandidates = int(config_parser.get("pcfgMaxCandidates", 50000000))
@@ -492,6 +515,16 @@ try:
     _cfg_optimized = config_parser["optimizedKernelAttacks"]
     if isinstance(_cfg_optimized, list):
         _optimized_kernel_attacks = frozenset(_cfg_optimized)
+        # A misspelled or retired name is silently ignored by the membership
+        # test, so the user sees an attack running without -O and no reason why.
+        _unknown_optimized = sorted(
+            str(name) for name in set(_cfg_optimized) - KNOWN_OPTIMIZABLE_ATTACKS
+        )
+        if _unknown_optimized:
+            print(
+                "[!] Unrecognized optimizedKernelAttacks entries in config.json "
+                f"(ignored): {', '.join(_unknown_optimized)}"
+            )
 except KeyError:
     pass
 check_for_updates_enabled = config_parser.get("check_for_updates", True)
@@ -637,12 +670,6 @@ hcatDictionaryWordlist = _normalize_wordlist_setting(
 hcatCombinationWordlist = _normalize_wordlist_setting(
     hcatCombinationWordlist, wordlists_dir
 )
-hcatCombinator3Wordlist = _normalize_wordlist_setting(
-    hcatCombinator3Wordlist, wordlists_dir
-)
-hcatCombinatorXWordlist = _normalize_wordlist_setting(
-    hcatCombinatorXWordlist, wordlists_dir
-)
 hcatHybridlist = _normalize_wordlist_setting(hcatHybridlist, wordlists_dir)
 hcatMiddleBaseList = _normalize_wordlist_setting(hcatMiddleBaseList, wordlists_dir)
 hcatThoroughBaseList = _normalize_wordlist_setting(hcatThoroughBaseList, wordlists_dir)
@@ -650,7 +677,6 @@ hcatGoodMeasureBaseList = _normalize_wordlist_setting(
     hcatGoodMeasureBaseList, wordlists_dir
 )
 hcatPrinceBaseList = _normalize_wordlist_setting(hcatPrinceBaseList, wordlists_dir)
-omenTrainingList = _normalize_wordlist_setting(omenTrainingList, wordlists_dir)
 if not SKIP_INIT:
     # Verify hashcat binary is available
     # hcatBin should be in PATH or be an absolute path (resolved from hcatPath + hcatBin if configured)
@@ -931,18 +957,15 @@ def _wordlist_path(path: str):
 def _usable_plaintext(raw: str) -> str:
     """Return the usable plaintext from a raw wordlist line, or empty string.
 
-    Blank/whitespace-only lines are discarded.  Lines in ``hash:password``
-    format (as produced by hashcat ``--show``) are split on the first colon
-    so only the plaintext portion is returned; lines with no colon are
-    returned as-is.  A ``hash:`` line whose plaintext is empty after
-    stripping returns an empty string and is therefore also discarded.
+    Blank/whitespace-only lines are discarded.  Leading hash fields (as
+    produced by hashcat ``--show``, i.e. ``hash:password``) are dropped, and a
+    ``$HEX[...]`` wrapper is decoded.  Both only when clearly present, so a
+    wordlist entry that merely contains a colon is returned intact.
+
+    Delegates to hate_crack.plaintext so the sampler, the whole-corpus
+    aggregator, and rulegen cannot drift apart on what counts as a password.
     """
-    stripped = raw.strip()
-    if not stripped:
-        return ""
-    if ":" in stripped:
-        stripped = stripped.split(":", 1)[1]
-    return stripped
+    return _plaintext.usable_plaintext(raw)
 
 
 def _add_debug_mode_for_rules(cmd):
@@ -1016,12 +1039,16 @@ def ascii_art():
 
 
 def _run_upgrade(branch="main"):
-    """Run `git pull && git fetch --tags && make install` in the repo root.
+    """Reset the repo root to origin's tip and reinstall.
+
+    Fetches with `--tags --force`, resets *branch* to `origin/<branch>` via
+    `checkout -B`, then runs `make install`. Deliberately does not merge; see the
+    comment above the checkout for why that cannot work here.
 
     *branch* selects the update channel. ``"main"`` is the released channel that
     ``--update`` uses; ``"nightly-dev"`` is the pre-release channel behind
     ``--nightly``, carrying work that has passed CI but has not been cut into a
-    release yet. See the Branching Policy in CLAUDE.md.
+    release yet.
     """
     import subprocess
 
@@ -1037,7 +1064,7 @@ def _run_upgrade(branch="main"):
     if git_root_result.returncode != 0:
         print(
             "\n  Could not find a git repository to upgrade from."
-            f"\n  Run manually: git pull origin {branch} && git fetch --tags && make install\n"
+            f"\n  Run manually: git fetch --tags --force origin && git checkout -B {branch} origin/{branch} && make install\n"
         )
         raise SystemExit(1)
     repo_root = git_root_result.stdout.strip()
@@ -1046,8 +1073,14 @@ def _run_upgrade(branch="main"):
     # never been fetched since the default branch was renamed master -> main.
     # Without this, `git checkout main` on a master-only clone fails because
     # there's no origin/main ref to auto-create a tracking branch from.
+    #
+    # --force is required, not cosmetic: a clone holding a tag that points at a
+    # different object than origin's makes a plain `git fetch --tags` exit
+    # non-zero with "would clobber existing tag", which used to dead-end the
+    # upgrade permanently. --force scopes to tag updates only, so it cannot
+    # discard the user's commits or working tree.
     fetch_result = subprocess.run(
-        ["git", "fetch", "--tags", "origin"],
+        ["git", "fetch", "--tags", "--force", "origin"],
         cwd=repo_root,
         capture_output=True,
         text=True,
@@ -1055,7 +1088,7 @@ def _run_upgrade(branch="main"):
     if fetch_result.returncode != 0:
         print(
             f"\n  Failed to fetch from origin:\n  {fetch_result.stderr.strip()}\n"
-            f"\n  Upgrade manually: git fetch --tags && git checkout {branch} && git pull origin {branch} && make install\n"
+            f"\n  Upgrade manually: git fetch --tags --force origin && git checkout -B {branch} origin/{branch} && make install\n"
         )
         raise SystemExit(1)
 
@@ -1079,62 +1112,75 @@ def _run_upgrade(branch="main"):
         branch_result.stdout.strip() if branch_result.returncode == 0 else ""
     )
 
-    if current_branch and current_branch != branch:
-        status = subprocess.run(
-            ["git", "status", "--porcelain"],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
+    # The checkout below runs unconditionally, including when HEAD is already on
+    # *branch*. It used to be skipped in that case, leaving the shell chain's
+    # `git pull` to advance the branch -- and that is precisely the case that
+    # broke in the field, because a merge cannot advance a clone whose history
+    # was rewritten. The 2026-07-25 purge rewrote every published commit, so a
+    # clone predating it shares no ancestor with origin/main; git then aborts
+    # with "Need to specify how to reconcile divergent branches" (or "refusing
+    # to merge unrelated histories") and the upgrade never reaches make install.
+    # `checkout -B` moves the branch to origin's tip instead of merging into it,
+    # which recovers those clones. It discards local commits on the branch, so
+    # the dirty check above it is load-bearing and must stay unconditional too.
+    status = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+    if status.stdout.strip():
+        print(
+            f"\n  Cannot auto-upgrade: uncommitted changes on '{current_branch or 'HEAD'}'."
+            "\n  Commit or stash them, then re-run."
+            f"\n  Or upgrade manually: git checkout -B {branch} origin/{branch} && make install\n"
         )
-        if status.stdout.strip():
-            print(
-                f"\n  Cannot auto-upgrade: uncommitted changes on '{current_branch}'."
-                "\n  Commit or stash them, then re-run."
-                f"\n  Or upgrade manually: git checkout {branch} && git pull origin {branch} && make install\n"
-            )
-            raise SystemExit(1)
+        raise SystemExit(1)
 
+    if current_branch and current_branch != branch:
         print(
             f"\n  Switching from '{current_branch}' to '{branch}' to pick up the new tag..."
         )
-        checkout = subprocess.run(
-            # -B creates/resets a local `main` pointing at origin/main so this
-            # works whether or not a local `main` already exists (e.g. a stale
-            # master-only clone that has never had a main branch).
-            ["git", "checkout", "-B", branch, f"origin/{branch}"],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-        )
-        if checkout.returncode != 0:
-            print(
-                f"\n  Failed to switch to {branch}:\n  {checkout.stderr.strip()}\n"
-                f"\n  Upgrade manually: git checkout {branch} && git pull origin {branch} && make install\n"
-            )
-            raise SystemExit(1)
 
-        # Repair the upstream so a later manual `git pull` consults
-        # origin/main rather than a dangling branch.master.merge ref.
-        subprocess.run(
-            ["git", "branch", f"--set-upstream-to=origin/{branch}", branch],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
+    checkout = subprocess.run(
+        # -B creates/resets a local `main` pointing at origin/main so this works
+        # whether or not a local `main` already exists (e.g. a stale master-only
+        # clone that has never had a main branch), and whether or not its
+        # history is related to origin's.
+        ["git", "checkout", "-B", branch, f"origin/{branch}"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+    if checkout.returncode != 0:
+        print(
+            f"\n  Failed to switch to {branch}:\n  {checkout.stderr.strip()}\n"
+            f"\n  Upgrade manually: git checkout -B {branch} origin/{branch} && make install\n"
         )
+        raise SystemExit(1)
+
+    # Repair the upstream so a later manual `git pull` consults
+    # origin/main rather than a dangling branch.master.merge ref.
+    subprocess.run(
+        ["git", "branch", f"--set-upstream-to=origin/{branch}", branch],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
 
     import shutil
 
     uv = shutil.which("uv") or os.path.expanduser("~/.local/bin/uv")
 
     result = subprocess.run(
-        # `git pull origin main` is explicit so it never consults the possibly
-        # broken branch.<current>.merge config on a renamed clone.
-        # git fetch --tags ensures new release tags are visible to setuptools-scm.
+        # No fetch or merge here: the fetch above already made the new tags
+        # visible to setuptools-scm and the checkout already put the branch at
+        # origin's tip. Re-adding either would reintroduce the failures this
+        # function exists to survive.
         # make install handles system deps and the CLI shim.
         # uv sync --reinstall-package forces setuptools-scm to regenerate the
         # version from the new tag so the version number updates correctly.
-        f"git pull origin {branch} && git fetch --tags && make install "
-        f"&& {uv} sync --reinstall-package hate_crack",
+        f"make install && {uv} sync --reinstall-package hate_crack",
         shell=True,
         cwd=repo_root,
     )
@@ -1910,6 +1956,8 @@ def hcatNgramX(hcatHashType, hcatHashFile, corpus, group_size=3):
             "-o",
             f"{hcatHashFile}.out",
         ]
+        if _should_use_optimized_kernel("hcatNgramX"):
+            _insert_optimized_flag(hashcat_cmd)
         hashcat_cmd.extend(shlex.split(hcatTuning))
         _append_potfile_arg(hashcat_cmd)
         generator_proc = subprocess.Popen(generator_cmd, stdout=subprocess.PIPE)
@@ -2170,6 +2218,57 @@ def _sample_plaintext_file(path, cap, source_label="wordlist"):
     return sampled
 
 
+def _corpus_context(path, source_label="wordlist"):
+    """Build the LLM context dict describing the corpus at *path*.
+
+    Returns a dict with a ``summary`` key (whole-corpus statistics) and, when
+    the corpus is small enough to fit under ``ollamaMaxSampleLines`` in full, a
+    ``sample`` key holding the literal plaintexts as well. Returns None if the
+    file cannot be read or holds no passwords, having already printed why.
+
+    Statistics rather than a slice because the sample cap is not the real
+    constraint — ``ollamaNumCtx`` is. Several hundred raw plaintexts crowd the
+    context window while still describing a fraction of a large dump, and they
+    carry no frequency information at all: the model cannot tell a baseword
+    used by 8% of the organization from one used by a single person. The
+    aggregate covers 100% of the corpus at a bounded size. Literal plaintexts
+    are still included when they all fit, since nothing is gained by hiding
+    them from a small corpus.
+    """
+    try:
+        with spinner(f"Analyzing {source_label}..."):
+            stats = _corpus_stats.summarize(path)
+    except OSError as e:
+        print(f"Error reading {source_label}: {e}")
+        return None
+    except ValueError as e:
+        print(f"Error: {e}")
+        return None
+
+    context = {"summary": _corpus_stats.format_summary(stats)}
+    print(
+        f"Analyzed all {stats['total']:,} passwords in {source_label} "
+        f"({stats['baseword_total']:,} distinct basewords)."
+    )
+    # A raw NTDS dump and a cracked-output file both live in the working
+    # directory with similar names, and the dump produces confident nonsense
+    # rather than an error, so say so instead of letting it through quietly.
+    hash_shaped = stats.get("hash_shaped", 0)
+    if hash_shaped > stats["total"] * 0.25:
+        print(
+            f"[!] Warning: {hash_shaped:,} of {stats['total']:,} lines look like "
+            "hashes, not plaintexts. This file may be an uncracked dump rather "
+            "than cracked output; the statistics below will be meaningless if so."
+        )
+
+    cap = ollamaMaxSampleLines if ollamaMaxSampleLines > 0 else 500
+    if stats["total"] <= cap:
+        sampled = _sample_plaintext_file(path, cap, source_label=source_label)
+        if sampled:
+            context["sample"] = "\n".join(sampled)
+    return context
+
+
 def hcatOllamaResearchTarget(company):
     """Ask the local Ollama model what it knows about *company*.
 
@@ -2218,10 +2317,9 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
             print(f"Error: Wordlist not found: {wordlist_path}")
             return
 
-        sampled = _sample_plaintext_file(wordlist_path, ollamaMaxSampleLines)
-        if sampled is None:
+        gen_context = _corpus_context(wordlist_path)
+        if gen_context is None:
             return
-        gen_context = {"sample": "\n".join(sampled)}
     elif mode == "cracked":
         # context_data may carry an explicit path; default to this session's
         # cracked-output file.
@@ -2230,18 +2328,13 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
             print(f"Error: No cracked passwords found: {cracked_path}")
             return
 
-        sampled = _sample_plaintext_file(
-            cracked_path, ollamaMaxSampleLines, source_label="cracked passwords"
-        )
-        if sampled is None:
-            return
-        if not sampled:
+        gen_context = _corpus_context(cracked_path, source_label="cracked passwords")
+        if gen_context is None:
             print(
                 "Error: No cracked passwords yet — crack some hashes first, then "
                 "use this mode to generate more candidates in the same style."
             )
             return
-        gen_context = {"sample": "\n".join(sampled)}
     elif mode == "target":
         gen_context = context_data
     else:
@@ -2306,6 +2399,8 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
         f"{hcatHashFile}.out",
         candidates_path,
     ]
+    if _should_use_optimized_kernel("hcatOllama"):
+        _insert_optimized_flag(cmd)
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
     try:
@@ -2343,8 +2438,11 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
             rule_path,
             candidates_path,
         ]
+        if _should_use_optimized_kernel("hcatOllama"):
+            _insert_optimized_flag(cmd)
         cmd.extend(shlex.split(hcatTuning))
         _append_potfile_arg(cmd)
+        cmd = _add_debug_mode_for_rules(cmd)
         try:
             _run_hcat_cmd(
                 cmd,
@@ -2354,6 +2452,225 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
             )
         except KeyboardInterrupt:
             return
+
+
+MIN_PATTERN_LEN = 3
+
+
+def _clean_pattern(raw):
+    """Reduce one model-returned pattern to a bare lowercase baseword.
+
+    Returns "" for anything unusable. The prompt asks for lowercase letters
+    only, but the rule file is what supplies case, digits, and punctuation — so
+    a model that decorates its answer anyway would otherwise get decorated a
+    second time by the rules, stacking a suffix on top of one the model already
+    added. The filter is applied here rather than trusted to the prompt for that
+    reason.
+    """
+    if not isinstance(raw, str):
+        return ""
+    letters = "".join(c for c in raw.lower() if "a" <= c <= "z")
+    if len(letters) < MIN_PATTERN_LEN:
+        return ""
+    return letters
+
+
+# A thin rule file wastes the pass it is spent on, and local-model yield here
+# varies a lot run to run — measured against one 600-line corpus, the same
+# prompt and model returned 40 valid rules one run and 16 the next. So a thin
+# first answer is asked again rather than accepted, up to this many requests.
+MIN_GENERATED_RULES = 25
+MAX_RULE_REQUESTS = 2
+
+
+def _llm_pattern_rules(gen_context):
+    """Ask the model for hashcat rules describing *gen_context*'s corpus.
+
+    Returns ``(rules, discarded)`` — the rules that passed
+    ``rulegen.validate_rule``, in the order the model ranked them, and how many
+    it returned that did not. Returns ``(None, 0)`` when the *first* request
+    failed outright, having already printed why; an empty list means the model
+    answered but nothing it said was usable.
+
+    Retries once when the yield comes in under ``MIN_GENERATED_RULES``, keeping
+    whatever the earlier attempt produced — the model is sampled, not
+    deterministic, so a second ask genuinely adds rules rather than repeating
+    the first. A failure on a retry is not fatal: rules already in hand still
+    run.
+
+    Validation is not optional. hashcat drops an invalid rule silently when the
+    file also holds valid ones, so an unscreened bad line becomes missing
+    coverage the operator never hears about rather than an error.
+    """
+    rules = []
+    seen = set()
+    discarded = 0
+    for attempt in range(1, MAX_RULE_REQUESTS + 1):
+        label = f"Inferring hashcat rules via Ollama ({ollamaModel})"
+        if attempt > 1:
+            label += f" — retry {attempt - 1}, {len(rules)} rules so far"
+        try:
+            with spinner(f"{label}..."):
+                raw_rules = llm.generate_rules(
+                    ollamaUrl,
+                    ollamaModel,
+                    ollamaNumCtx,
+                    gen_context,
+                    timeout=ollamaTimeout,
+                )
+        except llm.LLMTimeoutError:
+            print(
+                f"Error: the Ollama rule request timed out after {ollamaTimeout:g} s."
+            )
+            return (None, 0) if attempt == 1 else (rules, discarded)
+        except ValueError as e:
+            print(f"Error: {e}")
+            return (None, 0) if attempt == 1 else (rules, discarded)
+        except Exception as e:
+            print(f"Error inferring rules: {e}")
+            return (None, 0) if attempt == 1 else (rules, discarded)
+
+        for raw in raw_rules:
+            if not _rulegen.validate_rule(raw):
+                discarded += 1
+            elif raw not in seen:
+                seen.add(raw)
+                rules.append(raw)
+        if len(rules) >= MIN_GENERATED_RULES:
+            break
+
+    return (rules, discarded)
+
+
+def hcatOllamaPatterns(hcatHashType, hcatHashFile, source_path):
+    """LLM Pattern Rules: infer basewords *and* rules from a corpus, then crack.
+
+    Takes the same shape as the Spoonman attack (see hcatSpoonman and
+    hate_crack/rulegen.py) — a baseword list run through a rule file, both
+    derived from the corpus — but infers each side with the model instead of
+    extracting it. Spoonman is exact and therefore bounded: its basewords all
+    appear in the corpus and its rules only reproduce transformations the corpus
+    already shows. This asks the model to generalize on both axes at once, so it
+    can name word families the corpus only hints at and write decorations the
+    corpus does not contain.
+
+    The operator is not asked to choose a rule file. Picking one would defeat
+    the point — a stock rule file encodes the internet's habits, while the whole
+    reason to spend a model round trip here is to encode *this* organization's.
+
+    Both requests share one corpus analysis, and the rule request is what can
+    come back empty in practice, so a model that produces no valid rules falls
+    back to running the basewords bare rather than aborting a run whose
+    expensive half already succeeded.
+    """
+    if not os.path.isfile(source_path):
+        print(f"Error: pattern source not found: {source_path}")
+        return
+
+    gen_context = _corpus_context(source_path, source_label="pattern source")
+    if gen_context is None:
+        return
+
+    try:
+        with spinner(f"Inferring password patterns via Ollama ({ollamaModel})..."):
+            raw_patterns = llm.generate_candidates(
+                ollamaUrl,
+                ollamaModel,
+                ollamaNumCtx,
+                "pattern",
+                gen_context,
+                timeout=ollamaTimeout,
+            )
+    except llm.LLMTimeoutError:
+        print(f"Error: the Ollama request timed out after {ollamaTimeout:g} seconds.")
+        print(
+            f"The model ({ollamaModel}) may still be loading into VRAM. Retry, or "
+            'raise "ollamaTimeout" in config.json to wait longer.'
+        )
+        return
+    except ValueError as e:
+        print(f"Error: {e}")
+        return
+    except Exception as e:
+        print(f"Error inferring patterns: {e}")
+        print(
+            "Ensure Ollama is running (ollama serve) and the model is pulled "
+            f"(ollama pull {ollamaModel})."
+        )
+        return
+
+    seen = set()
+    patterns = []
+    for raw in raw_patterns:
+        cleaned = _clean_pattern(raw)
+        if cleaned and cleaned not in seen:
+            seen.add(cleaned)
+            patterns.append(cleaned)
+
+    if not patterns:
+        print(
+            "Error: none of the model's output survived cleanup — every entry was "
+            f"under {MIN_PATTERN_LEN} letters once digits and punctuation were "
+            "stripped."
+        )
+        return
+
+    # Per-run scratch beside the hash file, laid out like .spoonman so both
+    # halves of the attack are inspectable after a run; removed by cleanup().
+    scratch_dir = f"{hcatHashFile}.llm_patterns"
+    patterns_path = os.path.join(scratch_dir, "basewords.txt")
+    rules_path = os.path.join(scratch_dir, "rules.rule")
+    try:
+        os.makedirs(scratch_dir, exist_ok=True)
+        with open(patterns_path, "w") as f:
+            for pattern in patterns:
+                f.write(pattern + "\n")
+    except OSError as e:
+        print(f"Error writing patterns file: {e}")
+        return
+
+    discarded = len(raw_patterns) - len(patterns)
+    summary = f"Inferred {len(patterns)} pattern basewords -> {patterns_path}"
+    if discarded > 0:
+        summary += f" ({discarded} discarded during cleanup)"
+    print(summary)
+
+    rules, rules_discarded = _llm_pattern_rules(gen_context)
+    rule_chain = ""
+    if rules:
+        try:
+            with open(rules_path, "w") as f:
+                for rule in rules:
+                    f.write(rule + "\n")
+        except OSError as e:
+            print(f"Error writing rules file: {e}")
+        else:
+            rule_chain = f"-r {shlex.quote(rules_path)}"
+            rule_summary = f"Inferred {len(rules)} hashcat rules -> {rules_path}"
+            if rules_discarded > 0:
+                rule_summary += f" ({rules_discarded} rejected as invalid)"
+            print(rule_summary)
+    if not rule_chain:
+        # Say how many were rejected: "the model returned nothing" and "the
+        # model returned 40 rules and every one was invalid" call for
+        # different responses from the operator, and only the count tells
+        # them which happened.
+        reason = ""
+        if rules_discarded > 0:
+            reason = f" (all {rules_discarded} returned rules were rejected as invalid)"
+        print(
+            f"[!] No usable rules were inferred{reason}; running the basewords "
+            "unmutated. Re-run to try again, or use the Spoonman Attack for "
+            "rules derived mechanically from the same corpus."
+        )
+
+    hcatQuickDictionary(
+        hcatHashType,
+        hcatHashFile,
+        rule_chain,
+        patterns_path,
+        attack_name="LLM Patterns",
+    )
 
 
 # Middle fast Combinator Attack
@@ -2936,9 +3253,11 @@ def hcatSpoonman(hcatHashType, hcatHashFile, corpus, coverage=None):
     """Spoonman Attack: derive basewords + rules from *corpus*, then crack with them.
 
     ``coverage`` picks which generated rule file to run: ``None`` for the full
-    set (100% corpus reconstruction), or an int matching one of the capped
-    files (e.g. ``95`` for rules.top95.rule). See hate_crack/rulegen.py and
-    issue #169.
+    set, or an int matching one of the capped files (e.g. ``95`` for
+    rules.top95.rule). The full set only reconstructs 100% of the corpus while
+    rulegen.generate()'s Counter pruning stays out of the way; once pruning
+    fires, coverage is relative to the retained keys instead. See
+    hate_crack/rulegen.py and issue #169.
     """
     if not os.path.isfile(corpus):
         print(f"Error: corpus not found: {corpus}")
@@ -2978,6 +3297,182 @@ def hcatSpoonman(hcatHashType, hcatHashFile, corpus, coverage=None):
         f"-r {shlex.quote(rules_path)}",
         basewords_path,
         attack_name="Spoonman",
+    )
+
+
+# Rule-ranking metrics offered by the Rosetta attack, mapped to the
+# DebugAnalyzer accessor that implements each one and a label for the summary.
+ROSETTA_RULE_METRICS = {
+    "frequency": ("get_top_rules_by_frequency", "applications"),
+    "basewords": ("get_top_rules_by_unique_basewords", "unique basewords"),
+    "candidates": ("get_top_rules_by_unique_candidates", "unique candidates"),
+}
+
+
+def rosetta_debug_logs(directory=None):
+    """Return hashcat debug logs under *directory*, newest first.
+
+    Defaults to hcatDebugLogPath, which is where _add_debug_mode_for_rules
+    parks the --debug-mode 4 output of every rule-based attack, so a normal
+    hate_crack session accumulates these without the operator doing anything.
+    """
+    directory = directory or hcatDebugLogPath
+    if not os.path.isdir(directory):
+        return []
+    found = [
+        os.path.join(directory, name)
+        for name in sorted(os.listdir(directory))
+        if os.path.isfile(os.path.join(directory, name))
+    ]
+    return sorted(found, key=os.path.getmtime, reverse=True)
+
+
+# DebugAnalyzer needs the whole batch as a list (it walks it twice, once for
+# format detection), so the logs cannot be streamed. Cap the read to keep peak
+# memory in the low hundreds of megabytes; truncation is reported, not silent.
+ROSETTA_MAX_LINES = 1_000_000
+
+
+def rosetta_derive(
+    debug_files,
+    out_dir,
+    metric="frequency",
+    top_rules=None,
+    top_basewords=None,
+    max_lines=ROSETTA_MAX_LINES,
+):
+    """Derive a baseword list and rule file from hashcat --debug-mode 4 logs.
+
+    Every line in a mode 4 log records a candidate that actually cracked a
+    hash, so the basewords and rules recovered here are known-productive
+    against this target population. ``top_rules``/``top_basewords`` of None or
+    0 mean "keep everything".
+
+    Returns a dict with the two output paths plus the counts behind them.
+    Raises RuntimeError if HashcatRosetta is missing and ValueError if the logs
+    yield nothing usable.
+    """
+    if DebugAnalyzer is None:
+        raise RuntimeError(
+            "HashcatRosetta is unavailable. Run: "
+            "git submodule update --init HashcatRosetta"
+        )
+    if metric not in ROSETTA_RULE_METRICS:
+        raise ValueError(f"unknown rule metric: {metric}")
+
+    lines = []
+    truncated = False
+    for path in debug_files:
+        if truncated:
+            break
+        with open(path, encoding="utf-8", errors="ignore") as debug_log:
+            for line in debug_log:
+                lines.append(line.rstrip("\n"))
+                if len(lines) >= max_lines:
+                    truncated = True
+                    print(
+                        f"[!] Stopped at {max_lines} debug lines; the remainder "
+                        f"of {os.path.basename(path)} and any later logs were "
+                        "not read."
+                    )
+                    break
+    if not lines:
+        raise ValueError("the selected debug logs are empty")
+
+    analyzer = DebugAnalyzer()
+    analyzer.analyze_debug_lines(lines)
+    if not analyzer.rule_stats or not analyzer.baseword_stats:
+        raise ValueError(
+            "no --debug-mode 4 entries found. Expected lines of the form "
+            "'baseword rule candidate'"
+        )
+
+    getter = ROSETTA_RULE_METRICS[metric][0]
+    rule_limit = top_rules or len(analyzer.rule_stats)
+    rules = [rule for rule, _score in getattr(analyzer, getter)(rule_limit)]
+    baseword_limit = top_basewords or len(analyzer.baseword_stats)
+    basewords = [
+        word for word, _count in analyzer.get_top_basewords_by_frequency(baseword_limit)
+    ]
+
+    os.makedirs(out_dir, exist_ok=True)
+    basewords_path = os.path.join(out_dir, "basewords.txt")
+    rules_path = os.path.join(out_dir, "rules.rule")
+    with open(basewords_path, "w", encoding="utf-8") as baseword_file:
+        baseword_file.writelines(f"{word}\n" for word in basewords)
+    with open(rules_path, "w", encoding="utf-8") as rule_file:
+        rule_file.writelines(f"{rule}\n" for rule in rules)
+
+    return {
+        "basewords": basewords_path,
+        "rules": rules_path,
+        "baseword_count": len(basewords),
+        "rule_count": len(rules),
+        "total_basewords": len(analyzer.baseword_stats),
+        "total_rules": len(analyzer.rule_stats),
+        "entries": len(analyzer.entries),
+    }
+
+
+def hcatRosetta(
+    hcatHashType,
+    hcatHashFile,
+    debug_files,
+    metric="frequency",
+    top_rules=None,
+    top_basewords=None,
+):
+    """Rosetta Attack: replay the basewords and rules that already cracked.
+
+    Reads hashcat --debug-mode 4 logs, keeps the winning basewords and the
+    highest-ranked winning rules, and runs their full cross product. The value
+    is in that cross product rather than in the pairs themselves: a pair that
+    appears in a log already cracked its hash, but a rule that worked on one
+    baseword has usually never been tried against the others.
+    """
+    if not debug_files:
+        print("Error: no debug logs selected.")
+        return
+    missing = [path for path in debug_files if not os.path.isfile(path)]
+    if missing:
+        print(f"Error: debug log not found: {missing[0]}")
+        return
+
+    # Per-run scratch beside the hash file, laid out like .spoonman so both
+    # are removed by cleanup().
+    out_dir = f"{hcatHashFile}.rosetta"
+    print(f"[*] Analyzing {len(debug_files)} debug log(s) with HashcatRosetta")
+    try:
+        derived = rosetta_derive(
+            debug_files,
+            out_dir,
+            metric=metric,
+            top_rules=top_rules,
+            top_basewords=top_basewords,
+        )
+    except (OSError, ValueError, RuntimeError) as e:
+        print(f"Rosetta derivation failed: {e}")
+        return
+
+    print(f"[*] Debug entries:  {derived['entries']}")
+    print(
+        f"[*] Basewords:      {derived['baseword_count']}"
+        f" of {derived['total_basewords']} -> {derived['basewords']}"
+    )
+    print(
+        f"[*] Rules ({metric}): {derived['rule_count']} of {derived['total_rules']}"
+        f" -> {derived['rules']}"
+    )
+    print(
+        f"[*] Keyspace:       {derived['baseword_count'] * derived['rule_count']} candidates"
+    )
+
+    hcatQuickDictionary(
+        hcatHashType,
+        hcatHashFile,
+        f"-r {shlex.quote(derived['rules'])}",
+        derived["basewords"],
+        attack_name="Rosetta",
     )
 
 
@@ -3137,6 +3632,8 @@ def hcatOmen(hcatHashType, hcatHashFile, max_candidates, hcatChains=""):
     ]
     if hcatChains:
         hashcat_cmd.extend(shlex.split(hcatChains))
+    if _should_use_optimized_kernel("hcatOmen"):
+        _insert_optimized_flag(hashcat_cmd)
     hashcat_cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(hashcat_cmd)
     hashcat_cmd = _add_debug_mode_for_rules(hashcat_cmd)
@@ -3223,6 +3720,8 @@ def hcatLMtoNT():
         "3",
         "?1?1?1?1?1?1?1",
     ]
+    if _should_use_optimized_kernel("hcatLMtoNT"):
+        _insert_optimized_flag(cmd)
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
     _run_hcat_cmd(
@@ -3277,6 +3776,8 @@ def hcatLMtoNT():
             "toggles-lm-ntlm.rule", fallback_dir=os.path.join(hate_path, "rules")
         ),
     ]
+    if _should_use_optimized_kernel("hcatLMtoNT"):
+        _insert_optimized_flag(cmd)
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
     cmd = _add_debug_mode_for_rules(cmd)
@@ -3358,6 +3859,7 @@ def hcatGenerateRules(hcatHashType, hcatHashFile, rule_count, wordlist):
         ]
         cmd.extend(shlex.split(hcatTuning))
         _append_potfile_arg(cmd)
+        cmd = _add_debug_mode_for_rules(cmd)
         _run_hcat_cmd(cmd, attack_name="Random Rules", hash_file=hcatHashFile)
     finally:
         if os.path.exists(rules_path):
@@ -3378,12 +3880,52 @@ def check_potfile():
         print("No hashes found in POT file.")
 
 
+def _confirm_overwrite(path, prompt):
+    """Ask before clobbering `path`. Non-interactive callers always proceed.
+
+    Returns True when the caller should go ahead with the overwrite.
+    """
+    if not os.path.isfile(path):
+        return True
+    existing = lineCount(path)
+    if existing <= 0:
+        return True
+    print(f"{path} already contains {existing} cracked hash(es).")
+    if not sys.stdin.isatty():
+        return True
+    answer = input(prompt).strip().lower()
+    return answer in ("", "y", "yes")
+
+
+# Rebuild <hashfile>.out from the POT file, discarding whatever is there now.
+def restore_from_potfile():
+    if not hcatHashFile:
+        print("Error: No hashfile loaded.")
+        return False
+    out_path = hcatHashFile + ".out"
+    if not _confirm_overwrite(
+        out_path, "Overwrite it with the POT file contents? (Y/n): "
+    ):
+        print("Left the existing output file untouched.")
+        return False
+    check_potfile()
+    return True
+
+
 # creating the combined output for pwdformat + cleartext
 def combine_ntlm_output():
     hashes = {}
     check_potfile()
     if not os.path.isfile(hcatHashFile + ".out"):
         print("No hashes found in POT file.")
+        return
+    # Nothing to merge onto: without a pwdump original these are the same file
+    # (every assignment site sets hcatHashFileOrig = hcatHashFile verbatim, so a
+    # plain equality check is sufficient here), and the old code opened its own
+    # input with "w+", truncating every cracked password it had just read
+    # (issue #195).
+    if hcatHashFileOrig == hcatHashFile:
+        print("Hash file is not pwdump format; nothing to combine.")
         return
     with open(hcatHashFile + ".out", "r") as hcatCrackedFile:
         for crackedLine in hcatCrackedFile:
@@ -3395,16 +3937,35 @@ def combine_ntlm_output():
     if not hashes:
         print("No hashes found in POT file.")
         return
-    with open(hcatHashFileOrig + ".out", "w+") as hcatCombinedHashes:
-        with open(hcatHashFileOrig, "r") as hcatOrigFile:
-            for origLine in hcatOrigFile:
-                orig_parts = origLine.split(":")
-                if len(orig_parts) < 4:
-                    continue
-                ntlm_hash = orig_parts[3]
-                if ntlm_hash in hashes:
-                    password = hashes[ntlm_hash]
-                    hcatCombinedHashes.write(origLine.strip() + password + "\n")
+
+    # Build the merged file beside its destination and move it into place only
+    # once it has content, so a run that matches nothing cannot replace a good
+    # result with an empty one.
+    destination = hcatHashFileOrig + ".out"
+    temp_path = destination + ".combine.tmp"
+    written = 0
+    try:
+        with open(temp_path, "w") as hcatCombinedHashes:
+            with open(hcatHashFileOrig, "r") as hcatOrigFile:
+                for origLine in hcatOrigFile:
+                    orig_parts = origLine.split(":")
+                    if len(orig_parts) < 4:
+                        continue
+                    ntlm_hash = orig_parts[3]
+                    if ntlm_hash in hashes:
+                        password = hashes[ntlm_hash]
+                        hcatCombinedHashes.write(origLine.strip() + password + "\n")
+                        written += 1
+        if written:
+            os.replace(temp_path, destination)
+        else:
+            print("No cracked hashes matched the original file; leaving it as is.")
+    finally:
+        if os.path.isfile(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
 
 
 # Cleanup Temp Files
@@ -3435,8 +3996,19 @@ def cleanup():
             os.remove(hcatHashFile + ".working")
         if os.path.exists(hcatHashFile + ".expanded"):
             os.remove(hcatHashFile + ".expanded")
+        # A directory since the attack started generating its own rules; the
+        # isfile branch clears scratch from before that change, when this
+        # attack wrote a single patterns file at the same path. Deliberately
+        # names no version: the release number is computed at tag time, so a
+        # version in a comment here rots without anything noticing.
+        if os.path.isdir(hcatHashFile + ".llm_patterns"):
+            shutil.rmtree(hcatHashFile + ".llm_patterns", ignore_errors=True)
+        elif os.path.isfile(hcatHashFile + ".llm_patterns"):
+            os.remove(hcatHashFile + ".llm_patterns")
         if os.path.isdir(hcatHashFile + ".spoonman"):
             shutil.rmtree(hcatHashFile + ".spoonman", ignore_errors=True)
+        if os.path.isdir(hcatHashFile + ".rosetta"):
+            shutil.rmtree(hcatHashFile + ".rosetta", ignore_errors=True)
         if os.path.exists(hcatHashFileOrig + ".combined"):
             os.remove(hcatHashFileOrig + ".combined")
         if os.path.exists(hcatHashFileOrig + ".lm"):
@@ -4147,15 +4719,10 @@ def hashview_api():
                             selected_hash_type = None
 
                     # Download the left hashes
-                    if debug_mode:
-                        print(
-                            f"[DEBUG] Calling download_left_hashes with hash_type={selected_hash_type}"
-                        )
                     download_result = api_harness.download_left_hashes(
                         customer_id,
                         hashfile_id,
                         output_file,
-                        hash_type=selected_hash_type,
                         potfile_path=hcatPotfilePath,
                     )
                     print(f"\n✓ Success: Downloaded {download_result['size']} bytes")
@@ -4262,20 +4829,12 @@ def middle_combinator():
     return _attacks.middle_combinator(_attack_ctx())
 
 
-def combinator3_crack():
-    return _attacks.combinator3_crack(_attack_ctx())
-
-
-def combinatorX_crack():
-    return _attacks.combinatorX_crack(_attack_ctx())
-
-
-def combinator_3plus_crack():
-    return _attacks.combinator_3plus_crack(_attack_ctx())
-
-
 def ngram_attack():
     return _attacks.ngram_attack(_attack_ctx())
+
+
+def restore_potfile_output():
+    return _attacks.restore_potfile_output(_attack_ctx())
 
 
 def combinator_submenu():
@@ -4328,6 +4887,10 @@ def prince_ling_attack():
 
 def spoonman_attack():
     return _attacks.spoonman_attack(_attack_ctx())
+
+
+def rosetta_attack():
+    return _attacks.rosetta_attack(_attack_ctx())
 
 
 def wordlist_filter_len(infile: str, outfile: str, min_len: int, max_len: int) -> bool:
@@ -4819,9 +5382,11 @@ def get_main_menu_items():
         ("20", "PCFG Attack"),
         ("21", "PRINCE-LING Attack"),
         ("22", "Spoonman Attack"),
+        ("23", "Rosetta Attack"),
         ("80", "Wordlist Tools"),
         ("81", "Rule File Tools"),
         ("82", "Notifications"),
+        ("93", "Regenerate .out from POT file"),
     ]
     if hashview_api_key:
         items.append(("94", "Hashview API"))
@@ -4862,9 +5427,11 @@ def get_main_menu_options():
         "20": pcfg_attack,
         "21": prince_ling_attack,
         "22": spoonman_attack,
+        "23": rosetta_attack,
         "80": wordlist_tools_submenu,
         "81": rule_tools_submenu,
         "82": notifications_submenu,
+        "93": restore_potfile_output,
         "95": pipal,
         "96": export_excel,
         "97": show_results,
@@ -4980,6 +5547,15 @@ def main():
             ),
         )
         parser.add_argument(
+            "--restore-potfile",
+            dest="restore_potfile",
+            action="store_true",
+            help=(
+                "Rebuild <hashfile>.out from the POT file at startup, replacing "
+                "any existing contents, then continue as normal."
+            ),
+        )
+        parser.add_argument(
             "--no-potfile-path",
             dest="no_potfile_path",
             action="store_true",
@@ -5028,11 +5604,6 @@ def main():
         )
         hv_download_left.add_argument(
             "--hashfile-id", required=True, type=int, help="Hashfile ID"
-        )
-        hv_download_left.add_argument(
-            "--hash-type",
-            default=None,
-            help="Hash type for hashcat (e.g., 1000 for NTLM)",
         )
 
         hv_download_rules = hashview_subparsers.add_parser(
@@ -5220,7 +5791,6 @@ def main():
             download_result = api_harness.download_left_hashes(
                 args.customer_id,
                 args.hashfile_id,
-                hash_type=args.hash_type,
                 potfile_path=hcatPotfilePath,
             )
             print(f"\n✓ Success: Downloaded {download_result['size']} bytes")
@@ -5331,7 +5901,15 @@ def main():
             ("3", "Rule File Tools"),
             ("4", "Exit"),
         ]
-        menu_loop = True
+        # The flag states the intent, so go straight to Hashview. Prompting
+        # first and then overriding the answer meant even "Exit" opened
+        # Hashview (issue #203).
+        if args.download_hashview:
+            hashview_api()
+            if not hcatHashFile:
+                sys.exit(0)
+
+        menu_loop = not hcatHashFile
         while menu_loop:
             print("\n" + "=" * 60)
             print("No hash file provided. What would you like to do?")
@@ -5341,15 +5919,16 @@ def main():
                 title="No hash file provided. What would you like to do?",
                 prompt="\nSelect an option: ",
             )
-            if choice == "1" or args.download_hashview:
+            if choice is None:
+                # A bare Enter (numbered mode) or Escape (arrow mode) is a
+                # cancel gesture, not a typo: re-show the menu without
+                # scolding the user. Matches the main menu, which likewise
+                # treats a None choice as "ask again".
+                continue
+            if choice == "1":
                 hashview_api()
-                # Check if hashfile was set by hashview_api
-                if not hcatHashFile:
-                    if args.download_hashview:
-                        # Exit if called from command line
-                        sys.exit(0)
-                    # Otherwise continue the menu loop
-                else:
+                # Nothing loaded means the user backed out; re-show the menu.
+                if hcatHashFile:
                     menu_loop = False
             elif choice == "2":
                 wordlist_tools_submenu()
@@ -5358,13 +5937,11 @@ def main():
             elif choice == "4":
                 sys.exit(0)
             else:
-                if (
-                    args.download_hashview
-                    or args.weakpass
-                    or args.hashmob
-                    or args.rules
-                ):
-                    sys.exit(0)
+                # --weakpass/--hashmob/--rules all exit before this loop,
+                # --download-hashview is handled above, and a cancel is
+                # handled as None, so the only way here is an answer that
+                # matches no menu key.
+                print("\n[!] Invalid selection.")
 
     # At this point, a hashfile must be loaded
     if not hcatHashFile:
@@ -5546,8 +6123,12 @@ def main():
         if hcatUsernamePrefix:
             print("[*] Username prefixes detected \u2014 adding --username flag")
 
-    # Check POT File for Already Cracked Hashes
-    if not os.path.isfile(hcatHashFile + ".out"):
+    # Check POT File for Already Cracked Hashes. --restore-potfile forces the
+    # rebuild even when .out already exists; the flag is the explicit request,
+    # so it skips the interactive overwrite confirmation.
+    if getattr(args, "restore_potfile", False):
+        check_potfile()
+    elif not os.path.isfile(hcatHashFile + ".out"):
         hcatOutput = open(hcatHashFile + ".out", "w+")
         hcatOutput.close()
         print("Checking POT file for already cracked hashes...")

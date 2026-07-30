@@ -47,6 +47,19 @@ class PasswordCandidatesOutput(BaseIOSchema):
     )
 
 
+class HashcatRulesOutput(BaseIOSchema):
+    """A structured list of hashcat rule strings."""
+
+    rules: list[str] = Field(
+        ...,
+        description=(
+            "Hashcat rules, one per list entry. Each entry is the raw rule "
+            "string of single-character functions, e.g. 'c$2$0$2$5'. No "
+            "numbering, comments, quoting, or explanation."
+        ),
+    )
+
+
 class TargetResearchInput(BaseIOSchema):
     """The company name to recall industry and location details for."""
 
@@ -157,11 +170,119 @@ _CRACKED_PROMPT = SystemPromptGenerator(
     ],
 )
 
+_PATTERN_PROMPT = SystemPromptGenerator(
+    background=[
+        "You are a security professional working an authorized penetration test.",
+        "The sample passwords you are shown come from the target environment, so "
+        "the words behind them reveal what that organization's users draw on when "
+        "they invent a password.",
+        "Your output is a baseword list. A separate hashcat rule file will supply "
+        "all of the capitalization, digits, years, separators, suffixes, and "
+        "leetspeak — so decorating a baseword yourself only wastes a slot.",
+    ],
+    steps=[
+        "Read the corpus statistics. They cover every password in the corpus, so "
+        "a baseword's share tells you how much of the organization chose it — "
+        "treat the high-share entries as the strongest signal about what these "
+        "users draw on.",
+        "Strip each word you are shown down to the word or words behind it, "
+        "ignoring case, digits, and punctuation.",
+        "Group them into the semantic families they belong to: the company "
+        "and its products, site or department names, local sports teams and city "
+        "names, seasons and months, hobbies, mascots, keyboard walks.",
+        "For every family you identify, list more members of that family than the "
+        "corpus actually contains — the point is to predict the words other users "
+        "at this organization chose, not to echo the ones already recovered.",
+    ],
+    output_instructions=[
+        "Return lowercase letters only. No digits, punctuation, spaces, or "
+        "capitals anywhere in a baseword — the rules add those.",
+        "One baseword per list entry. Multi-word basewords run together, e.g. "
+        "'acmewidgets', not 'acme widgets'.",
+        "Skip generic filler such as 'password', 'welcome', 'letmein', and "
+        "'qwerty'. Stock wordlists already cover those, so they crowd out the "
+        "organization-specific guesses that make this list worth running.",
+        "Do not include explanations, numbering, or duplicate entries.",
+    ],
+)
+
+_RULES_PROMPT = SystemPromptGenerator(
+    background=[
+        "You are a security professional working an authorized penetration test.",
+        "You write hashcat rules. A rule is a string of single-character "
+        "functions applied left to right to a candidate baseword.",
+        "A separate baseword list supplies the words. Your rules supply "
+        "everything else: capitalization, digits, years, symbols, leetspeak.",
+        "The functions you may use, and nothing else: ':' no-op, 'l' lowercase "
+        "all, 'u' uppercase all, 'c' capitalize first, 'C' lowercase first and "
+        "uppercase the rest, 't' toggle all, 'TN' toggle position N, '$X' append "
+        "character X, '^X' prepend character X, 'DN' delete position N, '[' "
+        "delete first, ']' delete last, 'r' reverse, 'd' duplicate, 'sXY' "
+        "replace every X with Y.",
+        "Positions are single characters: 0-9 for 0-9, then A-Z for 10-35.",
+        "Every append and prepend takes exactly one character, so a two-character "
+        "suffix needs two functions. To append the digits 99, write '$9$9'. To "
+        "append the symbol '$' itself, write '$$' — one function whose argument "
+        "happens to be a dollar sign.",
+    ],
+    steps=[
+        "Read the corpus statistics. The mask, casing, length, trailing-digit "
+        "and trailing-symbol tables describe how this organization decorates a "
+        "word, and each entry's share tells you how many users decorate it that "
+        "way.",
+        "Work through the tables one entry at a time and write the rule that "
+        "reproduces that entry on a plain lowercase baseword. A capitalized word "
+        "with a year appended is 'c' then '$2' '$0' '$2' '$5', written together "
+        "as 'c$2$0$2$5'. An all-caps word with a symbol and two digits is "
+        "'u$#$4$2'.",
+        "Cover every distinct shape the statistics show, not only the most "
+        "common one. A mask or suffix listed at 8% is 8% of the corpus you leave "
+        "uncracked by skipping it.",
+        "Then add variations around each shape — the neighbouring years, the "
+        "other common symbols, the same suffix without the capital, the suffix "
+        "on an all-caps word — since the point is to predict decorations the "
+        "corpus does not already contain.",
+    ],
+    output_instructions=[
+        "Return one rule per list entry. A rule is the raw function string with "
+        "no quotes, no comments, no '#' lines, and no explanation.",
+        "Return at least 40 rules, and more when the statistics show more shapes. "
+        "A handful of rules wastes the run: the operator gets one pass over the "
+        "basewords and every shape you omit is a shape that goes uncracked.",
+        "Use only the functions listed above. Any other character makes the rule "
+        "invalid and it will be discarded.",
+        "Never include a literal newline or tab inside a rule.",
+        "Keep each rule under 31 functions.",
+        "Do not include duplicate rules.",
+    ],
+)
+
 _PROMPTS = {
     "target": _TARGET_PROMPT,
     "wordlist": _WORDLIST_PROMPT,
     "cracked": _CRACKED_PROMPT,
+    "pattern": _PATTERN_PROMPT,
+    "rules": _RULES_PROMPT,
 }
+
+
+def _corpus_block(context_data: dict) -> str:
+    """Render the corpus portion of a request from *context_data*.
+
+    ``summary`` holds whole-corpus statistics (see hate_crack.corpus_stats) and
+    ``sample`` the literal plaintexts, which are only present when the whole
+    corpus fit under the sample cap. Either may be absent; both are labelled so
+    the model does not mistake a frequency table for a list of passwords to
+    return.
+    """
+    parts = []
+    summary = context_data.get("summary", "")
+    sample = context_data.get("sample", "")
+    if summary:
+        parts.append("=== CORPUS STATISTICS (whole corpus) ===\n" + summary)
+    if sample:
+        parts.append("=== PASSWORDS ===\n" + sample)
+    return "\n".join(parts)
 
 
 def _build_request(mode: str, context_data: dict) -> str:
@@ -177,18 +298,40 @@ def _build_request(mode: str, context_data: dict) -> str:
             "suffixes, years, and leetspeak substitutions."
         )
     if mode == "wordlist":
-        sample = context_data.get("sample", "")
         return (
-            "Here are sample passwords. Study their patterns and generate basewords "
-            "for a denylist:\n" + sample
+            "Here is a description of a password corpus. Study its patterns and "
+            "generate basewords for a denylist:\n" + _corpus_block(context_data)
+        )
+    if mode == "pattern":
+        return (
+            "Here is a description of the passwords in the target environment. "
+            "Identify the semantic families of words behind them, then return as "
+            "many lowercase letters-only basewords from those families as you "
+            "can, including words the corpus does not contain. The statistics "
+            "tell you which basewords and habits dominate the organization, so "
+            "weight your answer toward the families the common ones belong to. "
+            "Hashcat rules will mutate these, so add no digits, capitals, or "
+            "punctuation:\n" + _corpus_block(context_data)
+        )
+    if mode == "rules":
+        return (
+            "Here is a description of the passwords in the target environment. "
+            "Study the decoration habits it reveals — where users put capitals, "
+            "which digits and years they append, which symbols they favour, how "
+            "they substitute letters — and return hashcat rules that reproduce "
+            "those habits. The masks, casing shares, and trailing-digit and "
+            "trailing-symbol tables tell you which decorations dominate, so "
+            "order your rules with the most common first:\n"
+            + _corpus_block(context_data)
         )
     if mode == "cracked":
-        sample = context_data.get("sample", "")
         return (
-            "These passwords were already cracked from the target organization. "
-            "Study the conventions they reveal and generate as many NEW password "
-            "candidates as you can that follow the same conventions. Do not repeat "
-            "any of these:\n" + sample
+            "The passwords described below were already cracked from the target "
+            "organization. Study the conventions they reveal and generate as many "
+            "NEW password candidates as you can that follow the same conventions. "
+            "Do not repeat any password shown to you, and note that a high-share "
+            "baseword in the statistics is one many users chose, so it is worth "
+            "varying rather than repeating:\n" + _corpus_block(context_data)
         )
     raise ValueError(f"Unknown LLM generation mode: {mode}")
 
@@ -309,3 +452,66 @@ def generate_candidates(
         seen.add(candidate)
         candidates.append(candidate)
     return candidates
+
+
+def generate_rules(
+    url: str,
+    model: str,
+    num_ctx: int,
+    context_data: dict,
+    timeout: float = DEFAULT_TIMEOUT_SECONDS,
+) -> list[str]:
+    """Generate hashcat rules describing a corpus's decoration habits.
+
+    The companion to ``generate_candidates(mode="pattern")``: that call infers
+    the basewords, this one infers the rules that mutate them, so the pair
+    covers what the Spoonman attack derives mechanically (see
+    hate_crack.rulegen).
+
+    Returns a deduped list of raw rule strings in the order the model gave them,
+    which its prompt asks to be most-productive-first. Entries are *not*
+    validated here — callers must screen them with ``rulegen.validate_rule``
+    before handing the file to hashcat, since an invalid rule is dropped
+    silently rather than reported.
+
+    Raises LLMTimeoutError if the request exceeds ``timeout``; other
+    client/connection errors propagate to the caller.
+    """
+    request = _build_request("rules", context_data)
+    client = _build_client(url, timeout)
+
+    agent = AtomicAgent[GenerationInput, HashcatRulesOutput](
+        config=AgentConfig(
+            client=client,
+            model=model,
+            system_prompt_generator=_PROMPTS["rules"],
+            model_api_parameters={"extra_body": {"options": {"num_ctx": num_ctx}}},
+        )
+    )
+
+    try:
+        result = agent.run(GenerationInput(request=request))
+    except APITimeoutError as e:
+        raise LLMTimeoutError(
+            f"no response from {url} within {timeout:g} seconds"
+        ) from e
+
+    seen: set[str] = set()
+    rules: list[str] = []
+    for raw in getattr(result, "rules", []) or []:
+        # A non-string entry is model noise, not a rule; str() on it would turn
+        # None into the literal "None", which validate_rule would then reject
+        # for the wrong reason.
+        if not isinstance(raw, str):
+            continue
+        # Surrounding whitespace goes so that '  c$1  ' and 'c$1' dedupe against
+        # each other. The cost is that a rule ending in a literal space
+        # argument ('$ ', append a space) cannot come back from the model this
+        # way — worth it, since models pad far more often than they append
+        # spaces, and an unstripped rule would otherwise slip past dedup.
+        rule = raw.strip()
+        if not rule or rule in seen:
+            continue
+        seen.add(rule)
+        rules.append(rule)
+    return rules

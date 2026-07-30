@@ -72,16 +72,67 @@ def test_hashview_flag(monkeypatch):
     assert called == [True]
 
 
-def test_download_hashview_flag(monkeypatch):
-    """--download-hashview falls into the menu loop, triggers hashview_api, then exits."""
+def test_download_hashview_flag_does_not_prompt(monkeypatch):
+    """--download-hashview goes straight to Hashview: no menu, no discarded answer."""
     monkeypatch.setattr(hc_main, "hashview_api_key", "dummy")
     called = []
     monkeypatch.setattr(hc_main, "hashview_api", lambda: called.append(True))
     monkeypatch.setattr(hc_main, "ascii_art", lambda: None)
-    monkeypatch.setattr("builtins.input", lambda _prompt="": "1")
+
+    def _no_prompt(_prompt=""):
+        raise AssertionError("--download-hashview must not prompt")
+
+    monkeypatch.setattr("builtins.input", _no_prompt)
     code = _run_main(monkeypatch, ["--download-hashview"])
     assert code == 0
     assert called == [True]
+
+
+def test_no_hashfile_menu_treats_cancel_as_reprompt(monkeypatch, capsys):
+    """A cancel gesture must re-prompt silently, not be called invalid.
+
+    ``interactive_menu`` returns None for a bare Enter (numbered mode) and for
+    Escape (arrow mode). Every other menu treats that as its cancel option; the
+    main menu re-prompts. This one used to report it as "[!] Invalid selection".
+    """
+    monkeypatch.setattr(hc_main, "hashview_api_key", "dummy")
+    monkeypatch.setattr(hc_main, "ascii_art", lambda: None)
+    # "" -> interactive_menu returns None (cancel), then "4" exits.
+    answers = iter(["", "4"])
+    monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
+    code = _run_main(monkeypatch, [])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "Invalid selection" not in out, out
+
+
+def test_no_hashfile_menu_still_warns_on_unrecognized_answer(monkeypatch, capsys):
+    """A genuinely unrecognized answer must still warn."""
+    monkeypatch.setattr(hc_main, "hashview_api_key", "dummy")
+    monkeypatch.setattr(hc_main, "ascii_art", lambda: None)
+    answers = iter(["7", "4"])
+    monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
+    code = _run_main(monkeypatch, [])
+    assert code == 0
+    assert "Invalid selection" in capsys.readouterr().out
+
+
+def test_no_hashfile_menu_honours_wordlist_tools_choice(monkeypatch):
+    """Without the flag, the menu's own choices must still be honoured."""
+    monkeypatch.setattr(hc_main, "hashview_api_key", "dummy")
+    monkeypatch.setattr(hc_main, "ascii_art", lambda: None)
+    hashview_called = []
+    tools_called = []
+    monkeypatch.setattr(hc_main, "hashview_api", lambda: hashview_called.append(True))
+    monkeypatch.setattr(
+        hc_main, "wordlist_tools_submenu", lambda: tools_called.append(True)
+    )
+    answers = iter(["2", "4"])
+    monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
+    code = _run_main(monkeypatch, [])
+    assert code == 0
+    assert tools_called == [True]
+    assert hashview_called == []
 
 
 # ---------------------------------------------------------------------------
@@ -187,10 +238,8 @@ class DummyHashviewAPI:
     def __init__(self, base_url, api_key, debug=False):
         self.calls = []
 
-    def download_left_hashes(
-        self, customer_id, hashfile_id, hash_type=None, potfile_path=None
-    ):
-        self.calls.append(("download_left_hashes", customer_id, hashfile_id, hash_type))
+    def download_left_hashes(self, customer_id, hashfile_id, potfile_path=None):
+        self.calls.append(("download_left_hashes", customer_id, hashfile_id))
         return {"output_file": "left.txt", "size": 42}
 
 
@@ -207,8 +256,6 @@ def test_hashview_download_hashes(monkeypatch, capsys):
             "1",
             "--hashfile-id",
             "2",
-            "--hash-type",
-            "1000",
         ],
     )
     assert code == 0

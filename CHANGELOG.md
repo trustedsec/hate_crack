@@ -7,6 +7,362 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [2.18.0] - 2026-07-29
+
+### Added
+
+- **Rosetta Attack (main menu option 23)** — mines hashcat `--debug-mode 4`
+  logs for the basewords and rules that already cracked something, then runs
+  their full cross product. hate_crack already writes these logs for every
+  rule-based attack, so the input accumulates in `hcatDebugLogPath` without any
+  setup; a mode 4 log contains only successful candidates, which makes both
+  halves known-productive against the target population. The recorded pairs
+  themselves are spent, but a rule that worked on one baseword has usually
+  never been tried against the others. Rules can be ranked by application
+  frequency, by baseword spread, or by unique candidates generated, and both
+  the rule and baseword counts are capped interactively (defaults: top 100
+  rules, all basewords). Derived files land in `<hash file>.rosetta/` and are
+  removed by the existing temp-file cleanup. Powered by HashcatRosetta, the
+  same submodule behind the rule opcode analyzer.
+- **The Spoonman Attack's rule derivation now bounds its own memory instead of
+  being OOM-killed on a very large corpus.** `rulegen.generate()` held every
+  distinct baseword and every distinct rule in a `Counter` until the whole
+  corpus had been read, and wrote nothing before that point — so a corpus big
+  enough to exhaust RAM lost the entire multi-hour pass with no output at all.
+  A measured run against a 31 GB corpus reached 14.1 GB resident at 11% of the
+  file with the growth rate still climbing. Each counter is now capped at a new
+  `max_unique` keyword argument (default `rulegen.MAX_UNIQUE_KEYS`,
+  20,000,000 keys, about 1.6 GB per counter at a measured 80 bytes per key);
+  once a counter passes the cap its lowest-frequency keys are discarded while
+  reading. Pass `max_unique=None` for the previous unbounded behaviour. When
+  pruning fires the run reports it: new `pruned`, `pruned_basewords` and
+  `pruned_rules` keys in the returned dict, a section in `coverage.txt`, and a
+  console warning naming the limit — because the output then reconstructs only
+  the retained keys rather than 100% of the corpus, and the coverage
+  percentages are relative to those. A password needs both its baseword and
+  its rule to survive and the two counters are pruned independently, so the
+  report gives the range of passwords still reconstructable rather than a
+  number it cannot know. A corpus that never reaches the cap produces
+  byte-identical output to before.
+
+- **Spoonman Attack now offers a top-50% and top-75% coverage tier, and top 50%
+  is listed first as the recommended choice.** Rule-set coverage against a large corpus is extremely
+  long-tailed: on a 98.2M-password sample, 50% coverage needed 4,120 rules
+  while 95% needed 16,119,661 and 100% needed 21,029,696. The old menu only
+  offered the full set, top 99%, or top 95% — all three sat past the knee of
+  that curve, so every option produced a rule file with tens of millions of
+  entries on a large corpus. The menu now reads top 50% (smallest, most
+  productive rules) / top 75% / top 95% / top 99% / full set, and
+  `rulegen.generate()`'s `cover` default changed from `(95, 99)` to
+  `(50, 75, 95, 99)` to match.
+
+- **A test that every documented config key is actually read.** The existing
+  guard pins the key set, so a key added to `config.json.example` and to the
+  expected-key list in one commit passes it while being read by nothing —
+  which is how three dead keys shipped. The new test traces each key to the
+  global it loads into and then to a read site anywhere in the package,
+  including consumption through the attack handlers' `ctx` proxy.
+
+
+- **`optimizedKernelAttacks` now works for the N-gram, LLM, OMEN, and LM-to-NT
+  attacks, and is documented.** All four built their hashcat command without
+  ever consulting the setting, so listing them had no effect. They honour it
+  now, but stay out of the default set — each feeds candidates that can exceed
+  the length ceiling `-O` imposes, so enabling it is opt-in rather than a
+  silent keyspace reduction for anyone already running them. An unrecognized
+  entry in the list is now reported at startup instead of being ignored, and
+  README documents the flag's trade-off along with the delegation rule that
+  makes PRINCE-LING follow `hcatPrince` and Spoonman follow
+  `hcatQuickDictionary`.
+
+- **The Ad-hoc Mask Attack (option 14) now accepts a mask file.** The attack
+  opens with a choice between typing a mask and selecting a `.hcmask` file, the
+  latter with tab completion rooted at the bundled `masks/` directory. Mask
+  files carry their own charset definitions, so the `-1` through `-4` prompts are
+  skipped on that path. This makes the hundreds of masks already shipped in
+  `masks/` usable without retyping them, and lets a generated or hand-written
+  mask list run without a dedicated menu entry.
+
+
+- **On-demand regeneration of `<hashfile>.out` from the POT file.** New main
+  menu option **93** ("Regenerate .out from POT file") and a matching
+  `--restore-potfile` startup flag. `check_potfile()` already rebuilt the
+  output file from `hashcat --show`, but it was only reachable as a side effect
+  of `combine_ntlm_output()`, and the startup POT lookup ran only when `.out`
+  did not already exist — so a truncated or lost output file could not be
+  restored without deleting it and restarting. The menu path prints the
+  existing cracked-hash count and asks for confirmation before overwriting
+  (auto-confirming when stdin is not a TTY); the flag is treated as an explicit
+  request and skips the prompt.
+- **LLM Pattern Rules mode** (option 4 in the LLM Attack submenu). Mirrors the
+  Spoonman Attack's shape — a baseword list run through hashcat rules — but
+  infers the basewords rather than extracting them. Spoonman's `rulegen` is
+  lossless and therefore literal: it can only emit cores that already appear in
+  its corpus. This mode instead asks the local model to identify the word
+  families behind a sample (company and products, site names, local teams,
+  seasons, mascots) and enumerate members the sample does not contain, then runs
+  those basewords against rule file(s) chosen from the rules directory. The
+  pattern source is either the session's cracked passwords or a sample wordlist;
+  model output is normalized to lowercase letters only, since the rules supply
+  case, digits, and punctuation. Basewords land in `<hashfile>.llm_patterns`,
+  which `cleanup()` removes on exit.
+- Real-git coverage for the upgrade path (`tests/test_upgrade_real_git.py`).
+  The existing tests mock `subprocess.run` wholesale, so they only assert which
+  command strings get built — a mocked `git pull` always succeeds, which is why
+  the two `--update` bugs listed under Fixed reached users with the suite green.
+  The new tests construct a remote and a clone whose history has been rewritten
+  out from under it, then run the real git commands, and additionally assert
+  that `_run_upgrade()` constructs no `pull` at all.
+
+### Changed
+
+
+- **LLM Pattern Rules (LLM submenu option 4) now generates its own rule file
+  instead of prompting for one.** The mode was named for rules it never wrote:
+  it inferred basewords and then asked the operator to pick a stock rule file to
+  mutate them with, which encodes the internet's password habits rather than the
+  target organization's — the one thing a model round trip over that
+  organization's own corpus is there to capture. It now makes a second request
+  from the same corpus statistics for hashcat rules describing how these users
+  decorate a word, and runs the inferred basewords against the inferred rules.
+  This completes the parallel with the Spoonman attack, which derives both sides
+  from one corpus; the difference is that Spoonman is exact and therefore
+  bounded to transformations already present, while this generalizes past them.
+
+  Generated rules are validated against hashcat's op set, per-argument types,
+  and 31-function ceiling before the file is written (new
+  `rulegen.validate_rule`). Screening is not optional: hashcat drops an invalid
+  rule *silently* when the file also holds valid ones, so an unchecked line
+  would surface as missing coverage rather than an error. The op table was
+  established by testing a hashcat binary across 953 rule cases rather than
+  from the rule documentation, which lists ops (the memory and reject-plain
+  families) that hashcat then refuses to run.
+
+  Because local-model yield here varies widely between runs, a first answer
+  under 25 valid rules is asked again once and the two rounds are merged and
+  deduped; a corpus that yields no valid rules at all falls back to running the
+  basewords unmutated instead of discarding the run's expensive half.
+
+  Scratch output moves from the `<hashfile>.llm_patterns` file to a
+  `<hashfile>.llm_patterns/` directory holding `basewords.txt` and
+  `rules.rule`, mirroring `.spoonman/`. Cleanup removes either shape, so
+  scratch left by an earlier version is still cleared.
+
+
+- **Hash-prefix stripping is now based on digest shape rather than the first
+  colon.** New module `hate_crack/plaintext.py` holds the single implementation
+  shared by the LLM read path, `corpus_stats`, and `rulegen`. A leading field is
+  dropped only when it has the shape of a hash — a hex digest at a known length,
+  or a crypt-style `$id$` string — so `hash:salt:plain` is handled, a plaintext
+  containing colons survives intact, and a wordlist entry that merely contains a
+  colon (a URL, a ratio, a time of day) is no longer truncated. Previously the
+  LLM modes split unconditionally on the first colon.
+
+- **The LLM modes now describe the whole corpus statistically instead of pasting
+  in a sample of it.** New module `hate_crack/corpus_stats.py` aggregates every
+  password in the source file — baseword shares (reusing `rulegen.derive`, the
+  same extraction the Spoonman attack uses), masks, casing, lengths, trailing
+  digits and symbols, and years — and the prompt carries that summary. Output is
+  bounded, so a 120,000-password dump costs roughly the prompt space a 500-line
+  sample did. Literal plaintexts are still included when the whole corpus fits
+  under `ollamaMaxSampleLines`.
+
+  An evenly-spaced sample conveyed no frequency information, so the model could
+  not tell a baseword used by 8% of an organization from one used by a single
+  person. It also did not reliably fit: at the old `ollamaNumCtx` of 2048, 500
+  plaintexts (~2,000–3,500 tokens) plus the system prompt and response exceeded
+  the context window, and Ollama silently truncated part of the sample.
+  `ollamaMaxSampleLines` keeps its meaning as the "small enough to send
+  verbatim" threshold.
+
+- **`ollamaNumCtx` default raised from 2048 to 8192**, so the prompt fits with
+  headroom.
+
+- **The LLM modes now warn when the chosen corpus looks like an uncracked hash
+  dump.** A raw NTDS dump (`user:rid:lm:nt:::`) and a cracked-output file sit in
+  the same working directory with similar names, and the dump produces confident
+  nonsense rather than an error: splitting on the first colon yields the rest of
+  the hash line, so the statistics describe hex strings. Validated against real
+  files — 99% of lines flagged in a 40,765-line NTDS dump, zero flagged in two
+  genuine 22k/41k-line cracked-output files.
+
+- **Digit-only basewords are excluded from the baseword list.** `rulegen.derive`
+  falls back to the password itself when it holds no letters, so a PIN-heavy
+  corpus filled the list with digit strings and crowded out the word families it
+  exists to surface. The digit-only share is still reported via the casing and
+  mask lines.
+
+- **`$HEX[...]` plaintexts are now decoded** when reading a corpus for the LLM
+  modes. hashcat wraps any plaintext holding non-ASCII bytes or the output
+  separator; read literally, the wrapper polluted baseword and mask statistics
+  with the letters of `$HEX[` and the corpus's hex digits. Malformed wrappers
+  pass through unchanged. Note this fixes the LLM read path only — the Spoonman
+  attack's `rulegen` reads corpora directly and is unaffected.
+
+### Removed
+
+
+- **`omenTrainingList` is gone from `config.json.example`.** It was loaded and
+  path-normalized but never read: the OMEN attack always shows the wordlist
+  picker, which builds its list from the wordlists directory. Setting it had no
+  effect. Pick your training corpus in the attack's prompt instead.
+
+- **Three config keys that had no effect are gone from `config.json.example`.**
+  `hcatCombinator3Wordlist` and `hcatCombinatorXWordlist` were loaded and
+  path-normalized but never read: since the combinator attacks were merged into
+  one menu entry, the single handler takes its defaults from
+  `hcatCombinationWordlist` and picks the 2-way, 3-way, or N-way path from how
+  many entries that list has. `hcatPrinceLing` was listed in
+  `optimizedKernelAttacks` but never checked, because PRINCE-LING delegates to
+  the PRINCE attack, which tests its own name — use `hcatPrince` to control
+  `-O` for both.
+
+- **`combinator3_crack`, `combinatorX_crack`, and `combinator_3plus_crack` are
+  gone from `attacks.py`, along with their `main.py` proxies.** They were
+  delegation shims left behind when the combinator attacks merged into one
+  handler; neither menu mapping nor any test referenced them, so they were
+  unreachable dead code.
+
+### Fixed
+
+- **Exiting a `-m 1000` session could crash instead of cleaning up.**
+  `pwdump_format` was assigned only inside `main()`'s format-detection block, so
+  any run that reached `cleanup()` without executing that block raised
+  `NameError: name 'pwdump_format' is not defined` — at the end of the session,
+  after the cracking work was done, and skipping the rest of the cleanup. It now
+  has a module-level default of `False`.
+- **Analysing or exporting a plain hash list destroyed every cracked password.**
+  `combine_ntlm_output()` merges cracked passwords back onto pwdump lines, reading
+  `<hashfile>.out` and writing `<original>.out`. For a hash file that is not pwdump
+  format those are the same path, and the function opened its own input with mode
+  `w+`, truncating it, then matched against lines that no longer existed — so a
+  populated `.out` became 0 bytes. It now returns early when there is nothing to
+  merge onto, and builds the merged file beside its destination and moves it into
+  place only once it has content, so a run that matches nothing can no longer
+  replace a good result with an empty one.
+- **`coverage.txt` now reports the rule count for 75% coverage.** Its milestone
+  list ran 50/80/90/95/99/100, so an operator picking the new top-75% tier
+  could not look its cost up in the one file meant to answer that question.
+
+- **The LLM Pattern Rules attack hid why it had no rules to run.** When every
+  rule the model returned was rejected as invalid, the fallback message said
+  only that no usable rules were inferred. It now reports how many were
+  rejected, which distinguishes "the model returned nothing" from "the model
+  returned rules and all of them were malformed" — a difference that decides
+  whether re-running is worth it.
+
+- **`_streamed_download` accepted a `chunk_size` and ignored it.** The value
+  was never forwarded to the function that does the writing, which hardcoded
+  8192, so tuning it had no effect. No caller passed a non-default value, so
+  nothing was mis-downloading; the knob simply did not work.
+
+- **Cancelling the no-hashfile menu was reported as an invalid selection.**
+  `interactive_menu` returns `None` for a bare Enter in numbered mode and for
+  Escape in arrow-key mode. Every other menu treats that as its cancel option,
+  but the menu shown when no hash file is given fell through to
+  `[!] Invalid selection` and re-prompted, so a deliberate cancel looked like a
+  typo. It now re-shows the menu silently, matching the main menu; an answer
+  that matches no menu key still warns.
+
+
+- **"Leave blank to skip" skipped every remaining custom charset, not just
+  one.** The Ad-hoc Mask Attack prompts for charsets `-1` through `-4`, but a
+  blank answer broke out of the loop, so a mask using `?1` and `?3` without
+  `?2` could not be entered and hashcat failed on the undefined token. Each
+  slot is now independently skippable.
+- **README documented a menu environment variable that does not exist.** It
+  named `HATE_CRACK_PLAIN_MENU=1` (read by nothing) and claimed arrow-key
+  navigation is the default. Numbered menus are the default; arrow keys are
+  opt-in through `HATE_CRACK_ARROW_MENU=1`, which was undocumented.
+- **README told contributors to install a `post-commit` hook that does not
+  exist, and omitted the `pre-commit` stage that does.** `prek.toml` defines six
+  local `pre-push` hooks (the documented list was missing `ruff-format` and
+  `bandit`) plus six `pre-commit` hooks from `pre-commit/pre-commit-hooks`,
+  including the repo's only secret-scanning gate. Following the old
+  instructions left `detect-private-key` uninstalled.
+
+
+- **`--download-hashview` prompted for a menu choice and then ignored it.** The
+  no-hashfile menu's first branch was guarded by `or args.download_hashview`,
+  so with the flag set, choosing Wordlist Tools, Rule File Tools, or even Exit
+  all opened the Hashview flow. The flag now skips the menu entirely, and the
+  menu's own choices are honoured when it is absent.
+
+- **The Random Rules and LLM rule attacks wrote no hashcat debug log.** Five of
+  the seven attacks that pass `-r` to hashcat call `_add_debug_mode_for_rules`,
+  which wires `--debug-mode`/`--debug-file` to `hcatDebugLogPath`;
+  `hcatGenerateRules` and `hcatOllama`'s per-rule pass did not, so there was no
+  way to see which rule cracked which hash for exactly those two. A new test
+  pins the invariant for every future rule-based attack.
+
+- **`hashview download-hashes --hash-type` did nothing.** The flag existed only
+  to feed `download_left_hashes`, whose `hash_type` parameter had been unused
+  since the download flow was overhauled and its `hashcat -m` verification run
+  removed. Both the flag and the parameter are gone; the `--hash-type` flags on
+  `upload-cracked` and `upload-hashfile-job` are unaffected.
+
+- **The same attack could run with or without `-O` depending only on whether a
+  `config.json` existed.** `hcatPCFG` was listed in the example's
+  `optimizedKernelAttacks` but missing from the `DEFAULT_OPTIMIZED_ATTACKS`
+  fallback in code, so a user with no config file got un-optimized kernels for
+  it. The default now matches the example, and two new tests assert that the
+  two lists stay equal and that every name in the list actually reaches
+  `_should_use_optimized_kernel`.
+
+- **The Spoonman attack derived basewords and rules from the hash as well as the
+  password.** `rulegen.generate` treated each corpus line as a password in full,
+  but the corpus the attack is built for — and that its own menu text recommends
+  — is a previous engagement's cracked output, whose lines are `hash:password`.
+  The digest's hex digits were therefore prepended to every baseword, and 20–30
+  of the 31 available rule functions were spent rebuilding them.
+
+  The damage compounded. Because every hash is unique, every derived baseword and
+  rule was unique too, which destroyed the property the attack exists for: a rule
+  file ranked by productivity and safe to truncate. And because rebuilding the
+  prefix nearly exhausted `MAX_RULE_FUNCTIONS`, real transformations tipped over
+  the limit into the literal fallback — emitting the password as its own
+  baseword, so the corpus became its own wordlist.
+
+  Measured on a 22,283-line cracked-output file: distinct basewords 22,284 →
+  9,912 (previously one per line, i.e. no deduplication at all), literal
+  fallbacks 5,388 → 31, rules needed for 95% coverage 15,783 → 11,730.
+
+  `$HEX[...]` plaintexts are now decoded here too, and a corpus that looks like
+  an uncracked dump rather than cracked output is reported in `coverage.txt` and
+  warned about.
+
+- **`notify_suppress_in_orchestrators` did nothing.** The key was parsed into
+  `NotifySettings` and unit-tested for parsing, but `suppressed_notifications()`
+  set its thread-local flag unconditionally, so there was no way to get a
+  notification per attack inside Extensive Crack. The context manager now
+  consults the setting. README also overstated the scope: only Extensive Crack
+  suppresses, and Quick Crack with N rule chains has always sent N
+  notifications.
+- **`--update` (and the startup upgrade prompt) no longer dead-ends on a clone
+  whose tags diverge from the remote's.** If any local tag pointed at a
+  different object than `origin`'s, `git fetch --tags` exited non-zero with
+  `would clobber existing tag`; `_run_upgrade()` treated that as fatal and
+  aborted, so the affected clone could never upgrade itself again. Worse, the
+  manual recovery commands the tool printed omitted `--force` too, so following
+  its own advice failed the same way. Both fetches in the upgrade path — the
+  pre-checkout one and the one inside the final shell chain — now pass
+  `--tags --force`, as do the four printed fallback command strings. `--force`
+  affects tag updates only and cannot discard commits or working-tree state.
+- **`--update` now advances the checkout by resetting to `origin`, not by
+  merging, so it also works on a clone whose history was rewritten.** Forcing
+  the tag fetch alone was not enough: the upgrade went on to run
+  `git pull origin <branch>`, and a clone predating the July 2026 history
+  rewrite shares no ancestor with `origin/main`, so the pull aborted with
+  `Need to specify how to reconcile divergent branches` and the upgrade never
+  reached `make install`. `_run_upgrade()` now runs `git checkout -B <branch>
+  origin/<branch>` on every upgrade — previously only when HEAD was on some
+  other branch, which is why users already sitting on `main` were the ones who
+  hit this — and the final shell chain is reduced to `make install`. The
+  uncommitted-changes guard became unconditional to match, since the reset now
+  fires on every run; the printed recovery commands use the reset form too.
+  Users stranded by the earlier versions need a one-time manual recovery,
+  documented under Troubleshooting in the README.
+
 ## [2.17.2] - 2026-07-29
 
 ### Security
