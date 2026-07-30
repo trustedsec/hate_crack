@@ -132,11 +132,25 @@ class TestGenerate:
 
         assert (out / "basewords.txt").is_file()
         assert (out / "rules.full.rule").is_file()
+        assert (out / "rules.top50.rule").is_file()
+        assert (out / "rules.top75.rule").is_file()
         assert (out / "rules.top95.rule").is_file()
         assert (out / "rules.top99.rule").is_file()
         assert (out / "coverage.txt").is_file()
         assert result["selfcheck_failures"] == []
         assert result["total"] == len([p for p in CORPUS if p])
+
+    def test_capped_files_default_to_four_tiers_non_decreasing(self, tmp_path):
+        corpus = self._write_corpus(tmp_path, [p for p in CORPUS if p])
+        out = tmp_path / "out"
+        result = rulegen.generate(corpus, str(out), print_fn=lambda *a: None)
+
+        assert set(result["capped_rules"]) == {50, 75, 95, 99}
+        counts = {}
+        for target, path in result["capped_rules"].items():
+            with open(path, encoding="latin-1") as f:
+                counts[target] = len(f.read().splitlines())
+        assert counts[50] <= counts[75] <= counts[95] <= counts[99]
 
     def test_full_rule_set_reconstructs_whole_corpus(self, tmp_path):
         passwords = [p for p in CORPUS if p]

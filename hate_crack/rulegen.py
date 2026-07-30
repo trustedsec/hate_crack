@@ -265,7 +265,7 @@ def _is_printable_ascii(pw):
 def generate(
     corpus_path,
     outdir,
-    cover=(95, 99),
+    cover=(50, 75, 95, 99),
     ascii_only=False,
     verify=True,
     print_fn=print,

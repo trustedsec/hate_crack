@@ -1071,8 +1071,8 @@ Derives a baseword list and a hashcat rule file from a corpus of known plaintext
 
 Each password is split into its letters-only lowercased core (the baseword) plus a rule that rebuilds the original from it, using `l`/`u`/`c` for casing, `T{p}` toggles, `${x}`/`^{x}` for trailing and leading characters, and `i{p}{x}` for interior ones.
 
-* Prompts for the corpus, then for how much of the rule file to run: the full set, top 99%, or top 95%
-* Rules are sorted by how many passwords each one rebuilds, so a truncated file keeps the most productive rules — top 95% coverage typically needs a small fraction of the rules
+* Prompts for the corpus, then for how much of the rule file to run: top 50% coverage (the default), top 75%, top 95%, top 99%, or the full set
+* Rules are sorted by how many passwords each one rebuilds, so a truncated file keeps the most productive rules. Coverage is extremely long-tailed: on a 98.2M-password sample, 50% coverage needed 4,120 rules while 95% needed 16,119,661 and 100% needed 21,029,696 — the last few percent typically costs orders of magnitude more rules than the first half, which is why the smallest tier is the default and usually the right choice
 * Output is written beside the hash file in `<hash file>.spoonman/`, alongside the other ephemeral wordlists: `basewords.txt`, `rules.full.rule`, the capped rule files, and `coverage.txt` with per-milestone rule counts. Derivation is skipped on later runs of the same hash file unless the corpus has been modified since, and the directory is removed on exit by the temp-file cleanup
 * Passwords that cannot be expressed as a rule are written verbatim as their own baseword with a `:` no-op, so coverage stays complete. This covers two hashcat limits: rule positions cannot address past index 35, and hashcat rejects any rule with more than 31 functions — silently, when valid rules share the file
 * The derivation self-checks every password by reconstructing it in-process, and reports any failures rather than reporting success
