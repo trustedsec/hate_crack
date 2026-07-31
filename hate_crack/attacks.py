@@ -1150,12 +1150,14 @@ def generate_rules_crack(ctx: Any) -> None:
         f"{i}) {entry.name}/" if entry.is_dir else f"{i}) {entry.name}"
         for i, entry in enumerate(entries_meta, start=1)
     ]
+    entry_styles = ["\033[36m" if entry.is_dir else None for entry in entries_meta]
     max_entry_len = max((len(e) for e in wordlist_entries), default=24)
     print_multicolumn_list(
         "Wordlists",
         wordlist_entries,
         min_col_width=max_entry_len,
         max_col_width=max_entry_len,
+        styles=entry_styles,
     )
 
     def path_completer(text, state):
@@ -1192,17 +1194,11 @@ def generate_rules_crack(ctx: Any) -> None:
                 chosen = os.path.join(
                     ctx.hcatWordlists, entries_meta[int(raw_choice) - 1].name
                 )
-                if os.path.isdir(chosen):
-                    # Rule generation hands this path straight to hashcat as
-                    # its dictionary argument. Refusing a directory here beats
-                    # a hashcat error that names the path and not the mistake.
-                    print(
-                        f"[!] {chosen} is a directory; rule generation needs one file."
-                    )
-                    continue
-                if os.path.isfile(chosen):
+                if os.path.isdir(chosen) or os.path.isfile(chosen):
                     wordlist_choice = chosen
                     print(wordlist_choice)
+                else:
+                    print(f"[!] {chosen} no longer exists.")
             elif os.path.exists(raw_choice):
                 wordlist_choice = raw_choice
             else:
