@@ -22,6 +22,7 @@ import shlex
 import time
 import argparse
 import contextlib
+import dataclasses
 import gzip
 import lzma
 import tempfile
@@ -115,14 +116,79 @@ def rosetta_unavailable_reason():
 EXCLUDED_WORDLIST_EXTENSIONS = frozenset({".7z", ".torrent", ".out"})
 
 
+@dataclasses.dataclass(frozen=True)
+class DirEntry:
+    """One listing entry, with enough type information for the caller to decide.
+
+    Pickers need to render directories differently and callers need to know
+    whether a name can be handed to hashcat as a file, so the type travels with
+    the name instead of every call site re-running os.path.isdir.
+    """
+
+    name: str
+    is_dir: bool
+
+
+def _visible_entries(directory):
+    """Sorted ``DirEntry`` list for *directory*, dot-files excluded.
+
+    Dot-files are dropped wholesale rather than by name: the previous code
+    special-cased ``.DS_Store`` and so still offered ``.gitkeep`` and ``.keep``
+    as wordlists. Nothing hate_crack reads is a dot-file.
+
+    A missing path, or a path that is a file, yields ``[]``. Both happen in the
+    field -- a wordlists directory that has not been created yet, and a
+    ``hcatWordlists`` pointed at a single file -- and neither should crash a
+    picker with a traceback.
+    """
+    try:
+        names = os.listdir(directory)
+    except (FileNotFoundError, NotADirectoryError, PermissionError):
+        return []
+    entries = []
+    for name in sorted(names):
+        if name.startswith("."):
+            continue
+        entries.append(DirEntry(name, os.path.isdir(os.path.join(directory, name))))
+    return entries
+
+
+def list_wordlist_entries(directory):
+    """Wordlist-directory listing including subdirectories.
+
+    For pickers that can offer a directory: hashcat accepts one and consumes
+    every file in it, so a directory is a legitimate selection -- it just has to
+    be labelled as one. See :func:`list_wordlist_files` for callers that need
+    files only.
+    """
+    return [
+        entry
+        for entry in _visible_entries(directory)
+        if entry.is_dir
+        or not any(entry.name.endswith(ext) for ext in EXCLUDED_WORDLIST_EXTENSIONS)
+    ]
+
+
 def list_wordlist_files(directory):
-    """Return sorted list of filenames in *directory*, excluding non-wordlist artifacts."""
-    return sorted(
-        f
-        for f in os.listdir(directory)
-        if f != ".DS_Store"
-        and not any(f.endswith(ext) for ext in EXCLUDED_WORDLIST_EXTENSIONS)
-    )
+    """Wordlist filenames in *directory* -- files only, no directories.
+
+    Files only is the point: every caller of this joins the name onto
+    *directory* and hands the result to hashcat as a file argument, so a
+    subdirectory here becomes an argument hashcat rejects.
+    """
+    return [
+        entry.name for entry in list_wordlist_entries(directory) if not entry.is_dir
+    ]
+
+
+def list_rule_files(directory):
+    """Rule filenames in *directory* -- files only, no directories.
+
+    A rules directory grows subdirectories as soon as someone unpacks a rules
+    collection into it. ``-r <directory>`` is rejected by hashcat, and the LLM
+    attack loops over every entry without a human watching.
+    """
+    return [entry.name for entry in _visible_entries(directory) if not entry.is_dir]
 
 
 DEFAULT_OPTIMIZED_ATTACKS = frozenset(
