@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from hate_crack.config_schema import (
@@ -416,6 +416,168 @@ def _prune_migrated_keys(legacy_json_path: str, migrated: Sequence[str]) -> str:
         raise
 
     return backup_path
+
+
+def finish_stale_migration(
+    legacy_json_path: str,
+    env_path: str,
+    *,
+    confirm: Callable[[list[str]], bool],
+) -> list[str]:
+    """Offer to finish a migration that a later schema change stranded.
+
+    :func:`write_env_from_legacy` only runs when there is no `.env` yet -- once
+    both files exist, startup has nothing more to do. So a key that becomes
+    ``home="env"`` *after* a user's `.env` was written stays in their
+    ``config.json``, where the loader ignores it and warns about it on every
+    single start, and nothing finishes the move except hand-editing JSON.
+    ``OLLAMA_HOST`` did exactly that. This is the way out.
+
+    ``confirm`` is called with the sorted legacy key names, and only when there
+    is something to clean up -- prompting when the answer cannot matter is how a
+    prompt gets trained into reflexive dismissal. It is injected rather than
+    read here so the decision (tty? non-interactive run? ``--yes``?) belongs to
+    the caller, and so tests need not patch :func:`input`.
+
+    Two rules differ from the first-stage migration, both because a `.env`
+    already exists:
+
+    * A key already present in the `.env` is **not** overwritten. That file is
+      the live source; copying the stale ``config.json`` value over it would
+      silently revert a setting the user is actively using, which is the exact
+      cross-file precedence the split removed. It is still pruned from
+      ``config.json``, where it was being ignored anyway.
+    * A wrongly-typed value is neither copied nor pruned, matching
+      :func:`write_env_from_legacy`: it is the only remaining record of what the
+      user meant to set.
+
+    Notes and the ``confirm`` payload name keys only, never values -- several of
+    these keys are secrets.
+    """
+    with open(legacy_json_path) as fh:
+        legacy_data = json.load(fh)
+    if not isinstance(legacy_data, dict):
+        return []
+
+    stale = sorted(
+        key
+        for key in legacy_data
+        if (entry := BY_LEGACY.get(key)) is not None and entry.home == "env"
+    )
+    if not stale:
+        return []
+
+    notes: list[str] = []
+    if not confirm(stale):
+        notes.append(
+            f"Left {len(stale)} setting(s) in {legacy_json_path}: "
+            f"{', '.join(stale)}. They stay ignored until they move to "
+            f"{env_path}."
+        )
+        return notes
+
+    existing = _read_env_names(env_path)
+    to_add: dict[str, Any] = {}
+    prune: list[str] = []
+    already: list[str] = []
+
+    for key in stale:
+        entry = BY_LEGACY[key]
+        value = legacy_data[key]
+        if isinstance(value, bool) != isinstance(entry.default, bool) or not isinstance(
+            value, type(entry.default)
+        ):
+            notes.append(
+                f"{legacy_json_path}: key {key!r} has an unexpected type; left it "
+                "in place rather than guessing, so nothing was lost."
+            )
+            continue
+        if entry.env in existing:
+            already.append(key)
+        else:
+            to_add[entry.env] = value
+        prune.append(key)
+
+    if not prune:
+        return notes
+
+    if to_add:
+        _append_env_values(env_path, to_add)
+    if already:
+        notes.append(
+            f"{', '.join(already)}: already set in {env_path}, so that value was "
+            "kept and the config.json copy discarded."
+        )
+
+    try:
+        backup_path = _prune_migrated_keys(legacy_json_path, prune)
+    except OSError as exc:
+        notes.append(
+            f"Could not rewrite {legacy_json_path} to drop the copied keys "
+            f"({exc}); they are now read from {env_path} only, so delete them by "
+            "hand to stop the warnings."
+        )
+        return notes
+
+    notes.append(
+        f"Moved {', '.join(prune)} into {env_path} and removed them from "
+        f"{legacy_json_path}. The original is saved as {backup_path}."
+    )
+    return notes
+
+
+def _read_env_names(env_path: str) -> set[str]:
+    """Names assigned in ``env_path``, or an empty set if it is unreadable.
+
+    Only names are needed, so this does not coerce or validate anything: the
+    question is strictly "would writing this key overwrite something".
+    """
+    names: set[str] = set()
+    try:
+        with open(env_path) as fh:
+            for raw in fh:
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                names.add(line.split("=", 1)[0].strip())
+    except OSError:
+        return set()
+    return names
+
+
+def _append_env_values(env_path: str, values: Mapping[str, Any]) -> None:
+    """Append ``values`` to an existing `.env`, preserving what is there.
+
+    Deliberately not :func:`write_env`, which renders a *complete* file from a
+    config mapping: rewriting the whole thing here would drop any comment the
+    user added and reorder their file. Appending keeps the diff to the lines
+    actually being added. Written through a temp file so a failure part-way
+    cannot leave a half-line behind in the file holding their API keys, and the
+    existing mode is carried over rather than assumed.
+    """
+    with open(env_path) as fh:
+        current = fh.read()
+    if current and not current.endswith("\n"):
+        current += "\n"
+
+    additions = "".join(
+        f"{render_line(BY_ENV_NAME[name], value)}\n" for name, value in values.items()
+    )
+
+    directory = os.path.dirname(os.path.abspath(env_path)) or "."
+    tmp_path = os.path.join(directory, f".env-{os.urandom(8).hex()}.tmp")
+    fd = os.open(tmp_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, mode=0o600)
+    try:
+        with os.fdopen(fd, "w") as tmp:
+            tmp.write(current + additions)
+        shutil.copymode(env_path, tmp_path)
+        os.replace(tmp_path, env_path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def _regenerate_env_example() -> str:
