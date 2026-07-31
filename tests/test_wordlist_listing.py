@@ -520,6 +520,24 @@ def test_optimize_emptiness_check_ignores_dot_files(hc_module, tmp_path):
     assert hc_module._outdir_is_empty(str(outdir)) is False
 
 
+def test_outdir_is_empty_returns_false_on_permission_error(hc_module, tmp_path):
+    """A write+execute-but-not-readable directory (mode 0333) can still have
+    files created in it while os.listdir raises PermissionError. Returning
+    True there ("empty") would send every wordlist down the first-wordlist
+    branch in wordlist_optimize instead of merging, silently destroying
+    earlier per-length outputs."""
+    if os.geteuid() == 0:
+        pytest.skip("root ignores permission bits; PermissionError would never fire")
+
+    outdir = tmp_path / "unreadable"
+    outdir.mkdir()
+    os.chmod(outdir, 0o333)
+    try:
+        assert hc_module._outdir_is_empty(str(outdir)) is False
+    finally:
+        os.chmod(outdir, 0o755)
+
+
 def test_hcatDictionary_includes_subdirectories_in_dictionary_args(
     hc_module, wordlist_dir, tmp_path, monkeypatch
 ):

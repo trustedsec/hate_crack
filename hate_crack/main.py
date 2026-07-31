@@ -5551,10 +5551,23 @@ def _outdir_is_empty(outdir):
     Dot-files do not count. `not os.listdir(outdir)` is False as soon as macOS
     drops a .DS_Store in there, which sent the first wordlist down the merge
     path against an effectively empty directory.
+
+    A missing or non-directory path really is "empty" (there is nothing to
+    merge with), so those cases return `True`. A `PermissionError` is
+    different: a directory that is write+execute but not readable (mode
+    `0333`) still lets files get created inside it even though listing it
+    raises. Reporting `True` ("empty") there would send every wordlist down
+    the caller's first-wordlist branch (write straight into outdir) instead
+    of the merge branch, silently overwriting earlier per-length output.
+    Returning `False` forces the merge branch instead, which only stats and
+    reads/writes specific filenames and works fine without read access to the
+    directory listing.
     """
     try:
         return not [name for name in os.listdir(outdir) if not name.startswith(".")]
-    except (FileNotFoundError, NotADirectoryError, PermissionError):
+    except PermissionError:
+        return False
+    except (FileNotFoundError, NotADirectoryError):
         return True
 
 
