@@ -10,6 +10,16 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 ## [Unreleased]
 
 ### Added
+- **Spoonman Attack now offers the current session's cracked passwords
+  (`<hash file>.out`) as a corpus source**, ahead of the free-form path prompt,
+  whenever that file exists and is non-empty. Spoonman derives basewords and
+  rules that exactly reconstruct its input corpus, so feeding it the target's
+  own recovered plaintexts derives rules describing that target's actual
+  conventions rather than a generic wordlist's. Mirrors the picker already
+  used by the LLM pattern mode (`_pick_pattern_source` / `ollama_attack`); the
+  shared menu logic is now factored into `_offer_cracked_or`. Sessions with no
+  `.out` yet see no menu at all -- behaviour is unchanged. (#219)
+
 - **A hashcat-backed correctness oracle for the mask generator, in
   `tests/test_mask_oracle.py`.** Every other `_mask()` test compares against a
   hand-written expected string, which only proves the function agrees with our

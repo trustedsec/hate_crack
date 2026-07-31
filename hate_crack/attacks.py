@@ -1,6 +1,7 @@
 import glob
 import os
 import readline
+from collections.abc import Callable
 from typing import Any
 
 from hate_crack import notify as _notify
@@ -456,9 +457,28 @@ def spoonman_attack(ctx: Any) -> None:
     print("usually the right choice.")
     print("=" * 60)
 
-    corpus = ctx.select_file_with_autocomplete(
-        "\n[*] Enter path to password corpus", base_dir=ctx.hcatWordlists
-    ).strip()
+    def _prompt_for_corpus_path() -> str:
+        return ctx.select_file_with_autocomplete(
+            "\n[*] Enter path to password corpus", base_dir=ctx.hcatWordlists
+        ).strip()
+
+    # Cracked-password mode is only offered when this session actually has
+    # plaintexts to derive from, matching ollama_attack's has_cracked check.
+    # An operator with no cracked output yet must see exactly today's
+    # behaviour: no menu, straight to the path prompt.
+    out_path = f"{ctx.hcatHashFile}.out"
+    has_cracked = os.path.isfile(out_path) and os.path.getsize(out_path) > 0
+
+    if has_cracked:
+        corpus = _offer_cracked_or(
+            out_path,
+            "\nSpoonman Attack — corpus source",
+            "Password corpus file",
+            _prompt_for_corpus_path,
+        )
+    else:
+        corpus = _prompt_for_corpus_path()
+
     if not corpus:
         print("[!] No corpus specified.")
         return
@@ -701,6 +721,37 @@ def _prompt_with_default(label: str, default: Any) -> str:
     return input(f"{label}: ").strip()
 
 
+def _offer_cracked_or(
+    cracked_path: str,
+    title: str,
+    fallback_label: str,
+    fallback: Callable[[], str | None],
+) -> str | None:
+    """Offer *cracked_path* as a source, falling back to *fallback* on request.
+
+    Shared by the LLM pattern picker and Spoonman: both present "cracked
+    passwords from this session" as option 1 and a mode-specific fallback as
+    option 2, because plaintexts already recovered from this target reveal
+    its real conventions — a generic corpus only reveals the internet's.
+    Only called when the caller has already confirmed cracked output exists;
+    it does not itself decide availability.
+    """
+    items = [
+        ("1", "Cracked passwords (current session)"),
+        ("2", fallback_label),
+        ("99", "Cancel"),
+    ]
+    while True:
+        choice = interactive_menu(items, title=title, prompt="\n\tSelect source: ")
+        if choice is None or choice == "99":
+            return None
+        if choice == "1":
+            return cracked_path
+        if choice == "2":
+            return fallback()
+        print("\t[!] Invalid selection.")
+
+
 def _pick_pattern_source(ctx: Any, cracked_path: str | None):
     """Pick the corpus the LLM infers patterns from. Returns a path or None.
 
@@ -709,24 +760,12 @@ def _pick_pattern_source(ctx: Any, cracked_path: str | None):
     conventions — a generic wordlist only reveals the internet's.
     """
     if cracked_path:
-        items = [
-            ("1", "Cracked passwords (current session)"),
-            ("2", "Sample wordlist"),
-            ("99", "Cancel"),
-        ]
-        while True:
-            choice = interactive_menu(
-                items,
-                title="\nLLM Pattern Rules — pattern source",
-                prompt="\n\tSelect source: ",
-            )
-            if choice is None or choice == "99":
-                return None
-            if choice == "1":
-                return cracked_path
-            if choice == "2":
-                break
-            print("\t[!] Invalid selection.")
+        return _offer_cracked_or(
+            cracked_path,
+            "\nLLM Pattern Rules — pattern source",
+            "Sample wordlist",
+            lambda: _pick_training_wordlist(ctx, title="LLM Pattern Source Wordlists"),
+        )
 
     return _pick_training_wordlist(ctx, title="LLM Pattern Source Wordlists")
 

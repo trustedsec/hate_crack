@@ -231,6 +231,138 @@ class TestSpoonmanAttackHandler:
         ctx.hcatSpoonman.assert_not_called()
 
 
+class TestSpoonmanCorpusSourceMenu:
+    """#219: offer the session's own cracked output as a corpus source.
+
+    The single hard requirement is the no-cracked path: it must stay
+    byte-identical to today (straight to the path prompt, no menu, no extra
+    output), because every existing user without cracked output yet hits it.
+    """
+
+    def _ctx(self, tmp_path, corpus, hash_file):
+        ctx = MagicMock()
+        ctx.hcatWordlists = str(tmp_path)
+        ctx.hcatHashType = "1000"
+        ctx.hcatHashFile = str(hash_file)
+        ctx.select_file_with_autocomplete.return_value = corpus
+        return ctx
+
+    def _with_cracked_out(self, tmp_path, contents="hash1:Synthetic-Alpha1\n"):
+        hash_file = tmp_path / "hashes.txt"
+        out_path = tmp_path / "hashes.txt.out"
+        out_path.write_text(contents, encoding="latin-1")
+        return hash_file, str(out_path)
+
+    def test_menu_offers_session_cracked_when_out_nonempty(self, tmp_path, corpus):
+        hash_file, out_path = self._with_cracked_out(tmp_path)
+        ctx = self._ctx(tmp_path, corpus, hash_file)
+
+        menu_calls = []
+
+        def fake_menu(items, **kwargs):
+            menu_calls.append(items)
+            # First call is the corpus-source picker, second is rule-set size.
+            return "1" if len(menu_calls) == 1 else "5"
+
+        with patch("hate_crack.attacks.interactive_menu", side_effect=fake_menu):
+            attacks.spoonman_attack(ctx)
+
+        assert any(
+            ("1", "Cracked passwords (current session)") in items
+            for items in menu_calls
+        )
+        ctx.select_file_with_autocomplete.assert_not_called()
+        ctx.hcatSpoonman.assert_called_once_with(
+            "1000", str(hash_file), out_path, coverage=None
+        )
+
+    def test_choosing_file_option_falls_through_to_path_prompt(self, tmp_path, corpus):
+        hash_file, _out_path = self._with_cracked_out(tmp_path)
+        ctx = self._ctx(tmp_path, corpus, hash_file)
+
+        calls = {"n": 0}
+
+        def fake_menu(items, **kwargs):
+            calls["n"] += 1
+            return "2" if calls["n"] == 1 else "5"
+
+        with patch("hate_crack.attacks.interactive_menu", side_effect=fake_menu):
+            attacks.spoonman_attack(ctx)
+
+        ctx.select_file_with_autocomplete.assert_called_once()
+        ctx.hcatSpoonman.assert_called_once_with(
+            "1000", str(hash_file), corpus, coverage=None
+        )
+
+    @pytest.mark.parametrize("choice", ["99", None])
+    def test_cancel_at_corpus_source_menu_derives_nothing(
+        self, tmp_path, corpus, choice
+    ):
+        hash_file, _out_path = self._with_cracked_out(tmp_path)
+        ctx = self._ctx(tmp_path, corpus, hash_file)
+
+        with patch("hate_crack.attacks.interactive_menu", return_value=choice):
+            attacks.spoonman_attack(ctx)
+
+        ctx.select_file_with_autocomplete.assert_not_called()
+        ctx.hcatSpoonman.assert_not_called()
+
+    def test_no_out_file_skips_menu_and_prompts_directly(self, tmp_path, corpus):
+        """Regression guard: no `.out` -> today's behaviour, unchanged."""
+        hash_file = tmp_path / "hashes.txt"
+        ctx = self._ctx(tmp_path, corpus, hash_file)
+
+        with patch("hate_crack.attacks.interactive_menu", return_value="5") as menu:
+            attacks.spoonman_attack(ctx)
+
+        ctx.select_file_with_autocomplete.assert_called_once()
+        # Only the rule-set-size menu should run; no corpus-source menu.
+        assert menu.call_count == 1
+        ctx.hcatSpoonman.assert_called_once_with(
+            "1000", str(hash_file), corpus, coverage=None
+        )
+
+    def test_empty_out_file_counts_as_absent(self, tmp_path, corpus):
+        """A zero-byte `.out` derives nothing, so it must be treated as absent."""
+        hash_file = tmp_path / "hashes.txt"
+        out_path = tmp_path / "hashes.txt.out"
+        out_path.write_text("", encoding="latin-1")
+        ctx = self._ctx(tmp_path, corpus, hash_file)
+
+        with patch("hate_crack.attacks.interactive_menu", return_value="5") as menu:
+            attacks.spoonman_attack(ctx)
+
+        ctx.select_file_with_autocomplete.assert_called_once()
+        assert menu.call_count == 1
+        ctx.hcatSpoonman.assert_called_once_with(
+            "1000", str(hash_file), corpus, coverage=None
+        )
+
+    def test_invalid_selection_reprompts_the_corpus_source_menu(
+        self, tmp_path, corpus, capsys
+    ):
+        hash_file, out_path = self._with_cracked_out(tmp_path)
+        ctx = self._ctx(tmp_path, corpus, hash_file)
+
+        calls = {"n": 0}
+
+        def fake_menu(items, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return "bogus"
+            if calls["n"] == 2:
+                return "1"
+            return "5"
+
+        with patch("hate_crack.attacks.interactive_menu", side_effect=fake_menu):
+            attacks.spoonman_attack(ctx)
+
+        assert "Invalid selection" in capsys.readouterr().out
+        ctx.hcatSpoonman.assert_called_once_with(
+            "1000", str(hash_file), out_path, coverage=None
+        )
+
+
 # --------------------------------------------------------------------------
 # validate_rule — screens rule text this module did not write
 # --------------------------------------------------------------------------
