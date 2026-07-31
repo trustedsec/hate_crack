@@ -1535,6 +1535,54 @@ def _run_upgrade(branch="main"):
     raise SystemExit(0)
 
 
+def _head_is_at_release_tag(tag):
+    """True when *tag* exists in the local checkout and points at HEAD.
+
+    The version comparison alone cannot decide "am I up to date", because the
+    version is whatever `git describe` resolves to and a commit can carry more
+    than one release tag. When it does, describe breaks the tie by ref iteration
+    order -- lexicographic -- so the LOWER tag wins: v2.19.15 over v2.20.0 on
+    e37d568, the 2026-07-31 release. The version then never reaches the released
+    one no matter how many times the upgrade runs, and every start re-offers it.
+
+    Being on the commit the release points at is the authoritative answer, so it
+    takes priority. Any failure here (no checkout, unknown tag, no git) returns
+    False and leaves the version comparison in charge, which keeps the notice
+    working for installs that are not git clones.
+    """
+    if not tag or not _re_tag_name.fullmatch(tag):
+        return False
+    try:
+        import subprocess
+
+        head = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=_repo_root,
+            capture_output=True,
+            text=True,
+        )
+        if head.returncode != 0:
+            return False
+        # ^{commit} so an annotated tag resolves to its commit rather than the
+        # tag object, which would never equal HEAD.
+        tagged = subprocess.run(
+            ["git", "rev-parse", "-q", "--verify", f"refs/tags/{tag}^{{commit}}"],
+            cwd=_repo_root,
+            capture_output=True,
+            text=True,
+        )
+        if tagged.returncode != 0:
+            return False
+        return head.stdout.strip() == tagged.stdout.strip() != ""
+    except Exception:
+        return False
+
+
+# Tag names come from the releases API, so they are remote input. Constrain them
+# to the shape this project actually publishes before handing one to git.
+_re_tag_name = re.compile(r"v?[0-9][0-9A-Za-z.\-+]*")
+
+
 def check_for_updates():
     """Check GitHub for a newer release and print a notice if one exists."""
     try:
@@ -1555,7 +1603,7 @@ def check_for_updates():
             return
         from packaging.version import parse
 
-        if parse(latest) > parse(local_base):
+        if parse(latest) > parse(local_base) and not _head_is_at_release_tag(tag):
             print(
                 f"\n  Update available: {latest} (current: {local_base})."
                 f"\n  See https://github.com/trustedsec/hate_crack/releases\n"
