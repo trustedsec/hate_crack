@@ -26,6 +26,39 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   regresses on them; passing `hash_types` explicitly still forces the sweep.
 
 ### Fixed
+- **Wordlist and rule pickers no longer list directories and dot-files as if
+  they were files** (#233). `list_wordlist_files()` was a bare `os.listdir` with
+  an extension blocklist and a one-off `.DS_Store` exclusion, so subdirectories
+  and dot-files were numbered in the pickers as wordlists, and several callers
+  joined those names onto a directory and handed the result to hashcat as a
+  *file* argument. The same pattern was repeated inline for rule listings.
+
+  Listing is now typed: `list_wordlist_entries()` returns `DirEntry(name,
+  is_dir)`, `list_wordlist_files()` and `list_rule_files()` return files only,
+  and dot-files are dropped wholesale rather than by name.
+
+  The policy follows what hashcat actually accepts, verified against the binary:
+  a straight-mode (`-a 0`) dictionary position takes a directory and consumes
+  every file inside it, while a `-r` rulefile and an `-a 1` operand must be
+  files. So Quick Crack, the standard Dictionary attack and rule generation keep
+  offering directories — marked with a trailing `/` and coloured — while OMEN
+  training, Markov training, the rules picker and the LLM attack's unattended
+  `-r` loop take files only. The LLM loop was the worst of these: it ran
+  `hashcat -r <entry>` over every entry with nobody watching, so one stray
+  subdirectory failed the run.
+
+  Also fixed: the rules re-listing after a Hashmob download dropped even the
+  `.DS_Store` filter; the rule tab-completer was the only one of six not marking
+  directories, and globbed inconsistently once you typed; the Hashmob
+  already-downloaded set could let a directory shadow a rule filename and skip a
+  real download; and `wordlist_optimize`'s "is this empty" test was defeated by
+  a stray `.DS_Store`.
+
+  Colour is passed parallel to the entries and applied after padding, because
+  `print_multicolumn_list` pads with `ljust` and truncates on `len()` — an
+  escape baked into an entry string would be counted as visible width, leaving
+  the grid ragged and a truncated name able to strand an unreset colour.
+
 - **`python -m hate_crack --help` no longer calls itself `__main__.py`.** The
   parser took its program name from whatever argparse inferred, which is the
   module filename under `-m`. The console script was unaffected, since argparse
