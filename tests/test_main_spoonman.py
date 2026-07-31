@@ -312,7 +312,12 @@ class TestSpoonmanCorpusSourceMenu:
         hash_file = tmp_path / "hashes.txt"
         ctx = self._ctx(tmp_path, corpus, hash_file)
 
-        with patch("hate_crack.attacks.interactive_menu", return_value="5") as menu:
+        # side_effect, not return_value: if a regression ever makes the
+        # corpus-source menu appear here, its invalid-selection loop would spin
+        # forever against a fixed return and hang the suite instead of failing.
+        # A finite sequence raises StopIteration on the second call, so the
+        # guard fails loudly and fast.
+        with patch("hate_crack.attacks.interactive_menu", side_effect=["5"]) as menu:
             attacks.spoonman_attack(ctx)
 
         ctx.select_file_with_autocomplete.assert_called_once()
@@ -329,7 +334,9 @@ class TestSpoonmanCorpusSourceMenu:
         out_path.write_text("", encoding="latin-1")
         ctx = self._ctx(tmp_path, corpus, hash_file)
 
-        with patch("hate_crack.attacks.interactive_menu", return_value="5") as menu:
+        # Finite side_effect for the same reason as the sibling guard above:
+        # a regression that shows the corpus-source menu here must fail, not hang.
+        with patch("hate_crack.attacks.interactive_menu", side_effect=["5"]) as menu:
             attacks.spoonman_attack(ctx)
 
         ctx.select_file_with_autocomplete.assert_called_once()
