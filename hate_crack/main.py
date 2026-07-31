@@ -564,58 +564,34 @@ def _initialize_env(legacy_json_path):
     return destination
 
 
-def _offer_stale_migration_cleanup(env_path, legacy_json_path):
-    """Offer to finish a migration stranded by a later schema change.
+def _finish_stale_migration(env_path, legacy_json_path):
+    """Finish a migration stranded by a later schema change.
 
     The loader has just warned, once per key, that some ``config.json`` entries
-    are ignored because they belong in the `.env`. Those warnings are all a user
-    could act on before, and acting meant hand-editing JSON -- so in practice
-    they printed on every start forever. This turns them into a question that
-    can actually be answered.
+    are ignored because they belong in the `.env`. Acting on those warnings meant
+    hand-editing JSON, so in practice they printed on every start forever. This
+    does the move instead.
 
-    Deliberately silent unless *all* of these hold:
+    Unprompted, matching the first-stage migration in
+    :func:`hate_crack.config_writer.write_env_from_legacy`, which also rewrites
+    ``config.json`` without asking. There is nothing to weigh: the keys are
+    already being ignored, so leaving them preserves only the warning. It also
+    means scheduled and piped runs get repaired too -- gating this on a tty would
+    leave exactly the automated runs nobody is watching printing the warnings
+    forever.
 
-    * Not ``SKIP_INIT`` -- the test suite imports this module constantly and must
-      never be asked anything, nor rewrite config as an import side effect.
-    * Both paths resolved -- with either file missing, the bootstrap above owns
-      the situation and has already done the right thing.
-    * stdin is a tty -- a piped or scheduled run (`--hashview`, cron, the e2e
-      suite) must not block on a prompt it cannot answer. Those runs keep seeing
-      the loader warnings, which is the status quo, not a regression.
+    Skipped when ``SKIP_INIT`` is set -- the test suite imports this module
+    constantly and rewriting config as an import side effect is not acceptable --
+    or when either path is unresolved, in which case the bootstrap above owns the
+    situation and has already done the right thing.
 
-    Any failure here is reported and swallowed: a config-tidying offer must
-    never be the reason hate_crack fails to start.
+    Any failure is reported and swallowed: tidying config must never be the
+    reason hate_crack fails to start.
     """
     if SKIP_INIT or not env_path or not legacy_json_path:
         return
     try:
-        if not sys.stdin.isatty():
-            return
-    except (AttributeError, ValueError):
-        return
-
-    def confirm(keys):
-        print(
-            f"\n[!] {len(keys)} setting(s) in {legacy_json_path} are ignored "
-            "because they belong in the .env file:"
-        )
-        for key in keys:
-            print(f"      {key}")
-        print(
-            "    They can be moved for you. Values already set in the .env are "
-            "kept, and\n    the original config.json is backed up first."
-        )
-        try:
-            answer = input("    Move them now? [y/N] ").strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            return False
-        return answer in ("y", "yes")
-
-    try:
-        notes = _config_writer.finish_stale_migration(
-            legacy_json_path, env_path, confirm=confirm
-        )
+        notes = _config_writer.finish_stale_migration(legacy_json_path, env_path)
     except Exception as exc:
         print(f"[!] Could not tidy {legacy_json_path}: {exc}")
         return
@@ -707,7 +683,7 @@ config_parser = _config_result.config
 for _warning in _config_result.warnings:
     print(f"[!] {_warning}")
 
-_offer_stale_migration_cleanup(_env_path, _legacy_json_path)
+_finish_stale_migration(_env_path, _legacy_json_path)
 
 # The real environment already outranks both config files inside the loader
 # (that is what

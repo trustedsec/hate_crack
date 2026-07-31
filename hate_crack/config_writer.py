@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from hate_crack.config_schema import (
@@ -394,7 +394,7 @@ def _prune_migrated_keys(legacy_json_path: str, migrated: Sequence[str]) -> str:
     with open(legacy_json_path) as fh:
         data = json.load(fh)
 
-    backup_path = f"{legacy_json_path}.pre-split.bak"
+    backup_path = _free_backup_path(legacy_json_path)
     shutil.copy2(legacy_json_path, backup_path)
 
     drop = set(migrated)
@@ -418,13 +418,8 @@ def _prune_migrated_keys(legacy_json_path: str, migrated: Sequence[str]) -> str:
     return backup_path
 
 
-def finish_stale_migration(
-    legacy_json_path: str,
-    env_path: str,
-    *,
-    confirm: Callable[[list[str]], bool],
-) -> list[str]:
-    """Offer to finish a migration that a later schema change stranded.
+def finish_stale_migration(legacy_json_path: str, env_path: str) -> list[str]:
+    """Finish a migration that a later schema change stranded.
 
     :func:`write_env_from_legacy` only runs when there is no `.env` yet -- once
     both files exist, startup has nothing more to do. So a key that becomes
@@ -433,11 +428,13 @@ def finish_stale_migration(
     single start, and nothing finishes the move except hand-editing JSON.
     ``OLLAMA_HOST`` did exactly that. This is the way out.
 
-    ``confirm`` is called with the sorted legacy key names, and only when there
-    is something to clean up -- prompting when the answer cannot matter is how a
-    prompt gets trained into reflexive dismissal. It is injected rather than
-    read here so the decision (tty? non-interactive run? ``--yes``?) belongs to
-    the caller, and so tests need not patch :func:`input`.
+    Repairs without asking, which is deliberate and matches
+    :func:`write_env_from_legacy`: the first-stage migration also copies keys out
+    and rewrites ``config.json`` unprompted. A key stranded here is *already*
+    being ignored, so leaving it in place preserves nothing except the warning,
+    and a prompt on every start is what the warning already was. The original
+    ``config.json`` is copied to ``<config.json>.pre-split.bak`` first, and the
+    notes returned say exactly which keys moved.
 
     Two rules differ from the first-stage migration, both because a `.env`
     already exists:
@@ -468,14 +465,6 @@ def finish_stale_migration(
         return []
 
     notes: list[str] = []
-    if not confirm(stale):
-        notes.append(
-            f"Left {len(stale)} setting(s) in {legacy_json_path}: "
-            f"{', '.join(stale)}. They stay ignored until they move to "
-            f"{env_path}."
-        )
-        return notes
-
     existing = _read_env_names(env_path)
     to_add: dict[str, Any] = {}
     prune: list[str] = []
@@ -524,6 +513,38 @@ def finish_stale_migration(
         f"{legacy_json_path}. The original is saved as {backup_path}."
     )
     return notes
+
+
+def _free_backup_path(legacy_json_path: str) -> str:
+    """A backup path for ``legacy_json_path`` that does not already exist.
+
+    ``<config.json>.pre-split.bak`` when that name is free, then
+    ``.pre-split.bak.2``, ``.3`` and so on.
+
+    The fixed name was safe while this ran exactly once per install, at `.env`
+    creation. :func:`finish_stale_migration` can run again -- any time a further
+    key becomes ``home="env"`` -- and a plain ``copy2`` onto the same path would
+    silently replace the first migration's backup, which is the only copy of the
+    user's genuinely pre-split ``config.json``. Overwriting the safety net during
+    the operation it exists to protect is not acceptable, so a used name is never
+    reused. Observed for real: a second-stage repair clobbered a
+    ``.pre-split.bak`` written weeks earlier.
+
+    Bounded rather than looping forever: something is wrong if an install has
+    accumulated a hundred of these, and silently spinning would be worse than
+    failing the backup and leaving ``config.json`` alone.
+    """
+    base = f"{legacy_json_path}.pre-split.bak"
+    if not os.path.exists(base):
+        return base
+    for suffix in range(2, 100):
+        candidate = f"{base}.{suffix}"
+        if not os.path.exists(candidate):
+            return candidate
+    raise OSError(
+        f"refusing to overwrite a backup: {base} and .2-.99 all exist; "
+        "remove some by hand"
+    )
 
 
 def _read_env_names(env_path: str) -> set[str]:
