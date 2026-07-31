@@ -145,6 +145,13 @@ ruff:
 	uv run ruff check hate_crack tests tools packaging
 	uv run ruff format --check hate_crack tests tools packaging
 
+# ty's scope is deliberately narrower than ruff's: it reports 48 pre-existing
+# diagnostics on hate_crack alone, so this target already fails. CI survives
+# only because it passes --exit-zero-on-warning, which this does not. Widening
+# to tools/ and packaging/ would add 3 more (an unresolved setuptools import and
+# two in packaging/pypi-placeholder/verify_placeholder.py) without fixing any of
+# the 48. Clearing those is its own piece of work -- do not bundle it into a
+# lint-scope change. See issue #237.
 ty:
 	uv run ty check hate_crack
 
