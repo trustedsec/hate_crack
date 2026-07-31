@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
-## [Unreleased]
+## [2.20.0] - 2026-07-31
 
 ### Added
 - **Spoonman Attack now offers the current session's cracked passwords
