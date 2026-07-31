@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [Unreleased]
+
+### Fixed
+- **The update check no longer loops forever when one commit carries two release
+  tags.** The 2.20.0 release left commit `e37d568` tagged both `v2.19.15` and
+  `v2.20.0`, because `nightly-dev` and `main` pointed at the same commit and both
+  tag workflows fired on it. `git describe` breaks a same-commit tie by ref
+  iteration order, which is lexicographic, so the *lower* tag wins: setuptools-scm
+  reported 2.19.15 while the releases API reported 2.20.0. Every start offered an
+  upgrade, and accepting it re-fetched the same tags, landed on the same commit
+  and regenerated the same version, so no number of upgrades could clear it. It
+  affected every user who upgraded to 2.20.0.
+
+  `check_for_updates()` now treats "the latest release tag points at HEAD" as up
+  to date regardless of the version string, since being on the released commit is
+  the authoritative answer and a version derived from `describe` is not. Any
+  failure to establish that -- no checkout, no such tag locally, no git -- falls
+  back to the version comparison, so installs that are not git clones still get
+  the notice.
+
+  Covered by `tests/test_upgrade_convergence.py`, which runs real git so the
+  version really comes from a real `describe`. It asserts the property the
+  existing upgrade tests missed: they cover upgrade *mechanics*, but nothing
+  checked that upgrading is a *fixed point*. Both halves of this bug are
+  individually correct and only fail composed, so mechanics-only tests could not
+  have caught it.
+
+  The release pipeline can still produce the ambiguous state; that half is being
+  addressed separately in the versioning-policy work (#221).
+
 ## [2.20.0] - 2026-07-31
 
 ### Added
