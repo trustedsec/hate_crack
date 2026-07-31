@@ -17,7 +17,9 @@ def _terminal_width(default: int = 120) -> int:
     return default
 
 
-def print_multicolumn_list(title, entries, min_col_width=20, max_col_width=None):
+def print_multicolumn_list(
+    title, entries, min_col_width=20, max_col_width=None, styles=None
+):
     if not entries:
         if title:
             print(f"\n{title}:\n  (none)")
@@ -48,8 +50,26 @@ def print_multicolumn_list(title, entries, min_col_width=20, max_col_width=None)
                         entry = entry[: max_entry_len - 3] + "..."
                     else:
                         entry = entry[:max_entry_len]
-                line_parts.append(entry.ljust(col_width))
-        print("".join(line_parts).rstrip())
+                padded = entry.ljust(col_width)
+                style = styles[idx] if styles and idx < len(styles) else None
+                # Style is applied to the already-padded, already-truncated
+                # text: ljust() and the truncation above both count characters,
+                # so an escape sequence inside `entry` would be measured as
+                # visible width and the grid would go ragged.
+                line_parts.append(f"{style}{padded}\033[0m" if style else padded)
+        line = "".join(line_parts)
+        # rstrip() alone would leave trailing padding spaces stranded in front
+        # of a reset code when the last populated column is styled (its last
+        # character is the "m" of "\033[0m", not whitespace, so a plain
+        # rstrip() no-ops there). Strip a trailing reset first, rstrip the
+        # remainder, then reattach it so the visible width still matches the
+        # unstyled render exactly.
+        reset_suffix = "\033[0m" if line.endswith("\033[0m") else ""
+        if reset_suffix:
+            line = line[: -len(reset_suffix)].rstrip() + reset_suffix
+        else:
+            line = line.rstrip()
+        print(line)
 
     if title:
         print("=" * terminal_width)

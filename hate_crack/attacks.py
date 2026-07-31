@@ -141,12 +141,16 @@ def quick_crack(ctx: Any) -> None:
         f"{i}) {entry.name}/" if entry.is_dir else f"{i}) {entry.name}"
         for i, entry in enumerate(wordlist_entries_meta, start=1)
     ]
+    entry_styles = [
+        "\033[36m" if entry.is_dir else None for entry in wordlist_entries_meta
+    ]
     max_entry_len = max((len(e) for e in wordlist_entries), default=24)
     print_multicolumn_list(
         "Wordlists (entries ending in / are directories: hashcat reads every file inside)",
         wordlist_entries,
         min_col_width=max_entry_len,
         max_col_width=max_entry_len,
+        styles=entry_styles,
     )
 
     def path_completer(text, state):
@@ -849,12 +853,14 @@ def _pick_training_wordlist(ctx: Any, title: str = "Training Wordlists"):
             f"{i}) {entry.name}/" if entry.is_dir else f"{i}) {entry.name}"
             for i, entry in enumerate(entries_meta, start=1)
         ]
+        entry_styles = ["\033[36m" if entry.is_dir else None for entry in entries_meta]
         max_len = max((len(e) for e in entries), default=24)
         print_multicolumn_list(
             title,
             entries,
             min_col_width=max_len,
             max_col_width=max_len,
+            styles=entry_styles,
         )
     print("\tp. Enter a custom path")
     print("\tq. Cancel")
@@ -956,12 +962,15 @@ def _markov_pick_training_source(ctx: Any):
     entries_meta = ctx.list_wordlist_entries(ctx.hcatWordlists)
     # Print the grid once, outside the retry loop — see _pick_training_wordlist.
     entries = []
+    entry_styles = []
     if has_cracked:
         entries.append("0) Cracked passwords (current session)")
+        entry_styles.append(None)
     entries.extend(
         f"{i}) {entry.name}/" if entry.is_dir else f"{i}) {entry.name}"
         for i, entry in enumerate(entries_meta, start=1)
     )
+    entry_styles.extend("\033[36m" if entry.is_dir else None for entry in entries_meta)
     if entries:
         max_len = max((len(e) for e in entries), default=24)
         print_multicolumn_list(
@@ -969,6 +978,7 @@ def _markov_pick_training_source(ctx: Any):
             entries,
             min_col_width=max_len,
             max_col_width=max_len,
+            styles=entry_styles,
         )
     print("\tp. Enter a custom path")
     print("\tq. Cancel")
