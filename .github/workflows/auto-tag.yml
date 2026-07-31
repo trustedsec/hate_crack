@@ -1,13 +1,19 @@
 name: Auto Tag
 
-# Cuts the stable release on main. main is always X.Y.0: merging nightly-dev
-# down is the release event, and it is always a MINOR bump.
+# Cuts the stable release on main by promoting the candidate that nightly-dev
+# has been building: a fix-only cycle ends at X.Y.(Z+1), a cycle containing any
+# feature ends at X.(Y+1).0.
 #
-# The version arithmetic is done by commitizen (`cz bump`), configured in
-# pyproject.toml under [tool.commitizen] with version_provider = "scm" and
-# tag_format = "v$version". Nothing here parses or increments a version number;
-# that used to be ~70 lines of `cut -d.` and `$((minor + 1))` duplicated with
-# nightly-tag.yml, and it is deliberately gone. Do not reintroduce it.
+# main is NOT always X.Y.0 and the bump is NOT forced. Both of those were true
+# here until 2026-07-31, and both were wrong: every merge cut a minor regardless
+# of content, so two bugfix merges took the project 2.20.0 -> 2.22.0 in an hour
+# with no feature between them.
+#
+# The policy lives in tools/next_version.py, shared with nightly-tag.yml and
+# unit-tested in tests/test_next_version.py. Nothing here parses or increments a
+# version number; that used to be ~70 lines of `cut -d.` and `$((minor + 1))`
+# duplicated across both workflows, and it is deliberately gone. Do not
+# reintroduce it -- add to the module, where it can be tested.
 #
 # Runs only after the CI workflow finishes successfully on main, so a broken
 # commit never gets tagged or released.
@@ -51,39 +57,15 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
 
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
-        with:
-          python-version: "3.13"
-
       - name: Compute release tag
         id: bump
         run: |
           set -euo pipefail
-          # --increment MINOR is what expresses "a merge into main is a
-          # release". It is forced rather than inferred from commit messages,
-          # which means a `type!:` subject or a BREAKING CHANGE: footer no
-          # longer auto-bumps major. That is intentional: a major release is a
-          # rare, explicit human act (`cz bump --increment MAJOR`, run by hand
-          # and pushed). Do not add breaking-change detection here -- that is
-          # exactly the hand-rolled version decisioning this rewrite removed.
-          #
-          # There is also no "no feat/fix/perf commits, skip" early exit any
-          # more. A merge into main is an explicit release event, so a
-          # docs/chore-only merge still cuts a release.
-          uvx --from 'commitizen==4.17.0' cz bump --yes --increment MINOR --dry-run \
-            > "$RUNNER_TEMP/cz-bump.log"
-          cat "$RUNNER_TEMP/cz-bump.log"
-
-          # Read the answer out of a file rather than piping cz straight into
-          # grep/sed. Under `set -o pipefail` an early-exiting reader can leave
-          # the producer killed by SIGPIPE (exit 141), which would fail the step
-          # on a successful match. Several past bugs here came from exactly that.
-          new_tag=$(sed -n 's/^tag to create: //p' "$RUNNER_TEMP/cz-bump.log" | head -1)
-          if [ -z "$new_tag" ]; then
-            echo "::error::could not determine the tag to create from cz output"
-            exit 1
-          fi
-          echo "Release tag: $new_tag"
+          # The whole decision -- which component moves, and to what -- is
+          # tools/next_version.py's. Keeping it out of YAML is the point: this
+          # step cannot be unit-tested and the policy can.
+          new_tag=$(python3 tools/next_version.py --channel stable)
+          echo "Release tag: ${new_tag:-<nothing to tag>}"
           echo "new_tag=$new_tag" >> "$GITHUB_OUTPUT"
 
       - name: Create tag
@@ -91,6 +73,16 @@ jobs:
           NEW_TAG: ${{ steps.bump.outputs.new_tag }}
         run: |
           set -euo pipefail
+          # Empty means no commits since the last release -- a re-run on an
+          # already-released commit. Nothing to do, and not an error.
+          #
+          # This is NOT the old "no feat/fix/perf commits, skip" early exit: a
+          # docs- or chore-only merge is still a release, it just cuts a patch
+          # rather than a minor. Only a genuinely empty batch is skipped.
+          if [ -z "$NEW_TAG" ]; then
+            echo "No commits since the last release; nothing to tag"
+            exit 0
+          fi
           # Idempotent: a re-run of this workflow must not fail the job.
           if git rev-parse -q --verify "refs/tags/$NEW_TAG" >/dev/null; then
             echo "Tag $NEW_TAG already exists, nothing to push"
@@ -109,6 +101,10 @@ jobs:
           NEW_TAG: ${{ steps.bump.outputs.new_tag }}
         run: |
           set -euo pipefail
+          if [ -z "$NEW_TAG" ]; then
+            echo "No tag was created; no release to publish"
+            exit 0
+          fi
           if gh release view "$NEW_TAG" >/dev/null 2>&1; then
             echo "Release $NEW_TAG already exists, nothing to do"
             exit 0

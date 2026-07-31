@@ -9,6 +9,47 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ## [Unreleased]
 
+### Fixed
+- **Release versions now reflect what is in the batch.** `auto-tag.yml` forced
+  `cz bump --increment MINOR` on every merge into `main`, so the second component
+  moved regardless of content and `main` could never produce an `X.Y.Z` with a
+  non-zero patch. Two bugfix merges took the project from 2.20.0 to 2.22.0 inside
+  an hour with no feature between them. The forcing was annotated as deliberate
+  (*"It is forced rather than inferred from commit messages… Do not add
+  breaking-change detection here"*); that annotation described the bug, not a
+  requirement.
+
+  The policy is now ordinary semver, derived from the commits since the last
+  release: any `feat` means the batch is heading for `X.(Y+1).0`, and a batch of
+  only fixes, docs and chores is heading for `X.Y.(Z+1)`. Applied to this
+  afternoon's history, the two releases would have been 2.20.1 and 2.21.0 rather
+  than 2.21.0 and 2.22.0.
+
+  `nightly-dev` now tags release candidates for whichever version the batch is
+  heading toward (`v2.20.1rc1`, `v2.20.1rc2`, …) and merging down to `main`
+  promotes that target to its final release. These are real PEP 440
+  pre-releases, so they order correctly at both ends --
+  `2.20.0 < 2.20.1rc1 < 2.20.1rc2 < 2.20.1 < 2.21.0rc1 < 2.21.0` -- which is the
+  property the two previous schemes each missed. Tagging `vX.Y.0-rc.N` aimed
+  candidates at the current cycle's version, so a candidate sorted below the
+  release it was heading for; replacing them with ordinary final versions dropped
+  the pre-release marker entirely, so anything ranking versions saw a nightly as
+  the latest release. Aiming one version forward fixes both.
+
+  The major component is still never bumped automatically: a `!` subject or a
+  `BREAKING CHANGE:` footer counts as a feature. An automatic major is one
+  mistyped subject line away from an irreversible published release, so it stays
+  an explicit human act.
+
+  The policy moved out of YAML into `tools/next_version.py`, shared by both
+  workflows and unit-tested in `tests/test_next_version.py` (43 tests, including
+  the ordering asserted against the real PEP 440 parser). The workflow steps that
+  consume it are themselves executed against real repositories in
+  `tests/test_release_versioning.py`, so a wrong *value* now fails a test -- the
+  previous tests stubbed `uvx` and could only prove the step parsed a fixed
+  string, never that the policy was right. Both workflows also now skip cleanly
+  when a batch is empty instead of tagging the empty string.
+
 ### Added
 - **Startup now finishes a migration that a later schema change stranded.**
   `write_env_from_legacy()` only runs when there is no `.env` yet -- once both
