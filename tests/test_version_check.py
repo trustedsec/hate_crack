@@ -38,8 +38,25 @@ def upgrade_procs(current_branch="main", dirty=False, final_returncode=0):
     return procs
 
 
-# Index of the shell chain within upgrade_procs()' clean sequence.
-FINAL_CALL = 6
+def head_check_procs(at_release_tag=False):
+    """The git calls check_for_updates() makes before it decides to offer.
+
+    _head_is_at_release_tag() asks `rev-parse HEAD` and `rev-parse
+    refs/tags/<tag>^{commit}` so that sitting on the released commit counts as up
+    to date even when `git describe` resolves the version to a lower tag that
+    shares the commit. Any test driving the upgrade *through* check_for_updates
+    has to supply these first; tests calling _run_upgrade() directly do not.
+
+    Defaults to the tag being absent locally, which is what makes the offer fire.
+    """
+    if at_release_tag:
+        return [_proc(stdout="cafe1234\n"), _proc(stdout="cafe1234\n")]
+    return [_proc(stdout="cafe1234\n"), _proc(1)]
+
+
+# The shell chain is always the last call of upgrade_procs()' clean sequence.
+# Indexed from the end so prepending the head check above does not shift it.
+FINAL_CALL = -1
 
 
 @pytest.fixture
@@ -173,12 +190,41 @@ class TestCheckForUpdates:
             patch.object(hc_module, "requests") as mock_requests,
             patch.object(hc_module, "REQUESTS_AVAILABLE", True),
             patch("builtins.input", return_value="n"),
-            patch("subprocess.run") as mock_run,
+            patch("subprocess.run", side_effect=head_check_procs()) as mock_run,
         ):
             mock_requests.get.return_value = mock_resp
             hc_module.check_for_updates()
 
-        mock_run.assert_not_called()
+        # check_for_updates consults git to decide whether to offer at all, so
+        # "nothing ran" is no longer the right assertion. What must not happen is
+        # the upgrade itself: no install chain, and nothing that moves the repo.
+        for call in mock_run.call_args_list:
+            assert not call[1].get("shell"), f"ran the install chain: {call}"
+            argv = call[0][0]
+            assert argv[:2] == ["git", "rev-parse"], f"unexpected command: {argv}"
+
+    def test_no_offer_when_head_is_the_release_commit(self, hc_module, capsys):
+        """A lower version string does not mean out of date.
+
+        The 2026-07-31 release tagged one commit v2.19.15 and v2.20.0; describe
+        picks the lower one, so the version can never catch up and the offer
+        repeated forever. tests/test_upgrade_convergence.py covers this against
+        real git; this pins the same behaviour at the unit level.
+        """
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"tag_name": "v99.0.0"}
+        mock_resp.raise_for_status = MagicMock()
+
+        with (
+            patch.object(hc_module, "requests") as mock_requests,
+            patch.object(hc_module, "REQUESTS_AVAILABLE", True),
+            patch("subprocess.run", side_effect=head_check_procs(at_release_tag=True)),
+            patch("builtins.input", side_effect=AssertionError("must not prompt")),
+        ):
+            mock_requests.get.return_value = mock_resp
+            hc_module.check_for_updates()
+
+        assert "Update available" not in capsys.readouterr().out
 
     def test_upgrade_accepted_runs_make_and_exits(self, hc_module, capsys):
         mock_resp = MagicMock()
@@ -189,13 +235,16 @@ class TestCheckForUpdates:
             patch.object(hc_module, "requests") as mock_requests,
             patch.object(hc_module, "REQUESTS_AVAILABLE", True),
             patch("builtins.input", return_value="y"),
-            patch("subprocess.run", side_effect=upgrade_procs()) as mock_run,
+            patch(
+                "subprocess.run",
+                side_effect=head_check_procs() + upgrade_procs(),
+            ) as mock_run,
             pytest.raises(SystemExit),
         ):
             mock_requests.get.return_value = mock_resp
             hc_module.check_for_updates()
 
-        assert mock_run.call_count == 7
+        assert mock_run.call_count == 9
         make_cmd = mock_run.call_args_list[FINAL_CALL][0][0]
         assert "make install" in make_cmd
         # A pull would abort on a rewritten-history clone; the checkout already
@@ -214,7 +263,10 @@ class TestCheckForUpdates:
             patch.object(hc_module, "requests") as mock_requests,
             patch.object(hc_module, "REQUESTS_AVAILABLE", True),
             patch("builtins.input", return_value="y"),
-            patch("subprocess.run", side_effect=upgrade_procs(final_returncode=1)),
+            patch(
+                "subprocess.run",
+                side_effect=head_check_procs() + upgrade_procs(final_returncode=1),
+            ),
             patch("shutil.which", return_value="/usr/local/bin/uv"),
             patch("os.path.isfile", return_value=True),
             pytest.raises(SystemExit),
@@ -362,12 +414,16 @@ class TestRunUpgrade:
             patch.object(hc_module, "requests") as mock_requests,
             patch.object(hc_module, "REQUESTS_AVAILABLE", True),
             patch("builtins.input", side_effect=KeyboardInterrupt),
-            patch("subprocess.run") as mock_run,
+            patch("subprocess.run", side_effect=head_check_procs()) as mock_run,
         ):
             mock_requests.get.return_value = mock_resp
             hc_module.check_for_updates()
 
-        mock_run.assert_not_called()
+        # Only the read-only head check may have run -- Ctrl-C at the prompt must
+        # not start an upgrade. See head_check_procs().
+        for call in mock_run.call_args_list:
+            assert not call[1].get("shell"), f"ran the install chain: {call}"
+            assert call[0][0][:2] == ["git", "rev-parse"], f"unexpected: {call}"
 
     # ------------------------------------------------------------------
     # Branch-switch behavior: when the user runs the upgrade from a
