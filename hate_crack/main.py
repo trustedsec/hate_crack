@@ -143,7 +143,10 @@ def _visible_entries(directory):
     """
     try:
         names = os.listdir(directory)
-    except (FileNotFoundError, NotADirectoryError, PermissionError):
+    except PermissionError:
+        print(f"[!] Cannot list {directory}: permission denied")
+        return []
+    except (FileNotFoundError, NotADirectoryError):
         return []
     entries = []
     for name in sorted(names):

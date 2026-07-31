@@ -91,6 +91,29 @@ def test_a_file_where_a_directory_was_expected_is_empty(hc_module, tmp_path):
     assert hc_module.list_wordlist_files(str(f)) == []
 
 
+def test_visible_entries_warns_on_permission_error(hc_module, tmp_path, capsys):
+    """Issue #233 follow-up: a PermissionError on the wordlists/rules directory
+    was swallowed identically to a routine missing-directory case. Silently
+    returning [] here makes hcatDictionary fall through to a literal '*' glob
+    argument, and makes hcatYoloCombination's random.choice() raise an
+    uncaught IndexError on an empty list. Only PermissionError should warn --
+    a missing directory or a file-where-directory-expected are routine."""
+    if os.geteuid() == 0:
+        pytest.skip("root ignores permission bits; PermissionError would never fire")
+
+    unreadable = tmp_path / "unreadable"
+    unreadable.mkdir()
+    os.chmod(unreadable, 0o333)
+    try:
+        got = hc_module.list_wordlist_files(str(unreadable))
+    finally:
+        os.chmod(unreadable, 0o755)
+
+    assert got == []
+    captured = capsys.readouterr()
+    assert str(unreadable) in captured.out or "permission" in captured.out.lower()
+
+
 @pytest.fixture
 def hc_module():
     import importlib
