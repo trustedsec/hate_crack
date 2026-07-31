@@ -14,6 +14,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from hate_crack.main import DirEntry
+
 
 @pytest.fixture
 def main_module(hc_module):
@@ -257,6 +259,8 @@ class TestHandlersPassThroughPromptName:
         wordlist.write_text("password\n")
         ctx.hcatOptimizedWordlists = str(wordlist_dir)
         ctx.list_wordlist_files.return_value = ["rockyou.txt"]
+        ctx.list_wordlist_entries.return_value = [DirEntry("rockyou.txt", False)]
+        ctx.list_rule_files.return_value = ["best66.rule"]
         with patch("builtins.input", side_effect=[str(wordlist), "1"]):
             quick_crack(ctx)
         ctx.hcatQuickDictionary.assert_called_once()
@@ -271,6 +275,7 @@ class TestHandlersPassThroughPromptName:
         rules_dir = tmp_path / "rules"
         rules_dir.mkdir()
         (rules_dir / "best66.rule").write_text("")
+        ctx.list_rule_files.return_value = ["best66.rule"]
         with patch("builtins.input", return_value="1"):
             loopback_attack(ctx)
         ctx.hcatQuickDictionary.assert_called_once()
