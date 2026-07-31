@@ -38,7 +38,7 @@ def _select_rules(ctx) -> list[str] | None:
     selected_rules = []
 
     rules_dir = ctx.rulesDirectory
-    rule_files = sorted(f for f in os.listdir(rules_dir) if f != ".DS_Store")
+    rule_files = ctx.list_rule_files(rules_dir)
     if not rule_files:
         download_rules = (
             input("\nNo rules found. Download rules from Hashmob now? (Y/n): ")
@@ -47,7 +47,7 @@ def _select_rules(ctx) -> list[str] | None:
         )
         if download_rules in ("", "y", "yes"):
             download_hashmob_rules(print_fn=print, rules_dir=rules_dir)
-            rule_files = sorted(os.listdir(rules_dir))
+            rule_files = ctx.list_rule_files(rules_dir)
 
     if not rule_files:
         print("No rules available. Proceeding without rules.")

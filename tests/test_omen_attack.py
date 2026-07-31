@@ -277,17 +277,18 @@ class TestOmenAttackHandler:
         ]
         return ctx
 
-    def _setup_rules_dir(self, tmp_path, rule_names=None):
+    def _setup_rules_dir(self, ctx, tmp_path, rule_names=None):
         rules_dir = tmp_path / "rules"
         rules_dir.mkdir(exist_ok=True)
         if rule_names:
             for name in rule_names:
                 (rules_dir / name).write_text(":")
+        ctx.list_rule_files.return_value = list(rule_names) if rule_names else []
         return rules_dir
 
     def test_use_existing_model(self, tmp_path):
         ctx = self._make_ctx(tmp_path, model_valid=True)
-        self._setup_rules_dir(tmp_path)
+        self._setup_rules_dir(ctx, tmp_path)
         with (
             patch("os.path.isfile", return_value=True),
             patch("hate_crack.attacks.interactive_menu", return_value="1"),
@@ -301,7 +302,7 @@ class TestOmenAttackHandler:
 
     def test_train_new_model_with_wordlist_pick(self, tmp_path):
         ctx = self._make_ctx(tmp_path, model_valid=True)
-        self._setup_rules_dir(tmp_path)
+        self._setup_rules_dir(ctx, tmp_path)
         with (
             patch("os.path.isfile", return_value=True),
             patch("hate_crack.attacks.interactive_menu", return_value="2"),
@@ -342,7 +343,7 @@ class TestOmenAttackHandler:
 
     def test_no_model_goes_straight_to_training(self, tmp_path):
         ctx = self._make_ctx(tmp_path, model_valid=False)
-        self._setup_rules_dir(tmp_path)
+        self._setup_rules_dir(ctx, tmp_path)
         with (
             patch("os.path.isfile", return_value=True),
             patch("builtins.input", side_effect=["1", "", "0"]),
@@ -367,7 +368,7 @@ class TestOmenAttackHandler:
 
     def test_custom_path_for_training(self, tmp_path):
         ctx = self._make_ctx(tmp_path, model_valid=False)
-        self._setup_rules_dir(tmp_path)
+        self._setup_rules_dir(ctx, tmp_path)
         ctx.select_file_with_autocomplete.return_value = "/custom/wordlist.txt"
         with (
             patch("os.path.isfile", return_value=True),
@@ -381,7 +382,7 @@ class TestOmenAttackHandler:
 
     def test_rules_passed_to_hcatOmen(self, tmp_path):
         ctx = self._make_ctx(tmp_path, model_valid=True)
-        self._setup_rules_dir(tmp_path, ["best64.rule"])
+        self._setup_rules_dir(ctx, tmp_path, ["best64.rule"])
         with (
             patch("os.path.isfile", return_value=True),
             patch("hate_crack.attacks.interactive_menu", return_value="1"),
@@ -396,7 +397,7 @@ class TestOmenAttackHandler:
 
     def test_multiple_rule_chains_spawn_multiple_calls(self, tmp_path):
         ctx = self._make_ctx(tmp_path, model_valid=True)
-        self._setup_rules_dir(tmp_path, ["best64.rule", "dive.rule"])
+        self._setup_rules_dir(ctx, tmp_path, ["best64.rule", "dive.rule"])
         with (
             patch("os.path.isfile", return_value=True),
             patch("hate_crack.attacks.interactive_menu", return_value="1"),
@@ -409,7 +410,7 @@ class TestOmenAttackHandler:
 
     def test_cancel_from_rules_aborts(self, tmp_path):
         ctx = self._make_ctx(tmp_path, model_valid=True)
-        self._setup_rules_dir(tmp_path, ["best64.rule"])
+        self._setup_rules_dir(ctx, tmp_path, ["best64.rule"])
         with (
             patch("os.path.isfile", return_value=True),
             patch("hate_crack.attacks.interactive_menu", return_value="1"),
@@ -422,7 +423,7 @@ class TestOmenAttackHandler:
 
     def test_no_rules_passes_empty_chain(self, tmp_path):
         ctx = self._make_ctx(tmp_path, model_valid=True)
-        self._setup_rules_dir(tmp_path, ["best64.rule"])
+        self._setup_rules_dir(ctx, tmp_path, ["best64.rule"])
         with (
             patch("os.path.isfile", return_value=True),
             patch("hate_crack.attacks.interactive_menu", return_value="1"),

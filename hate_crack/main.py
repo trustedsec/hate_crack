@@ -2969,7 +2969,7 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
         return
 
     # Step D: hashcat with candidates against every rule in the rules directory.
-    rule_files = sorted(f for f in os.listdir(rulesDirectory) if f != ".DS_Store")
+    rule_files = list_rule_files(rulesDirectory)
     if not rule_files:
         print("No rule files found in rules directory. Skipping rule-based attacks.")
         return

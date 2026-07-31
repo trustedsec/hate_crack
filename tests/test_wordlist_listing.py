@@ -99,6 +99,52 @@ def hc_module():
     return importlib.import_module("hate_crack.main")
 
 
+def test_rule_picker_offers_no_directories_or_dot_files(
+    hc_module, tmp_path, monkeypatch, capsys
+):
+    from types import SimpleNamespace
+
+    from hate_crack import attacks
+
+    rules = tmp_path / "rules"
+    rules.mkdir()
+    (rules / "best64.rule").write_text(":\n")
+    (rules / "OneRuleToRuleThemStill").mkdir()
+    (rules / ".DS_Store").write_text("")
+
+    ctx = SimpleNamespace(
+        rulesDirectory=str(rules), list_rule_files=hc_module.list_rule_files
+    )
+    monkeypatch.setattr("builtins.input", lambda *a: "99")
+
+    attacks._select_rules(ctx)
+
+    out = capsys.readouterr().out
+    assert "best64.rule" in out
+    assert "OneRuleToRuleThemStill" not in out, "a directory was offered as a rule"
+    assert ".DS_Store" not in out
+
+
+def test_llm_rule_loop_skips_directories(hc_module, tmp_path):
+    """main.py:2906 iterates every entry and runs `hashcat -r <entry>`
+    unattended, so one subdirectory fails the run with nobody watching. This is
+    the highest-severity site in #233 because the user cannot steer around it.
+    """
+    rules = tmp_path / "rules"
+    rules.mkdir()
+    (rules / "best64.rule").write_text(":\n")
+    (rules / "subdir").mkdir()
+    (rules / ".gitkeep").write_text("")
+
+    got = hc_module.list_rule_files(str(rules))
+
+    assert got == ["best64.rule"]
+    for name in got:
+        assert os.path.isfile(os.path.join(str(rules), name)), (
+            f"{name} would be passed to hashcat as -r and is not a file"
+        )
+
+
 def _quick_crack_ctx(hc_module, wordlist_dir, tmp_path):
     """A ctx just complete enough to drive quick_crack's picker."""
     from types import SimpleNamespace

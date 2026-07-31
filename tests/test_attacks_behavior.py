@@ -32,6 +32,7 @@ class TestLoopbackAttack:
         ctx.hcatWordlists = str(tmp_path / "wordlists")
         ctx.rulesDirectory = str(tmp_path / "rules")
         os.makedirs(ctx.rulesDirectory, exist_ok=True)
+        ctx.list_rule_files.return_value = []
 
         # No rule files in directory -> prompts for download -> user says "n"
         # Then rule_choice becomes ["0"] via the "no rules" branch
@@ -52,6 +53,7 @@ class TestLoopbackAttack:
         rules_dir = tmp_path / "rules"
         rules_dir.mkdir()
         (rules_dir / "best66.rule").write_text("")
+        ctx.list_rule_files.return_value = ["best66.rule"]
 
         with patch("builtins.input", return_value="1"):
             loopback_attack(ctx)
