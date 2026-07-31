@@ -5,14 +5,21 @@ Verifies that the tool can find assets from any working directory.
 
 import subprocess
 import os
+import sys
 import tempfile
-import shutil
 import pytest
 
 
+# Resolve the console script belonging to the interpreter running the tests
+# rather than taking whatever "hate_crack" is first on PATH: an unrelated
+# install elsewhere on the system would otherwise be the thing under test.
+ENTRY_POINT = os.path.join(os.path.dirname(sys.executable), "hate_crack")
+
+
 @pytest.mark.skipif(
-    not shutil.which("hate_crack"),
-    reason="hate_crack not installed as a tool (run 'make install' first)",
+    not os.path.exists(ENTRY_POINT),
+    reason=f"hate_crack console script not present at {ENTRY_POINT} "
+    "(run 'make install' first)",
 )
 class TestInstalledToolExecution:
     """Test suite for execution of installed hate_crack tool."""
@@ -21,7 +28,7 @@ class TestInstalledToolExecution:
         """Test that --help works when run from home directory."""
         home_dir = os.path.expanduser("~")
         result = subprocess.run(
-            ["hate_crack", "--help"],
+            [ENTRY_POINT, "--help"],
             cwd=home_dir,
             capture_output=True,
             text=True,
@@ -34,7 +41,7 @@ class TestInstalledToolExecution:
     def test_help_from_tmp_directory(self):
         """Test that --help works when run from /tmp directory."""
         result = subprocess.run(
-            ["hate_crack", "--help"],
+            [ENTRY_POINT, "--help"],
             cwd="/tmp",
             capture_output=True,
             text=True,
@@ -47,7 +54,7 @@ class TestInstalledToolExecution:
         """Test that --help works when run from a temporary directory."""
         with tempfile.TemporaryDirectory() as tmpdir:
             result = subprocess.run(
-                ["hate_crack", "--help"],
+                [ENTRY_POINT, "--help"],
                 cwd=tmpdir,
                 capture_output=True,
                 text=True,
@@ -59,7 +66,7 @@ class TestInstalledToolExecution:
     def test_help_from_root_directory(self):
         """Test that --help works when run from root directory."""
         result = subprocess.run(
-            ["hate_crack", "--help"], cwd="/", capture_output=True, text=True, timeout=5
+            [ENTRY_POINT, "--help"], cwd="/", capture_output=True, text=True, timeout=5
         )
         assert result.returncode == 0
         assert "usage: hate_crack" in result.stdout
@@ -68,7 +75,7 @@ class TestInstalledToolExecution:
         """Test that --debug flag works from home directory."""
         home_dir = os.path.expanduser("~")
         result = subprocess.run(
-            ["hate_crack", "--debug", "--help"],
+            [ENTRY_POINT, "--debug", "--help"],
             cwd=home_dir,
             capture_output=True,
             text=True,
@@ -81,7 +88,7 @@ class TestInstalledToolExecution:
         """Test that there are no error messages on startup from home."""
         home_dir = os.path.expanduser("~")
         result = subprocess.run(
-            ["hate_crack", "--help"],
+            [ENTRY_POINT, "--help"],
             cwd=home_dir,
             capture_output=True,
             text=True,
@@ -101,7 +108,7 @@ class TestInstalledToolExecution:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Run from temp directory (not a repo)
             result = subprocess.run(
-                ["hate_crack", "--help"],
+                [ENTRY_POINT, "--help"],
                 cwd=tmpdir,
                 capture_output=True,
                 text=True,
@@ -121,7 +128,7 @@ class TestInstalledToolExecution:
 
         for directory in directories:
             result = subprocess.run(
-                ["hate_crack", "--help"],
+                [ENTRY_POINT, "--help"],
                 cwd=directory,
                 capture_output=True,
                 text=True,
@@ -145,7 +152,7 @@ class TestInstalledToolExecution:
                 continue
 
             result = subprocess.run(
-                ["hate_crack", "--help"],
+                [ENTRY_POINT, "--help"],
                 cwd=directory,
                 capture_output=True,
                 text=True,
@@ -156,3 +163,22 @@ class TestInstalledToolExecution:
                 f"Tool failed from {directory}. "
                 f"stdout: {result.stdout}, stderr: {result.stderr}"
             )
+
+
+def test_module_invocation_reports_tool_name_in_usage():
+    """`python -m hate_crack` must not advertise itself as `__main__.py`.
+
+    The console script gets the right name for free, because argparse derives
+    it from the script basename; only module invocation needs an explicit
+    prog=, so only this path guards against regressing it.
+    """
+    result = subprocess.run(
+        [sys.executable, "-m", "hate_crack", "--help"],
+        cwd=os.path.expanduser("~"),
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0
+    assert "usage: hate_crack" in result.stdout
+    assert "__main__.py" not in result.stdout
