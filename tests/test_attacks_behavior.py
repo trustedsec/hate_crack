@@ -16,6 +16,7 @@ from hate_crack.attacks import (
     top_mask_crack,
     yolo_combination,
 )
+from hate_crack.main import DirEntry
 
 
 def _make_ctx(hash_type: str = "1000", hash_file: str = "/tmp/hashes.txt") -> MagicMock:
@@ -407,6 +408,7 @@ class TestOllamaAttack:
     def test_wordlist_mode_calls_hcatOllama_with_path(self) -> None:
         ctx = _make_ctx()
         ctx.list_wordlist_files.return_value = ["rockyou.txt"]
+        ctx.list_wordlist_entries.return_value = [DirEntry("rockyou.txt", False)]
         ctx.hcatWordlists = "/tmp/wl"
 
         # mode "2" from interactive_menu, then pick wordlist "1" via input
@@ -438,6 +440,7 @@ class TestOllamaAttack:
         ctx = _make_ctx()
         # mode "2" from interactive_menu, then user cancels the file picker
         ctx.list_wordlist_files.return_value = []
+        ctx.list_wordlist_entries.return_value = []
         with (
             patch("hate_crack.attacks.interactive_menu", return_value="2"),
             patch("builtins.input", side_effect=["q"]),
@@ -556,7 +559,11 @@ class TestOmenPickTrainingWordlistReprompt:
 
     def _make_ctx(self, wordlist_files=None):
         ctx = MagicMock()
-        ctx.list_wordlist_files.return_value = wordlist_files or ["rockyou.txt"]
+        files = wordlist_files or ["rockyou.txt"]
+        ctx.list_wordlist_files.return_value = files
+        ctx.list_wordlist_entries.return_value = [
+            DirEntry(name, False) for name in files
+        ]
         ctx.hcatWordlists = "/tmp/wl"
         ctx.hcatHashFile = "/tmp/hashes.txt"
         return ctx
@@ -595,7 +602,11 @@ class TestMarkovPickTrainingSourceReprompt:
         ctx = MagicMock()
         hash_file = str(tmp_path / "hashes.txt")
         ctx.hcatHashFile = hash_file
-        ctx.list_wordlist_files.return_value = wordlist_files or ["rockyou.txt"]
+        files = wordlist_files or ["rockyou.txt"]
+        ctx.list_wordlist_files.return_value = files
+        ctx.list_wordlist_entries.return_value = [
+            DirEntry(name, False) for name in files
+        ]
         ctx.hcatWordlists = str(tmp_path / "wordlists")
         if has_cracked:
             (tmp_path / "hashes.txt.out").write_text("cracked_pw\n")

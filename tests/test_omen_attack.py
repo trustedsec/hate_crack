@@ -3,6 +3,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from hate_crack.main import DirEntry
+
 
 @pytest.fixture
 def main_module(hc_module):
@@ -269,6 +271,10 @@ class TestOmenAttackHandler:
         ctx._omen_model_dir.return_value = str(tmp_path / "model")
         ctx.hcatOmenTrain.return_value = True
         ctx.list_wordlist_files.return_value = ["rockyou.txt", "custom.txt"]
+        ctx.list_wordlist_entries.return_value = [
+            DirEntry("rockyou.txt", False),
+            DirEntry("custom.txt", False),
+        ]
         return ctx
 
     def _setup_rules_dir(self, tmp_path, rule_names=None):

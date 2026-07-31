@@ -840,12 +840,15 @@ def ollama_attack(ctx: Any) -> None:
 
 def _pick_training_wordlist(ctx: Any, title: str = "Training Wordlists"):
     """Show wordlist picker. Returns path or None (user cancelled with 'q')."""
-    wordlist_files = ctx.list_wordlist_files(ctx.hcatWordlists)
+    entries_meta = ctx.list_wordlist_entries(ctx.hcatWordlists)
     # Print the grid once, outside the retry loop: a wordlists directory can
     # hold dozens of entries, and repainting the whole thing after every typo
     # buries the error message.
-    if wordlist_files:
-        entries = [f"{i}) {f}" for i, f in enumerate(wordlist_files, start=1)]
+    if entries_meta:
+        entries = [
+            f"{i}) {entry.name}/" if entry.is_dir else f"{i}) {entry.name}"
+            for i, entry in enumerate(entries_meta, start=1)
+        ]
         max_len = max((len(e) for e in entries), default=24)
         print_multicolumn_list(
             title,
@@ -866,8 +869,18 @@ def _pick_training_wordlist(ctx: Any, title: str = "Training Wordlists"):
             return path.strip() if path else None
         try:
             idx = int(sel)
-            if 1 <= idx <= len(wordlist_files):
-                return os.path.join(ctx.hcatWordlists, wordlist_files[idx - 1])
+            if 1 <= idx <= len(entries_meta):
+                entry = entries_meta[idx - 1]
+                if entry.is_dir:
+                    # Training takes one corpus file. Refusing here beats
+                    # failing inside hcatOmenTrain/hcatMarkovTrain, where the
+                    # error names a path and not the mistake.
+                    print(
+                        f"\t[!] {entry.name}/ is a directory. "
+                        "Pick a single file, or use 'p' for a path."
+                    )
+                    continue
+                return os.path.join(ctx.hcatWordlists, entry.name)
         except (ValueError, IndexError):
             pass
         print("\t[!] Invalid selection.")
@@ -940,12 +953,15 @@ def _markov_pick_training_source(ctx: Any):
     out_path = f"{ctx.hcatHashFile}.out"
     has_cracked = os.path.isfile(out_path) and os.path.getsize(out_path) > 0
 
-    wordlist_files = ctx.list_wordlist_files(ctx.hcatWordlists)
+    entries_meta = ctx.list_wordlist_entries(ctx.hcatWordlists)
     # Print the grid once, outside the retry loop — see _pick_training_wordlist.
     entries = []
     if has_cracked:
         entries.append("0) Cracked passwords (current session)")
-    entries.extend([f"{i}) {f}" for i, f in enumerate(wordlist_files, start=1)])
+    entries.extend(
+        f"{i}) {entry.name}/" if entry.is_dir else f"{i}) {entry.name}"
+        for i, entry in enumerate(entries_meta, start=1)
+    )
     if entries:
         max_len = max((len(e) for e in entries), default=24)
         print_multicolumn_list(
@@ -969,8 +985,18 @@ def _markov_pick_training_source(ctx: Any):
             return path.strip() if path else None
         try:
             idx = int(sel)
-            if 1 <= idx <= len(wordlist_files):
-                return os.path.join(ctx.hcatWordlists, wordlist_files[idx - 1])
+            if 1 <= idx <= len(entries_meta):
+                entry = entries_meta[idx - 1]
+                if entry.is_dir:
+                    # Training takes one corpus file. Refusing here beats
+                    # failing inside hcatOmenTrain/hcatMarkovTrain, where the
+                    # error names a path and not the mistake.
+                    print(
+                        f"\t[!] {entry.name}/ is a directory. "
+                        "Pick a single file, or use 'p' for a path."
+                    )
+                    continue
+                return os.path.join(ctx.hcatWordlists, entry.name)
         except (ValueError, IndexError):
             pass
         print("\t[!] Invalid selection.")
@@ -1109,9 +1135,10 @@ def generate_rules_crack(ctx: Any) -> None:
         print("[!] Invalid rule count.")
         return
 
-    wordlist_files = ctx.list_wordlist_files(ctx.hcatWordlists)
+    entries_meta = ctx.list_wordlist_entries(ctx.hcatWordlists)
     wordlist_entries = [
-        f"{i}) {file}" for i, file in enumerate(wordlist_files, start=1)
+        f"{i}) {entry.name}/" if entry.is_dir else f"{i}) {entry.name}"
+        for i, entry in enumerate(entries_meta, start=1)
     ]
     max_entry_len = max((len(e) for e in wordlist_entries), default=24)
     print_multicolumn_list(
@@ -1151,11 +1178,19 @@ def generate_rules_crack(ctx: Any) -> None:
             raw_choice = raw_choice.strip()
             if raw_choice == "":
                 wordlist_choice = ctx.hcatWordlists
-            elif raw_choice.isdigit() and 1 <= int(raw_choice) <= len(wordlist_files):
+            elif raw_choice.isdigit() and 1 <= int(raw_choice) <= len(entries_meta):
                 chosen = os.path.join(
-                    ctx.hcatWordlists, wordlist_files[int(raw_choice) - 1]
+                    ctx.hcatWordlists, entries_meta[int(raw_choice) - 1].name
                 )
-                if os.path.exists(chosen):
+                if os.path.isdir(chosen):
+                    # Rule generation hands this path straight to hashcat as
+                    # its dictionary argument. Refusing a directory here beats
+                    # a hashcat error that names the path and not the mistake.
+                    print(
+                        f"[!] {chosen} is a directory; rule generation needs one file."
+                    )
+                    continue
+                if os.path.isfile(chosen):
                     wordlist_choice = chosen
                     print(wordlist_choice)
             elif os.path.exists(raw_choice):

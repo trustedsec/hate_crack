@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from hate_crack.main import DirEntry
+
 
 class TestMarkovE2E:
     """End-to-end tests for complete markov attack workflow."""
@@ -114,6 +116,7 @@ class TestMarkovE2E:
         ctx.hcatHashFile = hash_file
         ctx.hcatHashType = "1000"
         ctx.list_wordlist_files.return_value = ["rockyou.txt"]
+        ctx.list_wordlist_entries.return_value = [DirEntry("rockyou.txt", False)]
         ctx.hcatWordlists = str(tmp_path / "wordlists")
 
         # Create existing .hcstat2 file
@@ -145,6 +148,7 @@ class TestMarkovE2E:
         ctx.hcatHashType = "1000"
         ctx.hcatMarkovTrain.return_value = True
         ctx.list_wordlist_files.return_value = ["rockyou.txt"]
+        ctx.list_wordlist_entries.return_value = [DirEntry("rockyou.txt", False)]
         ctx.hcatWordlists = str(tmp_path / "wordlists")
 
         # Create existing .hcstat2 file
@@ -177,6 +181,7 @@ class TestMarkovE2E:
         ctx.hcatHashType = "1000"
         ctx.hcatMarkovTrain.return_value = True
         ctx.list_wordlist_files.return_value = ["rockyou.txt"]
+        ctx.list_wordlist_entries.return_value = [DirEntry("rockyou.txt", False)]
         ctx.hcatWordlists = str(tmp_path / "wordlists")
 
         # Create .out file with cracked passwords
@@ -228,6 +233,7 @@ class TestMarkovE2E:
         ctx.hcatHashType = "1000"
         ctx.hcatMarkovTrain.return_value = True
         ctx.list_wordlist_files.return_value = ["rockyou.txt"]
+        ctx.list_wordlist_entries.return_value = [DirEntry("rockyou.txt", False)]
         ctx.hcatWordlists = str(tmp_path / "wordlists")
 
         # No .hcstat2 file exists
@@ -259,6 +265,7 @@ class TestMarkovE2E:
         ctx.hcatHashType = "1000"
         ctx.hcatMarkovTrain.return_value = False  # Training fails
         ctx.list_wordlist_files.return_value = ["rockyou.txt"]
+        ctx.list_wordlist_entries.return_value = [DirEntry("rockyou.txt", False)]
         ctx.hcatWordlists = str(tmp_path / "wordlists")
 
         # No existing table

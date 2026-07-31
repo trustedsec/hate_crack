@@ -3,6 +3,8 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from hate_crack.main import DirEntry
+
 
 def _make_ctx(hash_type: str = "1000", hash_file: str = "/tmp/hashes.txt") -> MagicMock:
     ctx = MagicMock()
@@ -135,6 +137,7 @@ class TestMarkovBruteForceHandler:
         ctx.hcatHashFile = hash_file
         ctx.hcatMarkovTrain.return_value = True
         ctx.list_wordlist_files.return_value = ["test.txt"]
+        ctx.list_wordlist_entries.return_value = [DirEntry("test.txt", False)]
 
         with patch("builtins.input", side_effect=["1", "1", "6"]):
             markov_brute_force(ctx)
@@ -151,6 +154,7 @@ class TestMarkovBruteForceHandler:
         ctx.hcatHashFile = hash_file
         ctx.hcatMarkovTrain.return_value = False
         ctx.list_wordlist_files.return_value = ["test.txt"]
+        ctx.list_wordlist_entries.return_value = [DirEntry("test.txt", False)]
 
         with patch("builtins.input", side_effect=["1", "1"]):
             markov_brute_force(ctx)

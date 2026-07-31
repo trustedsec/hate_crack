@@ -163,3 +163,89 @@ def test_quick_crack_passes_a_selected_directory_through_as_a_directory(
     assert passed == str(wordlist_dir / "hibp"), (
         f"expected the directory itself, got {passed!r}"
     )
+
+
+@pytest.mark.parametrize(
+    "picker",
+    ["_pick_training_wordlist", "_markov_pick_training_source"],
+)
+def test_training_pickers_refuse_a_directory(
+    hc_module, wordlist_dir, tmp_path, monkeypatch, capsys, picker
+):
+    """OMEN and Markov training take one file. A directory reached
+    hcatOmenTrain / hcatMarkovTrain and failed there instead of at selection.
+
+    Note the asymmetry this fixes: the "p. Enter a custom path" branch of both
+    pickers already validated, so only the numbered shortcut was exposed.
+    """
+    from types import SimpleNamespace
+
+    from hate_crack import attacks
+
+    hash_file = tmp_path / "hashes.txt"
+    hash_file.write_text("x\n")
+    ctx = SimpleNamespace(
+        hcatWordlists=str(wordlist_dir),
+        hcatHashFile=str(hash_file),
+        list_wordlist_files=hc_module.list_wordlist_files,
+        list_wordlist_entries=hc_module.list_wordlist_entries,
+        select_file_with_autocomplete=lambda *a, **k: "",
+    )
+    entries = hc_module.list_wordlist_entries(str(wordlist_dir))
+    dir_choice = str(1 + [e.name for e in entries].index("hibp"))
+
+    answers = iter([dir_choice, "q"])
+    monkeypatch.setattr("builtins.input", lambda *a: next(answers))
+
+    result = getattr(attacks, picker)(ctx)
+
+    assert result is None, f"a directory was accepted as a training file: {result!r}"
+    assert "directory" in capsys.readouterr().out.lower(), (
+        "the rejection must say why, or the menu looks like it ignored the key"
+    )
+
+
+def test_generate_rules_picker_refuses_a_directory(
+    hc_module, wordlist_dir, tmp_path, monkeypatch, capsys
+):
+    """Rule generation hands its wordlist argument straight to hashcat. The
+    numbered shortcut used `os.path.exists(chosen)` as its guard, which a
+    directory passes -- so a directory picked here reached hashcat instead of
+    being refused at selection, unlike the "enter a path" and default-Enter
+    branches this test does not touch.
+    """
+    from types import SimpleNamespace
+
+    from hate_crack import attacks
+
+    calls = []
+    hash_file = tmp_path / "hashes.txt"
+    hash_file.write_text("x\n")
+    ctx = SimpleNamespace(
+        hcatWordlists=str(wordlist_dir),
+        hcatHashType="1000",
+        hcatHashFile=str(hash_file),
+        list_wordlist_entries=hc_module.list_wordlist_entries,
+        hcatGenerateRules=lambda *a, **k: calls.append((a, k)),
+    )
+    entries = hc_module.list_wordlist_entries(str(wordlist_dir))
+    dir_choice = str(1 + [e.name for e in entries].index("hibp"))
+    file_choice = str(1 + [e.name for e in entries].index("rockyou.txt"))
+
+    # "" answers the rule-count prompt (default). Then a directory is picked
+    # and must be refused -- looping back for a second, valid pick.
+    answers = iter(["", dir_choice, file_choice])
+    monkeypatch.setattr("builtins.input", lambda *a: next(answers))
+    monkeypatch.setattr(attacks._notify, "prompt_notify_for_attack", lambda *a: None)
+
+    attacks.generate_rules_crack(ctx)
+
+    out = capsys.readouterr().out.lower()
+    assert "directory" in out, (
+        "the rejection must say why, or the menu looks like it ignored the key"
+    )
+    assert calls, "hcatGenerateRules was never called -- the picker did not loop"
+    passed_wordlist = calls[0][0][3]
+    assert passed_wordlist == str(wordlist_dir / "rockyou.txt"), (
+        f"expected the second, valid pick to go through, got {passed_wordlist!r}"
+    )
