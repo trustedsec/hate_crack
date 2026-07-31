@@ -148,13 +148,13 @@ def test_commitizen_reads_version_from_scm() -> None:
     assert _commitizen_config().get("version_provider") == "scm"
 
 
-def test_commitizen_pin_agrees_everywhere() -> None:
-    """The pin appears in three places and they must not drift.
+def test_commitizen_pin_is_still_coherent() -> None:
+    """commitizen is a local convenience now, not part of tagging.
 
-    The workflows install commitizen with ``uvx --from`` and never run
-    ``uv sync --dev``, so the dev-group pin does not constrain CI at all.
-    Bumping only the dev group would change what a developer runs locally while
-    CI silently kept tagging with the old version -- and nothing would fail.
+    It used to compute the version in both workflows, which is why this test
+    once asserted the pin agreed across three places. The policy moved to
+    tools/next_version.py, so the workflows install nothing; only the dev-group
+    pin remains, and it is asserted so `cz commit` keeps working locally.
     """
     dev = _pyproject()["dependency-groups"]["dev"]
     pins = [d for d in dev if d.split("==")[0].strip() == "commitizen"]
@@ -163,11 +163,10 @@ def test_commitizen_pin_agrees_everywhere() -> None:
     )
 
     for path in (AUTO_TAG, NIGHTLY_TAG):
-        found = re.findall(r"--from\s+'commitizen==([0-9][^']*)'", _shell_body(path))
-        assert found, f"{path.name} does not install a pinned commitizen"
-        assert set(found) == {COMMITIZEN_PIN}, (
-            f"{path.name} pins commitizen{found}, expected {COMMITIZEN_PIN} "
-            "to match the dev dependency group"
+        body = _shell_body(path)
+        assert "cz bump" not in body, (
+            f"{path.name} computes a version with commitizen again; the policy "
+            "belongs in tools/next_version.py where it can be unit-tested"
         )
 
 
@@ -175,21 +174,21 @@ def test_commitizen_pin_agrees_everywhere() -> None:
 
 
 @pytest.mark.parametrize(
-    ("path", "increment"),
+    ("path", "channel"),
     [
-        pytest.param(NIGHTLY_TAG, "PATCH", id="nightly-dev-consumes-patch"),
-        pytest.param(AUTO_TAG, "MINOR", id="main-cuts-minor"),
+        pytest.param(NIGHTLY_TAG, "nightly", id="nightly-dev-cuts-candidates"),
+        pytest.param(AUTO_TAG, "stable", id="main-cuts-the-final"),
     ],
 )
-def test_cz_bump_is_the_only_thing_that_produces_a_version(
-    path: Path, increment: str
+def test_the_policy_module_is_the_only_thing_that_produces_a_version(
+    path: Path, channel: str
 ) -> None:
     """The user's hard constraint: do not hand-roll a versioning scheme.
 
-    This is stated as a POSITIVE invariant -- exactly one command computes the
-    version, it is ``cz bump``, and the tag actually used is read back from that
-    command's output -- because the previous denylist-only form was defeatable.
-    A reviewer reintroduced the exact rc-counter pipeline this change deleted
+    Stated as a POSITIVE invariant -- exactly one command computes the version,
+    it is tools/next_version.py, and the tag actually used is read back from that
+    command's output -- because the previous denylist-only form was defeatable. A
+    reviewer reintroduced the exact rc-counter pipeline this change deleted
     (``git tag --list | sed -E ... | sort -n | tail -1`` feeding
     ``n=$(( last_n + 1 ))``) and every test still passed, because the denylist
     happened to enumerate ``$((major`` and friends but not ``sort -n``,
@@ -199,28 +198,21 @@ def test_cz_bump_is_the_only_thing_that_produces_a_version(
     """
     lines = _code_lines(path)
 
-    bump_lines = [ln for ln in lines if "cz bump" in ln]
-    assert len(bump_lines) == 1, (
-        f"{path.name} must invoke `cz bump` exactly once, found {len(bump_lines)}"
+    calls = [ln for ln in lines if "next_version.py" in ln]
+    assert len(calls) == 1, (
+        f"{path.name} must call tools/next_version.py exactly once, found {len(calls)}"
     )
-    bump = bump_lines[0]
-    assert f"--increment {increment}" in bump, (
-        f"{path.name} must force `--increment {increment}`; got: {bump.strip()}"
+    assert f"--channel {channel}" in calls[0], (
+        f"{path.name} must ask for the {channel!r} channel; got: {calls[0].strip()}"
     )
-    assert "--dry-run" in bump, (
-        f"{path.name} must use --dry-run; the tag is pushed explicitly afterwards"
-    )
-    other = "MINOR" if increment == "PATCH" else "PATCH"
-    assert other not in _shell_body(path), f"{path.name} must not reference `{other}`"
 
-    # The tag that gets pushed must come from cz's own output, not be assembled
-    # locally. Any assignment to new_tag has to read the cz log.
+    # The tag that gets pushed must come from that call, not be assembled here.
     assignments = [ln for ln in lines if re.match(r"\s*new_tag=", ln)]
     assert assignments, f"{path.name} never assigns new_tag"
     for assignment in assignments:
-        assert "cz-bump.log" in assignment, (
-            f"{path.name} builds new_tag without reading cz's output, which is "
-            f"hand-rolled versioning: {assignment.strip()}"
+        assert "next_version.py" in assignment, (
+            f"{path.name} builds new_tag without asking the policy module, which "
+            f"is hand-rolled versioning: {assignment.strip()}"
         )
 
     # Second line of defence: constructs that only appear when someone is
@@ -238,6 +230,7 @@ def test_cz_bump_is_the_only_thing_that_produces_a_version(
         "git tag --list",  # enumerating tags to derive the next one
         "git tag -l",
         "git describe",
+        "cz bump",  # the policy is no longer commitizen's to decide
     ]
     found = [snippet for snippet in forbidden if snippet in "\n".join(lines)]
     assert not found, f"{path.name} reintroduced hand-rolled version math: {found}"
@@ -342,83 +335,125 @@ def test_tag_creation_is_actually_idempotent(path: Path, tmp_path: Path) -> None
 # --- behavioural: the empty-tag guard ---------------------------------------
 
 
-def _uvx_stub(tmp_path: Path, output: str, exit_code: int = 0) -> Path:
-    """A directory to prepend to PATH containing a fake `uvx`.
+def _git_env() -> dict[str, str]:
+    return {
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@example.invalid",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@example.invalid",
+    }
 
-    Lets the compute step run without network access or a real commitizen, so
-    the guard around cz's *output* can be exercised directly.
+
+def _git_cmd(*args: str, cwd: Path) -> str:
+    return subprocess.run(
+        [str(shutil.which("git")), *args],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=True,
+        env={**os.environ, **_git_env()},
+    ).stdout
+
+
+def _policy_repo(tmp_path: Path, subjects: list[str]) -> Path:
+    """A repo released at v2.20.0, plus *subjects* committed on top.
+
+    Carries a real copy of tools/next_version.py so the extracted workflow step
+    runs the actual policy, not a stub. The stub this replaced could only prove
+    the step parsed a fixed string; it could not have caught the policy itself
+    being wrong, which is exactly what was wrong.
     """
-    bindir = tmp_path / "stubbin"
-    bindir.mkdir()
-    stub = bindir / "uvx"
-    stub.write_text(f"#!/bin/sh\ncat <<'CZEOF'\n{output}\nCZEOF\nexit {exit_code}\n")
-    stub.chmod(0o755)
-    return bindir
+    repo, _remote = _init_repo_with_remote(tmp_path)
+    tools = repo / "tools"
+    tools.mkdir(exist_ok=True)
+    shutil.copy2(REPO_ROOT / "tools" / "next_version.py", tools / "next_version.py")
+    _git_cmd("add", "-A", cwd=repo)
+    _git_cmd("commit", "-qm", "chore: add the policy module", cwd=repo)
+    _git_cmd("tag", "v2.20.0", cwd=repo)
+    for subject in subjects:
+        (repo / "f.txt").write_text(subject + "\n")
+        _git_cmd("commit", "-qam", subject, cwd=repo)
+    return repo
 
 
-@pytest.mark.parametrize("path", BOTH_WORKFLOWS)
-def test_compute_step_extracts_the_tag_cz_reports(path: Path, tmp_path: Path) -> None:
-    """The happy path: the pushed tag is whatever cz said, verbatim.
-
-    Also exercises the deliberately pipeline-free extraction. Piping cz into
-    ``sed`` directly would risk the producer dying on SIGPIPE (141) under
-    ``set -o pipefail`` and failing the step on a *successful* match.
-    """
-    output = (
-        "bump: version 4.5.6 -> 4.5.7\ntag to create: v4.5.7\nincrement detected: PATCH"
-    )
-    bindir = _uvx_stub(tmp_path, output)
+def _run_compute(path: Path, repo: Path, tmp_path: Path) -> tuple[str, object]:
     gh_output = tmp_path / "gh_output"
     gh_output.write_text("")
     result = _run_script(
         _script(path, _compute_step_name(path)),
-        tmp_path,
-        {
-            "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
-            "RUNNER_TEMP": str(tmp_path),
-            "GITHUB_OUTPUT": str(gh_output),
-        },
+        repo,
+        {"GITHUB_OUTPUT": str(gh_output), **_git_env()},
+    )
+    return gh_output.read_text(), result
+
+
+@pytest.mark.parametrize(
+    ("path", "subjects", "expected"),
+    [
+        pytest.param(AUTO_TAG, ["fix: a", "docs: b"], "v2.20.1", id="main-fixes-patch"),
+        pytest.param(
+            AUTO_TAG, ["fix: a", "feat: b"], "v2.21.0", id="main-feature-minor"
+        ),
+        pytest.param(
+            NIGHTLY_TAG, ["fix: a"], "v2.20.1rc1", id="nightly-fixes-patch-candidate"
+        ),
+        pytest.param(
+            NIGHTLY_TAG, ["feat: a"], "v2.21.0rc1", id="nightly-feature-candidate"
+        ),
+    ],
+)
+def test_compute_step_emits_the_tag_the_policy_dictates(
+    path: Path, subjects: list[str], expected: str, tmp_path: Path
+) -> None:
+    """End to end through the real step script and the real policy module.
+
+    This is the test the old cz-stub version could not be: it asserts the *value*
+    the workflow will tag, so a wrong policy fails here. The bug that prompted
+    the rewrite -- every merge to main cutting a minor regardless of content --
+    is caught by the ``main-fixes-patch`` case.
+    """
+    repo = _policy_repo(tmp_path, subjects)
+    written, result = _run_compute(path, repo, tmp_path)
+    assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
+    assert f"new_tag={expected}" in written, (
+        f"{path.name} would tag {written.strip()!r}, expected new_tag={expected}"
+    )
+
+
+@pytest.mark.parametrize("path", BOTH_WORKFLOWS)
+def test_compute_step_emits_an_empty_tag_for_an_empty_batch(
+    path: Path, tmp_path: Path
+) -> None:
+    """A re-run on an already-released commit has nothing to tag.
+
+    It must succeed and emit an empty new_tag, so the create step can skip. The
+    old shape failed the job here, which turned every workflow re-run red.
+    """
+    repo = _policy_repo(tmp_path, [])
+    written, result = _run_compute(path, repo, tmp_path)
+    assert result.returncode == 0, (
+        f"an empty batch must not fail the job:\n{result.stdout}\n{result.stderr}"
+    )
+    assert "new_tag=\n" in written or written.strip() == "new_tag=", (
+        f"expected an empty new_tag, got {written.strip()!r}"
+    )
+
+
+@pytest.mark.parametrize("path", BOTH_WORKFLOWS)
+def test_create_tag_step_tags_nothing_when_the_tag_is_empty(
+    path: Path, tmp_path: Path
+) -> None:
+    """The other half of the empty-batch path: never run `git tag ""`.
+
+    Without this guard the create step tags the empty string, and the failure
+    surfaces as something other than "there was nothing to release".
+    """
+    repo, _remote = _init_repo_with_remote(tmp_path)
+    result = _run_script(
+        _script(path, _tag_step_name(path)), repo, {"NEW_TAG": "", **_git_env()}
     )
     assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
-    assert "new_tag=v4.5.7" in gh_output.read_text()
-
-
-@pytest.mark.parametrize("path", BOTH_WORKFLOWS)
-def test_compute_step_fails_when_cz_reports_no_tag(path: Path, tmp_path: Path) -> None:
-    """An unparseable cz output must fail the job, not push an empty tag.
-
-    Nothing asserted this guard existed before. Without it a change to
-    commitizen's output wording -- a rename of the "tag to create:" line -- makes
-    the next step run ``git tag ""``, and the failure would be reported as
-    something other than "we could not read the version".
-    """
-    bindir = _uvx_stub(tmp_path, "bump: nothing to do, and no tag line at all")
-    gh_output = tmp_path / "gh_output"
-    gh_output.write_text("")
-    result = _run_script(
-        _script(path, _compute_step_name(path)),
-        tmp_path,
-        {
-            "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
-            "RUNNER_TEMP": str(tmp_path),
-            "GITHUB_OUTPUT": str(gh_output),
-        },
-    )
-    assert result.returncode != 0, (
-        "the compute step must fail when cz reports no tag, otherwise the next "
-        f"step tags the empty string. stdout:\n{result.stdout}"
-    )
-    assert "new_tag=" not in gh_output.read_text(), (
-        "no new_tag may be emitted when the tag could not be determined"
-    )
-
-
-@pytest.mark.parametrize("path", BOTH_WORKFLOWS)
-def test_compute_step_writes_to_runner_temp(path: Path) -> None:
-    """Use the runner's scratch dir, not a fixed path in /tmp."""
-    body = _shell_body(path)
-    assert "$RUNNER_TEMP" in body or "${RUNNER_TEMP}" in body
-    assert "/tmp/cz-bump" not in body
+    assert _git_cmd("tag", cwd=repo).strip() == "", "created a tag from an empty name"
 
 
 # --- wiring that has no behaviour to execute --------------------------------

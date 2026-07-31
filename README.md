@@ -721,17 +721,36 @@ hate_crack can automatically check GitHub for newer releases on startup. This fe
 | Release | `--update` | `main` | The latest cut release. This is the default and what the startup check offers. |
 | Nightly | `--nightly` | `nightly-dev` | Work that has passed CI but has not been released yet. |
 
-Versions follow a rolling scheme: `main` is stable and always `X.Y.0`, while
-`nightly-dev` consumes the patch numbers above it (`X.Y.1`, `X.Y.2`, …), one per
-validated push. Merging `nightly-dev` into `main` cuts the next `X.(Y+1).0`.
+Versions follow ordinary semver, with the bump derived from what is actually in
+the batch. The second component moves **only for features**: a cycle containing
+any `feat` commit is heading for `X.(Y+1).0`, and a cycle of nothing but fixes,
+docs and chores is heading for `X.Y.(Z+1)`.
+
+`nightly-dev` tags release candidates for whichever version the batch is heading
+toward — `v2.20.1rc1`, `v2.20.1rc2`, … — and merging down to `main` promotes that
+same target to its final release. Candidates are real PEP 440 pre-releases, so
+they order correctly at both ends:
+
+    2.20.0  <  2.20.1rc1  <  2.20.1rc2  <  2.20.1  <  2.21.0rc1  <  2.21.0
+
+The target can change mid-cycle: the first `feat` to land moves it from
+`X.Y.(Z+1)` to `X.(Y+1).0`, and candidate numbering restarts for the new target.
+The number always names what the batch would ship as today.
+
+The major component is never bumped automatically — a `!` subject or a
+`BREAKING CHANGE:` footer counts as a feature, because an automatic major is one
+mistyped subject line away from an irreversible published release. A major is an
+explicit human act: tag and push it by hand.
+
+The policy lives in `tools/next_version.py`, shared by both tagging workflows and
+unit-tested in `tests/test_next_version.py`.
 
 The startup check only ever offers releases, because nightly builds publish no
 GitHub release at all and the check reads GitHub's "latest release" endpoint — so
-enabling `check_for_updates` will never pull you onto a nightly. Note that this
-is now the *only* thing separating the two channels: a nightly tag is an
-ordinary release tag rather than a pre-release, so a tool that ranks raw version
-numbers (rather than GitHub releases) will consider a nightly to be the latest
-version.
+enabling `check_for_updates` will never pull you onto a nightly. Two things keep
+the channels apart now: that, and the fact that a candidate is a genuine PEP 440
+pre-release, so a tool ranking raw version numbers also treats it as older than
+the release it becomes.
 
 Either flag switches your checkout to the corresponding branch first (and
 refuses to do so if you have uncommitted changes). If you are running a nightly

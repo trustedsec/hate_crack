@@ -1,24 +1,28 @@
 name: Nightly Tag
 
-# Tags nightly-dev after CI passes. nightly-dev is the rolling branch and it
-# consumes PATCH numbers: with main stable at X.Y.0, validated nightly pushes
-# become X.Y.1, X.Y.2, ... one per push. The weekly merge into main then cuts
-# the next stable X.(Y+1).0 via auto-tag.yml.
+# Tags nightly-dev after CI passes, as a RELEASE CANDIDATE for whichever version
+# the batch is heading toward: v2.20.1rc1, v2.20.1rc2, ... for a fix-only cycle,
+# v2.21.0rc1 for one containing a feature. Merging down to main then promotes
+# that same target to its final release.
 #
-# The version arithmetic is done by commitizen (`cz bump`), configured in
-# pyproject.toml under [tool.commitizen]. Nothing here parses or increments a
-# version number; that used to be duplicated bash (`cut -d.`, `$((patch + 1))`,
-# plus an rc-counter `sed`/`sort -n` pipeline) and it is deliberately gone. Do
-# not reintroduce it.
+# These are real PEP 440 pre-releases, so they order correctly against both ends:
 #
-# These are now ORDINARY release tags, not -rc.N pre-releases. That retires the
-# whole reason the old pre-release scheme existed (setuptools-scm rejects tags
-# ending in .devN for N>0, which ruled out an incrementing -dev.N scheme, so -rc
-# was used instead). Consequence to be aware of: because a nightly tag is no
-# longer a PEP 440 pre-release, any tool resolving "the latest version" will now
-# consider a nightly to be latest. The package is not published to PyPI, so
-# nothing installs from an index today, but this is a real property of the
-# scheme rather than an oversight.
+#     2.20.0  <  2.20.1rc1  <  2.20.1rc2  <  2.20.1  <  2.21.0rc1  <  2.21.0
+#
+# Two earlier schemes here got that wrong. Tagging vX.Y.0-rc.N aimed candidates
+# at the *current* cycle's version, so a candidate sorted below the release it
+# was heading for. Replacing them with ordinary final versions removed the
+# pre-release marker entirely, so anything ranking versions saw a nightly as the
+# latest release. Aiming one version forward fixes both.
+#
+# The target can change mid-cycle: the first `feat` to land moves it from
+# X.Y.(Z+1) to X.(Y+1).0, and candidate numbering restarts for the new target.
+# That is intended -- the number always names what the batch would ship as today.
+#
+# The policy lives in tools/next_version.py, shared with auto-tag.yml and
+# unit-tested in tests/test_next_version.py. Nothing here parses or increments a
+# version number. Do not reintroduce that -- add to the module, where it can be
+# tested.
 #
 # No GitHub release is created here -- see the end of this file.
 #
@@ -66,41 +70,14 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
 
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
-        with:
-          python-version: "3.13"
-
       - name: Compute nightly tag
         id: bump
         run: |
           set -euo pipefail
-          # --increment PATCH is what expresses "nightly-dev consumes patch
-          # numbers". It is forced rather than inferred, so every validated
-          # nightly push gets a tag and stays addressable -- including a
-          # docs/chore-only one, which the old workflow also did deliberately.
-          # Do not add commit-message inspection here.
-          # NOTE: this step FAILS with `[NO_VERSION_SPECIFIED]` (exit 4) on any
-          # nightly-dev commit whose pyproject.toml has no [tool.commitizen]
-          # section. That is a GUARANTEED red window between this landing on main
-          # and main being merged down into nightly-dev, because the config
-          # arrives with that merge. cz's error message says nothing about the
-          # cause, so: if you see [NO_VERSION_SPECIFIED] here, merge main into
-          # nightly-dev. Failing loudly is the intended behaviour -- it is much
-          # better than guessing a version -- but it is not self-explanatory.
-          uvx --from 'commitizen==4.17.0' cz bump --yes --increment PATCH --dry-run \
-            > "$RUNNER_TEMP/cz-bump.log"
-          cat "$RUNNER_TEMP/cz-bump.log"
-
-          # Read the answer out of a file rather than piping cz straight into
-          # grep/sed. Under `set -o pipefail` an early-exiting reader can leave
-          # the producer killed by SIGPIPE (exit 141), which would fail the step
-          # on a successful match. Several past bugs here came from exactly that.
-          new_tag=$(sed -n 's/^tag to create: //p' "$RUNNER_TEMP/cz-bump.log" | head -1)
-          if [ -z "$new_tag" ]; then
-            echo "::error::could not determine the tag to create from cz output"
-            exit 1
-          fi
-          echo "Nightly tag: $new_tag"
+          # tools/next_version.py owns the decision; see the header. This step
+          # deliberately contains no version logic of its own.
+          new_tag=$(python3 tools/next_version.py --channel nightly)
+          echo "Nightly tag: ${new_tag:-<nothing to tag>}"
           echo "new_tag=$new_tag" >> "$GITHUB_OUTPUT"
 
       - name: Create tag
@@ -108,6 +85,13 @@ jobs:
           NEW_TAG: ${{ steps.bump.outputs.new_tag }}
         run: |
           set -euo pipefail
+          # Empty means no commits since the last release: nothing to build a
+          # candidate from. Not an error -- a workflow re-run lands here, and
+          # `git tag ""` would fail with a message about nothing in particular.
+          if [ -z "$NEW_TAG" ]; then
+            echo "No commits since the last release; nothing to tag"
+            exit 0
+          fi
           # Idempotent: a re-run of this workflow must not fail the job.
           if git rev-parse -q --verify "refs/tags/$NEW_TAG" >/dev/null; then
             echo "Tag $NEW_TAG already exists, nothing to push"
