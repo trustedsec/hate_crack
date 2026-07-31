@@ -172,9 +172,13 @@ def list_wordlist_entries(directory):
 def list_wordlist_files(directory):
     """Wordlist filenames in *directory* -- files only, no directories.
 
-    Files only is the point: every caller of this joins the name onto
-    *directory* and hands the result to hashcat as a file argument, so a
-    subdirectory here becomes an argument hashcat rejects.
+    Not every caller of this hands the name straight to hashcat as a
+    dictionary-position argument -- hashcat accepts a directory there.
+    Its remaining callers need files specifically:
+    hcatYoloCombination builds an ``-a 1`` command, where hashcat rejects a
+    directory operand, and wordlist_optimize opens each path itself with
+    ``os.path.isfile``/``open()``, which needs a real file, not hashcat's
+    own directory handling.
     """
     return [
         entry.name for entry in list_wordlist_entries(directory) if not entry.is_dir
@@ -2076,7 +2080,8 @@ def hcatDictionary(hcatHashType, hcatHashFile):
     global hcatProcess
     rule_best66 = get_rule_path("best66.rule")
     optimized_lists = [
-        os.path.join(hcatWordlists, f) for f in list_wordlist_files(hcatWordlists)
+        os.path.join(hcatWordlists, entry.name)
+        for entry in list_wordlist_entries(hcatWordlists)
     ]
     if not optimized_lists:
         optimized_lists = [os.path.join(hcatWordlists, "*")]

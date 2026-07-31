@@ -476,3 +476,39 @@ def test_optimize_emptiness_check_ignores_dot_files(hc_module, tmp_path):
 
     (outdir / "len8.txt").write_text("password\n")
     assert hc_module._outdir_is_empty(str(outdir)) is False
+
+
+def test_hcatDictionary_includes_subdirectories_in_dictionary_args(
+    hc_module, wordlist_dir, tmp_path, monkeypatch
+):
+    """Issue #233 follow-up: hcatDictionary built its dictionary arguments from
+    list_wordlist_files (files only), so a subdirectory like wordlists/hibp/
+    was silently dropped from the standard Dictionary attack even though
+    hashcat itself enumerates every file inside it in this straight-mode
+    dictionary position (verified against the real binary: `-a 0 w1.txt sub`
+    enumerates both). Quick Crack already treats a directory as a legitimate
+    dictionary argument; hcatDictionary must match that policy.
+    """
+    hash_file = tmp_path / "hashes.txt"
+    hash_file.write_text("aad3b435b51404eeaad3b435b51404ee\n")
+    (tmp_path / "hashes.txt.out").write_text("")
+
+    captured_cmds = []
+
+    def fake_run_hcat_cmd(cmd, **kwargs):
+        captured_cmds.append(list(cmd))
+
+    monkeypatch.setattr(hc_module, "hcatWordlists", str(wordlist_dir))
+    monkeypatch.setattr(hc_module, "hcatDictionaryWordlist", [])
+    monkeypatch.setattr(hc_module, "hcatBruteCount", 0)
+    monkeypatch.setattr(hc_module, "hcatHashFile", str(hash_file))
+    monkeypatch.setattr(hc_module, "_run_hcat_cmd", fake_run_hcat_cmd)
+
+    hc_module.hcatDictionary("1000", str(hash_file))
+
+    assert captured_cmds, "hcatDictionary never invoked _run_hcat_cmd"
+    dictionary_cmd = captured_cmds[0]
+    assert str(wordlist_dir / "hibp") in dictionary_cmd, (
+        "the wordlists subdirectory was dropped from the Dictionary attack's "
+        f"arguments: {dictionary_cmd}"
+    )
