@@ -68,6 +68,32 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   unprompted also means scheduled and piped runs get repaired, which is exactly
   where a prompt would hang or be dismissed forever.
 
+### Fixed
+- **`tools/`, `packaging/`, and the `hate_crack.py` entry point are now linted
+  everywhere, and a guard proves it.** No lint entry point named `tools/` or
+  `packaging/` at all, so an `F541` and a formatting drift sat unnoticed in
+  `tools/ollama_benchmark.py` until someone ran ruff by hand (issue #237). The
+  Makefile, `prek.toml`, and `.github/workflows/ci.yml` now all scope ruff to
+  `hate_crack tests tools packaging hate_crack.py`, and
+  `tests/test_lint_scope.py` reads those files directly so it fails the moment
+  any of them drifts from the others.
+
+  `hate_crack.py` -- the documented entry point (README.md) -- was invisible to
+  the drift guard itself: it only ever swept directories, so a root-level
+  module could never be flagged as unlinted even after the scope above was
+  widened. The guard now sweeps root `.py` files too. `hate_crack.py`'s 32
+  `F821`s are an intentional consequence of its `globals().setdefault()`
+  re-export shim (ruff can't see the runtime copy from `hate_crack/main.py`),
+  so they're silenced explicitly via `[tool.ruff.lint.per-file-ignores]` rather
+  than left to accumulate unexplained.
+
+  Two more gaps in the guard itself: `test_both_lint_and_format_are_checked_
+  everywhere` only asserted a command count, so two `ruff check` lines and zero
+  `ruff format --check` lines would still pass -- it now checks the verbs
+  actually present. And `test_the_declared_scope_actually_passes` ran `python
+  -m ruff` instead of `uv run ruff`, which can resolve a different ruff
+  entirely than every real gate uses.
+
   A key already set in the `.env` keeps that value -- the `.env` is the live
   source, and copying the stale copy over it would silently revert a setting in
   use -- but is still pruned, since it was being ignored. A wrongly-typed value

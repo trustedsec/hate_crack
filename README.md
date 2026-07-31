@@ -396,13 +396,13 @@ Before pushing changes, run these checks locally. Use `make lint` for everything
 ```bash
 make ruff
 # or manually:
-uv run ruff check hate_crack
+uv run ruff check hate_crack tests tools packaging hate_crack.py
 ```
 
 Auto-fix issues:
 ```bash
-uv run ruff format hate_crack
-uv run ruff check --fix hate_crack
+uv run ruff format hate_crack tests tools packaging hate_crack.py
+uv run ruff check --fix hate_crack tests tools packaging hate_crack.py
 ```
 
 **ty (type checking):**

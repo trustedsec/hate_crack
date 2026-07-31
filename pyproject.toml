@@ -52,9 +52,11 @@ local_scheme = "no-local-version"
 #   neither setuptools_scm nor any existing tooling recognises and would break
 #   continuity with every tag already published.
 #
-# The bump size is NOT inferred from commit messages. Each workflow forces it
-# with --increment, because in this repo the branch decides the bump: main is
-# MINOR (stable X.Y.0), nightly-dev is PATCH (rolling X.Y.1, X.Y.2, ...).
+# The bump size is derived from commit messages via tools/next_version.py
+# (see that module's docstring): any `feat` commit since the last release
+# means the batch is heading for MINOR (X.(Y+1).0), and a batch of only
+# fixes, docs and chores is heading for PATCH (X.Y.(Z+1)). Both tagging
+# workflows call that script rather than hand-rolling `cz bump --increment`.
 version_provider = "scm"
 tag_format = "v$version"
 # No CHANGELOG.md rewrite on bump; the changelog is maintained by hand.
@@ -77,6 +79,17 @@ exclude = [
 # behaviour-neutral. Broadening the ruleset is a separate cleanup, not
 # a dep-bump side effect.
 select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+# hate_crack.py's `for _name, _value in _main.__dict__.items(): ...
+# globals().setdefault(...)` shim populates names like `_attacks` at import
+# time by copying them off hate_crack/main.py's module dict. Ruff's static
+# analysis can't see that runtime copy, so every use of those names below the
+# shim reads as undefined: 32 F821s total, 26 for `_attacks` and one each for
+# `show_results`, `show_readme`, `quit_hc`, `notifications_submenu`,
+# `hashview_api`, and `export_excel`. The shim is the point of this file;
+# silencing F821 here is honest, not a cover for a real bug.
+"hate_crack.py" = ["F821"]
 
 [tool.bandit]
 # hate_crack shells out to hashcat and its helper binaries extensively, so the
