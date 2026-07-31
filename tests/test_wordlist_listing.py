@@ -32,7 +32,9 @@ def wordlist_dir(tmp_path):
 
 def test_files_listing_excludes_directories(hc_module, wordlist_dir):
     """The regression: a directory in this list gets joined onto the wordlists
-    path and passed to hashcat as a file by hcatDictionary and the yolo path."""
+    path and handed off where a file is required -- hcatYoloCombination's
+    ``-a 1`` position (hashcat rejects a directory there) and
+    wordlist_optimize (which opens each path itself)."""
     got = hc_module.list_wordlist_files(str(wordlist_dir))
     assert got == ["custom.dict", "rockyou.txt"]
     assert "hibp" not in got
@@ -360,6 +362,62 @@ def test_generate_rules_picker_colours_directory_entries(
     assert styles == expected, (
         f"expected directory entries highlighted in cyan, got {styles!r}"
     )
+
+
+def test_generate_rules_picker_reprompts_on_toctou_disappearance(
+    hc_module, wordlist_dir, tmp_path, monkeypatch, capsys
+):
+    """The numbered shortcut re-stats the chosen entry right before use
+    (os.path.isdir / os.path.isfile) instead of trusting the listing snapshot.
+    If both come back False -- the entry vanished between listing and
+    selection -- the picker must print a "no longer exists" message and
+    re-prompt rather than proceed with a phantom path."""
+    from types import SimpleNamespace
+
+    from hate_crack import attacks
+
+    calls = []
+    hash_file = tmp_path / "hashes.txt"
+    hash_file.write_text("x\n")
+    ctx = SimpleNamespace(
+        hcatWordlists=str(wordlist_dir),
+        hcatHashType="1000",
+        hcatHashFile=str(hash_file),
+        list_wordlist_entries=hc_module.list_wordlist_entries,
+        hcatGenerateRules=lambda *a, **k: calls.append((a, k)),
+    )
+    entries = hc_module.list_wordlist_entries(str(wordlist_dir))
+    vanished_choice = str(1 + [e.name for e in entries].index("rockyou.txt"))
+    vanished_path = str(wordlist_dir / "rockyou.txt")
+    file_choice = str(1 + [e.name for e in entries].index("custom.dict"))
+
+    real_isdir = attacks.os.path.isdir
+    real_isfile = attacks.os.path.isfile
+    monkeypatch.setattr(
+        attacks.os.path,
+        "isdir",
+        lambda p: False if p == vanished_path else real_isdir(p),
+    )
+    monkeypatch.setattr(
+        attacks.os.path,
+        "isfile",
+        lambda p: False if p == vanished_path else real_isfile(p),
+    )
+
+    # "" answers the rule-count prompt (default). Then the vanished entry is
+    # picked, gets refused, and a second, valid entry is picked to let the
+    # loop terminate instead of hanging on further input.
+    answers = iter(["", vanished_choice, file_choice])
+    monkeypatch.setattr("builtins.input", lambda *a: next(answers))
+    monkeypatch.setattr(attacks._notify, "prompt_notify_for_attack", lambda *a: None)
+
+    attacks.generate_rules_crack(ctx)
+
+    out = capsys.readouterr().out
+    assert f"{vanished_path} no longer exists." in out
+    assert calls, "hcatGenerateRules was never called"
+    passed_wordlist = calls[0][0][3]
+    assert passed_wordlist == str(wordlist_dir / "custom.dict")
 
 
 def _capture_rule_completer(ctx):
