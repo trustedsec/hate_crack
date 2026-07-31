@@ -6002,7 +6002,8 @@ def main():
 
     def _build_parser(include_positional, include_subcommands):
         parser = argparse.ArgumentParser(
-            description="hate_crack - Hashcat automation and wordlist management tool"
+            prog="hate_crack",
+            description="hate_crack - Hashcat automation and wordlist management tool",
         )
         if include_positional:
             parser.add_argument(

@@ -10,6 +10,20 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 ## [Unreleased]
 
 ### Fixed
+- **`python -m hate_crack --help` no longer calls itself `__main__.py`.** The
+  parser took its program name from whatever argparse inferred, which is the
+  module filename under `-m`. The console script was unaffected, since argparse
+  derives the name from the script basename there, so the wrong name only ever
+  showed up on the module invocation path. The name is now stated explicitly.
+
+  The existing coverage in `test_installed_tool_execution.py` could not catch
+  this: it invoked the tool through a bare `hate_crack` on `PATH`, which resolves
+  to the console script and therefore reads correctly either way. Worse, `PATH`
+  is not guaranteed to point at this checkout — an unrelated install elsewhere on
+  the machine would silently become the thing under test, and did. Those tests now
+  run the console script belonging to the interpreter running them, and a new test
+  covers the `-m` path that actually regressed.
+
 - **Release versions now reflect what is in the batch.** `auto-tag.yml` forced
   `cz bump --increment MINOR` on every merge into `main`, so the second component
   moved regardless of content and `main` could never produce an `X.Y.Z` with a
