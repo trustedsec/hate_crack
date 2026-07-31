@@ -132,13 +132,18 @@ def quick_crack(ctx: Any) -> None:
     list_dir = ctx.hcatWordlists
     default_dir = ctx.hcatOptimizedWordlists
 
-    wordlist_files = ctx.list_wordlist_files(list_dir)
+    wordlist_entries_meta = ctx.list_wordlist_entries(list_dir)
+    # A trailing "/" is the marker, matching how the tab-completers already
+    # render a directory. Colour is applied by print_multicolumn_list, which
+    # pads on visible width; putting an escape sequence in the string here
+    # would break its ljust() and its truncation.
     wordlist_entries = [
-        f"{i}) {file}" for i, file in enumerate(wordlist_files, start=1)
+        f"{i}) {entry.name}/" if entry.is_dir else f"{i}) {entry.name}"
+        for i, entry in enumerate(wordlist_entries_meta, start=1)
     ]
     max_entry_len = max((len(e) for e in wordlist_entries), default=24)
     print_multicolumn_list(
-        "Wordlists",
+        "Wordlists (entries ending in / are directories: hashcat reads every file inside)",
         wordlist_entries,
         min_col_width=max_entry_len,
         max_col_width=max_entry_len,
@@ -173,8 +178,12 @@ def quick_crack(ctx: Any) -> None:
             raw_choice = raw_choice.strip()
             if raw_choice == "":
                 wordlist_choice = default_dir
-            elif raw_choice.isdigit() and 1 <= int(raw_choice) <= len(wordlist_files):
-                chosen = os.path.join(list_dir, wordlist_files[int(raw_choice) - 1])
+            elif raw_choice.isdigit() and 1 <= int(raw_choice) <= len(
+                wordlist_entries_meta
+            ):
+                chosen = os.path.join(
+                    list_dir, wordlist_entries_meta[int(raw_choice) - 1].name
+                )
                 if os.path.exists(chosen):
                     wordlist_choice = chosen
                     print(wordlist_choice)

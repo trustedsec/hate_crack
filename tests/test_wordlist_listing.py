@@ -97,3 +97,69 @@ def hc_module():
 
     os.environ["HATE_CRACK_SKIP_INIT"] = "1"
     return importlib.import_module("hate_crack.main")
+
+
+def _quick_crack_ctx(hc_module, wordlist_dir, tmp_path):
+    """A ctx just complete enough to drive quick_crack's picker."""
+    from types import SimpleNamespace
+
+    calls = []
+    hash_file = tmp_path / "hashes.txt"
+    hash_file.write_text("aad3b435b51404eeaad3b435b51404ee\n")
+    return SimpleNamespace(
+        hcatWordlists=str(wordlist_dir),
+        hcatOptimizedWordlists=str(wordlist_dir),
+        hcatHashType="1000",
+        hcatHashFile=str(hash_file),
+        rulesDirectory=str(tmp_path / "rules"),
+        list_wordlist_files=hc_module.list_wordlist_files,
+        list_wordlist_entries=hc_module.list_wordlist_entries,
+        list_rule_files=hc_module.list_rule_files,
+        hcatQuickDictionary=lambda *a, **k: calls.append((a, k)),
+    ), calls
+
+
+def test_quick_crack_marks_directories_in_the_grid(
+    hc_module, wordlist_dir, tmp_path, capsys, monkeypatch
+):
+    """A directory expands to every file inside it, so the user has to be able
+    to tell it apart from a single wordlist at a glance."""
+    from hate_crack import attacks
+
+    ctx, _calls = _quick_crack_ctx(hc_module, wordlist_dir, tmp_path)
+    monkeypatch.setattr("builtins.input", lambda *a: (_ for _ in ()).throw(EOFError))
+    monkeypatch.setattr(attacks._notify, "prompt_notify_for_attack", lambda *a: None)
+
+    with pytest.raises((EOFError, SystemExit)):
+        attacks.quick_crack(ctx)
+
+    out = capsys.readouterr().out
+    assert "hibp/" in out, f"directory not marked as one:\n{out}"
+    assert "rockyou.txt" in out
+    assert ".gitkeep" not in out
+    assert ".DS_Store" not in out
+
+
+def test_quick_crack_passes_a_selected_directory_through_as_a_directory(
+    hc_module, wordlist_dir, tmp_path, monkeypatch
+):
+    """hashcat consumes every file in a directory, so selecting one must hand
+    the directory itself to hcatQuickDictionary, not a file inside it."""
+    from hate_crack import attacks
+
+    ctx, calls = _quick_crack_ctx(hc_module, wordlist_dir, tmp_path)
+    entries = hc_module.list_wordlist_entries(str(wordlist_dir))
+    choice = str(1 + [e.name for e in entries].index("hibp"))
+
+    answers = iter([choice])
+    monkeypatch.setattr("builtins.input", lambda *a: next(answers))
+    monkeypatch.setattr(attacks._notify, "prompt_notify_for_attack", lambda *a: None)
+    monkeypatch.setattr(attacks, "_select_rules", lambda ctx: [""])
+
+    attacks.quick_crack(ctx)
+
+    assert calls, "hcatQuickDictionary was never called"
+    passed = calls[0][0][3]
+    assert passed == str(wordlist_dir / "hibp"), (
+        f"expected the directory itself, got {passed!r}"
+    )
