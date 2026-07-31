@@ -115,10 +115,10 @@ def test_visible_entries_warns_on_permission_error(hc_module, tmp_path, capsys):
 
 
 @pytest.fixture
-def hc_module():
+def hc_module(monkeypatch):
     import importlib
 
-    os.environ["HATE_CRACK_SKIP_INIT"] = "1"
+    monkeypatch.setenv("HATE_CRACK_SKIP_INIT", "1")
     return importlib.import_module("hate_crack.main")
 
 
