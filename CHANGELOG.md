@@ -10,30 +10,41 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 ## [Unreleased]
 
 ### Added
-- **Startup now offers to finish a migration that a later schema change
-  stranded.** `write_env_from_legacy()` only runs when there is no `.env` yet --
-  once both files exist, the bootstrap has nothing more to do. So a key that
-  becomes env-homed *after* a user's `.env` was written stays in their
-  `config.json`, where the loader ignores it and warns about it on every single
-  start, and nothing finishes the move except hand-editing JSON. `OLLAMA_HOST`
-  did exactly that. On a real install this meant twelve ignored keys, including
+- **Startup now finishes a migration that a later schema change stranded.**
+  `write_env_from_legacy()` only runs when there is no `.env` yet -- once both
+  files exist, the bootstrap has nothing more to do. So a key that becomes
+  env-homed *after* a user's `.env` was written stays in their `config.json`,
+  where the loader ignores it and warns about it on every single start, and
+  nothing finishes the move except hand-editing JSON. `OLLAMA_HOST` did exactly
+  that. On a real install this meant twelve ignored keys, including
   `hashview_api_key` and the whole `ollama*` group, silently inert.
 
-  `finish_stale_migration()` turns those warnings into an answerable question:
-  it lists the stranded key names, and on `y` copies their values into the
-  `.env` and prunes them from `config.json`, backing the original up first. A
-  key already set in the `.env` keeps that value -- the `.env` is the live
+  `finish_stale_migration()` now copies those values into the `.env` and prunes
+  them from `config.json`, backing the original up first. It does so without
+  asking, matching `write_env_from_legacy()`, which also rewrites `config.json`
+  unprompted: a stranded key is already being ignored, so leaving it preserves
+  nothing but the warning -- and the warning *was* the prompt. Running
+  unprompted also means scheduled and piped runs get repaired, which is exactly
+  where a prompt would hang or be dismissed forever.
+
+  A key already set in the `.env` keeps that value -- the `.env` is the live
   source, and copying the stale copy over it would silently revert a setting in
   use -- but is still pruned, since it was being ignored. A wrongly-typed value
   is neither copied nor pruned, matching the first-stage migration: it is the
-  only record of what the user meant. Prompts and notes name keys only, never
-  values, since several are secrets.
-
-  It stays silent unless `SKIP_INIT` is off, both config paths resolved, and
-  stdin is a tty, so piped and scheduled runs cannot block on a prompt they
-  cannot answer. Declining is completely inert.
+  only record of what the user meant. Notes name keys only, never values, since
+  several are secrets. Skipped entirely under `SKIP_INIT`, and any failure is
+  reported and swallowed rather than stopping startup.
 
 ### Fixed
+- **A second migration no longer overwrites the first one's backup.** The prune
+  step wrote to a fixed `<config.json>.pre-split.bak`, which was safe while it
+  ran once per install at `.env` creation. Now that `finish_stale_migration()`
+  can run again -- any time a further key becomes env-homed -- a plain copy onto
+  that path silently replaced the only copy of the genuinely pre-split
+  `config.json`. Observed for real: a repair clobbered a `.pre-split.bak` written
+  weeks earlier. Backups now fall back to `.pre-split.bak.2`, `.3` and so on, so
+  a used name is never reused.
+
 - **The update check no longer loops forever when one commit carries two release
   tags.** The 2.20.0 release left commit `e37d568` tagged both `v2.19.15` and
   `v2.20.0`, because `nightly-dev` and `main` pointed at the same commit and both

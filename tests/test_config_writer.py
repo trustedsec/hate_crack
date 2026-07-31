@@ -529,7 +529,7 @@ def test_migrated_pair_reproduces_the_pre_split_configuration(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# finish_stale_migration: the second-stage cleanup, offered not forced
+# finish_stale_migration: the second-stage cleanup, applied not offered
 # ---------------------------------------------------------------------------
 #
 # write_env_from_legacy only ever runs when there is no `.env` yet (see
@@ -551,36 +551,40 @@ def _stranded_setup(tmp_path, json_extra=None, env_lines=""):
     return legacy_path, env_path
 
 
-def test_stale_cleanup_does_not_prompt_when_there_is_nothing_stale(tmp_path):
-    """No stranded keys means no question. Asking anyway trains people to
-    dismiss the prompt, which is how the real one gets ignored."""
+def test_stale_cleanup_is_inert_when_there_is_nothing_stale(tmp_path):
+    """The common case by far: every start must leave both files alone and say
+    nothing, or this becomes a rewrite of the user's config on every launch."""
     legacy_path, env_path = _stranded_setup(tmp_path)
-    asked = []
-
-    notes = finish_stale_migration(
-        str(legacy_path),
-        str(env_path),
-        confirm=lambda keys: asked.append(keys) or True,
-    )
-
-    assert asked == [], "prompted with no stale keys present"
-    assert notes == []
-
-
-def test_stale_cleanup_declined_changes_nothing(tmp_path):
-    """Declining must be completely inert -- this rewrites the user's config."""
-    legacy_path, env_path = _stranded_setup(tmp_path, {"ollamaModel": "synthetic"})
     before_json = legacy_path.read_text()
     before_env = env_path.read_text()
 
-    notes = finish_stale_migration(
-        str(legacy_path), str(env_path), confirm=lambda keys: False
-    )
+    notes = finish_stale_migration(str(legacy_path), str(env_path))
 
+    assert notes == []
     assert legacy_path.read_text() == before_json
     assert env_path.read_text() == before_env
     assert not (tmp_path / "config.json.pre-split.bak").exists()
-    # The user still deserves to know the keys stay inert.
+
+
+def test_stale_cleanup_never_asks_anything(monkeypatch, tmp_path):
+    """Repairs unprompted, like write_env_from_legacy.
+
+    A stranded key is already ignored, so there is nothing to weigh, and the
+    warning it produces was itself the prompt. It also has to work on runs
+    nobody is watching -- cron, `--hashview`, a piped session -- which is
+    precisely where a prompt would hang or be skipped forever.
+    """
+    legacy_path, env_path = _stranded_setup(tmp_path, {"ollamaModel": "synthetic"})
+
+    def explode(*_args, **_kwargs):
+        raise AssertionError("finish_stale_migration must not prompt")
+
+    monkeypatch.setattr("builtins.input", explode)
+
+    notes = finish_stale_migration(str(legacy_path), str(env_path))
+
+    assert "ollamaModel" not in json.loads(legacy_path.read_text())
+    assert dotenv_values(str(env_path))["OLLAMA_MODEL"] == "synthetic"
     assert any("ollamaModel" in note for note in notes)
 
 
@@ -589,9 +593,7 @@ def test_stale_cleanup_moves_the_value_and_prunes_the_json(tmp_path):
         tmp_path, {"ollamaModel": "synthetic-model", "pipal_count": 3}
     )
 
-    notes = finish_stale_migration(
-        str(legacy_path), str(env_path), confirm=lambda keys: True
-    )
+    notes = finish_stale_migration(str(legacy_path), str(env_path))
 
     parsed = dotenv_values(str(env_path))
     assert coerce(BY_ENV["OLLAMA_MODEL"], parsed["OLLAMA_MODEL"]) == "synthetic-model"
@@ -617,9 +619,7 @@ def test_stale_cleanup_never_overwrites_a_value_already_in_the_env(tmp_path):
         env_lines="OLLAMA_MODEL=live-env-value\n",
     )
 
-    notes = finish_stale_migration(
-        str(legacy_path), str(env_path), confirm=lambda keys: True
-    )
+    notes = finish_stale_migration(str(legacy_path), str(env_path))
 
     parsed = dotenv_values(str(env_path))
     assert coerce(BY_ENV["OLLAMA_MODEL"], parsed["OLLAMA_MODEL"]) == "live-env-value"
@@ -633,9 +633,7 @@ def test_stale_cleanup_leaves_wrong_typed_values_alone(tmp_path):
     record of what the user meant, so it is neither copied nor deleted."""
     legacy_path, env_path = _stranded_setup(tmp_path, {"pipal_count": "not-an-int"})
 
-    notes = finish_stale_migration(
-        str(legacy_path), str(env_path), confirm=lambda keys: True
-    )
+    notes = finish_stale_migration(str(legacy_path), str(env_path))
 
     assert "pipal_count" in json.loads(legacy_path.read_text())
     assert "PIPAL_COUNT" not in dotenv_values(str(env_path))
@@ -643,8 +641,8 @@ def test_stale_cleanup_leaves_wrong_typed_values_alone(tmp_path):
     assert not any("not-an-int" in note for note in notes)
 
 
-def test_stale_cleanup_notes_and_prompt_never_expose_values(tmp_path):
-    """Several stranded keys are secrets; the prompt lists names only."""
+def test_stale_cleanup_notes_never_expose_values(tmp_path):
+    """Several stranded keys are secrets; the notes list names only."""
     legacy_path, env_path = _stranded_setup(
         tmp_path,
         {
@@ -652,33 +650,32 @@ def test_stale_cleanup_notes_and_prompt_never_expose_values(tmp_path):
             "hashmob_api_key": "another-synthetic-sentinel",
         },
     )
-    seen = []
+    notes = finish_stale_migration(str(legacy_path), str(env_path))
 
-    notes = finish_stale_migration(
-        str(legacy_path),
-        str(env_path),
-        confirm=lambda keys: seen.extend(keys) or True,
-    )
-
-    blob = "\n".join(notes) + "\n".join(seen)
+    blob = "\n".join(notes)
     assert "hashview_api_key" in blob and "hashmob_api_key" in blob
     assert "synthetic-sentinel-key" not in blob
     assert "another-synthetic-sentinel" not in blob
 
 
-def test_stale_cleanup_leaves_json_homed_and_unknown_keys_out_of_it(tmp_path):
+def test_stale_cleanup_leaves_json_homed_and_unknown_keys_alone(tmp_path):
     """A json-homed key is not stranded, and an unrecognized one is a note the
-    user is keeping. Offering to delete either would be wrong."""
+    user is keeping. Touching either would be wrong -- and this is the assertion
+    that stops a future widening of the stale-key query from eating the file."""
     legacy_path, env_path = _stranded_setup(tmp_path, {"ollamaModel": "synthetic"})
-    offered = []
 
-    finish_stale_migration(
-        str(legacy_path),
-        str(env_path),
-        confirm=lambda keys: offered.extend(keys) or True,
-    )
+    notes = finish_stale_migration(str(legacy_path), str(env_path))
 
-    assert offered == ["ollamaModel"]
+    remaining = json.loads(legacy_path.read_text())
+    assert remaining == {
+        "hcatBin": "hashcat-custom",
+        "some_retired_key": "note to self",
+    }
+    # Only the one stranded key is ever named.
+    joined = "\n".join(notes)
+    assert "ollamaModel" in joined
+    assert "hcatBin" not in joined
+    assert "some_retired_key" not in joined
 
 
 def test_stale_cleanup_result_loads_clean(tmp_path):
@@ -688,7 +685,7 @@ def test_stale_cleanup_result_loads_clean(tmp_path):
         tmp_path, {"ollamaModel": "synthetic-model", "ollamaNumCtx": 4096}
     )
 
-    finish_stale_migration(str(legacy_path), str(env_path), confirm=lambda keys: True)
+    finish_stale_migration(str(legacy_path), str(env_path))
 
     loaded = load_config(
         env_path=str(env_path), legacy_json_path=str(legacy_path), environ={}
@@ -696,3 +693,25 @@ def test_stale_cleanup_result_loads_clean(tmp_path):
     assert loaded.warnings == []
     assert loaded.config["ollamaModel"] == "synthetic-model"
     assert loaded.config["ollamaNumCtx"] == 4096
+
+
+def test_stale_cleanup_never_clobbers_an_earlier_backup(tmp_path):
+    """The second-stage repair can run more than once, and the fixed backup name
+    made a later run overwrite the first migration's copy -- the only record of
+    the genuinely pre-split config.json. Observed for real on an install whose
+    .pre-split.bak was weeks old.
+    """
+    legacy_path, env_path = _stranded_setup(tmp_path, {"ollamaModel": "first"})
+    original_backup = tmp_path / "config.json.pre-split.bak"
+    original_backup.write_text('{"the": "original pre-split config"}\n')
+
+    finish_stale_migration(str(legacy_path), str(env_path))
+
+    # The pre-existing backup is untouched...
+    assert json.loads(original_backup.read_text()) == {
+        "the": "original pre-split config"
+    }
+    # ...and this run's backup went somewhere else, holding the pre-run state.
+    second = tmp_path / "config.json.pre-split.bak.2"
+    assert second.exists(), "second-stage repair did not write its own backup"
+    assert "ollamaModel" in json.loads(second.read_text())
