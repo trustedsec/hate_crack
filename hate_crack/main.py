@@ -5540,6 +5540,19 @@ def wordlist_gate(infile: str, outfile: str, mod: int, offset: int) -> bool:
     return result.returncode == 0
 
 
+def _outdir_is_empty(outdir):
+    """Does *outdir* hold no split output yet?
+
+    Dot-files do not count. `not os.listdir(outdir)` is False as soon as macOS
+    drops a .DS_Store in there, which sent the first wordlist down the merge
+    path against an effectively empty directory.
+    """
+    try:
+        return not [name for name in os.listdir(outdir) if not name.startswith(".")]
+    except (FileNotFoundError, NotADirectoryError, PermissionError):
+        return True
+
+
 def wordlist_optimize(input_wordlists: list[str], outdir: str) -> bool:
     """Consolidate wordlists into per-length deduplicated files in outdir."""
     os.makedirs(outdir, exist_ok=True)
@@ -5547,7 +5560,7 @@ def wordlist_optimize(input_wordlists: list[str], outdir: str) -> bool:
         if not os.path.isfile(wl):
             print(f"[!] Skipping missing wordlist: {wl}")
             continue
-        if not os.listdir(outdir):
+        if _outdir_is_empty(outdir):
             if not wordlist_splitlen(wl, outdir):
                 return False
             continue

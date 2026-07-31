@@ -446,3 +446,33 @@ def test_rule_completer_ordering_stable_across_repeated_state_calls(tmp_path):
     assert first == second, (
         f"match ordering was not stable across repeated calls: {first} != {second}"
     )
+
+
+def test_hashmob_dedup_set_ignores_directories(tmp_path):
+    """A directory name could shadow a rule filename and skip a real download."""
+    from hate_crack import api
+
+    rules = tmp_path / "rules"
+    rules.mkdir()
+    (rules / "best64.rule").write_text(":\n")
+    (rules / "wanted.rule").mkdir()  # a directory sharing a wanted filename
+
+    already = api._downloaded_rule_names(str(rules))
+
+    assert "best64.rule" in already
+    assert "wanted.rule" not in already, (
+        "a directory shadowed a rule filename and would skip its download"
+    )
+
+
+def test_optimize_emptiness_check_ignores_dot_files(hc_module, tmp_path):
+    """`if not os.listdir(outdir)` is defeated by a stray .DS_Store, so the
+    first wordlist takes the slow merge path against an empty directory."""
+    outdir = tmp_path / "optimized"
+    outdir.mkdir()
+    (outdir / ".DS_Store").write_text("")
+
+    assert hc_module._outdir_is_empty(str(outdir)) is True
+
+    (outdir / "len8.txt").write_text("password\n")
+    assert hc_module._outdir_is_empty(str(outdir)) is False

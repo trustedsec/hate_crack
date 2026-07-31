@@ -2570,6 +2570,22 @@ def list_and_download_official_wordlists():
         print(f"Error listing official wordlists: {e}")
 
 
+def _downloaded_rule_names(rules_dir):
+    """Names of rule files already present, for the download dedup check.
+
+    Files only: a directory whose name matches a wanted rule would otherwise
+    mark it as already downloaded and skip it.
+    """
+    try:
+        return {
+            name
+            for name in os.listdir(rules_dir)
+            if os.path.isfile(os.path.join(rules_dir, name))
+        }
+    except (FileNotFoundError, NotADirectoryError, PermissionError):
+        return set()
+
+
 def list_and_download_hashmob_rules(rules_dir=None):
     """List rules via the Hashmob API, prompt for selection, and download."""
     rules = download_hashmob_rule_list()
@@ -2618,11 +2634,7 @@ def list_and_download_hashmob_rules(rules_dir=None):
         return sorted(i for i in indices if 1 <= i <= max_index)
 
     # Track already-downloaded rules to avoid duplicates
-    downloaded_rules = set()
-    # Scan rules_dir for existing files
-    if os.path.isdir(rules_dir):
-        for fname in os.listdir(rules_dir):
-            downloaded_rules.add(fname)
+    downloaded_rules = _downloaded_rule_names(rules_dir)
 
     def already_downloaded(file_name):
         sanitized = sanitize_filename(file_name)
