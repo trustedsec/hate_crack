@@ -295,3 +295,154 @@ def test_generate_rules_picker_refuses_a_directory(
     assert passed_wordlist == str(wordlist_dir / "rockyou.txt"), (
         f"expected the second, valid pick to go through, got {passed_wordlist!r}"
     )
+
+
+def _capture_rule_completer(ctx):
+    """Drive `_rule_select_file` with a stubbed input/readline just far enough
+    to capture the `rule_completer` closure it registers, then hand it back
+    so tests can call it directly with arbitrary (text, state) pairs.
+    """
+    from hate_crack import attacks
+
+    captured = {}
+
+    def fake_configure(completer):
+        captured["completer"] = completer
+
+    original = attacks._configure_readline
+    attacks._configure_readline = fake_configure
+    try:
+        import builtins
+
+        original_input = builtins.input
+        builtins.input = lambda *a: ""
+        try:
+            attacks._rule_select_file(ctx, "rule: ")
+        finally:
+            builtins.input = original_input
+    finally:
+        attacks._configure_readline = original
+
+    return captured["completer"]
+
+
+def _all_rule_matches(completer, text):
+    matches = []
+    state = 0
+    while (m := completer(text, state)) is not None:
+        matches.append(m)
+        state += 1
+    return matches
+
+
+def test_rule_completer_marks_directories_and_globs_consistently(tmp_path):
+    """The odd one out: five of the six tab-completers add a trailing / for a
+    directory and this one does not. It also globs *.rule when the input is
+    empty but <text>* once you type, so typing one character surfaces non-rule
+    files the empty prompt hides.
+    """
+    from types import SimpleNamespace
+
+    rules = tmp_path / "rules"
+    rules.mkdir()
+    (rules / "best64.rule").write_text(":\n")
+    (rules / "notes.txt").write_text("x\n")
+    (rules / "collection").mkdir()
+
+    ctx = SimpleNamespace(rulesDirectory=str(rules))
+    completer = _capture_rule_completer(ctx)
+    matches = _all_rule_matches(completer, "")
+
+    assert any(m.endswith("collection/") for m in matches), (
+        f"directory not marked with a trailing slash: {matches}"
+    )
+    assert not any(m.endswith("notes.txt") for m in matches), (
+        f"a non-rule file was offered: {matches}"
+    )
+
+
+def test_rule_completer_incremental_typing_still_completes_past_the_dot(tmp_path):
+    """Filtering on `.rule` must happen after the glob, not by baking
+    `*.rule` into the glob pattern -- otherwise typing past the base name
+    (into the extension itself) stops matching anything.
+    """
+    from types import SimpleNamespace
+
+    rules = tmp_path / "rules"
+    rules.mkdir()
+    (rules / "best64.rule").write_text(":\n")
+    (rules / "best64.rule.bak").write_text(":\n")
+    (rules / "notes.txt").write_text("x\n")
+
+    ctx = SimpleNamespace(rulesDirectory=str(rules))
+    completer = _capture_rule_completer(ctx)
+
+    for typed in ("best", "best64", "best64.", "best64.r", "best64.rule"):
+        matches = _all_rule_matches(completer, typed)
+        assert any(m.endswith("best64.rule") for m in matches), (
+            f"typing {typed!r} lost the completion: {matches}"
+        )
+        assert not any(m.endswith("best64.rule.bak") for m in matches), (
+            f"typing {typed!r} surfaced a backup file: {matches}"
+        )
+        assert not any(m.endswith("notes.txt") for m in matches), (
+            f"typing {typed!r} surfaced a non-rule file: {matches}"
+        )
+
+
+def test_rule_completer_marks_directories_in_base_and_relative_branches(tmp_path):
+    """A directory must get its trailing slash in both the base-directory
+    branch and the `./`-relative free-path branch -- deriving the marker
+    from a separately hardcoded `os.path.join(base, ...)` only worked for
+    the base branch (and, by accident, absolute paths).
+    """
+    from types import SimpleNamespace
+
+    rules = tmp_path / "rules"
+    rules.mkdir()
+    (rules / "collection").mkdir()
+
+    other = tmp_path / "elsewhere"
+    other.mkdir()
+    (other / "extra").mkdir()
+
+    ctx = SimpleNamespace(rulesDirectory=str(rules))
+    completer = _capture_rule_completer(ctx)
+
+    base_matches = _all_rule_matches(completer, "coll")
+    assert any(m.endswith("collection/") for m in base_matches), (
+        f"base-directory branch did not mark the directory: {base_matches}"
+    )
+
+    cwd = os.getcwd()
+    os.chdir(str(tmp_path))
+    try:
+        rel_matches = _all_rule_matches(completer, "./elsewhere/ext")
+    finally:
+        os.chdir(cwd)
+    assert any(m.endswith("extra/") for m in rel_matches), (
+        f"./-relative branch did not mark the directory: {rel_matches}"
+    )
+
+
+def test_rule_completer_ordering_stable_across_repeated_state_calls(tmp_path):
+    """The completer recomputes its match list on every call; repeated calls
+    for the same `text` must still yield the same list, or completion
+    (which walks `state` up from 0) behaves erratically.
+    """
+    from types import SimpleNamespace
+
+    rules = tmp_path / "rules"
+    rules.mkdir()
+    (rules / "best64.rule").write_text(":\n")
+    (rules / "dive.rule").write_text(":\n")
+    (rules / "collection").mkdir()
+
+    ctx = SimpleNamespace(rulesDirectory=str(rules))
+    completer = _capture_rule_completer(ctx)
+
+    first = _all_rule_matches(completer, "")
+    second = _all_rule_matches(completer, "")
+    assert first == second, (
+        f"match ordering was not stable across repeated calls: {first} != {second}"
+    )

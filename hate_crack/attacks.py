@@ -1325,14 +1325,32 @@ def _rule_select_file(ctx: Any, prompt: str = "Rule file: ") -> str:
     def rule_completer(text: str, state: int) -> str | None:
         base = ctx.rulesDirectory
         if not text:
-            pattern = os.path.join(base, "*.rule")
+            pattern = os.path.join(base, "*")
         else:
             text = os.path.expanduser(text)
             if text.startswith(("/", "./", "../", "~")):
                 pattern = text + "*"
             else:
                 pattern = os.path.join(base, text + "*")
-        matches = _glob.glob(pattern)
+        # Glob once per branch, on the same resolved pattern, then filter and
+        # mark from that single candidate list -- deriving directory markers
+        # from a separately hardcoded join broke the free-path branches
+        # (./..., ../...), since os.path.join only discards `base` when the
+        # second argument is absolute.
+        candidates = _glob.glob(pattern)
+        matches = [
+            entry + "/" if os.path.isdir(entry) else entry
+            for entry in candidates
+            # Directories are always offered -- you have to be able to walk
+            # into one. Files are limited to *.rule, matching the empty-input
+            # case, so typing a character does not surface notes or backups
+            # the empty prompt hides. Filtering post-glob (rather than baking
+            # ".rule" into the glob pattern) keeps incremental completion
+            # working once the typed text reaches the extension itself, e.g.
+            # "best64.r" still matches "best64.rule".
+            if os.path.isdir(entry) or entry.endswith(".rule")
+        ]
+        matches = sorted(set(matches))
         try:
             return matches[state]
         except IndexError:
