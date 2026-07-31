@@ -85,12 +85,14 @@ def filter_candidates(response_text):
 def benchmark_model(url, model, prompt, num_ctx):
     """Run the prompt against a single model at a given context size. Returns a results dict."""
     api_url = f"{url}/api/generate"
-    payload = json.dumps({
-        "model": model,
-        "prompt": prompt,
-        "stream": False,
-        "options": {"num_ctx": num_ctx},
-    }).encode("utf-8")
+    payload = json.dumps(
+        {
+            "model": model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {"num_ctx": num_ctx},
+        }
+    ).encode("utf-8")
 
     result = {
         "model": model,
@@ -116,7 +118,7 @@ def benchmark_model(url, model, prompt, num_ctx):
     except urllib.error.HTTPError as e:
         if e.code == 404:
             if not pull_model(url, model):
-                result["error"] = f"could not pull model"
+                result["error"] = "could not pull model"
                 return result
             # Retry after pull
             req = urllib.request.Request(
@@ -164,19 +166,30 @@ def benchmark_model(url, model, prompt, num_ctx):
 
 def print_table(results):
     """Print a formatted comparison table."""
-    headers = ["Model", "num_ctx", "Time (s)", "Tok/s", "Candidates", "Unique", "Refusal", "Error"]
+    headers = [
+        "Model",
+        "num_ctx",
+        "Time (s)",
+        "Tok/s",
+        "Candidates",
+        "Unique",
+        "Refusal",
+        "Error",
+    ]
     rows = []
     for r in results:
-        rows.append([
-            r["model"],
-            str(r["num_ctx"]),
-            str(r["response_time_s"] or "-"),
-            str(r["tokens_per_sec"] or "-"),
-            str(r["candidate_count"]),
-            str(r["unique_candidates"]),
-            "YES" if r["refusal"] else "no",
-            r["error"] or "",
-        ])
+        rows.append(
+            [
+                r["model"],
+                str(r["num_ctx"]),
+                str(r["response_time_s"] or "-"),
+                str(r["tokens_per_sec"] or "-"),
+                str(r["candidate_count"]),
+                str(r["unique_candidates"]),
+                "YES" if r["refusal"] else "no",
+                r["error"] or "",
+            ]
+        )
 
     # Calculate column widths
     col_widths = [len(h) for h in headers]
@@ -247,9 +260,11 @@ def main():
             if r["error"]:
                 print(f"  Error: {r['error']}")
             else:
-                print(f"  {r['response_time_s']}s, {r['tokens_per_sec']} tok/s, "
-                      f"{r['candidate_count']} candidates ({r['unique_candidates']} unique)"
-                      f"{', REFUSED' if r['refusal'] else ''}")
+                print(
+                    f"  {r['response_time_s']}s, {r['tokens_per_sec']} tok/s, "
+                    f"{r['candidate_count']} candidates ({r['unique_candidates']} unique)"
+                    f"{', REFUSED' if r['refusal'] else ''}"
+                )
                 if args.stdout:
                     print(f"\n--- Response from {model} (num_ctx={num_ctx}) ---")
                     print(r["response"])
