@@ -4,7 +4,7 @@ repo = "local"
 [[repos.hooks]]
 id = "ruff"
 name = "ruff"
-entry = "uv run ruff check hate_crack"
+entry = "uv run ruff check hate_crack tests tools packaging"
 language = "system"
 stages = ["pre-push"]
 pass_filenames = false
@@ -13,7 +13,7 @@ always_run = true
 [[repos.hooks]]
 id = "ruff-format"
 name = "ruff-format"
-entry = "uv run ruff format --check hate_crack"
+entry = "uv run ruff format --check hate_crack tests tools packaging"
 language = "system"
 stages = ["pre-push"]
 pass_filenames = false

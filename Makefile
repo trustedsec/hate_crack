@@ -142,7 +142,8 @@ coverage:
 	HATE_CRACK_SKIP_INIT=$${HATE_CRACK_SKIP_INIT:-1} uv run pytest --cov=hate_crack --cov-report=term-missing
 
 ruff:
-	uv run ruff check hate_crack
+	uv run ruff check hate_crack tests tools packaging
+	uv run ruff format --check hate_crack tests tools packaging
 
 ty:
 	uv run ty check hate_crack
