@@ -36,15 +36,11 @@ jobs:
       - name: Install dependencies
         run: uv sync --dev
 
-      # tools/next_version.py is listed individually rather than by directory:
-      # it is executed by both tagging workflows, so it has to be held to the
-      # same standard, but the rest of tools/ predates linting and does not pass
-      # yet. Widening to all of tools/ is issue #237.
       - name: Ruff (lint)
-        run: uv run ruff check hate_crack tests tools/next_version.py
+        run: uv run ruff check hate_crack tests tools packaging
 
       - name: Ruff (format)
-        run: uv run ruff format --check hate_crack tests tools/next_version.py
+        run: uv run ruff format --check hate_crack tests tools packaging
 
       - name: Ty
         # ty 0.0.63 fails CI on warning-level diagnostics by default;
