@@ -1,24 +1,38 @@
 """Guards on the release-versioning wiring.
 
-The scheme is: ``main`` is stable at ``X.Y.0`` (a MINOR bump per merge) and
-``nightly-dev`` rolls through patch numbers ``X.Y.1``, ``X.Y.2`` (a PATCH bump
-per validated push). The arithmetic is commitizen's job, not this repo's.
+The scheme is ordinary semver with the bump derived from the batch: any ``feat``
+since the last release targets ``X.(Y+1).0``, a batch of only fixes, docs and
+chores targets ``X.Y.(Z+1)``. ``nightly-dev`` tags release candidates for that
+target (``v2.20.1rc1``, ``v2.20.1rc2``, ...) and merging down to ``main``
+promotes the same target to its final release. The policy itself lives in
+tools/next_version.py and is unit-tested in tests/test_next_version.py; nothing
+here re-implements it.
 
-These tests do not re-test commitizen's arithmetic -- that is the tool's job, and
-re-encoding it here would resurrect the assumptions this setup removed. They
-guard two other things:
+An earlier scheme forced the increment per branch -- MINOR on every merge to
+``main``, PATCH on every nightly push -- with commitizen doing the arithmetic.
+It was removed on 2026-07-31 for cutting a minor release per bugfix merge. Do
+not restore it, and do not read a claim that ``main`` is always ``X.Y.0``
+anywhere as current.
+
+What this file guards, given the policy is tested elsewhere:
 
 * **Configuration coherence**, which breaks silently: a lost ``tag_format``, a
-  dropped ``version_provider``, a drifted version pin.
-* **The behaviour of the shell that remains.** The two load-bearing guards (tag
-  idempotency and the empty-tag check) are tested by *extracting the step script
-  from the YAML and running it* -- against a real git repository with a real bare
-  remote, and against a stub ``uvx`` on ``PATH``. An earlier version of this file
-  asserted those two by literal substring and a reviewer defeated both without
-  any test failing: replacing the whole ``if``/``else`` with an unconditional
-  ``git tag && git push`` still matched, because the substring lived elsewhere in
-  the file. Substring assertions here are sensitive to formatting and blind to
-  behaviour, which is exactly backwards. Do not convert these back.
+  dropped ``version_provider``, a drifted commitizen pin.
+* **That the policy module remains the only thing producing a version**, stated
+  as a positive invariant (exactly one ``next_version.py`` call, and the pushed
+  tag read back from its output) with a denylist of shell version-math as a
+  second line of defence. The denylist alone was defeatable -- see
+  ``test_the_policy_module_is_the_only_thing_that_produces_a_version``.
+* **The behaviour of the shell that remains.** The load-bearing guards (the
+  computed tag's value, tag idempotency, and the empty-batch path) are tested by
+  *extracting the step script from the YAML and running it* against a real git
+  repository, a real bare remote, and a real copy of the policy module. An
+  earlier version of this file asserted those by literal substring and a
+  reviewer defeated them without any test failing: replacing the whole
+  ``if``/``else`` with an unconditional ``git tag && git push`` still matched,
+  because the substring lived elsewhere in the file. Substring assertions here
+  are sensitive to formatting and blind to behaviour, which is exactly
+  backwards. Do not convert these back.
 """
 
 from __future__ import annotations
@@ -44,9 +58,9 @@ BOTH_WORKFLOWS = [
     pytest.param(NIGHTLY_TAG, id="nightly-tag"),
 ]
 
-# The version commitizen is pinned to. Asserted to agree across the dev
-# dependency group and both workflow invocations; see
-# test_commitizen_pin_agrees_everywhere for why that matters.
+# The version commitizen is pinned to in the dev group. The workflows no longer
+# install or invoke it, so this is asserted in one place only; see
+# test_commitizen_pin_is_still_coherent for what remains worth guarding.
 COMMITIZEN_PIN = "4.17.0"
 
 
@@ -463,8 +477,8 @@ def test_create_tag_step_tags_nothing_when_the_tag_is_empty(
 def test_workflow_checks_out_the_validated_commit_with_full_history(path: Path) -> None:
     """``workflow_run`` defaults to the default-branch tip, not the tested commit.
 
-    ``fetch-depth: 0`` is equally load-bearing: commitizen resolves the current
-    version from tags and a shallow clone has none.
+    ``fetch-depth: 0`` is equally load-bearing: tools/next_version.py derives the
+    baseline from the repository's tags, and a shallow clone has none.
     """
     checkouts = [
         s for s in _run_steps(path) if "actions/checkout" in str(s.get("uses"))
