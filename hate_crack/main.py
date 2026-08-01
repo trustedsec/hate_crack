@@ -4799,11 +4799,6 @@ def hashview_api():
                                 "  Unmatched (already cracked or not in Hashview): "
                                 f"{result['unmatched']}"
                             )
-                    else:
-                        print(
-                            "  (This Hashview did not report an import count; "
-                            "upgrade Hashview to see how many landed.)"
-                        )
                 except Exception as e:
                     print(f"\n✗ Error: {str(e)}")
                     import traceback
