@@ -1455,18 +1455,66 @@ class HashviewAPI:
         22000,  # WPA-PBKDF2-PMKID+EAPOL
     )
 
-    def get_all_customer_hashfiles(self, customer_id, hash_types=None):
-        """Aggregate a customer's hashfiles across hash types (deduped by id).
+    def list_customer_hashfiles(self, customer_id):
+        """Return a customer's hashfiles via the customer-scoped listing route.
 
-        Hashview has no list-all route, so this sweeps the per-type listing
-        endpoint (:meth:`get_hashfiles_by_type`) over ``hash_types`` and keeps
-        the files belonging to ``customer_id``. Defaults to
-        :attr:`COMMON_HASH_TYPES`; a file of an uncommon type not in the sweep
-        won't appear. The first hash type a file is seen under is retained as
-        its ``hash_type`` (mixed-type files are rare).
+        ``GET /v1/customers/<id>/hashfiles`` filters server-side and covers
+        every hash type in one request. Added in Hashview v0.8.3-dev; servers
+        predating it have no such route, which surfaces as a 404 and is the
+        caller's cue to fall back to the per-type sweep.
+
+        Raises whatever ``requests`` raises; a 404 is meaningful, not an error
+        to swallow here.
+        """
+        url = f"{self.base_url}/v1/customers/{customer_id}/hashfiles"
+        resp = self.session.get(url, headers=self._auth_headers())
+        resp.raise_for_status()
+        try:
+            data = resp.json()
+        except Exception:
+            return []
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            files = data.get("hashfiles")
+            if isinstance(files, list):
+                return files
+        return []
+
+    def get_all_customer_hashfiles(self, customer_id, hash_types=None):
+        """Return a customer's hashfiles, preferring the direct listing route.
+
+        Tries :meth:`list_customer_hashfiles` first: one request, filtered
+        server-side, complete across hash types. Servers without that route
+        404, and we fall back to sweeping the per-type listing endpoint
+        (:meth:`get_hashfiles_by_type`) over ``hash_types`` — 26 requests by
+        default, each returning every hashfile of that type server-wide, and
+        blind to any type outside :attr:`COMMON_HASH_TYPES`.
+
+        Passing ``hash_types`` explicitly forces the sweep, since it asks for
+        specific types rather than everything.
         """
         if hash_types is None:
+            try:
+                direct = self.list_customer_hashfiles(customer_id)
+            except Exception as e:
+                status = getattr(getattr(e, "response", None), "status_code", None)
+                if status != 404:
+                    raise
+                if self.debug:
+                    print(
+                        "[DEBUG] get_all_customer_hashfiles: customer-scoped route "
+                        "absent (404); falling back to per-type sweep"
+                    )
+            else:
+                if self.debug:
+                    print(
+                        f"[DEBUG] get_all_customer_hashfiles({customer_id}): "
+                        f"{len(direct)} hashfiles from customer-scoped route"
+                    )
+                return direct
             hash_types = self.COMMON_HASH_TYPES
+
         seen = {}
         for ht in hash_types:
             try:
