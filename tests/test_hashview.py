@@ -780,6 +780,82 @@ class TestHashviewAPI:
         )
         assert result["imported"] == 1
 
+    def test_upload_cracked_hashes_skips_cached_pair(self, api, tmp_path, monkeypatch):
+        """A hash already recorded in the cache is skipped, not re-validated
+        or re-uploaded, and does not count toward the upload."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        from hate_crack.hashview_cache import append_to_cache, cache_key
+
+        append_to_cache([cache_key(NTLM_A, "1000")])
+
+        cracked_file = tmp_path / "cracked.txt"
+        cracked_file.write_text(f"{NTLM_A}:{SYNTH_PLAIN_A}\n{NTLM_B}:{SYNTH_PLAIN_B}\n")
+        mock_response = Mock()
+        mock_response.json.return_value = {"imported": 1}
+        mock_response.raise_for_status = Mock()
+        api.session.post.return_value = mock_response
+
+        result = api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
+
+        assert result["skipped_cached"] == 1
+        posted_body = api.session.post.call_args.kwargs["data"]
+        assert NTLM_A.encode() not in posted_body
+        assert NTLM_B.encode() in posted_body
+
+    def test_upload_cracked_hashes_all_cached_skips_network_call(
+        self, api, tmp_path, monkeypatch
+    ):
+        """If every line is already cached, no HTTP request is made."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        from hate_crack.hashview_cache import append_to_cache, cache_key
+
+        append_to_cache([cache_key(NTLM_A, "1000")])
+
+        cracked_file = tmp_path / "cracked.txt"
+        cracked_file.write_text(f"{NTLM_A}:{SYNTH_PLAIN_A}\n")
+
+        result = api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
+
+        assert result == {"uploaded": 0, "skipped": 0, "skipped_cached": 1}
+        api.session.post.assert_not_called()
+
+    def test_upload_cracked_hashes_failed_post_does_not_populate_cache(
+        self, api, tmp_path, monkeypatch
+    ):
+        """A failed upload must not mark hashes as cached -- a retry should
+        attempt them again."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        from hate_crack.hashview_cache import load_cache, cache_key
+
+        cracked_file = tmp_path / "cracked.txt"
+        cracked_file.write_text(f"{NTLM_A}:{SYNTH_PLAIN_A}\n")
+        mock_response = Mock()
+        mock_response.raise_for_status = Mock(side_effect=requests.HTTPError("boom"))
+        api.session.post.return_value = mock_response
+
+        with pytest.raises(requests.HTTPError):
+            api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
+
+        assert cache_key(NTLM_A, "1000") not in load_cache()
+
+    def test_upload_cracked_hashes_success_populates_cache(
+        self, api, tmp_path, monkeypatch
+    ):
+        """A successful upload records the uploaded pair in the cache."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        from hate_crack.hashview_cache import load_cache, cache_key
+
+        cracked_file = tmp_path / "cracked.txt"
+        cracked_file.write_text(f"{NTLM_A}:{SYNTH_PLAIN_A}\n")
+        mock_response = Mock()
+        mock_response.json.return_value = {"imported": 1}
+        mock_response.raise_for_status = Mock()
+        api.session.post.return_value = mock_response
+
+        api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
+
+        assert cache_key(NTLM_A, "1000") in load_cache()
+
     def test_create_customer_success(self, api):
         """create_customer returns the server's JSON body (mocked transport)."""
         mock_response = Mock()

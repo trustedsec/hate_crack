@@ -23,6 +23,7 @@ from hate_crack.config_loader import (
 from hate_crack.config_schema import CONFIG_SCHEMA, ConfigValueError
 from hate_crack.formatting import print_multicolumn_list
 from hate_crack.plaintext import encode_hex_wrapper
+from hate_crack.hashview_cache import append_to_cache, cache_key, load_cache
 
 _TORRENT_CLEANUP_REGISTERED = False
 _WEAKPASS_INERTIA_VERSION: str | None = None
@@ -1823,6 +1824,9 @@ class HashviewAPI:
     def upload_cracked_hashes(self, file_path, hash_type="1000", *, validate=True):
         valid_lines = []
         skipped = []
+        skipped_cached = 0
+        new_keys = []
+        cache = load_cache()
         # Bytes, not a lossy text read: a plaintext with a non-UTF-8 byte must
         # reach Hashview intact (as $HEX[...]) rather than as a different
         # password -- see _read_found_pairs.
@@ -1841,6 +1845,12 @@ class HashviewAPI:
                 except UnicodeDecodeError:
                     skipped.append((lineno, "<undecodable>", "hash field is not UTF-8"))
                     continue
+
+                key = cache_key(hash_value, hash_type)
+                if key in cache:
+                    skipped_cached += 1
+                    continue
+
                 plaintext = encode_hex_wrapper(plain_raw)
                 if validate:
                     ok, reason = _validate_cracked_pair(
@@ -1854,6 +1864,10 @@ class HashviewAPI:
                     + b":"
                     + _wire_field_bytes(hash_type, plaintext)
                 )
+                new_keys.append(key)
+
+        if skipped_cached:
+            print(f"↷ Skipped {skipped_cached} hash(es) already uploaded previously")
 
         if skipped:
             print(
@@ -1866,6 +1880,12 @@ class HashviewAPI:
                 print(f"    ... and {len(skipped) - 10} more")
 
         if not valid_lines:
+            if skipped_cached and not skipped:
+                return {
+                    "uploaded": 0,
+                    "skipped": len(skipped),
+                    "skipped_cached": skipped_cached,
+                }
             raise Exception(
                 f"No valid hashes to upload for hash mode {hash_type} "
                 f"({len(skipped)} line(s) skipped by validation)."
@@ -1882,11 +1902,13 @@ class HashviewAPI:
                 raise Exception(
                     f"Hashview API Error: {json_response.get('msg', 'Unknown error')}"
                 )
+            append_to_cache(new_keys)
             # Surface what the client actually sent so the caller can report a
             # count even against a Hashview that returns a bare {"msg": "OK"}.
             if isinstance(json_response, dict):
                 json_response.setdefault("uploaded", len(valid_lines))
                 json_response.setdefault("skipped", len(skipped))
+                json_response.setdefault("skipped_cached", skipped_cached)
             return json_response
         except (json.JSONDecodeError, ValueError):
             raise Exception(f"Invalid API response: {resp.text[:200]}")

@@ -109,6 +109,19 @@ def _isolate_notify_state():
     notify.clear_state_for_tests()
 
 
+@pytest.fixture(autouse=True)
+def _isolate_hashview_cache(monkeypatch, tmp_path):
+    """Isolate hashview cache per test to avoid cross-test contamination.
+
+    The cache module reads from ``~/.hate_crack/hashview_cache.txt`` by default.
+    Without isolation, tests that populate the cache would affect subsequent
+    tests that don't explicitly set HOME to a temp directory, causing hashes
+    to be unexpectedly skipped as already-cached.
+    """
+    # Set HOME to a temp directory for each test, so cache operations are isolated
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+
 def pytest_configure(config):
     """Spin up + seed a local Hashview docker stack for the live test suite.
 
