@@ -549,6 +549,33 @@ class TestHashviewAPI:
         assert result.get("uploaded") == 2, result
         assert result.get("skipped") == 0, result
 
+    def test_upload_cracked_hashes_preserves_leading_trailing_space(
+        self, api, tmp_path
+    ):
+        """A plaintext with a leading/trailing space must not be flagged as a
+        hash/plaintext mismatch.
+
+        A bare ``.strip()`` on the plaintext field before validation eats
+        whitespace that is part of the real password, desyncing it from the
+        hash it was validated against and causing a false-positive skip.
+        """
+        padded_plain = " " + SYNTH_PLAIN_A + " "
+        padded_ntlm = _synth_digest(1000, padded_plain)
+        cracked_file = tmp_path / "cracked.txt"
+        cracked_file.write_text(f"{padded_ntlm}:{padded_plain}\n")
+        mock_response = Mock()
+        mock_response.json.return_value = {"imported": 1}
+        mock_response.raise_for_status = Mock()
+        api.session.post.return_value = mock_response
+
+        result = api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
+
+        assert result["imported"] == 1
+        posted_body = api.session.post.call_args.kwargs["data"]
+        assert padded_plain.encode() in posted_body, (
+            "The padded plaintext must reach Hashview intact, not stripped"
+        )
+
     def test_upload_cracked_hashes_api_error(self, api, tmp_path):
         """Test uploading cracked hashes with API error response (mock only)."""
         cracked_file = tmp_path / "cracked.txt"
@@ -1403,6 +1430,46 @@ class TestHashviewAPI:
         )
         assert "abcdef" not in contents, (
             "The lossy decode of the plaintext must not reach the potfile"
+        )
+
+    def test_download_left_preserves_leading_trailing_space(
+        self, api, tmp_path, monkeypatch
+    ):
+        """A leading/trailing space in the plaintext must survive to the potfile.
+
+        A bare ``.strip()`` on the raw line before splitting on ``:`` eats
+        whitespace that belongs to the password itself, not just the line
+        terminator -- the same class of bug fixed for non-UTF-8 bytes above.
+        """
+        potfile = str(tmp_path / "hashcat.potfile")
+        monkeypatch.setattr("hate_crack.api.get_hcat_potfile_path", lambda: potfile)
+
+        found_line = b"found_hash1: " + SYNTH_PLAIN_A.encode() + b" \n"
+
+        mock_left = Mock()
+        mock_left.content = b"uncracked_hash1\n"
+        mock_left.raise_for_status = Mock()
+        mock_left.headers = {"content-length": "0"}
+        mock_left.iter_content = lambda chunk_size=8192: iter([mock_left.content])
+
+        mock_found = Mock()
+        mock_found.content = found_line
+        mock_found.raise_for_status = Mock()
+        mock_found.headers = {"content-length": "0"}
+        mock_found.iter_content = lambda chunk_size=8192: iter([mock_found.content])
+        mock_found.status_code = 200
+
+        api.session.get.side_effect = [mock_left, mock_found]
+
+        left_file = tmp_path / "left_1_2.txt"
+        api.download_left_hashes(1, 2, output_file=str(left_file))
+
+        with open(potfile, "r", encoding="utf-8") as f:
+            contents = f.read()
+
+        expected = "found_hash1: " + SYNTH_PLAIN_A + " "
+        assert expected in contents, (
+            "Leading/trailing space in the plaintext must not be stripped"
         )
 
     def test_download_left_potfile_path_param_overrides_config(self, api, tmp_path):

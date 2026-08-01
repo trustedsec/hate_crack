@@ -26,6 +26,17 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   regresses on them; passing `hash_types` explicitly still forces the sweep.
 
 ### Fixed
+- **A cracked password with a leading or trailing space was flagged as a
+  hash/plaintext mismatch and skipped during Hashview upload.** Both
+  `upload_cracked_hashes` and `_read_found_pairs` used a bare `.strip()` on the
+  raw `hash:plain` line before splitting on `:`, which strips *all* whitespace,
+  not just the line terminator — so a password's own leading/trailing space was
+  eaten before validation or before the value reached the potfile/Hashview.
+  `upload_cracked_hashes` also had a second, redundant `.strip()` on the
+  already-split plaintext field. Both now use `rstrip(b"\r\n")` to drop only
+  the newline, mirroring the byte-preserving fix already applied for non-UTF-8
+  plaintexts in #216.
+
 - **Wordlist and rule pickers no longer list directories and dot-files as if
   they were files** (#233). `list_wordlist_files()` was a bare `os.listdir` with
   an extension blocklist and a one-off `.DS_Store` exclusion, so subdirectories

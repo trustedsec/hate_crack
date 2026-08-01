@@ -1129,7 +1129,9 @@ def _read_found_pairs(path) -> Tuple[list, list]:
     undecodable: list = []
     with open(path, "rb") as fh:
         for raw_line in fh:
-            raw_line = raw_line.strip()
+            # rstrip only the line terminator -- a plain .strip() eats a
+            # leading/trailing space that belongs to the password itself.
+            raw_line = raw_line.rstrip(b"\r\n")
             if not raw_line or b":" not in raw_line:
                 continue
             hash_raw, plain_raw = raw_line.rsplit(b":", 1)
@@ -1826,7 +1828,9 @@ class HashviewAPI:
         # password -- see _read_found_pairs.
         with open(file_path, "rb") as f:
             for lineno, raw_line in enumerate(f, 1):
-                raw_line = raw_line.strip()
+                # rstrip only the line terminator -- a plain .strip() eats a
+                # leading/trailing space that belongs to the password itself.
+                raw_line = raw_line.rstrip(b"\r\n")
                 if b"31d6cfe0d16ae931b73c59d7e0c089c0" in raw_line:
                     continue
                 if not raw_line or b":" not in raw_line:
@@ -1837,7 +1841,7 @@ class HashviewAPI:
                 except UnicodeDecodeError:
                     skipped.append((lineno, "<undecodable>", "hash field is not UTF-8"))
                     continue
-                plaintext = encode_hex_wrapper(plain_raw.strip())
+                plaintext = encode_hex_wrapper(plain_raw)
                 if validate:
                     ok, reason = _validate_cracked_pair(
                         hash_type, hash_value, plaintext
