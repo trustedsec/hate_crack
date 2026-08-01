@@ -6,6 +6,7 @@
 	path = HashcatRosetta
 	url = https://github.com/bandrel/HashcatRosetta.git
 	ignore = dirty
+	branch = main
 [submodule "omen"]
 	path = omen
 	url = https://github.com/RUB-SysSec/OMEN.git
