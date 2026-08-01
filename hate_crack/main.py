@@ -4777,6 +4777,10 @@ def hashview_api():
                         if result.get("skipped"):
                             line += f" ({result['skipped']} skipped by validation)"
                         print(line)
+                    if result.get("skipped_cached"):
+                        print(
+                            f"  Skipped: {result['skipped_cached']} already uploaded previously"
+                        )
                     # What the server actually did (newer Hashview reports these).
                     if "verified" in result or "updated" in result or "count" in result:
                         updated = result.get("updated", result.get("count"))
@@ -5091,6 +5095,10 @@ def hashview_api():
                             print(f"  Hash count: {result['hash_count']}")
                         if "instacracked" in result:
                             print(f"  Insta-cracked: {result['instacracked']}")
+                        if result.get("skipped_cached"):
+                            print(
+                                f"  Skipped: {result['skipped_cached']} already uploaded previously"
+                            )
 
                         # Offer to create a job
                         create_job = (
@@ -6442,6 +6450,10 @@ def main():
             print(f"\n✓ Success: {result.get('msg', 'Cracked hashes uploaded')}")
             if "count" in result:
                 print(f"  Imported: {result['count']} hashes")
+            if result.get("skipped_cached"):
+                print(
+                    f"  Skipped: {result['skipped_cached']} already uploaded previously"
+                )
             sys.exit(0)
 
         if args.hashview_command == "upload-wordlist":
@@ -6487,6 +6499,10 @@ def main():
                 args.hashfile_name,
             )
             print(f"\n✓ Success: {upload_result.get('msg', 'Hashfile uploaded')}")
+            if upload_result.get("skipped_cached"):
+                print(
+                    f"  Skipped: {upload_result['skipped_cached']} already uploaded previously"
+                )
             if "hashfile_id" not in upload_result:
                 print("✗ Error: Hashfile upload did not return a hashfile_id.")
                 sys.exit(1)

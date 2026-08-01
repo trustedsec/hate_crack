@@ -13,7 +13,7 @@ class DummyHashviewAPI:
 
     def upload_cracked_hashes(self, file_path, hash_type="1000"):
         self.calls.append(("upload_cracked_hashes", file_path, hash_type))
-        return {"msg": "Cracked hashes uploaded", "count": 2}
+        return {"msg": "Cracked hashes uploaded", "count": 2, "skipped_cached": 3}
 
     def upload_wordlist_file(self, wordlist_path, wordlist_name=None):
         self.calls.append(("upload_wordlist_file", wordlist_path, wordlist_name))
@@ -48,7 +48,7 @@ class DummyHashviewAPI:
                 hashfile_name,
             )
         )
-        return {"msg": "Hashfile uploaded", "hashfile_id": 456}
+        return {"msg": "Hashfile uploaded", "hashfile_id": 456, "skipped_cached": 5}
 
     def create_job(
         self, name, hashfile_id, customer_id, limit_recovered=False, notify_email=True
@@ -97,6 +97,27 @@ def test_hashview_cli_upload_cracked(_patch_hashview, monkeypatch, tmp_path, cap
     captured = capsys.readouterr()
     assert code == 0
     assert "Cracked hashes uploaded" in captured.out
+
+
+def test_hashview_cli_upload_cracked_reports_skipped_cached(
+    _patch_hashview, monkeypatch, tmp_path, capsys
+):
+    cracked_file = tmp_path / "cracked.out"
+    cracked_file.write_text("hash:pass\n")
+    code = _run_main_with_args(
+        monkeypatch,
+        [
+            "hashview",
+            "upload-cracked",
+            "--file",
+            str(cracked_file),
+            "--hash-type",
+            "1000",
+        ],
+    )
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "3" in captured.out and "already uploaded" in captured.out
 
 
 def test_hashview_cli_upload_wordlist(_patch_hashview, monkeypatch, tmp_path, capsys):
@@ -159,3 +180,28 @@ def test_hashview_cli_upload_hashfile_job(
     assert code == 0
     assert "Hashfile uploaded" in captured.out
     assert "Job created" in captured.out
+
+
+def test_hashview_cli_upload_hashfile_job_reports_skipped_cached(
+    _patch_hashview, monkeypatch, tmp_path, capsys
+):
+    hashfile = tmp_path / "hashes.txt"
+    hashfile.write_text("hash1\n")
+    code = _run_main_with_args(
+        monkeypatch,
+        [
+            "hashview",
+            "upload-hashfile-job",
+            "--file",
+            str(hashfile),
+            "--customer-id",
+            "1",
+            "--hash-type",
+            "1000",
+            "--job-name",
+            "TestJob",
+        ],
+    )
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "5" in captured.out and "already uploaded" in captured.out
