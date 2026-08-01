@@ -39,10 +39,11 @@ def test_upload_wordlist_api_mocked(monkeypatch):
                 "wordlist_id": 123,
             }
 
-    def fake_post(url, data=None, headers=None):
+    def fake_post(url, data=None, headers=None, timeout=None):
         assert url.endswith(f"/v1/wordlists/add/{wordlist_name}")
         assert headers and headers.get("Content-Type") == "text/plain"
         assert data is not None
+        assert timeout is not None
         return DummyResponse()
 
     monkeypatch.setattr(api.session, "post", fake_post)

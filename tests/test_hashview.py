@@ -16,7 +16,7 @@ from unittest.mock import Mock, patch, MagicMock
 # Add the parent directory to the path to import hate_crack
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from hate_crack.api import HashviewAPI, _digest_for_type
+from hate_crack.api import HashviewAPI, HASHVIEW_DEFAULT_TIMEOUT, _digest_for_type
 
 # Test configuration - these are mock values, not real credentials
 HASHVIEW_URL = "https://hashview.example.com"
@@ -1191,6 +1191,29 @@ class TestHashviewAPI:
         wordlists = real_api.list_wordlists()
         assert isinstance(wordlists, list)
 
+    def test_get_hashfiles_by_type_passes_default_timeout(self, api):
+        """Every self.session.* call must pass a timeout -- see #241."""
+        mock_response = Mock()
+        mock_response.json.return_value = []
+        mock_response.raise_for_status = Mock()
+        api.session.get.return_value = mock_response
+
+        api.get_hashfiles_by_type("1000")
+
+        _, kwargs = api.session.get.call_args
+        assert kwargs.get("timeout") == HASHVIEW_DEFAULT_TIMEOUT
+
+    def test_list_wordlists_passes_default_timeout(self, api):
+        mock_response = Mock()
+        mock_response.json.return_value = []
+        mock_response.raise_for_status = Mock()
+        api.session.get.return_value = mock_response
+
+        api.list_wordlists()
+
+        _, kwargs = api.session.get.call_args
+        assert kwargs.get("timeout") == HASHVIEW_DEFAULT_TIMEOUT
+
     def test_create_job_workflow(self, api, test_hashfile):
         """Test creating a job in Hashview (option 2 complete workflow)"""
         print("\n" + "=" * 60)
@@ -1267,7 +1290,9 @@ class TestHashviewAPI:
         result = api.start_job(42)
 
         assert result["msg"] == "Job started"
-        api.session.post.assert_called_once_with(f"{HASHVIEW_URL}/v1/jobs/start/42")
+        api.session.post.assert_called_once_with(
+            f"{HASHVIEW_URL}/v1/jobs/start/42", timeout=HASHVIEW_DEFAULT_TIMEOUT
+        )
         api.session.get.assert_not_called()
 
     def test_delete_job_uses_delete_verb(self, api):
@@ -1280,7 +1305,9 @@ class TestHashviewAPI:
         result = api.delete_job(7)
 
         assert result["msg"] == "Job deleted"
-        api.session.delete.assert_called_once_with(f"{HASHVIEW_URL}/v1/jobs/7")
+        api.session.delete.assert_called_once_with(
+            f"{HASHVIEW_URL}/v1/jobs/7", timeout=HASHVIEW_DEFAULT_TIMEOUT
+        )
 
     def test_stop_job_not_supported(self, api):
         """Hashview has no stop-job route, so stop_job raises NotImplementedError."""
