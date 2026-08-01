@@ -5095,10 +5095,6 @@ def hashview_api():
                             print(f"  Hash count: {result['hash_count']}")
                         if "instacracked" in result:
                             print(f"  Insta-cracked: {result['instacracked']}")
-                        if result.get("skipped_cached"):
-                            print(
-                                f"  Skipped: {result['skipped_cached']} already uploaded previously"
-                            )
 
                         # Offer to create a job
                         create_job = (
@@ -5156,6 +5152,10 @@ def hashview_api():
                                     )
                             except Exception as e:
                                 print(f"\n✗ Error creating job: {str(e)}")
+                    if result.get("skipped_cached"):
+                        print(
+                            f"  Skipped: {result['skipped_cached']} already uploaded previously"
+                        )
                 except Exception as e:
                     print(f"\n✗ Error uploading hashfile: {str(e)}")
 
