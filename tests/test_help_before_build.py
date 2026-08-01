@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 
-def _load_main_module(monkeypatch, argv, force_missing_binary):
+def _load_main_module(monkeypatch, argv, force_missing_binary, tmp_path):
     """Reimport hate_crack.main fresh, without conftest's forced SKIP_INIT.
 
     conftest.py sets HATE_CRACK_SKIP_INIT=1 for the whole session so the
@@ -13,8 +13,12 @@ def _load_main_module(monkeypatch, argv, force_missing_binary):
     reimporting, and forces the expander binary to look missing via
     os.path.isfile regardless of whether hashcat-utils happens to be built
     on the machine running the test.
+
+    HOME is redirected to a temporary directory to prevent the test from
+    mutating ~/.hate_crack on the real machine during config initialization.
     """
     monkeypatch.delenv("HATE_CRACK_SKIP_INIT", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setattr(sys, "argv", argv)
 
     if force_missing_binary:
@@ -37,10 +41,13 @@ def _load_main_module(monkeypatch, argv, force_missing_binary):
     return module
 
 
-def test_help_does_not_exit_when_hashcat_utils_missing(monkeypatch, capsys):
+def test_help_does_not_exit_when_hashcat_utils_missing(monkeypatch, capsys, tmp_path):
     """`--help` must not hit the expander.bin asset check at import time."""
     _module = _load_main_module(
-        monkeypatch, ["hate_crack", "--help"], force_missing_binary=True
+        monkeypatch,
+        ["hate_crack", "--help"],
+        force_missing_binary=True,
+        tmp_path=tmp_path,
     )
     out = capsys.readouterr().out
     assert "expander not found" not in out

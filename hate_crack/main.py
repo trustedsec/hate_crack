@@ -103,13 +103,6 @@ except ImportError as rosetta_import_error:
     DebugAnalyzer = None
 
 
-def _argv_requests_help_or_version(argv=None):
-    """True if argv asks for help/version -- these don't need the toolchain."""
-    if argv is None:
-        argv = sys.argv[1:]
-    return any(a in ("-h", "--help", "--version") for a in argv)
-
-
 def rosetta_unavailable_reason():
     """Return a human-readable explanation for HashcatRosetta being missing."""
     message = (
@@ -741,16 +734,15 @@ except _config_loader.ConfigFileUnreadableError as _exc:
     _config_loader.exit_unreadable_config(_exc)
 _env_missing_before_bootstrap = _env_path is None
 _json_missing_before_bootstrap = _legacy_json_path is None
-if not _argv_requests_help_or_version():
-    _env_path, _legacy_json_path = _bootstrap_config_files(_env_path, _legacy_json_path)
-    _print_config_sources(
-        _env_path,
-        _legacy_json_path,
-        env_created=_env_missing_before_bootstrap,
-        json_created=_json_missing_before_bootstrap,
-        env_detail=_config_bootstrap_detail.get("env"),
-        json_detail=_config_bootstrap_detail.get("json"),
-    )
+_env_path, _legacy_json_path = _bootstrap_config_files(_env_path, _legacy_json_path)
+_print_config_sources(
+    _env_path,
+    _legacy_json_path,
+    env_created=_env_missing_before_bootstrap,
+    json_created=_json_missing_before_bootstrap,
+    env_detail=_config_bootstrap_detail.get("env"),
+    json_detail=_config_bootstrap_detail.get("json"),
+)
 
 # The loader is the single definition of the precedence stack: for each key,
 # schema default < that key's own home file < os.environ. config_parser stays
@@ -778,6 +770,13 @@ hashview_api_key = config_parser["hashview_api_key"]
 logger = logging.getLogger("hate_crack")
 if not logger.handlers:
     logger.addHandler(logging.NullHandler())
+
+
+def _argv_requests_help_or_version(argv=None):
+    """True if argv asks for help/version -- these don't need the toolchain."""
+    if argv is None:
+        argv = sys.argv[1:]
+    return any(a in ("-h", "--help", "--version") for a in argv)
 
 
 def ensure_binary(binary_path, build_dir=None, name=None):
