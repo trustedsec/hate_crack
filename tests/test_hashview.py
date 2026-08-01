@@ -261,6 +261,82 @@ class TestHashviewAPI:
         result = api.get_all_customer_hashfiles(1, hash_types=[1000, 5600])
         assert [hf["id"] for hf in result] == [9]
 
+    def test_get_all_customer_hashfiles_prefers_customer_scoped_route(self, api):
+        """The one-request route answers it; the 26-type sweep never runs."""
+        files = [
+            {"id": 1, "customer_id": 1, "name": "ntlm.txt", "hash_type": 1000},
+            {"id": 4, "customer_id": 1, "name": "exotic.txt", "hash_type": 99999},
+        ]
+        api.list_customer_hashfiles = Mock(return_value=files)
+        api.get_hashfiles_by_type = Mock()
+
+        result = api.get_all_customer_hashfiles(1)
+
+        assert result == files
+        api.list_customer_hashfiles.assert_called_once_with(1)
+        api.get_hashfiles_by_type.assert_not_called()
+        # A type outside COMMON_HASH_TYPES survives; the sweep would have missed it.
+        assert 99999 not in api.COMMON_HASH_TYPES
+        assert 4 in [hf["id"] for hf in result]
+
+    def test_get_all_customer_hashfiles_falls_back_when_route_absent(self, api):
+        """Servers predating the customer-scoped route 404; the sweep covers them."""
+        import requests
+
+        resp = Mock()
+        resp.status_code = 404
+        api.list_customer_hashfiles = Mock(
+            side_effect=requests.exceptions.HTTPError("404 Not Found", response=resp)
+        )
+        api.get_hashfiles_by_type = Mock(
+            side_effect=lambda ht: (
+                [{"id": 7, "customer_id": 1, "name": "ntlm.txt", "hash_type": 1000}]
+                if int(ht) == 1000
+                else []
+            )
+        )
+
+        result = api.get_all_customer_hashfiles(1)
+
+        assert [hf["id"] for hf in result] == [7]
+        assert api.get_hashfiles_by_type.call_count == len(api.COMMON_HASH_TYPES)
+
+    def test_get_all_customer_hashfiles_does_not_sweep_on_non_404(self, api):
+        """A 500 is a real failure, not a missing route.
+
+        Falling back would spend 26 requests against an already-unhealthy server
+        to produce a list that silently omits whatever the errors hid.
+        """
+        import requests
+
+        resp = Mock()
+        resp.status_code = 500
+        api.list_customer_hashfiles = Mock(
+            side_effect=requests.exceptions.HTTPError("500 Server Error", response=resp)
+        )
+        api.get_hashfiles_by_type = Mock()
+
+        with pytest.raises(requests.exceptions.HTTPError):
+            api.get_all_customer_hashfiles(1)
+        api.get_hashfiles_by_type.assert_not_called()
+
+    def test_list_customer_hashfiles_unwraps_response(self, api):
+        """The route returns {"hashfiles": [...]}; bare lists are tolerated too."""
+        resp = Mock()
+        resp.raise_for_status = Mock()
+        resp.json = Mock(return_value={"status": 200, "hashfiles": [{"id": 3}]})
+        api.session.get = Mock(return_value=resp)
+
+        assert api.list_customer_hashfiles(5) == [{"id": 3}]
+        url = api.session.get.call_args[0][0]
+        assert url.endswith("/v1/customers/5/hashfiles")
+
+        resp.json = Mock(return_value=[{"id": 8}])
+        assert api.list_customer_hashfiles(5) == [{"id": 8}]
+
+        resp.json = Mock(side_effect=ValueError("not json"))
+        assert api.list_customer_hashfiles(5) == []
+
     def test_get_customer_hashfiles(self, api):
         """Filter the type-scoped hashfile list by customer_id (mocked transport)."""
         api.get_hashfiles_by_type = Mock(

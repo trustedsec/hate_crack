@@ -9,6 +9,22 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ## [Unreleased]
 
+### Changed
+- **Listing a customer's hashfiles takes one request instead of 26.** Hashview
+  had no route to list a customer's files, so `get_all_customer_hashfiles`
+  approximated one by querying `/v1/hashfiles/hash_type/<N>` once per entry in a
+  26-entry table of common hashcat modes, pulling down every hashfile of each
+  type server-wide and discarding the ones belonging to other customers. Against
+  a live server a single one of those 26 requests measured 88 seconds. It was
+  also incomplete by construction: a hashfile of a type outside the table was
+  invisible, which is why the "no hashfiles" message had to hedge about whether
+  the server was old or the customer merely had nothing of a common type.
+
+  Hashview v0.8.3-dev added `GET /v1/customers/<id>/hashfiles`, which filters
+  server-side and covers every hash type. That route is used when present. Older
+  servers answer it with a 404 and fall back to the sweep unchanged, so nothing
+  regresses on them; passing `hash_types` explicitly still forces the sweep.
+
 ### Fixed
 - **Release versions now reflect what is in the batch.** `auto-tag.yml` forced
   `cz bump --increment MINOR` on every merge into `main`, so the second component

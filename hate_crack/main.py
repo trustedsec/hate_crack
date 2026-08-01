@@ -5129,16 +5129,13 @@ def hashview_api():
                                 continue
 
                         # Try to list the customer's hashfiles for convenience.
-                        # This only works on Hashview servers that expose the
-                        # /v1/hashfiles/hash_type endpoint (v0.8.3-dev, added
-                        # 2026-06-08); on `main` or older builds there is no
-                        # hashfile-listing API, so we fall back to entering the
-                        # hashfile ID directly (look it up in the web UI).
+                        # Servers with the customer-scoped route answer in one
+                        # request; older ones fall back to a per-type sweep, and
+                        # ones with neither leave the list empty, so the hashfile
+                        # ID has to be entered directly (look it up in the web UI).
                         hashfile_map = {}
                         try:
-                            print(
-                                "\nScanning customer hashfiles across common hash types..."
-                            )
+                            print("\nRetrieving customer hashfiles...")
                             customer_hashfiles = api_harness.get_all_customer_hashfiles(
                                 customer_id
                             )
@@ -5174,11 +5171,11 @@ def hashview_api():
                             print(f"Total: {len(hashfile_map)} hashfile(s)")
                         else:
                             print(
-                                "\nThis Hashview server has no hashfile-listing API "
-                                "(it lacks the /v1/hashfiles/hash_type endpoint), or "
-                                f"customer {customer_id} has no hashfiles of a common "
-                                "type. Look up the hashfile ID in the Hashview web UI "
-                                "and enter it below."
+                                f"\nNo hashfiles listed for customer {customer_id}. "
+                                "Either the customer has none, or this Hashview "
+                                "server predates the hashfile-listing API. Look up "
+                                "the hashfile ID in the Hashview web UI and enter "
+                                "it below."
                             )
 
                         while True:
