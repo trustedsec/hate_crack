@@ -213,6 +213,9 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   The release pipeline can still produce the ambiguous state; that half is being
   addressed separately in the versioning-policy work (#221).
 
+### Added
+- Hashview uploads now skip hashes already uploaded in a previous run, tracked in `~/.hate_crack/hashview_uploaded_cache.txt` (`upload_cracked_hashes`, `upload_hashfile`).
+
 ## [2.20.0] - 2026-07-31
 
 ### Added
