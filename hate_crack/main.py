@@ -772,6 +772,13 @@ if not logger.handlers:
     logger.addHandler(logging.NullHandler())
 
 
+def _argv_requests_help_or_version(argv=None):
+    """True if argv asks for help/version -- these don't need the toolchain."""
+    if argv is None:
+        argv = sys.argv[1:]
+    return any(a in ("-h", "--help", "--version") for a in argv)
+
+
 def ensure_binary(binary_path, build_dir=None, name=None):
     if not os.path.isfile(binary_path) or not os.access(binary_path, os.X_OK):
         if build_dir:
@@ -1116,7 +1123,7 @@ hcatGoodMeasureBaseList = _normalize_wordlist_setting(
     hcatGoodMeasureBaseList, wordlists_dir
 )
 hcatPrinceBaseList = _normalize_wordlist_setting(hcatPrinceBaseList, wordlists_dir)
-if not SKIP_INIT:
+if not SKIP_INIT and not _argv_requests_help_or_version():
     # Verify hashcat binary is available
     # hcatBin should be in PATH or be an absolute path (resolved from hcatPath + hcatBin if configured)
     try:
