@@ -28,6 +28,11 @@ from hate_crack.hashview_cache import append_to_cache, cache_key, load_cache
 _TORRENT_CLEANUP_REGISTERED = False
 _WEAKPASS_INERTIA_VERSION: str | None = None
 HASHVIEW_DEFAULT_TIMEOUT = 30
+# requests' scalar timeout caps connect time AND inter-byte read time, so a
+# bulk upload/import POST needs headroom beyond the metadata-call default --
+# a large payload can legitimately take the server longer than 30s to process
+# before it sends the first response byte.
+HASHVIEW_UPLOAD_TIMEOUT = 300
 
 
 class _RateLimiter:
@@ -1241,7 +1246,7 @@ class HashviewAPI:
         url = f"{self.base_url}/v1/wordlists/add/{wordlist_name}"
         headers = {"Content-Type": "text/plain"}
         resp = self.session.post(
-            url, data=file_content, headers=headers, timeout=HASHVIEW_DEFAULT_TIMEOUT
+            url, data=file_content, headers=headers, timeout=HASHVIEW_UPLOAD_TIMEOUT
         )
         resp.raise_for_status()
         return resp.json()
@@ -1661,7 +1666,7 @@ class HashviewAPI:
         )
         headers = {"Content-Type": "text/plain"}
         resp = self.session.post(
-            url, data=file_content, headers=headers, timeout=HASHVIEW_DEFAULT_TIMEOUT
+            url, data=file_content, headers=headers, timeout=HASHVIEW_UPLOAD_TIMEOUT
         )
         resp.raise_for_status()
         append_to_cache(new_keys)
@@ -1952,7 +1957,7 @@ class HashviewAPI:
             url,
             data=converted_content,
             headers=headers,
-            timeout=HASHVIEW_DEFAULT_TIMEOUT,
+            timeout=HASHVIEW_UPLOAD_TIMEOUT,
         )
         resp.raise_for_status()
         try:
