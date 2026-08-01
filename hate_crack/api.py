@@ -1615,8 +1615,35 @@ class HashviewAPI:
     ):
         if hashfile_name is None:
             hashfile_name = os.path.basename(file_path)
+
+        cache = load_cache()
+        kept_lines = []
+        new_keys = []
+        skipped_cached = 0
         with open(file_path, "rb") as f:
-            file_content = f.read()
+            for raw_line in f:
+                line = raw_line.rstrip(b"\r\n")
+                if not line:
+                    continue
+                hash_value = line.decode("utf-8", errors="ignore")
+                key = cache_key(hash_value, hash_type)
+                if key in cache:
+                    skipped_cached += 1
+                    continue
+                kept_lines.append(line)
+                new_keys.append(key)
+
+        if skipped_cached:
+            print(f"↷ Skipped {skipped_cached} hash(es) already uploaded previously")
+
+        if not kept_lines:
+            return {
+                "uploaded": 0,
+                "skipped_cached": skipped_cached,
+                "hashfile_id": None,
+            }
+
+        file_content = b"\n".join(kept_lines)
         url = (
             f"{self.base_url}/v1/hashfiles/upload/"
             f"{customer_id}/{file_format}/{hash_type}/{hashfile_name}"
@@ -1624,7 +1651,11 @@ class HashviewAPI:
         headers = {"Content-Type": "text/plain"}
         resp = self.session.post(url, data=file_content, headers=headers)
         resp.raise_for_status()
-        return resp.json()
+        append_to_cache(new_keys)
+        result = resp.json()
+        if isinstance(result, dict):
+            result.setdefault("skipped_cached", skipped_cached)
+        return result
 
     def create_job(
         self, name, hashfile_id, customer_id, limit_recovered=False, notify_email=None

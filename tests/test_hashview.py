@@ -856,6 +856,74 @@ class TestHashviewAPI:
 
         assert cache_key(NTLM_A, "1000") in load_cache()
 
+    def test_upload_hashfile_skips_cached_hash(self, api, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        from hate_crack.hashview_cache import append_to_cache, cache_key
+
+        append_to_cache([cache_key(NTLM_A, "1000")])
+
+        hashfile = tmp_path / "hashes.txt"
+        hashfile.write_text(f"{NTLM_A}\n{NTLM_B}\n")
+        mock_response = Mock()
+        mock_response.json.return_value = {"hashfile_id": 456}
+        mock_response.raise_for_status = Mock()
+        api.session.post.return_value = mock_response
+
+        result = api.upload_hashfile(str(hashfile), customer_id=1, hash_type="1000")
+
+        assert result["skipped_cached"] == 1
+        posted_body = api.session.post.call_args.kwargs["data"]
+        assert NTLM_A.encode() not in posted_body
+        assert NTLM_B.encode() in posted_body
+
+    def test_upload_hashfile_all_cached_skips_network_call(
+        self, api, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        from hate_crack.hashview_cache import append_to_cache, cache_key
+
+        append_to_cache([cache_key(NTLM_A, "1000")])
+
+        hashfile = tmp_path / "hashes.txt"
+        hashfile.write_text(f"{NTLM_A}\n")
+
+        result = api.upload_hashfile(str(hashfile), customer_id=1, hash_type="1000")
+
+        assert result == {"uploaded": 0, "skipped_cached": 1, "hashfile_id": None}
+        api.session.post.assert_not_called()
+
+    def test_upload_hashfile_success_populates_cache(self, api, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        from hate_crack.hashview_cache import load_cache, cache_key
+
+        hashfile = tmp_path / "hashes.txt"
+        hashfile.write_text(f"{NTLM_A}\n")
+        mock_response = Mock()
+        mock_response.json.return_value = {"hashfile_id": 456}
+        mock_response.raise_for_status = Mock()
+        api.session.post.return_value = mock_response
+
+        api.upload_hashfile(str(hashfile), customer_id=1, hash_type="1000")
+
+        assert cache_key(NTLM_A, "1000") in load_cache()
+
+    def test_upload_hashfile_failed_post_does_not_populate_cache(
+        self, api, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        from hate_crack.hashview_cache import load_cache, cache_key
+
+        hashfile = tmp_path / "hashes.txt"
+        hashfile.write_text(f"{NTLM_A}\n")
+        mock_response = Mock()
+        mock_response.raise_for_status = Mock(side_effect=requests.HTTPError("boom"))
+        api.session.post.return_value = mock_response
+
+        with pytest.raises(requests.HTTPError):
+            api.upload_hashfile(str(hashfile), customer_id=1, hash_type="1000")
+
+        assert cache_key(NTLM_A, "1000") not in load_cache()
+
     def test_create_customer_success(self, api):
         """create_customer returns the server's JSON body (mocked transport)."""
         mock_response = Mock()
