@@ -1240,14 +1240,18 @@ class HashviewAPI:
             file_content = f.read()
         url = f"{self.base_url}/v1/wordlists/add/{wordlist_name}"
         headers = {"Content-Type": "text/plain"}
-        resp = self.session.post(url, data=file_content, headers=headers, timeout=HASHVIEW_DEFAULT_TIMEOUT)
+        resp = self.session.post(
+            url, data=file_content, headers=headers, timeout=HASHVIEW_DEFAULT_TIMEOUT
+        )
         resp.raise_for_status()
         return resp.json()
 
     def list_wordlists(self):
         """List available wordlists from Hashview API."""
         endpoint = f"{self.base_url}/v1/wordlists"
-        response = self.session.get(endpoint, headers=self._auth_headers(), timeout=HASHVIEW_DEFAULT_TIMEOUT)
+        response = self.session.get(
+            endpoint, headers=self._auth_headers(), timeout=HASHVIEW_DEFAULT_TIMEOUT
+        )
         response.raise_for_status()
         try:
             data = response.json()
@@ -1312,7 +1316,9 @@ class HashviewAPI:
         Return all hashfiles of a given hash_type using the /v1/hashfiles/hash_type/<hash_type> endpoint.
         """
         url = f"{self.base_url}/v1/hashfiles/hash_type/{hash_type}"
-        resp = self.session.get(url, headers=self._auth_headers(), timeout=HASHVIEW_DEFAULT_TIMEOUT)
+        resp = self.session.get(
+            url, headers=self._auth_headers(), timeout=HASHVIEW_DEFAULT_TIMEOUT
+        )
         resp.raise_for_status()
         try:
             data = resp.json()
@@ -1331,7 +1337,9 @@ class HashviewAPI:
     def get_hashfile_details(self, hashfile_id):
         """Get hashfile details and hashtype for a given hashfile_id."""
         url = f"{self.base_url}/v1/getHashType/{hashfile_id}"
-        resp = self.session.get(url, headers=self._auth_headers(), timeout=HASHVIEW_DEFAULT_TIMEOUT)
+        resp = self.session.get(
+            url, headers=self._auth_headers(), timeout=HASHVIEW_DEFAULT_TIMEOUT
+        )
         resp.raise_for_status()
         try:
             data = resp.json()
@@ -1471,7 +1479,9 @@ class HashviewAPI:
         to swallow here.
         """
         url = f"{self.base_url}/v1/customers/{customer_id}/hashfiles"
-        resp = self.session.get(url, headers=self._auth_headers(), timeout=HASHVIEW_DEFAULT_TIMEOUT)
+        resp = self.session.get(
+            url, headers=self._auth_headers(), timeout=HASHVIEW_DEFAULT_TIMEOUT
+        )
         resp.raise_for_status()
         try:
             data = resp.json()
@@ -1650,7 +1660,9 @@ class HashviewAPI:
             f"{customer_id}/{file_format}/{hash_type}/{hashfile_name}"
         )
         headers = {"Content-Type": "text/plain"}
-        resp = self.session.post(url, data=file_content, headers=headers, timeout=HASHVIEW_DEFAULT_TIMEOUT)
+        resp = self.session.post(
+            url, data=file_content, headers=headers, timeout=HASHVIEW_DEFAULT_TIMEOUT
+        )
         resp.raise_for_status()
         append_to_cache(new_keys)
         result = resp.json()
@@ -1671,7 +1683,9 @@ class HashviewAPI:
         }
         if notify_email is not None:
             data["notify_email"] = bool(notify_email)
-        resp = self.session.post(url, json=data, headers=headers, timeout=HASHVIEW_DEFAULT_TIMEOUT)
+        resp = self.session.post(
+            url, json=data, headers=headers, timeout=HASHVIEW_DEFAULT_TIMEOUT
+        )
         resp.raise_for_status()
         try:
             return resp.json()
@@ -1718,7 +1732,12 @@ class HashviewAPI:
         # ("left") ciphertexts for the hashfile (see v1_api_get_hashfile). The
         # older /v1/hashfiles/<id>/left route no longer exists and 404s.
         url = f"{self.base_url}/v1/hashfiles/{hashfile_id}"
-        resp = self.session.get(url, headers=self._auth_headers(), stream=True, timeout=HASHVIEW_DEFAULT_TIMEOUT)
+        resp = self.session.get(
+            url,
+            headers=self._auth_headers(),
+            stream=True,
+            timeout=HASHVIEW_DEFAULT_TIMEOUT,
+        )
         resp.raise_for_status()
         if output_file is None:
             output_file = f"left_{customer_id}_{hashfile_id}.txt"
@@ -1762,7 +1781,10 @@ class HashviewAPI:
             # remains for forks/versions that expose a per-hashfile found dump.
             found_url = f"{self.base_url}/v1/hashfiles/{hashfile_id}/found"
             found_resp = self.session.get(
-                found_url, headers=self._auth_headers(), stream=True, timeout=HASHVIEW_DEFAULT_TIMEOUT
+                found_url,
+                headers=self._auth_headers(),
+                stream=True,
+                timeout=HASHVIEW_DEFAULT_TIMEOUT,
             )
 
             # Only proceed if we successfully downloaded the found file (ignore 404s)
@@ -1926,7 +1948,12 @@ class HashviewAPI:
         converted_content = b"\n".join(valid_lines)
         url = f"{self.base_url}/v1/hashes/import/{hash_type}"
         headers = {"Content-Type": "text/plain; charset=utf-8"}
-        resp = self.session.post(url, data=converted_content, headers=headers, timeout=HASHVIEW_DEFAULT_TIMEOUT)
+        resp = self.session.post(
+            url,
+            data=converted_content,
+            headers=headers,
+            timeout=HASHVIEW_DEFAULT_TIMEOUT,
+        )
         resp.raise_for_status()
         try:
             json_response = resp.json()
@@ -1954,7 +1981,9 @@ class HashviewAPI:
             update_url = f"{self.base_url}/v1/updateWordlist/{wordlist_id}"
             try:
                 update_resp = self.session.get(
-                    update_url, headers=self._auth_headers(), timeout=HASHVIEW_DEFAULT_TIMEOUT
+                    update_url,
+                    headers=self._auth_headers(),
+                    timeout=HASHVIEW_DEFAULT_TIMEOUT,
                 )
                 update_resp.raise_for_status()
             except Exception as exc:
@@ -1964,7 +1993,12 @@ class HashviewAPI:
                     )
 
         url = f"{self.base_url}/v1/wordlists/{wordlist_id}"
-        resp = self.session.get(url, headers=self._auth_headers(), stream=True, timeout=HASHVIEW_DEFAULT_TIMEOUT)
+        resp = self.session.get(
+            url,
+            headers=self._auth_headers(),
+            stream=True,
+            timeout=HASHVIEW_DEFAULT_TIMEOUT,
+        )
         resp.raise_for_status()
 
         if output_file is None:
@@ -1997,7 +2031,9 @@ class HashviewAPI:
     def list_rules(self):
         """List available rule files from the Hashview API (/v1/rules)."""
         endpoint = f"{self.base_url}/v1/rules"
-        response = self.session.get(endpoint, headers=self._auth_headers(), timeout=HASHVIEW_DEFAULT_TIMEOUT)
+        response = self.session.get(
+            endpoint, headers=self._auth_headers(), timeout=HASHVIEW_DEFAULT_TIMEOUT
+        )
         response.raise_for_status()
         try:
             data = response.json()
@@ -2025,7 +2061,9 @@ class HashviewAPI:
         import gzip
 
         url = f"{self.base_url}/v1/rules/{rules_id}"
-        resp = self.session.get(url, headers=self._auth_headers(), timeout=HASHVIEW_DEFAULT_TIMEOUT)
+        resp = self.session.get(
+            url, headers=self._auth_headers(), timeout=HASHVIEW_DEFAULT_TIMEOUT
+        )
         resp.raise_for_status()
 
         content = resp.content
@@ -2049,7 +2087,9 @@ class HashviewAPI:
         url = f"{self.base_url}/v1/customers/add"
         headers = {"Content-Type": "application/json"}
         data = {"name": name}
-        resp = self.session.post(url, json=data, headers=headers, timeout=HASHVIEW_DEFAULT_TIMEOUT)
+        resp = self.session.post(
+            url, json=data, headers=headers, timeout=HASHVIEW_DEFAULT_TIMEOUT
+        )
         resp.raise_for_status()
         try:
             payload = resp.json()
@@ -2059,7 +2099,9 @@ class HashviewAPI:
         msg = str(payload.get("msg", ""))
         if "invalid keyword argument for Customers" in msg:
             # Fallback for older Hashview servers that choke on JSON body parsing.
-            resp = self.session.post(url, data={"name": name}, timeout=HASHVIEW_DEFAULT_TIMEOUT)
+            resp = self.session.post(
+                url, data={"name": name}, timeout=HASHVIEW_DEFAULT_TIMEOUT
+            )
             resp.raise_for_status()
             return resp.json()
         return payload
