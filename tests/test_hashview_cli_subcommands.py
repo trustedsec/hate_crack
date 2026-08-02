@@ -271,6 +271,8 @@ def test_hashview_cli_upload_hashfile_job_all_cached_errors_without_job(
     assert "did not return a hashfile_id" in captured.out
     assert DummyHashviewAPIAllCached.instances, "HashviewAPI was never constructed"
     all_calls = [
-        call for instance in DummyHashviewAPIAllCached.instances for call in instance.calls
+        call
+        for instance in DummyHashviewAPIAllCached.instances
+        for call in instance.calls
     ]
     assert not any(call[0] == "create_job" for call in all_calls)

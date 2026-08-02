@@ -11,9 +11,10 @@ def _isolate_home(monkeypatch, tmp_path):
 
 
 def test_cache_key_matches_manual_sha256():
-    assert cache_key("deadbeef", "1000") == hashlib.sha256(
-        b"cracked:deadbeef:1000"
-    ).hexdigest()
+    assert (
+        cache_key("deadbeef", "1000")
+        == hashlib.sha256(b"cracked:deadbeef:1000").hexdigest()
+    )
 
 
 def test_cache_key_coerces_int_hash_type():
