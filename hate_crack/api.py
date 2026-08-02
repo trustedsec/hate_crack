@@ -1911,7 +1911,12 @@ class HashviewAPI:
                 print(f"    ... and {len(skipped) - 10} more")
 
         if not valid_lines:
-            if skipped_cached and not skipped:
+            if skipped_cached:
+                # At least one line was already-uploaded-and-cached, so this
+                # is not "nothing valid" -- it's "nothing left to upload
+                # after skipping what's cached," even if other lines were
+                # also genuinely invalid. Return gracefully instead of
+                # raising and blaming the invalid lines for the whole file.
                 return {
                     "uploaded": 0,
                     "skipped": len(skipped),

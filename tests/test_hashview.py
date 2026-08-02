@@ -802,6 +802,31 @@ class TestHashviewAPI:
         assert NTLM_A.encode() not in posted_body
         assert NTLM_B.encode() in posted_body
 
+    def test_upload_cracked_hashes_cached_plus_invalid_does_not_raise(
+        self, api, tmp_path, monkeypatch
+    ):
+        """One cached hash plus one genuinely invalid line must not raise
+        "No valid hashes to upload" -- that exception should be reserved for
+        the case where NOTHING was cached and NOTHING was valid. Before this
+        fix, ``skipped_cached and not skipped`` meant any invalid line at all
+        (even alongside cached hits) fell through to the exception, blaming
+        the invalid line and hiding that the cached hashes were actually
+        fine."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        from hate_crack.hashview_cache import append_to_cache, cache_key
+
+        append_to_cache([cache_key(NTLM_A, "1000", scope="cracked")])
+
+        cracked_file = tmp_path / "cracked.txt"
+        # NTLM_A is cached and skipped; MD5_A does not match hash mode 1000
+        # and is genuinely invalid.
+        cracked_file.write_text(f"{NTLM_A}:{SYNTH_PLAIN_A}\n{MD5_A}:{SYNTH_PLAIN_A}\n")
+        api.session.post.side_effect = AssertionError("should not POST")
+
+        result = api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
+
+        assert result == {"uploaded": 0, "skipped": 1, "skipped_cached": 1}
+
     def test_upload_cracked_hashes_all_cached_skips_network_call(
         self, api, tmp_path, monkeypatch
     ):
