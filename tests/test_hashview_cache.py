@@ -11,11 +11,28 @@ def _isolate_home(monkeypatch, tmp_path):
 
 
 def test_cache_key_matches_manual_sha256():
-    assert cache_key("deadbeef", "1000") == hashlib.sha256(b"deadbeef:1000").hexdigest()
+    assert cache_key("deadbeef", "1000") == hashlib.sha256(
+        b"cracked:deadbeef:1000"
+    ).hexdigest()
 
 
 def test_cache_key_coerces_int_hash_type():
     assert cache_key("deadbeef", 1000) == cache_key("deadbeef", "1000")
+
+
+def test_cache_key_defaults_to_cracked_scope():
+    assert cache_key("deadbeef", "1000") == cache_key(
+        "deadbeef", "1000", scope="cracked"
+    )
+
+
+def test_cache_key_different_scopes_do_not_collide():
+    """upload_hashfile and upload_cracked_hashes must never share a key for
+    the same (hash, hash_type) -- that collision is the data-loss bug this
+    scoping fixes."""
+    assert cache_key("deadbeef", "1000", scope="cracked") != cache_key(
+        "deadbeef", "1000", scope="hashfile:1"
+    )
 
 
 def test_load_cache_missing_file_returns_empty_set():

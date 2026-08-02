@@ -1626,7 +1626,7 @@ class HashviewAPI:
                 if not line:
                     continue
                 hash_value = line.decode("utf-8", errors="ignore")
-                key = cache_key(hash_value, hash_type)
+                key = cache_key(hash_value, hash_type, scope=f"hashfile:{customer_id}")
                 if key in cache:
                     skipped_cached += 1
                     continue
@@ -1877,7 +1877,7 @@ class HashviewAPI:
                     skipped.append((lineno, "<undecodable>", "hash field is not UTF-8"))
                     continue
 
-                key = cache_key(hash_value, hash_type)
+                key = cache_key(hash_value, hash_type, scope="cracked")
                 if key in cache:
                     skipped_cached += 1
                     continue
