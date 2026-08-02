@@ -111,15 +111,28 @@ def _isolate_notify_state():
 
 @pytest.fixture(autouse=True)
 def _isolate_hashview_cache(monkeypatch, tmp_path):
-    """Isolate hashview cache per test to avoid cross-test contamination.
+    """Isolate the hashview upload cache per test to avoid cross-test
+    contamination.
 
-    The cache module reads from ``~/.hate_crack/hashview_cache.txt`` by default.
-    Without isolation, tests that populate the cache would affect subsequent
-    tests that don't explicitly set HOME to a temp directory, causing hashes
-    to be unexpectedly skipped as already-cached.
+    The cache module reads from
+    ``~/.hate_crack/hashview_uploaded_cache.txt`` by default (see
+    ``hate_crack.hashview_cache.CACHE_FILENAME``). Without isolation, tests
+    that populate the cache would affect subsequent tests, causing hashes to
+    be unexpectedly skipped as already-cached.
+
+    This patches ``hashview_cache._cache_path`` directly rather than
+    monkeypatching ``HOME`` for the whole process -- ``HOME`` affects far
+    more than this one cache (path expansion elsewhere in the suite), so
+    narrowing to the specific function keeps this fixture's blast radius to
+    exactly the thing it isolates.
     """
-    # Set HOME to a temp directory for each test, so cache operations are isolated
-    monkeypatch.setenv("HOME", str(tmp_path))
+    from hate_crack import hashview_cache
+
+    monkeypatch.setattr(
+        hashview_cache,
+        "_cache_path",
+        lambda: tmp_path / ".hate_crack" / hashview_cache.CACHE_FILENAME,
+    )
 
 
 def pytest_configure(config):

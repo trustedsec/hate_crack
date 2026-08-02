@@ -5090,7 +5090,7 @@ def hashview_api():
                         hashfile_name,
                     )
                     print(f"\n✓ Success: {result.get('msg', 'Hashfile uploaded')}")
-                    if "hashfile_id" in result:
+                    if result.get("hashfile_id"):
                         print(f"  Hashfile ID: {result['hashfile_id']}")
                         # Hash count is not returned by the upload API, so we don't display it
                         if "hash_count" in result:
@@ -6505,7 +6505,7 @@ def main():
                 print(
                     f"  Skipped: {upload_result['skipped_cached']} already uploaded previously"
                 )
-            if "hashfile_id" not in upload_result:
+            if not upload_result.get("hashfile_id"):
                 print("✗ Error: Hashfile upload did not return a hashfile_id.")
                 sys.exit(1)
             job_result = api_harness.create_job(

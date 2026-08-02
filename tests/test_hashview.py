@@ -21,6 +21,7 @@ from hate_crack.api import (
     HASHVIEW_DEFAULT_TIMEOUT,
     HASHVIEW_UPLOAD_TIMEOUT,
     _digest_for_type,
+    _md4,
 )
 
 # Test configuration - these are mock values, not real credentials
@@ -52,6 +53,16 @@ NTLM_C = _synth_digest(1000, SYNTH_PLAIN_C)
 MD5_A = _synth_digest(0, SYNTH_PLAIN_A)
 # The all-zero NTLM of the empty password; a marker Hashview must never import.
 NTLM_EMPTY = "31d6cfe0d16ae931b73c59d7e0c089c0"
+
+# A synthetic plaintext holding a genuine multi-byte UTF-8 character (£, not
+# ASCII/Latin-1-as-a-single-byte). Its NTLM digest is computed by encoding the
+# actual Unicode string as UTF-16LE directly -- the correct hashcat behaviour
+# for real text -- rather than through ``_synth_digest``/``_digest_for_type``,
+# which is exactly the code path under test (issue: potfile lines with
+# non-ASCII plaintexts were wrongly rejected as "would be rejected by
+# Hashview").
+SYNTH_PLAIN_UNICODE = "Synthetic-Example-£-Ddd"
+NTLM_UNICODE = _md4(SYNTH_PLAIN_UNICODE.encode("utf-16le"))
 
 
 class TestHashviewAPI:
@@ -606,6 +617,30 @@ class TestHashviewAPI:
             api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
         assert "Invalid API response" in str(excinfo.value)
 
+    def test_upload_cracked_hashes_unicode_plaintext_ntlm(self, api, tmp_path):
+        """A genuine multi-byte UTF-8 plaintext validates correctly for NTLM.
+
+        Regression test: ``_validate_cracked_pair`` used to zero-extend each
+        *UTF-8 byte* of a non-$HEX plaintext before UTF-16LE encoding, instead
+        of encoding the actual Unicode codepoints. That doubled up any
+        non-ASCII character (e.g. ``£`` became two UTF-16 code units instead
+        of one), producing the wrong NTLM digest and skipping an otherwise
+        valid cracked hash with "plaintext does not match hash under mode
+        1000".
+        """
+        cracked_file = tmp_path / "cracked.txt"
+        cracked_file.write_text(
+            f"{NTLM_UNICODE}:{SYNTH_PLAIN_UNICODE}\n", encoding="utf-8"
+        )
+        mock_response = Mock()
+        mock_response.json.return_value = {"imported": 1}
+        mock_response.raise_for_status = Mock()
+        api.session.post.return_value = mock_response
+
+        result = api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
+        assert result["uploaded"] == 1
+        assert result["skipped"] == 0
+
     def test_upload_skips_wrong_type_line(self, api, tmp_path, capsys):
         """An MD5 line mixed into an NTLM upload is filtered client-side."""
         cracked_file = tmp_path / "cracked.txt"
@@ -791,7 +826,7 @@ class TestHashviewAPI:
         monkeypatch.setenv("HOME", str(tmp_path))
         from hate_crack.hashview_cache import append_to_cache, cache_key
 
-        append_to_cache([cache_key(NTLM_A, "1000")])
+        append_to_cache([cache_key(NTLM_A, "1000", scope="cracked")])
 
         cracked_file = tmp_path / "cracked.txt"
         cracked_file.write_text(f"{NTLM_A}:{SYNTH_PLAIN_A}\n{NTLM_B}:{SYNTH_PLAIN_B}\n")
@@ -807,6 +842,31 @@ class TestHashviewAPI:
         assert NTLM_A.encode() not in posted_body
         assert NTLM_B.encode() in posted_body
 
+    def test_upload_cracked_hashes_cached_plus_invalid_does_not_raise(
+        self, api, tmp_path, monkeypatch
+    ):
+        """One cached hash plus one genuinely invalid line must not raise
+        "No valid hashes to upload" -- that exception should be reserved for
+        the case where NOTHING was cached and NOTHING was valid. Before this
+        fix, ``skipped_cached and not skipped`` meant any invalid line at all
+        (even alongside cached hits) fell through to the exception, blaming
+        the invalid line and hiding that the cached hashes were actually
+        fine."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        from hate_crack.hashview_cache import append_to_cache, cache_key
+
+        append_to_cache([cache_key(NTLM_A, "1000", scope="cracked")])
+
+        cracked_file = tmp_path / "cracked.txt"
+        # NTLM_A is cached and skipped; MD5_A does not match hash mode 1000
+        # and is genuinely invalid.
+        cracked_file.write_text(f"{NTLM_A}:{SYNTH_PLAIN_A}\n{MD5_A}:{SYNTH_PLAIN_A}\n")
+        api.session.post.side_effect = AssertionError("should not POST")
+
+        result = api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
+
+        assert result == {"uploaded": 0, "skipped": 1, "skipped_cached": 1}
+
     def test_upload_cracked_hashes_all_cached_skips_network_call(
         self, api, tmp_path, monkeypatch
     ):
@@ -814,7 +874,7 @@ class TestHashviewAPI:
         monkeypatch.setenv("HOME", str(tmp_path))
         from hate_crack.hashview_cache import append_to_cache, cache_key
 
-        append_to_cache([cache_key(NTLM_A, "1000")])
+        append_to_cache([cache_key(NTLM_A, "1000", scope="cracked")])
 
         cracked_file = tmp_path / "cracked.txt"
         cracked_file.write_text(f"{NTLM_A}:{SYNTH_PLAIN_A}\n")
@@ -841,7 +901,7 @@ class TestHashviewAPI:
         with pytest.raises(requests.HTTPError):
             api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
 
-        assert cache_key(NTLM_A, "1000") not in load_cache()
+        assert cache_key(NTLM_A, "1000", scope="cracked") not in load_cache()
 
     def test_upload_cracked_hashes_success_populates_cache(
         self, api, tmp_path, monkeypatch
@@ -859,13 +919,13 @@ class TestHashviewAPI:
 
         api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
 
-        assert cache_key(NTLM_A, "1000") in load_cache()
+        assert cache_key(NTLM_A, "1000", scope="cracked") in load_cache()
 
     def test_upload_hashfile_skips_cached_hash(self, api, tmp_path, monkeypatch):
         monkeypatch.setenv("HOME", str(tmp_path))
         from hate_crack.hashview_cache import append_to_cache, cache_key
 
-        append_to_cache([cache_key(NTLM_A, "1000")])
+        append_to_cache([cache_key(NTLM_A, "1000", scope="hashfile:1")])
 
         hashfile = tmp_path / "hashes.txt"
         hashfile.write_text(f"{NTLM_A}\n{NTLM_B}\n")
@@ -887,7 +947,7 @@ class TestHashviewAPI:
         monkeypatch.setenv("HOME", str(tmp_path))
         from hate_crack.hashview_cache import append_to_cache, cache_key
 
-        append_to_cache([cache_key(NTLM_A, "1000")])
+        append_to_cache([cache_key(NTLM_A, "1000", scope="hashfile:1")])
 
         hashfile = tmp_path / "hashes.txt"
         hashfile.write_text(f"{NTLM_A}\n")
@@ -910,7 +970,7 @@ class TestHashviewAPI:
 
         api.upload_hashfile(str(hashfile), customer_id=1, hash_type="1000")
 
-        assert cache_key(NTLM_A, "1000") in load_cache()
+        assert cache_key(NTLM_A, "1000", scope="hashfile:1") in load_cache()
 
     def test_upload_hashfile_failed_post_does_not_populate_cache(
         self, api, tmp_path, monkeypatch
@@ -927,7 +987,40 @@ class TestHashviewAPI:
         with pytest.raises(requests.HTTPError):
             api.upload_hashfile(str(hashfile), customer_id=1, hash_type="1000")
 
-        assert cache_key(NTLM_A, "1000") not in load_cache()
+        assert cache_key(NTLM_A, "1000", scope="hashfile:1") not in load_cache()
+
+    def test_hashfile_upload_does_not_poison_cracked_results_cache(
+        self, api, tmp_path, monkeypatch
+    ):
+        """Regression test: uploading a hashfile (to be cracked) and later
+        uploading the cracked results for those same hashes must not collide
+        in the cache. Before the scope namespacing fix, both operations
+        hashed to the same cache key, so the cracked-results upload would
+        see every hash as already "uploaded" and silently skip it."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        hashfile = tmp_path / "hashes.txt"
+        hashfile.write_text(f"{NTLM_A}\n")
+        hashfile_response = Mock()
+        hashfile_response.json.return_value = {"hashfile_id": 456}
+        hashfile_response.raise_for_status = Mock()
+        api.session.post.return_value = hashfile_response
+
+        api.upload_hashfile(str(hashfile), customer_id=1, hash_type="1000")
+
+        cracked_file = tmp_path / "cracked.txt"
+        cracked_file.write_text(f"{NTLM_A}:{SYNTH_PLAIN_A}\n")
+        cracked_response = Mock()
+        cracked_response.json.return_value = {"imported": 1}
+        cracked_response.raise_for_status = Mock()
+        api.session.post.return_value = cracked_response
+
+        result = api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
+
+        assert result["skipped_cached"] == 0
+        assert api.session.post.call_count == 2
+        posted_body = api.session.post.call_args.kwargs["data"]
+        assert NTLM_A.encode() in posted_body
 
     def test_create_customer_success(self, api):
         """create_customer returns the server's JSON body (mocked transport)."""

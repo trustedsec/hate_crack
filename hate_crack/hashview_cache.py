@@ -3,6 +3,21 @@
 Tracks (hash, hash_type) pairs that have been successfully uploaded so
 repeat uploads (upload_cracked_hashes, upload_hashfile) can skip them
 before doing any verification or network work.
+
+``cache_key`` takes an explicit ``scope`` tag because the two upload paths
+represent different operations that must never collide in the cache:
+
+- ``upload_hashfile`` sends ciphertexts *to be cracked*. Its keys are scoped
+  as ``"hashfile:<customer_id>"`` so re-uploading the same hashlist for a
+  different customer/engagement is not silently skipped.
+- ``upload_cracked_hashes`` sends plaintexts back *as a cracked result*
+  (default scope ``"cracked"``).
+
+Without distinct scopes, uploading a hashfile and later uploading the
+cracked results for those same hashes would hash to the same cache key: the
+second (cracked-results) upload would see every hash as already "uploaded"
+and skip it entirely, silently dropping the results while still reporting
+success.
 """
 
 import hashlib
@@ -21,8 +36,8 @@ def _cache_path() -> Path:
     return Path(os.path.expanduser("~")) / ".hate_crack" / CACHE_FILENAME
 
 
-def cache_key(hash_value: str, hash_type) -> str:
-    return hashlib.sha256(f"{hash_value}:{hash_type}".encode()).hexdigest()
+def cache_key(hash_value: str, hash_type, scope: str = "cracked") -> str:
+    return hashlib.sha256(f"{scope}:{hash_value}:{hash_type}".encode()).hexdigest()
 
 
 def load_cache() -> set:
