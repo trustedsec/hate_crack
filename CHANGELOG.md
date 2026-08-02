@@ -9,22 +9,6 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ## [2.24.0] - 2026-08-02
 
-### Changed
-- **Listing a customer's hashfiles takes one request instead of 26.** Hashview
-  had no route to list a customer's files, so `get_all_customer_hashfiles`
-  approximated one by querying `/v1/hashfiles/hash_type/<N>` once per entry in a
-  26-entry table of common hashcat modes, pulling down every hashfile of each
-  type server-wide and discarding the ones belonging to other customers. Against
-  a live server a single one of those 26 requests measured 88 seconds. It was
-  also incomplete by construction: a hashfile of a type outside the table was
-  invisible, which is why the "no hashfiles" message had to hedge about whether
-  the server was old or the customer merely had nothing of a common type.
-
-  Hashview v0.8.3-dev added `GET /v1/customers/<id>/hashfiles`, which filters
-  server-side and covers every hash type. That route is used when present. Older
-  servers answer it with a 404 and fall back to the sweep unchanged, so nothing
-  regresses on them; passing `hash_types` explicitly still forces the sweep.
-
 ### Fixed
 - **A cracked password with a leading or trailing space was flagged as a
   hash/plaintext mismatch and skipped during Hashview upload.** Both
@@ -70,6 +54,62 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   escape baked into an entry string would be counted as visible width, leaving
   the grid ragged and a truncated name able to strand an unreset colour.
 
+### Added
+- Hashview uploads now skip hashes already uploaded in a previous run, tracked in `~/.hate_crack/hashview_uploaded_cache.txt` (`upload_cracked_hashes`, `upload_hashfile`).
+
+### Fixed
+- **Uploading a hashfile and later uploading its cracked results silently
+  dropped the cracked-results upload.** Both `upload_hashfile` (send hashes to
+  be cracked) and `upload_cracked_hashes` (send plaintexts back) computed the
+  same cache key for a given `(hash, hash_type)` pair, so the two operations
+  collided: after uploading a hashfile, the follow-up upload of its cracked
+  results saw every hash as already "uploaded" and skipped all of them,
+  while still printing `✓ Success`. The cache key is now namespaced per
+  operation (`cracked` vs. `hashfile:<customer_id>`), so the two paths can no
+  longer collide, and re-uploading the same hashlist for a different
+  customer is no longer silently skipped either.
+- Two call sites in `main.py` checked `"hashfile_id" in result` (presence)
+  rather than truthiness, so `upload_hashfile`'s all-cached response
+  (`hashfile_id: None`) passed the guard as if a real hashfile was created —
+  the interactive menu offered to create a job against `None`, and the
+  `upload-hashfile-job` CLI subcommand called `create_job(None, ...)` instead
+  of reporting an error. Both now check `result.get("hashfile_id")`.
+- `upload_cracked_hashes` raised a misleading "No valid hashes to upload"
+  exception when a file mixed already-cached hashes with a genuinely invalid
+  line, blaming the invalid line while hiding that the cached hashes were
+  actually fine. The graceful early return now fires whenever any hashes were
+  cached, regardless of whether others were also invalid.
+- **A cracked NTLM (mode 1000) plaintext with a genuine multi-byte UTF-8
+  character (e.g. `£`) was rejected as "plaintext does not match hash under
+  mode 1000" and skipped during Hashview upload.** `_digest_for_type`
+  zero-extended each *UTF-8 byte* of the plaintext before UTF-16LE encoding —
+  correct only for raw bytes recovered from a `$HEX[...]` wrapper — instead of
+  encoding the actual Unicode codepoints, doubling every non-ASCII character
+  into two UTF-16 code units and producing the wrong digest. Mode 1000 now
+  prefers decoding the raw bytes as UTF-8 (exact for genuine text, a no-op for
+  the zero-extend path since `$HEX`-wrapped bytes are only ever non-UTF-8 by
+  construction), falling back to the existing latin-1 zero-extend only when
+  that decode fails.
+
+## [2.23.0] - 2026-07-31
+
+### Changed
+- **Listing a customer's hashfiles takes one request instead of 26.** Hashview
+  had no route to list a customer's files, so `get_all_customer_hashfiles`
+  approximated one by querying `/v1/hashfiles/hash_type/<N>` once per entry in a
+  26-entry table of common hashcat modes, pulling down every hashfile of each
+  type server-wide and discarding the ones belonging to other customers. Against
+  a live server a single one of those 26 requests measured 88 seconds. It was
+  also incomplete by construction: a hashfile of a type outside the table was
+  invisible, which is why the "no hashfiles" message had to hedge about whether
+  the server was old or the customer merely had nothing of a common type.
+
+  Hashview v0.8.3-dev added `GET /v1/customers/<id>/hashfiles`, which filters
+  server-side and covers every hash type. That route is used when present. Older
+  servers answer it with a 404 and fall back to the sweep unchanged, so nothing
+  regresses on them; passing `hash_types` explicitly still forces the sweep.
+
+### Fixed
 - **`python -m hate_crack --help` no longer calls itself `__main__.py`.** The
   parser took its program name from whatever argparse inferred, which is the
   module filename under `-m`. The console script was unaffected, since argparse
@@ -84,6 +124,37 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   run the console script belonging to the interpreter running them, and a new test
   covers the `-m` path that actually regressed.
 
+## [2.22.2] - 2026-07-31
+
+### Fixed
+- **`tools/`, `packaging/`, and the `hate_crack.py` entry point are now linted
+  everywhere, and a guard proves it.** No lint entry point named `tools/` or
+  `packaging/` at all, so an `F541` and a formatting drift sat unnoticed in
+  `tools/ollama_benchmark.py` until someone ran ruff by hand (issue #237). The
+  Makefile, `prek.toml`, and `.github/workflows/ci.yml` now all scope ruff to
+  `hate_crack tests tools packaging hate_crack.py`, and
+  `tests/test_lint_scope.py` reads those files directly so it fails the moment
+  any of them drifts from the others.
+
+  `hate_crack.py` -- the documented entry point (README.md) -- was invisible to
+  the drift guard itself: it only ever swept directories, so a root-level
+  module could never be flagged as unlinted even after the scope above was
+  widened. The guard now sweeps root `.py` files too. `hate_crack.py`'s 32
+  `F821`s are an intentional consequence of its `globals().setdefault()`
+  re-export shim (ruff can't see the runtime copy from `hate_crack/main.py`),
+  so they're silenced explicitly via `[tool.ruff.lint.per-file-ignores]` rather
+  than left to accumulate unexplained.
+
+  Two more gaps in the guard itself: `test_both_lint_and_format_are_checked_
+  everywhere` only asserted a command count, so two `ruff check` lines and zero
+  `ruff format --check` lines would still pass -- it now checks the verbs
+  actually present. And `test_the_declared_scope_actually_passes` ran `python
+  -m ruff` instead of `uv run ruff`, which can resolve a different ruff
+  entirely than every real gate uses.
+
+## [2.22.1] - 2026-07-31
+
+### Fixed
 - **Release versions now reflect what is in the batch.** `auto-tag.yml` forced
   `cz bump --increment MINOR` on every merge into `main`, so the second component
   moved regardless of content and `main` could never produce an `X.Y.Z` with a
@@ -124,6 +195,8 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   string, never that the policy was right. Both workflows also now skip cleanly
   when a batch is empty instead of tagging the empty string.
 
+## [2.22.0] - 2026-07-31
+
 ### Added
 - **Startup now finishes a migration that a later schema change stranded.**
   `write_env_from_legacy()` only runs when there is no `.env` yet -- once both
@@ -141,32 +214,6 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   nothing but the warning -- and the warning *was* the prompt. Running
   unprompted also means scheduled and piped runs get repaired, which is exactly
   where a prompt would hang or be dismissed forever.
-
-### Fixed
-- **`tools/`, `packaging/`, and the `hate_crack.py` entry point are now linted
-  everywhere, and a guard proves it.** No lint entry point named `tools/` or
-  `packaging/` at all, so an `F541` and a formatting drift sat unnoticed in
-  `tools/ollama_benchmark.py` until someone ran ruff by hand (issue #237). The
-  Makefile, `prek.toml`, and `.github/workflows/ci.yml` now all scope ruff to
-  `hate_crack tests tools packaging hate_crack.py`, and
-  `tests/test_lint_scope.py` reads those files directly so it fails the moment
-  any of them drifts from the others.
-
-  `hate_crack.py` -- the documented entry point (README.md) -- was invisible to
-  the drift guard itself: it only ever swept directories, so a root-level
-  module could never be flagged as unlinted even after the scope above was
-  widened. The guard now sweeps root `.py` files too. `hate_crack.py`'s 32
-  `F821`s are an intentional consequence of its `globals().setdefault()`
-  re-export shim (ruff can't see the runtime copy from `hate_crack/main.py`),
-  so they're silenced explicitly via `[tool.ruff.lint.per-file-ignores]` rather
-  than left to accumulate unexplained.
-
-  Two more gaps in the guard itself: `test_both_lint_and_format_are_checked_
-  everywhere` only asserted a command count, so two `ruff check` lines and zero
-  `ruff format --check` lines would still pass -- it now checks the verbs
-  actually present. And `test_the_declared_scope_actually_passes` ran `python
-  -m ruff` instead of `uv run ruff`, which can resolve a different ruff
-  entirely than every real gate uses.
 
   A key already set in the `.env` keeps that value -- the `.env` is the live
   source, and copying the stale copy over it would silently revert a setting in
@@ -186,6 +233,9 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   weeks earlier. Backups now fall back to `.pre-split.bak.2`, `.3` and so on, so
   a used name is never reused.
 
+## [2.21.0] - 2026-07-31
+
+### Fixed
 - **The update check no longer loops forever when one commit carries two release
   tags.** The 2.20.0 release left commit `e37d568` tagged both `v2.19.15` and
   `v2.20.0`, because `nightly-dev` and `main` pointed at the same commit and both
@@ -212,43 +262,6 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
   The release pipeline can still produce the ambiguous state; that half is being
   addressed separately in the versioning-policy work (#221).
-
-### Added
-- Hashview uploads now skip hashes already uploaded in a previous run, tracked in `~/.hate_crack/hashview_uploaded_cache.txt` (`upload_cracked_hashes`, `upload_hashfile`).
-
-### Fixed
-- **Uploading a hashfile and later uploading its cracked results silently
-  dropped the cracked-results upload.** Both `upload_hashfile` (send hashes to
-  be cracked) and `upload_cracked_hashes` (send plaintexts back) computed the
-  same cache key for a given `(hash, hash_type)` pair, so the two operations
-  collided: after uploading a hashfile, the follow-up upload of its cracked
-  results saw every hash as already "uploaded" and skipped all of them,
-  while still printing `✓ Success`. The cache key is now namespaced per
-  operation (`cracked` vs. `hashfile:<customer_id>`), so the two paths can no
-  longer collide, and re-uploading the same hashlist for a different
-  customer is no longer silently skipped either.
-- Two call sites in `main.py` checked `"hashfile_id" in result` (presence)
-  rather than truthiness, so `upload_hashfile`'s all-cached response
-  (`hashfile_id: None`) passed the guard as if a real hashfile was created —
-  the interactive menu offered to create a job against `None`, and the
-  `upload-hashfile-job` CLI subcommand called `create_job(None, ...)` instead
-  of reporting an error. Both now check `result.get("hashfile_id")`.
-- `upload_cracked_hashes` raised a misleading "No valid hashes to upload"
-  exception when a file mixed already-cached hashes with a genuinely invalid
-  line, blaming the invalid line while hiding that the cached hashes were
-  actually fine. The graceful early return now fires whenever any hashes were
-  cached, regardless of whether others were also invalid.
-- **A cracked NTLM (mode 1000) plaintext with a genuine multi-byte UTF-8
-  character (e.g. `£`) was rejected as "plaintext does not match hash under
-  mode 1000" and skipped during Hashview upload.** `_digest_for_type`
-  zero-extended each *UTF-8 byte* of the plaintext before UTF-16LE encoding —
-  correct only for raw bytes recovered from a `$HEX[...]` wrapper — instead of
-  encoding the actual Unicode codepoints, doubling every non-ASCII character
-  into two UTF-16 code units and producing the wrong digest. Mode 1000 now
-  prefers decoding the raw bytes as UTF-8 (exact for genuine text, a no-op for
-  the zero-extend path since `$HEX`-wrapped bytes are only ever non-UTF-8 by
-  construction), falling back to the existing latin-1 zero-extend only when
-  that decode fails.
 
 ## [2.20.0] - 2026-07-31
 
