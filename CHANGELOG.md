@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
-## [Unreleased]
+## [2.24.0] - 2026-08-02
 
 ### Changed
 - **Listing a customer's hashfiles takes one request instead of 26.** Hashview
@@ -238,6 +238,17 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   line, blaming the invalid line while hiding that the cached hashes were
   actually fine. The graceful early return now fires whenever any hashes were
   cached, regardless of whether others were also invalid.
+- **A cracked NTLM (mode 1000) plaintext with a genuine multi-byte UTF-8
+  character (e.g. `£`) was rejected as "plaintext does not match hash under
+  mode 1000" and skipped during Hashview upload.** `_digest_for_type`
+  zero-extended each *UTF-8 byte* of the plaintext before UTF-16LE encoding —
+  correct only for raw bytes recovered from a `$HEX[...]` wrapper — instead of
+  encoding the actual Unicode codepoints, doubling every non-ASCII character
+  into two UTF-16 code units and producing the wrong digest. Mode 1000 now
+  prefers decoding the raw bytes as UTF-8 (exact for genuine text, a no-op for
+  the zero-extend path since `$HEX`-wrapped bytes are only ever non-UTF-8 by
+  construction), falling back to the existing latin-1 zero-extend only when
+  that decode fails.
 
 ## [2.20.0] - 2026-07-31
 
