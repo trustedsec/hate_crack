@@ -1163,11 +1163,21 @@ def _digest_for_type(hash_type: str, raw: bytes) -> Optional[str]:
     if ht == "1700":
         return hashlib.sha512(raw).hexdigest()
     if ht in ("900", "1000"):
-        # MD4 over the raw bytes; NTLM is MD4 over UTF-16LE. hashcat forms the
-        # NTLM candidate by zero-extending each raw byte, which is exactly
-        # latin-1(bytes).encode("utf-16le") -- correct for arbitrary binary too.
+        # MD4 over the raw bytes; NTLM is MD4 over UTF-16LE. A $HEX[...]
+        # plaintext carries hashcat's raw candidate bytes, zero-extended one
+        # byte per UTF-16 code unit -- correct for arbitrary binary. But a
+        # plaintext hashcat printed as plain text is genuine Unicode (e.g. a
+        # potfile line holding "£"), and re-zero-extending its *UTF-8* bytes
+        # would double up every non-ASCII character. Prefer decoding as
+        # UTF-8 -- always exact for the plain-text case and a no-op for
+        # zero-extend when the raw bytes aren't valid UTF-8 -- falling back
+        # to the zero-extend rule only when that decode fails.
         if ht == "1000":
-            return _md4(raw.decode("latin-1").encode("utf-16le"))
+            try:
+                utf16 = raw.decode("utf-8").encode("utf-16le")
+            except UnicodeDecodeError:
+                utf16 = raw.decode("latin-1").encode("utf-16le")
+            return _md4(utf16)
         return _md4(raw)
     return None
 

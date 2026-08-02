@@ -16,7 +16,7 @@ from unittest.mock import Mock, patch, MagicMock
 # Add the parent directory to the path to import hate_crack
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from hate_crack.api import HashviewAPI, _digest_for_type
+from hate_crack.api import HashviewAPI, _digest_for_type, _md4
 
 # Test configuration - these are mock values, not real credentials
 HASHVIEW_URL = "https://hashview.example.com"
@@ -47,6 +47,16 @@ NTLM_C = _synth_digest(1000, SYNTH_PLAIN_C)
 MD5_A = _synth_digest(0, SYNTH_PLAIN_A)
 # The all-zero NTLM of the empty password; a marker Hashview must never import.
 NTLM_EMPTY = "31d6cfe0d16ae931b73c59d7e0c089c0"
+
+# A synthetic plaintext holding a genuine multi-byte UTF-8 character (£, not
+# ASCII/Latin-1-as-a-single-byte). Its NTLM digest is computed by encoding the
+# actual Unicode string as UTF-16LE directly -- the correct hashcat behaviour
+# for real text -- rather than through ``_synth_digest``/``_digest_for_type``,
+# which is exactly the code path under test (issue: potfile lines with
+# non-ASCII plaintexts were wrongly rejected as "would be rejected by
+# Hashview").
+SYNTH_PLAIN_UNICODE = "Synthetic-Example-£-Ddd"
+NTLM_UNICODE = _md4(SYNTH_PLAIN_UNICODE.encode("utf-16le"))
 
 
 class TestHashviewAPI:
@@ -600,6 +610,30 @@ class TestHashviewAPI:
         with pytest.raises(Exception) as excinfo:
             api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
         assert "Invalid API response" in str(excinfo.value)
+
+    def test_upload_cracked_hashes_unicode_plaintext_ntlm(self, api, tmp_path):
+        """A genuine multi-byte UTF-8 plaintext validates correctly for NTLM.
+
+        Regression test: ``_validate_cracked_pair`` used to zero-extend each
+        *UTF-8 byte* of a non-$HEX plaintext before UTF-16LE encoding, instead
+        of encoding the actual Unicode codepoints. That doubled up any
+        non-ASCII character (e.g. ``£`` became two UTF-16 code units instead
+        of one), producing the wrong NTLM digest and skipping an otherwise
+        valid cracked hash with "plaintext does not match hash under mode
+        1000".
+        """
+        cracked_file = tmp_path / "cracked.txt"
+        cracked_file.write_text(
+            f"{NTLM_UNICODE}:{SYNTH_PLAIN_UNICODE}\n", encoding="utf-8"
+        )
+        mock_response = Mock()
+        mock_response.json.return_value = {"imported": 1}
+        mock_response.raise_for_status = Mock()
+        api.session.post.return_value = mock_response
+
+        result = api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
+        assert result["uploaded"] == 1
+        assert result["skipped"] == 0
 
     def test_upload_skips_wrong_type_line(self, api, tmp_path, capsys):
         """An MD5 line mixed into an NTLM upload is filtered client-side."""
