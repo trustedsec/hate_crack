@@ -35,6 +35,14 @@ class DummyHashviewAPI:
             "size": 10,
         }
 
+    #: Overridden by DummyHashviewAPIAllCached to simulate every line already
+    #: being cached (upload_hashfile's early-return shape: hashfile_id=None).
+    upload_hashfile_result = {
+        "msg": "Hashfile uploaded",
+        "hashfile_id": 456,
+        "skipped_cached": 5,
+    }
+
     def upload_hashfile(
         self, file_path, customer_id, hash_type, file_format=5, hashfile_name=None
     ):
@@ -48,7 +56,7 @@ class DummyHashviewAPI:
                 hashfile_name,
             )
         )
-        return {"msg": "Hashfile uploaded", "hashfile_id": 456, "skipped_cached": 5}
+        return dict(self.upload_hashfile_result)
 
     def create_job(
         self, name, hashfile_id, customer_id, limit_recovered=False, notify_email=True
@@ -66,9 +74,37 @@ class DummyHashviewAPI:
         return {"msg": "Job created", "job_id": 789}
 
 
+class DummyHashviewAPIAllCached(DummyHashviewAPI):
+    """upload_hashfile's all-cached shape: no upload happened, so there is no
+    real hashfile_id -- everything was already uploaded previously."""
+
+    upload_hashfile_result = {
+        "msg": "Hashfile uploaded",
+        "uploaded": 0,
+        "skipped_cached": 5,
+        "hashfile_id": None,
+    }
+
+    #: Track every instance created so tests can assert on .calls after
+    #: main() constructs its own HashviewAPI internally.
+    instances = []
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        DummyHashviewAPIAllCached.instances.append(self)
+
+
 @pytest.fixture
 def _patch_hashview(monkeypatch):
     monkeypatch.setattr(hc_main, "HashviewAPI", DummyHashviewAPI)
+    hc_main.hashview_api_key = "dummy"
+    hc_main.hashview_url = "https://hashview.example.com"
+
+
+@pytest.fixture
+def _patch_hashview_all_cached(monkeypatch):
+    DummyHashviewAPIAllCached.instances = []
+    monkeypatch.setattr(hc_main, "HashviewAPI", DummyHashviewAPIAllCached)
     hc_main.hashview_api_key = "dummy"
     hc_main.hashview_url = "https://hashview.example.com"
 
@@ -205,3 +241,36 @@ def test_hashview_cli_upload_hashfile_job_reports_skipped_cached(
     captured = capsys.readouterr()
     assert code == 0
     assert "5" in captured.out and "already uploaded" in captured.out
+
+
+def test_hashview_cli_upload_hashfile_job_all_cached_errors_without_job(
+    _patch_hashview_all_cached, monkeypatch, tmp_path, capsys
+):
+    """Regression test: when upload_hashfile returns its all-cached shape
+    (hashfile_id: None, nothing actually uploaded), the CLI must treat that
+    as an error and must NOT call create_job with a None hashfile_id."""
+    hashfile = tmp_path / "hashes.txt"
+    hashfile.write_text("hash1\n")
+    code = _run_main_with_args(
+        monkeypatch,
+        [
+            "hashview",
+            "upload-hashfile-job",
+            "--file",
+            str(hashfile),
+            "--customer-id",
+            "1",
+            "--hash-type",
+            "1000",
+            "--job-name",
+            "TestJob",
+        ],
+    )
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "did not return a hashfile_id" in captured.out
+    assert DummyHashviewAPIAllCached.instances, "HashviewAPI was never constructed"
+    all_calls = [
+        call for instance in DummyHashviewAPIAllCached.instances for call in instance.calls
+    ]
+    assert not any(call[0] == "create_job" for call in all_calls)
