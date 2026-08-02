@@ -216,6 +216,29 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 ### Added
 - Hashview uploads now skip hashes already uploaded in a previous run, tracked in `~/.hate_crack/hashview_uploaded_cache.txt` (`upload_cracked_hashes`, `upload_hashfile`).
 
+### Fixed
+- **Uploading a hashfile and later uploading its cracked results silently
+  dropped the cracked-results upload.** Both `upload_hashfile` (send hashes to
+  be cracked) and `upload_cracked_hashes` (send plaintexts back) computed the
+  same cache key for a given `(hash, hash_type)` pair, so the two operations
+  collided: after uploading a hashfile, the follow-up upload of its cracked
+  results saw every hash as already "uploaded" and skipped all of them,
+  while still printing `✓ Success`. The cache key is now namespaced per
+  operation (`cracked` vs. `hashfile:<customer_id>`), so the two paths can no
+  longer collide, and re-uploading the same hashlist for a different
+  customer is no longer silently skipped either.
+- Two call sites in `main.py` checked `"hashfile_id" in result` (presence)
+  rather than truthiness, so `upload_hashfile`'s all-cached response
+  (`hashfile_id: None`) passed the guard as if a real hashfile was created —
+  the interactive menu offered to create a job against `None`, and the
+  `upload-hashfile-job` CLI subcommand called `create_job(None, ...)` instead
+  of reporting an error. Both now check `result.get("hashfile_id")`.
+- `upload_cracked_hashes` raised a misleading "No valid hashes to upload"
+  exception when a file mixed already-cached hashes with a genuinely invalid
+  line, blaming the invalid line while hiding that the cached hashes were
+  actually fine. The graceful early return now fires whenever any hashes were
+  cached, regardless of whether others were also invalid.
+
 ## [2.20.0] - 2026-07-31
 
 ### Added
