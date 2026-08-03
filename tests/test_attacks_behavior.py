@@ -679,10 +679,9 @@ class TestAdhocMaskCharsetSkipping:
 class TestRosettaAttack:
     def test_mask_choice_prompts_description_and_calls_hcatRosettaMask(self) -> None:
         ctx = _make_ctx()
-        ctx.rosetta_debug_logs.return_value = ["/tmp/debug1.log"]
 
         with (
-            patch("hate_crack.attacks.interactive_menu", side_effect=["a", "4"]),
+            patch("hate_crack.attacks.interactive_menu", return_value="4"),
             patch("builtins.input", return_value="8 char passwords with digits"),
         ):
             rosetta_attack(ctx)
@@ -693,10 +692,9 @@ class TestRosettaAttack:
 
     def test_mask_choice_does_not_call_hcatRosetta(self) -> None:
         ctx = _make_ctx()
-        ctx.rosetta_debug_logs.return_value = ["/tmp/debug1.log"]
 
         with (
-            patch("hate_crack.attacks.interactive_menu", side_effect=["a", "4"]),
+            patch("hate_crack.attacks.interactive_menu", return_value="4"),
             patch("builtins.input", return_value="pins"),
         ):
             rosetta_attack(ctx)
@@ -708,7 +706,7 @@ class TestRosettaAttack:
         ctx.rosetta_debug_logs.return_value = ["/tmp/debug1.log"]
 
         with (
-            patch("hate_crack.attacks.interactive_menu", side_effect=["a", "1"]),
+            patch("hate_crack.attacks.interactive_menu", side_effect=["1", "a"]),
             patch("builtins.input", side_effect=["", ""]),
         ):
             rosetta_attack(ctx)
@@ -721,4 +719,19 @@ class TestRosettaAttack:
             top_rules=100,
             top_basewords=None,
         )
+        ctx.hcatRosettaMask.assert_not_called()
+
+    def test_metric_choice_with_no_debug_logs_returns_without_calling_hcatRosetta(
+        self,
+    ) -> None:
+        ctx = _make_ctx()
+        ctx.rosetta_debug_logs.return_value = []
+
+        with (
+            patch("hate_crack.attacks.interactive_menu", side_effect=["1", "99"]),
+            patch("builtins.input"),
+        ):
+            rosetta_attack(ctx)
+
+        ctx.hcatRosetta.assert_not_called()
         ctx.hcatRosettaMask.assert_not_called()

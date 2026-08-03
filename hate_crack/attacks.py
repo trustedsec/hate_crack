@@ -591,10 +591,6 @@ def rosetta_attack(ctx: Any) -> None:
     print("was originally paired with.")
     print("=" * 60)
 
-    debug_files = _select_debug_logs(ctx)
-    if not debug_files:
-        return
-
     items = [
         ("1", "Application frequency (rules applied most often)"),
         ("2", "Baseword spread (rules that worked across the most basewords)"),
@@ -618,6 +614,10 @@ def rosetta_attack(ctx: Any) -> None:
     metric = {"1": "frequency", "2": "basewords", "3": "candidates"}.get(choice)
     if metric is None:
         print("[!] Invalid selection.")
+        return
+
+    debug_files = _select_debug_logs(ctx)
+    if not debug_files:
         return
 
     top_rules = _prompt_positive_int(

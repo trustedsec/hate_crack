@@ -303,7 +303,7 @@ class TestRosettaAttackHandler:
         ctx = self._ctx(tmp_path, debug_log)
         ctx.rosetta_debug_logs.return_value = [debug_log, debug_log]
         with (
-            patch("hate_crack.attacks.interactive_menu", side_effect=["a", "1"]),
+            patch("hate_crack.attacks.interactive_menu", side_effect=["1", "a"]),
             patch("builtins.input", side_effect=["", ""]),
         ):
             attacks.rosetta_attack(ctx)
@@ -312,7 +312,7 @@ class TestRosettaAttackHandler:
     def test_manual_path_option(self, tmp_path, debug_log):
         ctx = self._ctx(tmp_path, debug_log)
         with (
-            patch("hate_crack.attacks.interactive_menu", side_effect=["p", "1"]),
+            patch("hate_crack.attacks.interactive_menu", side_effect=["1", "p"]),
             patch("builtins.input", side_effect=["", ""]),
         ):
             attacks.rosetta_attack(ctx)
@@ -321,7 +321,7 @@ class TestRosettaAttackHandler:
     def test_manual_path_that_does_not_exist_aborts(self, tmp_path, debug_log, capsys):
         ctx = self._ctx(tmp_path, debug_log)
         ctx.select_file_with_autocomplete.return_value = str(tmp_path / "missing.log")
-        with patch("hate_crack.attacks.interactive_menu", side_effect=["p"]):
+        with patch("hate_crack.attacks.interactive_menu", side_effect=["1", "p"]):
             attacks.rosetta_attack(ctx)
         ctx.hcatRosetta.assert_not_called()
         assert "Debug log not found" in capsys.readouterr().out
@@ -344,7 +344,7 @@ class TestRosettaAttackHandler:
     def test_metric_choices(self, tmp_path, debug_log, choice, expected):
         ctx = self._ctx(tmp_path, debug_log)
         with (
-            patch("hate_crack.attacks.interactive_menu", side_effect=["1", choice]),
+            patch("hate_crack.attacks.interactive_menu", side_effect=[choice, "1"]),
             patch("builtins.input", side_effect=["", ""]),
         ):
             attacks.rosetta_attack(ctx)
@@ -385,20 +385,20 @@ class TestRosettaAttackHandler:
     @pytest.mark.parametrize("choice", ["99", None])
     def test_back_out_of_log_menu(self, tmp_path, debug_log, choice):
         ctx = self._ctx(tmp_path, debug_log)
-        with patch("hate_crack.attacks.interactive_menu", side_effect=[choice]):
+        with patch("hate_crack.attacks.interactive_menu", side_effect=["1", choice]):
             attacks.rosetta_attack(ctx)
         ctx.hcatRosetta.assert_not_called()
 
     @pytest.mark.parametrize("choice", ["99", None])
     def test_back_out_of_metric_menu(self, tmp_path, debug_log, choice):
         ctx = self._ctx(tmp_path, debug_log)
-        with patch("hate_crack.attacks.interactive_menu", side_effect=["1", choice]):
+        with patch("hate_crack.attacks.interactive_menu", side_effect=[choice]):
             attacks.rosetta_attack(ctx)
         ctx.hcatRosetta.assert_not_called()
 
     def test_out_of_range_log_selection_aborts(self, tmp_path, debug_log, capsys):
         ctx = self._ctx(tmp_path, debug_log)
-        with patch("hate_crack.attacks.interactive_menu", side_effect=["7"]):
+        with patch("hate_crack.attacks.interactive_menu", side_effect=["1", "7"]):
             attacks.rosetta_attack(ctx)
         ctx.hcatRosetta.assert_not_called()
         assert "Invalid selection" in capsys.readouterr().out
