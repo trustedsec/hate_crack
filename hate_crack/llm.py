@@ -663,8 +663,17 @@ def generate_masks(
     seen: set[str] = set()
     masks: list[str] = []
     for raw in getattr(result, "masks", []) or []:
+        # A non-string entry is model noise, not a mask; str() on it would turn
+        # None into the literal "None", which _valid_hcmask would then reject
+        # for the wrong reason.
         if not isinstance(raw, str):
             continue
+        # Surrounding whitespace goes so that '  ?d?d  ' and '?d?d' dedupe
+        # against each other. The cost is that a mask ending in a literal
+        # trailing space cannot come back from the model this way — worth it,
+        # since models pad far more often than they emit a meaningful
+        # trailing space, and an unstripped mask would otherwise slip past
+        # dedup.
         mask = raw.strip()
         if not mask or mask in seen:
             continue

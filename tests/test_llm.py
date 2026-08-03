@@ -421,6 +421,16 @@ def test_generate_masks_skips_non_string_entries():
     assert out == ["?d?d?d?d"]
 
 
+def test_generate_masks_skips_empty_string_entries():
+    p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_agent([])
+    agent_instance.run.return_value.masks = ["?d?d?d?d", "", "   "]
+    with p_instr, p_openai, p_agent:
+        out = llm.generate_masks(
+            "http://localhost:11434", "qwen2.5:32b", 2048, "pins", no_cloud=False
+        )
+    assert out == ["?d?d?d?d"]
+
+
 def test_generate_masks_raises_llm_timeout_error():
     p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_agent([])
     agent_instance.run.side_effect = openai.APITimeoutError(request=mock.MagicMock())
