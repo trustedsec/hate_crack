@@ -564,6 +564,7 @@ class TestOptimizedKernel:
             "hcatRecycle",
             "hcatBruteForce",
             "hcatTopMask",
+            "hcatRosettaMask",
             "hcatPathwellBruteForce",
         ],
     )

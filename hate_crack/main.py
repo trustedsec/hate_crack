@@ -207,6 +207,7 @@ DEFAULT_OPTIMIZED_ATTACKS = frozenset(
         "hcatRecycle",
         "hcatBruteForce",
         "hcatTopMask",
+        "hcatRosettaMask",
         "hcatPathwellBruteForce",
         "hcatAdHocMask",
         "hcatMarkovBruteForce",
@@ -2292,6 +2293,72 @@ def hcatTopMask(hcatHashType, hcatHashFile, hcatTargetTime):
     _run_hcat_cmd(cmd, attack_name="Top Mask", hash_file=hcatHashFile)
 
     hcatMaskCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
+
+
+# Rosetta Mask Attack: natural-language description -> hashcat masks
+def hcatRosettaMask(hcatHashType, hcatHashFile, description):
+    """Turn a plain-English description into hashcat masks and run them.
+
+    Asks the local Ollama model (via ``llm.generate_masks``) for masks
+    matching *description*, screens the result with ``_valid_hcmask``, writes
+    the survivors to ``<hcatHashFile>.hcmask``, and runs a ``-a 3`` mask
+    attack against them immediately — mirroring ``hcatTopMask``'s tail.
+    """
+    global hcatProcess
+
+    try:
+        with spinner(f"Generating masks via Ollama ({ollamaModel})..."):
+            masks = llm.generate_masks(
+                ollamaUrl,
+                ollamaModel,
+                ollamaNumCtx,
+                description,
+                timeout=ollamaTimeout,
+                no_cloud=ollamaNoCloud,
+            )
+    except llm.LLMTimeoutError:
+        print(f"Error: the Ollama request timed out after {ollamaTimeout:g} seconds.")
+        print(
+            f"The model ({ollamaModel}) may still be loading into VRAM. Retry, or "
+            "raise OLLAMA_TIMEOUT in the .env file to wait longer."
+        )
+        return
+    except Exception as e:
+        print(f"Error generating masks: {e}")
+        print(
+            "Ensure Ollama is running (ollama serve) and the model is pulled "
+            f"(ollama pull {ollamaModel})."
+        )
+        return
+
+    valid_masks = [mask for mask in masks if _valid_hcmask(mask)]
+    if not valid_masks:
+        print("Error: the model returned no usable masks.")
+        return
+
+    hcmask_path = f"{hcatHashFile}.hcmask"
+    with open(hcmask_path, "w", encoding="utf-8") as f:
+        f.writelines(f"{mask}\n" for mask in valid_masks)
+    print(f"Generated {len(valid_masks)} mask(s) -> {hcmask_path}")
+
+    cmd = [
+        hcatBin,
+        "-m",
+        hcatHashType,
+        hcatHashFile,
+        "--session",
+        generate_session_id(),
+        "-o",
+        f"{hcatHashFile}.out",
+        "-a",
+        "3",
+        hcmask_path,
+    ]
+    if _should_use_optimized_kernel("hcatRosettaMask"):
+        _insert_optimized_flag(cmd)
+    cmd.extend(shlex.split(hcatTuning))
+    _append_potfile_arg(cmd)
+    _run_hcat_cmd(cmd, attack_name="Rosetta Mask", hash_file=hcatHashFile)
 
 
 # Fingerprint Attack

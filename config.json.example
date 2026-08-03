@@ -25,11 +25,11 @@
   "check_for_updates": true,
   "optimizedKernelAttacks": [
     "hcatDictionary", "hcatQuickDictionary", "hcatBandrel", "hcatGoodMeasure",
-    "hcatRecycle", "hcatBruteForce", "hcatTopMask", "hcatPathwellBruteForce",
-    "hcatAdHocMask", "hcatMarkovBruteForce", "hcatFingerprint", "hcatCombination",
-    "hcatCombinator3", "hcatCombinatorX", "hcatHybrid", "hcatYoloCombination",
-    "hcatMiddleCombinator", "hcatThoroughCombinator", "hcatCombipow", "hcatPrince",
-    "hcatPermute", "hcatPCFG"
+    "hcatRecycle", "hcatBruteForce", "hcatTopMask", "hcatRosettaMask",
+    "hcatPathwellBruteForce", "hcatAdHocMask", "hcatMarkovBruteForce", "hcatFingerprint",
+    "hcatCombination", "hcatCombinator3", "hcatCombinatorX", "hcatHybrid",
+    "hcatYoloCombination", "hcatMiddleCombinator", "hcatThoroughCombinator",
+    "hcatCombipow", "hcatPrince", "hcatPermute", "hcatPCFG"
   ],
   "notify_enabled": false,
   "notify_per_crack_enabled": false,
