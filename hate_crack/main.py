@@ -2204,7 +2204,7 @@ _HCMASK_PLACEHOLDER_LETTERS = frozenset("ludsab")
 _HCMASK_MAX_LEN = 32
 
 
-def _valid_hcmask(mask) -> bool:
+def _valid_hcmask(mask: object) -> bool:
     """Is *mask* a syntactically valid hashcat brute-force mask?
 
     A '?' must be followed by one of the built-in placeholder letters

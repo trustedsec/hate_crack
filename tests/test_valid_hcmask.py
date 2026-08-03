@@ -56,3 +56,23 @@ def test_mask_with_embedded_newline_is_invalid():
 
 def test_mask_with_literal_space_is_valid():
     assert hc_main._valid_hcmask("?u?l?l ?d?d?d") is True
+
+
+def test_exactly_max_length_mask_is_valid():
+    assert hc_main._valid_hcmask("?a" * 16) is True  # 32 characters
+
+
+def test_one_over_max_length_mask_is_invalid():
+    assert hc_main._valid_hcmask("a" + "?a" * 16) is False  # 33 characters
+
+
+def test_single_question_mark_is_invalid():
+    assert hc_main._valid_hcmask("?") is False
+
+
+def test_triple_question_mark_is_invalid():
+    assert hc_main._valid_hcmask("???") is False
+
+
+def test_quadruple_question_mark_is_valid():
+    assert hc_main._valid_hcmask("????") is True
