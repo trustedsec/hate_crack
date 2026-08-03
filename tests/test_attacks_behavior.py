@@ -12,6 +12,7 @@ from hate_crack.attacks import (
     ollama_attack,
     pathwell_crack,
     prince_attack,
+    rosetta_attack,
     thorough_combinator,
     top_mask_crack,
     yolo_combination,
@@ -673,3 +674,51 @@ class TestAdhocMaskCharsetSkipping:
         ctx.hcatAdHocMask.assert_called_once()
         charset_arg = ctx.hcatAdHocMask.call_args[0][3]
         assert charset_arg == "-1 ?u?l -3 ?d?s", charset_arg
+
+
+class TestRosettaAttack:
+    def test_mask_choice_prompts_description_and_calls_hcatRosettaMask(self) -> None:
+        ctx = _make_ctx()
+        ctx.rosetta_debug_logs.return_value = ["/tmp/debug1.log"]
+
+        with (
+            patch("hate_crack.attacks.interactive_menu", side_effect=["a", "4"]),
+            patch("builtins.input", return_value="8 char passwords with digits"),
+        ):
+            rosetta_attack(ctx)
+
+        ctx.hcatRosettaMask.assert_called_once_with(
+            ctx.hcatHashType, ctx.hcatHashFile, "8 char passwords with digits"
+        )
+
+    def test_mask_choice_does_not_call_hcatRosetta(self) -> None:
+        ctx = _make_ctx()
+        ctx.rosetta_debug_logs.return_value = ["/tmp/debug1.log"]
+
+        with (
+            patch("hate_crack.attacks.interactive_menu", side_effect=["a", "4"]),
+            patch("builtins.input", return_value="pins"),
+        ):
+            rosetta_attack(ctx)
+
+        ctx.hcatRosetta.assert_not_called()
+
+    def test_existing_metric_choice_1_is_unaffected(self) -> None:
+        ctx = _make_ctx()
+        ctx.rosetta_debug_logs.return_value = ["/tmp/debug1.log"]
+
+        with (
+            patch("hate_crack.attacks.interactive_menu", side_effect=["a", "1"]),
+            patch("builtins.input", side_effect=["", ""]),
+        ):
+            rosetta_attack(ctx)
+
+        ctx.hcatRosetta.assert_called_once_with(
+            ctx.hcatHashType,
+            ctx.hcatHashFile,
+            ["/tmp/debug1.log"],
+            metric="frequency",
+            top_rules=100,
+            top_basewords=None,
+        )
+        ctx.hcatRosettaMask.assert_not_called()

@@ -599,11 +599,22 @@ def rosetta_attack(ctx: Any) -> None:
         ("1", "Application frequency (rules applied most often)"),
         ("2", "Baseword spread (rules that worked across the most basewords)"),
         ("3", "Candidate variety (rules producing the most unique candidates)"),
+        ("4", "LLM Mask Attack (natural language -> hcmask)"),
         ("99", "Back to Main Menu"),
     ]
     choice = interactive_menu(items, title="\nRank rules by:")
     if choice is None or choice == "99":
         return
+
+    if choice == "4":
+        description = input(
+            "\n[*] Describe the passwords you expect (patterns, length, "
+            "symbols, etc.): "
+        ).strip()
+        _notify.prompt_notify_for_attack("Rosetta Mask")
+        ctx.hcatRosettaMask(ctx.hcatHashType, ctx.hcatHashFile, description)
+        return
+
     metric = {"1": "frequency", "2": "basewords", "3": "candidates"}.get(choice)
     if metric is None:
         print("[!] Invalid selection.")

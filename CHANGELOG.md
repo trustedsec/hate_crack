@@ -18,6 +18,13 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   batch's own successful POST, so a later batch's failure still leaves
   earlier batches deduped for a retry — a re-run resumes instead of
   resending everything. `upload_hashfile` is unchanged.
+- **The Rosetta menu (`23`) gained a fourth choice, an LLM Mask Attack**: describe
+  the passwords you expect in plain English and a local Ollama model
+  (`llm.generate_masks`) turns that description into hashcat brute-force
+  masks, which are written to `<hashfile>.hcmask` and run immediately with
+  `-a 3` (`hcatRosettaMask`). No corpus statistics are sent to the model —
+  this mode is driven entirely by the operator's description, unlike the
+  existing rule-mining choices `1`-`3`.
 
 ## [2.24.0] - 2026-08-02
 
