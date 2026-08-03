@@ -2196,6 +2196,40 @@ def hcatQuickDictionary(
     _run_hcat_cmd(cmd, attack_name=attack_name, hash_file=hcatHashFile)
 
 
+# Built-in hashcat charset placeholders usable in a mask, per hashcat's
+# documented -1..-4/custom-charset-free set. Anything else after a '?' is
+# either a literal '?' (escaped as '??') or an invalid mask.
+_HCMASK_PLACEHOLDER_LETTERS = frozenset("ludsab")
+_HCMASK_MAX_LEN = 32
+
+
+def _valid_hcmask(mask) -> bool:
+    """Is *mask* a syntactically valid hashcat brute-force mask?
+
+    A '?' must be followed by one of the built-in placeholder letters
+    (l/u/d/s/a/b) or by another '?' (the escape for a literal question mark).
+    Anything else — an unescaped trailing '?', an unrecognized placeholder
+    letter, a non-string, an empty string, or a mask longer than
+    ``_HCMASK_MAX_LEN`` characters — is rejected. Length is capped as a guard
+    against runaway model output, not a hashcat limitation as such.
+    """
+    if not isinstance(mask, str) or not mask or len(mask) > _HCMASK_MAX_LEN:
+        return False
+    i = 0
+    n = len(mask)
+    while i < n:
+        if mask[i] == "?":
+            if i + 1 >= n:
+                return False
+            nxt = mask[i + 1]
+            if nxt != "?" and nxt not in _HCMASK_PLACEHOLDER_LETTERS:
+                return False
+            i += 2
+        else:
+            i += 1
+    return True
+
+
 # Top Mask Attack
 def hcatTopMask(hcatHashType, hcatHashFile, hcatTargetTime):
     global hcatMaskCount
