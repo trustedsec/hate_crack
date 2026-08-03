@@ -33,6 +33,7 @@ HASHVIEW_DEFAULT_TIMEOUT = 30
 # a large payload can legitimately take the server longer than 30s to process
 # before it sends the first response byte.
 HASHVIEW_UPLOAD_TIMEOUT = 300
+HASHVIEW_CRACKED_BATCH_SIZE = 10_000
 
 
 class _RateLimiter:
@@ -1965,32 +1966,75 @@ class HashviewAPI:
                 f"({len(skipped)} line(s) skipped by validation)."
             )
 
-        converted_content = b"\n".join(valid_lines)
         url = f"{self.base_url}/v1/hashes/import/{hash_type}"
         headers = {"Content-Type": "text/plain; charset=utf-8"}
-        resp = self.session.post(
-            url,
-            data=converted_content,
-            headers=headers,
-            timeout=HASHVIEW_UPLOAD_TIMEOUT,
-        )
-        resp.raise_for_status()
-        try:
-            json_response = resp.json()
-            if "type" in json_response and json_response["type"] == "Error":
+
+        batches = [
+            valid_lines[i : i + HASHVIEW_CRACKED_BATCH_SIZE]
+            for i in range(0, len(valid_lines), HASHVIEW_CRACKED_BATCH_SIZE)
+        ]
+        key_batches = [
+            new_keys[i : i + HASHVIEW_CRACKED_BATCH_SIZE]
+            for i in range(0, len(new_keys), HASHVIEW_CRACKED_BATCH_SIZE)
+        ]
+
+        aggregated = {}
+        summable_fields = ("verified", "updated", "count")
+        list_fields = ("unmatched",)
+        for batch_num, (line_batch, key_batch) in enumerate(
+            zip(batches, key_batches), start=1
+        ):
+            if len(batches) > 1:
+                print(
+                    f"Uploading batch {batch_num}/{len(batches)} "
+                    f"({len(line_batch)} hashes)..."
+                )
+            converted_content = b"\n".join(line_batch)
+            resp = self.session.post(
+                url,
+                data=converted_content,
+                headers=headers,
+                timeout=HASHVIEW_UPLOAD_TIMEOUT,
+            )
+            resp.raise_for_status()
+            try:
+                json_response = resp.json()
+            except (json.JSONDecodeError, ValueError):
+                raise Exception(f"Invalid API response: {resp.text[:200]}")
+            if not isinstance(json_response, dict):
+                if len(batches) == 1:
+                    # Matches today's single-request behavior: a non-dict
+                    # response (rare, but Hashview's contract doesn't forbid
+                    # it) is returned as-is rather than merged.
+                    append_to_cache(key_batch)
+                    return json_response
+                raise Exception(
+                    f"Hashview API returned a non-object response for batch "
+                    f"{batch_num}/{len(batches)}: {json_response!r}"
+                )
+            if json_response.get("type") == "Error":
                 raise Exception(
                     f"Hashview API Error: {json_response.get('msg', 'Unknown error')}"
                 )
-            append_to_cache(new_keys)
-            # Surface what the client actually sent so the caller can report a
-            # count even against a Hashview that returns a bare {"msg": "OK"}.
+            append_to_cache(key_batch)
             if isinstance(json_response, dict):
-                json_response.setdefault("uploaded", len(valid_lines))
-                json_response.setdefault("skipped", len(skipped))
-                json_response.setdefault("skipped_cached", skipped_cached)
-            return json_response
-        except (json.JSONDecodeError, ValueError):
-            raise Exception(f"Invalid API response: {resp.text[:200]}")
+                for field in summable_fields:
+                    if isinstance(json_response.get(field), (int, float)):
+                        aggregated[field] = (
+                            aggregated.get(field, 0) + json_response[field]
+                        )
+                for field in list_fields:
+                    if isinstance(json_response.get(field), list):
+                        aggregated.setdefault(field, [])
+                        aggregated[field].extend(json_response[field])
+                for key, value in json_response.items():
+                    if key not in summable_fields and key not in list_fields:
+                        aggregated.setdefault(key, value)
+
+        aggregated.setdefault("uploaded", len(valid_lines))
+        aggregated["skipped"] = len(skipped)
+        aggregated["skipped_cached"] = skipped_cached
+        return aggregated
 
     def download_wordlist(
         self, wordlist_id, output_file=None, *, update_dynamic: bool = False

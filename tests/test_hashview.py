@@ -617,6 +617,128 @@ class TestHashviewAPI:
             api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
         assert "Invalid API response" in str(excinfo.value)
 
+    def _write_cracked_lines(self, tmp_path, count):
+        """Write `count` distinct valid hash:plaintext lines and return the path.
+
+        Each line uses a distinct synthetic plaintext so every line produces a
+        distinct cache key -- needed to tell batches apart by key membership.
+        """
+        cracked_file = tmp_path / "cracked_bulk.txt"
+        lines = []
+        for i in range(count):
+            plain = f"Synthetic-Example-Bulk-{i:06d}"
+            digest = _synth_digest("1000", plain)
+            lines.append(f"{digest}:{plain}")
+        cracked_file.write_text("\n".join(lines) + "\n")
+        return str(cracked_file)
+
+    def test_upload_cracked_hashes_batch_boundary_single_post(self, api, tmp_path):
+        """Exactly HASHVIEW_CRACKED_BATCH_SIZE lines -> one POST, output
+        unchanged from today's single-request behavior (no batch print)."""
+        from hate_crack.api import HASHVIEW_CRACKED_BATCH_SIZE
+
+        cracked_file = self._write_cracked_lines(tmp_path, HASHVIEW_CRACKED_BATCH_SIZE)
+        mock_response = Mock()
+        mock_response.json.return_value = {"msg": "OK"}
+        mock_response.raise_for_status = Mock()
+        api.session.post.return_value = mock_response
+
+        result = api.upload_cracked_hashes(cracked_file, hash_type="1000")
+
+        assert api.session.post.call_count == 1
+        assert result["uploaded"] == HASHVIEW_CRACKED_BATCH_SIZE
+
+    def test_upload_cracked_hashes_splits_into_two_batches(self, api, tmp_path, capsys):
+        """One line over the batch size -> two POSTs, two batch-progress
+        prints, and an aggregated uploaded count summing both batches."""
+        from hate_crack.api import HASHVIEW_CRACKED_BATCH_SIZE
+
+        total = HASHVIEW_CRACKED_BATCH_SIZE + 1
+        cracked_file = self._write_cracked_lines(tmp_path, total)
+        mock_response = Mock()
+        mock_response.json.return_value = {"msg": "OK"}
+        mock_response.raise_for_status = Mock()
+        api.session.post.return_value = mock_response
+
+        result = api.upload_cracked_hashes(cracked_file, hash_type="1000")
+
+        assert api.session.post.call_count == 2
+        assert result["uploaded"] == total
+        first_call_body = api.session.post.call_args_list[0].kwargs["data"]
+        second_call_body = api.session.post.call_args_list[1].kwargs["data"]
+        assert first_call_body.count(b"\n") == HASHVIEW_CRACKED_BATCH_SIZE - 1
+        assert second_call_body.count(b"\n") == 0
+        captured = capsys.readouterr()
+        assert "Uploading batch 1/2" in captured.out
+        assert "Uploading batch 2/2" in captured.out
+
+    def test_upload_cracked_hashes_caches_each_batch_as_it_succeeds(
+        self, api, tmp_path, monkeypatch
+    ):
+        """If batch 2 of 2 fails, batch 1's keys must already be cached so a
+        retry does not resend them."""
+        from hate_crack.api import HASHVIEW_CRACKED_BATCH_SIZE
+
+        total = HASHVIEW_CRACKED_BATCH_SIZE + 1
+        cracked_file = self._write_cracked_lines(tmp_path, total)
+
+        cached_keys = []
+        monkeypatch.setattr(
+            "hate_crack.api.append_to_cache",
+            lambda keys: cached_keys.extend(keys),
+        )
+
+        ok_response = Mock()
+        ok_response.json.return_value = {"msg": "OK"}
+        ok_response.raise_for_status = Mock()
+
+        failing_response = Mock()
+        failing_response.raise_for_status = Mock(
+            side_effect=requests.exceptions.HTTPError("boom")
+        )
+        api.session.post.side_effect = [ok_response, failing_response]
+
+        with pytest.raises(requests.exceptions.HTTPError):
+            api.upload_cracked_hashes(cracked_file, hash_type="1000")
+
+        assert api.session.post.call_count == 2
+        assert len(cached_keys) == HASHVIEW_CRACKED_BATCH_SIZE
+
+    def test_upload_cracked_hashes_merges_passthrough_fields_across_batches(
+        self, api, tmp_path
+    ):
+        """Numeric Hashview passthrough fields sum, and unmatched lists
+        concatenate, across batches."""
+        from hate_crack.api import HASHVIEW_CRACKED_BATCH_SIZE
+
+        total = HASHVIEW_CRACKED_BATCH_SIZE + 1
+        cracked_file = self._write_cracked_lines(tmp_path, total)
+
+        resp1 = Mock()
+        resp1.json.return_value = {
+            "verified": 3,
+            "updated": 1,
+            "count": HASHVIEW_CRACKED_BATCH_SIZE,
+            "unmatched": ["a"],
+        }
+        resp1.raise_for_status = Mock()
+        resp2 = Mock()
+        resp2.json.return_value = {
+            "verified": 1,
+            "updated": 0,
+            "count": 1,
+            "unmatched": ["b"],
+        }
+        resp2.raise_for_status = Mock()
+        api.session.post.side_effect = [resp1, resp2]
+
+        result = api.upload_cracked_hashes(cracked_file, hash_type="1000")
+
+        assert result["verified"] == 4
+        assert result["updated"] == 1
+        assert result["count"] == total
+        assert result["unmatched"] == ["a", "b"]
+
     def test_upload_cracked_hashes_unicode_plaintext_ntlm(self, api, tmp_path):
         """A genuine multi-byte UTF-8 plaintext validates correctly for NTLM.
 
