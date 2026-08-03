@@ -152,7 +152,14 @@ def test_cracked_prompt_is_offensive_not_denylist():
 
 
 def test_prompts_map_covers_every_supported_mode():
-    assert set(llm._PROMPTS) == {"target", "wordlist", "cracked", "pattern", "rules", "mask"}
+    assert set(llm._PROMPTS) == {
+        "target",
+        "wordlist",
+        "cracked",
+        "pattern",
+        "rules",
+        "mask",
+    }
 
 
 def test_dedupes_and_caps_length():
@@ -395,7 +402,11 @@ def test_generate_masks_dedupes_and_strips_whitespace():
     agent_instance.run.return_value.masks = ["  ?d?d?d?d  ", "?d?d?d?d", "?u?l?l?l"]
     with p_instr, p_openai, p_agent:
         out = llm.generate_masks(
-            "http://localhost:11434", "qwen2.5:32b", 2048, "four digit pins", no_cloud=False
+            "http://localhost:11434",
+            "qwen2.5:32b",
+            2048,
+            "four digit pins",
+            no_cloud=False,
         )
     assert out == ["?d?d?d?d", "?u?l?l?l"]
 
