@@ -2222,10 +2222,16 @@ def _valid_hcmask(mask: object) -> bool:
     ``.hcmask`` file and a newline would split it into two (one of them
     possibly blank, which hashcat refuses to run). A literal space remains
     legal mask content.
+
+    A mask starting with ``#`` is rejected too: hashcat treats a ``.hcmask``
+    line beginning with ``#`` as a comment, so such a mask would be silently
+    skipped rather than run.
     """
     if not isinstance(mask, str) or not mask or len(mask) > _HCMASK_MAX_LEN:
         return False
     if any(c in mask for c in (",", "\\", "\n", "\r", "\t")):
+        return False
+    if mask.startswith("#"):
         return False
     i = 0
     n = len(mask)
@@ -4697,6 +4703,8 @@ def cleanup():
         print("\nCleaning up temporary files...")
         if os.path.exists(hcatHashFile + ".masks"):
             os.remove(hcatHashFile + ".masks")
+        if os.path.exists(hcatHashFile + ".hcmask"):
+            os.remove(hcatHashFile + ".hcmask")
         if os.path.exists(hcatHashFile + ".working"):
             os.remove(hcatHashFile + ".working")
         if os.path.exists(hcatHashFile + ".expanded"):

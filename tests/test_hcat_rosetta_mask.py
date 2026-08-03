@@ -162,3 +162,19 @@ def test_generic_generation_error_prints_message_and_skips_hashcat_run(
     out = capsys.readouterr().out.lower()
     assert "error generating masks" in out
     assert "ollama" in out
+
+
+def test_hcmask_file_removed_by_cleanup(tmp_path, monkeypatch):
+    """Mirrors test_llm_pattern_rules.test_llm_patterns_removed_by_cleanup."""
+    hash_file = str(tmp_path / "hashes.txt")
+    hcmask_path = hash_file + ".hcmask"
+    with open(hcmask_path, "w") as f:
+        f.write("?u?l?l?l?d?d\n")
+
+    monkeypatch.setattr(hc_main, "hcatHashFile", hash_file)
+    monkeypatch.setattr(hc_main, "hcatHashFileOrig", hash_file)
+    monkeypatch.setattr(hc_main, "hcatHashType", "1000")
+    monkeypatch.setattr(hc_main, "pwdump_format", False)
+    hc_main.cleanup()
+
+    assert not os.path.exists(hcmask_path)

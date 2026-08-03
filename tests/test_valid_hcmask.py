@@ -76,3 +76,7 @@ def test_triple_question_mark_is_invalid():
 
 def test_quadruple_question_mark_is_valid():
     assert hc_main._valid_hcmask("????") is True
+
+
+def test_mask_with_leading_hash_is_invalid():
+    assert hc_main._valid_hcmask("#comment") is False
