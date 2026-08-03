@@ -2213,8 +2213,19 @@ def _valid_hcmask(mask) -> bool:
     letter, a non-string, an empty string, or a mask longer than
     ``_HCMASK_MAX_LEN`` characters — is rejected. Length is capped as a guard
     against runaway model output, not a hashcat limitation as such.
+
+    A ``,`` or ``\\`` is also rejected: both are structural in the ``.hcmask``
+    file format (comma separates custom-charset definitions from the mask,
+    backslash escapes within it), so a literal one in the mask text would be
+    reinterpreted rather than run verbatim. Embedded ``\\n``, ``\\r``, or
+    ``\\t`` are rejected too, since each mask becomes its own line in the
+    ``.hcmask`` file and a newline would split it into two (one of them
+    possibly blank, which hashcat refuses to run). A literal space remains
+    legal mask content.
     """
     if not isinstance(mask, str) or not mask or len(mask) > _HCMASK_MAX_LEN:
+        return False
+    if any(c in mask for c in (",", "\\", "\n", "\r", "\t")):
         return False
     i = 0
     n = len(mask)
@@ -2304,8 +2315,6 @@ def hcatRosettaMask(hcatHashType, hcatHashFile, description):
     the survivors to ``<hcatHashFile>.hcmask``, and runs a ``-a 3`` mask
     attack against them immediately — mirroring ``hcatTopMask``'s tail.
     """
-    global hcatProcess
-
     try:
         with spinner(f"Generating masks via Ollama ({ollamaModel})..."):
             masks = llm.generate_masks(

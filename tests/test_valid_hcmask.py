@@ -40,3 +40,19 @@ def test_overlength_mask_is_invalid():
 
 def test_non_string_input_is_invalid():
     assert hc_main._valid_hcmask(None) is False
+
+
+def test_mask_with_comma_is_invalid():
+    assert hc_main._valid_hcmask("?u?l?l,?d?d?d") is False
+
+
+def test_mask_with_backslash_is_invalid():
+    assert hc_main._valid_hcmask("?u?l?l\\?d?d?d") is False
+
+
+def test_mask_with_embedded_newline_is_invalid():
+    assert hc_main._valid_hcmask("?u?l?l\n?d?d?d") is False
+
+
+def test_mask_with_literal_space_is_valid():
+    assert hc_main._valid_hcmask("?u?l?l ?d?d?d") is True

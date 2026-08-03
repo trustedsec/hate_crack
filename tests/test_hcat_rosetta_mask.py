@@ -68,6 +68,26 @@ def test_writes_hcmask_file_and_runs_mask_attack(tmp_path):
     assert hcmask_path in cmd
 
 
+def test_tuning_and_potfile_reach_the_command(tmp_path):
+    hash_file = tmp_path / "hashes.txt"
+    hash_file.touch()
+    potfile = tmp_path / "custom.potfile"
+
+    with (
+        rosetta_mask_globals(tuning="-w 3", potfile=str(potfile)),
+        mock.patch(
+            "hate_crack.main.llm.generate_masks",
+            return_value=["?d?d?d?d"],
+        ),
+        mock.patch("subprocess.Popen", return_value=_make_proc()) as popen,
+    ):
+        hc_main.hcatRosettaMask("0", str(hash_file), "pins")
+
+    cmd = popen.call_args[0][0]
+    assert "-w" in cmd and cmd[cmd.index("-w") + 1] == "3"
+    assert f"--potfile-path={potfile}" in cmd
+
+
 def test_invalid_masks_are_filtered_out(tmp_path):
     hash_file = tmp_path / "hashes.txt"
     hash_file.touch()

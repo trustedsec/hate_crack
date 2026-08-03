@@ -1186,11 +1186,14 @@ No setup is needed to feed it: `_add_debug_mode_for_rules` appends `--debug-mode
 
 The value is in the cross product rather than the recorded pairs. A pair present in a log has already cracked its hash and will not crack another, but a rule that worked on one baseword has usually never been tried against the others — so N basewords and M rules yield close to N x M untried candidates.
 
-* Lists the logs found in `hcatDebugLogPath` newest-first with their sizes; pick one, pick all of them (up to 20), or type a path to a log from elsewhere
+The menu first asks how to rank rules — choices 1-3 below, plus a fourth, unrelated mode:
+
 * Rules can be ranked by application frequency, by how many distinct basewords each one worked on, or by how many unique candidates each one generated. Frequency is the default; baseword spread is the better choice when the goal is a rule set that generalizes past the specific words it was learned from
+* Only after one of those three is picked does hate_crack list the logs found in `hcatDebugLogPath` newest-first with their sizes; pick one, pick all of them (up to 20), or type a path to a log from elsewhere
 * Prompts for how many top rules to keep (default 100) and how many top basewords (default all). Zero means unlimited for either. The keyspace is the product of the two and is printed before hashcat starts
 * Output is written beside the hash file in `<hash file>.rosetta/` as `basewords.txt` and `rules.rule`, alongside the other ephemeral wordlists, and the directory is removed on exit by the temp-file cleanup
 * Reading stops at 1,000,000 debug lines, since the analyzer needs the whole batch in memory at once. Truncation is reported on the console rather than assumed harmless — logs from a long run routinely exceed this, in which case the newest log is the one worth selecting
+* **LLM Mask Attack** (4) - a different mode entirely, and the only one that needs no debug logs. Prompts for a natural-language description of the passwords you expect (length, character patterns, symbols, etc.), sends it to the locally configured Ollama model, writes the returned masks to `<hash file>.hcmask`, and runs a `-a 3` hashcat mask attack against them
 
 #### Wordlist Tools (option 80)
 A submenu of wordlist preprocessing utilities using hashcat-utils binaries. All tools read from and write to files on disk. All file and directory path prompts support tab completion.

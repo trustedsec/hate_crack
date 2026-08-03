@@ -580,15 +580,9 @@ def _select_debug_logs(ctx) -> list[str] | None:
 
 
 def rosetta_attack(ctx: Any) -> None:
-    """Mine hashcat --debug-mode 4 logs for winning basewords and rules."""
+    """Mine debug-mode logs for winning rules/basewords, or run an LLM mask attack."""
     print("\n" + "=" * 60)
     print("ROSETTA ATTACK")
-    print("=" * 60)
-    print("Mines hashcat --debug-mode 4 logs, which hate_crack writes for every")
-    print("rule-based attack, for the basewords and rules that actually cracked")
-    print("something. Those are then run as a full cross product: each winning")
-    print("rule gets tried against every winning baseword, not just the one it")
-    print("was originally paired with.")
     print("=" * 60)
 
     items = [
@@ -598,7 +592,7 @@ def rosetta_attack(ctx: Any) -> None:
         ("4", "LLM Mask Attack (natural language -> hcmask)"),
         ("99", "Back to Main Menu"),
     ]
-    choice = interactive_menu(items, title="\nRank rules by:")
+    choice = interactive_menu(items, title="\nSelect Rosetta mode:")
     if choice is None or choice == "99":
         return
 
@@ -610,6 +604,13 @@ def rosetta_attack(ctx: Any) -> None:
         _notify.prompt_notify_for_attack("Rosetta Mask")
         ctx.hcatRosettaMask(ctx.hcatHashType, ctx.hcatHashFile, description)
         return
+
+    print("Mines hashcat --debug-mode 4 logs, which hate_crack writes for every")
+    print("rule-based attack, for the basewords and rules that actually cracked")
+    print("something. Those are then run as a full cross product: each winning")
+    print("rule gets tried against every winning baseword, not just the one it")
+    print("was originally paired with.")
+    print("=" * 60)
 
     metric = {"1": "frequency", "2": "basewords", "3": "candidates"}.get(choice)
     if metric is None:
