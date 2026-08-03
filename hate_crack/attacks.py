@@ -534,7 +534,7 @@ def _prompt_positive_int(prompt: str, default: int | None) -> int | None:
 
 
 def _select_debug_logs(ctx) -> list[str] | None:
-    """Pick the hashcat --debug-mode 4 logs to mine. None if cancelled."""
+    """Pick the hashcat --debug-mode 5 logs to mine. None if cancelled."""
     logs = ctx.rosetta_debug_logs()
     items = []
     for idx, path in enumerate(logs[:20], 1):
@@ -608,7 +608,7 @@ def rosetta_attack(ctx: Any) -> None:
         ctx.hcatRosettaMask(ctx.hcatHashType, ctx.hcatHashFile, description)
         return
 
-    print("Mines hashcat --debug-mode 4 logs, which hate_crack writes for every")
+    print("Mines hashcat --debug-mode 5 logs, which hate_crack writes for every")
     print("rule-based attack, for the basewords and rules that actually cracked")
     print("something. Those are then run as a full cross product: each winning")
     print("rule gets tried against every winning baseword, not just the one it")

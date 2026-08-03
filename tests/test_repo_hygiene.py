@@ -1,6 +1,6 @@
 """Guards against committing cracked-plaintext artifacts to a public repo.
 
-hate_crack writes hashcat `--debug-mode 4` logs for every rule-based attack
+hate_crack writes hashcat `--debug-mode 5` logs for every rule-based attack
 without being asked (`_add_debug_mode_for_rules`), and each line pairs a rule
 with the plaintext it produced. `hcatDebugLogPath` used to default to the
 relative `./hashcat_debug`, so a session launched from a checkout dropped them
