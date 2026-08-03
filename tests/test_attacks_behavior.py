@@ -690,16 +690,31 @@ class TestRosettaAttack:
             ctx.hcatHashType, ctx.hcatHashFile, "8 char passwords with digits"
         )
 
-    def test_mask_choice_does_not_call_hcatRosetta(self) -> None:
+    def test_mask_choice_strips_whitespace_from_description(self) -> None:
         ctx = _make_ctx()
 
         with (
             patch("hate_crack.attacks.interactive_menu", return_value="4"),
-            patch("builtins.input", return_value="pins"),
+            patch("builtins.input", return_value="  8 char passwords with digits  "),
         ):
             rosetta_attack(ctx)
 
-        ctx.hcatRosetta.assert_not_called()
+        ctx.hcatRosettaMask.assert_called_once_with(
+            ctx.hcatHashType, ctx.hcatHashFile, "8 char passwords with digits"
+        )
+
+    def test_mask_choice_with_blank_description_does_not_call_hcatRosettaMask(
+        self,
+    ) -> None:
+        ctx = _make_ctx()
+
+        with (
+            patch("hate_crack.attacks.interactive_menu", return_value="4"),
+            patch("builtins.input", return_value="   "),
+        ):
+            rosetta_attack(ctx)
+
+        ctx.hcatRosettaMask.assert_not_called()
 
     def test_existing_metric_choice_1_is_unaffected(self) -> None:
         ctx = _make_ctx()

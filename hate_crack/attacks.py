@@ -601,6 +601,9 @@ def rosetta_attack(ctx: Any) -> None:
             "\n[*] Describe the passwords you expect (patterns, length, "
             "symbols, etc.): "
         ).strip()
+        if not description:
+            print("[!] Description cannot be empty.")
+            return
         _notify.prompt_notify_for_attack("Rosetta Mask")
         ctx.hcatRosettaMask(ctx.hcatHashType, ctx.hcatHashFile, description)
         return
