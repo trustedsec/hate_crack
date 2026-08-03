@@ -26,6 +26,13 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   this mode is driven entirely by the operator's description, unlike the
   existing rule-mining choices `1`-`3`.
 
+### Changed
+- **`.hcmask` files are now removed by `cleanup()` when the session ends.** This
+  affects the existing Top Mask attack, which generates `.hcmask` files via PACK's
+  `maskgen.py` — previously these generated mask files were left behind after a
+  session for re-use or inspection; they are now cleaned up along with other
+  session artifacts.
+
 ### Fixed
 - **A cracked NTLM plaintext that hashcat `$HEX[...]`-wraps for a reason
   unrelated to encoding (an embedded colon, a control character) was

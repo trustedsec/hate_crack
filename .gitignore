@@ -46,7 +46,7 @@ hashcat.potfile
 *.rosetta/
 *.spoonman/
 *.llm_patterns/
-# hashcat --debug-mode 4 output. hate_crack writes one of these for every
+# hashcat --debug-mode 5 output. hate_crack writes one of these for every
 # rule-based attack without being asked (see _add_debug_mode_for_rules), and
 # each line pairs a rule with the plaintext it cracked. The default
 # hcatDebugLogPath is the relative "./hashcat_debug", so on any run launched
