@@ -26,6 +26,21 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   this mode is driven entirely by the operator's description, unlike the
   existing rule-mining choices `1`-`3`.
 
+### Fixed
+- **A cracked NTLM plaintext that hashcat `$HEX[...]`-wraps for a reason
+  unrelated to encoding (an embedded colon, a control character) was
+  corrupted before reaching Hashview, which then rejected it with
+  `Plaintext for hash <hash>, was found to be invalid` even though
+  hate_crack's own local validation had accepted the pair.** `_wire_field_bytes`
+  always reconstructed `$HEX[...]`-wrapped bytes for UTF-16LE modes (900,
+  1000, 1731) as latin-1 code points needing zero-extend repair — correct
+  when hashcat wrapped genuinely non-UTF-8 bytes, but wrong when the wrapped
+  bytes were already valid UTF-8 text, which double-encoded them (e.g.
+  `café:` became `cafÃ©:`) into a plaintext that no longer hashed to the
+  claimed digest. It now mirrors `_digest_for_type`'s UTF-8-first check:
+  valid UTF-8 is sent as-is, and the latin-1 zero-extend path is used only
+  when the wrapped bytes fail to decode as UTF-8.
+
 ## [2.24.0] - 2026-08-02
 
 ### Fixed

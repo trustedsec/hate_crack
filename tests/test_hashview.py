@@ -866,6 +866,38 @@ class TestHashviewAPI:
             "latin-1"
         ).encode("utf-8")
 
+    def test_upload_preserves_hex_wrapped_valid_utf8_plaintext(self, api, tmp_path):
+        """A $HEX-wrapped plaintext that is already valid UTF-8 is sent as-is.
+
+        Regression test: hashcat $HEX-wraps a plaintext for reasons unrelated
+        to UTF-8 validity (an embedded colon, here), not only for genuine
+        zero-extended raw bytes. ``_wire_field_bytes`` used to always treat
+        $HEX-wrapped bytes for mode 1000 as latin-1 code points needing
+        reconstruction, which double-encoded already-valid UTF-8 text (e.g.
+        "café:" became "cafÃ©:") and sent Hashview a plaintext that no longer
+        hashed to the claimed digest -- passing hate_crack's own client-side
+        validation but rejected server-side as invalid.
+        """
+        plain_text = "Synthetic:Example-é-Fff"  # contains a real ":" plus non-ASCII
+        plain_utf8 = plain_text.encode("utf-8")
+        ntlm = _md4(plain_text.encode("utf-16le"))
+        hex_wrapped = "$HEX[" + plain_utf8.hex() + "]"
+        cracked_file = tmp_path / "cracked.txt"
+        cracked_file.write_text(f"{ntlm}:{hex_wrapped}\n", encoding="utf-8")
+        mock_response = Mock()
+        mock_response.json.return_value = {"imported": 1}
+        mock_response.raise_for_status = Mock()
+        api.session.post.return_value = mock_response
+
+        result = api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
+        assert result["uploaded"] == 1
+        assert result["skipped"] == 0
+
+        sent = api.session.post.call_args.kwargs.get("data")
+        if sent is None:
+            sent = api.session.post.call_args.args[1]
+        assert sent == f"{ntlm}".encode() + b":" + plain_utf8
+
     def test_upload_surfaces_client_counts(self, api, tmp_path):
         """upload_cracked_hashes reports uploaded/skipped even when the server
         returns a bare OK with no counts of its own."""

@@ -1235,9 +1235,19 @@ def _wire_field_bytes(hash_type, plaintext: str) -> bytes:
         return plaintext.encode("utf-8", "surrogateescape")
     ht = str(hash_type)
     if ht in _UTF16LE_MODES:
-        # hashcat zero-extends raw bytes; send the latin-1 code points as UTF-8
-        # so the server reconstructs them before its own UTF-16LE encoding.
-        return raw.decode("latin-1").encode("utf-8")
+        # hashcat $HEX-wraps for reasons unrelated to encoding (an embedded
+        # colon, a control character, leading/trailing whitespace) as well as
+        # for genuine zero-extended raw bytes. When the wrapped bytes are
+        # already valid UTF-8 they ARE the real password text -- ship them
+        # as-is. Only bytes that fail to decode as UTF-8 are the zero-extend
+        # case, where each byte is a code point to reconstruct as latin-1
+        # before the server's own UTF-16LE encoding. Mirrors the same
+        # utf-8-first choice _digest_for_type makes when validating.
+        try:
+            raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return raw.decode("latin-1").encode("utf-8")
+        return raw
     if ht in _RAW_BYTE_MODES:
         return raw
     return plaintext.encode("utf-8", "surrogateescape")
