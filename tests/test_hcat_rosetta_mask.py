@@ -4,11 +4,8 @@ import os
 from contextlib import contextmanager
 from unittest import mock
 
-import pytest
-
 os.environ["HATE_CRACK_SKIP_INIT"] = "1"
 from hate_crack import main as hc_main  # noqa: E402
-from hate_crack import llm  # noqa: E402
 
 OLLAMA_URL = "http://localhost:11434"
 MODEL = "qwen2.5:32b"
@@ -113,7 +110,9 @@ def test_llm_timeout_error_prints_message_and_skips_hashcat_run(tmp_path, capsys
         rosetta_mask_globals(),
         mock.patch(
             "hate_crack.main.llm.generate_masks",
-            side_effect=hc_main.llm.LLMTimeoutError("no response from x within 300 seconds"),
+            side_effect=hc_main.llm.LLMTimeoutError(
+                "no response from x within 300 seconds"
+            ),
         ),
         mock.patch("subprocess.Popen") as popen,
     ):
@@ -123,7 +122,9 @@ def test_llm_timeout_error_prints_message_and_skips_hashcat_run(tmp_path, capsys
     assert "timed out" in capsys.readouterr().out.lower()
 
 
-def test_generic_generation_error_prints_message_and_skips_hashcat_run(tmp_path, capsys):
+def test_generic_generation_error_prints_message_and_skips_hashcat_run(
+    tmp_path, capsys
+):
     hash_file = tmp_path / "hashes.txt"
     hash_file.touch()
 
