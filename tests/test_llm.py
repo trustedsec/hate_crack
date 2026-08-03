@@ -152,7 +152,7 @@ def test_cracked_prompt_is_offensive_not_denylist():
 
 
 def test_prompts_map_covers_every_supported_mode():
-    assert set(llm._PROMPTS) == {"target", "wordlist", "cracked", "pattern", "rules"}
+    assert set(llm._PROMPTS) == {"target", "wordlist", "cracked", "pattern", "rules", "mask"}
 
 
 def test_dedupes_and_caps_length():
@@ -372,3 +372,60 @@ def test_clean_research_field_collapses_internal_whitespace():
     assert llm.clean_research_field("commercial   \n construction") == (
         "commercial construction"
     )
+
+
+def test_generate_masks_returns_masks():
+    p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_agent([])
+    agent_instance.run.return_value.masks = ["?u?l?l?l?d?d", "?l?l?l?l?l?l?d"]
+    with p_instr, p_openai, p_agent:
+        out = llm.generate_masks(
+            "http://localhost:11434",
+            "qwen2.5:32b",
+            2048,
+            "8 character passwords, capitalized word plus two digits",
+            no_cloud=False,
+        )
+    assert out == ["?u?l?l?l?d?d", "?l?l?l?l?l?l?d"]
+    run_arg = agent_instance.run.call_args[0][0]
+    assert "8 character passwords" in run_arg.request
+
+
+def test_generate_masks_dedupes_and_strips_whitespace():
+    p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_agent([])
+    agent_instance.run.return_value.masks = ["  ?d?d?d?d  ", "?d?d?d?d", "?u?l?l?l"]
+    with p_instr, p_openai, p_agent:
+        out = llm.generate_masks(
+            "http://localhost:11434", "qwen2.5:32b", 2048, "four digit pins", no_cloud=False
+        )
+    assert out == ["?d?d?d?d", "?u?l?l?l"]
+
+
+def test_generate_masks_skips_non_string_entries():
+    p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_agent([])
+    agent_instance.run.return_value.masks = ["?d?d?d?d", None, 123]
+    with p_instr, p_openai, p_agent:
+        out = llm.generate_masks(
+            "http://localhost:11434", "qwen2.5:32b", 2048, "pins", no_cloud=False
+        )
+    assert out == ["?d?d?d?d"]
+
+
+def test_generate_masks_raises_llm_timeout_error():
+    p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_agent([])
+    agent_instance.run.side_effect = openai.APITimeoutError(request=mock.MagicMock())
+    with p_instr, p_openai, p_agent:
+        with pytest.raises(llm.LLMTimeoutError):
+            llm.generate_masks(
+                "http://localhost:11434", "qwen2.5:32b", 2048, "pins", no_cloud=False
+            )
+
+
+def test_generate_masks_refuses_cloud_model_when_no_cloud():
+    with pytest.raises(llm.CloudModelRefused):
+        llm.generate_masks(
+            "http://localhost:11434",
+            "deepseek-v3.1:671b-cloud",
+            2048,
+            "pins",
+            no_cloud=True,
+        )

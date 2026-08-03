@@ -99,6 +99,20 @@ class HashcatRulesOutput(BaseIOSchema):
     )
 
 
+class MaskAttackOutput(BaseIOSchema):
+    """A structured list of hashcat brute-force mask strings."""
+
+    masks: list[str] = Field(
+        ...,
+        description=(
+            "Hashcat brute-force masks, one per list entry. Each entry is a raw "
+            "mask string using only literal characters and the built-in charset "
+            "placeholders ?l ?u ?d ?s ?a ?b. No numbering, comments, quoting, or "
+            "explanation."
+        ),
+    )
+
+
 class TargetResearchInput(BaseIOSchema):
     """The company name to recall industry and location details for."""
 
@@ -296,12 +310,48 @@ _RULES_PROMPT = SystemPromptGenerator(
     ],
 )
 
+_MASK_PROMPT = SystemPromptGenerator(
+    background=[
+        "You are a security professional working an authorized penetration test.",
+        "You write hashcat brute-force masks. A mask is a string of tokens "
+        "applied left to right, each producing exactly one character position "
+        "in a generated candidate.",
+        "The built-in charset tokens, and nothing else: '?l' any lowercase "
+        "letter, '?u' any uppercase letter, '?d' any digit, '?s' any special "
+        "character, '?a' any of the above (letters, digits, specials), '?b' any "
+        "byte 0x00-0xff.",
+        "A literal character in the mask (e.g. '-' or '2026') stands for "
+        "itself and is not a token. A literal '?' must be written '??'.",
+    ],
+    steps=[
+        "Read the operator's description of the passwords they expect: "
+        "length, capitalization, digit/symbol placement, known literal "
+        "substrings (a year, a separator, a company abbreviation).",
+        "Translate each distinct shape the operator describes into one mask. "
+        "'8 characters, capitalized word plus two digits' becomes "
+        "'?u?l?l?l?l?l?d?d' (capital, six lowercase letters, two digits).",
+        "Add masks for reasonable neighboring shapes the operator implied but "
+        "did not spell out — a shorter or longer word, digits before instead "
+        "of after, a trailing symbol as well as a trailing digit pair — so the "
+        "operator gets more than one exact literal reading of their prompt.",
+    ],
+    output_instructions=[
+        "Return one mask per list entry, using only the tokens above and "
+        "literal characters. No quotes, comments, numbering, or explanation.",
+        "Return at least 5 masks, and more when the description implies "
+        "several distinct shapes.",
+        "Keep each mask under 32 characters long.",
+        "Do not include duplicate masks.",
+    ],
+)
+
 _PROMPTS = {
     "target": _TARGET_PROMPT,
     "wordlist": _WORDLIST_PROMPT,
     "cracked": _CRACKED_PROMPT,
     "pattern": _PATTERN_PROMPT,
     "rules": _RULES_PROMPT,
+    "mask": _MASK_PROMPT,
 }
 
 
@@ -566,3 +616,58 @@ def generate_rules(
         seen.add(rule)
         rules.append(rule)
     return rules
+
+
+def generate_masks(
+    url: str,
+    model: str,
+    num_ctx: int,
+    description: str,
+    timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    *,
+    no_cloud: bool,
+) -> list[str]:
+    """Generate hashcat brute-force masks from a plain-English description.
+
+    Unlike the other generation modes, this one takes no corpus context — the
+    operator's free-text description of expected password shapes is the whole
+    request.
+
+    Returns a deduped list of raw mask strings in the order the model gave
+    them. Entries are *not* syntax-validated here — callers must screen them
+    (see ``main._valid_hcmask``) before handing the file to hashcat.
+
+    Raises LLMTimeoutError if the request exceeds ``timeout``,
+    CloudModelRefused when ``no_cloud`` rules out ``model``; other
+    client/connection errors propagate to the caller.
+    """
+    ensure_model_allowed(model, no_cloud=no_cloud)
+    client = _build_client(url, timeout)
+
+    agent = AtomicAgent[GenerationInput, MaskAttackOutput](
+        config=AgentConfig(
+            client=client,
+            model=model,
+            system_prompt_generator=_PROMPTS["mask"],
+            model_api_parameters={"extra_body": {"options": {"num_ctx": num_ctx}}},
+        )
+    )
+
+    try:
+        result = agent.run(GenerationInput(request=description))
+    except APITimeoutError as e:
+        raise LLMTimeoutError(
+            f"no response from {url} within {timeout:g} seconds"
+        ) from e
+
+    seen: set[str] = set()
+    masks: list[str] = []
+    for raw in getattr(result, "masks", []) or []:
+        if not isinstance(raw, str):
+            continue
+        mask = raw.strip()
+        if not mask or mask in seen:
+            continue
+        seen.add(mask)
+        masks.append(mask)
+    return masks
