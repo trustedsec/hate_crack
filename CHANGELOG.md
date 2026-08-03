@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [Unreleased]
+
+### Added
+- **`upload_cracked_hashes` now batches uploads into 10,000-line chunks per
+  POST to Hashview's `/v1/hashes/import/<hash_type>` endpoint, instead of
+  sending the whole file as one single request.** Large submissions (e.g.
+  800k hashes) were failing outright, with no partial progress retained on
+  failure. Each batch's cache keys are recorded immediately after that
+  batch's own successful POST, so a later batch's failure still leaves
+  earlier batches deduped for a retry — a re-run resumes instead of
+  resending everything. `upload_hashfile` is unchanged.
+
 ## [2.24.0] - 2026-08-02
 
 ### Fixed

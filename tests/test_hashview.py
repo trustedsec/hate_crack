@@ -739,6 +739,55 @@ class TestHashviewAPI:
         assert result["count"] == total
         assert result["unmatched"] == ["a", "b"]
 
+    def test_upload_cracked_hashes_single_batch_non_dict_response_passthrough(
+        self, api, tmp_path, monkeypatch
+    ):
+        """A single-batch upload with a non-dict JSON response is returned
+        as-is (matches legacy single-request behavior), and its keys are
+        still cached."""
+        from hate_crack.api import HASHVIEW_CRACKED_BATCH_SIZE
+
+        cracked_file = self._write_cracked_lines(tmp_path, HASHVIEW_CRACKED_BATCH_SIZE)
+
+        cached_keys = []
+        monkeypatch.setattr(
+            "hate_crack.api.append_to_cache",
+            lambda keys: cached_keys.extend(keys),
+        )
+
+        mock_response = Mock()
+        mock_response.json.return_value = ["ok"]
+        mock_response.raise_for_status = Mock()
+        api.session.post.return_value = mock_response
+
+        result = api.upload_cracked_hashes(cracked_file, hash_type="1000")
+
+        assert result == ["ok"]
+        assert len(cached_keys) == HASHVIEW_CRACKED_BATCH_SIZE
+
+    def test_upload_cracked_hashes_multi_batch_non_dict_response_raises(
+        self, api, tmp_path
+    ):
+        """A non-dict JSON response on a batch after the first, when there is
+        more than one batch, raises an Exception naming that batch number."""
+        from hate_crack.api import HASHVIEW_CRACKED_BATCH_SIZE
+
+        total = HASHVIEW_CRACKED_BATCH_SIZE + 1
+        cracked_file = self._write_cracked_lines(tmp_path, total)
+
+        resp1 = Mock()
+        resp1.json.return_value = {"msg": "OK"}
+        resp1.raise_for_status = Mock()
+
+        resp2 = Mock()
+        resp2.json.return_value = ["ok"]
+        resp2.raise_for_status = Mock()
+
+        api.session.post.side_effect = [resp1, resp2]
+
+        with pytest.raises(Exception, match=r"2/2"):
+            api.upload_cracked_hashes(cracked_file, hash_type="1000")
+
     def test_upload_cracked_hashes_unicode_plaintext_ntlm(self, api, tmp_path):
         """A genuine multi-byte UTF-8 plaintext validates correctly for NTLM.
 
