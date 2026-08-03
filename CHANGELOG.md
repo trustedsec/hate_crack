@@ -34,6 +34,10 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   session artifacts.
 
 ### Fixed
+- **`rosetta_derive` stopped reading debug logs after 1,000,000 lines and
+  printed `[!] Stopped at 1000000 debug lines`, silently discarding the
+  remainder of large captures.** The cap and its `max_lines` parameter are
+  removed; every line of every selected log is now read.
 - **A cracked NTLM plaintext that hashcat `$HEX[...]`-wraps for a reason
   unrelated to encoding (an embedded colon, a control character) was
   corrupted before reaching Hashview, which then rejected it with

@@ -4018,20 +4018,12 @@ def rosetta_debug_logs(directory=None):
     return sorted(found, key=os.path.getmtime, reverse=True)
 
 
-# DebugAnalyzer needs the whole batch as a list (it walks it twice, once for
-# format detection), so the logs cannot be streamed. Cap the read to keep peak
-# memory in the low hundreds of megabytes; truncation is reported, not silent.
-ROSETTA_MAX_LINES = 1_000_000
-
-
-# Lines sampled per log when deciding whether it is mode 5, and the ceiling on
 def rosetta_derive(
     debug_files,
     out_dir,
     metric="frequency",
     top_rules=None,
     top_basewords=None,
-    max_lines=ROSETTA_MAX_LINES,
 ):
     """Derive a baseword list and rule file from hashcat debug logs.
 
@@ -4051,21 +4043,10 @@ def rosetta_derive(
         raise ValueError(f"unknown rule metric: {metric}")
 
     lines = []
-    truncated = False
     for path in debug_files:
-        if truncated:
-            break
         with open(path, encoding="utf-8", errors="ignore") as debug_log:
             for line in debug_log:
                 lines.append(line.rstrip("\n"))
-                if len(lines) >= max_lines:
-                    truncated = True
-                    print(
-                        f"[!] Stopped at {max_lines} debug lines; the remainder "
-                        f"of {os.path.basename(path)} and any later logs were "
-                        "not read."
-                    )
-                    break
     if not lines:
         raise ValueError("the selected debug logs are empty")
 

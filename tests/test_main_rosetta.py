@@ -150,14 +150,12 @@ class TestRosettaDerive:
         with pytest.raises(ValueError, match="hashcat debug entries"):
             main_module.rosetta_derive([str(junk)], str(tmp_path / "out"))
 
-    def test_max_lines_truncates_and_says_so(
-        self, main_module, tmp_path, debug_log, capsys
-    ):
-        result = main_module.rosetta_derive(
-            [debug_log], str(tmp_path / "out"), max_lines=2
-        )
-        assert result["entries"] == 2
-        assert "Stopped at 2 debug lines" in capsys.readouterr().out
+    def test_reads_logs_without_a_line_cap(self, main_module, tmp_path, capsys):
+        big = tmp_path / "big.log"
+        big.write_text("echo $9 echo9\n" * 5000, encoding="utf-8")
+        result = main_module.rosetta_derive([str(big)], str(tmp_path / "out"))
+        assert result["entries"] == 5000
+        assert "Stopped at" not in capsys.readouterr().out
 
     def test_missing_rosetta_dependency_reports_clearly(
         self, main_module, tmp_path, debug_log, monkeypatch
