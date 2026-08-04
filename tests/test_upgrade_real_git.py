@@ -174,6 +174,86 @@ def test_run_upgrade_refuses_to_discard_uncommitted_work(
     assert (clone / "app.py").read_text() == "print('my local edit')\n"
 
 
+def test_run_upgrade_ignores_submodule_build_byproducts(
+    hc_module_real_git, tmp_path, capsys
+):
+    """`make submodules`/`make install` leaves untracked/modified content
+
+    inside bundled submodules (generated sources, object files, a touched
+    Makefile) with no action from the operator. A plain `git status
+    --porcelain` reports that as `M <submodule>` on the superproject, which
+    must not be treated the same as an actual uncommitted edit to a tracked
+    file -- that would permanently block auto-upgrade after the very install
+    this tool tells people to run.
+    """
+    sub_remote = _init(tmp_path / "sub-remote")
+    (sub_remote / "expander.c").write_text("// v1\n")
+    _git("add", "-A", cwd=sub_remote)
+    _git("commit", "-qm", "sub v1", cwd=sub_remote)
+
+    remote = _init(tmp_path / "remote")
+    # Local submodule clones need this explicitly allowed: modern git refuses
+    # `file://`-transport submodule clones by default (CVE-2022-39253).
+    _git(
+        "-c",
+        "protocol.file.allow=always",
+        "submodule",
+        "add",
+        "-q",
+        str(sub_remote),
+        "vendored",
+        cwd=remote,
+    )
+    (remote / "app.py").write_text("print('v1')\n")
+    _git("add", "-A", cwd=remote)
+    _git("commit", "-qm", "release 1.0", cwd=remote)
+    _git("tag", "v1.0", cwd=remote)
+
+    clone = tmp_path / "clone"
+    _git(
+        "-c",
+        "protocol.file.allow=always",
+        "clone",
+        "-q",
+        "--recurse-submodules",
+        str(remote),
+        str(clone),
+        cwd=tmp_path,
+    )
+
+    # A build step regenerated a source file and touched the Makefile inside
+    # the submodule's own working tree -- untracked/modified content within
+    # the submodule, not a commit change and not an edit to any file the
+    # superproject itself tracks.
+    (clone / "vendored" / "expander2.c").write_text("// generated\n")
+    (clone / "vendored" / "expander.c").write_text("// v1, rebuilt\n")
+
+    real_run = subprocess.run
+    shell_calls = []
+
+    def passthrough(cmd, *args, **kwargs):
+        if kwargs.get("shell"):
+            shell_calls.append(cmd)
+
+            class Ok:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+
+            return Ok()
+        return real_run(cmd, *args, **kwargs)
+
+    with (
+        patch.object(hc_module_real_git, "_repo_root", str(clone)),
+        patch("subprocess.run", side_effect=passthrough),
+        pytest.raises(SystemExit) as exc,
+    ):
+        hc_module_real_git._run_upgrade()
+
+    assert exc.value.code == 0, capsys.readouterr().out
+    assert shell_calls and "make install" in shell_calls[0]
+
+
 @pytest.fixture
 def hc_module_real_git():
     import importlib

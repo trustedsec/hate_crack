@@ -1661,8 +1661,18 @@ def _run_upgrade(branch="main"):
     # `checkout -B` moves the branch to origin's tip instead of merging into it,
     # which recovers those clones. It discards local commits on the branch, so
     # the dirty check above it is load-bearing and must stay unconditional too.
+    #
+    # --ignore-submodules=dirty: `make submodules`/`make install` builds the
+    # bundled binaries (hashcat-utils, princeprocessor, OMEN, ...) inside their
+    # own submodule working trees, which leaves untracked/modified content
+    # there (generated sources, object files, a touched Makefile) with no
+    # action from the operator. Plain `git status --porcelain` reports that as
+    # `M <submodule>` on the superproject, permanently blocking auto-upgrade
+    # after the very install this tool tells people to run. `dirty` still
+    # reports a submodule pinned to a different commit than recorded, which
+    # `checkout -B` on the superproject cannot fix anyway.
     status = subprocess.run(
-        ["git", "status", "--porcelain"],
+        ["git", "status", "--porcelain", "--ignore-submodules=dirty"],
         cwd=repo_root,
         capture_output=True,
         text=True,

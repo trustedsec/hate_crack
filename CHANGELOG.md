@@ -9,6 +9,19 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ## [Unreleased]
 
+### Fixed
+- **`--update`/`--nightly` refused to run on an install that had ever built the
+  bundled binaries**, printing `Cannot auto-upgrade: uncommitted changes` even
+  though the operator had not touched a single tracked file. `make
+  submodules`/`make install` build hashcat-utils, princeprocessor, OMEN and the
+  other bundled binaries inside their own submodule working trees, leaving
+  generated sources, object files, and a touched `Makefile` there — content
+  `git status --porcelain` reports as `M <submodule>` on the superproject. The
+  pre-upgrade dirty check now passes `--ignore-submodules=dirty`, so build
+  byproducts inside a submodule no longer block the upgrade; a submodule
+  actually pinned to a different commit than recorded still does, since
+  `checkout -B` on the superproject cannot fix that anyway.
+
 ## [2.25.0] - 2026-08-04
 
 ### Added
