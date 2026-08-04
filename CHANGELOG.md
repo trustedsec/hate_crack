@@ -9,6 +9,8 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ## [Unreleased]
 
+## [2.25.1] - 2026-08-04
+
 ### Fixed
 - **`--update`/`--nightly` refused to run on an install that had ever built the
   bundled binaries**, printing `Cannot auto-upgrade: uncommitted changes` even
