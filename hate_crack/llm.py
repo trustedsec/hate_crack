@@ -2,7 +2,16 @@
 
 Isolates the atomic-agents / instructor dependency. The rest of hate_crack talks
 to this module only through ``generate_candidates`` and ``research_target``.
+
+``generate_masks`` is the one exception: it delegates entirely to
+``hashcat_rosetta.nlmask.generate_masks`` rather than using Atomic Agents,
+so hate_crack's mask-attack prompt, output schema, and hcmask validation
+all come from HashcatRosetta itself instead of a second, hand-maintained
+copy that would drift from it.
 """
+
+import os
+import sys
 
 import instructor
 from openai import APITimeoutError, OpenAI
@@ -17,6 +26,47 @@ DEFAULT_TIMEOUT_SECONDS = 300.0
 # Researched target fields are pasted into an interactive prompt as an editable
 # default, so they must stay short enough to fit on one terminal line.
 MAX_RESEARCH_FIELD_LEN = 80
+
+# Import HashcatRosetta for mask generation. This module doesn't import
+# hate_crack.main (nor is it guaranteed to be imported after main.py's own
+# sys.path insertion -- main.py imports this module before doing that), so
+# it needs its own independent path setup rather than relying on main.py's.
+# See hate_crack.main.ROSETTA_IMPORT_ERROR for the identical pattern; the
+# two guards are deliberately separate rather than shared; either module
+# can be imported and used standalone.
+_ROSETTA_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "HashcatRosetta")
+)
+# Holds the ImportError when HashcatRosetta could not be imported, else None.
+ROSETTA_MASK_IMPORT_ERROR = None
+try:
+    if _ROSETTA_DIR not in sys.path:
+        sys.path.insert(0, _ROSETTA_DIR)
+    from hashcat_rosetta.mask import format_hcmask_line as _rosetta_format_hcmask_line
+    from hashcat_rosetta.nlmask import (
+        MaskGenerationError as _RosettaMaskGenerationError,
+    )
+    from hashcat_rosetta.nlmask import generate_masks as _rosetta_generate_masks
+except ImportError as _rosetta_mask_import_error:
+    ROSETTA_MASK_IMPORT_ERROR = _rosetta_mask_import_error
+    _rosetta_format_hcmask_line = None
+    _RosettaMaskGenerationError = None
+    _rosetta_generate_masks = None
+
+
+def rosetta_mask_unavailable_reason() -> str:
+    """Return a human-readable explanation for HashcatRosetta being missing.
+
+    Mirrors ``hate_crack.main.rosetta_unavailable_reason`` -- see that
+    function's docstring for why the underlying ImportError is preserved
+    rather than discarded.
+    """
+    message = (
+        "HashcatRosetta is unavailable. Run: git submodule update --init HashcatRosetta"
+    )
+    if ROSETTA_MASK_IMPORT_ERROR is not None:
+        message += f" (import failed: {ROSETTA_MASK_IMPORT_ERROR!r})"
+    return message
 
 
 class LLMTimeoutError(Exception):
@@ -95,20 +145,6 @@ class HashcatRulesOutput(BaseIOSchema):
             "Hashcat rules, one per list entry. Each entry is the raw rule "
             "string of single-character functions, e.g. 'c$2$0$2$5'. No "
             "numbering, comments, quoting, or explanation."
-        ),
-    )
-
-
-class MaskAttackOutput(BaseIOSchema):
-    """A structured list of hashcat brute-force mask strings."""
-
-    masks: list[str] = Field(
-        ...,
-        description=(
-            "Hashcat brute-force masks, one per list entry. Each entry is a raw "
-            "mask string using only literal characters and the built-in charset "
-            "placeholders ?l ?u ?d ?s ?a ?b. No numbering, comments, quoting, or "
-            "explanation."
         ),
     )
 
@@ -310,48 +346,12 @@ _RULES_PROMPT = SystemPromptGenerator(
     ],
 )
 
-_MASK_PROMPT = SystemPromptGenerator(
-    background=[
-        "You are a security professional working an authorized penetration test.",
-        "You write hashcat brute-force masks. A mask is a string of tokens "
-        "applied left to right, each producing exactly one character position "
-        "in a generated candidate.",
-        "The built-in charset tokens, and nothing else: '?l' any lowercase "
-        "letter, '?u' any uppercase letter, '?d' any digit, '?s' any special "
-        "character, '?a' any of the above (letters, digits, specials), '?b' any "
-        "byte 0x00-0xff.",
-        "A literal character in the mask (e.g. '-' or '2026') stands for "
-        "itself and is not a token. A literal '?' must be written '??'.",
-    ],
-    steps=[
-        "Read the operator's description of the passwords they expect: "
-        "length, capitalization, digit/symbol placement, known literal "
-        "substrings (a year, a separator, a company abbreviation).",
-        "Translate each distinct shape the operator describes into one mask. "
-        "'8 characters, capitalized word plus two digits' becomes "
-        "'?u?l?l?l?l?l?d?d' (capital, six lowercase letters, two digits).",
-        "Add masks for reasonable neighboring shapes the operator implied but "
-        "did not spell out — a shorter or longer word, digits before instead "
-        "of after, a trailing symbol as well as a trailing digit pair — so the "
-        "operator gets more than one exact literal reading of their prompt.",
-    ],
-    output_instructions=[
-        "Return one mask per list entry, using only the tokens above and "
-        "literal characters. No quotes, comments, numbering, or explanation.",
-        "Return at least 5 masks, and more when the description implies "
-        "several distinct shapes.",
-        "Keep each mask under 32 characters long.",
-        "Do not include duplicate masks.",
-    ],
-)
-
 _PROMPTS = {
     "target": _TARGET_PROMPT,
     "wordlist": _WORDLIST_PROMPT,
     "cracked": _CRACKED_PROMPT,
     "pattern": _PATTERN_PROMPT,
     "rules": _RULES_PROMPT,
-    "mask": _MASK_PROMPT,
 }
 
 
@@ -631,52 +631,72 @@ def generate_masks(
 
     Unlike the other generation modes, this one takes no corpus context — the
     operator's free-text description of expected password shapes is the whole
-    request.
+    request. Unlike them too, this one delegates entirely to
+    ``hashcat_rosetta.nlmask.generate_masks`` rather than using Atomic Agents
+    directly -- the prompt, the output schema (including custom charsets),
+    hcmask syntax validation, and the one-retry-on-failure behavior all come
+    from HashcatRosetta itself, so this module never carries its own
+    independent copy of any of that to drift out of sync.
 
-    Returns a deduped list of raw mask strings in the order the model gave
-    them. Entries are *not* syntax-validated here — callers must screen them
-    (see ``main._valid_hcmask``) before handing the file to hashcat.
+    Each suggestion HashcatRosetta returns (a mask plus 0-8 custom charsets)
+    is combined into a single canonical hcmask line via
+    ``hashcat_rosetta.mask.format_hcmask_line`` before being returned here.
+
+    Returns a deduped list of hcmask line strings in the order HashcatRosetta
+    gave them. Every entry is already syntax-validated -- unlike the other
+    generation modes in this module, there is no separate screening step
+    callers need to run before handing the file to hashcat.
 
     Raises LLMTimeoutError if the request exceeds ``timeout``,
-    CloudModelRefused when ``no_cloud`` rules out ``model``; other
-    client/connection errors propagate to the caller.
+    CloudModelRefused when ``no_cloud`` rules out ``model``, RuntimeError if
+    HashcatRosetta itself is unavailable (see
+    ``rosetta_mask_unavailable_reason``); other client/connection errors
+    propagate as HashcatRosetta's own MaskGenerationError.
     """
     ensure_model_allowed(model, no_cloud=no_cloud)
-    client = _build_client(url, timeout)
 
-    agent = AtomicAgent[GenerationInput, MaskAttackOutput](
-        config=AgentConfig(
-            client=client,
-            model=model,
-            system_prompt_generator=_PROMPTS["mask"],
-            model_api_parameters={"extra_body": {"options": {"num_ctx": num_ctx}}},
-        )
-    )
+    # The three names are always set together in the single try/except above
+    # (all real or all None) -- checking all three, not just the one this
+    # function calls first, is what lets the type checker narrow the later
+    # uses of the other two instead of still seeing `X | None`.
+    if (
+        _rosetta_generate_masks is None
+        or _RosettaMaskGenerationError is None
+        or _rosetta_format_hcmask_line is None
+    ):
+        raise RuntimeError(rosetta_mask_unavailable_reason())
+
+    client = OpenAI(base_url=f"{url}/v1", api_key="ollama", timeout=timeout)
 
     try:
-        result = agent.run(GenerationInput(request=description))
-    except APITimeoutError as e:
-        raise LLMTimeoutError(
-            f"no response from {url} within {timeout:g} seconds"
-        ) from e
+        suggestions = _rosetta_generate_masks(
+            description,
+            model=model,
+            client=client,
+            extra_options={"num_ctx": num_ctx},
+        )
+    except _RosettaMaskGenerationError as e:
+        # HashcatRosetta wraps every request failure (including a plain
+        # openai.APITimeoutError) into its own MaskGenerationError, but
+        # preserves the original as __cause__ (`raise ... from exc`) -- that
+        # chained exception, not string-matching the message, is what tells
+        # a genuine timeout apart from every other failure it also wraps the
+        # same way (connection refused, bad JSON, validation failure after
+        # retry, ...).
+        if isinstance(e.__cause__, APITimeoutError):
+            raise LLMTimeoutError(
+                f"no response from {url} within {timeout:g} seconds"
+            ) from e
+        raise
 
     seen: set[str] = set()
     masks: list[str] = []
-    for raw in getattr(result, "masks", []) or []:
-        # A non-string entry is model noise, not a mask; str() on it would turn
-        # None into the literal "None", which _valid_hcmask would then reject
-        # for the wrong reason.
-        if not isinstance(raw, str):
+    for suggestion in suggestions:
+        combined = _rosetta_format_hcmask_line(
+            suggestion.custom_charsets, suggestion.mask
+        )
+        if combined in seen:
             continue
-        # Surrounding whitespace goes so that '  ?d?d  ' and '?d?d' dedupe
-        # against each other. The cost is that a mask ending in a literal
-        # trailing space cannot come back from the model this way — worth it,
-        # since models pad far more often than they emit a meaningful
-        # trailing space, and an unstripped mask would otherwise slip past
-        # dedup.
-        mask = raw.strip()
-        if not mask or mask in seen:
-            continue
-        seen.add(mask)
-        masks.append(mask)
+        seen.add(combined)
+        masks.append(combined)
     return masks

@@ -97,10 +97,14 @@ try:
     sys.path.insert(0, ROSETTA_DIR)
     from hashcat_rosetta.debug_analyzer import DebugAnalyzer
     from hashcat_rosetta.formatting import display_rule_opcodes_summary
+    from hashcat_rosetta.mask import MaskError as RosettaMaskError
+    from hashcat_rosetta.mask import parse_hcmask_line as rosetta_parse_hcmask_line
 except ImportError as rosetta_import_error:
     ROSETTA_IMPORT_ERROR = rosetta_import_error
     display_rule_opcodes_summary = None
     DebugAnalyzer = None
+    RosettaMaskError = None
+    rosetta_parse_hcmask_line = None
 
 
 def rosetta_unavailable_reason():
@@ -2197,54 +2201,42 @@ def hcatQuickDictionary(
     _run_hcat_cmd(cmd, attack_name=attack_name, hash_file=hcatHashFile)
 
 
-# Built-in hashcat charset placeholders usable in a mask, per hashcat's
-# documented -1..-4/custom-charset-free set. Anything else after a '?' is
-# either a literal '?' (escaped as '??') or an invalid mask.
-_HCMASK_PLACEHOLDER_LETTERS = frozenset("ludsab")
-_HCMASK_MAX_LEN = 32
-
-
 def _valid_hcmask(mask: object) -> bool:
-    """Is *mask* a syntactically valid hashcat brute-force mask?
+    """Is *mask* a syntactically valid hashcat brute-force mask (or hcmask line)?
 
-    A '?' must be followed by one of the built-in placeholder letters
-    (l/u/d/s/a/b) or by another '?' (the escape for a literal question mark).
-    Anything else — an unescaped trailing '?', an unrecognized placeholder
-    letter, a non-string, an empty string, or a mask longer than
-    ``_HCMASK_MAX_LEN`` characters — is rejected. Length is capped as a guard
-    against runaway model output, not a hashcat limitation as such.
+    Delegates the actual hcmask grammar — builtin tokens, custom charsets
+    (``?1``-``?8``, comma-separated, ``\\,``-escaped), and hashcat's own
+    256-position mask-length limit — to
+    ``hashcat_rosetta.mask.parse_hcmask_line``. ``llm.generate_masks``
+    already ran every suggestion through that exact function before this one
+    ever sees it; this check exists for callers reaching ``hcatRosettaMask``
+    some other way, and returns ``False`` (rather than raising) for a
+    non-string, an empty string, or anything ``parse_hcmask_line`` rejects.
 
-    A ``,`` or ``\\`` is also rejected: both are structural in the ``.hcmask``
-    file format (comma separates custom-charset definitions from the mask,
-    backslash escapes within it), so a literal one in the mask text would be
-    reinterpreted rather than run verbatim. Embedded ``\\n``, ``\\r``, or
-    ``\\t`` are rejected too, since each mask becomes its own line in the
-    ``.hcmask`` file and a newline would split it into two (one of them
-    possibly blank, which hashcat refuses to run). A literal space remains
-    legal mask content.
-
-    A mask starting with ``#`` is rejected too: hashcat treats a ``.hcmask``
-    line beginning with ``#`` as a comment, so such a mask would be silently
-    skipped rather than run.
+    Three checks stay local because they're about ``.hcmask`` *file* safety,
+    not mask grammar, and ``parse_hcmask_line`` has no reason to know about
+    them: an embedded ``\\n``/``\\r``/``\\t`` is rejected because each mask
+    becomes its own line in the file and a newline would split it into two
+    (one of them possibly blank, which hashcat refuses to run); a mask
+    starting with ``#`` is rejected because hashcat treats such a
+    ``.hcmask`` line as a comment and would silently skip it.
     """
-    if not isinstance(mask, str) or not mask or len(mask) > _HCMASK_MAX_LEN:
+    if not isinstance(mask, str) or not mask:
         return False
-    if any(c in mask for c in (",", "\\", "\n", "\r", "\t")):
+    if any(c in mask for c in ("\n", "\r", "\t")):
         return False
     if mask.startswith("#"):
         return False
-    i = 0
-    n = len(mask)
-    while i < n:
-        if mask[i] == "?":
-            if i + 1 >= n:
-                return False
-            nxt = mask[i + 1]
-            if nxt != "?" and nxt not in _HCMASK_PLACEHOLDER_LETTERS:
-                return False
-            i += 2
-        else:
-            i += 1
+    # The two names are always set together in the single try/except above
+    # (both real or both None) -- checking both, not just the one this
+    # function calls, is what lets the type checker narrow the except
+    # clause below instead of still seeing `type[RosettaMaskError] | None`.
+    if rosetta_parse_hcmask_line is None or RosettaMaskError is None:
+        return False
+    try:
+        rosetta_parse_hcmask_line(mask)
+    except RosettaMaskError:
+        return False
     return True
 
 

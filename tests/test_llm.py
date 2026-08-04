@@ -1,6 +1,7 @@
 """Unit tests for hate_crack.llm.generate_candidates."""
 
 import os
+from types import SimpleNamespace
 from unittest import mock
 
 import httpx
@@ -152,13 +153,15 @@ def test_cracked_prompt_is_offensive_not_denylist():
 
 
 def test_prompts_map_covers_every_supported_mode():
+    # "mask" is deliberately absent: generate_masks() delegates to
+    # hashcat_rosetta.nlmask.generate_masks rather than an Atomic Agents
+    # prompt from this map -- see generate_masks()'s own docstring.
     assert set(llm._PROMPTS) == {
         "target",
         "wordlist",
         "cracked",
         "pattern",
         "rules",
-        "mask",
     }
 
 
@@ -381,64 +384,118 @@ def test_clean_research_field_collapses_internal_whitespace():
     )
 
 
-def test_generate_masks_returns_masks():
-    p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_agent([])
-    agent_instance.run.return_value.masks = ["?u?l?l?l?d?d", "?l?l?l?l?l?l?d"]
-    with p_instr, p_openai, p_agent:
-        out = llm.generate_masks(
-            "http://localhost:11434",
-            "qwen2.5:32b",
-            2048,
-            "8 character passwords, capitalized word plus two digits",
-            no_cloud=False,
-        )
+def _rosetta_suggestion(mask, custom_charsets=()):
+    """A minimal stand-in for hashcat_rosetta.nlmask.MaskSuggestion.
+
+    generate_masks() only reads .mask and .custom_charsets off what
+    _rosetta_generate_masks returns (to build the combined hcmask line via
+    the real _rosetta_format_hcmask_line), so a plain namespace is enough --
+    no need to depend on HashcatRosetta's actual dataclass in this test file.
+    """
+    return SimpleNamespace(mask=mask, custom_charsets=list(custom_charsets))
+
+
+def test_generate_masks_returns_masks(monkeypatch):
+    captured = {}
+
+    def fake_generate_masks(description, *, model, client, extra_options):
+        captured["description"] = description
+        captured["model"] = model
+        captured["extra_options"] = extra_options
+        return [
+            _rosetta_suggestion("?u?l?l?l?d?d"),
+            _rosetta_suggestion("?l?l?l?l?l?l?d"),
+        ]
+
+    monkeypatch.setattr(llm, "_rosetta_generate_masks", fake_generate_masks)
+
+    out = llm.generate_masks(
+        "http://localhost:11434",
+        "qwen2.5:32b",
+        2048,
+        "8 character passwords, capitalized word plus two digits",
+        no_cloud=False,
+    )
+
     assert out == ["?u?l?l?l?d?d", "?l?l?l?l?l?l?d"]
-    run_arg = agent_instance.run.call_args[0][0]
-    assert "8 character passwords" in run_arg.request
+    assert captured["model"] == "qwen2.5:32b"
+    assert captured["extra_options"] == {"num_ctx": 2048}
+    assert "8 character passwords" in captured["description"]
 
 
-def test_generate_masks_dedupes_and_strips_whitespace():
-    p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_agent([])
-    agent_instance.run.return_value.masks = ["  ?d?d?d?d  ", "?d?d?d?d", "?u?l?l?l"]
-    with p_instr, p_openai, p_agent:
-        out = llm.generate_masks(
-            "http://localhost:11434",
-            "qwen2.5:32b",
-            2048,
-            "four digit pins",
-            no_cloud=False,
-        )
+def test_generate_masks_combines_custom_charsets(monkeypatch):
+    monkeypatch.setattr(
+        llm,
+        "_rosetta_generate_masks",
+        lambda description, **kwargs: [_rosetta_suggestion("?1?1?1?1?d?d", ["aeiou"])],
+    )
+
+    out = llm.generate_masks(
+        "http://localhost:11434",
+        "qwen2.5:32b",
+        2048,
+        "four vowels then two digits",
+        no_cloud=False,
+    )
+
+    assert out == ["aeiou,?1?1?1?1?d?d"]
+
+
+def test_generate_masks_dedupes_combined_lines(monkeypatch):
+    monkeypatch.setattr(
+        llm,
+        "_rosetta_generate_masks",
+        lambda description, **kwargs: [
+            _rosetta_suggestion("?d?d?d?d"),
+            _rosetta_suggestion("?d?d?d?d"),
+            _rosetta_suggestion("?u?l?l?l"),
+        ],
+    )
+
+    out = llm.generate_masks(
+        "http://localhost:11434", "qwen2.5:32b", 2048, "four digit pins", no_cloud=False
+    )
+
     assert out == ["?d?d?d?d", "?u?l?l?l"]
 
 
-def test_generate_masks_skips_non_string_entries():
-    p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_agent([])
-    agent_instance.run.return_value.masks = ["?d?d?d?d", None, 123]
-    with p_instr, p_openai, p_agent:
-        out = llm.generate_masks(
+def test_generate_masks_raises_llm_timeout_error(monkeypatch):
+    def raise_wrapped_timeout(description, **kwargs):
+        try:
+            raise openai.APITimeoutError(request=mock.MagicMock())
+        except openai.APITimeoutError as timeout_exc:
+            # Mirrors how hashcat_rosetta.nlmask.generate_masks itself wraps
+            # every request failure: `raise MaskGenerationError(...) from exc`,
+            # preserving the original as __cause__.
+            raise llm._RosettaMaskGenerationError("request failed") from timeout_exc
+
+    monkeypatch.setattr(llm, "_rosetta_generate_masks", raise_wrapped_timeout)
+
+    with pytest.raises(llm.LLMTimeoutError):
+        llm.generate_masks(
             "http://localhost:11434", "qwen2.5:32b", 2048, "pins", no_cloud=False
         )
-    assert out == ["?d?d?d?d"]
 
 
-def test_generate_masks_skips_empty_string_entries():
-    p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_agent([])
-    agent_instance.run.return_value.masks = ["?d?d?d?d", "", "   "]
-    with p_instr, p_openai, p_agent:
-        out = llm.generate_masks(
+def test_generate_masks_reraises_non_timeout_rosetta_errors(monkeypatch):
+    def raise_other_error(description, **kwargs):
+        raise llm._RosettaMaskGenerationError("model returned invalid JSON")
+
+    monkeypatch.setattr(llm, "_rosetta_generate_masks", raise_other_error)
+
+    with pytest.raises(llm._RosettaMaskGenerationError):
+        llm.generate_masks(
             "http://localhost:11434", "qwen2.5:32b", 2048, "pins", no_cloud=False
         )
-    assert out == ["?d?d?d?d"]
 
 
-def test_generate_masks_raises_llm_timeout_error():
-    p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_agent([])
-    agent_instance.run.side_effect = openai.APITimeoutError(request=mock.MagicMock())
-    with p_instr, p_openai, p_agent:
-        with pytest.raises(llm.LLMTimeoutError):
-            llm.generate_masks(
-                "http://localhost:11434", "qwen2.5:32b", 2048, "pins", no_cloud=False
-            )
+def test_generate_masks_raises_runtime_error_when_rosetta_unavailable(monkeypatch):
+    monkeypatch.setattr(llm, "_rosetta_generate_masks", None)
+
+    with pytest.raises(RuntimeError, match="HashcatRosetta is unavailable"):
+        llm.generate_masks(
+            "http://localhost:11434", "qwen2.5:32b", 2048, "pins", no_cloud=False
+        )
 
 
 def test_generate_masks_refuses_cloud_model_when_no_cloud():

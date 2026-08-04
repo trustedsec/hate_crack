@@ -32,6 +32,32 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   `maskgen.py` — previously these generated mask files were left behind after a
   session for re-use or inspection; they are now cleaned up along with other
   session artifacts.
+- **`llm.generate_masks` now delegates entirely to
+  `hashcat_rosetta.nlmask.generate_masks`** instead of a second, hand-maintained
+  Atomic Agents prompt (`_MASK_PROMPT`/`MaskAttackOutput`, both removed). The LLM
+  Mask Attack's prompt, output schema, hcmask syntax validation, and the
+  one-retry-on-failure behavior all now come from HashcatRosetta itself, so this
+  feature can't silently drift from that project's own SYSTEM_PROMPT fixes the
+  way it had (HashcatRosetta had already independently fixed a `[...]`
+  bracket-syntax hallucination, an arbitrary "always pick 6" category cap, and a
+  word-decomposition bug that this module's own prompt never guarded against).
+  The practical result is that the LLM Mask Attack now supports custom charsets
+  (`?1`-`?8`, up to 8 per HashcatRosetta's own hashcat-verified limit) for the
+  first time — every generated mask combines its custom charsets (if any) into
+  one canonical hcmask line (e.g. `aeiou,?1?1?1?1?d?d`) via
+  `hashcat_rosetta.mask.format_hcmask_line`.
+- **`_valid_hcmask` now delegates its grammar check to
+  `hashcat_rosetta.mask.parse_hcmask_line`** instead of a hand-rolled
+  placeholder-letter scanner, and no longer blanket-rejects a `,` or `\`. Both
+  are legitimate hcmask syntax (a custom-charset separator and an escape
+  character respectively) that the old checker couldn't tell apart from a
+  malformed mask — it had no concept of custom charsets at all. The old
+  32-character length cap (a runaway-output guard, not a real hashcat limit) is
+  also gone, replaced by hashcat's own real 256-position limit, which
+  HashcatRosetta's `parse_hcmask_line` now enforces directly. Embedded
+  newline/carriage-return/tab and a leading `#` are still rejected locally —
+  those are `.hcmask` *file*-safety concerns `parse_hcmask_line` has no reason
+  to know about, not mask grammar.
 
 ### Fixed
 - **`rosetta_derive` misparsed a batch mixing `--debug-mode` 4 and 5 logs,
