@@ -9,6 +9,8 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ## [Unreleased]
 
+## [2.25.0] - 2026-08-04
+
 ### Added
 - **`upload_cracked_hashes` now batches uploads into 10,000-line chunks per
   POST to Hashview's `/v1/hashes/import/<hash_type>` endpoint, instead of
