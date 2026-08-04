@@ -34,6 +34,15 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   session artifacts.
 
 ### Fixed
+- **`rosetta_derive` misparsed a batch mixing `--debug-mode` 4 and 5 logs,
+  logging one file's lines as `Skipping malformed mode-5 line (missing
+  wordlist field)` and dropping them.** It merged every selected log's raw
+  lines into one list before handing them to HashcatRosetta, whose format/mode
+  detection samples only the start of whatever it's given -- so whichever
+  file's lines landed first decided the mode for the whole batch. It now calls
+  HashcatRosetta's `analyze_debug_files()`, which detects each file's format
+  and mode independently (requires HashcatRosetta >= the commit adding that
+  method; bumped alongside this fix).
 - **`rosetta_derive` stopped reading debug logs after 1,000,000 lines and
   printed `[!] Stopped at 1000000 debug lines`, silently discarding the
   remainder of large captures.** The cap and its `max_lines` parameter are

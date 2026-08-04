@@ -138,6 +138,26 @@ class TestRosettaDerive:
         assert "echo" in _read(result["basewords"])
         assert "$9" in _read(result["rules"])
 
+    def test_merges_mixed_debug_mode_logs(self, main_module, tmp_path):
+        """A mode-4 colon log and a mode-5 colon log in the same batch must
+        each keep their own format detection (regression: merging their raw
+        lines before parsing let one file's sample decide the mode for both,
+        logging the other file's lines as malformed and dropping them)."""
+        mode_four = tmp_path / "mode4.log"
+        mode_four.write_text(
+            "Moldmastersmmkr:r i45 i52 r:Moldmasters25mmkr\n", encoding="utf-8"
+        )
+        mode_five = tmp_path / "mode5.log"
+        mode_five.write_text("password:c:Password:rockyou.txt\n", encoding="utf-8")
+
+        result = main_module.rosetta_derive(
+            [str(mode_four), str(mode_five)], str(tmp_path / "out")
+        )
+
+        assert result["entries"] == 2
+        assert "Moldmastersmmkr" in _read(result["basewords"])
+        assert "password" in _read(result["basewords"])
+
     def test_empty_log_rejected(self, main_module, tmp_path):
         empty = tmp_path / "empty.log"
         empty.write_text("", encoding="utf-8")

@@ -4028,7 +4028,7 @@ def rosetta_derive(
     """Derive a baseword list and rule file from hashcat debug logs.
 
     HashcatRosetta parses mode 5 (the current writer) and mode 4 (logs
-    predating the switch) natively, detecting the format per batch. Every line
+    predating the switch) natively, detecting the format per file. Every line
     records a candidate that actually cracked a hash, so the basewords and rules
     recovered here are known-productive against this target population. ``top_rules``/``top_basewords`` of None or
     0 mean "keep everything".
@@ -4042,22 +4042,29 @@ def rosetta_derive(
     if metric not in ROSETTA_RULE_METRICS:
         raise ValueError(f"unknown rule metric: {metric}")
 
-    lines = []
-    for path in debug_files:
-        with open(path, encoding="utf-8", errors="ignore") as debug_log:
-            for line in debug_log:
-                lines.append(line.rstrip("\n"))
-    if not lines:
+    # Zero-byte files are tolerated (rosetta_debug_logs() already excludes them
+    # from the picker, but direct callers may not have filtered). A capture
+    # spanning a --debug-mode switch mixes mode-4 and mode-5 files, which is
+    # why each one is parsed on its own via analyze_debug_files() rather than
+    # merged into one line list first -- format/mode detection samples the
+    # start of whatever it's given, so a merged batch lets one file's sample
+    # decide the mode for both and silently drops the other file's lines.
+    non_empty_files = [path for path in debug_files if os.path.getsize(path) > 0]
+    if not non_empty_files:
         raise ValueError("the selected debug logs are empty")
 
     analyzer = DebugAnalyzer()
-    analyzer.analyze_debug_lines(lines)
-    if not analyzer.rule_stats or not analyzer.baseword_stats:
+    try:
+        analyzer.analyze_debug_files(non_empty_files)
+    except ValueError as e:
+        # analyze_debug_files() raises per-file as soon as one file yields no
+        # entries, so a merged batch can never come back with entries but
+        # empty rule/baseword stats -- this is the only "nothing usable" case.
         raise ValueError(
             "no hashcat debug entries found. Expected lines of the form "
             "'baseword:rule:candidate' (--debug-mode 4) or "
             "'baseword:rule:candidate:wordlist' (--debug-mode 5)"
-        )
+        ) from e
 
     getter = ROSETTA_RULE_METRICS[metric][0]
     rule_limit = top_rules or len(analyzer.rule_stats)
