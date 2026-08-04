@@ -199,6 +199,134 @@ class TestRunHcatCmd:
         mock_lc.assert_called_with(alt_out)
         mock_notify.notify_job_done.assert_called_once_with("LM Phase", 9, hash_file)
 
+    def test_debug_mode_5_rejection_falls_back_to_4_and_retries(
+        self, main_module, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(main_module, "_debug_mode_level", 5)
+        hash_file = str(tmp_path / "hashes.txt")
+
+        fail_proc = _make_mock_proc()
+        fail_proc.returncode = 255
+        ok_proc = _make_mock_proc()
+        ok_proc.returncode = 0
+        popen_calls = []
+
+        def fake_popen(cmd, **kwargs):
+            popen_calls.append((list(cmd), kwargs))
+            if len(popen_calls) == 1:
+                kwargs["stderr"].write(b"Invalid --debug-mode value specified.\n")
+                return fail_proc
+            return ok_proc
+
+        with (
+            patch("hate_crack.main.subprocess.Popen", side_effect=fake_popen),
+            patch("hate_crack.main._notify") as mock_notify,
+        ):
+            mock_notify.is_suppressed.return_value = False
+            mock_notify.get_settings.return_value = MagicMock(enabled=False)
+            mock_notify.start_tailer.return_value = None
+            main_module._run_hcat_cmd(
+                [
+                    "hashcat",
+                    "-r",
+                    "best64.rule",
+                    "--debug-mode",
+                    "5",
+                    "--debug-file",
+                    "x.log",
+                ],
+                attack_name="Dictionary",
+                hash_file=hash_file,
+            )
+
+        assert len(popen_calls) == 2
+        first_cmd, second_cmd = popen_calls[0][0], popen_calls[1][0]
+        assert first_cmd[first_cmd.index("--debug-mode") + 1] == "5"
+        assert second_cmd[second_cmd.index("--debug-mode") + 1] == "4"
+        assert main_module._debug_mode_level == 4
+
+    def test_debug_mode_fallback_level_is_reused_without_retrying(
+        self, main_module, tmp_path, monkeypatch
+    ):
+        # Once a prior invocation fell back, later ones request mode 4
+        # directly, so a rejection can only be re-triggered by mode 5.
+        monkeypatch.setattr(main_module, "_debug_mode_level", 4)
+        hash_file = str(tmp_path / "hashes.txt")
+
+        fail_proc = _make_mock_proc()
+        fail_proc.returncode = 255
+        popen_calls = []
+
+        def fake_popen(cmd, **kwargs):
+            popen_calls.append(list(cmd))
+            kwargs["stderr"].write(b"Invalid --debug-mode value specified.\n")
+            return fail_proc
+
+        with (
+            patch("hate_crack.main.subprocess.Popen", side_effect=fake_popen),
+            patch("hate_crack.main._notify") as mock_notify,
+        ):
+            mock_notify.is_suppressed.return_value = False
+            mock_notify.get_settings.return_value = MagicMock(enabled=False)
+            mock_notify.start_tailer.return_value = None
+            main_module._run_hcat_cmd(
+                [
+                    "hashcat",
+                    "-r",
+                    "best64.rule",
+                    "--debug-mode",
+                    "4",
+                    "--debug-file",
+                    "x.log",
+                ],
+                attack_name="Dictionary",
+                hash_file=hash_file,
+            )
+
+        # Already at mode 4: no retry loop, and the level is untouched.
+        assert len(popen_calls) == 1
+        assert main_module._debug_mode_level == 4
+
+    def test_unrelated_stderr_is_surfaced_not_treated_as_fallback(
+        self, main_module, tmp_path, monkeypatch, capsys
+    ):
+        monkeypatch.setattr(main_module, "_debug_mode_level", 5)
+        hash_file = str(tmp_path / "hashes.txt")
+
+        fail_proc = _make_mock_proc()
+        fail_proc.returncode = 1
+        popen_calls = []
+
+        def fake_popen(cmd, **kwargs):
+            popen_calls.append(list(cmd))
+            kwargs["stderr"].write(b"Some unrelated hashcat error.\n")
+            return fail_proc
+
+        with (
+            patch("hate_crack.main.subprocess.Popen", side_effect=fake_popen),
+            patch("hate_crack.main._notify") as mock_notify,
+        ):
+            mock_notify.is_suppressed.return_value = False
+            mock_notify.get_settings.return_value = MagicMock(enabled=False)
+            mock_notify.start_tailer.return_value = None
+            main_module._run_hcat_cmd(
+                [
+                    "hashcat",
+                    "-r",
+                    "best64.rule",
+                    "--debug-mode",
+                    "5",
+                    "--debug-file",
+                    "x.log",
+                ],
+                attack_name="Dictionary",
+                hash_file=hash_file,
+            )
+
+        assert len(popen_calls) == 1
+        assert main_module._debug_mode_level == 5
+        assert "Some unrelated hashcat error." in capsys.readouterr().err
+
     def test_tailer_is_stopped_in_finally(self, main_module, tmp_path):
         hash_file = str(tmp_path / "hashes.txt")
         proc = _make_mock_proc(wait_side_effect=KeyboardInterrupt())

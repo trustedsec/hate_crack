@@ -1,7 +1,7 @@
-"""Tests for the six argparse flags promoted into schema-backed keys.
+"""Tests for the seven argparse flags promoted into schema-backed keys.
 
 Each flag is now a per-run override of a config-file-settable default, resolved
-by ``hate_crack.main.resolve_flag_overrides``. All six of these keys are
+by ``hate_crack.main.resolve_flag_overrides``. All seven of these keys are
 ``home="json"``, so their persisted default comes from ``config.json``; the
 helper below routes a ``KEY=VALUE`` body to whichever file each key's home is,
 so a test cannot accidentally assert that the wrong file works. For every flag
@@ -90,6 +90,7 @@ def _resolve(tmp_path, env_body="", environ=None, current_potfile_path=None, **f
         no_optimized_kernel=flags.get("no_optimized_kernel", False),
         potfile_path=flags.get("potfile_path"),
         no_potfile_path=flags.get("no_potfile_path", False),
+        rule_debug_mode=flags.get("rule_debug_mode"),
     )
     return hc_main.resolve_flag_overrides(
         args,
@@ -142,6 +143,33 @@ def test_restore_potfile_from_env_when_flag_absent(tmp_path):
 
 def test_restore_potfile_default_is_off(tmp_path):
     assert _resolve(tmp_path).restore_potfile is False
+
+
+# ---------------------------------------------------------------------------
+# --rule-debug-mode / --no-rule-debug-mode  <->  RULE_DEBUG_MODE_ENABLED
+# ---------------------------------------------------------------------------
+
+
+def test_rule_debug_mode_flag_negative_beats_config_that_says_on(tmp_path):
+    got = _resolve(tmp_path, "RULE_DEBUG_MODE_ENABLED=1\n", rule_debug_mode=False)
+    assert got.rule_debug_mode_enabled is False
+
+
+def test_rule_debug_mode_flag_affirmative_beats_config_that_says_off(tmp_path):
+    got = _resolve(tmp_path, "RULE_DEBUG_MODE_ENABLED=0\n", rule_debug_mode=True)
+    assert got.rule_debug_mode_enabled is True
+
+
+def test_rule_debug_mode_from_config_when_flag_absent(tmp_path):
+    got = _resolve(tmp_path, "RULE_DEBUG_MODE_ENABLED=false\n")
+    assert got.rule_debug_mode_enabled is False
+
+
+def test_rule_debug_mode_default_is_on(tmp_path):
+    # Unlike the other promoted booleans, this one defaults to True: rule
+    # debug logging (mining winning rules for the Rosetta Attack) has always
+    # been unconditional, so the flag is an opt-out, not an opt-in.
+    assert _resolve(tmp_path).rule_debug_mode_enabled is True
 
 
 # ---------------------------------------------------------------------------
@@ -450,6 +478,23 @@ def test_no_restore_potfile_is_accepted_by_the_parser(monkeypatch):
     # No hash file is given, so the restore path is never reached; this only
     # proves the negative spelling parses rather than erroring out.
     assert _run_main(monkeypatch, ["--no-restore-potfile"]) == 0
+
+
+@pytest.mark.parametrize(
+    ("argv", "config_value", "expected"),
+    [
+        (["--rule-debug-mode"], False, True),
+        (["--no-rule-debug-mode"], True, False),
+        ([], True, True),
+        ([], False, False),
+    ],
+)
+def test_rule_debug_mode_through_the_real_parser(
+    monkeypatch, argv, config_value, expected
+):
+    monkeypatch.setitem(hc_main.config_parser, "rule_debug_mode_enabled", config_value)
+    assert _run_main(monkeypatch, argv) == 0
+    assert hc_main._rule_debug_mode_enabled is expected
 
 
 def test_no_nightly_does_not_trigger_an_upgrade(monkeypatch):

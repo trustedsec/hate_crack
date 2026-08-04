@@ -444,9 +444,32 @@ class TestDebugModeFive:
 
     def test_writer_requests_mode_5(self, main_module, tmp_path, monkeypatch):
         monkeypatch.setattr(main_module, "hcatDebugLogPath", str(tmp_path))
+        monkeypatch.setattr(main_module, "_debug_mode_level", 5)
         cmd = main_module._add_debug_mode_for_rules(["hashcat", "-r", "best64.rule"])
 
         assert cmd[cmd.index("--debug-mode") + 1] == "5"
+
+    def test_disabled_via_rule_debug_mode_flag_adds_nothing(
+        self, main_module, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(main_module, "hcatDebugLogPath", str(tmp_path))
+        monkeypatch.setattr(main_module, "_rule_debug_mode_enabled", False)
+        cmd = main_module._add_debug_mode_for_rules(["hashcat", "-r", "best64.rule"])
+
+        assert "--debug-mode" not in cmd
+        assert "--debug-file" not in cmd
+
+    def test_writer_honors_a_prior_fallback_to_mode_4(
+        self, main_module, tmp_path, monkeypatch
+    ):
+        # _run_hcat_cmd drops the module-level level to 4 once it observes
+        # hashcat reject mode 5; every later rule-based attack in the
+        # process must request 4 directly rather than failing again first.
+        monkeypatch.setattr(main_module, "hcatDebugLogPath", str(tmp_path))
+        monkeypatch.setattr(main_module, "_debug_mode_level", 4)
+        cmd = main_module._add_debug_mode_for_rules(["hashcat", "-r", "best64.rule"])
+
+        assert cmd[cmd.index("--debug-mode") + 1] == "4"
 
     def test_wordlist_field_is_parsed_not_glued_to_the_candidate(self, main_module):
         # HashcatRosetta < 0.3.0 split on the first two colons only, so the

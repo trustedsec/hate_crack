@@ -312,6 +312,7 @@ class FlagOverrides(NamedTuple):
     restore_potfile: bool
     optimized_kernel_disabled: bool
     potfile_path: str
+    rule_debug_mode_enabled: bool
 
 
 def _flag_or_config(flag_value, config_value):
@@ -333,7 +334,7 @@ def _flag_or_config(flag_value, config_value):
 
 
 def resolve_flag_overrides(args, config, *, base_dir, current_potfile_path=None):
-    """Resolve the six promoted preference flags against loaded ``config``.
+    """Resolve the seven promoted preference flags against loaded ``config``.
 
     ``args`` is anything with the argparse attribute names (a
     ``SimpleNamespace`` is fine); ``config`` is a ``config_parser``-shaped
@@ -342,7 +343,7 @@ def resolve_flag_overrides(args, config, *, base_dir, current_potfile_path=None)
 
     Precedence for each key is CLI flag > os.environ > that key's own home file
     > schema default. There is no cross-file fallthrough: each key lives in
-    exactly one of ``.env`` or ``config.json`` (all six resolved here are
+    exactly one of ``.env`` or ``config.json`` (all seven resolved here are
     ``config.json`` keys) and an entry in the other file is ignored with a
     warning. The loader owns the bottom three and has already collapsed
     them into ``config``; this function only layers the flag on top. It is
@@ -403,6 +404,12 @@ def resolve_flag_overrides(args, config, *, base_dir, current_potfile_path=None)
         # existing configs.
         optimized_kernel_disabled=bool(getattr(args, "no_optimized_kernel", False)),
         potfile_path=potfile_path,
+        rule_debug_mode_enabled=bool(
+            _flag_or_config(
+                getattr(args, "rule_debug_mode", None),
+                config.get("rule_debug_mode_enabled", True),
+            )
+        ),
     )
 
 
@@ -1272,6 +1279,22 @@ debug_mode = False
 non_interactive = False
 hcatUsernamePrefix: bool = False
 
+# Level requested for --debug-mode on rule-based attacks. A hashcat build
+# older than the one that introduced mode 5 rejects it with "Invalid
+# --debug-mode value specified." (exit 255); _run_hcat_cmd detects that
+# specific failure, retries the same invocation at mode 4, and drops this to
+# 4 so every later rule-based attack in the process requests mode 4 directly
+# instead of failing and retrying again.
+_debug_mode_level = 5
+_DEBUG_MODE_UNSUPPORTED_MSG = b"Invalid --debug-mode value specified."
+
+# Set from ``flags.rule_debug_mode_enabled`` in main(); --no-rule-debug-mode
+# (or ``rule_debug_mode_enabled: false`` in config.json) stops
+# _add_debug_mode_for_rules from adding --debug-mode/--debug-file at all.
+# Unrelated to ``debug_mode`` above, which only controls hate_crack's own
+# verbose logging.
+_rule_debug_mode_enabled = True
+
 
 def _open_wordlist(path):
     """Open a wordlist file, transparently decompressing gzip by magic bytes.
@@ -1335,7 +1358,7 @@ def _run_hcat_cmd(
     ``notify.suppressed_notifications``) and disabled-globally state are
     both handled inside the notify module, so callers need not branch.
     """
-    global hcatProcess
+    global hcatProcess, _debug_mode_level
 
     companions = list(companion_procs) if companion_procs else []
 
@@ -1349,7 +1372,16 @@ def _run_hcat_cmd(
     if attack_name and resolved_out and not _notify.is_suppressed():
         tailer = _notify.start_tailer(resolved_out, attack_name)
 
+    # ``--debug-mode`` is only ever added by ``_add_debug_mode_for_rules``, so
+    # only those invocations pay for the stderr capture needed to detect a
+    # hashcat build that rejects the requested mode. stdout is left alone
+    # (inherited) so the live progress output is unaffected.
+    has_debug_mode = "--debug-mode" in cmd
+    stderr_capture = tempfile.TemporaryFile() if has_debug_mode else None
+
     popen_kwargs = {"stdin": stdin} if stdin is not None else {}
+    if stderr_capture is not None:
+        popen_kwargs["stderr"] = stderr_capture
     hcatProcess = subprocess.Popen(cmd, **popen_kwargs)
     interrupted = False
     try:
@@ -1370,6 +1402,42 @@ def _run_hcat_cmd(
                 pass
     finally:
         _notify.stop_tailer(tailer)
+
+    if stderr_capture is not None:
+        try:
+            stderr_capture.seek(0)
+            captured_stderr = stderr_capture.read()
+        finally:
+            stderr_capture.close()
+
+        if (
+            not interrupted
+            and hcatProcess.returncode
+            and _DEBUG_MODE_UNSUPPORTED_MSG in captured_stderr
+        ):
+            debug_mode_idx = cmd.index("--debug-mode") + 1
+            requested_level = cmd[debug_mode_idx]
+            if requested_level == str(_debug_mode_level) and _debug_mode_level > 4:
+                print(
+                    f"[!] hashcat rejected --debug-mode {requested_level} "
+                    "(unsupported by this build); falling back to "
+                    "--debug-mode 4 for the rest of this run."
+                )
+                _debug_mode_level = 4
+                fallback_cmd = list(cmd)
+                fallback_cmd[debug_mode_idx] = "4"
+                return _run_hcat_cmd(
+                    fallback_cmd,
+                    attack_name,
+                    hash_file,
+                    stdin=stdin,
+                    companion_procs=companion_procs,
+                    reraise_interrupt=reraise_interrupt,
+                    out_path=out_path,
+                )
+        elif captured_stderr:
+            sys.stderr.write(captured_stderr.decode(errors="replace"))
+            sys.stderr.flush()
 
     # Only incur a lineCount read when notifications will actually fire.
     # This avoids disturbing existing tests that assert a specific number
@@ -1439,8 +1507,11 @@ def _add_debug_mode_for_rules(cmd):
     Mode 5 is mode 4 (baseword:rule:candidate) plus the wordlist the baseword
     came from, so a log from a multi-wordlist run records which list is actually
     producing cracks. HashcatRosetta >= 0.3.0 parses that fourth field.
+
+    Skipped entirely when ``--no-rule-debug-mode`` (or
+    ``rule_debug_mode_enabled: false`` in config.json) is in effect.
     """
-    if "-r" in cmd:
+    if "-r" in cmd and _rule_debug_mode_enabled:
         # Create debug output directory if it doesn't exist
         os.makedirs(hcatDebugLogPath, exist_ok=True)
 
@@ -1453,7 +1524,9 @@ def _add_debug_mode_for_rules(cmd):
                     hcatDebugLogPath, f"hashcat_debug_{cmd[session_idx]}.log"
                 )
 
-        cmd.extend(["--debug-mode", "5", "--debug-file", debug_filename])
+        cmd.extend(
+            ["--debug-mode", str(_debug_mode_level), "--debug-file", debug_filename]
+        )
     return cmd
 
 
@@ -6332,6 +6405,20 @@ def main():
             action="store_true",
             help="Do not pass --potfile-path to hashcat (use hashcat's built-in default).",
         )
+        parser.add_argument(
+            "--rule-debug-mode",
+            dest="rule_debug_mode",
+            action=argparse.BooleanOptionalAction,
+            default=None,
+            help=(
+                "Have every rule-based attack pass --debug-mode/--debug-file to "
+                "hashcat, so the Rosetta Attack can mine which rules/wordlists "
+                "cracked what. Overrides `rule_debug_mode_enabled` in config.json "
+                "for this run; --no-rule-debug-mode stops hate_crack from adding "
+                "those flags at all -- unrelated to --debug/--no-debug, which "
+                "only controls hate_crack's own verbose logging."
+            ),
+        )
         hashview_parser = None
         if not include_subcommands:
             return parser, hashview_parser
@@ -6470,9 +6557,9 @@ def main():
     if getattr(args, "command", None) in _noninteractive.ATTACK_COMMANDS:
         non_interactive = True
 
-    # Six flags are per-run overrides of schema-backed keys; resolve_flag_overrides
+    # Seven flags are per-run overrides of schema-backed keys; resolve_flag_overrides
     # layers the flag (when present) on top of what the loader already merged
-    # from os.environ, the key's own home file (config.json for all six) and
+    # from os.environ, the key's own home file (config.json for all seven) and
     # the schema default.
     flags = resolve_flag_overrides(
         args,
@@ -6481,8 +6568,9 @@ def main():
         current_potfile_path=hcatPotfilePath,
     )
 
-    global debug_mode
+    global debug_mode, _rule_debug_mode_enabled
     debug_mode = flags.debug
+    _rule_debug_mode_enabled = flags.rule_debug_mode_enabled
     if flags.optimized_kernel_disabled:
         disable_optimized_kernel()
         print("[*] Optimized kernels (-O) disabled for this run")

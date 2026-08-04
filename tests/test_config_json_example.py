@@ -54,6 +54,7 @@ EXPECTED_KEYS = {
     "weakpass_min_rank",
     "update_channel",
     "restore_potfile_on_start",
+    "rule_debug_mode_enabled",
 }
 
 

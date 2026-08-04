@@ -60,6 +60,21 @@ Dates are omitted for releases predating this file; see the git tags for exact t
   to know about, not mask grammar.
 
 ### Fixed
+- **Rule-based attacks no longer die outright against a hashcat build that
+  predates `--debug-mode` 5 support.** `_add_debug_mode_for_rules` always
+  requested mode 5, so a hashcat older than the one that introduced it
+  rejected every `-r` attack with `Invalid --debug-mode value specified.`
+  (exit 255) before any cracking started. `_run_hcat_cmd` now captures stderr
+  for debug-mode invocations, detects that specific rejection, retries the
+  same attack at mode 4, and drops the request to mode 4 for the rest of the
+  run so later rule-based attacks ask for it directly instead of failing and
+  retrying every time.
+- **Added `--rule-debug-mode`/`--no-rule-debug-mode`** (persisted default:
+  `rule_debug_mode_enabled` in config.json, `true`) to fully disable the
+  `--debug-mode`/`--debug-file` flags rule-based attacks otherwise always add.
+  This is unrelated to the existing `--debug`/`--no-debug` flag, which only
+  controls hate_crack's own verbose logging and never touched hashcat's
+  debug-mode flags.
 - **`rosetta_derive` misparsed a batch mixing `--debug-mode` 4 and 5 logs,
   logging one file's lines as `Skipping malformed mode-5 line (missing
   wordlist field)` and dropping them.** It merged every selected log's raw

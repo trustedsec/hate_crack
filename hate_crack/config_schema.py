@@ -321,6 +321,7 @@ CONFIG_SCHEMA: tuple[ConfigKey, ...] = (
         choices=("main", "nightly-dev"),
     ),
     ConfigKey("RESTORE_POTFILE_ON_START", "restore_potfile_on_start", "bool", False),
+    ConfigKey("RULE_DEBUG_MODE_ENABLED", "rule_debug_mode_enabled", "bool", True),
 )
 
 BY_ENV: dict[str, ConfigKey] = {entry.env: entry for entry in CONFIG_SCHEMA}
