@@ -303,7 +303,7 @@ Most users can use defaults without customization:
 
   Read those two lines before debugging a setting that "isn't taking effect". They exist because of two traps in the search order:
 
-  - **A checkout outranks your home directory.** The repo root is searched first, so a `.env` or `config.json` sitting in *any* checkout you run the tool from wins over the one in `~/.hate_crack` — and running the tool from a checkout is exactly what creates those files there in the first place.
+  - **A checkout outranks your home directory.** The repo root is searched first, so a `.env` or `config.json` sitting in *any* checkout you run the tool from wins over the one in `~/.hate_crack` — and running the tool from a checkout is exactly what creates those files there in the first place. If this ever shadows a real `~/.hate_crack` config, hate_crack now says so with a third `[!]` line naming both paths — treat that line as "the file below is being ignored," not as a second, equally-valid config.
   - **The current working directory is never searched.** A `.env` in the directory you happen to be standing in is ignored, deliberately: engagement directories are full of files nobody intended as configuration. Put it in the repo root or `~/.hate_crack`.
 
 ### Error: merge with ref 'refs/heads/master' but no such ref was fetched

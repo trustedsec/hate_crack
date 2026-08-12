@@ -612,6 +612,65 @@ def test_discovery_follows_a_valid_symlink(monkeypatch, tmp_path, name):
     assert found == str(link_path)
 
 
+@pytest.mark.parametrize("name", [".env", "config.json"])
+def test_discovery_does_not_warn_when_two_roots_share_one_symlinked_file(
+    monkeypatch, tmp_path, name
+):
+    """#246 review: the shadow-warning check must not fire a false positive
+    for the supported "one config symlinked into several checkouts" setup
+    (see :func:`_config_file_is_usable`'s docstring and
+    ``test_discovery_follows_a_valid_symlink`` above). Two candidate roots
+    that both symlink to the *same* shared real file are not shadowing one
+    another -- both paths resolve to the identical file, so nothing is
+    actually being ignored.
+    """
+    _require_symlinks(tmp_path)
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    target = shared / name
+    target.write_text("OLLAMA_MODEL=synthetic-model\n" if name == ".env" else "{}")
+
+    higher = tmp_path / "higher"
+    lower = tmp_path / "lower"
+    higher.mkdir()
+    lower.mkdir()
+    higher_link = higher / name
+    lower_link = lower / name
+    os.symlink(target, higher_link)
+    os.symlink(target, lower_link)
+
+    monkeypatch.setattr(
+        config_loader, "candidate_roots", lambda: [str(higher), str(lower)]
+    )
+    env_path, json_path, warnings = config_loader.resolve_config_paths()
+
+    winner = env_path if name == ".env" else json_path
+    assert winner == str(higher_link)
+    assert warnings == []
+
+
+def test_discovery_does_not_warn_when_one_root_is_a_symlink_to_another(
+    monkeypatch, tmp_path
+):
+    """Same false-positive risk, other direction: a candidate *root* is
+    itself a symlink to a different candidate root, so their config.json is
+    the same file by construction, not two separate copies."""
+    _require_symlinks(tmp_path)
+    real_root = tmp_path / "real_root"
+    real_root.mkdir()
+    (real_root / "config.json").write_text("{}")
+    linked_root = tmp_path / "linked_root"
+    os.symlink(real_root, linked_root)
+
+    monkeypatch.setattr(
+        config_loader, "candidate_roots", lambda: [str(linked_root), str(real_root)]
+    )
+    _env_path, json_path, warnings = config_loader.resolve_config_paths()
+
+    assert json_path == str(linked_root / "config.json")
+    assert warnings == []
+
+
 def test_discovery_ignores_a_directory_named_like_a_config_file(monkeypatch, tmp_path):
     """Why ``os.path.isfile()`` stays the positive test instead of collapsing
     the gate into ``os.path.exists()``: a *directory* called ``.env`` is not a
@@ -674,3 +733,31 @@ def test_discovery_does_not_warn_when_only_one_root_has_the_file(monkeypatch, tm
     _env_path, _json_path, warnings = config_loader.resolve_config_paths()
 
     assert warnings == []
+
+
+def test_discovery_warns_once_per_shadowed_root_with_three_roots(monkeypatch, tmp_path):
+    """``candidate_roots()`` returns three real directories (repo root,
+    package directory, ``~/.hate_crack``), not two. With a distinct
+    config.json at every one of them, discovery must warn once per shadowed
+    (lower-priority) root -- two warnings, not one and not three -- while the
+    highest-priority root still wins.
+    """
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    third = tmp_path / "third"
+    for root in (first, second, third):
+        root.mkdir()
+        (root / "config.json").write_text("{}")
+
+    monkeypatch.setattr(
+        config_loader,
+        "candidate_roots",
+        lambda: [str(first), str(second), str(third)],
+    )
+    _env_path, json_path, warnings = config_loader.resolve_config_paths()
+
+    assert json_path == str(first / "config.json")
+    assert len(warnings) == 2
+    assert all(str(first / "config.json") in w for w in warnings)
+    assert any(str(second / "config.json") in w for w in warnings)
+    assert any(str(third / "config.json") in w for w in warnings)

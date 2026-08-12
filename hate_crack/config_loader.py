@@ -110,6 +110,47 @@ def _shadowed_config_warning(filename: str, winner: str, loser: str) -> str:
     )
 
 
+class _OneFileSearch:
+    """Tracks the winning path for one filename (``.env`` or ``config.json``)
+    across successive candidate roots, and the shadow warnings that come with
+    it.
+
+    Kept as a small stateful helper rather than a free function so
+    :func:`resolve_config_paths` can drive both filenames through the exact
+    same logic with a loop instead of two near-identical blocks (#246 review).
+    """
+
+    def __init__(self, filename: str) -> None:
+        self.filename = filename
+        self.winner: str | None = None
+        self.warnings: list[str] = []
+
+    def visit(self, candidate_root: str) -> None:
+        candidate_path = os.path.join(candidate_root, self.filename)
+        if self.winner is None:
+            if _config_file_is_usable(candidate_path):
+                self.winner = candidate_path
+            return
+        try:
+            shadowed = _config_file_is_usable(candidate_path)
+        except ConfigFileUnreadableError:
+            # Only the winning path's usability is allowed to be fatal --
+            # this candidate isn't the file the process is about to act on.
+            shadowed = False
+        if not shadowed:
+            return
+        # A candidate symlinked to (or itself a symlink target shared with)
+        # the winning path is the supported "one shared config across several
+        # checkouts" setup (_config_file_is_usable's own docstring, and
+        # test_discovery_follows_a_valid_symlink) -- nothing is actually being
+        # ignored there, so it must not warn.
+        if os.path.realpath(candidate_path) == os.path.realpath(self.winner):
+            return
+        self.warnings.append(
+            _shadowed_config_warning(self.filename, self.winner, candidate_path)
+        )
+
+
 def resolve_config_paths() -> tuple[str | None, str | None, list[str]]:
     """Locate ``.env`` and ``config.json`` using the shared search order.
 
@@ -123,45 +164,21 @@ def resolve_config_paths() -> tuple[str | None, str | None, list[str]]:
     shadowed file, naming both paths, never silent. A shadowed candidate's own
     unreadability (e.g. a dangling symlink) does not raise: only the winning
     path's usability is allowed to be fatal, since that is the only file this
-    process is about to act on.
+    process is about to act on. A candidate that resolves (via
+    :func:`os.path.realpath`) to the same file as the winner -- the supported
+    "one config symlinked into several checkouts" setup -- is not a shadow and
+    does not warn.
 
     Raises :class:`ConfigFileUnreadableError` when the *winning* candidate
     path exists as a symlink whose target is missing -- see
     :func:`_config_file_is_usable`.
     """
-    warnings: list[str] = []
-    env_path: str | None = None
-    legacy_json_path: str | None = None
-    for candidate in candidate_roots():
-        candidate_env = os.path.join(candidate, ".env")
-        if env_path is None:
-            if _config_file_is_usable(candidate_env):
-                env_path = candidate_env
-        else:
-            try:
-                shadowed = _config_file_is_usable(candidate_env)
-            except ConfigFileUnreadableError:
-                shadowed = False
-            if shadowed:
-                warnings.append(
-                    _shadowed_config_warning(".env", env_path, candidate_env)
-                )
-        candidate_json = os.path.join(candidate, "config.json")
-        if legacy_json_path is None:
-            if _config_file_is_usable(candidate_json):
-                legacy_json_path = candidate_json
-        else:
-            try:
-                shadowed = _config_file_is_usable(candidate_json)
-            except ConfigFileUnreadableError:
-                shadowed = False
-            if shadowed:
-                warnings.append(
-                    _shadowed_config_warning(
-                        "config.json", legacy_json_path, candidate_json
-                    )
-                )
-    return env_path, legacy_json_path, warnings
+    searches = {name: _OneFileSearch(name) for name in (".env", "config.json")}
+    for candidate_root in candidate_roots():
+        for search in searches.values():
+            search.visit(candidate_root)
+    warnings = [w for search in searches.values() for w in search.warnings]
+    return searches[".env"].winner, searches["config.json"].winner, warnings
 
 
 class ConfigFileJSONError(Exception):
