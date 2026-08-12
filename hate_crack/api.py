@@ -1189,6 +1189,27 @@ def _digest_for_type(hash_type: str, raw: bytes) -> Optional[str]:
     return None
 
 
+_REJECTED_HASH_RE = re.compile(
+    r"Plaintext for hash ([0-9a-fA-F]+), was found to be invalid\."
+)
+
+
+def _extract_rejected_hash(msg):
+    """Return the hash value named in a Hashview "plaintext invalid" error,
+    or None if ``msg`` doesn't match that shape.
+
+    Hashview's ``/v1/hashes/import`` rolls back the entire batch on the first
+    line it can't verify -- notably including a hashcat plaintext with a raw
+    embedded CR/LF byte, which the client can't inline without corrupting
+    this line-based upload and so sends as a literal ``$HEX[...]`` token that
+    an older Hashview hashes verbatim instead of decoding. Parsing the
+    rejected hash out of the error lets the caller drop just that one line
+    and retry, instead of losing the whole batch to it.
+    """
+    match = _REJECTED_HASH_RE.search(msg or "")
+    return match.group(1) if match else None
+
+
 def _validate_cracked_pair(hash_type, hash_value, plaintext):
     """Return (ok, reason) for a single hash:plaintext pair.
 
@@ -1991,43 +2012,65 @@ class HashviewAPI:
         aggregated = {}
         summable_fields = ("verified", "updated", "count")
         list_fields = ("unmatched",)
+        rejected_by_server = []
         for batch_num, (line_batch, key_batch) in enumerate(
             zip(batches, key_batches), start=1
         ):
+            line_batch = list(line_batch)
+            key_batch = list(key_batch)
             if len(batches) > 1:
                 print(
                     f"Uploading batch {batch_num}/{len(batches)} "
                     f"({len(line_batch)} hashes)..."
                 )
-            converted_content = b"\n".join(line_batch)
-            resp = self.session.post(
-                url,
-                data=converted_content,
-                headers=headers,
-                timeout=HASHVIEW_UPLOAD_TIMEOUT,
-            )
-            resp.raise_for_status()
-            try:
-                json_response = resp.json()
-            except (json.JSONDecodeError, ValueError):
-                raise Exception(f"Invalid API response: {resp.text[:200]}")
-            if not isinstance(json_response, dict):
-                if len(batches) == 1:
-                    # Matches today's single-request behavior: a non-dict
-                    # response (rare, but Hashview's contract doesn't forbid
-                    # it) is returned as-is rather than merged.
-                    append_to_cache(key_batch)
-                    return json_response
-                raise Exception(
-                    f"Hashview API returned a non-object response for batch "
-                    f"{batch_num}/{len(batches)}: {json_response!r}"
+            # A single line Hashview rejects rolls back its whole batch. Retry
+            # with that one line dropped rather than losing every hash in the
+            # batch to it -- bounded by the batch size so a server that keeps
+            # rejecting can't loop forever.
+            for _attempt in range(len(line_batch) + 1):
+                if not line_batch:
+                    break
+                converted_content = b"\n".join(line_batch)
+                resp = self.session.post(
+                    url,
+                    data=converted_content,
+                    headers=headers,
+                    timeout=HASHVIEW_UPLOAD_TIMEOUT,
                 )
-            if json_response.get("type") == "Error":
-                raise Exception(
-                    f"Hashview API Error: {json_response.get('msg', 'Unknown error')}"
-                )
-            append_to_cache(key_batch)
-            if isinstance(json_response, dict):
+                resp.raise_for_status()
+                try:
+                    json_response = resp.json()
+                except (json.JSONDecodeError, ValueError):
+                    raise Exception(f"Invalid API response: {resp.text[:200]}")
+                if not isinstance(json_response, dict):
+                    if len(batches) == 1:
+                        # Matches today's single-request behavior: a non-dict
+                        # response (rare, but Hashview's contract doesn't
+                        # forbid it) is returned as-is rather than merged.
+                        append_to_cache(key_batch)
+                        return json_response
+                    raise Exception(
+                        f"Hashview API returned a non-object response for "
+                        f"batch {batch_num}/{len(batches)}: {json_response!r}"
+                    )
+                if json_response.get("type") == "Error":
+                    rejected_hash = _extract_rejected_hash(json_response.get("msg", ""))
+                    if rejected_hash is not None:
+                        kept_lines, kept_keys = [], []
+                        for line, key in zip(line_batch, key_batch):
+                            line_hash = line.split(b":", 1)[0].decode("ascii", "ignore")
+                            if line_hash.lower() == rejected_hash.lower():
+                                rejected_by_server.append(line_hash)
+                                continue
+                            kept_lines.append(line)
+                            kept_keys.append(key)
+                        line_batch, key_batch = kept_lines, kept_keys
+                        continue
+                    raise Exception(
+                        f"Hashview API Error: "
+                        f"{json_response.get('msg', 'Unknown error')}"
+                    )
+                append_to_cache(key_batch)
                 for field in summable_fields:
                     if isinstance(json_response.get(field), (int, float)):
                         aggregated[field] = (
@@ -2040,9 +2083,21 @@ class HashviewAPI:
                 for key, value in json_response.items():
                     if key not in summable_fields and key not in list_fields:
                         aggregated.setdefault(key, value)
+                break
 
-        aggregated.setdefault("uploaded", len(valid_lines))
-        aggregated["skipped"] = len(skipped)
+        if rejected_by_server:
+            print(
+                f"⚠ Hashview rejected {len(rejected_by_server)} plaintext(s) as "
+                "invalid (server does not decode $HEX[...] on import) -- "
+                "skipped, rest of the batch uploaded:"
+            )
+            for hash_value in rejected_by_server[:10]:
+                print(f"    {hash_value}")
+            if len(rejected_by_server) > 10:
+                print(f"    ... and {len(rejected_by_server) - 10} more")
+
+        aggregated.setdefault("uploaded", len(valid_lines) - len(rejected_by_server))
+        aggregated["skipped"] = len(skipped) + len(rejected_by_server)
         aggregated["skipped_cached"] = skipped_cached
         return aggregated
 

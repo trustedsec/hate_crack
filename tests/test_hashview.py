@@ -898,6 +898,67 @@ class TestHashviewAPI:
             sent = api.session.post.call_args.args[1]
         assert sent == f"{ntlm}".encode() + b":" + plain_utf8
 
+    def test_upload_retries_batch_after_server_rejects_one_plaintext(
+        self, api, tmp_path, capsys
+    ):
+        """A Hashview that rejects one $HEX-fallback plaintext (embedded CR/LF,
+        server doesn't decode $HEX[...] on import) shouldn't sink the whole
+        batch -- retry without that line so the rest still uploads.
+
+        Regression for a live report: hate_crack correctly falls back to
+        sending $HEX[...] verbatim for a plaintext with an embedded newline
+        (inlining the raw bytes would corrupt this line-based upload), but a
+        Hashview that hashes that literal wrapper string instead of decoding
+        it rejects the line and rolls back its entire atomic import --
+        taking every other valid hash in the batch down with it.
+        """
+        newline_plain_bytes = SYNTH_PLAIN_A.encode("utf-8") + b"\n"
+        ntlm_newline = _digest_for_type("1000", newline_plain_bytes)
+        hex_wrapped = "$HEX[" + newline_plain_bytes.hex() + "]"
+
+        cracked_file = tmp_path / "cracked.txt"
+        cracked_file.write_bytes(
+            f"{ntlm_newline}:{hex_wrapped}\n".encode()
+            + f"{NTLM_B}:{SYNTH_PLAIN_B}\n".encode()
+        )
+
+        error_response = Mock()
+        error_response.json.return_value = {
+            "status": 500,
+            "type": "Error",
+            "msg": f"Plaintext for hash {ntlm_newline}, was found to be invalid.",
+        }
+        error_response.raise_for_status = Mock()
+
+        success_response = Mock()
+        success_response.json.return_value = {
+            "status": 200,
+            "type": "message",
+            "msg": "OK",
+            "verified": 1,
+            "updated": 1,
+            "unmatched": 0,
+        }
+        success_response.raise_for_status = Mock()
+
+        api.session.post.side_effect = [error_response, success_response]
+
+        result = api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
+
+        assert api.session.post.call_count == 2
+        retry_body = api.session.post.call_args_list[1].kwargs.get("data")
+        if retry_body is None:
+            retry_body = api.session.post.call_args_list[1].args[1]
+        assert ntlm_newline.encode() not in retry_body
+        assert NTLM_B.encode() in retry_body
+
+        assert result["uploaded"] == 1
+        assert result["skipped"] == 1
+
+        out = capsys.readouterr().out
+        assert "Hashview rejected 1 plaintext" in out
+        assert ntlm_newline in out
+
     def test_upload_surfaces_client_counts(self, api, tmp_path):
         """upload_cracked_hashes reports uploaded/skipped even when the server
         returns a bare OK with no counts of its own."""
