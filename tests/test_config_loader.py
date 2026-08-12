@@ -550,9 +550,10 @@ def test_json_missing_new_keys_gets_defaults(tmp_path):
 
 
 def test_resolve_config_paths_returns_tuple():
-    env_path, legacy_json_path = resolve_config_paths()
+    env_path, legacy_json_path, warnings = resolve_config_paths()
     assert env_path is None or isinstance(env_path, str)
     assert legacy_json_path is None or isinstance(legacy_json_path, str)
+    assert warnings == []
 
 
 def _require_symlinks(tmp_path):
@@ -605,7 +606,7 @@ def test_discovery_follows_a_valid_symlink(monkeypatch, tmp_path, name):
     link_path = tmp_path / name
     os.symlink(target, link_path)
 
-    env_path, json_path = _discover_in(monkeypatch, tmp_path)
+    env_path, json_path, _warnings = _discover_in(monkeypatch, tmp_path)
 
     found = env_path if name == ".env" else json_path
     assert found == str(link_path)
@@ -618,8 +619,58 @@ def test_discovery_ignores_a_directory_named_like_a_config_file(monkeypatch, tmp
     (tmp_path / ".env").mkdir()
     (tmp_path / "config.json").mkdir()
 
-    assert _discover_in(monkeypatch, tmp_path) == (None, None)
+    assert _discover_in(monkeypatch, tmp_path) == (None, None, [])
 
 
 def test_discovery_reports_a_genuinely_absent_file_as_none(monkeypatch, tmp_path):
-    assert _discover_in(monkeypatch, tmp_path) == (None, None)
+    assert _discover_in(monkeypatch, tmp_path) == (None, None, [])
+
+
+@pytest.mark.parametrize("name", [".env", "config.json"])
+def test_discovery_warns_when_a_lower_priority_file_is_shadowed(
+    monkeypatch, tmp_path, name
+):
+    """#246: a stray file at a higher-priority candidate root (e.g. a repo
+    checkout) can silently shadow a real one at a lower-priority root
+    (``~/.hate_crack``) forever, with no indication anything was ignored.
+
+    The winning path must not change -- higher-priority still wins, exactly as
+    before -- but discovery must now say so, naming both paths.
+    """
+    higher = tmp_path / "higher"
+    lower = tmp_path / "lower"
+    higher.mkdir()
+    lower.mkdir()
+    higher_file = higher / name
+    lower_file = lower / name
+    body = "OLLAMA_MODEL=synthetic-model\n" if name == ".env" else "{}"
+    higher_file.write_text(body)
+    lower_file.write_text(body)
+
+    monkeypatch.setattr(
+        config_loader, "candidate_roots", lambda: [str(higher), str(lower)]
+    )
+    env_path, json_path, warnings = config_loader.resolve_config_paths()
+
+    winner = env_path if name == ".env" else json_path
+    assert winner == str(higher_file)
+    assert len(warnings) == 1
+    assert str(higher_file) in warnings[0]
+    assert str(lower_file) in warnings[0]
+
+
+def test_discovery_does_not_warn_when_only_one_root_has_the_file(monkeypatch, tmp_path):
+    """A clean single-location setup -- the overwhelmingly common case --
+    must produce no shadowing warning at all."""
+    higher = tmp_path / "higher"
+    lower = tmp_path / "lower"
+    higher.mkdir()
+    lower.mkdir()
+    (higher / "config.json").write_text("{}")
+
+    monkeypatch.setattr(
+        config_loader, "candidate_roots", lambda: [str(higher), str(lower)]
+    )
+    _env_path, _json_path, warnings = config_loader.resolve_config_paths()
+
+    assert warnings == []

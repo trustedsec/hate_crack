@@ -91,29 +91,77 @@ def candidate_roots() -> list[str]:
     ]
 
 
-def resolve_config_paths() -> tuple[str | None, str | None]:
+def _shadowed_config_warning(filename: str, winner: str, loser: str) -> str:
+    """Warning text for a *loser* file of ``filename`` that lost to *winner*.
+
+    Named after the specific trap this covers (#246): ``candidate_roots()``
+    ranks the repo root above the package directory above ``~/.hate_crack``,
+    so a stray ``config.json``/``.env`` left in a checkout -- e.g. from a run
+    that predates a real ``~/.hate_crack`` config existing, or from bootstrap
+    itself creating one there on a fresh clone -- silently outranks a real,
+    hand-configured file living in a lower-priority root, forever, with no
+    indication anything is being ignored. The loader still picks the same
+    winner it always did; this only makes the shadowing visible.
+    """
+    return (
+        f"Using {filename} at {winner}, but another {filename} exists at "
+        f"{loser} and is being ignored. If {loser} is your real "
+        f"configuration, remove or rename the file at {winner}."
+    )
+
+
+def resolve_config_paths() -> tuple[str | None, str | None, list[str]]:
     """Locate ``.env`` and ``config.json`` using the shared search order.
 
-    Returns ``(env_path, json_path)``. Either element is ``None`` if no
+    Returns ``(env_path, json_path, warnings)``. Either path is ``None`` if no
     matching file was found in any candidate directory. The two are resolved
     independently -- they are separate, equally first-class files, and it is
     normal for them to live in different candidate directories.
 
-    Raises :class:`ConfigFileUnreadableError` when a candidate path exists as a
-    symlink whose target is missing -- see :func:`_config_file_is_usable`.
+    ``warnings`` names every lower-priority candidate root that also holds a
+    same-named file the winning one is shadowing (#246) -- one entry per
+    shadowed file, naming both paths, never silent. A shadowed candidate's own
+    unreadability (e.g. a dangling symlink) does not raise: only the winning
+    path's usability is allowed to be fatal, since that is the only file this
+    process is about to act on.
+
+    Raises :class:`ConfigFileUnreadableError` when the *winning* candidate
+    path exists as a symlink whose target is missing -- see
+    :func:`_config_file_is_usable`.
     """
+    warnings: list[str] = []
     env_path: str | None = None
     legacy_json_path: str | None = None
     for candidate in candidate_roots():
+        candidate_env = os.path.join(candidate, ".env")
         if env_path is None:
-            candidate_env = os.path.join(candidate, ".env")
             if _config_file_is_usable(candidate_env):
                 env_path = candidate_env
+        else:
+            try:
+                shadowed = _config_file_is_usable(candidate_env)
+            except ConfigFileUnreadableError:
+                shadowed = False
+            if shadowed:
+                warnings.append(
+                    _shadowed_config_warning(".env", env_path, candidate_env)
+                )
+        candidate_json = os.path.join(candidate, "config.json")
         if legacy_json_path is None:
-            candidate_json = os.path.join(candidate, "config.json")
             if _config_file_is_usable(candidate_json):
                 legacy_json_path = candidate_json
-    return env_path, legacy_json_path
+        else:
+            try:
+                shadowed = _config_file_is_usable(candidate_json)
+            except ConfigFileUnreadableError:
+                shadowed = False
+            if shadowed:
+                warnings.append(
+                    _shadowed_config_warning(
+                        "config.json", legacy_json_path, candidate_json
+                    )
+                )
+    return env_path, legacy_json_path, warnings
 
 
 class ConfigFileJSONError(Exception):

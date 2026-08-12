@@ -737,8 +737,25 @@ def _print_config_sources(
     )
 
 
+def _print_discovery_warnings(warnings):
+    """Print any :func:`hate_crack.config_loader.resolve_config_paths`
+    shadowing warnings (#246), one per line.
+
+    Printed after :func:`_print_config_sources` so each warning reads against
+    the two paths just named. Silent under ``SKIP_INIT``, matching
+    :func:`_print_config_sources`: the test suite imports this module
+    constantly.
+    """
+    if SKIP_INIT:
+        return
+    for warning in warnings:
+        print(f"[!] {warning}")
+
+
 try:
-    _env_path, _legacy_json_path = _config_loader.resolve_config_paths()
+    _env_path, _legacy_json_path, _discovery_warnings = (
+        _config_loader.resolve_config_paths()
+    )
 except _config_loader.ConfigFileUnreadableError as _exc:
     # Discovery itself can fail now: a dangling `.env`/config.json symlink is
     # fatal rather than silently ignored (#227). Same diagnostic the loader
@@ -755,6 +772,7 @@ _print_config_sources(
     env_detail=_config_bootstrap_detail.get("env"),
     json_detail=_config_bootstrap_detail.get("json"),
 )
+_print_discovery_warnings(_discovery_warnings)
 
 # The loader is the single definition of the precedence stack: for each key,
 # schema default < that key's own home file < os.environ. config_parser stays

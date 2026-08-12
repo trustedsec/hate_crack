@@ -15,6 +15,7 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ### Fixed
 - OMEN training now decompresses gzip-compressed training wordlists, matching the N-gram attack's existing behavior (#257).
+- Config resolution now warns when a `config.json`/`.env` at a higher-priority candidate root (the repo checkout, or the installed package directory) is shadowing one at a lower-priority root (`~/.hate_crack`), instead of silently ignoring the shadowed file forever. A stray file left behind in a checkout could otherwise make a real, hand-configured `~/.hate_crack/config.json` (hashcat path, wordlist/rules directories, etc.) look like it had been silently replaced with schema-default placeholders on first run — which file wins is unchanged, this only makes the shadowing visible (#246).
 
 ## [2.25.1] - 2026-08-04
 

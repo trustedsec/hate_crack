@@ -46,7 +46,7 @@ def _resolved_hashview_config():
     original = config_loader.candidate_roots
     config_loader.candidate_roots = _REAL_CANDIDATE_ROOTS
     try:
-        env_path, legacy_json_path = config_loader.resolve_config_paths()
+        env_path, legacy_json_path, _warnings = config_loader.resolve_config_paths()
         resolved = config_loader.load_config(
             env_path=env_path, legacy_json_path=legacy_json_path
         ).config

@@ -123,6 +123,41 @@ def test_case1_migrates_integration_keys_and_prunes_config_json(
     assert config["hcatPotfilePath"] == ""
 
 
+def test_first_migration_preserves_real_nonsecret_path_values(
+    bootstrap, tmp_path, capsys
+):
+    """Reproduces #246: on the FIRST migration of a pre-split, secrets-inline
+    config.json, non-secret path keys must keep their real values, not fall
+    back to schema defaults.
+
+    Deliberately uses a *minimal*, partial legacy body -- not the fully
+    populated 47-key fixture ``_pre_split_config()`` builds -- because a real
+    pre-split ``config.json`` in the wild need not carry every key the current
+    schema defines (older schema revisions, hand-trimmed files, etc.).
+    """
+    legacy_config = {
+        "hcatPath": "/opt/real/hashcat/",
+        "hcatWordlists": "/opt/real/wordlists/",
+        "hcatOptimizedWordlists": "/opt/real/optimized_wordlists",
+        "rules_directory": "/opt/real/hashcat/rules",
+        "hashview_api_key": "some-real-secret-value",
+        "hashmob_api_key": "another-real-secret-value",
+        "ollamaModel": "llama3",
+    }
+    legacy_path = tmp_path / "config.json"
+    legacy_path.write_text(json.dumps(legacy_config))
+
+    bootstrap(None, str(legacy_path))
+
+    migrated = json.loads(legacy_path.read_text())
+    assert migrated["hcatPath"] == "/opt/real/hashcat/"
+    assert migrated["hcatWordlists"] == "/opt/real/wordlists/"
+    assert migrated["hcatOptimizedWordlists"] == "/opt/real/optimized_wordlists"
+    assert migrated["rules_directory"] == "/opt/real/hashcat/rules"
+
+    capsys.readouterr()
+
+
 @pytest.mark.parametrize(
     "make_unusable",
     [
@@ -984,3 +1019,38 @@ def test_startup_prints_nothing_under_skip_init(capsys, monkeypatch, tmp_path):
         json_created=False,
     )
     assert out == ""
+
+
+# ---------------------------------------------------------------------------
+# A stray config.json/.env at a higher-priority candidate root silently
+# shadows a real one at a lower-priority root -- resolve_config_paths()'s
+# warnings must actually reach the terminal (#246).
+# ---------------------------------------------------------------------------
+
+
+def test_discovery_warnings_are_printed_after_config_sources(monkeypatch, capsys):
+    monkeypatch.setattr(hc_main, "SKIP_INIT", False)
+    hc_main._print_discovery_warnings(
+        [
+            "Using config.json at /higher/config.json, but another config.json "
+            "exists at /lower/config.json and is being ignored. If "
+            "/lower/config.json is your real configuration, remove or rename "
+            "the file at /higher/config.json."
+        ]
+    )
+    out = capsys.readouterr().out
+    assert "/higher/config.json" in out
+    assert "/lower/config.json" in out
+    assert out.startswith("[!] ")
+
+
+def test_discovery_warnings_are_silent_under_skip_init(monkeypatch, capsys):
+    monkeypatch.setattr(hc_main, "SKIP_INIT", True)
+    hc_main._print_discovery_warnings(["some warning that must not print"])
+    assert capsys.readouterr().out == ""
+
+
+def test_discovery_warnings_print_nothing_when_there_are_none(monkeypatch, capsys):
+    monkeypatch.setattr(hc_main, "SKIP_INIT", False)
+    hc_main._print_discovery_warnings([])
+    assert capsys.readouterr().out == ""
