@@ -709,7 +709,7 @@ def bandrel_method(ctx: Any) -> None:
 
 
 def _research_target_suggestions(ctx: Any, company: str) -> dict[str, str]:
-    """Ask the local model for industry/location suggestions for *company*.
+    """Ask the local model for industry/location/parent-company suggestions for *company*.
 
     Returns a dict of cleaned suggestion strings (values may be ''). Research is
     a convenience only, so any failure is swallowed here as well as in
@@ -727,7 +727,7 @@ def _research_target_suggestions(ctx: Any, company: str) -> dict[str, str]:
 
     suggestions = {}
     if isinstance(raw, dict):
-        for key in ("industry", "location"):
+        for key in ("industry", "location", "parent_company"):
             value = clean_research_field(raw.get(key, ""))
             if value:
                 suggestions[key] = value
@@ -827,11 +827,19 @@ def ollama_attack(ctx: Any) -> None:
             suggestions = _research_target_suggestions(ctx, company)
             industry = _prompt_with_default("Industry", suggestions.get("industry"))
             location = _prompt_with_default("Location", suggestions.get("location"))
+            parent_company = _prompt_with_default(
+                "Parent company / acquired by", suggestions.get("parent_company")
+            )
             ctx.hcatOllama(
                 ctx.hcatHashType,
                 ctx.hcatHashFile,
                 "target",
-                {"company": company, "industry": industry, "location": location},
+                {
+                    "company": company,
+                    "industry": industry,
+                    "location": location,
+                    "parent_company": parent_company,
+                },
             )
             return
         elif choice == "2":

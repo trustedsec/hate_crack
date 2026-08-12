@@ -11,6 +11,7 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ### Added
 - A regression test locking in that `upload_cracked_hashes` preserves leading/trailing whitespace in cracked plaintexts (#244).
+- LLM target research now also recalls a parent company / acquisition history for the named organization, alongside industry and location (#263).
 
 ### Fixed
 - OMEN training now decompresses gzip-compressed training wordlists, matching the N-gram attack's existing behavior (#257).

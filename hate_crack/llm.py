@@ -158,7 +158,7 @@ class TargetResearchInput(BaseIOSchema):
 
 
 class TargetResearchOutput(BaseIOSchema):
-    """Recalled industry and location for a named organization, or empty strings."""
+    """Recalled industry, location, and parent company for a named organization, or empty strings."""
 
     industry: str = Field(
         ...,
@@ -175,6 +175,16 @@ class TargetResearchOutput(BaseIOSchema):
             "an empty string if you do not actually recognize this organization."
         ),
     )
+    parent_company: str = Field(
+        ...,
+        description=(
+            "The organization's parent company or the company that acquired it, "
+            "if you specifically recall an acquisition or merger, e.g. 'Acquired "
+            "by Global Corp in 2021'. Return an empty string if you do not "
+            "genuinely recall an acquisition, or if the organization is "
+            "independent as far as you know."
+        ),
+    )
 
 
 _RESEARCH_PROMPT = SystemPromptGenerator(
@@ -189,7 +199,9 @@ _RESEARCH_PROMPT = SystemPromptGenerator(
     ],
     steps=[
         "Decide whether you genuinely recognize this specific organization by name.",
-        "If you do, recall its industry or sector and its primary location.",
+        "If you do, recall its industry or sector, its primary location, and "
+        "whether you specifically recall it being acquired by or merged into "
+        "another company.",
         "If you do not recognize it, or you are not reasonably confident, do not "
         "guess and do not infer anything from the words in the name.",
     ],
@@ -198,8 +210,8 @@ _RESEARCH_PROMPT = SystemPromptGenerator(
         "about. An empty field is correct and useful; a fabricated one is harmful "
         "because the operator may mistake it for real intelligence.",
         "Keep each field under 80 characters.",
-        "Return only the industry and location fields — no explanations, "
-        "hedging, caveats, or commentary.",
+        "Return only the industry, location, and parent_company fields — no "
+        "explanations, hedging, caveats, or commentary.",
     ],
 )
 
@@ -490,6 +502,7 @@ def research_target(
     return TargetResearchOutput(
         industry=clean_research_field(getattr(result, "industry", "")),
         location=clean_research_field(getattr(result, "location", "")),
+        parent_company=clean_research_field(getattr(result, "parent_company", "")),
     )
 
 

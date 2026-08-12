@@ -267,11 +267,12 @@ def test_api_timeout_reraised_as_domain_error():
 # ---------------------------------------------------------------------------
 
 
-def _patch_research_agent(industry, location):
+def _patch_research_agent(industry, location, parent_company=""):
     """Patch client builders + AtomicAgent for a research call. No network."""
     result = mock.MagicMock()
     result.industry = industry
     result.location = location
+    result.parent_company = parent_company
 
     agent_instance = mock.MagicMock()
     agent_instance.run.return_value = result
@@ -382,6 +383,36 @@ def test_clean_research_field_collapses_internal_whitespace():
     assert llm.clean_research_field("commercial   \n construction") == (
         "commercial construction"
     )
+
+
+def test_research_target_includes_parent_company_field():
+    p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_research_agent(
+        "healthcare", "Boston, Massachusetts", "Acquired by Global Health Corp in 2023"
+    )
+    with p_instr, p_openai, p_agent:
+        out = llm.research_target(
+            "http://localhost:11434",
+            "qwen2.5:32b",
+            2048,
+            "Acme Health Services",
+            no_cloud=False,
+        )
+    assert out.parent_company == "Acquired by Global Health Corp in 2023"
+
+
+def test_research_target_handles_empty_parent_company():
+    p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_research_agent(
+        "healthcare", "Boston, Massachusetts", ""
+    )
+    with p_instr, p_openai, p_agent:
+        out = llm.research_target(
+            "http://localhost:11434",
+            "qwen2.5:32b",
+            2048,
+            "Independent Clinic",
+            no_cloud=False,
+        )
+    assert out.parent_company == ""
 
 
 def _rosetta_suggestion(mask, custom_charsets=()):

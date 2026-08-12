@@ -359,7 +359,7 @@ class TestOllamaAttack:
 
         with (
             patch("hate_crack.attacks.interactive_menu", return_value="1"),
-            patch("builtins.input", side_effect=["ACME", "tech", "NYC"]),
+            patch("builtins.input", side_effect=["ACME", "tech", "NYC", ""]),
         ):
             ollama_attack(ctx)
 
@@ -367,7 +367,12 @@ class TestOllamaAttack:
             ctx.hcatHashType,
             ctx.hcatHashFile,
             "target",
-            {"company": "ACME", "industry": "tech", "location": "NYC"},
+            {
+                "company": "ACME",
+                "industry": "tech",
+                "location": "NYC",
+                "parent_company": "",
+            },
         )
 
     def test_passes_hash_type_and_file(self) -> None:
@@ -375,7 +380,7 @@ class TestOllamaAttack:
 
         with (
             patch("hate_crack.attacks.interactive_menu", return_value="1"),
-            patch("builtins.input", side_effect=["Corp", "finance", "London"]),
+            patch("builtins.input", side_effect=["Corp", "finance", "London", ""]),
         ):
             ollama_attack(ctx)
 
@@ -388,7 +393,10 @@ class TestOllamaAttack:
 
         with (
             patch("hate_crack.attacks.interactive_menu", return_value="1"),
-            patch("builtins.input", side_effect=["  ACME  ", "  tech  ", "  NYC  "]),
+            patch(
+                "builtins.input",
+                side_effect=["  ACME  ", "  tech  ", "  NYC  ", "  parent corp  "],
+            ),
         ):
             ollama_attack(ctx)
 
@@ -396,13 +404,14 @@ class TestOllamaAttack:
         assert target_info["company"] == "ACME"
         assert target_info["industry"] == "tech"
         assert target_info["location"] == "NYC"
+        assert target_info["parent_company"] == "parent corp"
 
     def test_target_string_is_literal_target(self) -> None:
         ctx = _make_ctx()
 
         with (
             patch("hate_crack.attacks.interactive_menu", return_value="1"),
-            patch("builtins.input", side_effect=["X", "Y", "Z"]),
+            patch("builtins.input", side_effect=["X", "Y", "Z", ""]),
         ):
             ollama_attack(ctx)
 
@@ -528,7 +537,7 @@ class TestOllamaAttack:
 
         with (
             patch("hate_crack.attacks.interactive_menu", return_value="1"),
-            patch("builtins.input", side_effect=["ACME", "tech", "NYC"]),
+            patch("builtins.input", side_effect=["ACME", "tech", "NYC", ""]),
         ):
             ollama_attack(ctx)
 

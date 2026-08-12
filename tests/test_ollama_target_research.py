@@ -55,15 +55,17 @@ class TestResearchPrefill:
         ctx.hcatOllamaResearchTarget.return_value = {
             "industry": "freight rail maintenance",
             "location": "Omaha, Nebraska",
+            "parent_company": "",
         }
 
-        recorder = _run_target_mode(ctx, ["Acme Rail", "", ""])
+        recorder = _run_target_mode(ctx, ["Acme Rail", "", "", ""])
 
         ctx.hcatOllamaResearchTarget.assert_called_once_with("Acme Rail")
         assert recorder.prompts == [
             "Company name: ",
             "Industry (freight rail maintenance): ",
             "Location (Omaha, Nebraska): ",
+            "Parent company / acquired by: ",
         ]
 
     def test_enter_accepts_the_suggested_defaults(self) -> None:
@@ -71,14 +73,16 @@ class TestResearchPrefill:
         ctx.hcatOllamaResearchTarget.return_value = {
             "industry": "healthcare",
             "location": "Austin, Texas",
+            "parent_company": "",
         }
 
-        _run_target_mode(ctx, ["Acme", "", ""])
+        _run_target_mode(ctx, ["Acme", "", "", ""])
 
         assert ctx.hcatOllama.call_args[0][3] == {
             "company": "Acme",
             "industry": "healthcare",
             "location": "Austin, Texas",
+            "parent_company": "",
         }
 
     def test_typed_input_overrides_the_default(self) -> None:
@@ -86,14 +90,16 @@ class TestResearchPrefill:
         ctx.hcatOllamaResearchTarget.return_value = {
             "industry": "healthcare",
             "location": "Austin, Texas",
+            "parent_company": "",
         }
 
-        _run_target_mode(ctx, ["Acme", "  banking  ", "Berlin"])
+        _run_target_mode(ctx, ["Acme", "  banking  ", "Berlin", ""])
 
         assert ctx.hcatOllama.call_args[0][3] == {
             "company": "Acme",
             "industry": "banking",
             "location": "Berlin",
+            "parent_company": "",
         }
 
     def test_partial_research_prefills_only_known_field(self) -> None:
@@ -101,25 +107,58 @@ class TestResearchPrefill:
         ctx.hcatOllamaResearchTarget.return_value = {
             "industry": "mining",
             "location": "",
+            "parent_company": "",
         }
 
-        recorder = _run_target_mode(ctx, ["Acme", "", "Perth"])
+        recorder = _run_target_mode(ctx, ["Acme", "", "Perth", ""])
 
         assert recorder.prompts[1] == "Industry (mining): "
         assert recorder.prompts[2] == "Location: "
+        assert recorder.prompts[3] == "Parent company / acquired by: "
         assert ctx.hcatOllama.call_args[0][3]["location"] == "Perth"
+
+    def test_partial_research_includes_parent_company_when_known(self) -> None:
+        ctx = _make_ctx()
+        ctx.hcatOllamaResearchTarget.return_value = {
+            "industry": "",
+            "location": "",
+            "parent_company": "Acquired by Global Holdings in 2022",
+        }
+
+        recorder = _run_target_mode(ctx, ["Acme", "", "", ""])
+
+        assert recorder.prompts[1] == "Industry: "
+        assert recorder.prompts[2] == "Location: "
+        assert (
+            recorder.prompts[3]
+            == "Parent company / acquired by (Acquired by Global Holdings in 2022): "
+        )
+        assert (
+            ctx.hcatOllama.call_args[0][3]["parent_company"]
+            == "Acquired by Global Holdings in 2022"
+        )
 
     def test_empty_research_falls_back_to_blank_prompts(self) -> None:
         ctx = _make_ctx()
-        ctx.hcatOllamaResearchTarget.return_value = {"industry": "", "location": ""}
+        ctx.hcatOllamaResearchTarget.return_value = {
+            "industry": "",
+            "location": "",
+            "parent_company": "",
+        }
 
-        recorder = _run_target_mode(ctx, ["Acme", "tech", "NYC"])
+        recorder = _run_target_mode(ctx, ["Acme", "tech", "NYC", ""])
 
-        assert recorder.prompts == ["Company name: ", "Industry: ", "Location: "]
+        assert recorder.prompts == [
+            "Company name: ",
+            "Industry: ",
+            "Location: ",
+            "Parent company / acquired by: ",
+        ]
         assert ctx.hcatOllama.call_args[0][3] == {
             "company": "Acme",
             "industry": "tech",
             "location": "NYC",
+            "parent_company": "",
         }
 
     def test_whitespace_only_research_is_treated_as_no_suggestion(self) -> None:
@@ -127,20 +166,27 @@ class TestResearchPrefill:
         ctx.hcatOllamaResearchTarget.return_value = {
             "industry": "   ",
             "location": "\t\n",
+            "parent_company": "  \n  ",
         }
 
-        recorder = _run_target_mode(ctx, ["Acme", "", ""])
+        recorder = _run_target_mode(ctx, ["Acme", "", "", ""])
 
-        assert recorder.prompts == ["Company name: ", "Industry: ", "Location: "]
+        assert recorder.prompts == [
+            "Company name: ",
+            "Industry: ",
+            "Location: ",
+            "Parent company / acquired by: ",
+        ]
 
     def test_overlong_suggestion_is_capped_in_the_prompt(self) -> None:
         ctx = _make_ctx()
         ctx.hcatOllamaResearchTarget.return_value = {
             "industry": "z" * 500,
             "location": "",
+            "parent_company": "",
         }
 
-        recorder = _run_target_mode(ctx, ["Acme", "", ""])
+        recorder = _run_target_mode(ctx, ["Acme", "", "", ""])
 
         assert recorder.prompts[1] == f"Industry ({'z' * llm.MAX_RESEARCH_FIELD_LEN}): "
         industry = ctx.hcatOllama.call_args[0][3]["industry"]
@@ -151,35 +197,51 @@ class TestResearchPrefill:
         ctx = _make_ctx()
         ctx.hcatOllamaResearchTarget.side_effect = RuntimeError("boom")
 
-        recorder = _run_target_mode(ctx, ["Acme", "tech", "NYC"])
+        recorder = _run_target_mode(ctx, ["Acme", "tech", "NYC", ""])
 
-        assert recorder.prompts == ["Company name: ", "Industry: ", "Location: "]
+        assert recorder.prompts == [
+            "Company name: ",
+            "Industry: ",
+            "Location: ",
+            "Parent company / acquired by: ",
+        ]
         ctx.hcatOllama.assert_called_once()
 
     def test_non_dict_research_result_falls_back(self) -> None:
         ctx = _make_ctx()
         ctx.hcatOllamaResearchTarget.return_value = None
 
-        recorder = _run_target_mode(ctx, ["Acme", "tech", "NYC"])
+        recorder = _run_target_mode(ctx, ["Acme", "tech", "NYC", ""])
 
-        assert recorder.prompts == ["Company name: ", "Industry: ", "Location: "]
+        assert recorder.prompts == [
+            "Company name: ",
+            "Industry: ",
+            "Location: ",
+            "Parent company / acquired by: ",
+        ]
 
     def test_blank_company_skips_research_entirely(self) -> None:
         ctx = _make_ctx()
 
-        recorder = _run_target_mode(ctx, ["", "tech", "NYC"])
+        recorder = _run_target_mode(ctx, ["", "tech", "NYC", ""])
 
         ctx.hcatOllamaResearchTarget.assert_not_called()
-        assert recorder.prompts == ["Company name: ", "Industry: ", "Location: "]
+        assert recorder.prompts == [
+            "Company name: ",
+            "Industry: ",
+            "Location: ",
+            "Parent company / acquired by: ",
+        ]
 
     def test_suggestions_are_labelled_as_guesses(self, capsys) -> None:
         ctx = _make_ctx()
         ctx.hcatOllamaResearchTarget.return_value = {
             "industry": "healthcare",
             "location": "Austin, Texas",
+            "parent_company": "",
         }
 
-        _run_target_mode(ctx, ["Acme", "", ""])
+        _run_target_mode(ctx, ["Acme", "", "", ""])
 
         out = capsys.readouterr().out
         assert "GUESSES" in out
@@ -187,9 +249,13 @@ class TestResearchPrefill:
 
     def test_no_guess_banner_when_research_returns_nothing(self, capsys) -> None:
         ctx = _make_ctx()
-        ctx.hcatOllamaResearchTarget.return_value = {"industry": "", "location": ""}
+        ctx.hcatOllamaResearchTarget.return_value = {
+            "industry": "",
+            "location": "",
+            "parent_company": "",
+        }
 
-        _run_target_mode(ctx, ["Acme", "", ""])
+        _run_target_mode(ctx, ["Acme", "", "", ""])
 
         assert "GUESSES" not in capsys.readouterr().out
 
@@ -198,15 +264,16 @@ class TestResearchPrefill:
         ctx.hcatOllamaResearchTarget.return_value = {
             "industry": "healthcare",
             "location": "Austin",
+            "parent_company": "",
         }
 
-        _run_target_mode(ctx, ["Acme", "", ""])
+        _run_target_mode(ctx, ["Acme", "", "", ""])
 
         args = ctx.hcatOllama.call_args[0]
         assert args[0] == "1800"
         assert args[1] == "/tmp/sha512.txt"
         assert args[2] == "target"
-        assert set(args[3]) == {"company", "industry", "location"}
+        assert set(args[3]) == {"company", "industry", "location", "parent_company"}
 
 
 # ---------------------------------------------------------------------------
@@ -216,7 +283,9 @@ class TestResearchPrefill:
 
 class TestHcatOllamaResearchTarget:
     def test_returns_researched_fields_and_shows_progress(self) -> None:
-        result = hc_main.llm.TargetResearchOutput(industry="mining", location="Perth")
+        result = hc_main.llm.TargetResearchOutput(
+            industry="mining", location="Perth", parent_company=""
+        )
         with (
             mock.patch.object(hc_main, "ollamaAutoResearch", True),
             mock.patch.object(hc_main, "ollamaModel", "qwen2.5:32b"),
@@ -226,13 +295,15 @@ class TestHcatOllamaResearchTarget:
         ):
             out = hc_main.hcatOllamaResearchTarget("Acme")
 
-        assert out == {"industry": "mining", "location": "Perth"}
+        assert out == {"industry": "mining", "location": "Perth", "parent_company": ""}
         # The call must be wrapped in the progress spinner, not look like a hang.
         assert spin.call_count == 1
         assert "Acme" in spin.call_args[0][0]
 
     def test_forwards_config_values_to_research_target(self) -> None:
-        result = hc_main.llm.TargetResearchOutput(industry="", location="")
+        result = hc_main.llm.TargetResearchOutput(
+            industry="", location="", parent_company=""
+        )
         with (
             mock.patch.object(hc_main, "ollamaAutoResearch", True),
             mock.patch.object(hc_main, "ollamaUrl", "http://localhost:11434"),
@@ -260,7 +331,7 @@ class TestHcatOllamaResearchTarget:
         ):
             out = hc_main.hcatOllamaResearchTarget("Acme")
 
-        assert out == {"industry": "", "location": ""}
+        assert out == {"industry": "", "location": "", "parent_company": ""}
         assert "timed out" in capsys.readouterr().out
 
     def test_connection_failure_degrades_to_blank_suggestions(self, capsys) -> None:
@@ -274,7 +345,7 @@ class TestHcatOllamaResearchTarget:
         ):
             out = hc_main.hcatOllamaResearchTarget("Acme")
 
-        assert out == {"industry": "", "location": ""}
+        assert out == {"industry": "", "location": "", "parent_company": ""}
         assert "unavailable" in capsys.readouterr().out
 
     def test_disabled_by_config_skips_the_model_call(self) -> None:
@@ -285,7 +356,7 @@ class TestHcatOllamaResearchTarget:
             out = hc_main.hcatOllamaResearchTarget("Acme")
 
         research.assert_not_called()
-        assert out == {"industry": "", "location": ""}
+        assert out == {"industry": "", "location": "", "parent_company": ""}
 
     def test_blank_company_skips_the_model_call(self) -> None:
         with (
@@ -295,7 +366,7 @@ class TestHcatOllamaResearchTarget:
             out = hc_main.hcatOllamaResearchTarget("")
 
         research.assert_not_called()
-        assert out == {"industry": "", "location": ""}
+        assert out == {"industry": "", "location": "", "parent_company": ""}
 
     def test_auto_research_default_is_enabled(self) -> None:
         assert hc_main.ollamaAutoResearch is True

@@ -3031,15 +3031,15 @@ def _corpus_context(path, source_label="wordlist"):
 def hcatOllamaResearchTarget(company):
     """Ask the local Ollama model what it knows about *company*.
 
-    Returns a dict with "industry" and "location" keys; either value may be an
-    empty string when the model is not confident or the request failed. Never
-    raises: research is a convenience, so any failure degrades to empty
-    suggestions (blank prompts) rather than blocking the attack.
+    Returns a dict with "industry", "location", and "parent_company" keys; any
+    value may be an empty string when the model is not confident or the request
+    failed. Never raises: research is a convenience, so any failure degrades to
+    empty suggestions (blank prompts) rather than blocking the attack.
 
     Uses only the configured local Ollama server — the company name is never
     sent to a third-party service.
     """
-    blank = {"industry": "", "location": ""}
+    blank = {"industry": "", "location": "", "parent_company": ""}
     if not ollamaAutoResearch or not company:
         return blank
 
@@ -3063,7 +3063,11 @@ def hcatOllamaResearchTarget(company):
         print(f"Note: target research unavailable ({e}) — enter the details manually.")
         return blank
 
-    return {"industry": result.industry, "location": result.location}
+    return {
+        "industry": result.industry,
+        "location": result.location,
+        "parent_company": result.parent_company,
+    }
 
 
 # LLM Ollama Attack
