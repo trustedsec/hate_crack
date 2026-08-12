@@ -150,7 +150,7 @@ class HashcatRulesOutput(BaseIOSchema):
 
 
 class TargetResearchInput(BaseIOSchema):
-    """The company name to recall industry and location details for."""
+    """The company name to recall industry, location, and parent company details for."""
 
     company: str = Field(
         ..., description="The name of the target organization, exactly as typed."
@@ -471,9 +471,10 @@ def research_target(
 ) -> TargetResearchOutput:
     """Ask the local model what it already knows about *company*.
 
-    Returns a ``TargetResearchOutput`` whose ``industry`` and ``location`` are
-    stripped and capped at ``MAX_RESEARCH_FIELD_LEN``; either may be '' when the
-    model is not confident, which callers must treat as "no suggestion".
+    Returns a ``TargetResearchOutput`` whose ``industry``, ``location``, and
+    ``parent_company`` fields are stripped and capped at ``MAX_RESEARCH_FIELD_LEN``;
+    any field may be '' when the model is not confident, which callers must treat
+    as "no suggestion".
 
     Uses only the configured local Ollama server — no web lookups, so the client
     name never leaves the host. Raises LLMTimeoutError if the request exceeds

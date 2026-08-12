@@ -587,15 +587,15 @@ OLLAMA_TIMEOUT=300
 
   This replaces the previous behaviour of pasting an evenly-spaced sample of up to `ollamaMaxSampleLines` passwords. A sample of a large dump conveyed no frequency information at all: the model could not distinguish a baseword used by 8% of the organization from one used by a single person, which is precisely the signal that makes a guess worth running.
 - **`OLLAMA_NO_CLOUD`** — When `true`, refuse to send anything to an Ollama *cloud* model. Ollama proxies a `-cloud`-tagged model (`gpt-oss:120b-cloud`, `deepseek-v3.1:671b-cloud`) to ollama.com through the same local endpoint a local model uses, so nothing about the request looks different — but hate_crack's prompts carry recovered plaintexts, corpus statistics, and the client's name, industry, and location. With this set, a cloud model name is refused before any request is built. Defaults to `false`, so a deliberately-configured cloud model keeps working; turn it on for engagements where client data must not leave the host.
-- **`OLLAMA_AUTO_RESEARCH`** — When `true` (default), **Target info** mode asks the local model to suggest the industry and location as soon as you have typed the company name, and offers them as editable prompt defaults. Set to `false` to always get blank prompts (useful with a slow model, since research costs one extra round-trip before the attack starts).
+- **`OLLAMA_AUTO_RESEARCH`** — When `true` (default), **Target info** mode asks the local model to suggest the industry, location, and parent company / acquisition history as soon as you have typed the company name, and offers them as editable prompt defaults. Set to `false` to always get blank prompts (useful with a slow model, since research costs one extra round-trip before the attack starts).
 - **`OLLAMA_HOST`** — Where Ollama is listening. Accepts a bare `host:port` (`theplague.lan:11434`) or a full URL with a scheme (`https://ollama.example.com`); either way the base URL is normalized before use. Defaults to `localhost:11434`. Set it in `.env`, or export it as a real environment variable to override that for a single run — it is the same variable name Ollama's own CLI reads.
 - Ensure Ollama is running and the model is pulled (`ollama pull qwen2.5:32b`) before using the LLM Attack — hate_crack no longer auto-pulls missing models.
 
 The attack offers three generation modes:
 
-1. **Target info** — company / industry / location; the model derives candidates from those details.
+1. **Target info** — company / industry / location / parent company; the model derives candidates from those details.
 
-   After you type the company name, hate_crack asks the same local model what it already knows about that organization and pre-fills the **Industry** and **Location** prompts with the answers, shown in parentheses:
+   After you type the company name, hate_crack asks the same local model what it already knows about that organization and pre-fills the **Industry**, **Location**, and **Parent Company** prompts with the answers, shown in parentheses:
 
    ```
    Company name: Acme Rail Services
@@ -604,6 +604,7 @@ The attack offers three generation modes:
        Press Enter to accept, or type your own value to override.
    Industry (freight rail maintenance):
    Location (Omaha, Nebraska):
+   Parent company / acquired by:
    ```
 
    Press Enter to accept a suggestion or type over it. These values are the model's recollection, **not OSINT** — treat them as a starting point, not intelligence about the client. The lookup uses only the local Ollama server, so the client name never leaves the host; there are no web or third-party API calls. If the model does not recognize the organization (the common case for small clients), it returns nothing and you get plain blank prompts:
@@ -612,6 +613,7 @@ The attack offers three generation modes:
    Company name: Acme Rail Services
    Industry:
    Location:
+   Parent company / acquired by:
    ```
 
    A research failure — timeout, Ollama not running, empty answer — never blocks the attack; it just falls back to blank prompts. Set `ollamaAutoResearch` to `false` to skip research entirely.
@@ -1053,12 +1055,12 @@ Uses hashcat's loopback mode to feed cracked passwords from the current session 
 * Automatically downloads Hashmob rules if no rules are available locally
 
 #### LLM Attack
-Uses a local Ollama instance to generate password candidates for a capture-the-flag scenario. Prompts for the fake company name, industry, and location, then sends these details to the configured LLM model to produce likely password candidates using industry terms and company name permutations. The generated candidates are fed into a hashcat wordlist+rules attack.
+Uses a local Ollama instance to generate password candidates for a capture-the-flag scenario. Prompts for the fake company name, industry, location, and parent company / acquisition history, then sends these details to the configured LLM model to produce likely password candidates using industry terms and company name permutations. The generated candidates are fed into a hashcat wordlist+rules attack.
 
 * Requires a running Ollama instance (default: `http://localhost:11434`, override with `OLLAMA_HOST` in `.env` or the environment) with the model already pulled — hate_crack does not auto-pull
 * Candidate generation uses structured (JSON) output via Atomic Agents, so pick a model with good schema adherence (default: `qwen2.5:32b`)
 * Configurable model, context window, request timeout, and sample size via `.env` (see Ollama Configuration below)
-* Prompts for target company name, industry, and location. The industry and location prompts are pre-filled with the local model's guesses about the named organization (editable, and clearly labelled as guesses rather than verified OSINT); disable with `ollamaAutoResearch: false`
+* Prompts for target company name, industry, location, and parent company / acquisition history. The industry, location, and parent company prompts are pre-filled with the local model's guesses about the named organization (editable, and clearly labelled as guesses rather than verified OSINT); disable with `ollamaAutoResearch: false`
 * Alternatively derives basewords from a sample **wordlist**, or from the **cracked passwords** of the current session (`<hashfile>.out`) so the model mirrors the target organization's own password conventions and produces new candidates in that style (only offered once something has been cracked)
 * A live spinner with an elapsed-seconds counter runs during generation, and requests are bounded by `ollamaTimeout` so a model stuck loading into VRAM reports a timeout instead of hanging
 
