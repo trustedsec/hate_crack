@@ -57,9 +57,11 @@ def test_upload_cracked_hashes_preserves_plaintext_whitespace(tmp_path):
     cracked_file.write_text(f"{padded_ntlm}:{padded_plain}\n")
 
     # Stub the cache functions to prevent writing to the real ~/.hate_crack directory
-    with patch(
-        "hate_crack.api.load_cache", return_value={}
-    ), patch("hate_crack.api.append_to_cache"), patch("requests.Session"):
+    with (
+        patch("hate_crack.api.load_cache", return_value={}),
+        patch("hate_crack.api.append_to_cache"),
+        patch("requests.Session"),
+    ):
         api = HashviewAPI(base_url="http://example.invalid", api_key="unused")
         api.session = MagicMock()
         mock_response = Mock()
