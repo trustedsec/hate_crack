@@ -4323,29 +4323,30 @@ def hcatOmenTrain(training_file):
     model_dir = _omen_model_dir()
     print(f"Training OMEN model with: {training_file}")
     print(f"Model output directory: {model_dir}")
-    cmd = [
-        create_bin,
-        "--iPwdList",
-        training_file,
-        "-C",
-        os.path.join(model_dir, "createConfig"),
-        "-c",
-        os.path.join(model_dir, "CP"),
-        "-i",
-        os.path.join(model_dir, "IP"),
-        "-e",
-        os.path.join(model_dir, "EP"),
-        "-l",
-        os.path.join(model_dir, "LN"),
-    ]
-    print(f"[*] Running: {_format_cmd(cmd)}")
-    proc = subprocess.Popen(cmd)
-    try:
-        proc.wait()
-    except KeyboardInterrupt:
-        print("Killing PID {0}...".format(str(proc.pid)))
-        proc.kill()
-        return False
+    with _wordlist_path(training_file) as resolved_training_file:
+        cmd = [
+            create_bin,
+            "--iPwdList",
+            resolved_training_file,
+            "-C",
+            os.path.join(model_dir, "createConfig"),
+            "-c",
+            os.path.join(model_dir, "CP"),
+            "-i",
+            os.path.join(model_dir, "IP"),
+            "-e",
+            os.path.join(model_dir, "EP"),
+            "-l",
+            os.path.join(model_dir, "LN"),
+        ]
+        print(f"[*] Running: {_format_cmd(cmd)}")
+        proc = subprocess.Popen(cmd)
+        try:
+            proc.wait()
+        except KeyboardInterrupt:
+            print("Killing PID {0}...".format(str(proc.pid)))
+            proc.kill()
+            return False
     if proc.returncode != 0:
         print(f"OMEN training failed with exit code {proc.returncode}")
         return False

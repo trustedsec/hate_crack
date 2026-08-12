@@ -12,6 +12,9 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 ### Added
 - A regression test locking in that `upload_cracked_hashes` preserves leading/trailing whitespace in cracked plaintexts (#244).
 
+### Fixed
+- OMEN training now decompresses gzip-compressed training wordlists, matching the N-gram attack's existing behavior (#257).
+
 ## [2.25.1] - 2026-08-04
 
 ### Fixed

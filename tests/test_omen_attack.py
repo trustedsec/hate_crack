@@ -1,3 +1,4 @@
+import gzip
 import json
 from unittest.mock import MagicMock, patch
 
@@ -135,6 +136,47 @@ class TestHcatOmenTrain:
         ):
             result = main_module.hcatOmenTrain("/nonexistent/file.txt")
         assert result is False
+
+    def test_gzipped_training_file_is_decompressed_before_training(
+        self, main_module, tmp_path
+    ):
+        """A .gz training wordlist must be transparently decompressed -- see #257."""
+        plaintext_content = b"corpus_word1\ncorpus_word2\ncorpus_word3\n"
+        gz_path = tmp_path / "corpus.txt.gz"
+        with gzip.open(gz_path, "wb") as f:
+            f.write(plaintext_content)
+
+        omen_dir = tmp_path / "omen"
+        omen_dir.mkdir()
+        create_bin = omen_dir / "createNG"
+        create_bin.touch()
+        create_bin.chmod(0o755)
+        model_dir = tmp_path / "model"
+        model_dir.mkdir()
+
+        with (
+            patch.object(main_module, "_omen_dir", str(omen_dir)),
+            patch.object(main_module, "hcatOmenCreateBin", "createNG"),
+            patch("hate_crack.main._omen_model_dir", return_value=str(model_dir)),
+            patch("hate_crack.main.subprocess.Popen") as mock_popen,
+        ):
+            mock_proc = MagicMock()
+            mock_proc.wait.return_value = None
+            mock_proc.returncode = 0
+            mock_popen.return_value = mock_proc
+
+            result = main_module.hcatOmenTrain(str(gz_path))
+
+            assert result is True
+            mock_popen.assert_called_once()
+            cmd = mock_popen.call_args[0][0]
+            ipwdlist_index = cmd.index("--iPwdList") + 1
+            resolved_path = cmd[ipwdlist_index]
+            # The resolved path should be different from the original .gz path
+            # (proving decompression happened)
+            assert resolved_path != str(gz_path)
+            # The resolved path should not end with .gz
+            assert not resolved_path.endswith(".gz")
 
 
 class TestHcatOmen:
