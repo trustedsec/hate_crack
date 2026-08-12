@@ -14,6 +14,7 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 - LLM target research now also recalls a parent company / acquisition history for the named organization, alongside industry and location (#263).
 
 ### Fixed
+- LLM target research now uses parent company / acquisition history when generating password candidates (previously the field was collected but not passed to the model) (#263).
 - OMEN training now decompresses gzip-compressed training wordlists, matching the N-gram attack's existing behavior (#257).
 - Config resolution now warns when a `config.json`/`.env` at a higher-priority candidate root (the repo checkout, or the installed package directory) is shadowing one at a lower-priority root (`~/.hate_crack`), instead of silently ignoring the shadowed file forever. A stray file left behind in a checkout could otherwise make a real, hand-configured `~/.hate_crack/config.json` (hashcat path, wordlist/rules directories, etc.) look like it had been silently replaced with schema-default placeholders on first run — which file wins is unchanged, this only makes the shadowing visible (#246).
 

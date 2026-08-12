@@ -221,8 +221,8 @@ _TARGET_PROMPT = SystemPromptGenerator(
         "authorized penetration test / capture-the-flag exercise.",
     ],
     steps=[
-        "Study the provided target context (company, industry, location).",
-        "Derive basewords from the company name and industry terms.",
+        "Study the provided target context (company, industry, location, and any parent company information).",
+        "Derive basewords from the company name and industry terms, including any names the organization was previously known by.",
         "Combine basewords with common suffixes, years, and leetspeak substitutions.",
     ],
     output_instructions=[
@@ -392,9 +392,17 @@ def _build_request(mode: str, context_data: dict) -> str:
         company = context_data.get("company", "")
         industry = context_data.get("industry", "")
         location = context_data.get("location", "")
+        parent_company = context_data.get("parent_company", "")
+        # Build the target description, optionally including parent company info.
+        target_desc = (
+            f"The target organization is '{company}', a {industry} in {location}"
+        )
+        if parent_company:
+            target_desc += f" ({parent_company})"
+        target_desc += ". "
         return (
-            f"The target organization is '{company}', a {industry} in {location}. "
-            "Generate as many plausible password candidates as you can, using "
+            target_desc
+            + "Generate as many plausible password candidates as you can, using "
             "permutations of the company name and industry terms with common "
             "suffixes, years, and leetspeak substitutions."
         )

@@ -144,6 +144,58 @@ def test_target_mode_still_uses_target_prompt():
     assert config.system_prompt_generator is llm._TARGET_PROMPT
 
 
+def test_target_mode_includes_parent_company_when_present():
+    p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_agent(
+        ["AcmeCorp2024"]
+    )
+    with p_instr, p_openai, p_agent:
+        llm.generate_candidates(
+            "http://localhost:11434",
+            "qwen2.5:32b",
+            2048,
+            "target",
+            {
+                "company": "AcmeCorp",
+                "industry": "Finance",
+                "location": "NYC",
+                "parent_company": "Acquired by Global Holdings in 2022",
+            },
+            no_cloud=False,
+        )
+    run_arg = agent_instance.run.call_args[0][0]
+    # Verify all fields are in the request.
+    assert "AcmeCorp" in run_arg.request
+    assert "Finance" in run_arg.request
+    assert "NYC" in run_arg.request
+    assert "Acquired by Global Holdings in 2022" in run_arg.request
+
+
+def test_target_mode_handles_empty_parent_company():
+    p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_agent(["Candidate1"])
+    with p_instr, p_openai, p_agent:
+        llm.generate_candidates(
+            "http://localhost:11434",
+            "qwen2.5:32b",
+            2048,
+            "target",
+            {
+                "company": "IndependentCorp",
+                "industry": "Tech",
+                "location": "SF",
+                "parent_company": "",
+            },
+            no_cloud=False,
+        )
+    run_arg = agent_instance.run.call_args[0][0]
+    # Verify required fields are present but no empty parens appear.
+    assert "IndependentCorp" in run_arg.request
+    assert "Tech" in run_arg.request
+    assert "SF" in run_arg.request
+    # Ensure that an empty parent_company doesn't add stray parentheses.
+    assert "( )" not in run_arg.request
+    assert "()" not in run_arg.request
+
+
 def test_cracked_prompt_is_offensive_not_denylist():
     """_CRACKED_PROMPT's objective is candidate generation, not denylist building."""
     rendered = llm._CRACKED_PROMPT.generate_prompt()
