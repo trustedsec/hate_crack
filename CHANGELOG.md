@@ -10,7 +10,7 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 ## [Unreleased]
 
 ### Fixed
-- `tests/test_random_rules_attack.py`'s `load_cli_module()` now also preserves `hate_crack.hashview_cache` in `sys.modules` when purging other `hate_crack.*` modules for a fresh reload, matching the existing preservation of `hate_crack.api`/`hate_crack.attacks`. `hate_crack.api` imports `load_cache`/`append_to_cache` by name at module load time, so reloading `hashview_cache` while leaving `api` in place left `api`'s cache functions bound to a stale module object that `tests/conftest.py`'s `_isolate_hashview_cache` fixture could no longer patch — silently defeating cache test isolation for every test file running after `test_random_rules_attack.py` alphabetically and risking writes to the operator's real `~/.hate_crack/hashview_uploaded_cache.txt` (#264).
+- `tests/test_random_rules_attack.py`'s `load_cli_module()` now purges only `hate_crack.main`/`hate_crack` from `sys.modules` instead of deleting every `hate_crack.*` module except a hand-maintained preserve list. The old approach let any name-bound import (e.g. `hate_crack.api`'s `load_cache`/`append_to_cache`) drift out of sync with a reloaded module, which would silently defeat `tests/conftest.py`'s isolation fixtures and risk writes to the operator's real `~/.hate_crack` cache file (#264).
 
 ## [2.26.0] - 2026-08-12
 
