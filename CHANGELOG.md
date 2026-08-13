@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
-## [Unreleased]
+## [2.26.1] - 2026-08-13
 
 ### Fixed
 - `tests/test_random_rules_attack.py`'s `load_cli_module()` now purges only `hate_crack.main`/`hate_crack` from `sys.modules` instead of deleting every `hate_crack.*` module except a hand-maintained preserve list. The old approach let any name-bound import (e.g. `hate_crack.api`'s `load_cache`/`append_to_cache`) drift out of sync with a reloaded module, which would silently defeat `tests/conftest.py`'s isolation fixtures and risk writes to the operator's real `~/.hate_crack` cache file (#264).
