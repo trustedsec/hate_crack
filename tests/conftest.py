@@ -165,22 +165,24 @@ def _ensure_submodules_initialized(config):
 
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 
-    # Guard: only attempt init if we're in a git repo with .gitmodules
-    has_git_dir = os.path.isdir(os.path.join(repo_root, ".git"))
+    # Guard: only attempt init if we're in a git repo with .gitmodules.
+    # .git can be either a directory (normal repo) or a file (git worktree).
+    has_git = os.path.exists(os.path.join(repo_root, ".git"))
     has_gitmodules = os.path.isfile(os.path.join(repo_root, ".gitmodules"))
     has_git_cmd = shutil.which("git") is not None
 
-    if not (has_git_dir and has_gitmodules and has_git_cmd):
+    if not (has_git and has_gitmodules and has_git_cmd):
         return
 
-    # Try to init submodules
+    # Try to init submodules. No timeout: a cold initial clone over the network
+    # can take much longer than 30s, and the Makefile's own `git submodule update`
+    # call has no timeout at all.
     try:
         result = subprocess.run(
             ["git", "submodule", "update", "--init", "--recursive"],
             cwd=repo_root,
             capture_output=True,
             text=True,
-            timeout=30,
         )
         # Don't fail if the command fails or if dirs remain empty (worktree case).
         # Log a warning if something went wrong, but continue.
