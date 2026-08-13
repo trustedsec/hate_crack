@@ -145,7 +145,7 @@ def pytest_configure(config):
     _setup_local_hashview_if_enabled(config)
 
 
-def _ensure_submodules_initialized(config):
+def _ensure_submodules_initialized(config, repo_root=None):
     """Ensure submodules are initialized before test collection.
 
     This runs in pytest_configure — *before* test collection — so that
@@ -154,6 +154,12 @@ def _ensure_submodules_initialized(config):
     module level in hate_crack/main.py (~line 96-107), so a fresh-worktree
     first run would cache ROSETTA_IMPORT_ERROR if the submodule wasn't populated
     yet. See issue #266.
+
+    Args:
+        config: pytest Config object for issuing warnings.
+        repo_root: Optional explicit repo root path. If not provided, defaults to the
+            parent directory of this file (conftest.py). Allows testing with
+            alternative repos without mocking.
 
     No-op if:
     - HATE_CRACK_SKIP_SUBMODULE_INIT=1 is set (opt-out for CI/network-restricted envs)
@@ -164,7 +170,8 @@ def _ensure_submodules_initialized(config):
     import subprocess
     import shutil
 
-    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+    if repo_root is None:
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 
     # Opt-out: HATE_CRACK_SKIP_SUBMODULE_INIT=1 skips this hook entirely
     if os.environ.get("HATE_CRACK_SKIP_SUBMODULE_INIT") == "1":
@@ -184,7 +191,7 @@ def _ensure_submodules_initialized(config):
     # developer has intentionally moved to a different commit/branch.
     try:
         status_result = subprocess.run(
-            ["git", "submodule", "status"],
+            ["git", "submodule", "status", "--recursive"],
             cwd=repo_root,
             capture_output=True,
             text=True,

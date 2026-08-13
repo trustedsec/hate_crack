@@ -15,6 +15,7 @@ make coverage
 | Variable | Purpose |
 |----------|---------|
 | `HATE_CRACK_SKIP_INIT=1` | Skip binary/config validation at startup. Required in worktrees and CI where submodules are not built. `make test` sets this automatically. |
+| `HATE_CRACK_SKIP_SUBMODULE_INIT=1` | Skip submodule initialization in `pytest_configure`. Use in CI or network-restricted environments that manage submodules explicitly. Must be set to the exact string `"1"` (other truthy values are not recognized). |
 | `HASHMOB_TEST_REAL=1` | Enable live Hashmob connectivity tests |
 | `HASHVIEW_TEST_REAL=1` | Enable live Hashview CLI menu tests |
 | `WEAKPASS_TEST_REAL=1` | Enable live Weakpass CLI menu tests |

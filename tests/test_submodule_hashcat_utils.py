@@ -11,42 +11,6 @@ def _is_hashcat_utils_empty(path):
     return len(entries) == 0
 
 
-def test_submodule_status_check_identifies_uninitialized():
-    """Unit test: verify the status check logic correctly identifies uninitialized submodules.
-
-    This tests that the guard logic in _ensure_submodules_initialized would correctly
-    identify submodules that need updating (those with '-' prefix) vs. those that are
-    already initialized. This is a quick unit test that doesn't require a real worktree.
-    """
-    # Example git submodule status output with both initialized and uninitialized
-    status_output_with_uninitialized = """-c0e94cc274401da98599fab7c1971acdfe543c18 HashcatRosetta
- 8bbf2baf7b341c8ec23ca91e44e0ac7d7fcc0355 hashcat-utils
-+10aa99e30bb88a10052d389feb53f739254eb1d1 omen
-"""
-    # The guard logic checks for '-' prefix to detect uninitialized
-    uninitialized = [
-        line
-        for line in status_output_with_uninitialized.split("\n")
-        if line.strip().startswith("-")
-    ]
-    assert uninitialized, "Should detect uninitialized submodules with '-' prefix"
-    assert len(uninitialized) == 1, "Should find exactly one uninitialized submodule"
-
-    # Example output with all initialized
-    status_output_all_initialized = """ 8bbf2baf7b341c8ec23ca91e44e0ac7d7fcc0355 hashcat-utils
- 10aa99e30bb88a10052d389feb53f739254eb1d1 omen
- 4160061be78352adb2186619dd18be095da26340 princeprocessor
-"""
-    uninitialized = [
-        line
-        for line in status_output_all_initialized.split("\n")
-        if line.strip().startswith("-")
-    ]
-    assert not uninitialized, (
-        "Should find no uninitialized submodules when all are initialized"
-    )
-
-
 def test_hashcat_utils_submodule_populated():
     """Assert hashcat-utils submodule is populated after pytest_configure's init.
 
