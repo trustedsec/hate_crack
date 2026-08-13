@@ -10,7 +10,7 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 ## [Unreleased]
 
 ### Fixed
-- Fresh git worktrees' first `pytest` run would fail ~23 tests in hashcat_rosetta-dependent test files, all with "AssertionError: hcmask validity check failed". The issue: `git submodule update --init` was deferred to a test body, which runs *after* collection, but `hate_crack.main`'s module-level imports cache the ImportError if HashcatRosetta is not found at import time (collection phase). Submodule initialization is now part of `pytest_configure`, which runs *before* collection, so the import always sees populated submodules on the first run (#266).
+- Fresh git worktrees' first `pytest` run would fail ~23 tests in hashcat_rosetta-dependent test files, all with "AssertionError: hcmask validity check failed". The issue: `git submodule update --init` was deferred to a test body, which runs *after* collection, but `hate_crack.main`'s module-level imports cache the ImportError if HashcatRosetta is not found at import time (collection phase). Submodule initialization is now part of `pytest_configure`, which runs *before* collection, so the import always sees populated submodules on the first run. Additionally fixed: the guard logic now correctly detects git worktrees (where `.git` is a file, not a directory), checks submodule status before running update (so developers can intentionally move a submodule to a different commit/branch without pytest silently resetting it), adds a 600s timeout with network stalling protection and opt-out via `HATE_CRACK_SKIP_SUBMODULE_INIT=1` for CI environments, and avoids potential hangs from unresponsive networks or credential prompts (#266).
 
 ## [2.26.1] - 2026-08-13
 

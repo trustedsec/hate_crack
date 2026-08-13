@@ -155,15 +155,20 @@ def _ensure_submodules_initialized(config):
     first run would cache ROSETTA_IMPORT_ERROR if the submodule wasn't populated
     yet. See issue #266.
 
-    No-op if we're not in a git repo, or if git/git submodules are unavailable.
-    In a git worktree, the submodule directories might remain empty (submodule
-    update exits 0 but doesn't populate worktree dirs), which is expected and
-    not an error — just not all tests will be available.
+    No-op if:
+    - HATE_CRACK_SKIP_SUBMODULE_INIT=1 is set (opt-out for CI/network-restricted envs)
+    - Not in a git repo with .gitmodules (tarball/non-git installs)
+    - git command unavailable
+    - All submodules are already initialized (fast path, zero subprocess work)
     """
     import subprocess
     import shutil
 
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+
+    # Opt-out: HATE_CRACK_SKIP_SUBMODULE_INIT=1 skips this hook entirely
+    if os.environ.get("HATE_CRACK_SKIP_SUBMODULE_INIT") == "1":
+        return
 
     # Guard: only attempt init if we're in a git repo with .gitmodules.
     # .git can be either a directory (normal repo) or a file (git worktree).
@@ -174,18 +179,61 @@ def _ensure_submodules_initialized(config):
     if not (has_git and has_gitmodules and has_git_cmd):
         return
 
-    # Try to init submodules. No timeout: a cold initial clone over the network
-    # can take much longer than 30s, and the Makefile's own `git submodule update`
-    # call has no timeout at all.
+    # Check submodule status first: only run update if any are uninitialized.
+    # This is the common-case fast path and avoids resetting submodules a
+    # developer has intentionally moved to a different commit/branch.
     try:
-        result = subprocess.run(
-            ["git", "submodule", "update", "--init", "--recursive"],
+        status_result = subprocess.run(
+            ["git", "submodule", "status"],
             cwd=repo_root,
             capture_output=True,
             text=True,
+            timeout=10,
         )
-        # Don't fail if the command fails or if dirs remain empty (worktree case).
-        # Log a warning if something went wrong, but continue.
+        if status_result.returncode == 0:
+            # "-" prefix means uninitialized; "+" means at wrong commit
+            needs_update = any(
+                line.startswith("-")
+                for line in status_result.stdout.split("\n")
+                if line.strip()
+            )
+            if not needs_update:
+                # All submodules are already initialized; nothing to do
+                return
+    except Exception:
+        # If status check fails, continue anyway and try the update
+        pass
+
+    # Print a notice before potentially long subprocess (for cold initial clones)
+    print("Initializing git submodules (first run may take a minute)…")
+
+    # Try to init submodules with hardened subprocess handling.
+    # - Timeout: 600s (10 min) for a cold initial clone over network, but not infinite.
+    # - GIT_TERMINAL_PROMPT=0: fail fast on credential prompts rather than hang.
+    # - stdin=DEVNULL: prevent interactive input from blocking.
+    # - http.lowSpeedLimit/Time: abort stalled-but-open connections within bounded time.
+    subprocess_env = os.environ.copy()
+    subprocess_env["GIT_TERMINAL_PROMPT"] = "0"
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "-c",
+                "http.lowSpeedLimit=1000",
+                "-c",
+                "http.lowSpeedTime=60",
+                "submodule",
+                "update",
+                "--init",
+                "--recursive",
+            ],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            env=subprocess_env,
+            timeout=600,
+        )
         if result.returncode != 0:
             config.issue_config_time_warning(
                 pytest.PytestWarning(
@@ -194,6 +242,14 @@ def _ensure_submodules_initialized(config):
                 ),
                 stacklevel=2,
             )
+    except subprocess.TimeoutExpired:
+        config.issue_config_time_warning(
+            pytest.PytestWarning(
+                "git submodule update timed out during pytest_configure after 600s "
+                "(network stalled or blackholed). Set HATE_CRACK_SKIP_SUBMODULE_INIT=1 to skip."
+            ),
+            stacklevel=2,
+        )
     except Exception as e:
         config.issue_config_time_warning(
             pytest.PytestWarning(
