@@ -136,6 +136,72 @@ def _isolate_hashview_cache(monkeypatch, tmp_path):
 
 
 def pytest_configure(config):
+    """Run setup before test collection.
+
+    - Ensure submodules are initialized (issue #266)
+    - Spin up + seed a local Hashview docker stack if enabled
+    """
+    _ensure_submodules_initialized(config)
+    _setup_local_hashview_if_enabled(config)
+
+
+def _ensure_submodules_initialized(config):
+    """Ensure submodules are initialized before test collection.
+
+    This runs in pytest_configure — *before* test collection — so that
+    hate_crack.main's module-level import always sees a populated HashcatRosetta/
+    on the very first run, not just the second. hashcat_rosetta is imported at
+    module level in hate_crack/main.py (~line 96-107), so a fresh-worktree
+    first run would cache ROSETTA_IMPORT_ERROR if the submodule wasn't populated
+    yet. See issue #266.
+
+    No-op if we're not in a git repo, or if git/git submodules are unavailable.
+    In a git worktree, the submodule directories might remain empty (submodule
+    update exits 0 but doesn't populate worktree dirs), which is expected and
+    not an error — just not all tests will be available.
+    """
+    import subprocess
+    import shutil
+
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+
+    # Guard: only attempt init if we're in a git repo with .gitmodules
+    has_git_dir = os.path.isdir(os.path.join(repo_root, ".git"))
+    has_gitmodules = os.path.isfile(os.path.join(repo_root, ".gitmodules"))
+    has_git_cmd = shutil.which("git") is not None
+
+    if not (has_git_dir and has_gitmodules and has_git_cmd):
+        return
+
+    # Try to init submodules
+    try:
+        result = subprocess.run(
+            ["git", "submodule", "update", "--init", "--recursive"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        # Don't fail if the command fails or if dirs remain empty (worktree case).
+        # Log a warning if something went wrong, but continue.
+        if result.returncode != 0:
+            config.issue_config_time_warning(
+                pytest.PytestWarning(
+                    f"git submodule update failed during pytest_configure "
+                    f"(some tests may fail): {result.stderr}"
+                ),
+                stacklevel=2,
+            )
+    except Exception as e:
+        config.issue_config_time_warning(
+            pytest.PytestWarning(
+                f"Failed to initialize submodules during pytest_configure: {e}"
+            ),
+            stacklevel=2,
+        )
+
+
+def _setup_local_hashview_if_enabled(config):
     """Spin up + seed a local Hashview docker stack for the live test suite.
 
     No-op unless ``HASHVIEW_TEST_LOCAL=1``. When enabled, brings up the stack

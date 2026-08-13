@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [Unreleased]
+
+### Fixed
+- Fresh git worktrees' first `pytest` run would fail ~23 tests in hashcat_rosetta-dependent test files, all with "AssertionError: hcmask validity check failed". The issue: `git submodule update --init` was deferred to a test body, which runs *after* collection, but `hate_crack.main`'s module-level imports cache the ImportError if HashcatRosetta is not found at import time (collection phase). Submodule initialization is now part of `pytest_configure`, which runs *before* collection, so the import always sees populated submodules on the first run (#266).
+
 ## [2.26.1] - 2026-08-13
 
 ### Fixed
