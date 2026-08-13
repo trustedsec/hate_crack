@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [Unreleased]
+
+### Fixed
+- `tests/test_random_rules_attack.py`'s `load_cli_module()` now also preserves `hate_crack.hashview_cache` in `sys.modules` when purging other `hate_crack.*` modules for a fresh reload, matching the existing preservation of `hate_crack.api`/`hate_crack.attacks`. `hate_crack.api` imports `load_cache`/`append_to_cache` by name at module load time, so reloading `hashview_cache` while leaving `api` in place left `api`'s cache functions bound to a stale module object that `tests/conftest.py`'s `_isolate_hashview_cache` fixture could no longer patch — silently defeating cache test isolation for every test file running after `test_random_rules_attack.py` alphabetically and risking writes to the operator's real `~/.hate_crack/hashview_uploaded_cache.txt` (#264).
+
 ## [2.26.0] - 2026-08-12
 
 ### Added
