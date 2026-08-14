@@ -26,7 +26,8 @@
   "optimizedKernelAttacks": [
     "hcatDictionary", "hcatQuickDictionary", "hcatBandrel", "hcatGoodMeasure",
     "hcatRecycle", "hcatBruteForce", "hcatTopMask", "hcatRosettaMask",
-    "hcatPathwellBruteForce", "hcatAdHocMask", "hcatMarkovBruteForce", "hcatFingerprint",
+    "hcatPathwellBruteForce", "hcatCorporateMasks", "hcatAdHocMask",
+    "hcatMarkovBruteForce", "hcatFingerprint",
     "hcatCombination", "hcatCombinator3", "hcatCombinatorX", "hcatHybrid",
     "hcatYoloCombination", "hcatMiddleCombinator", "hcatThoroughCombinator",
     "hcatCombipow", "hcatPrince", "hcatPermute", "hcatPCFG"

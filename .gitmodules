@@ -19,3 +19,7 @@
 	path = pcfg_cracker
 	url = https://github.com/lakiw/pcfg_cracker.git
 	ignore = dirty
+[submodule "Corporate_Masks"]
+	path = Corporate_Masks
+	url = https://github.com/golem445/Corporate_Masks.git
+	ignore = dirty

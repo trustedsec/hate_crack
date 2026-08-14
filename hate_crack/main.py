@@ -213,6 +213,7 @@ DEFAULT_OPTIMIZED_ATTACKS = frozenset(
         "hcatTopMask",
         "hcatRosettaMask",
         "hcatPathwellBruteForce",
+        "hcatCorporateMasks",
         "hcatAdHocMask",
         "hcatMarkovBruteForce",
         "hcatFingerprint",
@@ -491,6 +492,13 @@ _omen_dir = (
     os.path.join(hate_path, "omen")
     if os.path.isdir(os.path.join(hate_path, "omen"))
     else os.path.join(_repo_root, "omen")
+)
+# Corporate_Masks may not be vendored into hate_path (e.g. dev checkout with only some submodules built).
+# Check hate_path first, then fall back to repo root.
+_corporate_masks_dir = (
+    os.path.join(hate_path, "Corporate_Masks")
+    if os.path.isdir(os.path.join(hate_path, "Corporate_Masks"))
+    else os.path.join(_repo_root, "Corporate_Masks")
 )
 SKIP_INIT = os.environ.get("HATE_CRACK_SKIP_INIT") == "1"
 
@@ -3265,6 +3273,14 @@ def _clean_pattern(raw):
 MIN_GENERATED_RULES = 25
 MAX_RULE_REQUESTS = 2
 
+# Corporate Masks attack length constraints. The bounds are the lengths the
+# upstream mask set actually ships (corp_8.hcmask .. corp_14.hcmask); the
+# default ceiling stops short of them because keyspace grows steeply with
+# length and 8-10 is the useful first pass.
+CORPORATE_MASK_MIN_LEN = 8
+CORPORATE_MASK_MAX_LEN = 14
+CORPORATE_MASK_DEFAULT_MAX_LEN = 10
+
 
 def _llm_pattern_rules(gen_context):
     """Ask the model for hashcat rules describing *gen_context*'s corpus.
@@ -3657,6 +3673,74 @@ def hcatPathwellBruteForce(hcatHashType, hcatHashFile):
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
     _run_hcat_cmd(cmd, attack_name="Pathwell Brute Force", hash_file=hcatHashFile)
+
+
+# Corporate Masks Attack
+def hcatCorporateMasks(
+    hcatHashType,
+    hcatHashFile,
+    minLen=CORPORATE_MASK_MIN_LEN,
+    maxLen=CORPORATE_MASK_DEFAULT_MAX_LEN,
+):
+    """Run hashcat with corporate mask files for the given length range.
+
+    Clamps minLen and maxLen to CORPORATE_MASK_MIN_LEN..CORPORATE_MASK_MAX_LEN,
+    swapping if reversed. Skips missing mask files and gracefully handles an
+    absent mask directory.
+    """
+    global hcatProcess
+    # Clamp and swap if reversed
+    minLen = max(CORPORATE_MASK_MIN_LEN, min(minLen, CORPORATE_MASK_MAX_LEN))
+    maxLen = max(CORPORATE_MASK_MIN_LEN, min(maxLen, CORPORATE_MASK_MAX_LEN))
+    if minLen > maxLen:
+        minLen, maxLen = maxLen, minLen
+
+    # Build list of mask files that exist
+    mask_files = []
+    for n in range(minLen, maxLen + 1):
+        mask_path = os.path.join(_corporate_masks_dir, f"corp_{n}.hcmask")
+        if os.path.isfile(mask_path):
+            mask_files.append((n, mask_path))
+
+    # Handle missing mask directory or no files
+    if not mask_files:
+        print("[!] No corporate mask files found.")
+        print(f"[!] Expected to find corp_*.hcmask files in: {_corporate_masks_dir}")
+        print(
+            "[!] Run 'make submodules' or "
+            "'git submodule update --init Corporate_Masks' to initialize it."
+        )
+        return
+
+    # Run one hashcat invocation per mask file
+    try:
+        for n, mask_path in mask_files:
+            print(f"\n[*] Corporate Masks Attack (length {n})")
+            cmd = [
+                hcatBin,
+                "-m",
+                hcatHashType,
+                hcatHashFile,
+                "--session",
+                generate_session_id(),
+                "-o",
+                f"{hcatHashFile}.out",
+                "-a",
+                "3",
+                mask_path,
+            ]
+            if _should_use_optimized_kernel("hcatCorporateMasks"):
+                _insert_optimized_flag(cmd)
+            cmd.extend(shlex.split(hcatTuning))
+            _append_potfile_arg(cmd)
+            _run_hcat_cmd(
+                cmd,
+                attack_name=f"Corporate Masks (len {n})",
+                hash_file=hcatHashFile,
+                reraise_interrupt=True,
+            )
+    except KeyboardInterrupt:
+        pass
 
 
 def hcatAdHocMask(hcatHashType, hcatHashFile, mask, custom_charsets=""):
@@ -5612,6 +5696,10 @@ def pathwell_crack():
     return _attacks.pathwell_crack(_attack_ctx())
 
 
+def corporate_masks_crack():
+    return _attacks.corporate_masks_crack(_attack_ctx())
+
+
 def prince_attack():
     return _attacks.prince_attack(_attack_ctx())
 
@@ -6228,6 +6316,7 @@ def get_main_menu_items():
         ("21", "PRINCE-LING Attack"),
         ("22", "Spoonman Attack"),
         ("23", "Rosetta Attack"),
+        ("24", "Corporate Masks Brute Force"),
         ("80", "Wordlist Tools"),
         ("81", "Rule File Tools"),
         ("82", "Notifications"),
@@ -6273,6 +6362,7 @@ def get_main_menu_options():
         "21": prince_ling_attack,
         "22": spoonman_attack,
         "23": rosetta_attack,
+        "24": corporate_masks_crack,
         "80": wordlist_tools_submenu,
         "81": rule_tools_submenu,
         "82": notifications_submenu,

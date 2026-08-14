@@ -438,6 +438,53 @@ def pathwell_crack(ctx: Any) -> None:
     ctx.hcatPathwellBruteForce(ctx.hcatHashType, ctx.hcatHashFile)
 
 
+def corporate_masks_crack(ctx: Any) -> None:
+    """Run Corporate Masks attack with user-selected length range.
+
+    Corporate Masks are statistical 8-14 character hashcat masks derived from
+    analysis of 3.2M NTLM hashes cracked on real engagements. Longer lengths
+    cost exponentially more keyspace.
+    """
+    print("\n" + "=" * 60)
+    print("CORPORATE MASKS ATTACK")
+    print("=" * 60)
+    print("Statistical masks (8-14 chars) derived from 3.2M NTLM hashes")
+    print("cracked on real engagements. Longer lengths cost dramatically")
+    print("more keyspace.")
+    print("=" * 60)
+
+    ceiling = ctx.CORPORATE_MASK_MAX_LEN
+
+    def _prompt_length(label: str, floor: int, default: int) -> int:
+        """Prompt for a mask length in *floor*..*ceiling*, until it's valid."""
+        while True:
+            raw = input(f"\nEnter {label} length ({floor}-{ceiling}) ({default}): ")
+            raw = raw.strip()
+            if raw == "":
+                return default
+            try:
+                value = int(raw)
+            except ValueError:
+                print(f"Please enter an integer between {floor} and {ceiling}.")
+                continue
+            if floor <= value <= ceiling:
+                return value
+            print(f"Please enter an integer between {floor} and {ceiling}.")
+
+    min_len = _prompt_length(
+        "minimum", ctx.CORPORATE_MASK_MIN_LEN, ctx.CORPORATE_MASK_MIN_LEN
+    )
+    # The maximum's floor is the minimum just chosen, and the offered default
+    # rises with it. Offering a default that the same prompt would then reject
+    # is worse than offering a narrower range.
+    max_len = _prompt_length(
+        "maximum", min_len, max(min_len, ctx.CORPORATE_MASK_DEFAULT_MAX_LEN)
+    )
+
+    _notify.prompt_notify_for_attack("Corporate Masks")
+    ctx.hcatCorporateMasks(ctx.hcatHashType, ctx.hcatHashFile, min_len, max_len)
+
+
 def prince_attack(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("PRINCE")
     ctx.hcatPrince(ctx.hcatHashType, ctx.hcatHashFile)

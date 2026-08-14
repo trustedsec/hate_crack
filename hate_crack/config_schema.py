@@ -267,6 +267,7 @@ CONFIG_SCHEMA: tuple[ConfigKey, ...] = (
             "hcatTopMask",
             "hcatRosettaMask",
             "hcatPathwellBruteForce",
+            "hcatCorporateMasks",
             "hcatAdHocMask",
             "hcatMarkovBruteForce",
             "hcatFingerprint",

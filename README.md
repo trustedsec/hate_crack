@@ -33,7 +33,7 @@ Or download a pre-built binary from https://hashcat.net/hashcat/ and set `hcatPa
 
 ### 2. Download hate_crack
 
-Clone with submodules (required for hashcat-utils, princeprocessor, pcfg_cracker, and optionally omen):
+Clone with submodules (required for hashcat-utils, princeprocessor, pcfg_cracker, Corporate_Masks, and optionally omen):
 
 ```bash
 git clone --recurse-submodules https://github.com/trustedsec/hate_crack.git
@@ -72,7 +72,7 @@ chmod 600 .env
 
 The easiest way is to run `make` (or `make install`), which auto-detects your OS and installs:
 - External dependencies (p7zip, transmission-daemon / transmission-remote)
-- Builds submodules (hashcat-utils, princeprocessor, pcfg_cracker, and optionally omen)
+- Builds submodules (hashcat-utils, princeprocessor, pcfg_cracker, and optionally omen) and checks out the data-only Corporate_Masks mask set
 - Python dependencies via uv and a CLI shim at `~/.local/bin/hate_crack`
 
 ```bash
@@ -176,7 +176,7 @@ Config is also searched in:
 - The repo root and package directory
 - `~/.hate_crack`
 
-**Note:** The `hcatPath` in `config.json` is for the hashcat binary location only (optional if hashcat is in PATH). Hate_crack assets (hashcat-utils, princeprocessor, pcfg_cracker, omen) are loaded from the repository directory and bundled automatically by `make install`.
+**Note:** The `hcatPath` in `config.json` is for the hashcat binary location only (optional if hashcat is in PATH). Hate_crack assets (hashcat-utils, princeprocessor, pcfg_cracker, Corporate_Masks, omen) are loaded from the repository directory and bundled automatically by `make install`.
 
 ### Run as a script
 The script uses a `uv` shebang. Make it executable and run:
@@ -924,6 +924,7 @@ All tests use mocked API calls, so they can run without connectivity to a Hashvi
   (21) PRINCE-LING Attack
   (22) Spoonman Attack
   (23) Rosetta Attack
+  (24) Corporate Masks Brute Force
 
   (80) Wordlist Tools
   (81) Rule File Tools
@@ -1196,6 +1197,16 @@ The menu first asks how to rank rules — choices 1-3 below, plus a fourth, unre
 * Output is written beside the hash file in `<hash file>.rosetta/` as `basewords.txt` and `rules.rule`, alongside the other ephemeral wordlists, and the directory is removed on exit by the temp-file cleanup
 * Reading stops at 1,000,000 debug lines, since the analyzer needs the whole batch in memory at once. Truncation is reported on the console rather than assumed harmless — logs from a long run routinely exceed this, in which case the newest log is the one worth selecting
 * **LLM Mask Attack** (4) - a different mode entirely, and the only one that needs no debug logs. Prompts for a natural-language description of the passwords you expect (length, character patterns, symbols, etc.), sends it to the locally configured Ollama model, writes the returned masks to `<hash file>.hcmask`, and runs a `-a 3` hashcat mask attack against them
+
+#### Corporate Masks Brute Force
+Statistical masks (8-14 characters) derived from analysis of 3.2M NTLM hashes cracked on real engagements. Powered by [Corporate_Masks](https://github.com/golem445/Corporate_Masks), these masks encode realistic password patterns from successful penetration tests.
+
+* Prompts for minimum and maximum mask length (default 8-10)
+* Longer lengths cost exponentially more keyspace—start with 8-10 for speed, or 8-12 for thoroughness
+* Each mask file is run as a separate hashcat invocation in ascending length order
+* Gracefully handles missing mask files (skips them) and absent submodule (prints warning and returns)
+* Supports optimized kernels (`-O` flag) for faster cracking
+* Ctrl-C during one length aborts remaining lengths
 
 #### Wordlist Tools (option 80)
 A submenu of wordlist preprocessing utilities using hashcat-utils binaries. All tools read from and write to files on disk. All file and directory path prompts support tab completion.
