@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
-## [Unreleased]
+## [2.27.0] - 2026-08-14
 
 ### Added
 - **Corporate Masks Brute Force attack (option 24)** — statistical 8-14 character hashcat masks derived from analysis of 3.2M NTLM hashes cracked on real engagements, powered by [Corporate_Masks](https://github.com/golem445/Corporate_Masks). Prompts for min/max length, runs each as a separate hashcat invocation, gracefully handles missing mask files, and supports optimized kernels (#269).
