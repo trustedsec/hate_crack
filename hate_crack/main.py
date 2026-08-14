@@ -276,6 +276,44 @@ def _should_use_optimized_kernel(attack_name):
     return attack_name in _optimized_kernel_attacks
 
 
+def _optimized_kernel_drift(configured):
+    """Return the default-optimized attacks *configured* leaves out, sorted.
+
+    ``optimizedKernelAttacks`` is a whole-list opt-in and
+    :data:`DEFAULT_OPTIMIZED_ATTACKS` is only the fallback, so once a
+    config.json exists it supplies the entire list. An attack added after that
+    file was written is therefore absent from it forever and never gets ``-O``
+    (#270). Nothing surfaced this: the attack still runs and still cracks, and
+    the only symptom is reduced speed, which is indistinguishable from the
+    attack simply being expensive. hcatRosettaMask shipped degraded for eleven
+    days before anyone noticed.
+
+    A name the user deliberately removed is indistinguishable from one that
+    never existed when the file was written, so this only reports -- the caller
+    warns and the user decides.
+    """
+    return sorted(DEFAULT_OPTIMIZED_ATTACKS - set(configured))
+
+
+def _warn_optimized_kernel_drift(missing, config_path=None):
+    """Name each attack in *missing* that will silently run without ``-O``.
+
+    Silent under ``SKIP_INIT``, matching :func:`_print_discovery_warnings`: the
+    test suite imports this module constantly.
+    """
+    if SKIP_INIT or not missing:
+        return
+    where = f" in {config_path}" if config_path else ""
+    print(
+        f"[!] optimizedKernelAttacks{where} is missing "
+        f"{len(missing)} attack(s) that use -O by default. "
+        "They will run unoptimized:"
+    )
+    for name in missing:
+        print(f"[!]   {name}")
+    print("[!] Add them to optimizedKernelAttacks to enable -O for those attacks.")
+
+
 def _strip_optimized_flags(tuning):
     """Return *tuning* with any hand-written -O removed.
 
@@ -1005,6 +1043,14 @@ try:
     _cfg_optimized = config_parser["optimizedKernelAttacks"]
     if isinstance(_cfg_optimized, list):
         _optimized_kernel_attacks = frozenset(_cfg_optimized)
+        # A config.json predating an attack pins the list without it, so the
+        # attack silently loses -O (#270). Warn rather than repair: the list is
+        # also how a user deliberately opts an attack out, and the two cases
+        # are indistinguishable from here.
+        _warn_optimized_kernel_drift(
+            _optimized_kernel_drift(_optimized_kernel_attacks),
+            _legacy_json_path,
+        )
 except KeyError:
     pass
 check_for_updates_enabled = config_parser.get("check_for_updates", True)

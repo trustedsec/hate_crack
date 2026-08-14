@@ -12,6 +12,9 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 ### Added
 - **Corporate Masks Brute Force attack (option 24)** — statistical 8-14 character hashcat masks derived from analysis of 3.2M NTLM hashes cracked on real engagements, powered by [Corporate_Masks](https://github.com/golem445/Corporate_Masks). Prompts for min/max length, runs each as a separate hashcat invocation, gracefully handles missing mask files, and supports optimized kernels (#269).
 
+### Fixed
+- Startup now warns when `optimizedKernelAttacks` in `config.json` is missing attacks that use `-O` by default, naming each one and the file it came from. That setting is a whole-list opt-in, so a `config.json` written before an attack existed pins the list without it and the attack never gets the optimized kernel — silently, since the only symptom is reduced speed. `hcatRosettaMask` shipped degraded for eleven days before this surfaced, and `hcatCorporateMasks` was degraded the day it landed. The list is also how an attack is deliberately opted out, and the two cases are indistinguishable, so this warns rather than repairing the list (#270).
+
 ## [2.26.2] - 2026-08-13
 
 ### Fixed
