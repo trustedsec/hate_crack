@@ -1,5 +1,6 @@
 """Tests for the startup version check feature."""
 
+import subprocess
 import sys
 from unittest.mock import MagicMock, patch
 
@@ -41,16 +42,20 @@ def upgrade_procs(current_branch="main", dirty=False, final_returncode=0):
 def head_check_procs(at_release_tag=False):
     """The git calls check_for_updates() makes before it decides to offer.
 
-    _head_is_at_release_tag() asks `rev-parse HEAD` and `rev-parse
-    refs/tags/<tag>^{commit}` so that sitting on the released commit counts as up
-    to date even when `git describe` resolves the version to a lower tag that
-    shares the commit. Any test driving the upgrade *through* check_for_updates
-    has to supply these first; tests calling _run_upgrade() directly do not.
+    _head_contains_release_tag() asks `rev-parse refs/tags/<tag>^{commit}` and
+    then `merge-base --is-ancestor <sha> HEAD`, so a checkout that already
+    contains the release counts as up to date even when the version string
+    compares lower -- which is the normal state on nightly-dev, whose rc
+    versions sort below the release they become (#271). Any test driving the
+    upgrade *through* check_for_updates has to supply these first; tests
+    calling _run_upgrade() directly do not.
 
-    Defaults to the tag being absent locally, which is what makes the offer fire.
+    Defaults to the release NOT being an ancestor, which is what makes the
+    offer fire. These are call-sequence stubs; the real git behaviour is
+    covered against actual repositories in TestHeadContainsReleaseTag.
     """
     if at_release_tag:
-        return [_proc(stdout="cafe1234\n"), _proc(stdout="cafe1234\n")]
+        return [_proc(stdout="cafe1234\n"), _proc(0)]
     return [_proc(stdout="cafe1234\n"), _proc(1)]
 
 
@@ -201,7 +206,12 @@ class TestCheckForUpdates:
         for call in mock_run.call_args_list:
             assert not call[1].get("shell"), f"ran the install chain: {call}"
             argv = call[0][0]
-            assert argv[:2] == ["git", "rev-parse"], f"unexpected command: {argv}"
+            # Both of _head_contains_release_tag()'s calls are read-only
+            # inspections. Anything else here would be moving the repo.
+            assert argv[:2] in (
+                ["git", "rev-parse"],
+                ["git", "merge-base"],
+            ), f"unexpected command: {argv}"
 
     def test_no_offer_when_head_is_the_release_commit(self, hc_module, capsys):
         """A lower version string does not mean out of date.
@@ -423,7 +433,10 @@ class TestRunUpgrade:
         # not start an upgrade. See head_check_procs().
         for call in mock_run.call_args_list:
             assert not call[1].get("shell"), f"ran the install chain: {call}"
-            assert call[0][0][:2] == ["git", "rev-parse"], f"unexpected: {call}"
+            assert call[0][0][:2] in (
+                ["git", "rev-parse"],
+                ["git", "merge-base"],
+            ), f"unexpected: {call}"
 
     # ------------------------------------------------------------------
     # Branch-switch behavior: when the user runs the upgrade from a
@@ -802,3 +815,104 @@ class TestNightlyFlagWiring:
         src = inspect.getsource(hc_module.check_for_updates)
         assert "releases/latest" in src
         assert "nightly" not in src
+
+
+def _git(repo, *args):
+    """Run git in *repo*, raising on failure so a broken fixture is loud."""
+    subprocess.run(
+        ["git", *args],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+@pytest.fixture
+def tagged_repo(tmp_path):
+    """A real repo: v1.0.0, then a commit past it, then an untagged branch tip.
+
+    Real commits and real tags rather than a subprocess side_effect list.
+    Ancestry is exactly the behaviour under test, and a mocked call sequence
+    asserts the commands, not what git would actually answer.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "config", "user.email", "t@example.com")
+    _git(repo, "config", "user.name", "T")
+
+    (repo / "f.txt").write_text("one\n")
+    _git(repo, "add", "f.txt")
+    _git(repo, "commit", "-qm", "one")
+    _git(repo, "tag", "-a", "v1.0.0", "-m", "release 1.0.0")  # annotated
+
+    (repo / "f.txt").write_text("two\n")
+    _git(repo, "commit", "-qam", "two")
+    _git(repo, "tag", "v1.1.0")  # lightweight
+
+    # A branch that stops *before* v1.1.0, standing in for a checkout that
+    # genuinely lacks the latest release.
+    _git(repo, "branch", "behind", "v1.0.0")
+    return repo
+
+
+class TestHeadContainsReleaseTag:
+    """#271: a checkout containing the release must not be told to upgrade."""
+
+    def test_release_already_in_history_counts_as_up_to_date(
+        self, hc_module, monkeypatch, tagged_repo
+    ):
+        """The nightly-dev case: HEAD is PAST the release, not on it.
+
+        This is the regression. The old equality check returned False here, so
+        the notice fired on every start even though the release was already in
+        the checkout.
+        """
+        monkeypatch.setattr(hc_module, "_repo_root", str(tagged_repo))
+        assert hc_module._head_contains_release_tag("v1.0.0") is True
+
+    def test_head_exactly_at_the_release_still_counts(
+        self, hc_module, monkeypatch, tagged_repo
+    ):
+        """The degenerate case the old equality check handled; must not regress."""
+        monkeypatch.setattr(hc_module, "_repo_root", str(tagged_repo))
+        _git(tagged_repo, "checkout", "-q", "v1.0.0")
+        assert hc_module._head_contains_release_tag("v1.0.0") is True
+
+    def test_release_not_in_history_still_offers(
+        self, hc_module, monkeypatch, tagged_repo
+    ):
+        """A checkout genuinely missing the release must still be told to upgrade."""
+        monkeypatch.setattr(hc_module, "_repo_root", str(tagged_repo))
+        _git(tagged_repo, "checkout", "-q", "behind")
+        assert hc_module._head_contains_release_tag("v1.1.0") is False
+
+    def test_annotated_and_lightweight_tags_both_resolve(
+        self, hc_module, monkeypatch, tagged_repo
+    ):
+        """v1.0.0 is annotated, v1.1.0 lightweight; ^{commit} must handle both."""
+        monkeypatch.setattr(hc_module, "_repo_root", str(tagged_repo))
+        assert hc_module._head_contains_release_tag("v1.0.0") is True
+        assert hc_module._head_contains_release_tag("v1.1.0") is True
+
+    def test_unknown_tag_falls_back_to_the_version_comparison(
+        self, hc_module, monkeypatch, tagged_repo
+    ):
+        monkeypatch.setattr(hc_module, "_repo_root", str(tagged_repo))
+        assert hc_module._head_contains_release_tag("v9.9.9") is False
+
+    def test_non_git_directory_falls_back(self, hc_module, monkeypatch, tmp_path):
+        """Installs that are not git clones keep the version comparison."""
+        plain = tmp_path / "not-a-repo"
+        plain.mkdir()
+        monkeypatch.setattr(hc_module, "_repo_root", str(plain))
+        assert hc_module._head_contains_release_tag("v1.0.0") is False
+
+    @pytest.mark.parametrize("tag", ["", "; rm -rf /", "v1.0.0 --oops", "../etc"])
+    def test_malformed_tags_are_rejected_before_reaching_git(
+        self, hc_module, monkeypatch, tagged_repo, tag
+    ):
+        """Tag names are remote input from the releases API."""
+        monkeypatch.setattr(hc_module, "_repo_root", str(tagged_repo))
+        assert hc_module._head_contains_release_tag(tag) is False

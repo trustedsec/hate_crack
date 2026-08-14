@@ -1812,45 +1812,58 @@ def _run_upgrade(branch="main"):
     raise SystemExit(0)
 
 
-def _head_is_at_release_tag(tag):
-    """True when *tag* exists in the local checkout and points at HEAD.
+def _head_contains_release_tag(tag):
+    """True when *tag* exists in the local checkout and HEAD already contains it.
 
-    The version comparison alone cannot decide "am I up to date", because the
-    version is whatever `git describe` resolves to and a commit can carry more
-    than one release tag. When it does, describe breaks the tie by ref iteration
-    order -- lexicographic -- so the LOWER tag wins: v2.19.15 over v2.20.0 on
-    e37d568, the 2026-07-31 release. The version then never reaches the released
-    one no matter how many times the upgrade runs, and every start re-offers it.
+    The version comparison alone cannot decide "am I up to date", for two
+    reasons.
 
-    Being on the commit the release points at is the authoritative answer, so it
-    takes priority. Any failure here (no checkout, unknown tag, no git) returns
-    False and leaves the version comparison in charge, which keeps the notice
-    working for installs that are not git clones.
+    The first is tag ties: the version is whatever `git describe` resolves to,
+    and a commit can carry more than one release tag. When it does, describe
+    breaks the tie by ref iteration order -- lexicographic -- so the LOWER tag
+    wins: v2.19.15 over v2.20.0 on e37d568, the 2026-07-31 release. The version
+    then never reaches the released one no matter how many times the upgrade
+    runs, and every start re-offers it.
+
+    The second is the pre-release channel (#271). nightly-dev publishes
+    candidates aimed at the version the batch is heading *toward*, so its
+    version sorts BELOW the release it becomes: 2.26.2rc1 < 2.26.2 under PEP
+    440. Once that target release ships, a nightly-dev checkout that already
+    contains it -- plus every commit since -- still compares as older, and the
+    notice offers an "upgrade" that is really a downgrade. It fires on every
+    start until the branch's target moves past the release.
+
+    Ancestry answers both: if the release commit is reachable from HEAD, the
+    release is already in this checkout whatever the version strings say. An
+    exact match is the degenerate case (a commit is its own ancestor), so this
+    subsumes the equality check it replaces.
+
+    Any failure here (no checkout, unknown tag, no git) returns False and
+    leaves the version comparison in charge, which keeps the notice working for
+    installs that are not git clones.
     """
     if not tag or not _re_tag_name.fullmatch(tag):
         return False
     try:
         import subprocess
 
-        head = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=_repo_root,
-            capture_output=True,
-            text=True,
-        )
-        if head.returncode != 0:
-            return False
         # ^{commit} so an annotated tag resolves to its commit rather than the
-        # tag object, which would never equal HEAD.
+        # tag object, which is not what merge-base wants.
         tagged = subprocess.run(
             ["git", "rev-parse", "-q", "--verify", f"refs/tags/{tag}^{{commit}}"],
             cwd=_repo_root,
             capture_output=True,
             text=True,
         )
-        if tagged.returncode != 0:
+        if tagged.returncode != 0 or not tagged.stdout.strip():
             return False
-        return head.stdout.strip() == tagged.stdout.strip() != ""
+        contains = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", tagged.stdout.strip(), "HEAD"],
+            cwd=_repo_root,
+            capture_output=True,
+            text=True,
+        )
+        return contains.returncode == 0
     except Exception:
         return False
 
@@ -1880,7 +1893,7 @@ def check_for_updates():
             return
         from packaging.version import parse
 
-        if parse(latest) > parse(local_base) and not _head_is_at_release_tag(tag):
+        if parse(latest) > parse(local_base) and not _head_contains_release_tag(tag):
             print(
                 f"\n  Update available: {latest} (current: {local_base})."
                 f"\n  See https://github.com/trustedsec/hate_crack/releases\n"
