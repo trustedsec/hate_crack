@@ -4,7 +4,10 @@ import json
 import os
 import re
 
+import pytest
+
 from hate_crack.config_schema import ENV_KEYS
+from tests._json_strict import DuplicateJSONKeyError, load_strict, loads_strict
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROOT_EXAMPLE = os.path.join(REPO_ROOT, "config.json.example")
@@ -260,3 +263,65 @@ def test_every_env_homed_key_has_a_read_site():
         "setting them has no effect. Either wire them up or remove them: "
         + "; ".join(dead)
     )
+
+
+# ---------------------------------------------------------------------------
+# Duplicate-key guard
+# ---------------------------------------------------------------------------
+
+
+def test_root_example_has_no_duplicate_keys():
+    """config.json.example must define each key exactly once.
+
+    json.load keeps the last of a duplicated pair, so a doubled line parses
+    cleanly and every other guard here still passes: the key set collapses the
+    pair, so counts and types all match. The file is malformed and the suite
+    says nothing. Caught for real while adding hcatCorpusProfileMaxLines, where
+    an edit written through both the root path and the package symlink that
+    points at it produced two identical lines.
+    """
+    load_strict(ROOT_EXAMPLE)
+
+
+def test_packaged_example_has_no_duplicate_keys():
+    """Same guard through the packaged path.
+
+    In the source tree that path is a symlink to the root copy, so this is the
+    same bytes; in a wheel, an sdist, or a git-archive tarball it is a real
+    file that could diverge.
+    """
+    load_strict(PACKAGED_EXAMPLE)
+
+
+def test_duplicate_key_guard_actually_catches_a_duplicate():
+    """Mutation test: the guard must fail on a file it is supposed to reject.
+
+    Without this, test_root_example_has_no_duplicate_keys passes whether the
+    check works or not — it has only ever seen a clean file. Duplicating a real
+    line from the real example is exactly the malformation that shipped.
+    """
+    with open(ROOT_EXAMPLE) as fh:
+        text = fh.read()
+
+    # Duplicate the first "key": value line, reproducing the original defect.
+    match = re.search(r'^(\s*"([A-Za-z_]+)":.*,)$', text, re.MULTILINE)
+    assert match, "no simple scalar key line found to duplicate"
+    line, key = match.group(1), match.group(2)
+    mutated = text.replace(line, line + "\n" + line, 1)
+
+    # Sanity: plain json.load accepts the mutation, which is the whole problem.
+    assert json.loads(mutated), "mutation should still be syntactically valid JSON"
+
+    with pytest.raises(DuplicateJSONKeyError) as excinfo:
+        loads_strict(mutated)
+    assert key in str(excinfo.value)
+
+
+def test_duplicate_key_guard_catches_nested_duplicates():
+    """A duplicate inside a nested object must be caught too.
+
+    config.json.example is flat today, but object_pairs_hook sees every object
+    in the document and a future nested section should not be a blind spot.
+    """
+    with pytest.raises(DuplicateJSONKeyError):
+        loads_strict('{"outer": {"dup": 1, "dup": 2}}')

@@ -7,7 +7,6 @@ place we compare against the real config.json.example.
 
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 
@@ -24,6 +23,7 @@ from hate_crack.config_schema import (
     ConfigValueError,
     coerce,
 )
+from tests._json_strict import loads_strict
 
 EXAMPLE_PATH = (
     Path(__file__).resolve().parents[1] / "hate_crack" / "config.json.example"
@@ -31,7 +31,13 @@ EXAMPLE_PATH = (
 
 
 def _load_example() -> dict:
-    return json.loads(EXAMPLE_PATH.read_text())
+    """Load the packaged example, rejecting duplicate keys.
+
+    Strict rather than plain json.loads so every drift assertion below
+    inherits the check: a duplicated key collapses in the key set that most of
+    them compare, which is how one shipped unnoticed. See tests/_json_strict.py.
+    """
+    return loads_strict(EXAMPLE_PATH.read_text())
 
 
 # The twelve third-party integration keys: the exact home="env" set. Pinned
