@@ -18,6 +18,7 @@
   "hcatPrinceBaseList": "rockyou.txt",
   "bandrelmaxruntime": 300,
   "bandrel_common_basedwords": "welcome,password,p@ssword,p@$$word,changeme,letmein,summer,winter,spring,springtime,fall,autumn,monday,tuesday,wednesday,thursday,friday,saturday,sunday,january,february,march,april,may,june,july,august,september,october,november,december,christmas,easter,covid19",
+  "hcatCorpusProfileMaxLines": 5000000,
   "omenMaxCandidates": 100000000,
   "pcfgRuleset": "Default",
   "pcfgMaxCandidates": 50000000,

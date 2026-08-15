@@ -1032,6 +1032,7 @@ ollamaTimeout = float(config_parser.get("ollamaTimeout", 300))
 ollamaMaxSampleLines = int(config_parser.get("ollamaMaxSampleLines", 500))
 ollamaAutoResearch = bool(config_parser.get("ollamaAutoResearch", True))
 
+hcatCorpusProfileMaxLines = int(config_parser.get("hcatCorpusProfileMaxLines", 5000000))
 omenMaxCandidates = int(config_parser.get("omenMaxCandidates", 100000000))
 pcfgRuleset = config_parser.get("pcfgRuleset", "Default")
 pcfgMaxCandidates = int(config_parser.get("pcfgMaxCandidates", 50000000))
@@ -3070,14 +3071,36 @@ def _corpus_context(path, source_label="wordlist"):
     """
     try:
         with _wordlist_path(path) as resolved_path:
-            with spinner(f"Analyzing {source_label}..."):
-                stats = _corpus_stats.summarize(resolved_path)
+            # "no LLM yet" is load-bearing, not decoration: summarize() is a
+            # pure local pass that never contacts the model, but on a corpus
+            # of a few million lines it runs for the better part of a minute,
+            # and a bare "Analyzing..." reads as the model having stalled.
+            cap = hcatCorpusProfileMaxLines
+            with spinner(
+                f"Profiling {source_label} locally (no LLM yet)..."
+            ) as _profile_progress:
+                stats = _corpus_stats.summarize(
+                    resolved_path,
+                    progress=lambda n: _profile_progress.set_detail(
+                        f"{n:,} / {cap:,} lines" if cap > 0 else f"{n:,} lines"
+                    ),
+                    max_lines=cap,
+                )
 
             context = {"summary": _corpus_stats.format_summary(stats)}
-            print(
-                f"Analyzed all {stats['total']:,} passwords in {source_label} "
-                f"({stats['baseword_total']:,} distinct basewords)."
-            )
+            if stats.get("sampled"):
+                estimated = stats.get("estimated_total") or stats["total"]
+                print(
+                    f"Profiled {stats['total']:,} passwords sampled evenly from "
+                    f"{source_label} (~{estimated:,} lines, "
+                    f"{stats['baseword_total']:,} distinct basewords). Raise "
+                    "hcatCorpusProfileMaxLines in config.json to sample more."
+                )
+            else:
+                print(
+                    f"Analyzed all {stats['total']:,} passwords in {source_label} "
+                    f"({stats['baseword_total']:,} distinct basewords)."
+                )
             # A raw NTDS dump and a cracked-output file both live in the
             # working directory with similar names, and the dump produces
             # confident nonsense rather than an error, so say so instead of

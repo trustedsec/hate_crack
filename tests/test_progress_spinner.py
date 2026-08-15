@@ -5,11 +5,12 @@ from __future__ import annotations
 import io
 import re
 import sys
+import time
 from unittest import mock
 
 import pytest
 
-from hate_crack.progress import spinner
+from hate_crack.progress import _TICK_INTERVAL, spinner
 
 
 # ---------------------------------------------------------------------------
@@ -151,3 +152,63 @@ def test_tty_clears_line_even_if_join_raises() -> None:
     assert "\033[2K\r" in output, (
         "Line-clear escape sequence must be written before join() is called"
     )
+
+
+# ---------------------------------------------------------------------------
+# Live detail: long local passes report progress alongside the elapsed counter
+# ---------------------------------------------------------------------------
+
+
+def test_spinner_yields_handle_and_renders_detail() -> None:
+    """``with spinner(msg) as handle`` must render handle.set_detail() text.
+
+    A minute-long local pass (corpus profiling) is indistinguishable from a
+    hang when only seconds tick up, so the caller needs a way to say how far
+    it has got without owning the repaint loop.
+    """
+    buf = io.StringIO()
+    buf.isatty = lambda: True  # type: ignore[attr-defined]
+
+    with mock.patch("sys.stdout", buf):
+        with spinner("Profiling...") as handle:
+            handle.set_detail("4,120,000 lines")
+            # Give the repaint thread at least one tick with the detail set.
+            time.sleep(_TICK_INTERVAL * 3)
+
+    output = buf.getvalue()
+    assert "Profiling..." in output
+    assert "4,120,000 lines" in output
+
+
+def test_spinner_detail_is_optional_in_rendering() -> None:
+    """With no detail set, the rendered line must not gain stray separators."""
+    buf = io.StringIO()
+    buf.isatty = lambda: True  # type: ignore[attr-defined]
+
+    mono_values = iter([0.0] + [3.0] * 12)
+    with (
+        mock.patch("sys.stdout", buf),
+        mock.patch("hate_crack.progress.time.monotonic", side_effect=mono_values),
+    ):
+        with spinner("Plain"):
+            pass
+
+    assert "Plain  3s" in buf.getvalue()
+
+
+def test_non_tty_handle_set_detail_is_silent(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The non-TTY path still yields a handle, and set_detail prints nothing.
+
+    Callers pass the same callback either way, so a missing handle would be an
+    AttributeError in piped output and in the test suite.
+    """
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: False)
+
+    with spinner("Working...") as handle:
+        handle.set_detail("1,000 lines")
+
+    captured = capsys.readouterr()
+    assert "Working..." in captured.out
+    assert "1,000 lines" not in captured.out

@@ -243,6 +243,13 @@ CONFIG_SCHEMA: tuple[ConfigKey, ...] = (
         "OLLAMA_MAX_SAMPLE_LINES", "ollamaMaxSampleLines", "int", 500, home="env"
     ),
     ConfigKey("OLLAMA_AUTO_RESEARCH", "ollamaAutoResearch", "bool", True, home="env"),
+    # Bounds the local corpus-profiling pass behind the LLM attacks. That pass
+    # is pure Python at roughly 135k lines/s, so an uncapped run over a 29 GB
+    # hashmob dump takes hours and grows an unbounded distinct-password set;
+    # past this many lines it samples evenly across the file instead. Five
+    # million is about 40 seconds and still a far larger sample than any
+    # prompt could carry.
+    ConfigKey("CORPUS_PROFILE_MAX_LINES", "hcatCorpusProfileMaxLines", "int", 5000000),
     ConfigKey("OMEN_MAX_CANDIDATES", "omenMaxCandidates", "int", 100000000),
     ConfigKey("PCFG_RULESET", "pcfgRuleset", "str", "Default"),
     ConfigKey("PCFG_MAX_CANDIDATES", "pcfgMaxCandidates", "int", 50000000),

@@ -16,6 +16,7 @@ Nothing here contacts the model or the network; it is pure aggregation, which
 keeps it cheap to test.
 """
 
+import os
 from collections import Counter
 
 from hate_crack import rulegen
@@ -45,6 +46,30 @@ TOP_SPECIALS = 10
 # Basewords appearing once in a large corpus are usually typos or one-offs and
 # crowd out the families worth extrapolating from.
 MIN_BASEWORD_HITS = 2
+
+# Anchor points for the capped sample: the file is divided into this many
+# equal byte ranges and a contiguous run of lines is read at the start of each.
+# Contiguous runs rather than one seek per line because the cap is measured in
+# millions — that many individual seeks thrashes any disk, and on a network
+# share it is slower than reading the file outright. A couple of thousand
+# anchors spread the sample finely enough that the local ordering inside each
+# run cannot dominate the statistics.
+SAMPLE_ANCHORS = 2000
+
+# Bytes read to estimate the corpus line count. Only the average line length is
+# wanted, and passwords are short and uniform enough that a few megabytes
+# settle it; reading further to refine an estimate would cost more than the
+# estimate saves.
+_ESTIMATE_BYTES = 4 * 1024 * 1024
+
+# How often summarize() reports progress, in lines read. The per-line work here
+# is roughly ten passes over the password (mask, casing, baseword derivation,
+# two trailing-run scans, a year window), so a multi-million-line corpus takes
+# tens of seconds; without periodic reporting the caller can only show elapsed
+# time, which is indistinguishable from a hang. Reporting every 100k lines
+# repaints often enough to look alive and rarely enough to stay off the hot
+# path.
+PROGRESS_INTERVAL = 100_000
 
 
 def _is_ascii_digit(c):
@@ -132,12 +157,87 @@ def _years(pw):
             yield chunk
 
 
-def summarize(path):
+def _estimate_line_count(path, size):
+    """Estimate the number of lines in *path* from its first few megabytes.
+
+    An exact count would mean a full read, which is the cost the cap exists to
+    avoid — on a 29 GB corpus even a bare line count runs for minutes. The
+    figure is only used to decide whether to sample and to report coverage, so
+    an estimate within a few percent is ample. Returns the exact count when the
+    whole file fits inside the estimation window.
+    """
+    if size == 0:
+        return 0
+    with open(path, "rb") as fh:
+        chunk = fh.read(min(size, _ESTIMATE_BYTES))
+    newlines = chunk.count(b"\n")
+    if len(chunk) >= size:
+        # Whole file read: exact, plus one for a final line with no newline.
+        return newlines + (0 if chunk.endswith(b"\n") or not chunk else 1)
+    if newlines == 0:
+        # A single line longer than the window; nothing to extrapolate from.
+        return 1
+    return max(1, round(size / (len(chunk) / newlines)))
+
+
+def _iter_lines(path):
+    """Yield every line of *path*, decoded latin-1."""
+    with open(path, encoding="latin-1") as fh:
+        yield from fh
+
+
+def _iter_sampled_lines(path, size, cap):
+    """Yield at most *cap* lines drawn evenly from across *path*.
+
+    Opened in binary mode and decoded per line: seeking to an arbitrary byte
+    offset is well defined on a binary file and not on a TextIOWrapper, whose
+    seek() contract accepts only cookies returned by its own tell(). latin-1
+    round-trips every byte, so the decoded text matches what the full-read path
+    produces, and usable_plaintext() strips the trailing newline either way.
+    """
+    anchors = max(1, min(SAMPLE_ANCHORS, cap))
+    per_anchor = max(1, cap // anchors)
+    yielded = 0
+    with open(path, "rb") as fh:
+        for i in range(anchors):
+            if yielded >= cap:
+                return
+            fh.seek((size * i) // anchors)
+            if i:
+                # The offset lands mid-line; that fragment is not a password.
+                fh.readline()
+            for _ in range(per_anchor):
+                raw = fh.readline()
+                if not raw:
+                    break
+                yield raw.decode("latin-1")
+                yielded += 1
+                if yielded >= cap:
+                    return
+
+
+def summarize(path, progress=None, max_lines=None):
     """Aggregate every password in *path* into a bounded stats dict.
 
     Reads the file once. Raises OSError if it cannot be read and ValueError if
     it holds no usable passwords, matching how rulegen.generate reports an
     empty corpus.
+
+    *progress*, when given, is called with the number of lines read so far —
+    every :data:`PROGRESS_INTERVAL` lines and once more at the end with the
+    true total, so the last figure a caller paints matches the file. Lines
+    read, not passwords kept: the time goes into reading, and a corpus that is
+    mostly unusable lines would otherwise appear stalled.
+
+    *max_lines*, when given and positive, bounds the pass: a corpus estimated
+    to hold more than that many lines is sampled evenly across its whole byte
+    range rather than read end to end, and the returned dict carries
+    ``sampled=True`` with an ``estimated_total``. This is not a refinement —
+    the loop below runs at roughly 135k lines/s, so an uncapped pass over a
+    multi-billion-line corpus takes hours and grows ``unique`` without bound
+    until it exhausts memory. Sampling evenly rather than truncating keeps the
+    statistics representative: large wordlists are ordered, so a head slice
+    describes the ordering instead of the corpus.
     """
     if is_gzipped(path):
         raise ValueError(
@@ -158,46 +258,62 @@ def summarize(path):
     hash_shaped = 0
     unique = set()
 
-    with open(path, encoding="latin-1") as fh:
-        for raw in fh:
-            pw = usable_plaintext(raw)
-            if not pw:
-                continue
-            total += 1
-            if looks_like_hash_line(raw.strip()):
-                hash_shaped += 1
-            unique.add(pw)
-            lengths[len(pw)] += 1
-            if _mask_eligible(pw):
-                mask_total += 1
-                masks[_mask(pw)] += 1
-            else:
-                mask_excluded_non_ascii += 1
-            shapes[_case_shape(pw)] += 1
+    lines_read = 0
 
-            base, _rule = rulegen.derive(pw)
-            # rulegen.derive falls back to the password itself when it holds no
-            # letters, so a PIN-heavy corpus would otherwise fill the baseword
-            # list with digit strings and crowd out the word families it exists
-            # to surface. The digit-only share is not lost: it shows up as the
-            # "no letters" casing entry and in the masks.
-            if base and any(c.isalpha() for c in base):
-                basewords[base] += 1
+    cap = max_lines if max_lines and max_lines > 0 else None
+    size = os.path.getsize(path)
+    estimated_total = _estimate_line_count(path, size) if cap else None
+    sampled = cap is not None and estimated_total > cap
+    lines = _iter_sampled_lines(path, size, cap) if sampled else _iter_lines(path)
 
-            digits = _trailing_run(pw, _is_ascii_digit)
-            if digits:
-                digit_suffixes[digits] += 1
-            trailing_specials = _trailing_run(
-                pw, lambda c: not c.isalnum() and not c.isspace()
-            )
-            if trailing_specials:
-                special_suffixes[trailing_specials] += 1
+    for raw in lines:
+        lines_read += 1
+        if progress is not None and lines_read % PROGRESS_INTERVAL == 0:
+            progress(lines_read)
+        pw = usable_plaintext(raw)
+        if not pw:
+            continue
+        total += 1
+        if looks_like_hash_line(raw.strip()):
+            hash_shaped += 1
+        unique.add(pw)
+        lengths[len(pw)] += 1
+        if _mask_eligible(pw):
+            mask_total += 1
+            masks[_mask(pw)] += 1
+        else:
+            mask_excluded_non_ascii += 1
+        shapes[_case_shape(pw)] += 1
 
-            for c in pw:
-                if not c.isalnum():
-                    specials[c] += 1
-            for year in _years(pw):
-                years[year] += 1
+        base, _rule = rulegen.derive(pw)
+        # rulegen.derive falls back to the password itself when it holds no
+        # letters, so a PIN-heavy corpus would otherwise fill the baseword
+        # list with digit strings and crowd out the word families it exists
+        # to surface. The digit-only share is not lost: it shows up as the
+        # "no letters" casing entry and in the masks.
+        if base and any(c.isalpha() for c in base):
+            basewords[base] += 1
+
+        digits = _trailing_run(pw, _is_ascii_digit)
+        if digits:
+            digit_suffixes[digits] += 1
+        trailing_specials = _trailing_run(
+            pw, lambda c: not c.isalnum() and not c.isspace()
+        )
+        if trailing_specials:
+            special_suffixes[trailing_specials] += 1
+
+        for c in pw:
+            if not c.isalnum():
+                specials[c] += 1
+        for year in _years(pw):
+            years[year] += 1
+
+    # Final count before the empty-corpus check: a file that turned out to hold
+    # no passwords was still read, and the caller's last painted figure should
+    # say how much.
+    if progress is not None and lines_read % PROGRESS_INTERVAL != 0:
+        progress(lines_read)
 
     if total == 0:
         raise ValueError(f"no passwords read from {path}")
@@ -212,6 +328,11 @@ def summarize(path):
     return {
         "path": path,
         "total": total,
+        "sampled": sampled,
+        "lines_scanned": lines_read,
+        # None when uncapped: no estimate was taken, and reporting the scanned
+        # count as an "estimate" would misrepresent an exact figure.
+        "estimated_total": estimated_total if sampled else None,
         "hash_shaped": hash_shaped,
         "unique": len(unique),
         "basewords": ranked_basewords,
@@ -269,11 +390,27 @@ def format_summary(stats):
     inviting it to echo numbers back as password candidates.
     """
     total = stats["total"]
-    out = [
-        f"Corpus: {stats['total']} passwords "
-        f"({stats['unique']} distinct, {stats['baseword_total']} distinct basewords). "
-        "These figures cover the ENTIRE corpus, not a sample.\n"
-    ]
+    if stats.get("sampled"):
+        # The uncapped header's "ENTIRE corpus" claim would be false here, and
+        # the model has no way to detect that from the numbers. Coverage is
+        # stated so it can weigh a 0.1% sample differently from a 90% one; the
+        # shares themselves stay trustworthy because the sample is drawn evenly
+        # across the file rather than off the front.
+        estimated = stats.get("estimated_total") or total
+        coverage = 100.0 * total / estimated if estimated else 100.0
+        out = [
+            f"Corpus: {total} passwords ({stats['unique']} distinct, "
+            f"{stats['baseword_total']} distinct basewords), sampled evenly "
+            f"from across a corpus of roughly {estimated:,} lines "
+            f"({coverage:.2f}% coverage). The shares below are representative "
+            "of the whole file, not exhaustive counts.\n"
+        ]
+    else:
+        out = [
+            f"Corpus: {stats['total']} passwords "
+            f"({stats['unique']} distinct, {stats['baseword_total']} distinct "
+            "basewords). These figures cover the ENTIRE corpus, not a sample.\n"
+        ]
 
     lengths = stats["lengths"]
     if lengths:

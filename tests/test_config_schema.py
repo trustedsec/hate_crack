@@ -92,10 +92,10 @@ def test_env_homed_key_set_is_pinned():
     assert {entry.env for entry in ENV_KEYS} == EXPECTED_ENV_HOMED
 
 
-def test_key_counts_are_fourteen_and_thirty_six():
+def test_key_counts_are_fourteen_and_thirty_seven():
     assert len(ENV_KEYS) == 14
-    assert len(JSON_KEYS) == 36
-    assert len(CONFIG_SCHEMA) == 50
+    assert len(JSON_KEYS) == 37
+    assert len(CONFIG_SCHEMA) == 51
 
 
 def test_every_key_has_exactly_one_home():
@@ -149,7 +149,7 @@ def test_type_counts_match_config_json_example_value_types():
 
     # bool, int, float map straight across.
     assert schema_type_counts.get("bool", 0) == json_type_counts.get("bool", 0) == 7
-    assert schema_type_counts.get("int", 0) == json_type_counts.get("int", 0) == 6
+    assert schema_type_counts.get("int", 0) == json_type_counts.get("int", 0) == 7
     assert schema_type_counts.get("float", 0) == json_type_counts.get("float", 0) == 1
     # list splits into csv_list/charset; the two must sum to the JSON list count.
     list_derived = schema_type_counts.get("csv_list", 0) + schema_type_counts.get(

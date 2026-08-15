@@ -38,6 +38,7 @@ EXPECTED_KEYS = {
     "hcatPrinceBaseList",
     "bandrelmaxruntime",
     "bandrel_common_basedwords",
+    "hcatCorpusProfileMaxLines",
     "omenMaxCandidates",
     "pcfgRuleset",
     "pcfgMaxCandidates",

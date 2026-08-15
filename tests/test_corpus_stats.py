@@ -611,3 +611,195 @@ def test_corpus_context_gzip_sample_branch_yields_real_plaintexts(tmp_path):
     # gzip stream decodes cleanly under latin-1, so this is the one check
     # that would have caught the original bug in the sample path.
     assert all(0x20 <= ord(c) <= 0x7E or c == "\n" for c in sample_text)
+
+
+# --------------------------------------------------------------------------
+# summarize() progress reporting
+# --------------------------------------------------------------------------
+
+
+def test_summarize_reports_progress_in_increasing_line_counts(tmp_path):
+    """summarize() must call *progress* with a rising count of lines read.
+
+    The pass is single-threaded and takes ~a minute on a multi-million-line
+    corpus, so the caller needs periodic counts to render live progress rather
+    than a bare elapsed-seconds counter.
+    """
+    interval = corpus_stats.PROGRESS_INTERVAL
+    total_lines = interval * 2 + 5
+    path = tmp_path / "corpus.txt"
+    path.write_text("".join(f"Password{i}\n" for i in range(total_lines)))
+
+    seen = []
+    corpus_stats.summarize(str(path), progress=seen.append)
+
+    assert seen, "progress callback was never called"
+    assert seen == sorted(seen), f"counts must not go backwards: {seen}"
+    # Reported at the interval, plus a final call carrying the true total so
+    # the last painted figure matches the file.
+    assert seen[0] == interval
+    assert seen[-1] == total_lines
+
+
+def test_summarize_progress_defaults_to_none(tmp_path):
+    """progress is optional — omitting it must not change behaviour."""
+    path = tmp_path / "corpus.txt"
+    path.write_text("Spring2026\nSummer2026\n")
+
+    assert corpus_stats.summarize(str(path))["total"] == 2
+
+
+def test_corpus_context_labels_the_pass_as_local(tmp_path, capsys, monkeypatch):
+    """The spinner message must not read as if the model is doing the work.
+
+    Reported from a live run: a 56-second "Analyzing pattern source..." wait
+    looked like the LLM had stalled, when in fact corpus_stats.summarize() —
+    which never contacts the model — was still reading the file.
+    """
+    path = tmp_path / "corpus.txt"
+    path.write_text("Spring2026\nSummer2026\n")
+
+    hc_main._corpus_context(str(path), source_label="pattern source")
+
+    # Non-TTY: spinner prints its message once.
+    out = capsys.readouterr().out
+    assert "pattern source" in out
+    assert "no LLM yet" in out
+    assert "Analyzing pattern source..." not in out
+
+
+# --------------------------------------------------------------------------
+# summarize() line cap — bounding the pass on a multi-billion-line corpus
+# --------------------------------------------------------------------------
+
+
+def _two_region_corpus(tmp_path, count):
+    """Write *count* lines whose baseword names which half they came from.
+
+    rulegen.derive strips the digits, so "Alpha0000123" reduces to the
+    baseword "Alpha". A head-slice sample therefore reports only "Alpha",
+    while an evenly-spread one reports both — which is the property the cap
+    has to preserve.
+    """
+    path = tmp_path / "corpus.txt"
+    with open(path, "w") as fh:
+        for i in range(count):
+            region = "Alpha" if i < count // 2 else "Omega"
+            fh.write(f"{region}{i:07d}\n")
+    return str(path)
+
+
+def test_summarize_caps_lines_and_marks_the_result_sampled(tmp_path):
+    """A corpus larger than *max_lines* must be sampled, not read whole.
+
+    Reported from a live run against a 29 GB corpus: the pass is pure Python
+    at ~135k lines/s, so reading every line meant hours of wall clock and an
+    unbounded `unique` set, with only an elapsed counter on screen.
+    """
+    path = _two_region_corpus(tmp_path, 10_000)
+
+    stats = corpus_stats.summarize(path, max_lines=1_000)
+
+    assert stats["sampled"] is True
+    assert stats["total"] <= 1_000
+    # The estimate is derived from file size and average line length; on a
+    # uniform fixture it should be very close to the true count.
+    assert 9_000 <= stats["estimated_total"] <= 11_000
+
+
+def test_summarize_cap_samples_across_the_whole_file(tmp_path):
+    """The capped sample must span the corpus, not take a head slice.
+
+    A head slice is the failure that matters: large wordlists are ordered, so
+    the first N lines describe the ordering, not the corpus.
+    """
+    path = _two_region_corpus(tmp_path, 10_000)
+
+    stats = corpus_stats.summarize(path, max_lines=1_000)
+
+    # rulegen.derive lowercases the baseword it returns.
+    basewords = {word for word, _hits in stats["basewords"]}
+    assert "alpha" in basewords, "early region missing from the sample"
+    assert "omega" in basewords, "late region missing — sample is a head slice"
+
+
+def test_summarize_under_the_cap_reads_everything(tmp_path):
+    """A corpus that fits under the cap must be read whole and not marked sampled."""
+    path = _two_region_corpus(tmp_path, 100)
+
+    stats = corpus_stats.summarize(path, max_lines=1_000)
+
+    assert stats["sampled"] is False
+    assert stats["total"] == 100
+
+
+def test_summarize_uncapped_by_default(tmp_path):
+    """Omitting max_lines keeps the original exhaustive behaviour."""
+    path = _two_region_corpus(tmp_path, 100)
+
+    stats = corpus_stats.summarize(path)
+
+    assert stats["sampled"] is False
+    assert stats["total"] == 100
+
+
+def test_summarize_reports_progress_while_sampling(tmp_path):
+    """The progress callback must fire on the capped path too, not just the full read."""
+    path = _two_region_corpus(tmp_path, 10_000)
+    interval = corpus_stats.PROGRESS_INTERVAL
+    monkeyed = []
+
+    # Shrink the reporting interval so the fixture need not be 100k lines.
+    original = corpus_stats.PROGRESS_INTERVAL
+    corpus_stats.PROGRESS_INTERVAL = 100
+    try:
+        corpus_stats.summarize(path, progress=monkeyed.append, max_lines=1_000)
+    finally:
+        corpus_stats.PROGRESS_INTERVAL = original
+        assert corpus_stats.PROGRESS_INTERVAL == interval
+
+    assert monkeyed, "progress callback never fired on the sampled path"
+    assert monkeyed == sorted(monkeyed)
+    assert monkeyed[-1] <= 1_000
+
+
+def test_format_summary_does_not_claim_full_coverage_when_sampled(tmp_path):
+    """A sampled summary must not tell the model the figures cover everything.
+
+    format_summary's uncapped header says the figures "cover the ENTIRE
+    corpus". Emitting that over a 0.03% sample would be a straightforwardly
+    false claim in the prompt.
+    """
+    path = _two_region_corpus(tmp_path, 10_000)
+    stats = corpus_stats.summarize(path, max_lines=1_000)
+
+    text = corpus_stats.format_summary(stats)
+
+    assert "ENTIRE" not in text
+    assert "sampled" in text.lower()
+
+
+def test_format_summary_still_claims_full_coverage_when_exhaustive(tmp_path):
+    """The uncapped header is unchanged — it is true, and the prompt relies on it."""
+    path = _two_region_corpus(tmp_path, 100)
+    stats = corpus_stats.summarize(path, max_lines=1_000)
+
+    assert "ENTIRE corpus" in corpus_stats.format_summary(stats)
+
+
+def test_corpus_context_passes_the_configured_cap(tmp_path, monkeypatch):
+    """_corpus_context must bound the pass with hcatCorpusProfileMaxLines."""
+    path = _two_region_corpus(tmp_path, 10_000)
+    monkeypatch.setattr(hc_main, "hcatCorpusProfileMaxLines", 1_000, raising=False)
+
+    seen = {}
+    real = corpus_stats.summarize
+
+    def spy(p, progress=None, max_lines=None):
+        seen["max_lines"] = max_lines
+        return real(p, progress=progress, max_lines=max_lines)
+
+    monkeypatch.setattr(hc_main._corpus_stats, "summarize", spy)
+    hc_main._corpus_context(path, source_label="pattern source")
+
+    assert seen["max_lines"] == 1_000

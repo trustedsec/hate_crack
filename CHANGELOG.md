@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [Unreleased]
+
+### Fixed
+- The corpus-profiling pass behind the LLM attacks is now bounded and reports live progress. Selecting a large pattern source printed `Analyzing pattern source...` with only an elapsed counter while `corpus_stats.summarize()` read *every* line at roughly 135k lines/s — on the 29 GB hashmob `official.found` corpus (~3.57B lines) that is over seven hours of pure-Python work, and the exact distinct-password set it builds would exhaust memory long before finishing. Past `hcatCorpusProfileMaxLines` (new `config.json` key, default 5,000,000) the pass now samples evenly across the file's whole byte range instead of reading it end to end, finishing that corpus in ~51s. Sampling is spread across ~2,000 anchor points rather than truncated to a head slice, because large wordlists are ordered and their first N lines describe the ordering rather than the corpus. A sampled summary no longer tells the model its figures "cover the ENTIRE corpus"; it states the estimated corpus size and the coverage percentage instead.
+- The spinner message for that pass now reads `Profiling <source> locally (no LLM yet)...` and carries a live line counter. The old wording read as though the model had stalled, when in fact `corpus_stats` never contacts Ollama at all. `progress.spinner()` now yields a `SpinnerHandle` whose `set_detail()` updates the text in place, so any long local operation can report progress without owning the repaint loop.
+
 ## [2.27.0] - 2026-08-14
 
 ### Added
