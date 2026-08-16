@@ -142,7 +142,7 @@ def _run_hashcat(
 
 def test_toggle_rule_parses_with_and_without_loopback(tmp_path: Path, capsys):
     """
-    Execute the two hashcat command-lines requested (with an empty wordlist),
+    Execute the two hashcat command-lines requested (with a one-word wordlist),
     primarily to ensure hashcat does not crash while parsing/using the rule file.
     """
     if shutil.which("hashcat") is None:
@@ -171,8 +171,12 @@ def test_toggle_rule_parses_with_and_without_loopback(tmp_path: Path, capsys):
     rule_path = tmp_path / "rules" / "toggles-lm-ntlm.rule"
     shutil.copy2(src_rule, rule_path)
 
-    # Equivalent to: `echo > empty.txt`
-    (tmp_path / "empty.txt").write_text("")
+    # One candidate, not an empty file. hashcat 7 rejects an empty dictionary
+    # outright ("No usable dictionary file found." on stderr, which this test
+    # treats as failure), and an empty one never exercised rule *application*
+    # anyway -- zero candidates means zero rules applied, so only the rule
+    # file's parse was covered. A single word covers both.
+    (tmp_path / "wordlist.txt").write_text("password\n")
 
     # Unique per invocation (test name + tmp_path basename, which pytest
     # already makes unique) so concurrent/back-to-back runs don't share
@@ -185,7 +189,7 @@ def test_toggle_rule_parses_with_and_without_loopback(tmp_path: Path, capsys):
         "-m",
         "1000",
         _TEST_HASH,
-        "empty.txt",
+        "wordlist.txt",
         "--loopback",
         "-r",
         "rules/toggles-lm-ntlm.rule",
@@ -198,7 +202,7 @@ def test_toggle_rule_parses_with_and_without_loopback(tmp_path: Path, capsys):
         "-m",
         "1000",
         _TEST_HASH,
-        "empty.txt",
+        "wordlist.txt",
         "-r",
         "rules/toggles-lm-ntlm.rule",
         "--session",
