@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
-## [Unreleased]
+## [2.28.0] - 2026-08-16
 
 ### Added
 - **The Ad-hoc Mask Attack accepts hashcat 7's `?5`–`?8` custom charsets.** hashcat 7 raised the number of user-defined charsets from four to eight (`-5` through `-8`); the attack recognised only `?1`–`?4`, so a mask using the new slots ran with those charsets undefined and hashcat rejected it. The mask-token prompt now advertises `?1-?8` when the installed hashcat is 7 or newer, and a mask using `?5`–`?8` against a known-older hashcat says so before the run instead of failing inside it. An unreadable version is treated as "let hashcat decide" rather than as a refusal.
