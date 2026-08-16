@@ -672,8 +672,10 @@ class TestAdhocMaskCharsetSkipping:
         ctx.hcatHashType = "1000"
         ctx.hcatHashFile = "/tmp/hashes.txt"
         # Prompt order: "1" picks the type-a-mask path (option 2 is a mask
-        # file), then the mask, then charsets -1, -2 (blank), -3, -4 (blank).
-        answers = iter(["1", "?1?3?d", "?u?l", "", "?d?s", "", ""])
+        # file), then the mask, then a charset prompt per slot the mask
+        # references -- here -1, -2 (blank) and -3 -- then the increment
+        # question, declined.
+        answers = iter(["1", "?1?2?3?d", "?u?l", "", "?d?s", "n"])
         with (
             patch("builtins.input", lambda _prompt="": next(answers)),
             patch.object(hc_attacks._notify, "prompt_notify_for_attack"),

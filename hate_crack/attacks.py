@@ -1082,6 +1082,28 @@ def _markov_pick_training_source(ctx: Any):
         print("\t[!] Invalid selection.")
 
 
+def _custom_charset_slots(mask: str) -> list[int]:
+    """Return the `?1`-`?4` slots a mask references, ascending and deduplicated.
+
+    Scans token by token rather than substring-matching, because `??` is
+    hashcat's escape for a literal `?`: in `??1` the `1` is a literal
+    character, not a reference to charset 1.
+    """
+    slots: set[int] = set()
+    i = 0
+    while i < len(mask) - 1:
+        if mask[i] == "?":
+            code = mask[i + 1]
+            if code in ("1", "2", "3", "4"):
+                slots.add(int(code))
+            # Skip the token character too, so an escaped `??` cannot let the
+            # second `?` open a token with whatever follows it.
+            i += 2
+            continue
+        i += 1
+    return sorted(slots)
+
+
 def _prompt_increment() -> tuple[bool, str, str]:
     """Ask whether to run the mask incrementally, and for optional bounds.
 
@@ -1152,12 +1174,18 @@ def adhoc_mask_crack(ctx: Any) -> None:
         return
 
     charset_flags = []
-    for i in range(1, 5):
+    for i in _custom_charset_slots(mask):
         cs = input(f"Custom charset -{i} [leave blank to skip]: ").strip()
         if cs:
             charset_flags.extend([f"-{i}", cs])
-        # A blank answer skips this slot only: a mask may use ?1 and ?3
-        # without defining ?2 (issue #205).
+        else:
+            # A blank answer skips this slot only: a mask may use ?1 and ?3
+            # without defining ?2 (issue #205). Since the slot was only asked
+            # about because the mask uses it, say what skipping costs.
+            print(
+                f"\t[!] ?{i} is used in the mask but left undefined - "
+                "hashcat will reject the mask."
+            )
 
     increment, inc_min, inc_max = _prompt_increment()
 

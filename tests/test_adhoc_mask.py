@@ -22,7 +22,7 @@ class TestAdHocMaskHandler:
         from hate_crack.attacks import adhoc_mask_crack
 
         ctx = _make_ctx()
-        with patch("builtins.input", side_effect=["1", "?l?l?l?l", "", "", "", "", ""]):
+        with patch("builtins.input", side_effect=["1", "?l?l?l?l", ""]):
             adhoc_mask_crack(ctx)
 
         ctx.hcatAdHocMask.assert_called_once_with(
@@ -40,7 +40,7 @@ class TestAdHocMaskHandler:
         from hate_crack.attacks import adhoc_mask_crack
 
         ctx = _make_ctx()
-        with patch("builtins.input", side_effect=["", "?d?d?d", "", "", "", "", ""]):
+        with patch("builtins.input", side_effect=["", "?d?d?d", ""]):
             adhoc_mask_crack(ctx)
 
         ctx.hcatAdHocMask.assert_called_once_with(
@@ -117,9 +117,7 @@ class TestAdHocMaskHandler:
         from hate_crack.attacks import adhoc_mask_crack
 
         ctx = _make_ctx()
-        with patch(
-            "builtins.input", side_effect=["1", "?1?1?1?1", "abc", "", "", "", ""]
-        ):
+        with patch("builtins.input", side_effect=["1", "?1?1?1?1", "abc", ""]):
             adhoc_mask_crack(ctx)
 
         ctx.hcatAdHocMask.assert_called_once()
@@ -127,6 +125,63 @@ class TestAdHocMaskHandler:
         assert call_args[0][2] == "?1?1?1?1"
         assert "-1" in call_args[0][3]
         assert "abc" in call_args[0][3]
+
+
+class TestAdHocMaskCharsetPromptsAreConditional:
+    """Only the custom slots a mask actually references are asked about."""
+
+    @staticmethod
+    def _run(mask: str, answers: list[str]) -> list[str]:
+        """Return the prompts shown after the mask was entered."""
+        from hate_crack.attacks import adhoc_mask_crack
+
+        ctx = _make_ctx()
+        prompts: list[str] = []
+        supplied = iter(["1", mask] + answers)
+
+        def _input(prompt: str = "") -> str:
+            prompts.append(prompt)
+            return next(supplied)
+
+        with patch("builtins.input", _input):
+            adhoc_mask_crack(ctx)
+        ctx.hcatAdHocMask.assert_called_once()
+        return prompts
+
+    def test_mask_without_custom_tokens_asks_nothing(self) -> None:
+        prompts = self._run("?u?l?l?d?d", ["n"])
+        assert not [p for p in prompts if "Custom charset" in p]
+
+    def test_only_referenced_slots_are_asked(self) -> None:
+        prompts = self._run("?1?3?d", ["?u?l", "?d?s", "n"])
+        asked = [p for p in prompts if "Custom charset" in p]
+        assert len(asked) == 2
+        assert "-1" in asked[0]
+        assert "-3" in asked[1]
+
+    def test_referenced_slots_reach_hashcat_in_order(self) -> None:
+        from hate_crack.attacks import adhoc_mask_crack
+
+        ctx = _make_ctx()
+        with patch("builtins.input", side_effect=["1", "?4?2?d", "?d?s", "?u?l", "n"]):
+            adhoc_mask_crack(ctx)
+
+        # Prompted low slot first regardless of the order used in the mask.
+        assert ctx.hcatAdHocMask.call_args[0][3] == "-2 ?d?s -4 ?u?l"
+
+    def test_escaped_question_mark_is_not_a_custom_slot(self) -> None:
+        """`??` is a literal `?` in hashcat, so `??1` does not reference ?1."""
+        prompts = self._run("??1?d?d", ["n"])
+        assert not [p for p in prompts if "Custom charset" in p]
+
+    def test_literal_digit_after_a_real_token_is_not_a_slot(self) -> None:
+        prompts = self._run("?d1?l", ["n"])
+        assert not [p for p in prompts if "Custom charset" in p]
+
+    def test_referenced_slot_left_blank_warns(self, capsys) -> None:
+        prompts = self._run("?1?l?l", ["", "n"])
+        assert len([p for p in prompts if "Custom charset" in p]) == 1
+        assert "hashcat will reject the mask" in capsys.readouterr().out
 
 
 class TestAdHocMaskIncrementPrompt:
@@ -137,9 +192,9 @@ class TestAdHocMaskIncrementPrompt:
         from hate_crack.attacks import adhoc_mask_crack
 
         ctx = _make_ctx()
-        with patch(
-            "builtins.input", side_effect=["1", "?l?l?l?l", "", "", "", ""] + answers
-        ):
+        # ?l?l?l?l references no custom slot, so no charset prompt intervenes
+        # between the mask and the increment question.
+        with patch("builtins.input", side_effect=["1", "?l?l?l?l"] + answers):
             adhoc_mask_crack(ctx)
         return ctx
 
