@@ -794,3 +794,56 @@ class TestAppendPotfileArg:
             main_module._append_potfile_arg(cmd, potfile_path="/override/custom.pot")
         assert "--potfile-path=/override/custom.pot" in cmd
         assert "--potfile-path=/global/hashcat.pot" not in cmd
+
+
+class TestHcatAdHocMask:
+    def _run(self, main_module, tmp_path, **kwargs):
+        hash_file = str(tmp_path / "hashes.txt")
+        mock_proc = _make_mock_proc()
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(
+                main_module, "generate_session_id", return_value="test_session"
+            ),
+            patch(
+                "hate_crack.main.subprocess.Popen", return_value=mock_proc
+            ) as mock_popen,
+            patch.object(main_module, "lineCount", return_value=0),
+        ):
+            main_module.hcatAdHocMask("1000", hash_file, "?l?l?l?l", "", **kwargs)
+        return mock_popen.call_args[0][0]
+
+    def test_no_increment_flags_by_default(self, main_module, tmp_path):
+        cmd = self._run(main_module, tmp_path)
+        assert not any(arg.startswith("--increment") for arg in cmd)
+
+    def test_increment_without_bounds_is_the_bare_flag(self, main_module, tmp_path):
+        """Blank bounds mean the full keyspace: hashcat derives min and max."""
+        cmd = self._run(main_module, tmp_path, increment=True)
+        assert "--increment" in cmd
+        assert not any(arg.startswith("--increment-") for arg in cmd)
+
+    def test_increment_with_both_bounds(self, main_module, tmp_path):
+        cmd = self._run(
+            main_module, tmp_path, increment=True, increment_min="4", increment_max="8"
+        )
+        assert "--increment" in cmd
+        assert "--increment-min=4" in cmd
+        assert "--increment-max=8" in cmd
+
+    def test_increment_with_only_max(self, main_module, tmp_path):
+        cmd = self._run(main_module, tmp_path, increment=True, increment_max="8")
+        assert "--increment" in cmd
+        assert "--increment-max=8" in cmd
+        assert not any(arg.startswith("--increment-min") for arg in cmd)
+
+    def test_bounds_without_increment_are_ignored(self, main_module, tmp_path):
+        """A caller that says increment=False gets no bounds, whatever it passed."""
+        cmd = self._run(main_module, tmp_path, increment_min="4", increment_max="8")
+        assert not any(arg.startswith("--increment") for arg in cmd)
+
+    def test_increment_flags_precede_the_mask(self, main_module, tmp_path):
+        cmd = self._run(main_module, tmp_path, increment=True, increment_min="4")
+        assert cmd.index("--increment") < cmd.index("?l?l?l?l")

@@ -10,6 +10,7 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 ## [Unreleased]
 
 ### Added
+- **The Ad-hoc Mask Attack (option 14) can now run the mask incrementally.** After the mask (and after the `-1`–`-4` charset prompts, when a mask was typed rather than chosen from a file) it asks whether to increment; answering yes prompts for an increment minimum and maximum. Either bound may be left blank, and leaving both blank passes a bare `--increment` so hashcat derives the range from the mask itself — the full keyspace. Previously the only way to try lengths below the mask's own was to run the attack once per length.
 - **`--migrate-hashcat-home`** copies the contents of a legacy `~/.hashcat` into the directory hashcat 7 actually uses, and startup now names what is stranded there. It never overwrites and never deletes: a colliding name is copied as `<name>.from-legacy` (merging two potfiles is the operator's call, not a startup helper's), and removing the old directory is left to you.
 
 ### Fixed

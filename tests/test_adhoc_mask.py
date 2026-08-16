@@ -22,11 +22,17 @@ class TestAdHocMaskHandler:
         from hate_crack.attacks import adhoc_mask_crack
 
         ctx = _make_ctx()
-        with patch("builtins.input", side_effect=["1", "?l?l?l?l", "", "", "", ""]):
+        with patch("builtins.input", side_effect=["1", "?l?l?l?l", "", "", "", "", ""]):
             adhoc_mask_crack(ctx)
 
         ctx.hcatAdHocMask.assert_called_once_with(
-            "1000", "/tmp/hashes.txt", "?l?l?l?l", ""
+            "1000",
+            "/tmp/hashes.txt",
+            "?l?l?l?l",
+            "",
+            increment=False,
+            increment_min="",
+            increment_max="",
         )
 
     def test_default_choice_is_typed_mask(self) -> None:
@@ -34,11 +40,17 @@ class TestAdHocMaskHandler:
         from hate_crack.attacks import adhoc_mask_crack
 
         ctx = _make_ctx()
-        with patch("builtins.input", side_effect=["", "?d?d?d", "", "", "", ""]):
+        with patch("builtins.input", side_effect=["", "?d?d?d", "", "", "", "", ""]):
             adhoc_mask_crack(ctx)
 
         ctx.hcatAdHocMask.assert_called_once_with(
-            "1000", "/tmp/hashes.txt", "?d?d?d", ""
+            "1000",
+            "/tmp/hashes.txt",
+            "?d?d?d",
+            "",
+            increment=False,
+            increment_min="",
+            increment_max="",
         )
 
     def test_empty_mask_aborts(self) -> None:
@@ -61,11 +73,17 @@ class TestAdHocMaskHandler:
         mask_file.write_text("?u?l?l?l?d?d\n")
         ctx.select_file_with_autocomplete.return_value = str(mask_file)
 
-        with patch("builtins.input", side_effect=["2"]):
+        with patch("builtins.input", side_effect=["2", ""]):
             adhoc_mask_crack(ctx)
 
         ctx.hcatAdHocMask.assert_called_once_with(
-            "1000", "/tmp/hashes.txt", str(mask_file), ""
+            "1000",
+            "/tmp/hashes.txt",
+            str(mask_file),
+            "",
+            increment=False,
+            increment_min="",
+            increment_max="",
         )
 
     def test_missing_mask_file_aborts(self, tmp_path: Path) -> None:
@@ -99,7 +117,9 @@ class TestAdHocMaskHandler:
         from hate_crack.attacks import adhoc_mask_crack
 
         ctx = _make_ctx()
-        with patch("builtins.input", side_effect=["1", "?1?1?1?1", "abc", "", "", ""]):
+        with patch(
+            "builtins.input", side_effect=["1", "?1?1?1?1", "abc", "", "", "", ""]
+        ):
             adhoc_mask_crack(ctx)
 
         ctx.hcatAdHocMask.assert_called_once()
@@ -107,6 +127,85 @@ class TestAdHocMaskHandler:
         assert call_args[0][2] == "?1?1?1?1"
         assert "-1" in call_args[0][3]
         assert "abc" in call_args[0][3]
+
+
+class TestAdHocMaskIncrementPrompt:
+    """Option 14 offers --increment, with optional min and max bounds."""
+
+    @staticmethod
+    def _typed_mask(answers: list[str]) -> MagicMock:
+        from hate_crack.attacks import adhoc_mask_crack
+
+        ctx = _make_ctx()
+        with patch(
+            "builtins.input", side_effect=["1", "?l?l?l?l", "", "", "", ""] + answers
+        ):
+            adhoc_mask_crack(ctx)
+        return ctx
+
+    def test_declining_increment_passes_no_bounds(self) -> None:
+        ctx = self._typed_mask(["n"])
+
+        kwargs = ctx.hcatAdHocMask.call_args[1]
+        assert kwargs["increment"] is False
+        assert kwargs["increment_min"] == ""
+        assert kwargs["increment_max"] == ""
+
+    def test_increment_with_both_bounds(self) -> None:
+        ctx = self._typed_mask(["y", "4", "8"])
+
+        kwargs = ctx.hcatAdHocMask.call_args[1]
+        assert kwargs["increment"] is True
+        assert kwargs["increment_min"] == "4"
+        assert kwargs["increment_max"] == "8"
+
+    def test_increment_with_both_bounds_blank_is_full_keyspace(self) -> None:
+        """Blank min and max mean plain --increment: hashcat picks the bounds."""
+        ctx = self._typed_mask(["y", "", ""])
+
+        kwargs = ctx.hcatAdHocMask.call_args[1]
+        assert kwargs["increment"] is True
+        assert kwargs["increment_min"] == ""
+        assert kwargs["increment_max"] == ""
+
+    def test_increment_with_only_min(self) -> None:
+        ctx = self._typed_mask(["y", "5", ""])
+
+        kwargs = ctx.hcatAdHocMask.call_args[1]
+        assert kwargs["increment"] is True
+        assert kwargs["increment_min"] == "5"
+        assert kwargs["increment_max"] == ""
+
+    def test_non_numeric_bound_is_reprompted(self) -> None:
+        ctx = self._typed_mask(["y", "abc", "5", "9"])
+
+        kwargs = ctx.hcatAdHocMask.call_args[1]
+        assert kwargs["increment_min"] == "5"
+        assert kwargs["increment_max"] == "9"
+
+    def test_max_below_min_is_reprompted(self) -> None:
+        ctx = self._typed_mask(["y", "6", "3", "8"])
+
+        kwargs = ctx.hcatAdHocMask.call_args[1]
+        assert kwargs["increment_min"] == "6"
+        assert kwargs["increment_max"] == "8"
+
+    def test_mask_file_path_also_offers_increment(self, tmp_path: Path) -> None:
+        from hate_crack.attacks import adhoc_mask_crack
+
+        ctx = _make_ctx()
+        ctx.hate_path = str(tmp_path)
+        mask_file = tmp_path / "custom.hcmask"
+        mask_file.write_text("?u?l?l?l?d?d\n")
+        ctx.select_file_with_autocomplete.return_value = str(mask_file)
+
+        with patch("builtins.input", side_effect=["2", "y", "6", "10"]):
+            adhoc_mask_crack(ctx)
+
+        kwargs = ctx.hcatAdHocMask.call_args[1]
+        assert kwargs["increment"] is True
+        assert kwargs["increment_min"] == "6"
+        assert kwargs["increment_max"] == "10"
 
 
 class TestMarkovBruteForceHandler:

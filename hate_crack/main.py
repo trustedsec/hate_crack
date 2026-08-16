@@ -3879,7 +3879,15 @@ def hcatCorporateMasks(
         pass
 
 
-def hcatAdHocMask(hcatHashType, hcatHashFile, mask, custom_charsets=""):
+def hcatAdHocMask(
+    hcatHashType,
+    hcatHashFile,
+    mask,
+    custom_charsets="",
+    increment=False,
+    increment_min="",
+    increment_max="",
+):
     global hcatProcess
     cmd = [
         hcatBin,
@@ -3895,6 +3903,14 @@ def hcatAdHocMask(hcatHashType, hcatHashFile, mask, custom_charsets=""):
     ]
     if custom_charsets:
         cmd.extend(shlex.split(custom_charsets))
+    if increment:
+        # Either bound may be omitted: hashcat then derives it from the mask,
+        # which is what "increment over the full keyspace" means.
+        cmd.append("--increment")
+        if increment_min:
+            cmd.append(f"--increment-min={increment_min}")
+        if increment_max:
+            cmd.append(f"--increment-max={increment_max}")
     cmd.append(mask)
     if _should_use_optimized_kernel("hcatAdHocMask"):
         _insert_optimized_flag(cmd)

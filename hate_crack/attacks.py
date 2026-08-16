@@ -1082,6 +1082,37 @@ def _markov_pick_training_source(ctx: Any):
         print("\t[!] Invalid selection.")
 
 
+def _prompt_increment() -> tuple[bool, str, str]:
+    """Ask whether to run the mask incrementally, and for optional bounds.
+
+    Returns ``(increment, min, max)`` with the bounds as strings so that a
+    blank answer stays blank all the way down to the command builder — an
+    omitted bound is hashcat's own default, not a number to invent here.
+    """
+    if input("\nIncrement mask length? (y/N): ").strip().lower() not in ("y", "yes"):
+        return False, "", ""
+
+    print("\tLeave both blank to increment over the full keyspace of the mask.")
+    low = _prompt_length("\tIncrement min [blank for full keyspace]: ")
+    while True:
+        high = _prompt_length("\tIncrement max [blank for full keyspace]: ")
+        if low and high and int(high) < int(low):
+            print(f"\t[!] Increment max must be at least {low}.")
+            continue
+        return True, low, high
+
+
+def _prompt_length(prompt: str) -> str:
+    """Read an optional positive integer, re-asking until the answer is one."""
+    while True:
+        answer = input(prompt).strip()
+        if not answer:
+            return ""
+        if answer.isdigit() and int(answer) > 0:
+            return answer
+        print("\t[!] Enter a positive whole number, or leave blank.")
+
+
 def adhoc_mask_crack(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("Ad-hoc Mask")
     print("\n\tAd-hoc Mask Attack")
@@ -1101,7 +1132,16 @@ def adhoc_mask_crack(ctx: Any) -> None:
         if not os.path.isfile(mask):
             print(f"\t[!] Mask file not found: {mask}")
             return
-        ctx.hcatAdHocMask(ctx.hcatHashType, ctx.hcatHashFile, mask, "")
+        increment, inc_min, inc_max = _prompt_increment()
+        ctx.hcatAdHocMask(
+            ctx.hcatHashType,
+            ctx.hcatHashFile,
+            mask,
+            "",
+            increment=increment,
+            increment_min=inc_min,
+            increment_max=inc_max,
+        )
         return
 
     print(
@@ -1119,11 +1159,16 @@ def adhoc_mask_crack(ctx: Any) -> None:
         # A blank answer skips this slot only: a mask may use ?1 and ?3
         # without defining ?2 (issue #205).
 
+    increment, inc_min, inc_max = _prompt_increment()
+
     ctx.hcatAdHocMask(
         ctx.hcatHashType,
         ctx.hcatHashFile,
         mask,
         " ".join(charset_flags),
+        increment=increment,
+        increment_min=inc_min,
+        increment_max=inc_max,
     )
 
 

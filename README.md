@@ -1104,6 +1104,7 @@ Runs hashcat mask attack (mode 3) with a user-specified custom mask string. Allo
 * Supports custom character sets (`-1`, `-2`, `-3`, `-4`) for specialized character combinations
 * Interactive charset entry with early exit on blank input
 * Mask files (`.hcmask`) can be selected with tab completion, defaulting to the bundled `masks/` directory; hashcat runs every mask in the file in order. Because a mask file defines its own charsets inline, the `-1` through `-4` prompts are skipped when one is chosen
+* Optionally runs the mask incrementally (`--increment`), trying shorter lengths before the full mask. Answering yes prompts for an increment minimum and maximum; either can be left blank, and leaving both blank increments over the mask's full keyspace with hashcat choosing the bounds. Offered for typed masks and mask files alike
 * Useful for targeted brute forcing when you know password structure patterns
 
 #### Markov Brute Force Attack
