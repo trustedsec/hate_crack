@@ -1101,8 +1101,8 @@ Runs hashcat mask attack (mode 3) with a user-specified custom mask string. Allo
 
 * Opens with a choice between typing a mask and selecting a mask file
 * Prompts for a hashcat mask (e.g., `?u?l?l?l?d?d` for uppercase + lowercase + lowercase + lowercase + digit + digit)
-* Supports custom character sets (`-1`, `-2`, `-3`, `-4`) for specialized character combinations
-* Only prompts for the custom slots the mask actually references — `?1?3?d` asks about `-1` and `-3` and nothing else, and a mask with no custom tokens is never asked at all. A slot left blank is still skipped, with a warning that hashcat will reject a mask whose charset is undefined
+* Supports custom character sets for specialized character combinations: `-1` through `-4` on any hashcat, plus `-5` through `-8` on hashcat 7 and newer. A mask using `?5`–`?8` against an older hashcat is flagged before the run rather than failing inside it; if the version cannot be read, the mask is passed through and hashcat decides
+* Only prompts for the custom slots the mask actually references — `?1?3?d` asks about `-1` and `-3` and nothing else, and a mask with no custom tokens is never asked at all. Detection is token-aware, so the escaped `??1` is a literal `?1` and prompts for nothing. A slot left blank is still skipped, with a warning that hashcat will reject a mask whose charset is undefined
 * Mask files (`.hcmask`) can be selected with tab completion, defaulting to the bundled `masks/` directory; hashcat runs every mask in the file in order. Because a mask file defines its own charsets inline, the `-1` through `-4` prompts are skipped when one is chosen
 * Optionally runs the mask incrementally (`--increment`), trying shorter lengths before the full mask. Answering yes prompts for an increment minimum and maximum; either can be left blank, and leaving both blank increments over the mask's full keyspace with hashcat choosing the bounds. Offered for typed masks and mask files alike
 * Useful for targeted brute forcing when you know password structure patterns

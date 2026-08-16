@@ -11,6 +11,7 @@ from hate_crack.api import (
     weakpass_wordlist_menu,
 )
 from hate_crack.formatting import print_multicolumn_list
+from hate_crack.hashcat_paths import hashcat_major_version
 from hate_crack.llm import clean_research_field
 from hate_crack.menu import interactive_menu
 
@@ -1082,8 +1083,14 @@ def _markov_pick_training_source(ctx: Any):
         print("\t[!] Invalid selection.")
 
 
+# hashcat <= 6 has -1 through -4; hashcat 7 added -5 through -8.
+_CLASSIC_CHARSET_SLOTS = ("1", "2", "3", "4")
+_EXTENDED_CHARSET_SLOTS = ("5", "6", "7", "8")
+_EXTENDED_CHARSET_MAJOR = 7
+
+
 def _custom_charset_slots(mask: str) -> list[int]:
-    """Return the `?1`-`?4` slots a mask references, ascending and deduplicated.
+    """Return the `?1`-`?8` slots a mask references, ascending and deduplicated.
 
     Scans token by token rather than substring-matching, because `??` is
     hashcat's escape for a literal `?`: in `??1` the `1` is a literal
@@ -1094,7 +1101,7 @@ def _custom_charset_slots(mask: str) -> list[int]:
     while i < len(mask) - 1:
         if mask[i] == "?":
             code = mask[i + 1]
-            if code in ("1", "2", "3", "4"):
+            if code in _CLASSIC_CHARSET_SLOTS + _EXTENDED_CHARSET_SLOTS:
                 slots.add(int(code))
             # Skip the token character too, so an escaped `??` cannot let the
             # second `?` open a token with whatever follows it.
@@ -1102,6 +1109,38 @@ def _custom_charset_slots(mask: str) -> list[int]:
             continue
         i += 1
     return sorted(slots)
+
+
+def _hashcat_major(ctx: Any) -> int | None:
+    """Best-effort major version of the hashcat this run will invoke."""
+    hcat_bin = getattr(ctx, "hcatBin", None)
+    if not isinstance(hcat_bin, str) or not hcat_bin:
+        return None
+    return hashcat_major_version(hcat_bin)
+
+
+def _extended_charsets_available(ctx: Any) -> bool:
+    """Whether ?5-?8 can be used. Unknown versions are assumed too old."""
+    major = _hashcat_major(ctx)
+    return major is not None and major >= _EXTENDED_CHARSET_MAJOR
+
+
+def _warn_if_extended_unsupported(ctx: Any, slots: list[int]) -> None:
+    """Say so when a mask uses ?5-?8 on a hashcat known to predate them.
+
+    Only a *known* older version warns: if the version could not be read, the
+    mask goes through and hashcat reports the problem itself, which beats
+    refusing a mask that would have worked.
+    """
+    if not any(slot > len(_CLASSIC_CHARSET_SLOTS) for slot in slots):
+        return
+    major = _hashcat_major(ctx)
+    if major is None or major >= _EXTENDED_CHARSET_MAJOR:
+        return
+    print(
+        f"\t[!] ?5-?8 need hashcat 7 or newer; this is hashcat {major}. "
+        "The mask will be rejected."
+    )
 
 
 def _prompt_increment() -> tuple[bool, str, str]:
@@ -1166,15 +1205,20 @@ def adhoc_mask_crack(ctx: Any) -> None:
         )
         return
 
+    custom_range = "?1-?8" if _extended_charsets_available(ctx) else "?1-?4"
     print(
-        "\nEnter a hashcat mask. Tokens: ?l=lower ?u=upper ?d=digit ?s=special ?a=all ?b=binary ?1-?4=custom"
+        "\nEnter a hashcat mask. Tokens: ?l=lower ?u=upper ?d=digit ?s=special "
+        f"?a=all ?b=binary {custom_range}=custom"
     )
     mask = input("Mask (e.g. ?u?l?l?l?d?d): ").strip()
     if not mask:
         return
 
+    slots = _custom_charset_slots(mask)
+    _warn_if_extended_unsupported(ctx, slots)
+
     charset_flags = []
-    for i in _custom_charset_slots(mask):
+    for i in slots:
         cs = input(f"Custom charset -{i} [leave blank to skip]: ").strip()
         if cs:
             charset_flags.extend([f"-{i}", cs])

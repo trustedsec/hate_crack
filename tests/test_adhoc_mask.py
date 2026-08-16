@@ -131,11 +131,18 @@ class TestAdHocMaskCharsetPromptsAreConditional:
     """Only the custom slots a mask actually references are asked about."""
 
     @staticmethod
-    def _run(mask: str, answers: list[str]) -> list[str]:
-        """Return the prompts shown after the mask was entered."""
+    def _run(mask: str, answers: list[str], hcat_bin: str | None = None) -> list[str]:
+        """Return the prompts shown after the mask was entered.
+
+        ``hcatBin`` is left as a MagicMock unless a test needs the version
+        lookup: a non-string binary reads as "version unknown", which keeps
+        the rest of these tests from shelling out to a real hashcat.
+        """
         from hate_crack.attacks import adhoc_mask_crack
 
         ctx = _make_ctx()
+        if hcat_bin is not None:
+            ctx.hcatBin = hcat_bin
         prompts: list[str] = []
         supplied = iter(["1", mask] + answers)
 
@@ -177,6 +184,50 @@ class TestAdHocMaskCharsetPromptsAreConditional:
     def test_literal_digit_after_a_real_token_is_not_a_slot(self) -> None:
         prompts = self._run("?d1?l", ["n"])
         assert not [p for p in prompts if "Custom charset" in p]
+
+    def test_slots_five_through_eight_are_asked_about(self) -> None:
+        """hashcat 7 added -5 through -8; a mask using them gets prompts."""
+        prompts = self._run("?5?8?d", ["?u?l", "?d?s", "n"])
+        asked = [p for p in prompts if "Custom charset" in p]
+        assert len(asked) == 2
+        assert "-5" in asked[0]
+        assert "-8" in asked[1]
+
+    def test_extended_slots_reach_hashcat(self) -> None:
+        from hate_crack.attacks import adhoc_mask_crack
+
+        ctx = _make_ctx()
+        with patch("builtins.input", side_effect=["1", "?1?7?d", "?u", "?s", "n"]):
+            adhoc_mask_crack(ctx)
+
+        assert ctx.hcatAdHocMask.call_args[0][3] == "-1 ?u -7 ?s"
+
+    def test_nine_is_not_a_slot(self) -> None:
+        """hashcat stops at ?8 -- it rejects ?9 as a syntax error, so there is
+        no ninth charset to ask about."""
+        prompts = self._run("?9?d?d", ["n"])
+        assert not [p for p in prompts if "Custom charset" in p]
+
+    def test_extended_slots_warn_on_hashcat_6(self, capsys) -> None:
+        """-5 through -8 arrived in hashcat 7; an older binary cannot take them."""
+        with patch("hate_crack.attacks.hashcat_major_version", return_value=6):
+            self._run("?1?6?d", ["?u", "?d", "n"], hcat_bin="hashcat")
+
+        out = capsys.readouterr().out
+        assert "?5-?8" in out
+        assert "hashcat 7" in out
+
+    def test_no_version_warning_on_hashcat_7(self, capsys) -> None:
+        with patch("hate_crack.attacks.hashcat_major_version", return_value=7):
+            self._run("?1?6?d", ["?u", "?d", "n"], hcat_bin="hashcat")
+
+        assert "hashcat 7" not in capsys.readouterr().out
+
+    def test_no_version_warning_when_only_classic_slots_used(self, capsys) -> None:
+        with patch("hate_crack.attacks.hashcat_major_version", return_value=6):
+            self._run("?1?d", ["?u", "n"], hcat_bin="hashcat")
+
+        assert "hashcat 7" not in capsys.readouterr().out
 
     def test_referenced_slot_left_blank_warns(self, capsys) -> None:
         prompts = self._run("?1?l?l", ["", "n"])

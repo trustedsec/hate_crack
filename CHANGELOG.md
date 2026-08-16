@@ -9,6 +9,9 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ## [Unreleased]
 
+### Added
+- **The Ad-hoc Mask Attack accepts hashcat 7's `?5`–`?8` custom charsets.** hashcat 7 raised the number of user-defined charsets from four to eight (`-5` through `-8`); the attack recognised only `?1`–`?4`, so a mask using the new slots ran with those charsets undefined and hashcat rejected it. The mask-token prompt now advertises `?1-?8` when the installed hashcat is 7 or newer, and a mask using `?5`–`?8` against a known-older hashcat says so before the run instead of failing inside it. An unreadable version is treated as "let hashcat decide" rather than as a refusal.
+
 ### Changed
 - **The Ad-hoc Mask Attack (option 14) only asks about the custom charset slots the mask uses.** It asked for `-1` through `-4` unconditionally, so the common case — a mask of built-in tokens like `?u?l?l?l?d?d` — meant four prompts that could only be answered by pressing Enter four times. `?1?3?d` now asks about `-1` and `-3` and stops there. A referenced slot left blank is still skipped rather than re-asked, but now says that hashcat will reject the mask, which it does (`Custom-charset 1 is undefined.`). Detection walks the mask token by token instead of substring-matching, because `??` is hashcat's escape for a literal `?`: `??1` contains no reference to charset 1.
 
