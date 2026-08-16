@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from hate_crack import hashcat_paths
+
 
 _TEST_HASH = "994a24ad0d9ac6f1fd7d4d75adffeda2"
 
@@ -42,10 +44,14 @@ def _get_hcat_tuning_args(repo_root: Path) -> list[str]:
 
 def _hashcat_sessions_writable() -> bool:
     """
-    Hashcat writes session files under ~/.hashcat/sessions on macOS/homebrew builds.
-    If that location is not writable (sandbox/MDM), running hashcat will emit stderr.
+    Hashcat writes session files under its per-user data directory. If that
+    location is not writable (sandbox/MDM), running hashcat will emit stderr.
+
+    Resolved rather than hardcoded to ``~/.hashcat``: hashcat 7 moved sessions
+    to ``~/.local/share/hashcat``, so probing the old path both tests the wrong
+    directory and recreates the one hashcat asks users to delete.
     """
-    sessions_dir = Path.home() / ".hashcat" / "sessions"
+    sessions_dir = Path(hashcat_paths.hashcat_data_dir()) / "sessions"
     try:
         sessions_dir.mkdir(parents=True, exist_ok=True)
         probe = sessions_dir / f"pytest_write_probe_{os.getpid()}"
@@ -144,7 +150,7 @@ def test_toggle_rule_parses_with_and_without_loopback(tmp_path: Path, capsys):
     if not _hashcat_sessions_writable():
         pytest.skip("hashcat session directory (~/.hashcat/sessions) is not writable")
     # Hashcat renames hashcat.induct after each run; recreate so loopback can write.
-    (Path.home() / ".hashcat" / "sessions" / "hashcat.induct").mkdir(
+    (Path(hashcat_paths.hashcat_data_dir()) / "sessions" / "hashcat.induct").mkdir(
         parents=True, exist_ok=True
     )
 

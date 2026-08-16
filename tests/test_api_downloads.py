@@ -5,6 +5,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 import hate_crack.api as _api_mod
 from hate_crack import api
+from hate_crack import hashcat_paths
 
 from hate_crack.api import (
     check_7z,
@@ -401,7 +402,10 @@ class TestGetHcatPotfilePath:
             "hate_crack.api._resolve_config_path", return_value=str(config_file)
         ):
             result = get_hcat_potfile_path()
-        assert result == os.path.expanduser("~/.hashcat/hashcat.potfile")
+        # Not the hardcoded pre-7 ~/.hashcat path: hashcat 7 moved per-user
+        # state, and pinning the old location left hate_crack reading an empty
+        # potfile while hashcat wrote the real one elsewhere.
+        assert result == hashcat_paths.default_potfile_path()
 
     def test_returns_empty_string_when_key_is_empty(self, tmp_path):
         config_data = {"hcatPotfilePath": ""}
@@ -427,7 +431,7 @@ class TestGetHcatPotfilePath:
     def test_returns_default_when_no_config(self):
         with patch("hate_crack.api._resolve_config_path", return_value=None):
             result = get_hcat_potfile_path()
-        assert result == os.path.expanduser("~/.hashcat/hashcat.potfile")
+        assert result == hashcat_paths.default_potfile_path()
 
     def test_expands_tilde_in_config_value(self, tmp_path):
         config_data = {"hcatPotfilePath": "~/.custom/hashcat.potfile"}

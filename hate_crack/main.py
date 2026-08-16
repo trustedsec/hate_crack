@@ -75,6 +75,7 @@ from hate_crack.cli import (  # noqa: E402
 from hate_crack import attacks as _attacks  # noqa: E402
 from hate_crack import config_loader as _config_loader  # noqa: E402
 from hate_crack import config_schema as _config_schema  # noqa: E402
+from hate_crack import hashcat_paths as _hashcat_paths  # noqa: E402
 from hate_crack import config_writer as _config_writer  # noqa: E402
 from hate_crack import llm  # noqa: E402
 from hate_crack import noninteractive as _noninteractive  # noqa: E402
@@ -372,13 +373,27 @@ def _flag_or_config(flag_value, config_value):
     return flag_value
 
 
-def resolve_flag_overrides(args, config, *, base_dir, current_potfile_path=None):
+def resolve_flag_overrides(
+    args,
+    config,
+    *,
+    base_dir,
+    current_potfile_path=None,
+    hcat_bin="hashcat",
+):
     """Resolve the seven promoted preference flags against loaded ``config``.
 
     ``args`` is anything with the argparse attribute names (a
     ``SimpleNamespace`` is fine); ``config`` is a ``config_parser``-shaped
     mapping of legacy key names to coerced values; ``base_dir`` is the
     directory a relative ``--potfile-path`` is resolved against.
+
+    ``hcat_bin`` is the binary a ``"auto"`` potfile setting is resolved
+    against. It matters: probing whatever ``hashcat`` is on ``$PATH`` when
+    ``hcatBin`` points at a different install (a vendored build, or an
+    explicit path in ``config.json``) can resolve to the *other* version's
+    data directory -- which on a hashcat 7 box means handing it the legacy
+    ``~/.hashcat`` path and recreating the directory all over again.
 
     Precedence for each key is CLI flag > os.environ > that key's own home file
     > schema default. There is no cross-file fallthrough: each key lives in
@@ -398,15 +413,11 @@ def resolve_flag_overrides(args, config, *, base_dir, current_potfile_path=None)
     # the explicit path wins, matching the pre-existing dispatch order (see
     # tests/test_cli_flags.py::test_potfile_path_and_no_potfile_path_conflict).
     if getattr(args, "potfile_path", None) is not None:
-        raw = args.potfile_path.strip()
-        if raw == "":
-            # Empty string means: revert to hashcat's default behavior.
-            potfile_path = ""
-        else:
-            expanded = os.path.expanduser(raw)
-            if not os.path.isabs(expanded):
-                expanded = os.path.join(base_dir, expanded)
-            potfile_path = expanded
+        # Empty string means: revert to hashcat's default behavior. "auto"
+        # resolves to hashcat's own per-user potfile.
+        potfile_path = _hashcat_paths.resolve_potfile_setting(
+            args.potfile_path, base_dir=base_dir, hcat_bin=hcat_bin
+        )
     elif getattr(args, "no_potfile_path", False):
         potfile_path = ""
     elif current_potfile_path is not None:
@@ -416,7 +427,9 @@ def resolve_flag_overrides(args, config, *, base_dir, current_potfile_path=None)
         # no-flag case keeps the value main() hands in.
         potfile_path = current_potfile_path
     else:
-        potfile_path = config.get("hcatPotfilePath", "")
+        potfile_path = _hashcat_paths.resolve_potfile_setting(
+            config.get("hcatPotfilePath", ""), base_dir=base_dir, hcat_bin=hcat_bin
+        )
 
     return FlagOverrides(
         debug=bool(_flag_or_config(getattr(args, "debug", None), config.get("debug"))),
@@ -910,18 +923,17 @@ hcatRules: list[str] = []
 
 
 # Optional: override hashcat's default potfile location.
-# Default: use ~/.hashcat/hashcat.potfile (explicitly passed to hashcat).
+# Default: `auto`, which resolves to whatever the installed hashcat uses --
+# ~/.local/share/hashcat/hashcat.potfile on 7+, ~/.hashcat/hashcat.potfile on 6.
 # Disable override with config `hcatPotfilePath: ""` or CLI `--no-potfile-path`.
 # The loader seeds every schema key, so the key is always present and there is
 # no "no key at all" discovery case to handle (the pre-split cwd-relative
 # fallback is gone -- see CHANGELOG).
-_raw_pot = (config_parser.get("hcatPotfilePath") or "").strip()
-if _raw_pot == "":
-    hcatPotfilePath = ""
-else:
-    hcatPotfilePath = os.path.expanduser(_raw_pot)
-    if not os.path.isabs(hcatPotfilePath):
-        hcatPotfilePath = os.path.join(hate_path, hcatPotfilePath)
+hcatPotfilePath = _hashcat_paths.resolve_potfile_setting(
+    config_parser.get("hcatPotfilePath"),
+    base_dir=hate_path,
+    hcat_bin=hcatBin,
+)
 
 
 def _normalize_ollama_url(host: str) -> str:
@@ -939,6 +951,48 @@ def _normalize_ollama_url(host: str) -> str:
     if "://" not in host:
         host = "http://" + host
     return host.rstrip("/")
+
+
+def _warn_stale_hashcat_home(*, hcat_bin=None):
+    """Tell the operator when data is stranded in the pre-7 ``~/.hashcat``.
+
+    hashcat prints its own notice whenever that directory merely exists; this
+    one fires only when the directory still holds something, and says how to
+    move it. Silent when there is nothing to act on.
+    """
+    try:
+        message = _hashcat_paths.legacy_home_warning(hcat_bin or hcatBin)
+    except OSError:
+        return
+    if message:
+        print(message)
+
+
+def _run_hashcat_home_migration(*, hcat_bin=None):
+    """Back the ``--migrate-hashcat-home`` flag."""
+    bin_name = hcat_bin or hcatBin
+    try:
+        result = _hashcat_paths.migrate_legacy_home(hcat_bin=bin_name)
+    except OSError as exc:
+        print(f"[!] Migration failed: {exc}")
+        return
+
+    if result.source == result.destination:
+        print(f"[*] Nothing to do: this hashcat still uses {result.source}.")
+        return
+    if not result.copied and not result.skipped:
+        print(f"[*] Nothing to migrate: {result.source} does not exist or is empty.")
+        return
+
+    print(f"[*] Copied from {result.source} to {result.destination}:")
+    for name in result.copied:
+        print(f"      {name}")
+    for name in result.skipped:
+        print(f"    [!] skipped (already present or unreadable): {name}")
+    print(
+        "[*] Nothing was deleted. Once you have checked the copies, "
+        f"remove {result.source} yourself to silence hashcat's notice."
+    )
 
 
 def _maybe_append_username_flag(cmd):
@@ -6589,7 +6643,19 @@ def main():
             help=(
                 "Override hashcat potfile path (equivalent to hashcat --potfile-path). "
                 "Overrides `hcatPotfilePath` in config.json for this run. Use empty string "
-                "to disable overriding and use hashcat's built-in default."
+                "to disable overriding and use hashcat's built-in default, or 'auto' to "
+                "track whatever per-user potfile the installed hashcat uses."
+            ),
+        )
+        parser.add_argument(
+            "--migrate-hashcat-home",
+            dest="migrate_hashcat_home",
+            action="store_true",
+            help=(
+                "Copy the contents of the legacy ~/.hashcat directory into the "
+                "location hashcat 7+ uses, then exit. Never overwrites or deletes: "
+                "a colliding name is copied as <name>.from-legacy, and removing the "
+                "old directory is left to you."
             ),
         )
         parser.add_argument(
@@ -6771,6 +6837,7 @@ def main():
         config_parser,
         base_dir=hate_path,
         current_potfile_path=hcatPotfilePath,
+        hcat_bin=hcatBin,
     )
 
     global debug_mode, _rule_debug_mode_enabled
@@ -6808,6 +6875,12 @@ def main():
     pipalPath = config.pipalPath
     maxruntime = config.maxruntime
     bandrelbasewords = config.bandrelbasewords
+
+    if getattr(args, "migrate_hashcat_home", False):
+        _run_hashcat_home_migration(hcat_bin=hcatBin)
+        sys.exit(0)
+
+    _warn_stale_hashcat_home(hcat_bin=hcatBin)
 
     if args.update or args.nightly:
         # --nightly implies the upgrade action, so `--nightly` alone works and

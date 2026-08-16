@@ -108,11 +108,14 @@ CONFIG_SCHEMA: tuple[ConfigKey, ...] = (
     ConfigKey("HCAT_PATH", "hcatPath", "path", "/path/to/hashcat"),
     ConfigKey("HCAT_BIN", "hcatBin", "str", "hashcat"),
     ConfigKey("HCAT_TUNING", "hcatTuning", "str", ""),
+    # "auto" resolves at runtime to whatever the installed hashcat uses --
+    # ~/.local/share/hashcat on 7+, ~/.hashcat on 6 -- see hashcat_paths.py.
+    # Hardcoding either location here strands one of those two populations.
     ConfigKey(
         "HCAT_POTFILE_PATH",
         "hcatPotfilePath",
         "path",
-        "~/.hashcat/hashcat.potfile",
+        "auto",
     ),
     ConfigKey(
         "HCAT_DEBUG_LOG_PATH",

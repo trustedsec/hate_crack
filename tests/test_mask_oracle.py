@@ -27,6 +27,7 @@ from pathlib import Path
 import pytest
 
 from hate_crack import corpus_stats
+from hate_crack import hashcat_paths
 from hate_crack.corpus_stats import _mask
 
 
@@ -56,12 +57,15 @@ def _hashcat_available() -> bool:
 
 
 def _sessions_writable() -> bool:
-    """hashcat writes session state under ~/.hashcat/sessions.
+    """hashcat writes session state under its per-user data directory.
 
     Unwritable under some sandbox/MDM configurations, where hashcat emits
-    errors unrelated to anything being tested.
+    errors unrelated to anything being tested. The directory is resolved rather
+    than hardcoded: probing (and so creating) ``~/.hashcat`` on a hashcat 7
+    install both checks the wrong place and resurrects the legacy directory
+    the tool now tells users to delete.
     """
-    sessions_dir = Path.home() / ".hashcat" / "sessions"
+    sessions_dir = Path(hashcat_paths.hashcat_data_dir()) / "sessions"
     try:
         sessions_dir.mkdir(parents=True, exist_ok=True)
         probe = sessions_dir / ".hate_crack_mask_oracle_probe"

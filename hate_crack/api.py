@@ -22,6 +22,7 @@ from hate_crack.config_loader import (
 )
 from hate_crack.config_schema import CONFIG_SCHEMA, ConfigValueError
 from hate_crack.formatting import print_multicolumn_list
+from hate_crack import hashcat_paths
 from hate_crack.plaintext import encode_hex_wrapper
 from hate_crack.hashview_cache import append_to_cache, cache_key, load_cache
 
@@ -582,15 +583,12 @@ def get_hcat_tuning_args():
 def get_hcat_potfile_path():
     """Return the resolved potfile path from config, or the default."""
     config = _load_merged_config()
-    if "hcatPotfilePath" in config:
-        raw = (config["hcatPotfilePath"] or "").strip()
-        if raw == "":
-            return ""
-        expanded = os.path.expanduser(raw)
-        if not os.path.isabs(expanded):
-            expanded = os.path.join(_get_hate_path(), expanded)
-        return expanded
-    return os.path.expanduser("~/.hashcat/hashcat.potfile")
+    raw = config.get("hcatPotfilePath", hashcat_paths.AUTO)
+    return hashcat_paths.resolve_potfile_setting(
+        raw,
+        base_dir=_get_hate_path(),
+        hcat_bin=str(config.get("hcatBin") or "hashcat"),
+    )
 
 
 def get_hcat_potfile_args():

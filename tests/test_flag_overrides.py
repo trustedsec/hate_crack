@@ -28,10 +28,12 @@ import json
 import os
 import sys
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
 import hate_crack.main as hc_main
+from hate_crack import hashcat_paths
 from hate_crack.config_loader import load_config, load_config_or_exit
 from hate_crack.config_schema import BY_ENV, SECRET_ENV_KEYS, coerce
 
@@ -92,11 +94,39 @@ def _resolve(tmp_path, env_body="", environ=None, current_potfile_path=None, **f
         no_potfile_path=flags.get("no_potfile_path", False),
         rule_debug_mode=flags.get("rule_debug_mode"),
     )
+    kwargs = {}
+    if "hcat_bin" in flags:
+        kwargs["hcat_bin"] = flags["hcat_bin"]
     return hc_main.resolve_flag_overrides(
         args,
         config,
         base_dir=BASE_DIR,
         current_potfile_path=current_potfile_path,
+        **kwargs,
+    )
+
+
+def test_auto_potfile_path_resolves_against_the_configured_binary(tmp_path):
+    """`--potfile-path auto` must ask the *configured* hashcat where its data
+    lives, not whatever `hashcat` happens to be on $PATH.
+
+    With `hcatBin` pointing at an install that cannot be probed, resolution
+    falls back to whichever directory exists -- and on a box that still has a
+    stale `~/.hashcat`, probing the wrong binary is how hate_crack ends up
+    handing a hashcat 7 install the legacy path and recreating that directory
+    all over again.
+    """
+    seen = []
+
+    def _fake_version(hcat_bin="hashcat"):
+        seen.append(hcat_bin)
+        return 7
+
+    with patch.object(hashcat_paths, "hashcat_major_version", _fake_version):
+        _resolve(tmp_path, potfile_path="auto", hcat_bin="/opt/hashcat7/hashcat")
+
+    assert seen == ["/opt/hashcat7/hashcat"], (
+        f"resolution probed {seen!r} instead of the configured hcatBin"
     )
 
 
@@ -302,8 +332,11 @@ def test_potfile_path_from_env_when_flag_absent(tmp_path):
 
 
 def test_potfile_path_default_when_nothing_set(tmp_path):
-    expected = os.path.expanduser(BY_ENV["HCAT_POTFILE_PATH"].default)
-    assert _resolve(tmp_path).potfile_path == expected
+    """The shipped default is the "auto" sentinel, and it must arrive at the
+    caller already resolved to hashcat's own potfile -- an unresolved "auto"
+    would be handed to hashcat as a cwd-relative filename."""
+    assert BY_ENV["HCAT_POTFILE_PATH"].default == hashcat_paths.AUTO
+    assert _resolve(tmp_path).potfile_path == hashcat_paths.default_potfile_path()
 
 
 def test_relative_potfile_path_flag_is_joined_to_base_dir(tmp_path):
