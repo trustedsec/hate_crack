@@ -15,6 +15,8 @@ import os
 from contextlib import contextmanager
 from unittest import mock
 
+import pytest
+
 os.environ["HATE_CRACK_SKIP_INIT"] = "1"
 from hate_crack import main as hc_main  # noqa: E402
 
@@ -41,14 +43,29 @@ LOCAL_URL = "http://localhost:11434"
 MODEL = "qwen2.5:32b"
 
 
+@pytest.fixture(autouse=True)
+def _block_real_dns(monkeypatch):
+    """Every test here uses an IP literal or mocks llm.* outright, so real DNS
+    should never be reached -- poison it so a future regression fails loudly
+    instead of doing a live lookup."""
+
+    def _poisoned_getaddrinfo(host, *args, **kwargs):
+        raise AssertionError(
+            f"real DNS resolution attempted for {host!r} in a main.py-level "
+            "test -- these should never need to resolve anything"
+        )
+
+    monkeypatch.setattr(hc_main.llm.socket, "getaddrinfo", _poisoned_getaddrinfo)
+
+
 @contextmanager
-def _llm_globals(url):
+def _llm_globals(url, no_cloud=False):
     with (
         mock.patch.object(hc_main, "ollamaUrl", url),
         mock.patch.object(hc_main, "ollamaModel", MODEL),
         mock.patch.object(hc_main, "ollamaNumCtx", 2048),
         mock.patch.object(hc_main, "ollamaTimeout", 30.0),
-        mock.patch.object(hc_main, "ollamaNoCloud", False),
+        mock.patch.object(hc_main, "ollamaNoCloud", no_cloud),
         mock.patch.object(hc_main, "llmBackend", "ollama"),
         mock.patch.object(hc_main, "llmApiKey", "ollama"),
     ):
@@ -112,6 +129,25 @@ def test_research_target_refusal_prints_a_clean_message(capsys):
     assert "OLLAMA_NO_CLOUD" in out
 
 
+def test_research_target_refusal_speaks_alone_with_no_cloud_true(capsys):
+    """With OLLAMA_NO_CLOUD=true, the refusal fires -- the warning ('...will
+    be sent there') must not also print, since that would contradict the
+    refusal that actually happens."""
+    with (
+        _llm_globals(OFFSITE_URL, no_cloud=True),
+        mock.patch.object(hc_main, "ollamaAutoResearch", True),
+        mock.patch.object(
+            hc_main.llm,
+            "research_target",
+            side_effect=hc_main.llm.CloudDestinationRefused(OFFSITE_URL),
+        ),
+    ):
+        hc_main.hcatOllamaResearchTarget("Acme")
+    out = capsys.readouterr().out
+    assert "will be sent there" not in out
+    assert "OLLAMA_NO_CLOUD" in out
+
+
 # ---------------------------------------------------------------------------
 # hcatOllama
 # ---------------------------------------------------------------------------
@@ -138,6 +174,23 @@ def test_hcat_ollama_does_not_warn_for_a_local_destination(capsys):
     assert "OLLAMA_NO_CLOUD" not in out
 
 
+def test_hcat_ollama_does_not_warn_when_input_validation_fails_first(tmp_path, capsys):
+    """A typo'd wordlist path must not print 'engagement data will be sent'
+    for a run that then immediately aborts -- the warning belongs after
+    input validation, not before it."""
+    missing_wordlist = str(tmp_path / "does-not-exist.txt")
+    with (
+        _llm_globals(OFFSITE_URL),
+        mock.patch.object(hc_main.llm, "generate_candidates") as gen,
+    ):
+        hc_main.hcatOllama("0", "/tmp/hashes.txt", "wordlist", missing_wordlist)
+    gen.assert_not_called()
+    out = capsys.readouterr().out
+    assert "Wordlist not found" in out
+    assert "OLLAMA_NO_CLOUD" not in out
+    assert "8.8.8.8" not in out
+
+
 def test_hcat_ollama_refusal_prints_a_clean_message(capsys):
     with (
         _llm_globals(OFFSITE_URL),
@@ -155,14 +208,47 @@ def test_hcat_ollama_refusal_prints_a_clean_message(capsys):
     assert "Ensure" not in out
 
 
+def test_hcat_ollama_refusal_speaks_alone_with_no_cloud_true(capsys):
+    with (
+        _llm_globals(OFFSITE_URL, no_cloud=True),
+        mock.patch.object(
+            hc_main.llm,
+            "generate_candidates",
+            side_effect=hc_main.llm.CloudDestinationRefused(OFFSITE_URL),
+        ),
+    ):
+        hc_main.hcatOllama("0", "/tmp/hashes.txt", "target", {"company": "Acme"})
+    out = capsys.readouterr().out
+    assert "will be sent there" not in out
+    assert "OLLAMA_NO_CLOUD" in out
+
+
 # ---------------------------------------------------------------------------
 # hcatOllamaPatterns
 # ---------------------------------------------------------------------------
 
 
+def test_hcat_ollama_patterns_does_not_warn_when_input_validation_fails_first(
+    tmp_path, capsys
+):
+    """Mirrors the hcatOllama case: a missing pattern source must not print
+    'engagement data will be sent' for a run that then immediately aborts."""
+    missing_source = str(tmp_path / "does-not-exist.txt")
+    with (
+        _llm_globals(OFFSITE_URL),
+        mock.patch.object(hc_main.llm, "generate_candidates") as gen,
+    ):
+        hc_main.hcatOllamaPatterns("0", "/tmp/hashes.txt", missing_source)
+    gen.assert_not_called()
+    out = capsys.readouterr().out
+    assert "pattern source not found" in out
+    assert "OLLAMA_NO_CLOUD" not in out
+    assert "8.8.8.8" not in out
+
+
 def test_hcat_ollama_patterns_warns_for_an_offsite_destination(tmp_path, capsys):
     source = tmp_path / "corpus.txt"
-    source.write_text("Password1\nSummer2024!\n")
+    source.write_text("placeholder-one\ncandidate-a\n")
     with (
         _llm_globals(OFFSITE_URL),
         mock.patch.object(
@@ -178,7 +264,7 @@ def test_hcat_ollama_patterns_warns_for_an_offsite_destination(tmp_path, capsys)
 
 def test_hcat_ollama_patterns_does_not_warn_for_a_local_destination(tmp_path, capsys):
     source = tmp_path / "corpus.txt"
-    source.write_text("Password1\nSummer2024!\n")
+    source.write_text("placeholder-one\ncandidate-a\n")
     with (
         _llm_globals(LOCAL_URL),
         mock.patch.object(
@@ -193,7 +279,7 @@ def test_hcat_ollama_patterns_does_not_warn_for_a_local_destination(tmp_path, ca
 
 def test_hcat_ollama_patterns_refusal_prints_a_clean_message(tmp_path, capsys):
     source = tmp_path / "corpus.txt"
-    source.write_text("Password1\nSummer2024!\n")
+    source.write_text("placeholder-one\ncandidate-a\n")
     with (
         _llm_globals(OFFSITE_URL),
         mock.patch.object(
@@ -209,6 +295,26 @@ def test_hcat_ollama_patterns_refusal_prints_a_clean_message(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "8.8.8.8" in out
     assert "Ensure" not in out
+
+
+def test_hcat_ollama_patterns_refusal_speaks_alone_with_no_cloud_true(tmp_path, capsys):
+    source = tmp_path / "corpus.txt"
+    source.write_text("placeholder-one\ncandidate-a\n")
+    with (
+        _llm_globals(OFFSITE_URL, no_cloud=True),
+        mock.patch.object(
+            hc_main, "_corpus_context", return_value={"summary": "stats"}
+        ),
+        mock.patch.object(
+            hc_main.llm,
+            "generate_candidates",
+            side_effect=hc_main.llm.CloudDestinationRefused(OFFSITE_URL),
+        ),
+    ):
+        hc_main.hcatOllamaPatterns("0", "/tmp/hashes.txt", str(source))
+    out = capsys.readouterr().out
+    assert "will be sent there" not in out
+    assert "OLLAMA_NO_CLOUD" in out
 
 
 # ---------------------------------------------------------------------------
@@ -277,3 +383,25 @@ def test_hcat_rosetta_mask_refusal_prints_a_clean_message(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "8.8.8.8" in out
     assert "Ensure the configured" not in out
+
+
+def test_hcat_rosetta_mask_refusal_speaks_alone_with_no_cloud_true(tmp_path, capsys):
+    hash_file = tmp_path / "hashes.txt"
+    hash_file.touch()
+    with (
+        _llm_globals(OFFSITE_URL, no_cloud=True),
+        mock.patch.object(hc_main, "hcatBin", "/usr/bin/hashcat"),
+        mock.patch.object(hc_main, "hcatTuning", ""),
+        mock.patch.object(hc_main, "hcatPotfilePath", ""),
+        mock.patch.object(
+            hc_main.llm,
+            "generate_masks",
+            side_effect=hc_main.llm.CloudDestinationRefused(OFFSITE_URL),
+        ),
+        mock.patch("subprocess.Popen") as popen,
+    ):
+        hc_main.hcatRosettaMask("0", str(hash_file), "pins")
+    popen.assert_not_called()
+    out = capsys.readouterr().out
+    assert "will be sent there" not in out
+    assert "OLLAMA_NO_CLOUD" in out

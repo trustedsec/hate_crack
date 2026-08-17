@@ -2579,7 +2579,9 @@ def hcatRosettaMask(hcatHashType, hcatHashFile, description):
         print(f"Error: {llm.RosettaBackendRefused(llmBackend)}")
         return
 
-    destination_warning = llm.offsite_destination_warning(ollamaUrl, llmBackend)
+    destination_warning = llm.offsite_destination_warning(
+        ollamaUrl, llmBackend, no_cloud=ollamaNoCloud
+    )
     if destination_warning is not None:
         print(destination_warning)
 
@@ -3269,7 +3271,9 @@ def hcatOllamaResearchTarget(company):
     if not ollamaAutoResearch or not company:
         return blank
 
-    destination_warning = llm.offsite_destination_warning(ollamaUrl, llmBackend)
+    destination_warning = llm.offsite_destination_warning(
+        ollamaUrl, llmBackend, no_cloud=ollamaNoCloud
+    )
     if destination_warning is not None:
         print(destination_warning)
 
@@ -3309,10 +3313,6 @@ def hcatOllamaResearchTarget(company):
 
 # LLM Ollama Attack
 def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
-    destination_warning = llm.offsite_destination_warning(ollamaUrl, llmBackend)
-    if destination_warning is not None:
-        print(destination_warning)
-
     candidates_path = f"{hcatHashFile}.ollama_candidates"
 
     # Step A: normalize context into the dict generate_candidates expects.
@@ -3345,6 +3345,12 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
     else:
         print(f"Error: Unknown LLM generation mode: {mode}")
         return
+
+    destination_warning = llm.offsite_destination_warning(
+        ollamaUrl, llmBackend, no_cloud=ollamaNoCloud
+    )
+    if destination_warning is not None:
+        print(destination_warning)
 
     # Step B: generate candidates via the Atomic Agents module.
     try:
@@ -3596,10 +3602,6 @@ def hcatOllamaPatterns(hcatHashType, hcatHashFile, source_path):
     back to running the basewords bare rather than aborting a run whose
     expensive half already succeeded.
     """
-    destination_warning = llm.offsite_destination_warning(ollamaUrl, llmBackend)
-    if destination_warning is not None:
-        print(destination_warning)
-
     if not os.path.isfile(source_path):
         print(f"Error: pattern source not found: {source_path}")
         return
@@ -3607,6 +3609,12 @@ def hcatOllamaPatterns(hcatHashType, hcatHashFile, source_path):
     gen_context = _corpus_context(source_path, source_label="pattern source")
     if gen_context is None:
         return
+
+    destination_warning = llm.offsite_destination_warning(
+        ollamaUrl, llmBackend, no_cloud=ollamaNoCloud
+    )
+    if destination_warning is not None:
+        print(destination_warning)
 
     try:
         with spinner(

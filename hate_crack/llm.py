@@ -172,12 +172,35 @@ def _default_resolve(host: str) -> list[str]:
     return [str(info[4][0]) for info in infos]
 
 
+# CGNAT (RFC 6598): Python's ipaddress reports 100.64.0.0/10 as neither
+# is_private nor is_link_local, so the loopback/private/link-local test alone
+# would call it offsite. This range is exactly what Tailscale assigns to
+# every node's tailnet IP (with *.ts.net MagicDNS names resolving into it),
+# so reaching a GPU box over Tailscale -- an entirely ordinary "remote but
+# private" setup -- would otherwise be refused under OLLAMA_NO_CLOUD=true.
+# Treat it as local. Do not "simplify" this back to the is_private check.
+_CGNAT_TAILSCALE_RANGE = ipaddress.ip_network("100.64.0.0/10")
+
+# 6to4 (RFC 3056): 2002::/16 encodes a global IPv4 address in bits 16-47 of
+# the IPv6 address by definition, so it is always offsite even though
+# ipaddress.ip_address(...).is_private reports True for it on this
+# interpreter. Unlike the CGNAT case above, getting this one wrong leaks --
+# an offsite destination would be treated as local and the request sent with
+# no warning at all -- so it is checked explicitly rather than trusted to
+# is_private.
+_SIX_TO_FOUR_RANGE = ipaddress.ip_network("2002::/16")
+
+
 def _is_local_address(addr: str) -> bool | None:
     """Is *addr* loopback, private, or link-local? ``None`` if unparseable."""
     try:
         parsed = ipaddress.ip_address(addr)
     except ValueError:
         return None
+    if parsed in _SIX_TO_FOUR_RANGE:
+        return False
+    if parsed in _CGNAT_TAILSCALE_RANGE:
+        return True
     return parsed.is_loopback or parsed.is_private or parsed.is_link_local
 
 
@@ -207,11 +230,30 @@ def is_offsite_url(
       set ``OLLAMA_NO_CLOUD=true`` asked for "nothing leaves this host", and
       refusing a destination this function cannot verify honours that request
       better than silently allowing it through.
+    - CGNAT (``100.64.0.0/10``, RFC 6598) is treated as local -- Tailscale
+      assigns tailnet IPs from this range, so a GPU box reached over
+      Tailscale is an ordinary "remote but private" setup, not cloud egress.
+    - 6to4 (``2002::/16``, RFC 3056) is always treated as offsite: it encodes
+      a global IPv4 address by definition, regardless of what
+      ``ipaddress`` reports for it.
 
     *resolve* exists so callers (and tests) never need real DNS: pass a stub
     returning canned address lists instead of touching the network.
+
+    **Not a network-level guarantee.** This only classifies where *this*
+    request is addressed. It has no visibility into an HTTP proxy: the
+    OpenAI SDK's underlying httpx transport defaults to ``trust_env=True``,
+    so a destination this function calls local can still leave the host via
+    ``HTTPS_PROXY``/``ALL_PROXY`` if one is set in the environment.
     """
-    host = urlsplit(url).hostname
+    try:
+        host = urlsplit(url).hostname
+    except ValueError:
+        # A malformed bracketed-IPv6 host (e.g. "http://[::1", a typo'd
+        # OLLAMA_HOST) raises here rather than parsing to an empty/odd
+        # hostname. Same rule as any other unparseable host: not offsite,
+        # since it cannot be reached at all.
+        return False
     if not host:
         return False
     host = host.lower()
@@ -260,17 +302,28 @@ def ensure_destination_allowed(url: str, *, no_cloud: bool) -> None:
         raise CloudDestinationRefused(url)
 
 
-def offsite_destination_warning(url: str, backend: str) -> str | None:
+def offsite_destination_warning(
+    url: str, backend: str, *, no_cloud: bool
+) -> str | None:
     """Operator-facing warning text for an offsite *url*, else ``None``.
 
     Returns a string rather than printing -- this module does no I/O today and
-    must not start; ``main.py`` prints it. Deliberately independent of
-    ``OLLAMA_NO_CLOUD``: with the guard off (the default), a refusal would help
+    must not start; ``main.py`` prints it.
+
+    Returns ``None`` when *no_cloud* is true: ``ensure_destination_allowed``
+    is about to refuse the same request outright, and printing "engagement
+    data ... will be sent there" immediately before "this request was not
+    sent" would contradict the refusal that actually happens. The refusal is
+    the message that must be believed, so this warning only exists for the
+    other case -- with the guard off (the default), a refusal would help
     nobody who has not already opted in, so this is the other half of that
-    pair -- tell the operator plainly that engagement data is about to leave
-    the host, and name the setting that would have stopped it.
+    pair: tell the operator plainly that engagement data is about to leave
+    the host, and name the setting that would have stopped it. ``no_cloud``
+    is keyword-only with no default, matching every other policy parameter in
+    this module: a new call site has to state it rather than silently
+    inheriting a permissive one.
     """
-    if not is_offsite_url(url):
+    if no_cloud or not is_offsite_url(url):
         return None
     return (
         f"Warning: {url!r} looks like it is off this host/network. Prompts to "

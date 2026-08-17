@@ -32,6 +32,26 @@ from hate_crack import llm  # noqa: E402
 OFFSITE_URL = "http://8.8.8.8:8000"
 
 
+@pytest.fixture(autouse=True)
+def _block_real_dns(monkeypatch):
+    """Make a real DNS lookup fail the test instead of silently succeeding.
+
+    Every hostname case above either injects its own ``resolve`` stub or
+    patches ``socket.getaddrinfo`` directly, so this should never actually
+    fire -- it exists to catch a *future* regression in the
+    ``localhost``/local-suffix short-circuit (or a test that forgets to
+    inject a resolver) with a clear failure instead of a live lookup.
+    """
+
+    def _poisoned_getaddrinfo(host, *args, **kwargs):
+        raise AssertionError(
+            f"real DNS resolution attempted for {host!r} -- inject a resolve "
+            "stub (or patch socket.getaddrinfo) instead"
+        )
+
+    monkeypatch.setattr(llm.socket, "getaddrinfo", _poisoned_getaddrinfo)
+
+
 # ---------------------------------------------------------------------------
 # is_offsite_url
 # ---------------------------------------------------------------------------
@@ -131,6 +151,51 @@ def test_empty_or_garbage_url_is_not_offsite(url):
     assert llm.is_offsite_url(url) is False
 
 
+def test_malformed_bracketed_ipv6_host_is_not_offsite():
+    """urlsplit() raises ValueError on a malformed bracketed-IPv6 host (e.g. a
+    typo'd OLLAMA_HOST missing its closing bracket) rather than returning an
+    odd hostname. Same rule as any other unparseable host: not offsite,
+    since it cannot be reached at all -- and this must not be an uncaught
+    traceback on the menu 12 / menu 23 warning call, which runs before any
+    try block in main.py."""
+    assert llm.is_offsite_url("http://[::1") is False
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://100.64.0.1:11434",
+        "http://100.100.100.100:11434",
+        "http://100.127.255.254:11434",
+    ],
+)
+def test_cgnat_tailscale_range_is_not_offsite(url):
+    """100.64.0.0/10 (RFC 6598 CGNAT) is what Tailscale assigns to every
+    tailnet node, so reaching a GPU box over Tailscale is an ordinary
+    "remote but private" setup, not cloud egress. Python's ipaddress reports
+    this range as neither is_private nor is_link_local, so it must be
+    special-cased rather than left to fall through to the general rule."""
+    assert llm.is_offsite_url(url) is False
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        # 2002:0808:0808::/... encodes 8.8.8.8 (a genuinely global address).
+        "http://[2002:0808:0808::1]:11434",
+        # 2002:6300:6301::/... encodes 99.0.99.1 as a second example.
+        "http://[2002:6300:6301::1]:11434",
+    ],
+)
+def test_six_to_four_range_is_offsite(url):
+    """2002::/16 (RFC 3056 6to4) encodes a global IPv4 address by definition.
+    Python's ipaddress.is_private reports True for it on this interpreter, so
+    it must be special-cased explicitly -- getting this one wrong leaks:
+    an offsite destination would be treated as local and the request sent
+    with no warning at all."""
+    assert llm.is_offsite_url(url) is True
+
+
 def test_default_resolver_is_used_when_none_injected(monkeypatch):
     """The module-level default wraps socket.getaddrinfo -- verified by
     patching it directly rather than touching real DNS."""
@@ -182,14 +247,37 @@ def test_ensure_destination_allowed_silent_when_no_cloud_false_and_local():
 
 
 def test_warning_is_none_for_a_local_destination():
-    assert llm.offsite_destination_warning("http://localhost:11434", "ollama") is None
+    assert (
+        llm.offsite_destination_warning(
+            "http://localhost:11434", "ollama", no_cloud=False
+        )
+        is None
+    )
 
 
 def test_warning_names_the_host_and_the_setting_for_an_offsite_destination():
-    text = llm.offsite_destination_warning(OFFSITE_URL, "vllm")
+    text = llm.offsite_destination_warning(OFFSITE_URL, "vllm", no_cloud=False)
     assert text is not None
     assert "8.8.8.8" in text
     assert "OLLAMA_NO_CLOUD" in text
+
+
+def test_warning_is_none_when_no_cloud_is_true_even_for_an_offsite_destination():
+    """The refusal is the message that must be believed: with
+    OLLAMA_NO_CLOUD=true, ensure_destination_allowed is about to raise for
+    this exact URL, so the warning must not also claim the data 'will be
+    sent there' right before that happens."""
+    assert llm.offsite_destination_warning(OFFSITE_URL, "vllm", no_cloud=True) is None
+
+
+def test_warning_no_cloud_is_keyword_only_with_no_default():
+    import inspect
+
+    parameter = inspect.signature(llm.offsite_destination_warning).parameters[
+        "no_cloud"
+    ]
+    assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
+    assert parameter.default is inspect.Parameter.empty
 
 
 # ---------------------------------------------------------------------------
