@@ -673,7 +673,7 @@ def rosetta_attack(ctx: Any) -> None:
         return
 
     top_rules = _prompt_positive_int(
-        "\n[*] Number of top rules to keep [default 100, 0 for all]: ", 100
+        "\n[*] Number of top rules to keep [default all, 0 for all]: ", None
     )
     top_basewords = _prompt_positive_int(
         "[*] Number of top basewords to keep [default all, 0 for all]: ", None

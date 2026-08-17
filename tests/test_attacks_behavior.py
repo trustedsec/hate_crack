@@ -742,7 +742,7 @@ class TestRosettaAttack:
             ctx.hcatHashFile,
             ["/tmp/debug1.log"],
             metric="frequency",
-            top_rules=100,
+            top_rules=None,
             top_basewords=None,
         )
         ctx.hcatRosettaMask.assert_not_called()

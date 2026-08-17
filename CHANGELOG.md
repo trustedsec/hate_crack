@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [Unreleased]
+
+### Changed
+- **The Rosetta attack keeps every winning rule by default.** The top-rules prompt defaulted to 100 while the top-basewords prompt beside it defaulted to all, so pressing Enter through both quietly discarded every rule ranked below the hundredth — including, for a large debug log, rules that had already cracked hashes on this target. Both prompts now default to all; entering a number still caps either, and the resulting keyspace is still printed before hashcat starts.
+
 ## [2.28.0] - 2026-08-16
 
 ### Added

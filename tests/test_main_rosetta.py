@@ -313,7 +313,7 @@ class TestRosettaAttackHandler:
             "hashes.txt",
             [debug_log],
             metric="frequency",
-            top_rules=100,
+            top_rules=None,
             top_basewords=None,
         )
 
