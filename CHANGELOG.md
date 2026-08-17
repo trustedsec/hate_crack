@@ -9,6 +9,9 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ## [Unreleased]
 
+### Fixed
+- **The Rosetta attack no longer writes rules hashcat rejects.** A debug log that hate_crack appended to across the `--debug-mode` 4-to-5 switch holds records of both shapes, but HashcatRosetta picked one mode per *file* and forced it on every line. Each mode-5 record in a mode-4-majority log therefore came back with the wordlist as its candidate and the real candidate glued onto the rule, so `rules.rule` carried lines like `$1:<candidate>` — and hashcat answered with `Skipping invalid or unsupported rule in file ... on line N` for each one. On a 12,326-entry capture across the logs in `~/.hate_crack/hashcat_debug`, 111 of 4,686 derived rules were unusable; after the fix, two are, and neither is a mis-split (an empty line and one rule this hashcat build does not implement). Fixed upstream in HashcatRosetta, pulled in by bumping the submodule to `b2c6e13`; the bump also carries an nlmask `</think>`-preamble fix and a benchmark test fix. Regenerate an existing `<hash file>.rosetta/rules.rule` by re-running the attack — the old file is not repaired in place.
+
 ### Changed
 - **The Rosetta attack keeps every winning rule by default.** The top-rules prompt defaulted to 100 while the top-basewords prompt beside it defaulted to all, so pressing Enter through both quietly discarded every rule ranked below the hundredth — including, for a large debug log, rules that had already cracked hashes on this target. Both prompts now default to all; entering a number still caps either, and the resulting keyspace is still printed before hashcat starts.
 
