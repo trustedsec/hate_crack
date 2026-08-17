@@ -1117,6 +1117,18 @@ def generate_masks(
             description,
             model=model,
             client=client,
+            # host=url: nlmask.generate_masks() only feeds this into
+            # resolve_base_url() for its own error-message text -- the
+            # actual request always rides on `client`, which is already
+            # built against `url` above. Omitting it left resolve_base_url()
+            # falling back to OLLAMA_HOST (unset in-process, since hate_crack
+            # reads it from .env rather than exporting it) and then to its
+            # own http://localhost:11434 default, so a failed request to a
+            # remote vLLM/OpenAI host reported "could not reach Ollama at
+            # http://localhost:11434/v1" -- correct code path, wrong error
+            # message, telling the operator to debug a server they never
+            # contacted.
+            host=url,
             **rosetta_backend_kwargs(backend, num_ctx),
         )
     except _RosettaMaskGenerationError as e:

@@ -551,10 +551,11 @@ def _rosetta_suggestion(mask, custom_charsets=()):
 def test_generate_masks_returns_masks(monkeypatch):
     captured = {}
 
-    def fake_generate_masks(description, *, model, client, extra_options):
+    def fake_generate_masks(description, *, model, client, extra_options, host=None):
         captured["description"] = description
         captured["model"] = model
         captured["extra_options"] = extra_options
+        captured["host"] = host
         return [
             _rosetta_suggestion("?u?l?l?l?d?d"),
             _rosetta_suggestion("?l?l?l?l?l?l?d"),
@@ -576,6 +577,7 @@ def test_generate_masks_returns_masks(monkeypatch):
     assert captured["model"] == "qwen2.5:32b"
     assert captured["extra_options"] == {"num_ctx": 2048}
     assert "8 character passwords" in captured["description"]
+    assert captured["host"] == "http://localhost:11434"
 
 
 def test_generate_masks_combines_custom_charsets(monkeypatch):
@@ -815,6 +817,7 @@ def test_generate_masks_no_longer_refuses_non_ollama_backend(monkeypatch, backen
         extra_options=None,
         think=True,
         extra_request_body=None,
+        host=None,
     ):
         return []
 
@@ -843,6 +846,7 @@ def test_generate_masks_forwards_vllm_kwargs_to_rosetta(monkeypatch):
         extra_options=None,
         think=True,
         extra_request_body=None,
+        host=None,
     ):
         if extra_options is not None:
             captured["extra_options"] = extra_options
@@ -871,6 +875,48 @@ def test_generate_masks_forwards_vllm_kwargs_to_rosetta(monkeypatch):
     assert "extra_options" not in captured
 
 
+def test_generate_masks_forwards_host_so_error_messages_name_the_real_server(
+    monkeypatch,
+):
+    """nlmask.generate_masks()'s own resolve_base_url(host) is used only to
+    build its error-message text -- the actual request always rides on the
+    `client` object, which generate_masks() already builds against `url`.
+    Omitting `host=` left it falling back to OLLAMA_HOST/localhost, so a
+    failed request to a remote vLLM host reported 'could not reach Ollama at
+    http://localhost:11434/v1' -- the right request, the wrong error message.
+    This asserts the actual forwarded value, not merely that the kwarg is
+    present.
+    """
+    captured = {}
+
+    def fake_generate_masks(
+        description,
+        *,
+        model,
+        client,
+        host=None,
+        extra_options=None,
+        think=True,
+        extra_request_body=None,
+    ):
+        captured["host"] = host
+        return []
+
+    monkeypatch.setattr(llm, "_rosetta_generate_masks", fake_generate_masks)
+
+    llm.generate_masks(
+        "http://vllm-remote.example:8000",
+        "qwen2.5:32b",
+        2048,
+        "pins",
+        no_cloud=False,
+        backend="vllm",
+        api_key="sk-real-vllm-key",
+    )
+
+    assert captured["host"] == "http://vllm-remote.example:8000"
+
+
 def test_generate_masks_forwards_ollama_kwargs_without_think(monkeypatch):
     captured = {}
 
@@ -890,7 +936,10 @@ def test_generate_masks_forwards_ollama_kwargs_without_think(monkeypatch):
         api_key="ollama",
     )
 
-    assert captured == {"extra_options": {"num_ctx": 2048}}
+    assert captured == {
+        "extra_options": {"num_ctx": 2048},
+        "host": "http://localhost:11434",
+    }
     assert "think" not in captured
 
 
@@ -903,7 +952,9 @@ def test_generate_masks_capability_guard_refuses_old_submodule_for_non_ollama(
     exception now carries.
     """
 
-    def old_signature_stub(description, *, model, client, extra_options=None):
+    def old_signature_stub(
+        description, *, model, client, extra_options=None, host=None
+    ):
         return []
 
     monkeypatch.setattr(llm, "_rosetta_generate_masks", old_signature_stub)
@@ -928,7 +979,9 @@ def test_generate_masks_capability_guard_does_not_apply_to_ollama(monkeypatch):
     """An old submodule signature (missing think/extra_request_body) must not
     break the Ollama path, which never needed those parameters."""
 
-    def old_signature_stub(description, *, model, client, extra_options=None):
+    def old_signature_stub(
+        description, *, model, client, extra_options=None, host=None
+    ):
         return []
 
     monkeypatch.setattr(llm, "_rosetta_generate_masks", old_signature_stub)
