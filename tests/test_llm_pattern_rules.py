@@ -503,7 +503,13 @@ def test_generate_rules_dedupes_and_strips():
         mock.patch("hate_crack.llm.AtomicAgent", agent_cls),
     ):
         out = llm.generate_rules(
-            OLLAMA_URL, MODEL, 2048, {"summary": "x"}, no_cloud=False
+            OLLAMA_URL,
+            MODEL,
+            2048,
+            {"summary": "x"},
+            no_cloud=False,
+            backend="ollama",
+            api_key="ollama",
         )
 
     assert out == ["c$1", "$!"]

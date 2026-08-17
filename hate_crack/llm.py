@@ -12,6 +12,7 @@ copy that would drift from it.
 
 import os
 import sys
+from typing import Any
 
 import instructor
 from openai import APITimeoutError, OpenAI
@@ -445,10 +446,60 @@ def _build_request(mode: str, context_data: dict) -> str:
     raise ValueError(f"Unknown LLM generation mode: {mode}")
 
 
-def _build_client(url: str, timeout: float) -> instructor.Instructor:
-    """Build the instructor-wrapped OpenAI client pointed at an Ollama server."""
+#: Backends generate_masks() actually knows how to drive. Kept alongside
+#: backend_extra_body()'s own validation so the Rosetta-only-supports-ollama
+#: refusal and the general "unknown backend" refusal report the same set.
+KNOWN_BACKENDS = ("ollama", "vllm", "openai")
+
+
+def backend_extra_body(backend: str, num_ctx: int) -> dict[str, Any]:
+    """Build the ``extra_body`` payload for *backend*'s chat-completion request.
+
+    Every backend here speaks the OpenAI ``/v1`` chat-completions API, but two
+    of them need a request field the other does not, so this is not a single
+    shared payload:
+
+    - ``"ollama"``: ``{"options": {"num_ctx": num_ctx}}``. Ollama's own
+      context-window knob; unchanged from before this function existed.
+    - ``"vllm"``: ``{"chat_template_kwargs": {"thinking": False}}``. Verified
+      empirically against a live vLLM 0.26.0 server: vLLM accepts and *ignores*
+      unknown fields (HTTP 200, not 400), so sending Ollama's ``options`` there
+      would simply be inert -- that is not why this branch exists. The reason
+      is a reasoning parser: when one is active, a reasoning-capable model
+      routes its entire structured JSON payload into ``message.reasoning`` and
+      leaves ``message.content`` set to ``None``. Every caller in this module
+      reads ``.content``, so instructor dies with a JSON-decode error on an
+      empty string. ``chat_template_kwargs={"thinking": False}`` is the fix
+      that was actually verified to populate ``content`` instead. The
+      superficially similar ``{"enable_thinking": False}`` is WRONG -- it does
+      not error, it silently returns an empty JSON object, so a naive "looks
+      like it works" test would not have caught it.
+    - ``"openai"``: ``{}``. A generic OpenAI-compatible server gets no
+      backend-specific extras; ``num_ctx`` has no equivalent there.
+
+    Raises ``ValueError`` naming the value and the valid set for anything else.
+    """
+    if backend == "ollama":
+        return {"options": {"num_ctx": num_ctx}}
+    if backend == "vllm":
+        return {"chat_template_kwargs": {"thinking": False}}
+    if backend == "openai":
+        return {}
+    raise ValueError(
+        f"Unknown LLM backend {backend!r}; expected one of {KNOWN_BACKENDS}"
+    )
+
+
+def _build_client(url: str, api_key: str, timeout: float) -> instructor.Instructor:
+    """Build the instructor-wrapped OpenAI client pointed at *url*.
+
+    ``api_key`` is whatever the configured backend needs -- Ollama ignores it
+    outright, vLLM started with ``--api-key`` rejects the wrong one with a 401,
+    and a generic OpenAI-compatible server needs a real one. Never hardcoded
+    here: see ``LLM_API_KEY`` in config_schema.py.
+    """
     return instructor.from_openai(
-        OpenAI(base_url=f"{url}/v1", api_key="ollama", timeout=timeout),
+        OpenAI(base_url=f"{url}/v1", api_key=api_key, timeout=timeout),
         mode=instructor.Mode.JSON,
     )
 
@@ -476,6 +527,8 @@ def research_target(
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
     *,
     no_cloud: bool,
+    backend: str,
+    api_key: str,
 ) -> TargetResearchOutput:
     """Ask the local model what it already knows about *company*.
 
@@ -484,20 +537,26 @@ def research_target(
     any field may be '' when the model is not confident, which callers must treat
     as "no suggestion".
 
-    Uses only the configured local Ollama server — no web lookups, so the client
+    ``backend`` and ``api_key`` are keyword-only with no default, mirroring
+    ``no_cloud`` and ``ensure_model_allowed``'s own reasoning: a new call site
+    must state its policy rather than silently inheriting a permissive one.
+
+    Uses only the configured local model server — no web lookups, so the client
     name never leaves the host. Raises LLMTimeoutError if the request exceeds
-    ``timeout``, CloudModelRefused when ``no_cloud`` rules out ``model``; other
-    client/connection errors propagate to the caller.
+    ``timeout``, CloudModelRefused when ``no_cloud`` rules out ``model``,
+    ValueError for an unknown ``backend``; other client/connection errors
+    propagate to the caller.
     """
     ensure_model_allowed(model, no_cloud=no_cloud)
-    client = _build_client(url, timeout)
+    client = _build_client(url, api_key, timeout)
+    extra_body = backend_extra_body(backend, num_ctx)
 
     agent = AtomicAgent[TargetResearchInput, TargetResearchOutput](
         config=AgentConfig(
             client=client,
             model=model,
             system_prompt_generator=_RESEARCH_PROMPT,
-            model_api_parameters={"extra_body": {"options": {"num_ctx": num_ctx}}},
+            model_api_parameters={"extra_body": extra_body},
         )
     )
 
@@ -524,23 +583,31 @@ def generate_candidates(
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
     *,
     no_cloud: bool,
+    backend: str,
+    api_key: str,
 ) -> list[str]:
-    """Generate password candidates via an Ollama-backed AtomicAgent.
+    """Generate password candidates via an AtomicAgent against the configured backend.
 
     ``timeout`` is the number of seconds to wait for a generation response before
     giving up; it bounds the whole request so a server that accepts the
     connection but never replies (e.g. a large model still loading into VRAM)
     cannot hang the caller forever.
 
+    ``backend`` and ``api_key`` are keyword-only with no default, mirroring
+    ``no_cloud``: a new call site must state its policy rather than silently
+    inheriting a permissive one.
+
     Returns a deduped, length-capped list of candidate strings (may be empty).
-    Raises ValueError for an unknown mode, LLMTimeoutError if the request
-    exceeds ``timeout``, and CloudModelRefused when ``no_cloud`` rules out
-    ``model``. Other client/connection errors propagate to the caller.
+    Raises ValueError for an unknown mode or an unknown ``backend``,
+    LLMTimeoutError if the request exceeds ``timeout``, and CloudModelRefused
+    when ``no_cloud`` rules out ``model``. Other client/connection errors
+    propagate to the caller.
     """
     ensure_model_allowed(model, no_cloud=no_cloud)
     request = _build_request(mode, context_data)
 
-    client = _build_client(url, timeout)
+    client = _build_client(url, api_key, timeout)
+    extra_body = backend_extra_body(backend, num_ctx)
     # _build_request has already rejected unknown modes, so this lookup is safe.
     prompt_generator = _PROMPTS[mode]
 
@@ -549,7 +616,7 @@ def generate_candidates(
             client=client,
             model=model,
             system_prompt_generator=prompt_generator,
-            model_api_parameters={"extra_body": {"options": {"num_ctx": num_ctx}}},
+            model_api_parameters={"extra_body": extra_body},
         )
     )
 
@@ -581,6 +648,8 @@ def generate_rules(
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
     *,
     no_cloud: bool,
+    backend: str,
+    api_key: str,
 ) -> list[str]:
     """Generate hashcat rules describing a corpus's decoration habits.
 
@@ -589,6 +658,10 @@ def generate_rules(
     covers what the Spoonman attack derives mechanically (see
     hate_crack.rulegen).
 
+    ``backend`` and ``api_key`` are keyword-only with no default, mirroring
+    ``no_cloud``: a new call site must state its policy rather than silently
+    inheriting a permissive one.
+
     Returns a deduped list of raw rule strings in the order the model gave them,
     which its prompt asks to be most-productive-first. Entries are *not*
     validated here — callers must screen them with ``rulegen.validate_rule``
@@ -596,19 +669,21 @@ def generate_rules(
     silently rather than reported.
 
     Raises LLMTimeoutError if the request exceeds ``timeout``,
-    CloudModelRefused when ``no_cloud`` rules out ``model``; other
-    client/connection errors propagate to the caller.
+    CloudModelRefused when ``no_cloud`` rules out ``model``, ValueError for an
+    unknown ``backend``; other client/connection errors propagate to the
+    caller.
     """
     ensure_model_allowed(model, no_cloud=no_cloud)
     request = _build_request("rules", context_data)
-    client = _build_client(url, timeout)
+    client = _build_client(url, api_key, timeout)
+    extra_body = backend_extra_body(backend, num_ctx)
 
     agent = AtomicAgent[GenerationInput, HashcatRulesOutput](
         config=AgentConfig(
             client=client,
             model=model,
             system_prompt_generator=_PROMPTS["rules"],
-            model_api_parameters={"extra_body": {"options": {"num_ctx": num_ctx}}},
+            model_api_parameters={"extra_body": extra_body},
         )
     )
 
@@ -648,6 +723,8 @@ def generate_masks(
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
     *,
     no_cloud: bool,
+    backend: str,
+    api_key: str,
 ) -> list[str]:
     """Generate hashcat brute-force masks from a plain-English description.
 
@@ -669,13 +746,35 @@ def generate_masks(
     generation modes in this module, there is no separate screening step
     callers need to run before handing the file to hashcat.
 
+    ``backend`` and ``api_key`` are keyword-only with no default, mirroring
+    the other three entry points -- but here ``backend`` may *only* be
+    ``"ollama"``. HashcatRosetta's ``nlmask.py`` hardcodes
+    ``extra_body = {"think": True}``, Ollama's own thinking toggle, which is
+    exactly backwards for vLLM (it would keep the reasoning-parser payload
+    routed into ``message.reasoning`` rather than ``message.content``, the
+    same failure ``backend_extra_body``'s vLLM branch exists to avoid
+    elsewhere in this module). That is upstream HashcatRosetta code this
+    module does not own, so it is not patched around here -- any other
+    backend is refused outright with a clear, specific error instead of
+    reaching a downstream JSON-parse failure the operator cannot interpret.
+
     Raises LLMTimeoutError if the request exceeds ``timeout``,
     CloudModelRefused when ``no_cloud`` rules out ``model``, RuntimeError if
     HashcatRosetta itself is unavailable (see
-    ``rosetta_mask_unavailable_reason``); other client/connection errors
-    propagate as HashcatRosetta's own MaskGenerationError.
+    ``rosetta_mask_unavailable_reason``) or if ``backend`` is not
+    ``"ollama"``; other client/connection errors propagate as HashcatRosetta's
+    own MaskGenerationError.
     """
     ensure_model_allowed(model, no_cloud=no_cloud)
+
+    if backend != "ollama":
+        raise RuntimeError(
+            f"The Rosetta mask attack currently requires the Ollama backend, "
+            f"not {backend!r}: HashcatRosetta's nlmask.py hardcodes Ollama's "
+            "'think' toggle, which is backwards for other OpenAI-compatible "
+            "servers. Set LLM_BACKEND=ollama to use this attack, or wait for "
+            "an upstream HashcatRosetta fix."
+        )
 
     # The three names are always set together in the single try/except above
     # (all real or all None) -- checking all three, not just the one this
@@ -688,7 +787,7 @@ def generate_masks(
     ):
         raise RuntimeError(rosetta_mask_unavailable_reason())
 
-    client = OpenAI(base_url=f"{url}/v1", api_key="ollama", timeout=timeout)
+    client = OpenAI(base_url=f"{url}/v1", api_key=api_key, timeout=timeout)
 
     try:
         suggestions = _rosetta_generate_masks(

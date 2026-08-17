@@ -40,7 +40,7 @@ def _load_example() -> dict:
     return loads_strict(EXAMPLE_PATH.read_text())
 
 
-# The twelve third-party integration keys: the exact home="env" set. Pinned
+# The sixteen third-party integration keys: the exact home="env" set. Pinned
 # literally so a key cannot quietly change home -- moving one is a
 # user-visible change of which file it must be written in, and it should not
 # be possible to make it by editing one word of the schema.
@@ -58,6 +58,8 @@ EXPECTED_ENV_HOMED = frozenset(
         "OLLAMA_TIMEOUT",
         "OLLAMA_MAX_SAMPLE_LINES",
         "OLLAMA_AUTO_RESEARCH",
+        "LLM_BACKEND",
+        "LLM_API_KEY",
         "PIPAL_PATH",
         "PIPAL_COUNT",
     }
@@ -98,10 +100,10 @@ def test_env_homed_key_set_is_pinned():
     assert {entry.env for entry in ENV_KEYS} == EXPECTED_ENV_HOMED
 
 
-def test_key_counts_are_fourteen_and_thirty_seven():
-    assert len(ENV_KEYS) == 14
+def test_key_counts_are_sixteen_and_thirty_seven():
+    assert len(ENV_KEYS) == 16
     assert len(JSON_KEYS) == 37
-    assert len(CONFIG_SCHEMA) == 51
+    assert len(CONFIG_SCHEMA) == 53
 
 
 def test_every_key_has_exactly_one_home():
@@ -224,6 +226,31 @@ def test_pinned_hashmob_api_key():
     entry = BY_LEGACY["hashmob_api_key"]
     assert entry.env == "HASHMOB_API_KEY"
     assert BY_ENV["HASHMOB_API_KEY"] is entry
+
+
+def test_pinned_llm_backend():
+    entry = BY_LEGACY["llmBackend"]
+    assert entry.env == "LLM_BACKEND"
+    assert BY_ENV["LLM_BACKEND"] is entry
+    assert entry.home == "env"
+    assert entry.default == "ollama"
+    assert entry.choices == ("ollama", "vllm", "openai")
+
+
+def test_pinned_llm_api_key():
+    entry = BY_LEGACY["llmApiKey"]
+    assert entry.env == "LLM_API_KEY"
+    assert BY_ENV["LLM_API_KEY"] is entry
+    assert entry.home == "env"
+    # The literal Ollama's own server ignores, so an existing install's
+    # request shape is unchanged when LLM_API_KEY is left unset.
+    assert entry.default == "ollama"
+
+
+def test_llm_backend_rejects_a_value_outside_its_choices():
+    entry = BY_LEGACY["llmBackend"]
+    with pytest.raises(ConfigValueError, match="ollama/vllm/openai"):
+        coerce(entry, "bogus-backend")
 
 
 # ---------------------------------------------------------------------------

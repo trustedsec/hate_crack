@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [Unreleased]
+
+### Added
+- **The LLM Attack (menu 12) and Rosetta Mask Attack (menu 23) can now target a vLLM or generic OpenAI-compatible server, not just Ollama.** New `LLM_BACKEND` (`ollama`/`vllm`/`openai`, default `ollama`) and `LLM_API_KEY` (default the literal `ollama`, the placeholder Ollama's own server ignores) `.env` keys select the backend and its credential; the existing `OLLAMA_*` keys are unchanged and keep owning the host, model, timeout, context and sampling for every backend. The api key hate_crack sends is no longer hardcoded, so a vLLM server started with `--api-key` no longer gets a 401. vLLM accepts and ignores Ollama's `options` request field (HTTP 200, not 400), but a vLLM server running a reasoning parser routes the whole structured response into `message.reasoning` and leaves `message.content` empty, which broke `instructor`'s JSON parsing; the vLLM branch now sends `chat_template_kwargs={"thinking": false}` instead, which was verified against a live vLLM 0.26.0 server to populate `content` correctly (the superficially similar `enable_thinking: false` does not error but silently returns an empty object). The Rosetta mask attack still requires `LLM_BACKEND=ollama` — HashcatRosetta's own `nlmask.py` hardcodes Ollama's `think` toggle, which is backwards for vLLM, and that fix belongs upstream — so selecting another backend for it fails with a clear message instead of a downstream JSON-parse error.
+
 ## [2.28.1] - 2026-08-16
 
 ### Fixed

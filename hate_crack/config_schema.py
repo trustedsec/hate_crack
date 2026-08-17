@@ -246,6 +246,27 @@ CONFIG_SCHEMA: tuple[ConfigKey, ...] = (
         "OLLAMA_MAX_SAMPLE_LINES", "ollamaMaxSampleLines", "int", 500, home="env"
     ),
     ConfigKey("OLLAMA_AUTO_RESEARCH", "ollamaAutoResearch", "bool", True, home="env"),
+    # Which OpenAI-compatible server the LLM attacks (menu 12) and the Rosetta
+    # mask attack (menu 23) talk to, and the credential it authenticates with.
+    # Deliberately separate from the OLLAMA_* keys above rather than folded
+    # into them or replacing them: the OLLAMA_* keys keep owning the host,
+    # model, timeout, context and sampling settings for every backend, because
+    # vLLM and a generic OpenAI-compatible server want the exact same knobs
+    # under the exact same names. Renaming them to something backend-neutral
+    # would break every existing .env for no functional gain, so do not "tidy"
+    # this by merging LLM_BACKEND/LLM_API_KEY into that block or removing the
+    # OLLAMA_* prefix -- see the vLLM backend brief for the reasoning.
+    ConfigKey(
+        "LLM_BACKEND",
+        "llmBackend",
+        "str",
+        "ollama",
+        choices=("ollama", "vllm", "openai"),
+        home="env",
+    ),
+    # Defaults to the literal "ollama", the placeholder Ollama's own server
+    # ignores, so an existing install's request shape is unchanged.
+    ConfigKey("LLM_API_KEY", "llmApiKey", "str", "ollama", home="env"),
     # Bounds the local corpus-profiling pass behind the LLM attacks. That pass
     # is pure Python at roughly 135k lines/s, so an uncapped run over a 29 GB
     # hashmob dump takes hours and grows an unbounded distinct-password set;

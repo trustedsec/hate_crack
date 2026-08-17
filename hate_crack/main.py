@@ -1085,6 +1085,12 @@ ollamaNumCtx = int(config_parser.get("ollamaNumCtx", 8192))
 ollamaTimeout = float(config_parser.get("ollamaTimeout", 300))
 ollamaMaxSampleLines = int(config_parser.get("ollamaMaxSampleLines", 500))
 ollamaAutoResearch = bool(config_parser.get("ollamaAutoResearch", True))
+# Which OpenAI-compatible server the LLM attacks talk to (see llm.backend_extra_body
+# for why "vllm" and "openai" each need a different request shape) and the
+# credential it authenticates with. The ollama* settings above still supply
+# the host, model, timeout, context and sampling for every backend.
+llmBackend = config_parser.get("llmBackend", "ollama")
+llmApiKey = config_parser.get("llmApiKey", "ollama")
 
 hcatCorpusProfileMaxLines = int(config_parser.get("hcatCorpusProfileMaxLines", 5000000))
 omenMaxCandidates = int(config_parser.get("omenMaxCandidates", 100000000))
@@ -2527,6 +2533,33 @@ def hcatTopMask(hcatHashType, hcatHashFile, hcatTargetTime):
     hcatMaskCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
 
+def _llm_backend_label() -> str:
+    """The human-facing name for the configured LLM backend, for spinner text."""
+    return {
+        "ollama": "Ollama",
+        "vllm": "vLLM",
+        "openai": "an OpenAI-compatible server",
+    }.get(llmBackend, llmBackend)
+
+
+def _llm_connection_help() -> str:
+    """Backend-aware follow-up line for a failed LLM request.
+
+    Ollama gets the ``ollama serve`` / ``ollama pull`` guidance that always
+    applied here; a vLLM or generic OpenAI-compatible operator is not running
+    either of those tools, so telling them to would be actively misleading.
+    """
+    if llmBackend == "ollama":
+        return (
+            "Ensure Ollama is running (ollama serve) and the model is pulled "
+            f"(ollama pull {ollamaModel})."
+        )
+    return (
+        f"Ensure the configured {_llm_backend_label()} server at {ollamaUrl} is "
+        f"running and serving the model {ollamaModel!r}."
+    )
+
+
 # Rosetta Mask Attack: natural-language description -> hashcat masks
 def hcatRosettaMask(hcatHashType, hcatHashFile, description):
     """Turn a plain-English description into hashcat masks and run them.
@@ -2537,7 +2570,7 @@ def hcatRosettaMask(hcatHashType, hcatHashFile, description):
     attack against them immediately — mirroring ``hcatTopMask``'s tail.
     """
     try:
-        with spinner(f"Generating masks via Ollama ({ollamaModel})..."):
+        with spinner(f"Generating masks via {_llm_backend_label()} ({ollamaModel})..."):
             masks = llm.generate_masks(
                 ollamaUrl,
                 ollamaModel,
@@ -2545,9 +2578,13 @@ def hcatRosettaMask(hcatHashType, hcatHashFile, description):
                 description,
                 timeout=ollamaTimeout,
                 no_cloud=ollamaNoCloud,
+                backend=llmBackend,
+                api_key=llmApiKey,
             )
     except llm.LLMTimeoutError:
-        print(f"Error: the Ollama request timed out after {ollamaTimeout:g} seconds.")
+        print(
+            f"Error: the {_llm_backend_label()} request timed out after {ollamaTimeout:g} seconds."
+        )
         print(
             f"The model ({ollamaModel}) may still be loading into VRAM. Retry, or "
             "raise OLLAMA_TIMEOUT in the .env file to wait longer."
@@ -2555,10 +2592,7 @@ def hcatRosettaMask(hcatHashType, hcatHashFile, description):
         return
     except Exception as e:
         print(f"Error generating masks: {e}")
-        print(
-            "Ensure Ollama is running (ollama serve) and the model is pulled "
-            f"(ollama pull {ollamaModel})."
-        )
+        print(_llm_connection_help())
         return
 
     valid_masks = [mask for mask in masks if _valid_hcmask(mask)]
@@ -3206,7 +3240,9 @@ def hcatOllamaResearchTarget(company):
         return blank
 
     try:
-        with spinner(f"Researching {company} via Ollama ({ollamaModel})..."):
+        with spinner(
+            f"Researching {company} via {_llm_backend_label()} ({ollamaModel})..."
+        ):
             result = llm.research_target(
                 ollamaUrl,
                 ollamaModel,
@@ -3214,6 +3250,8 @@ def hcatOllamaResearchTarget(company):
                 company,
                 timeout=ollamaTimeout,
                 no_cloud=ollamaNoCloud,
+                backend=llmBackend,
+                api_key=llmApiKey,
             )
     except llm.LLMTimeoutError:
         print(
@@ -3269,7 +3307,9 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
 
     # Step B: generate candidates via the Atomic Agents module.
     try:
-        with spinner(f"Generating password candidates via Ollama ({ollamaModel})..."):
+        with spinner(
+            f"Generating password candidates via {_llm_backend_label()} ({ollamaModel})..."
+        ):
             candidates = llm.generate_candidates(
                 ollamaUrl,
                 ollamaModel,
@@ -3278,9 +3318,13 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
                 gen_context,
                 timeout=ollamaTimeout,
                 no_cloud=ollamaNoCloud,
+                backend=llmBackend,
+                api_key=llmApiKey,
             )
     except llm.LLMTimeoutError:
-        print(f"Error: the Ollama request timed out after {ollamaTimeout:g} seconds.")
+        print(
+            f"Error: the {_llm_backend_label()} request timed out after {ollamaTimeout:g} seconds."
+        )
         print(
             f"The model ({ollamaModel}) may still be loading into VRAM. Retry, or "
             "raise OLLAMA_TIMEOUT in the .env file to wait longer."
@@ -3293,10 +3337,7 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
         return
     except Exception as e:
         print(f"Error generating candidates: {e}")
-        print(
-            "Ensure Ollama is running (ollama serve) and the model is pulled "
-            f"(ollama pull {ollamaModel})."
-        )
+        print(_llm_connection_help())
         return
 
     if not candidates:
@@ -3441,7 +3482,7 @@ def _llm_pattern_rules(gen_context):
     seen = set()
     discarded = 0
     for attempt in range(1, MAX_RULE_REQUESTS + 1):
-        label = f"Inferring hashcat rules via Ollama ({ollamaModel})"
+        label = f"Inferring hashcat rules via {_llm_backend_label()} ({ollamaModel})"
         if attempt > 1:
             label += f" — retry {attempt - 1}, {len(rules)} rules so far"
         try:
@@ -3453,10 +3494,12 @@ def _llm_pattern_rules(gen_context):
                     gen_context,
                     timeout=ollamaTimeout,
                     no_cloud=ollamaNoCloud,
+                    backend=llmBackend,
+                    api_key=llmApiKey,
                 )
         except llm.LLMTimeoutError:
             print(
-                f"Error: the Ollama rule request timed out after {ollamaTimeout:g} s."
+                f"Error: the {_llm_backend_label()} rule request timed out after {ollamaTimeout:g} s."
             )
             return (None, 0) if attempt == 1 else (rules, discarded)
         except ValueError as e:
@@ -3508,7 +3551,9 @@ def hcatOllamaPatterns(hcatHashType, hcatHashFile, source_path):
         return
 
     try:
-        with spinner(f"Inferring password patterns via Ollama ({ollamaModel})..."):
+        with spinner(
+            f"Inferring password patterns via {_llm_backend_label()} ({ollamaModel})..."
+        ):
             raw_patterns = llm.generate_candidates(
                 ollamaUrl,
                 ollamaModel,
@@ -3517,9 +3562,13 @@ def hcatOllamaPatterns(hcatHashType, hcatHashFile, source_path):
                 gen_context,
                 timeout=ollamaTimeout,
                 no_cloud=ollamaNoCloud,
+                backend=llmBackend,
+                api_key=llmApiKey,
             )
     except llm.LLMTimeoutError:
-        print(f"Error: the Ollama request timed out after {ollamaTimeout:g} seconds.")
+        print(
+            f"Error: the {_llm_backend_label()} request timed out after {ollamaTimeout:g} seconds."
+        )
         print(
             f"The model ({ollamaModel}) may still be loading into VRAM. Retry, or "
             "raise OLLAMA_TIMEOUT in the .env file to wait longer."
@@ -3530,10 +3579,7 @@ def hcatOllamaPatterns(hcatHashType, hcatHashFile, source_path):
         return
     except Exception as e:
         print(f"Error inferring patterns: {e}")
-        print(
-            "Ensure Ollama is running (ollama serve) and the model is pulled "
-            f"(ollama pull {ollamaModel})."
-        )
+        print(_llm_connection_help())
         return
 
     seen = set()

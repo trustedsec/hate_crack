@@ -56,6 +56,8 @@ def test_writes_hcmask_file_and_runs_mask_attack(tmp_path):
         "8 char passwords with digits",
         timeout=300.0,
         no_cloud=False,
+        backend="ollama",
+        api_key="ollama",
     )
     hcmask_path = f"{hash_file}.hcmask"
     assert os.path.isfile(hcmask_path)

@@ -60,6 +60,15 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ),
     ),
     (
+        "LLM backend selector (ollama/vllm/openai) and its API key. The\n"
+        "# OLLAMA_* settings above still supply the host, model, timeout,\n"
+        "# context and sampling for every backend -- LLM_BACKEND only picks how\n"
+        "# the request is shaped. LLM_API_KEY defaults to the literal 'ollama',\n"
+        "# the placeholder Ollama's own server ignores, so an existing install\n"
+        "# is unaffected.",
+        ("LLM_BACKEND", "LLM_API_KEY"),
+    ),
+    (
         "pipal (an external tool hate_crack does not ship)",
         ("PIPAL_PATH", "PIPAL_COUNT"),
     ),
