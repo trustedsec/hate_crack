@@ -10,6 +10,7 @@ all come from HashcatRosetta itself instead of a second, hand-maintained
 copy that would drift from it.
 """
 
+import inspect
 import ipaddress
 import os
 import socket
@@ -83,26 +84,42 @@ class LLMTimeoutError(Exception):
 
 
 class RosettaBackendRefused(RuntimeError):
-    """``generate_masks`` was asked to use a backend other than ``"ollama"``.
+    """``generate_masks`` was asked to use a non-Ollama backend on a
+    HashcatRosetta checkout that predates ``think``/``extra_request_body``
+    support in ``nlmask.generate_masks()``.
+
+    Originally this meant "the backend itself is unsupported" -- upstream
+    ``nlmask.py`` hardcoded Ollama's ``think`` toggle on, which is backwards
+    for a vLLM server running a reasoning parser. That has been fixed
+    upstream (see ``rosetta_backend_kwargs``), so this exception now guards a
+    narrower case: an operator whose ``HashcatRosetta`` submodule is older
+    than the fix still needs a clear message instead of a raw
+    ``TypeError: unexpected keyword argument 'think'``.
 
     A ``RuntimeError`` subclass, not a fresh base ``Exception``, so the
     existing ``rosetta_mask_unavailable_reason()`` failure mode (also a plain
     ``RuntimeError``, for "HashcatRosetta is not installed") and any caller
     that already catches ``RuntimeError`` around this function keep working
-    unchanged. Callers that want to tell "wrong backend" apart from "generic
-    failure" -- to avoid following a precise refusal with unrelated
+    unchanged. Callers that want to tell "submodule too old" apart from
+    "generic failure" -- to avoid following a precise refusal with unrelated
     connectivity advice -- can catch this subclass specifically before the
     broader ``RuntimeError``/``Exception``.
     """
 
     def __init__(self, backend: str) -> None:
         self.backend = backend
+        # Deliberately avoids the words "update" and "set" appearing together
+        # in this message -- bandit's B608 hardcoded-SQL heuristic matches
+        # `update\s.*set\s` case-insensitively against any f-string content,
+        # and "Update the submodule ... or set LLM_BACKEND=ollama" tripped
+        # that false positive even though nothing here touches a database.
         super().__init__(
-            f"The Rosetta mask attack currently requires the Ollama backend, "
-            f"not {backend!r}: HashcatRosetta's nlmask.py hardcodes Ollama's "
-            "'think' toggle, which is backwards for other OpenAI-compatible "
-            "servers. Set LLM_BACKEND=ollama to use this attack, or wait for "
-            "an upstream HashcatRosetta fix."
+            f"The Rosetta mask attack cannot use the {backend!r} backend with "
+            "this HashcatRosetta checkout: it predates the "
+            "think/extra_request_body parameters nlmask.generate_masks() "
+            "needs to talk to a non-Ollama server. Refresh the submodule "
+            "(git submodule update --remote HashcatRosetta, or make "
+            "submodules) to use this backend, or configure LLM_BACKEND=ollama."
         )
 
 
@@ -708,6 +725,53 @@ def backend_extra_body(backend: str, num_ctx: int) -> dict[str, Any]:
     )
 
 
+def rosetta_backend_kwargs(backend: str, num_ctx: int) -> dict[str, Any]:
+    """Build the keyword arguments to hand ``hashcat_rosetta.nlmask.generate_masks``
+    for *backend*.
+
+    This is ``backend_extra_body``'s counterpart for the Rosetta mask path:
+    that function shapes an ``extra_body`` dict for this module's own
+    Atomic-Agents requests, while ``nlmask.generate_masks`` takes ``think``
+    and ``extra_request_body`` as its own keyword parameters instead (added
+    upstream specifically so a non-Ollama caller can turn Ollama's ``think``
+    toggle off -- see that function's docstring for why a reasoning-capable
+    model routes its whole structured response into ``message.reasoning``,
+    leaving ``message.content`` empty, when ``think`` is left on for a
+    server other than Ollama).
+
+    - ``"ollama"``: ``{"extra_options": {"num_ctx": num_ctx}}`` -- today's
+      behaviour exactly. ``think`` is deliberately not passed here at all,
+      leaving it at ``nlmask.generate_masks``'s own default (``True``), which
+      is what keeps this path byte-identical to before this function existed.
+    - ``"vllm"``: ``{"think": False, "extra_request_body":
+      {"chat_template_kwargs": {"thinking": False}}}``. No ``extra_options``
+      -- Ollama's ``options`` field is inert on vLLM (accepted and ignored,
+      HTTP 200 not 400), so sending it would only be noise. ``"thinking"`` is
+      the verified-correct key; the superficially similar
+      ``"enable_thinking"`` is WRONG -- on at least one DeepSeek chat
+      template it does not error, it silently returns an empty JSON object,
+      which is a worse failure than a hard one.
+    - ``"openai"``: ``{"think": False}`` only. A generic OpenAI-compatible
+      server has no thinking toggle to set via ``extra_request_body`` and no
+      Ollama ``options`` to receive.
+
+    Raises ``ValueError`` naming the value and the valid set for anything
+    else, matching ``backend_extra_body``'s behaviour.
+    """
+    if backend == "ollama":
+        return {"extra_options": {"num_ctx": num_ctx}}
+    if backend == "vllm":
+        return {
+            "think": False,
+            "extra_request_body": {"chat_template_kwargs": {"thinking": False}},
+        }
+    if backend == "openai":
+        return {"think": False}
+    raise ValueError(
+        f"Unknown LLM backend {backend!r}; expected one of {KNOWN_BACKENDS}"
+    )
+
+
 #: LLM_API_KEY's own schema default (config_schema.py) -- the placeholder
 #: Ollama's server ignores. Re-substituted here for an empty/whitespace-only
 #: value so it stays out of SECRET_ENV_KEYS (that set's contract is "ships
@@ -997,31 +1061,33 @@ def generate_masks(
     callers need to run before handing the file to hashcat.
 
     ``backend`` and ``api_key`` are keyword-only with no default, mirroring
-    the other three entry points -- but here ``backend`` may *only* be
-    ``"ollama"``. HashcatRosetta's ``nlmask.py`` hardcodes
-    ``extra_body = {"think": True}``, Ollama's own thinking toggle, which is
-    exactly backwards for vLLM (it would keep the reasoning-parser payload
-    routed into ``message.reasoning`` rather than ``message.content``, the
-    same failure ``backend_extra_body``'s vLLM branch exists to avoid
-    elsewhere in this module). That is upstream HashcatRosetta code this
-    module does not own, so it is not patched around here -- any other
-    backend is refused outright with a clear, specific error instead of
-    reaching a downstream JSON-parse failure the operator cannot interpret.
+    the other three entry points, and all three known backends work here --
+    ``rosetta_backend_kwargs`` shapes the ``think``/``extra_request_body``
+    keywords ``nlmask.generate_masks`` added upstream specifically so a
+    non-Ollama caller can turn Ollama's ``think`` toggle off (it is exactly
+    backwards for vLLM: left on, it keeps a reasoning-parser payload routed
+    into ``message.reasoning`` rather than ``message.content``, the same
+    failure ``backend_extra_body``'s vLLM branch exists to avoid elsewhere in
+    this module). If the installed ``HashcatRosetta`` submodule predates
+    those parameters, a non-Ollama backend still raises
+    RosettaBackendRefused -- detected via ``inspect.signature`` rather than
+    attempted and caught, so the operator gets a clear "update the
+    submodule" message instead of a raw
+    ``TypeError: unexpected keyword argument 'think'``. The Ollama path is
+    never guarded this way: an old submodule still works fine for it.
 
     Raises LLMTimeoutError if the request exceeds ``timeout``,
     CloudModelRefused when ``no_cloud`` rules out ``model``,
     CloudDestinationRefused when ``no_cloud`` rules out ``url``, RuntimeError
     if HashcatRosetta itself is unavailable (see
     ``rosetta_mask_unavailable_reason``), RosettaBackendRefused (itself a
-    RuntimeError subclass) if ``backend`` is not ``"ollama"``; other
-    client/connection errors propagate as HashcatRosetta's own
+    RuntimeError subclass) if ``backend`` is not ``"ollama"`` and the
+    installed HashcatRosetta submodule lacks ``think``/``extra_request_body``
+    support; other client/connection errors propagate as HashcatRosetta's own
     MaskGenerationError.
     """
     ensure_model_allowed(model, no_cloud=no_cloud)
     ensure_destination_allowed(url, no_cloud=no_cloud)
-
-    if backend != "ollama":
-        raise RosettaBackendRefused(backend)
 
     # The three names are always set together in the single try/except above
     # (all real or all None) -- checking all three, not just the one this
@@ -1034,6 +1100,14 @@ def generate_masks(
     ):
         raise RuntimeError(rosetta_mask_unavailable_reason())
 
+    if backend != "ollama":
+        supported_params = inspect.signature(_rosetta_generate_masks).parameters
+        if (
+            "think" not in supported_params
+            or "extra_request_body" not in supported_params
+        ):
+            raise RosettaBackendRefused(backend)
+
     client = OpenAI(
         base_url=f"{url}/v1", api_key=_resolve_api_key(api_key), timeout=timeout
     )
@@ -1043,7 +1117,7 @@ def generate_masks(
             description,
             model=model,
             client=client,
-            extra_options={"num_ctx": num_ctx},
+            **rosetta_backend_kwargs(backend, num_ctx),
         )
     except _RosettaMaskGenerationError as e:
         # HashcatRosetta wraps every request failure (including a plain

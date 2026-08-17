@@ -12,7 +12,7 @@ from hate_crack.api import (
 )
 from hate_crack.formatting import print_multicolumn_list
 from hate_crack.hashcat_paths import hashcat_major_version
-from hate_crack.llm import RosettaBackendRefused, clean_research_field
+from hate_crack.llm import clean_research_field
 from hate_crack.menu import interactive_menu
 
 
@@ -645,12 +645,6 @@ def rosetta_attack(ctx: Any) -> None:
         return
 
     if choice == "4":
-        if ctx.llmBackend != "ollama":
-            # Refuse before asking for a description or a notify preference --
-            # llm.generate_masks() would refuse anyway (see
-            # RosettaBackendRefused), but only after both prompts.
-            print(f"[!] {RosettaBackendRefused(ctx.llmBackend)}")
-            return
         description = input(
             "\n[*] Describe the passwords you expect (patterns, length, "
             "symbols, etc.): "

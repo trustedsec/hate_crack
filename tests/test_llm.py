@@ -762,33 +762,152 @@ def test_generate_candidates_forwards_backend_and_api_key():
 
 
 # ---------------------------------------------------------------------------
-# generate_masks refuses any backend other than "ollama"
+# rosetta_backend_kwargs
+# ---------------------------------------------------------------------------
+
+
+def test_rosetta_backend_kwargs_ollama_uses_extra_options_and_no_think():
+    kwargs = llm.rosetta_backend_kwargs("ollama", 4096)
+    assert kwargs == {"extra_options": {"num_ctx": 4096}}
+    # Deliberately absent: leaving nlmask.generate_masks()'s own think
+    # default (True) untouched is what keeps this path byte-identical to
+    # before this function existed.
+    assert "think" not in kwargs
+
+
+def test_rosetta_backend_kwargs_vllm_disables_thinking_and_omits_extra_options():
+    kwargs = llm.rosetta_backend_kwargs("vllm", 4096)
+    assert kwargs["think"] is False
+    thinking_kwargs = kwargs["extra_request_body"]["chat_template_kwargs"]
+    assert thinking_kwargs["thinking"] is False
+    # Regression guard: no leaked Ollama-shaped field, and not the wrong key.
+    assert "extra_options" not in kwargs
+    assert "enable_thinking" not in thinking_kwargs
+
+
+def test_rosetta_backend_kwargs_openai_disables_thinking_only():
+    assert llm.rosetta_backend_kwargs("openai", 4096) == {"think": False}
+
+
+def test_rosetta_backend_kwargs_rejects_unknown_backend():
+    with pytest.raises(ValueError, match="bogus"):
+        llm.rosetta_backend_kwargs("bogus", 4096)
+
+
+# ---------------------------------------------------------------------------
+# generate_masks: no longer refuses vllm/openai, forwards backend kwargs,
+# and still guards a HashcatRosetta submodule too old to accept them.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("backend", ["vllm", "openai"])
-def test_generate_masks_refuses_non_ollama_backend(backend):
-    """HashcatRosetta's nlmask.py hardcodes Ollama's own thinking toggle, which
-    is backwards for vLLM -- see generate_masks()'s docstring. A precise
-    refusal here beats a downstream JSON-parse failure.
+def test_generate_masks_no_longer_refuses_non_ollama_backend(monkeypatch, backend):
+    """The upstream fix (think/extra_request_body params on
+    nlmask.generate_masks) landed, so a current HashcatRosetta checkout must
+    not be refused for vllm/openai any more.
     """
-    with pytest.raises(RuntimeError, match="requires the Ollama backend"):
-        llm.generate_masks(
-            "http://localhost:8000",
-            "qwen2.5:32b",
-            2048,
-            "pins",
-            no_cloud=False,
-            backend=backend,
-            api_key="sk-real-vllm-key",
-        )
+
+    def current_signature_stub(
+        description,
+        *,
+        model,
+        client,
+        extra_options=None,
+        think=True,
+        extra_request_body=None,
+    ):
+        return []
+
+    monkeypatch.setattr(llm, "_rosetta_generate_masks", current_signature_stub)
+
+    out = llm.generate_masks(
+        "http://localhost:8000",
+        "qwen2.5:32b",
+        2048,
+        "pins",
+        no_cloud=False,
+        backend=backend,
+        api_key="sk-real-vllm-key",
+    )
+    assert out == []
 
 
-def test_generate_masks_refuses_non_ollama_backend_with_specific_exception_type():
-    """The refusal is RosettaBackendRefused, not a bare RuntimeError, so a
-    caller (hcatRosettaMask) can print it alone without the generic
-    connection-help follow-up meant for real connectivity failures.
+def test_generate_masks_forwards_vllm_kwargs_to_rosetta(monkeypatch):
+    captured = {}
+
+    def fake_generate_masks(
+        description,
+        *,
+        model,
+        client,
+        extra_options=None,
+        think=True,
+        extra_request_body=None,
+    ):
+        if extra_options is not None:
+            captured["extra_options"] = extra_options
+        if think is not True:
+            captured["think"] = think
+        if extra_request_body is not None:
+            captured["extra_request_body"] = extra_request_body
+        return []
+
+    monkeypatch.setattr(llm, "_rosetta_generate_masks", fake_generate_masks)
+
+    llm.generate_masks(
+        "http://localhost:8000",
+        "qwen2.5:32b",
+        2048,
+        "pins",
+        no_cloud=False,
+        backend="vllm",
+        api_key="sk-real-vllm-key",
+    )
+
+    assert captured["think"] is False
+    assert captured["extra_request_body"] == {
+        "chat_template_kwargs": {"thinking": False}
+    }
+    assert "extra_options" not in captured
+
+
+def test_generate_masks_forwards_ollama_kwargs_without_think(monkeypatch):
+    captured = {}
+
+    def fake_generate_masks(description, *, model, client, **kwargs):
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr(llm, "_rosetta_generate_masks", fake_generate_masks)
+
+    llm.generate_masks(
+        "http://localhost:11434",
+        "qwen2.5:32b",
+        2048,
+        "pins",
+        no_cloud=False,
+        backend="ollama",
+        api_key="ollama",
+    )
+
+    assert captured == {"extra_options": {"num_ctx": 2048}}
+    assert "think" not in captured
+
+
+def test_generate_masks_capability_guard_refuses_old_submodule_for_non_ollama(
+    monkeypatch,
+):
+    """A stubbed _rosetta_generate_masks whose signature lacks
+    think/extra_request_body must raise RosettaBackendRefused for a
+    non-ollama backend -- this is the "submodule too old" meaning the
+    exception now carries.
     """
+
+    def old_signature_stub(description, *, model, client, extra_options=None):
+        return []
+
+    monkeypatch.setattr(llm, "_rosetta_generate_masks", old_signature_stub)
+
     with pytest.raises(llm.RosettaBackendRefused) as exc:
         llm.generate_masks(
             "http://localhost:8000",
@@ -803,6 +922,27 @@ def test_generate_masks_refuses_non_ollama_backend_with_specific_exception_type(
     # (including the "HashcatRosetta is unavailable" case) keep working.
     assert isinstance(exc.value, RuntimeError)
     assert exc.value.backend == "vllm"
+
+
+def test_generate_masks_capability_guard_does_not_apply_to_ollama(monkeypatch):
+    """An old submodule signature (missing think/extra_request_body) must not
+    break the Ollama path, which never needed those parameters."""
+
+    def old_signature_stub(description, *, model, client, extra_options=None):
+        return []
+
+    monkeypatch.setattr(llm, "_rosetta_generate_masks", old_signature_stub)
+
+    out = llm.generate_masks(
+        "http://localhost:11434",
+        "qwen2.5:32b",
+        2048,
+        "pins",
+        no_cloud=False,
+        backend="ollama",
+        api_key="ollama",
+    )
+    assert out == []
 
 
 # ---------------------------------------------------------------------------

@@ -719,6 +719,24 @@ class TestRosettaAttack:
             ctx.hcatHashType, ctx.hcatHashFile, "8 char passwords with digits"
         )
 
+    def test_mask_choice_on_vllm_backend_reaches_the_prompt(self) -> None:
+        """The pre-flight `ctx.llmBackend != "ollama"` gate is gone (#275) --
+        llm.generate_masks() now supports vllm/openai via
+        rosetta_backend_kwargs, so rosetta_attack must prompt for a
+        description and call hcatRosettaMask instead of short-circuiting."""
+        ctx = _make_ctx()
+        ctx.llmBackend = "vllm"
+
+        with (
+            patch("hate_crack.attacks.interactive_menu", return_value="4"),
+            patch("builtins.input", return_value="8 char passwords with digits"),
+        ):
+            rosetta_attack(ctx)
+
+        ctx.hcatRosettaMask.assert_called_once_with(
+            ctx.hcatHashType, ctx.hcatHashFile, "8 char passwords with digits"
+        )
+
     def test_mask_choice_with_blank_description_does_not_call_hcatRosettaMask(
         self,
     ) -> None:

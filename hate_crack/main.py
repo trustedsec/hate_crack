@@ -2569,16 +2569,14 @@ def hcatRosettaMask(hcatHashType, hcatHashFile, description):
     the survivors to ``<hcatHashFile>.hcmask``, and runs a ``-a 3`` mask
     attack against them immediately — mirroring ``hcatTopMask``'s tail.
 
-    ``llm.generate_masks`` itself refuses any backend but ``"ollama"`` (see
-    ``llm.RosettaBackendRefused``), but that check is duplicated here, ahead
-    of the spinner, so a misconfigured backend is reported instantly instead
-    of after a "Generating masks via vLLM..." spinner for a request that was
-    never going to be sent.
+    All three configured backends (Ollama, vLLM, an OpenAI-compatible server)
+    are supported -- ``llm.generate_masks`` shapes the request per backend via
+    ``llm.rosetta_backend_kwargs``. If the installed HashcatRosetta submodule
+    predates the ``think``/``extra_request_body`` parameters that requires,
+    ``llm.generate_masks`` still raises ``llm.RosettaBackendRefused`` for a
+    non-Ollama backend, caught below with a message telling the operator to
+    update the submodule.
     """
-    if llmBackend != "ollama":
-        print(f"Error: {llm.RosettaBackendRefused(llmBackend)}")
-        return
-
     destination_warning = llm.offsite_destination_warning(
         ollamaUrl, llmBackend, no_cloud=ollamaNoCloud
     )
@@ -2610,8 +2608,10 @@ def hcatRosettaMask(hcatHashType, hcatHashFile, description):
         # A precise, self-contained refusal -- printing the generic
         # connection-help line after it would tell the operator to go check
         # a server that is not the problem (the exact failure mode this
-        # exception type exists to prevent). Reached only if llmBackend
-        # somehow changed between the guard above and this call.
+        # exception type exists to prevent). Reached when llmBackend is not
+        # "ollama" and the installed HashcatRosetta submodule predates the
+        # think/extra_request_body parameters that backend needs; the
+        # message tells the operator to update the submodule.
         print(f"Error: {e}")
         return
     except llm.CloudDestinationRefused as e:
