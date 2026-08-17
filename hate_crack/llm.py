@@ -10,9 +10,13 @@ all come from HashcatRosetta itself instead of a second, hand-maintained
 copy that would drift from it.
 """
 
+import ipaddress
 import os
+import socket
 import sys
+from collections.abc import Callable
 from typing import Any
+from urllib.parse import urlsplit
 
 import instructor
 from openai import APITimeoutError, OpenAI
@@ -139,6 +143,141 @@ def ensure_model_allowed(model: str, *, no_cloud: bool) -> None:
     """
     if no_cloud and is_cloud_model(model):
         raise CloudModelRefused(model)
+
+
+# Hostnames that never leave this host or its local network regardless of what
+# they resolve to (or whether they resolve at all) -- these are conventional
+# local-only TLDs/suffixes (RFC 6762's ".local" plus the common ".internal",
+# ".lan", ".localdomain" conventions), not something DNS resolution could ever
+# contradict.
+_LOCAL_HOST_SUFFIXES = (".local", ".internal", ".lan", ".localdomain")
+
+
+def _default_resolve(host: str) -> list[str]:
+    """Resolve *host* to its address strings via ``socket.getaddrinfo``.
+
+    Returns an empty list (never raises) for a name that does not resolve --
+    the module-level default the ``resolve`` parameter falls back to, so a
+    failure surfaces as "no addresses" and lets the fail-closed rule in
+    ``is_offsite_url`` handle it uniformly with an injected resolver that
+    returns ``[]`` for the same case.
+    """
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except OSError:
+        return []
+    # sockaddr's first element is typed str | int in typeshed (the port slot
+    # in the same tuple shape), even though it is always the address string
+    # in practice -- str() is a no-op at runtime and satisfies the checker.
+    return [str(info[4][0]) for info in infos]
+
+
+def _is_local_address(addr: str) -> bool | None:
+    """Is *addr* loopback, private, or link-local? ``None`` if unparseable."""
+    try:
+        parsed = ipaddress.ip_address(addr)
+    except ValueError:
+        return None
+    return parsed.is_loopback or parsed.is_private or parsed.is_link_local
+
+
+def is_offsite_url(
+    url: str, *, resolve: Callable[[str], list[str]] | None = None
+) -> bool:
+    """Does *url* name a destination outside this host/network?
+
+    Used to decide whether a configured LLM endpoint is safe for
+    ``OLLAMA_NO_CLOUD`` purposes. The hostname is extracted with
+    ``urllib.parse.urlsplit`` (this also strips brackets from a literal IPv6
+    host like ``[::1]``):
+
+    - An empty or unparseable host is **not** offsite -- it cannot be reached
+      at all, so there is nothing to refuse.
+    - ``localhost``, and anything ending in ``.local``, ``.internal``,
+      ``.lan``, or ``.localdomain``, is never offsite.
+    - An IP literal is offsite iff it is not loopback, private, or link-local
+      (covers IPv4 and IPv6).
+    - Anything else is resolved -- via *resolve* if given, else a default that
+      wraps ``socket.getaddrinfo`` -- and is offsite iff *any* resolved
+      address is neither loopback, private, nor link-local. A hostname that
+      resolves to a mix of private and global addresses is treated as
+      offsite: one global address is enough for the prompt to leave.
+    - **A hostname that fails to resolve (or resolves to nothing) is treated
+      as offsite.** This is deliberate fail-closed behaviour: an operator who
+      set ``OLLAMA_NO_CLOUD=true`` asked for "nothing leaves this host", and
+      refusing a destination this function cannot verify honours that request
+      better than silently allowing it through.
+
+    *resolve* exists so callers (and tests) never need real DNS: pass a stub
+    returning canned address lists instead of touching the network.
+    """
+    host = urlsplit(url).hostname
+    if not host:
+        return False
+    host = host.lower()
+    if host == "localhost" or host.endswith(_LOCAL_HOST_SUFFIXES):
+        return False
+
+    local = _is_local_address(host)
+    if local is not None:
+        return not local
+
+    resolver = resolve if resolve is not None else _default_resolve
+    addresses = resolver(host)
+    if not addresses:
+        return True  # Fail closed: unresolvable.
+
+    for addr in addresses:
+        local = _is_local_address(addr)
+        if local is False:
+            return True  # Any global address is enough to call this offsite.
+    return False
+
+
+class CloudDestinationRefused(Exception):
+    """``OLLAMA_NO_CLOUD`` is set and the configured destination is offsite."""
+
+    def __init__(self, url: str) -> None:
+        self.url = url
+        super().__init__(
+            f"{url!r} looks like it is off this host/network and OLLAMA_NO_CLOUD "
+            "is set. Prompts carry client corpus and target details, so this "
+            "request was not sent. Point the configured backend at a local or "
+            "private destination, or unset OLLAMA_NO_CLOUD in your .env."
+        )
+
+
+def ensure_destination_allowed(url: str, *, no_cloud: bool) -> None:
+    """Raise :class:`CloudDestinationRefused` for an offsite *url* when *no_cloud*.
+
+    Called by every public entry point in this module, immediately after
+    ``ensure_model_allowed``, so this guard cannot be bypassed by reaching past
+    ``main.py`` either. ``no_cloud`` is keyword-only with no default for the
+    same reason ``ensure_model_allowed`` is: a new call site has to state its
+    policy instead of silently inheriting a permissive one.
+    """
+    if no_cloud and is_offsite_url(url):
+        raise CloudDestinationRefused(url)
+
+
+def offsite_destination_warning(url: str, backend: str) -> str | None:
+    """Operator-facing warning text for an offsite *url*, else ``None``.
+
+    Returns a string rather than printing -- this module does no I/O today and
+    must not start; ``main.py`` prints it. Deliberately independent of
+    ``OLLAMA_NO_CLOUD``: with the guard off (the default), a refusal would help
+    nobody who has not already opted in, so this is the other half of that
+    pair -- tell the operator plainly that engagement data is about to leave
+    the host, and name the setting that would have stopped it.
+    """
+    if not is_offsite_url(url):
+        return None
+    return (
+        f"Warning: {url!r} looks like it is off this host/network. Prompts to "
+        f"the {backend} backend carry sampled recovered plaintexts and client "
+        "target details, and they will be sent there. Set OLLAMA_NO_CLOUD=true "
+        "in your .env to refuse this instead."
+    )
 
 
 class GenerationInput(BaseIOSchema):
@@ -596,10 +735,12 @@ def research_target(
     Uses only the configured local model server — no web lookups, so the client
     name never leaves the host. Raises LLMTimeoutError if the request exceeds
     ``timeout``, CloudModelRefused when ``no_cloud`` rules out ``model``,
-    ValueError for an unknown ``backend``; other client/connection errors
-    propagate to the caller.
+    CloudDestinationRefused when ``no_cloud`` rules out ``url``, ValueError
+    for an unknown ``backend``; other client/connection errors propagate to
+    the caller.
     """
     ensure_model_allowed(model, no_cloud=no_cloud)
+    ensure_destination_allowed(url, no_cloud=no_cloud)
     client = _build_client(url, api_key, timeout)
     extra_body = backend_extra_body(backend, num_ctx)
 
@@ -651,11 +792,13 @@ def generate_candidates(
 
     Returns a deduped, length-capped list of candidate strings (may be empty).
     Raises ValueError for an unknown mode or an unknown ``backend``,
-    LLMTimeoutError if the request exceeds ``timeout``, and CloudModelRefused
-    when ``no_cloud`` rules out ``model``. Other client/connection errors
-    propagate to the caller.
+    LLMTimeoutError if the request exceeds ``timeout``, CloudModelRefused
+    when ``no_cloud`` rules out ``model``, and CloudDestinationRefused when
+    ``no_cloud`` rules out ``url``. Other client/connection errors propagate
+    to the caller.
     """
     ensure_model_allowed(model, no_cloud=no_cloud)
+    ensure_destination_allowed(url, no_cloud=no_cloud)
     request = _build_request(mode, context_data)
 
     client = _build_client(url, api_key, timeout)
@@ -721,11 +864,13 @@ def generate_rules(
     silently rather than reported.
 
     Raises LLMTimeoutError if the request exceeds ``timeout``,
-    CloudModelRefused when ``no_cloud`` rules out ``model``, ValueError for an
-    unknown ``backend``; other client/connection errors propagate to the
-    caller.
+    CloudModelRefused when ``no_cloud`` rules out ``model``,
+    CloudDestinationRefused when ``no_cloud`` rules out ``url``, ValueError
+    for an unknown ``backend``; other client/connection errors propagate to
+    the caller.
     """
     ensure_model_allowed(model, no_cloud=no_cloud)
+    ensure_destination_allowed(url, no_cloud=no_cloud)
     request = _build_request("rules", context_data)
     client = _build_client(url, api_key, timeout)
     extra_body = backend_extra_body(backend, num_ctx)
@@ -811,14 +956,16 @@ def generate_masks(
     reaching a downstream JSON-parse failure the operator cannot interpret.
 
     Raises LLMTimeoutError if the request exceeds ``timeout``,
-    CloudModelRefused when ``no_cloud`` rules out ``model``, RuntimeError if
-    HashcatRosetta itself is unavailable (see
+    CloudModelRefused when ``no_cloud`` rules out ``model``,
+    CloudDestinationRefused when ``no_cloud`` rules out ``url``, RuntimeError
+    if HashcatRosetta itself is unavailable (see
     ``rosetta_mask_unavailable_reason``), RosettaBackendRefused (itself a
     RuntimeError subclass) if ``backend`` is not ``"ollama"``; other
     client/connection errors propagate as HashcatRosetta's own
     MaskGenerationError.
     """
     ensure_model_allowed(model, no_cloud=no_cloud)
+    ensure_destination_allowed(url, no_cloud=no_cloud)
 
     if backend != "ollama":
         raise RosettaBackendRefused(backend)

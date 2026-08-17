@@ -2579,6 +2579,10 @@ def hcatRosettaMask(hcatHashType, hcatHashFile, description):
         print(f"Error: {llm.RosettaBackendRefused(llmBackend)}")
         return
 
+    destination_warning = llm.offsite_destination_warning(ollamaUrl, llmBackend)
+    if destination_warning is not None:
+        print(destination_warning)
+
     try:
         with spinner(f"Generating masks via {_llm_backend_label()} ({ollamaModel})..."):
             masks = llm.generate_masks(
@@ -2606,6 +2610,12 @@ def hcatRosettaMask(hcatHashType, hcatHashFile, description):
         # a server that is not the problem (the exact failure mode this
         # exception type exists to prevent). Reached only if llmBackend
         # somehow changed between the guard above and this call.
+        print(f"Error: {e}")
+        return
+    except llm.CloudDestinationRefused as e:
+        # Same reasoning as the RosettaBackendRefused branch above: a precise,
+        # self-contained refusal, not a connectivity problem, so the generic
+        # connection-help line below would be misleading.
         print(f"Error: {e}")
         return
     except Exception as e:
@@ -3250,13 +3260,18 @@ def hcatOllamaResearchTarget(company):
     failed. Never raises: research is a convenience, so any failure degrades to
     empty suggestions (blank prompts) rather than blocking the attack.
 
-    Uses only the configured local server (Ollama, vLLM, or another
-    OpenAI-compatible server) — the company name is never sent to a
-    third-party service.
+    Uses the configured local server (Ollama, vLLM, or another
+    OpenAI-compatible server) — see ``OLLAMA_NO_CLOUD`` for the guard that
+    keeps the company name from reaching a cloud model or an offsite
+    destination.
     """
     blank = {"industry": "", "location": "", "parent_company": ""}
     if not ollamaAutoResearch or not company:
         return blank
+
+    destination_warning = llm.offsite_destination_warning(ollamaUrl, llmBackend)
+    if destination_warning is not None:
+        print(destination_warning)
 
     try:
         with spinner(
@@ -3278,6 +3293,9 @@ def hcatOllamaResearchTarget(company):
             "enter the details manually."
         )
         return blank
+    except llm.CloudDestinationRefused as e:
+        print(f"Note: {e} Enter the details manually.")
+        return blank
     except Exception as e:
         print(f"Note: target research unavailable ({e}) — enter the details manually.")
         return blank
@@ -3291,6 +3309,10 @@ def hcatOllamaResearchTarget(company):
 
 # LLM Ollama Attack
 def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
+    destination_warning = llm.offsite_destination_warning(ollamaUrl, llmBackend)
+    if destination_warning is not None:
+        print(destination_warning)
+
     candidates_path = f"{hcatHashFile}.ollama_candidates"
 
     # Step A: normalize context into the dict generate_candidates expects.
@@ -3352,6 +3374,11 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
     except ValueError as e:
         # Defensive: mode is already validated above, but keep an explicit,
         # non-misleading message if generate_candidates ever rejects its input.
+        print(f"Error: {e}")
+        return
+    except llm.CloudDestinationRefused as e:
+        # A precise, self-contained refusal, not a connectivity problem, so
+        # the generic connection-help line below would be misleading.
         print(f"Error: {e}")
         return
     except Exception as e:
@@ -3496,6 +3523,11 @@ def _llm_pattern_rules(gen_context):
     Validation is not optional. hashcat drops an invalid rule silently when the
     file also holds valid ones, so an unscreened bad line becomes missing
     coverage the operator never hears about rather than an error.
+
+    Not a standalone operator entry point -- only ``hcatOllamaPatterns`` calls
+    this, and it has already printed ``llm.offsite_destination_warning`` once
+    for the whole (patterns + rules) request pair, so this function does not
+    print it again.
     """
     rules = []
     seen = set()
@@ -3522,6 +3554,9 @@ def _llm_pattern_rules(gen_context):
             )
             return (None, 0) if attempt == 1 else (rules, discarded)
         except ValueError as e:
+            print(f"Error: {e}")
+            return (None, 0) if attempt == 1 else (rules, discarded)
+        except llm.CloudDestinationRefused as e:
             print(f"Error: {e}")
             return (None, 0) if attempt == 1 else (rules, discarded)
         except Exception as e:
@@ -3561,6 +3596,10 @@ def hcatOllamaPatterns(hcatHashType, hcatHashFile, source_path):
     back to running the basewords bare rather than aborting a run whose
     expensive half already succeeded.
     """
+    destination_warning = llm.offsite_destination_warning(ollamaUrl, llmBackend)
+    if destination_warning is not None:
+        print(destination_warning)
+
     if not os.path.isfile(source_path):
         print(f"Error: pattern source not found: {source_path}")
         return
@@ -3594,6 +3633,9 @@ def hcatOllamaPatterns(hcatHashType, hcatHashFile, source_path):
         )
         return
     except ValueError as e:
+        print(f"Error: {e}")
+        return
+    except llm.CloudDestinationRefused as e:
         print(f"Error: {e}")
         return
     except Exception as e:
