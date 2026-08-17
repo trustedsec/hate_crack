@@ -166,6 +166,62 @@ def test_generic_generation_error_prints_message_and_skips_hashcat_run(
     assert "ollama" in out
 
 
+def test_vllm_backend_is_refused_before_the_spinner_or_any_request(tmp_path, capsys):
+    """The Rosetta mask attack requires LLM_BACKEND=ollama (HashcatRosetta's
+    nlmask.py hardcodes Ollama's own thinking toggle). hcatRosettaMask must
+    say so immediately -- never call llm.generate_masks, never print a
+    "Generating masks via vLLM..." spinner for a request that was never
+    going to be sent.
+    """
+    hash_file = tmp_path / "hashes.txt"
+    hash_file.touch()
+
+    with (
+        rosetta_mask_globals(),
+        mock.patch.object(hc_main, "llmBackend", "vllm"),
+        mock.patch.object(hc_main, "llmApiKey", "sk-real-vllm-key"),
+        mock.patch("hate_crack.main.llm.generate_masks") as gen,
+        mock.patch("subprocess.Popen") as popen,
+    ):
+        hc_main.hcatRosettaMask("0", str(hash_file), "pins")
+
+    gen.assert_not_called()
+    popen.assert_not_called()
+    out = capsys.readouterr().out
+    assert "requires the Ollama backend" in out
+    assert "Generating masks via" not in out
+    # The refusal is self-contained: no misleading connectivity advice about
+    # a vLLM server that was never contacted.
+    assert "Ensure the configured vLLM server" not in out
+
+
+def test_generation_error_on_vllm_backend_does_not_mention_ollama(tmp_path, capsys):
+    """If llm.generate_masks itself ever raises RosettaBackendRefused (e.g. if
+    the module-level gate above were bypassed), the refusal message must be
+    printed alone -- no follow-up "Ensure the configured vLLM server..."
+    advice, since the refusal already names the real, precise reason.
+    """
+    hash_file = tmp_path / "hashes.txt"
+    hash_file.touch()
+
+    with (
+        rosetta_mask_globals(),
+        mock.patch.object(hc_main, "llmBackend", "ollama"),
+        mock.patch(
+            "hate_crack.main.llm.generate_masks",
+            side_effect=hc_main.llm.RosettaBackendRefused("vllm"),
+        ),
+        mock.patch("subprocess.Popen") as popen,
+    ):
+        hc_main.hcatRosettaMask("0", str(hash_file), "pins")
+
+    popen.assert_not_called()
+    out = capsys.readouterr().out
+    assert "requires the Ollama backend" in out
+    assert "Ensure the configured" not in out
+    assert "ollama serve" not in out
+
+
 def test_hcmask_file_removed_by_cleanup(tmp_path, monkeypatch):
     """Mirrors test_llm_pattern_rules.test_llm_patterns_removed_by_cleanup."""
     hash_file = str(tmp_path / "hashes.txt")

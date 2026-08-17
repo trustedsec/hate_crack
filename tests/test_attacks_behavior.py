@@ -24,6 +24,11 @@ def _make_ctx(hash_type: str = "1000", hash_file: str = "/tmp/hashes.txt") -> Ma
     ctx = MagicMock()
     ctx.hcatHashType = hash_type
     ctx.hcatHashFile = hash_file
+    # Default backend for every attack that reads ctx.llmBackend (currently
+    # only the Rosetta mask path) -- a bare MagicMock attribute would compare
+    # unequal to "ollama" and trip the non-ollama refusal in every caller
+    # that did not opt into testing that refusal specifically.
+    ctx.llmBackend = "ollama"
     return ctx
 
 

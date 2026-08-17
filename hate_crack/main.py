@@ -2564,11 +2564,21 @@ def _llm_connection_help() -> str:
 def hcatRosettaMask(hcatHashType, hcatHashFile, description):
     """Turn a plain-English description into hashcat masks and run them.
 
-    Asks the local Ollama model (via ``llm.generate_masks``) for masks
+    Asks the configured LLM backend (via ``llm.generate_masks``) for masks
     matching *description*, screens the result with ``_valid_hcmask``, writes
     the survivors to ``<hcatHashFile>.hcmask``, and runs a ``-a 3`` mask
     attack against them immediately — mirroring ``hcatTopMask``'s tail.
+
+    ``llm.generate_masks`` itself refuses any backend but ``"ollama"`` (see
+    ``llm.RosettaBackendRefused``), but that check is duplicated here, ahead
+    of the spinner, so a misconfigured backend is reported instantly instead
+    of after a "Generating masks via vLLM..." spinner for a request that was
+    never going to be sent.
     """
+    if llmBackend != "ollama":
+        print(f"Error: {llm.RosettaBackendRefused(llmBackend)}")
+        return
+
     try:
         with spinner(f"Generating masks via {_llm_backend_label()} ({ollamaModel})..."):
             masks = llm.generate_masks(
@@ -2589,6 +2599,14 @@ def hcatRosettaMask(hcatHashType, hcatHashFile, description):
             f"The model ({ollamaModel}) may still be loading into VRAM. Retry, or "
             "raise OLLAMA_TIMEOUT in the .env file to wait longer."
         )
+        return
+    except llm.RosettaBackendRefused as e:
+        # A precise, self-contained refusal -- printing the generic
+        # connection-help line after it would tell the operator to go check
+        # a server that is not the problem (the exact failure mode this
+        # exception type exists to prevent). Reached only if llmBackend
+        # somehow changed between the guard above and this call.
+        print(f"Error: {e}")
         return
     except Exception as e:
         print(f"Error generating masks: {e}")
@@ -3225,15 +3243,16 @@ def _corpus_context(path, source_label="wordlist"):
 
 
 def hcatOllamaResearchTarget(company):
-    """Ask the local Ollama model what it knows about *company*.
+    """Ask the configured LLM backend what it knows about *company*.
 
     Returns a dict with "industry", "location", and "parent_company" keys; any
     value may be an empty string when the model is not confident or the request
     failed. Never raises: research is a convenience, so any failure degrades to
     empty suggestions (blank prompts) rather than blocking the attack.
 
-    Uses only the configured local Ollama server — the company name is never
-    sent to a third-party service.
+    Uses only the configured local server (Ollama, vLLM, or another
+    OpenAI-compatible server) — the company name is never sent to a
+    third-party service.
     """
     blank = {"industry": "", "location": "", "parent_company": ""}
     if not ollamaAutoResearch or not company:
@@ -3341,7 +3360,7 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
         return
 
     if not candidates:
-        print("Error: Ollama returned no usable password candidates.")
+        print(f"Error: {_llm_backend_label()} returned no usable password candidates.")
         return
 
     try:

@@ -78,6 +78,30 @@ class LLMTimeoutError(Exception):
     """
 
 
+class RosettaBackendRefused(RuntimeError):
+    """``generate_masks`` was asked to use a backend other than ``"ollama"``.
+
+    A ``RuntimeError`` subclass, not a fresh base ``Exception``, so the
+    existing ``rosetta_mask_unavailable_reason()`` failure mode (also a plain
+    ``RuntimeError``, for "HashcatRosetta is not installed") and any caller
+    that already catches ``RuntimeError`` around this function keep working
+    unchanged. Callers that want to tell "wrong backend" apart from "generic
+    failure" -- to avoid following a precise refusal with unrelated
+    connectivity advice -- can catch this subclass specifically before the
+    broader ``RuntimeError``/``Exception``.
+    """
+
+    def __init__(self, backend: str) -> None:
+        self.backend = backend
+        super().__init__(
+            f"The Rosetta mask attack currently requires the Ollama backend, "
+            f"not {backend!r}: HashcatRosetta's nlmask.py hardcodes Ollama's "
+            "'think' toggle, which is backwards for other OpenAI-compatible "
+            "servers. Set LLM_BACKEND=ollama to use this attack, or wait for "
+            "an upstream HashcatRosetta fix."
+        )
+
+
 class CloudModelRefused(Exception):
     """``OLLAMA_NO_CLOUD`` is set and the configured model is cloud-hosted."""
 
@@ -446,9 +470,11 @@ def _build_request(mode: str, context_data: dict) -> str:
     raise ValueError(f"Unknown LLM generation mode: {mode}")
 
 
-#: Backends generate_masks() actually knows how to drive. Kept alongside
-#: backend_extra_body()'s own validation so the Rosetta-only-supports-ollama
-#: refusal and the general "unknown backend" refusal report the same set.
+#: Every backend this module knows how to shape a request for. Used by
+#: backend_extra_body()'s "unknown backend" refusal below; generate_masks()
+#: does not reference this constant -- it drives exactly one backend
+#: ("ollama") and refuses every other member of this set for its own,
+#: HashcatRosetta-specific reason (see RosettaBackendRefused).
 KNOWN_BACKENDS = ("ollama", "vllm", "openai")
 
 
@@ -490,16 +516,42 @@ def backend_extra_body(backend: str, num_ctx: int) -> dict[str, Any]:
     )
 
 
+#: LLM_API_KEY's own schema default (config_schema.py) -- the placeholder
+#: Ollama's server ignores. Re-substituted here for an empty/whitespace-only
+#: value so it stays out of SECRET_ENV_KEYS (that set's contract is "ships
+#: empty in .env.example", which would collide with this fallback) while
+#: still being a safe, inert stand-in wherever a real key is not required.
+_INERT_API_KEY = "ollama"
+
+
+def _resolve_api_key(api_key: str) -> str:
+    """Substitute the inert placeholder for an empty/whitespace-only *api_key*.
+
+    ``OpenAI(api_key="")`` raises ``openai.OpenAIError: Missing credentials``
+    immediately on client construction -- confirmed directly against the
+    openai SDK -- whereas ``api_key=None`` is accepted. A vLLM server started
+    without ``--api-key`` needs no credential at all, so an operator who
+    reasonably clears ``LLM_API_KEY=`` in their `.env` would otherwise hit an
+    SDK error naming neither hate_crack nor the setting they just edited.
+    """
+    return api_key if api_key.strip() else _INERT_API_KEY
+
+
 def _build_client(url: str, api_key: str, timeout: float) -> instructor.Instructor:
     """Build the instructor-wrapped OpenAI client pointed at *url*.
 
     ``api_key`` is whatever the configured backend needs -- Ollama ignores it
     outright, vLLM started with ``--api-key`` rejects the wrong one with a 401,
     and a generic OpenAI-compatible server needs a real one. Never hardcoded
-    here: see ``LLM_API_KEY`` in config_schema.py.
+    here: see ``LLM_API_KEY`` in config_schema.py. An empty or
+    whitespace-only value is treated as the inert placeholder rather than
+    reaching the OpenAI SDK, which raises on ``api_key=""`` -- see
+    ``_resolve_api_key``.
     """
     return instructor.from_openai(
-        OpenAI(base_url=f"{url}/v1", api_key=api_key, timeout=timeout),
+        OpenAI(
+            base_url=f"{url}/v1", api_key=_resolve_api_key(api_key), timeout=timeout
+        ),
         mode=instructor.Mode.JSON,
     )
 
@@ -761,20 +813,15 @@ def generate_masks(
     Raises LLMTimeoutError if the request exceeds ``timeout``,
     CloudModelRefused when ``no_cloud`` rules out ``model``, RuntimeError if
     HashcatRosetta itself is unavailable (see
-    ``rosetta_mask_unavailable_reason``) or if ``backend`` is not
-    ``"ollama"``; other client/connection errors propagate as HashcatRosetta's
-    own MaskGenerationError.
+    ``rosetta_mask_unavailable_reason``), RosettaBackendRefused (itself a
+    RuntimeError subclass) if ``backend`` is not ``"ollama"``; other
+    client/connection errors propagate as HashcatRosetta's own
+    MaskGenerationError.
     """
     ensure_model_allowed(model, no_cloud=no_cloud)
 
     if backend != "ollama":
-        raise RuntimeError(
-            f"The Rosetta mask attack currently requires the Ollama backend, "
-            f"not {backend!r}: HashcatRosetta's nlmask.py hardcodes Ollama's "
-            "'think' toggle, which is backwards for other OpenAI-compatible "
-            "servers. Set LLM_BACKEND=ollama to use this attack, or wait for "
-            "an upstream HashcatRosetta fix."
-        )
+        raise RosettaBackendRefused(backend)
 
     # The three names are always set together in the single try/except above
     # (all real or all None) -- checking all three, not just the one this
@@ -787,7 +834,9 @@ def generate_masks(
     ):
         raise RuntimeError(rosetta_mask_unavailable_reason())
 
-    client = OpenAI(base_url=f"{url}/v1", api_key=api_key, timeout=timeout)
+    client = OpenAI(
+        base_url=f"{url}/v1", api_key=_resolve_api_key(api_key), timeout=timeout
+    )
 
     try:
         suggestions = _rosetta_generate_masks(

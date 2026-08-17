@@ -782,3 +782,80 @@ def test_generate_masks_refuses_non_ollama_backend(backend):
             backend=backend,
             api_key="sk-real-vllm-key",
         )
+
+
+def test_generate_masks_refuses_non_ollama_backend_with_specific_exception_type():
+    """The refusal is RosettaBackendRefused, not a bare RuntimeError, so a
+    caller (hcatRosettaMask) can print it alone without the generic
+    connection-help follow-up meant for real connectivity failures.
+    """
+    with pytest.raises(llm.RosettaBackendRefused) as exc:
+        llm.generate_masks(
+            "http://localhost:8000",
+            "qwen2.5:32b",
+            2048,
+            "pins",
+            no_cloud=False,
+            backend="vllm",
+            api_key="sk-real-vllm-key",
+        )
+    # Still a RuntimeError, so existing callers that catch RuntimeError
+    # (including the "HashcatRosetta is unavailable" case) keep working.
+    assert isinstance(exc.value, RuntimeError)
+    assert exc.value.backend == "vllm"
+
+
+# ---------------------------------------------------------------------------
+# _resolve_api_key / empty LLM_API_KEY handling
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("raw", ["", "   ", "\t\n"])
+def test_resolve_api_key_substitutes_the_inert_placeholder(raw):
+    assert llm._resolve_api_key(raw) == "ollama"
+
+
+def test_resolve_api_key_passes_through_a_real_key():
+    assert llm._resolve_api_key("sk-real-vllm-key") == "sk-real-vllm-key"
+
+
+def test_build_client_never_passes_an_empty_api_key_to_openai():
+    """openai.OpenAI(api_key='') raises OpenAIError: Missing credentials --
+    confirmed directly against the SDK. An operator who clears LLM_API_KEY=
+    for a vLLM server with no auth must not hit that SDK error.
+    """
+    with (
+        mock.patch("hate_crack.llm.OpenAI") as openai_cls,
+        mock.patch("hate_crack.llm.instructor.from_openai"),
+    ):
+        llm._build_client("http://localhost:8000", "", 30.0)
+    assert openai_cls.call_args.kwargs["api_key"] == "ollama"
+
+
+def test_generate_masks_substitutes_empty_api_key(monkeypatch):
+    """generate_masks builds its own OpenAI client directly (not through
+    _build_client), so it needs the same empty-key guard independently."""
+    captured = {}
+
+    def fake_openai(*, base_url, api_key, timeout):
+        captured["api_key"] = api_key
+        return mock.MagicMock()
+
+    monkeypatch.setattr(llm, "OpenAI", fake_openai)
+    monkeypatch.setattr(
+        llm,
+        "_rosetta_generate_masks",
+        lambda description, **kwargs: [],
+    )
+
+    llm.generate_masks(
+        "http://localhost:8000",
+        "qwen2.5:32b",
+        2048,
+        "pins",
+        no_cloud=False,
+        backend="ollama",
+        api_key="   ",
+    )
+
+    assert captured["api_key"] == "ollama"
