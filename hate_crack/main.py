@@ -1069,6 +1069,7 @@ pipalPath = config_parser["pipalPath"]
 hcatDictionaryWordlist = config_parser["hcatDictionaryWordlist"]
 hcatHybridlist = config_parser["hcatHybridlist"]
 hcatCombinationWordlist = config_parser["hcatCombinationWordlist"]
+hcatFingerprintWordlist = config_parser["hcatFingerprintWordlist"]
 hcatMiddleCombinatorMasks = config_parser["hcatMiddleCombinatorMasks"]
 hcatMiddleBaseList = config_parser["hcatMiddleBaseList"]
 hcatThoroughCombinatorMasks = config_parser["hcatThoroughCombinatorMasks"]
@@ -1256,6 +1257,9 @@ hcatCombinationWordlist = _normalize_wordlist_setting(
     hcatCombinationWordlist, wordlists_dir
 )
 hcatHybridlist = _normalize_wordlist_setting(hcatHybridlist, wordlists_dir)
+hcatFingerprintWordlist = _normalize_wordlist_setting(
+    hcatFingerprintWordlist, wordlists_dir
+)
 hcatMiddleBaseList = _normalize_wordlist_setting(hcatMiddleBaseList, wordlists_dir)
 hcatThoroughBaseList = _normalize_wordlist_setting(hcatThoroughBaseList, wordlists_dir)
 hcatGoodMeasureBaseList = _normalize_wordlist_setting(
@@ -2759,6 +2763,12 @@ def hcatFingerprint(
 
     if keyspace_limit is None:
         keyspace_limit = _FINGERPRINT_KEYSPACE_LIMIT
+
+    # No explicit choice from the caller falls back to the configured
+    # default (if any); an explicit "" (declined at the prompt) does not,
+    # so a user can still opt out of a configured default.
+    if dictionary_wordlist is None:
+        dictionary_wordlist = hcatFingerprintWordlist
 
     resolved_dict = None
     if dictionary_wordlist:

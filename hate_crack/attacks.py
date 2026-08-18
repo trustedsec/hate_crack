@@ -297,6 +297,36 @@ def top_mask_crack(ctx: Any) -> None:
     ctx.hcatTopMask(ctx.hcatHashType, ctx.hcatHashFile, hcatTargetTime)
 
 
+def _prompt_fingerprint_wordlist(ctx) -> str:
+    """Prompt for an optional wordlist to combine fingerprint fragments
+    against. Returns a path, or "" to skip.
+
+    Offers the configured hcatFingerprintWordlist default (if any) before
+    falling back to manual tab-completed entry, matching how
+    combinator_crack/hybrid_crack offer their config defaults.
+    """
+    if ctx.hcatFingerprintWordlist:
+        use_default = (
+            input(
+                "\nCombine expanded fragments against configured wordlist "
+                f"'{ctx.hcatFingerprintWordlist}'? (Y/n): "
+            )
+            .strip()
+            .lower()
+        )
+        if use_default != "n":
+            return ctx.hcatFingerprintWordlist
+
+    _configure_readline(_wordlist_path_completer(ctx))
+    try:
+        return input(
+            "\nEnter a wordlist to combine expanded fragments against "
+            "(tab to autocomplete, blank to skip): "
+        ).strip()
+    finally:
+        readline.set_completer(None)
+
+
 def fingerprint_crack(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("Fingerprint")
     while True:
@@ -313,14 +343,7 @@ def fingerprint_crack(ctx: Any) -> None:
             break
         print("Please enter an integer between 7 and 36.")
 
-    _configure_readline(_wordlist_path_completer(ctx))
-    try:
-        wordlist_raw = input(
-            "\nEnter a wordlist to combine expanded fragments against "
-            "(tab to autocomplete, blank to skip): "
-        ).strip()
-    finally:
-        readline.set_completer(None)
+    wordlist_raw = _prompt_fingerprint_wordlist(ctx)
 
     while True:
         limit_raw = input(
@@ -349,7 +372,7 @@ def fingerprint_crack(ctx: Any) -> None:
         ctx.hcatHashFile,
         max_expander_len=max_expander_len,
         run_hybrid_on_expanded=True,
-        dictionary_wordlist=wordlist_raw or None,
+        dictionary_wordlist=wordlist_raw,
         keyspace_limit=keyspace_limit,
     )
 

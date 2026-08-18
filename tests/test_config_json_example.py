@@ -33,6 +33,7 @@ EXPECTED_KEYS = {
     "hcatDictionaryWordlist",
     "hcatCombinationWordlist",
     "hcatHybridlist",
+    "hcatFingerprintWordlist",
     "hcatMiddleCombinatorMasks",
     "hcatMiddleBaseList",
     "hcatThoroughCombinatorMasks",

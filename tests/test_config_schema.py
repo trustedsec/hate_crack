@@ -98,10 +98,10 @@ def test_env_homed_key_set_is_pinned():
     assert {entry.env for entry in ENV_KEYS} == EXPECTED_ENV_HOMED
 
 
-def test_key_counts_are_fourteen_and_thirty_seven():
+def test_key_counts_are_fourteen_and_thirty_eight():
     assert len(ENV_KEYS) == 14
-    assert len(JSON_KEYS) == 37
-    assert len(CONFIG_SCHEMA) == 51
+    assert len(JSON_KEYS) == 38
+    assert len(CONFIG_SCHEMA) == 52
 
 
 def test_every_key_has_exactly_one_home():
@@ -166,9 +166,9 @@ def test_type_counts_match_config_json_example_value_types():
     assert schema_type_counts.get("charset", 0) == 2
     # str splits into str/path; the two must sum to the JSON str count.
     str_and_path = schema_type_counts.get("str", 0) + schema_type_counts.get("path", 0)
-    assert str_and_path == json_type_counts.get("str_or_path", 0) == 15
+    assert str_and_path == json_type_counts.get("str_or_path", 0) == 16
     assert schema_type_counts.get("path", 0) == 3
-    assert schema_type_counts.get("str", 0) == 12
+    assert schema_type_counts.get("str", 0) == 13
 
 
 def test_defaults_match_config_json_example():

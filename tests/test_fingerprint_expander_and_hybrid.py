@@ -30,6 +30,7 @@ def test_fingerprint_crack_prompts_for_max_expander_len_and_enables_hybrid(
         hcatHashType="1000",
         hcatHashFile="dummy.hash",
         hcatFingerprint=fake_hcatFingerprint,
+        hcatFingerprintWordlist="",
     )
 
     responses = iter(["24", "", ""])
@@ -38,7 +39,7 @@ def test_fingerprint_crack_prompts_for_max_expander_len_and_enables_hybrid(
 
     assert seen["max_expander_len"] == 24
     assert seen["run_hybrid_on_expanded"] is True
-    assert seen["dictionary_wordlist"] is None
+    assert seen["dictionary_wordlist"] == ""
     assert seen["keyspace_limit"] is None
 
 
@@ -54,6 +55,7 @@ def test_fingerprint_crack_passes_wordlist_when_provided(monkeypatch):
         hcatHashType="1000",
         hcatHashFile="dummy.hash",
         hcatFingerprint=fake_hcatFingerprint,
+        hcatFingerprintWordlist="",
     )
 
     responses = iter(["", "rockyou.txt", ""])
@@ -75,6 +77,7 @@ def test_fingerprint_crack_passes_custom_keyspace_limit(monkeypatch):
         hcatHashType="1000",
         hcatHashFile="dummy.hash",
         hcatFingerprint=fake_hcatFingerprint,
+        hcatFingerprintWordlist="",
     )
 
     responses = iter(["", "", "200000000000"])
@@ -96,6 +99,7 @@ def test_fingerprint_crack_zero_keyspace_limit_means_no_limit(monkeypatch, capsy
         hcatHashType="1000",
         hcatHashFile="dummy.hash",
         hcatFingerprint=fake_hcatFingerprint,
+        hcatFingerprintWordlist="",
     )
 
     responses = iter(["", "", "0"])
@@ -104,6 +108,56 @@ def test_fingerprint_crack_zero_keyspace_limit_means_no_limit(monkeypatch, capsy
 
     assert seen["keyspace_limit"] == 0
     assert "No limit" in capsys.readouterr().out
+
+
+def test_fingerprint_crack_accepts_configured_default_wordlist(monkeypatch):
+    from hate_crack import attacks
+
+    seen = {}
+
+    def fake_hcatFingerprint(hash_type, hash_file, max_expander_len, **kwargs):
+        seen["dictionary_wordlist"] = kwargs.get("dictionary_wordlist")
+
+    ctx = SimpleNamespace(
+        hcatHashType="1000",
+        hcatHashFile="dummy.hash",
+        hcatFingerprint=fake_hcatFingerprint,
+        hcatFingerprintWordlist="/wordlists/rockyou.txt",
+    )
+
+    # max_expander_len, "use configured default?" (accept), keyspace limit.
+    responses = iter(["", "", ""])
+    monkeypatch.setattr(builtins, "input", lambda _prompt="": next(responses))
+    attacks.fingerprint_crack(ctx)
+
+    assert seen["dictionary_wordlist"] == "/wordlists/rockyou.txt"
+
+
+def test_fingerprint_crack_declining_configured_default_falls_back_to_manual_entry(
+    monkeypatch,
+):
+    from hate_crack import attacks
+
+    seen = {}
+
+    def fake_hcatFingerprint(hash_type, hash_file, max_expander_len, **kwargs):
+        seen["dictionary_wordlist"] = kwargs.get("dictionary_wordlist")
+
+    ctx = SimpleNamespace(
+        hcatHashType="1000",
+        hcatHashFile="dummy.hash",
+        hcatFingerprint=fake_hcatFingerprint,
+        hcatFingerprintWordlist="/wordlists/rockyou.txt",
+    )
+
+    # max_expander_len, "use configured default?" (decline), manual entry
+    # (skip), keyspace limit.
+    responses = iter(["", "n", "", ""])
+    monkeypatch.setattr(builtins, "input", lambda _prompt="": next(responses))
+    attacks.fingerprint_crack(ctx)
+
+    # Declining must not silently fall back to the config default anyway.
+    assert seen["dictionary_wordlist"] == ""
 
 
 class _SimulatingFakePopen:
@@ -398,6 +452,72 @@ def test_hcatFingerprint_warns_and_skips_missing_dictionary(
         for cmd in hashcat_cmds
     )
     assert "Wordlist not found" in capsys.readouterr().out
+
+
+def test_hcatFingerprint_falls_back_to_configured_wordlist_when_none_passed(
+    monkeypatch, tmp_path
+):
+    """dictionary_wordlist=None (the default -- e.g. extensive_crack's call,
+    which can't prompt) picks up hcatFingerprintWordlist from config."""
+    import hate_crack.main as hc_main
+
+    importlib.reload(hc_main)
+
+    hashfile = tmp_path / "hashes.txt"
+    (tmp_path / "hashes.txt.out").write_text("deadbeef:Summer2025!\n")
+    dict_path = tmp_path / "words.txt"
+    dict_path.write_text("winter\n")
+
+    _install_fingerprint_test_env(monkeypatch, hc_main, tmp_path, hashfile)
+    monkeypatch.setattr(hc_main, "lineCount", lambda _p: 1)
+    monkeypatch.setattr(hc_main, "hcatWordlists", str(tmp_path))
+    monkeypatch.setattr(hc_main, "hcatFingerprintWordlist", str(dict_path))
+
+    seen = {"popen_args": []}
+    monkeypatch.setattr(hc_main.subprocess, "Popen", _SimulatingFakePopen(seen))
+
+    hc_main.hcatFingerprint("1000", str(hashfile), max_expander_len=7)
+
+    hashcat_cmds = [args for args in seen["popen_args"] if args[0] == "hashcat"]
+    expanded_path = f"{hashfile}.expanded"
+    assert any(
+        _combination_operands(c) == (expanded_path, str(dict_path))
+        for c in hashcat_cmds
+    )
+
+
+def test_hcatFingerprint_explicit_empty_dictionary_skips_configured_default(
+    monkeypatch, tmp_path
+):
+    """dictionary_wordlist="" (declined at the prompt) must not fall back to
+    the configured default -- only the None default does."""
+    import hate_crack.main as hc_main
+
+    importlib.reload(hc_main)
+
+    hashfile = tmp_path / "hashes.txt"
+    (tmp_path / "hashes.txt.out").write_text("deadbeef:Summer2025!\n")
+    dict_path = tmp_path / "words.txt"
+    dict_path.write_text("winter\n")
+
+    _install_fingerprint_test_env(monkeypatch, hc_main, tmp_path, hashfile)
+    monkeypatch.setattr(hc_main, "lineCount", lambda _p: 1)
+    monkeypatch.setattr(hc_main, "hcatWordlists", str(tmp_path))
+    monkeypatch.setattr(hc_main, "hcatFingerprintWordlist", str(dict_path))
+
+    seen = {"popen_args": []}
+    monkeypatch.setattr(hc_main.subprocess, "Popen", _SimulatingFakePopen(seen))
+
+    hc_main.hcatFingerprint(
+        "1000", str(hashfile), max_expander_len=7, dictionary_wordlist=""
+    )
+
+    hashcat_cmds = [args for args in seen["popen_args"] if args[0] == "hashcat"]
+    expanded_path = f"{hashfile}.expanded"
+    assert not any(
+        _combination_operands(c) == (expanded_path, str(dict_path))
+        for c in hashcat_cmds
+    )
 
 
 def test_fingerprint_expander_chain_escalates_by_seven():
