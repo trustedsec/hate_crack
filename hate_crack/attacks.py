@@ -314,9 +314,14 @@ def fingerprint_crack(ctx: Any) -> None:
             break
         print("Please enter an integer between 7 and 36.")
 
-    wordlist_raw = input(
-        "\nEnter a wordlist to combine expanded fragments against (blank to skip): "
-    ).strip()
+    _configure_readline(_wordlist_path_completer(ctx))
+    try:
+        wordlist_raw = input(
+            "\nEnter a wordlist to combine expanded fragments against "
+            "(tab to autocomplete, blank to skip): "
+        ).strip()
+    finally:
+        readline.set_completer(None)
 
     ctx.hcatFingerprint(
         ctx.hcatHashType,
@@ -714,12 +719,9 @@ def middle_combinator(ctx: Any) -> None:
     ctx.hcatMiddleCombinator(ctx.hcatHashType, ctx.hcatHashFile)
 
 
-def _prompt_wordlist_paths(ctx, max_count: int) -> list[str]:
-    """Prompt for wordlist paths one at a time with tab-autocomplete.
-
-    Stops when a blank line is entered or max_count paths have been collected.
-    Returns a list of resolved, valid file paths.
-    """
+def _wordlist_path_completer(ctx):
+    """Tab-completer for a wordlist path prompt, rooted at ctx.hcatWordlists
+    unless the user has typed an absolute/relative/home-anchored path."""
 
     def path_completer(text, state):
         base = ctx.hcatWordlists
@@ -739,7 +741,17 @@ def _prompt_wordlist_paths(ctx, max_count: int) -> list[str]:
         except IndexError:
             return None
 
-    _configure_readline(path_completer)
+    return path_completer
+
+
+def _prompt_wordlist_paths(ctx, max_count: int) -> list[str]:
+    """Prompt for wordlist paths one at a time with tab-autocomplete.
+
+    Stops when a blank line is entered or max_count paths have been collected.
+    Returns a list of resolved, valid file paths.
+    """
+
+    _configure_readline(_wordlist_path_completer(ctx))
 
     collected: list[str] = []
     count = 1
