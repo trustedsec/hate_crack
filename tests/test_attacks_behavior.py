@@ -129,7 +129,6 @@ class TestExtensiveCrack:
             ctx.hcatHashFile,
             max_expander_len=21,
             run_hybrid_on_expanded=False,
-            unattended=True,
         )
         ctx.hcatCombination.assert_called_once_with(ctx.hcatHashType, ctx.hcatHashFile)
         ctx.hcatHybrid.assert_called_once_with(ctx.hcatHashType, ctx.hcatHashFile)

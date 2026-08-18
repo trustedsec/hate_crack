@@ -2615,24 +2615,24 @@ def _fingerprint_expander_chain(max_expander_len):
     return sorted(n for n in lengths if 7 <= n <= max_expander_len)
 
 
-def _fingerprint_keyspace_guard(left_path, right_path, label, unattended):
+def _fingerprint_keyspace_guard(left_path, right_path, label):
     """Return True if a -a1 combination of left/right should proceed.
 
     -a1's candidate count is exactly len(left) * len(right); on a
     partially-cracked hash list this can run into the billions, so this
-    is checked before spending GPU time on it rather than after.
+    is checked before spending GPU time on it rather than after. Fingerprint
+    runs unattended for its whole duration (it's launched once, up front),
+    so an over-threshold combination is skipped with a warning rather than
+    blocking on a prompt mid-run.
     """
     keyspace = lineCount(left_path) * lineCount(right_path)
     if keyspace <= _FINGERPRINT_KEYSPACE_LIMIT:
         return True
     print(
         f"[!] {label}: {keyspace:,} candidates exceeds the "
-        f"{_FINGERPRINT_KEYSPACE_LIMIT:,}-candidate guardrail."
+        f"{_FINGERPRINT_KEYSPACE_LIMIT:,}-candidate guardrail. Skipping."
     )
-    if unattended:
-        print(f"[!] Skipping {label} (unattended mode).")
-        return False
-    return input(f"Proceed with {label} anyway? (y/N): ").strip().lower() == "y"
+    return False
 
 
 def _fingerprint_expand_new(expander_len, hcatHashFile, new_plaintexts):
@@ -2729,9 +2729,9 @@ def _fingerprint_run_combine(hcatHashType, hcatHashFile, left, right):
     _run_hcat_cmd(cmd, attack_name="Fingerprint", hash_file=hcatHashFile)
 
 
-def _fingerprint_combine(hcatHashType, hcatHashFile, left, right, *, label, unattended):
+def _fingerprint_combine(hcatHashType, hcatHashFile, left, right, *, label):
     """Run a -a1 combination of left+right, gated by the keyspace guardrail."""
-    if not _fingerprint_keyspace_guard(left, right, label, unattended):
+    if not _fingerprint_keyspace_guard(left, right, label):
         return
     _fingerprint_run_combine(hcatHashType, hcatHashFile, left, right)
 
@@ -2743,7 +2743,6 @@ def hcatFingerprint(
     max_expander_len: int = 21,
     run_hybrid_on_expanded: bool = False,
     dictionary_wordlist: str | None = None,
-    unattended: bool = False,
 ):
     global hcatFingerprintCount
 
@@ -2789,7 +2788,6 @@ def hcatFingerprint(
                 expanded_path,
                 expanded_path,
                 label=f"Fingerprint self-combination (length {expander_len})",
-                unattended=unattended,
             )
             if resolved_dict:
                 # Both orders share the same candidate count (len(a)*len(b)
@@ -2799,7 +2797,7 @@ def hcatFingerprint(
                     f"Fingerprint dictionary-combination (length {expander_len})"
                 )
                 if _fingerprint_keyspace_guard(
-                    expanded_path, resolved_dict, dict_label, unattended
+                    expanded_path, resolved_dict, dict_label
                 ):
                     _fingerprint_run_combine(
                         hcatHashType, hcatHashFile, expanded_path, resolved_dict

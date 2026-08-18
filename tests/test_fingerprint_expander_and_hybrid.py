@@ -17,7 +17,6 @@ def test_fingerprint_crack_prompts_for_max_expander_len_and_enables_hybrid(
         max_expander_len,
         run_hybrid_on_expanded=False,
         dictionary_wordlist=None,
-        unattended=False,
     ):
         seen["hash_type"] = hash_type
         seen["hash_file"] = hash_file
@@ -261,12 +260,12 @@ def test_hcatFingerprint_combines_against_dictionary_in_both_orders(
     )
 
 
-def test_hcatFingerprint_dictionary_guard_prompts_once_not_per_direction(
+def test_hcatFingerprint_dictionary_guard_checked_once_not_per_direction(
     monkeypatch, tmp_path
 ):
     """expanded+dict and dict+expanded have the same candidate count, so an
-    over-threshold keyspace must prompt once and apply the answer to both
-    invocations, not ask twice for what is the same decision."""
+    over-threshold keyspace must be checked (and skipped) once for the pair,
+    not once per direction."""
     import hate_crack.main as hc_main
 
     importlib.reload(hc_main)
@@ -282,13 +281,14 @@ def test_hcatFingerprint_dictionary_guard_prompts_once_not_per_direction(
     monkeypatch.setattr(hc_main, "lineCount", lambda _p: 300_000)
     monkeypatch.setattr(hc_main, "hcatWordlists", str(tmp_path))
 
-    input_calls = []
+    guard_calls = []
+    real_guard = hc_main._fingerprint_keyspace_guard
 
-    def fake_input(prompt=""):
-        input_calls.append(prompt)
-        return "y"
+    def counting_guard(left, right, label):
+        guard_calls.append(label)
+        return real_guard(left, right, label)
 
-    monkeypatch.setattr(builtins, "input", fake_input)
+    monkeypatch.setattr(hc_main, "_fingerprint_keyspace_guard", counting_guard)
 
     seen = {"popen_args": []}
     monkeypatch.setattr(hc_main.subprocess, "Popen", _SimulatingFakePopen(seen))
@@ -303,20 +303,22 @@ def test_hcatFingerprint_dictionary_guard_prompts_once_not_per_direction(
     hashcat_cmds = [args for args in seen["popen_args"] if args[0] == "hashcat"]
     expanded_path = f"{hashfile}.expanded"
 
-    # Both dictionary-combination directions still ran (guard was answered
-    # "y" once and applied to both).
-    assert any(
+    # Over threshold: self- and dictionary-combination are both skipped.
+    assert not any(
+        _combination_operands(c) == (expanded_path, expanded_path) for c in hashcat_cmds
+    )
+    assert not any(
         _combination_operands(c) == (expanded_path, str(dict_path))
         for c in hashcat_cmds
     )
-    assert any(
+    assert not any(
         _combination_operands(c) == (str(dict_path), expanded_path)
         for c in hashcat_cmds
     )
 
-    # One prompt for self-combination, one for the dictionary-combination
-    # pair — not three.
-    assert len(input_calls) == 2, input_calls
+    # One guard check for self-combination, one for the dictionary pair —
+    # not three (i.e. not one per direction).
+    assert len(guard_calls) == 2, guard_calls
 
 
 def test_hcatFingerprint_warns_and_skips_missing_dictionary(
@@ -374,11 +376,12 @@ class TestFingerprintKeyspaceGuard:
             ),
         )
 
-        assert hc_main._fingerprint_keyspace_guard(
-            "left", "right", "label", unattended=False
-        )
+        assert hc_main._fingerprint_keyspace_guard("left", "right", "label")
 
-    def test_over_threshold_unattended_skips_without_prompting(self, monkeypatch):
+    def test_over_threshold_skips_without_prompting(self, monkeypatch):
+        """Fingerprint is launched once and left to run; a keyspace guard
+        that blocks on input() mid-run has no one there to answer it, so an
+        over-threshold combination is always skipped, never asked about."""
         from hate_crack import main as hc_main
 
         monkeypatch.setattr(hc_main, "lineCount", lambda _p: 300_000)
@@ -390,21 +393,4 @@ class TestFingerprintKeyspaceGuard:
             ),
         )
 
-        assert not hc_main._fingerprint_keyspace_guard(
-            "left", "right", "label", unattended=True
-        )
-
-    def test_over_threshold_interactive_prompts_and_honours_answer(self, monkeypatch):
-        from hate_crack import main as hc_main
-
-        monkeypatch.setattr(hc_main, "lineCount", lambda _p: 300_000)
-
-        monkeypatch.setattr(builtins, "input", lambda *_a, **_k: "y")
-        assert hc_main._fingerprint_keyspace_guard(
-            "left", "right", "label", unattended=False
-        )
-
-        monkeypatch.setattr(builtins, "input", lambda *_a, **_k: "n")
-        assert not hc_main._fingerprint_keyspace_guard(
-            "left", "right", "label", unattended=False
-        )
+        assert not hc_main._fingerprint_keyspace_guard("left", "right", "label")

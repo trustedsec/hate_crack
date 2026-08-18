@@ -261,7 +261,6 @@ def extensive_crack(ctx: Any) -> None:
             ctx.hcatHashFile,
             max_expander_len=21,
             run_hybrid_on_expanded=False,
-            unattended=True,
         )
         ctx.hcatRecycle(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatFingerprintCount)
         ctx.hcatCombination(ctx.hcatHashType, ctx.hcatHashFile)
