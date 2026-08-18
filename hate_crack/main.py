@@ -2698,14 +2698,12 @@ def _fingerprint_expand_new(expander_len, hcatHashFile, new_plaintexts):
             f.write(fragment + "\n")
 
 
-def _fingerprint_combine(hcatHashType, hcatHashFile, left, right, *, label, unattended):
-    """Run a -a1 combination of left+right, gated by the keyspace guardrail.
+def _fingerprint_run_combine(hcatHashType, hcatHashFile, left, right):
+    """Run a -a1 combination of left+right (no guardrail check — caller's job).
 
     Every side gets a cheap -j/-k capitalize rule for free Capitalized
     coverage of the raw fragments/dictionary words.
     """
-    if not _fingerprint_keyspace_guard(left, right, label, unattended):
-        return
     cmd = [
         hcatBin,
         "-m",
@@ -2729,6 +2727,13 @@ def _fingerprint_combine(hcatHashType, hcatHashFile, left, right, *, label, unat
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
     _run_hcat_cmd(cmd, attack_name="Fingerprint", hash_file=hcatHashFile)
+
+
+def _fingerprint_combine(hcatHashType, hcatHashFile, left, right, *, label, unattended):
+    """Run a -a1 combination of left+right, gated by the keyspace guardrail."""
+    if not _fingerprint_keyspace_guard(left, right, label, unattended):
+        return
+    _fingerprint_run_combine(hcatHashType, hcatHashFile, left, right)
 
 
 # Fingerprint Attack
@@ -2787,22 +2792,21 @@ def hcatFingerprint(
                 unattended=unattended,
             )
             if resolved_dict:
-                _fingerprint_combine(
-                    hcatHashType,
-                    hcatHashFile,
-                    expanded_path,
-                    resolved_dict,
-                    label=f"Fingerprint dictionary-combination (length {expander_len})",
-                    unattended=unattended,
+                # Both orders share the same candidate count (len(a)*len(b)
+                # == len(b)*len(a)), so the guardrail is checked once and its
+                # answer applied to both instead of prompting twice.
+                dict_label = (
+                    f"Fingerprint dictionary-combination (length {expander_len})"
                 )
-                _fingerprint_combine(
-                    hcatHashType,
-                    hcatHashFile,
-                    resolved_dict,
-                    expanded_path,
-                    label=f"Fingerprint dictionary-combination (length {expander_len})",
-                    unattended=unattended,
-                )
+                if _fingerprint_keyspace_guard(
+                    expanded_path, resolved_dict, dict_label, unattended
+                ):
+                    _fingerprint_run_combine(
+                        hcatHashType, hcatHashFile, expanded_path, resolved_dict
+                    )
+                    _fingerprint_run_combine(
+                        hcatHashType, hcatHashFile, resolved_dict, expanded_path
+                    )
 
             # Secondary attack: run hybrid on the expanded candidates (mode 6/7
             # variants). Intentionally optional to avoid changing the

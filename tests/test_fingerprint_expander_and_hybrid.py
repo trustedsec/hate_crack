@@ -261,6 +261,64 @@ def test_hcatFingerprint_combines_against_dictionary_in_both_orders(
     )
 
 
+def test_hcatFingerprint_dictionary_guard_prompts_once_not_per_direction(
+    monkeypatch, tmp_path
+):
+    """expanded+dict and dict+expanded have the same candidate count, so an
+    over-threshold keyspace must prompt once and apply the answer to both
+    invocations, not ask twice for what is the same decision."""
+    import hate_crack.main as hc_main
+
+    importlib.reload(hc_main)
+
+    hashfile = tmp_path / "hashes.txt"
+    (tmp_path / "hashes.txt.out").write_text("deadbeef:Summer2025!\n")
+    dict_path = tmp_path / "words.txt"
+    dict_path.write_text("winter\n")
+
+    _install_fingerprint_test_env(monkeypatch, hc_main, tmp_path, hashfile)
+    # Large enough that both self- and dictionary-combination exceed the
+    # keyspace guardrail threshold.
+    monkeypatch.setattr(hc_main, "lineCount", lambda _p: 300_000)
+    monkeypatch.setattr(hc_main, "hcatWordlists", str(tmp_path))
+
+    input_calls = []
+
+    def fake_input(prompt=""):
+        input_calls.append(prompt)
+        return "y"
+
+    monkeypatch.setattr(builtins, "input", fake_input)
+
+    seen = {"popen_args": []}
+    monkeypatch.setattr(hc_main.subprocess, "Popen", _SimulatingFakePopen(seen))
+
+    hc_main.hcatFingerprint(
+        "1000",
+        str(hashfile),
+        max_expander_len=7,
+        dictionary_wordlist=str(dict_path),
+    )
+
+    hashcat_cmds = [args for args in seen["popen_args"] if args[0] == "hashcat"]
+    expanded_path = f"{hashfile}.expanded"
+
+    # Both dictionary-combination directions still ran (guard was answered
+    # "y" once and applied to both).
+    assert any(
+        _combination_operands(c) == (expanded_path, str(dict_path))
+        for c in hashcat_cmds
+    )
+    assert any(
+        _combination_operands(c) == (str(dict_path), expanded_path)
+        for c in hashcat_cmds
+    )
+
+    # One prompt for self-combination, one for the dictionary-combination
+    # pair — not three.
+    assert len(input_calls) == 2, input_calls
+
+
 def test_hcatFingerprint_warns_and_skips_missing_dictionary(
     monkeypatch, tmp_path, capsys
 ):
