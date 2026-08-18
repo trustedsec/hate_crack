@@ -125,7 +125,10 @@ class TestExtensiveCrack:
             ctx.hcatHashType, ctx.hcatHashFile, 4 * 60 * 60
         )
         ctx.hcatFingerprint.assert_called_once_with(
-            ctx.hcatHashType, ctx.hcatHashFile, 7, run_hybrid_on_expanded=False
+            ctx.hcatHashType,
+            ctx.hcatHashFile,
+            max_expander_len=21,
+            run_hybrid_on_expanded=False,
         )
         ctx.hcatCombination.assert_called_once_with(ctx.hcatHashType, ctx.hcatHashFile)
         ctx.hcatHybrid.assert_called_once_with(ctx.hcatHashType, ctx.hcatHashFile)

@@ -987,7 +987,7 @@ Presents the user a choice of target cracking time to spend (default 4 hours).
 #### Fingerprint Attack
 https://hashcat.net/wiki/doku.php?id=fingerprint_attack
 
-Runs a fingerprint attack using passwords already cracked for the current session.
+Runs a fingerprint attack using passwords already cracked for the current session. Expander substring length escalates automatically (7, 14, 21, ... up to the chosen ceiling), and an optional wordlist can be combined against the expanded fragments in addition to self-combination. Set `hcatFingerprintWordlist` in `config.json` to a default wordlist path so the prompt offers it instead of asking for a path every time; leave it as `""` to always ask (or skip).
 
 #### Combinator Attack
 https://hashcat.net/wiki/doku.php?id=combinator_attack
