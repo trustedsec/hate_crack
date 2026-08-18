@@ -128,7 +128,7 @@ def test_type_counts_match_config_json_example_value_types():
     Scoped to the ``home="json"`` keys, since those are exactly the ones
     config.json.example documents.
 
-    ``list`` splits into ``csv_list`` (5) and ``charset`` (2):
+    ``list`` splits into ``csv_list`` (6) and ``charset`` (2):
     hcatMiddleCombinatorMasks and hcatThoroughCombinatorMasks are lists of
     single characters (including a literal "," and " ") that csv_list's
     join/split/strip rules cannot represent losslessly, so they get the
@@ -161,14 +161,14 @@ def test_type_counts_match_config_json_example_value_types():
     list_derived = schema_type_counts.get("csv_list", 0) + schema_type_counts.get(
         "charset", 0
     )
-    assert list_derived == json_type_counts.get("list", 0) == 7
-    assert schema_type_counts.get("csv_list", 0) == 5
+    assert list_derived == json_type_counts.get("list", 0) == 8
+    assert schema_type_counts.get("csv_list", 0) == 6
     assert schema_type_counts.get("charset", 0) == 2
     # str splits into str/path; the two must sum to the JSON str count.
     str_and_path = schema_type_counts.get("str", 0) + schema_type_counts.get("path", 0)
-    assert str_and_path == json_type_counts.get("str_or_path", 0) == 16
+    assert str_and_path == json_type_counts.get("str_or_path", 0) == 15
     assert schema_type_counts.get("path", 0) == 3
-    assert schema_type_counts.get("str", 0) == 13
+    assert schema_type_counts.get("str", 0) == 12
 
 
 def test_defaults_match_config_json_example():

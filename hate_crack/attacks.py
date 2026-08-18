@@ -305,17 +305,18 @@ def _prompt_fingerprint_wordlist(ctx) -> str:
     falling back to manual tab-completed entry, matching how
     combinator_crack/hybrid_crack offer their config defaults.
     """
-    if ctx.hcatFingerprintWordlist:
+    configured = ctx.hcatFingerprintWordlist[0] if ctx.hcatFingerprintWordlist else None
+    if configured:
         use_default = (
             input(
                 "\nCombine expanded fragments against configured wordlist "
-                f"'{ctx.hcatFingerprintWordlist}'? (Y/n): "
+                f"'{configured}'? (Y/n): "
             )
             .strip()
             .lower()
         )
         if use_default != "n":
-            return ctx.hcatFingerprintWordlist
+            return configured
 
     _configure_readline(_wordlist_path_completer(ctx))
     try:

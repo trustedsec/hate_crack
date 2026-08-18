@@ -144,7 +144,7 @@ CONFIG_SCHEMA: tuple[ConfigKey, ...] = (
         ["rockyou.txt", "rockyou.txt"],
     ),
     ConfigKey("HCAT_HYBRIDLIST", "hcatHybridlist", "csv_list", ["rockyou.txt"]),
-    ConfigKey("HCAT_FINGERPRINT_WORDLIST", "hcatFingerprintWordlist", "str", ""),
+    ConfigKey("HCAT_FINGERPRINT_WORDLIST", "hcatFingerprintWordlist", "csv_list", []),
     ConfigKey(
         "HCAT_MIDDLE_COMBINATOR_MASKS",
         "hcatMiddleCombinatorMasks",

@@ -30,7 +30,7 @@ def test_fingerprint_crack_prompts_for_max_expander_len_and_enables_hybrid(
         hcatHashType="1000",
         hcatHashFile="dummy.hash",
         hcatFingerprint=fake_hcatFingerprint,
-        hcatFingerprintWordlist="",
+        hcatFingerprintWordlist=[],
     )
 
     responses = iter(["24", "", ""])
@@ -55,7 +55,7 @@ def test_fingerprint_crack_passes_wordlist_when_provided(monkeypatch):
         hcatHashType="1000",
         hcatHashFile="dummy.hash",
         hcatFingerprint=fake_hcatFingerprint,
-        hcatFingerprintWordlist="",
+        hcatFingerprintWordlist=[],
     )
 
     responses = iter(["", "rockyou.txt", ""])
@@ -77,7 +77,7 @@ def test_fingerprint_crack_passes_custom_keyspace_limit(monkeypatch):
         hcatHashType="1000",
         hcatHashFile="dummy.hash",
         hcatFingerprint=fake_hcatFingerprint,
-        hcatFingerprintWordlist="",
+        hcatFingerprintWordlist=[],
     )
 
     responses = iter(["", "", "200000000000"])
@@ -99,7 +99,7 @@ def test_fingerprint_crack_zero_keyspace_limit_means_no_limit(monkeypatch, capsy
         hcatHashType="1000",
         hcatHashFile="dummy.hash",
         hcatFingerprint=fake_hcatFingerprint,
-        hcatFingerprintWordlist="",
+        hcatFingerprintWordlist=[],
     )
 
     responses = iter(["", "", "0"])
@@ -122,7 +122,7 @@ def test_fingerprint_crack_accepts_configured_default_wordlist(monkeypatch):
         hcatHashType="1000",
         hcatHashFile="dummy.hash",
         hcatFingerprint=fake_hcatFingerprint,
-        hcatFingerprintWordlist="/wordlists/rockyou.txt",
+        hcatFingerprintWordlist=["/wordlists/rockyou.txt"],
     )
 
     # max_expander_len, "use configured default?" (accept), keyspace limit.
@@ -147,7 +147,7 @@ def test_fingerprint_crack_declining_configured_default_falls_back_to_manual_ent
         hcatHashType="1000",
         hcatHashFile="dummy.hash",
         hcatFingerprint=fake_hcatFingerprint,
-        hcatFingerprintWordlist="/wordlists/rockyou.txt",
+        hcatFingerprintWordlist=["/wordlists/rockyou.txt"],
     )
 
     # max_expander_len, "use configured default?" (decline), manual entry
@@ -471,7 +471,7 @@ def test_hcatFingerprint_falls_back_to_configured_wordlist_when_none_passed(
     _install_fingerprint_test_env(monkeypatch, hc_main, tmp_path, hashfile)
     monkeypatch.setattr(hc_main, "lineCount", lambda _p: 1)
     monkeypatch.setattr(hc_main, "hcatWordlists", str(tmp_path))
-    monkeypatch.setattr(hc_main, "hcatFingerprintWordlist", str(dict_path))
+    monkeypatch.setattr(hc_main, "hcatFingerprintWordlist", [str(dict_path)])
 
     seen = {"popen_args": []}
     monkeypatch.setattr(hc_main.subprocess, "Popen", _SimulatingFakePopen(seen))
@@ -503,7 +503,7 @@ def test_hcatFingerprint_explicit_empty_dictionary_skips_configured_default(
     _install_fingerprint_test_env(monkeypatch, hc_main, tmp_path, hashfile)
     monkeypatch.setattr(hc_main, "lineCount", lambda _p: 1)
     monkeypatch.setattr(hc_main, "hcatWordlists", str(tmp_path))
-    monkeypatch.setattr(hc_main, "hcatFingerprintWordlist", str(dict_path))
+    monkeypatch.setattr(hc_main, "hcatFingerprintWordlist", [str(dict_path)])
 
     seen = {"popen_args": []}
     monkeypatch.setattr(hc_main.subprocess, "Popen", _SimulatingFakePopen(seen))

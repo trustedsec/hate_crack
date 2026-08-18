@@ -2766,9 +2766,18 @@ def hcatFingerprint(
 
     # No explicit choice from the caller falls back to the configured
     # default (if any); an explicit "" (declined at the prompt) does not,
-    # so a user can still opt out of a configured default.
+    # so a user can still opt out of a configured default. Only one
+    # wordlist is combined per run, so extra configured entries are noted
+    # and ignored rather than silently dropped.
     if dictionary_wordlist is None:
-        dictionary_wordlist = hcatFingerprintWordlist
+        if len(hcatFingerprintWordlist) > 1:
+            print(
+                "[!] hcatFingerprintWordlist has multiple entries; using the "
+                f"first ({hcatFingerprintWordlist[0]}), ignoring the rest."
+            )
+        dictionary_wordlist = (
+            hcatFingerprintWordlist[0] if hcatFingerprintWordlist else None
+        )
 
     resolved_dict = None
     if dictionary_wordlist:
