@@ -17,12 +17,14 @@ def test_fingerprint_crack_prompts_for_max_expander_len_and_enables_hybrid(
         max_expander_len,
         run_hybrid_on_expanded=False,
         dictionary_wordlist=None,
+        keyspace_limit=None,
     ):
         seen["hash_type"] = hash_type
         seen["hash_file"] = hash_file
         seen["max_expander_len"] = max_expander_len
         seen["run_hybrid_on_expanded"] = run_hybrid_on_expanded
         seen["dictionary_wordlist"] = dictionary_wordlist
+        seen["keyspace_limit"] = keyspace_limit
 
     ctx = SimpleNamespace(
         hcatHashType="1000",
@@ -30,13 +32,14 @@ def test_fingerprint_crack_prompts_for_max_expander_len_and_enables_hybrid(
         hcatFingerprint=fake_hcatFingerprint,
     )
 
-    responses = iter(["24", ""])
+    responses = iter(["24", "", ""])
     monkeypatch.setattr(builtins, "input", lambda _prompt="": next(responses))
     attacks.fingerprint_crack(ctx)
 
     assert seen["max_expander_len"] == 24
     assert seen["run_hybrid_on_expanded"] is True
     assert seen["dictionary_wordlist"] is None
+    assert seen["keyspace_limit"] is None
 
 
 def test_fingerprint_crack_passes_wordlist_when_provided(monkeypatch):
@@ -53,11 +56,54 @@ def test_fingerprint_crack_passes_wordlist_when_provided(monkeypatch):
         hcatFingerprint=fake_hcatFingerprint,
     )
 
-    responses = iter(["", "rockyou.txt"])
+    responses = iter(["", "rockyou.txt", ""])
     monkeypatch.setattr(builtins, "input", lambda _prompt="": next(responses))
     attacks.fingerprint_crack(ctx)
 
     assert seen["dictionary_wordlist"] == "rockyou.txt"
+
+
+def test_fingerprint_crack_passes_custom_keyspace_limit(monkeypatch):
+    from hate_crack import attacks
+
+    seen = {}
+
+    def fake_hcatFingerprint(hash_type, hash_file, max_expander_len, **kwargs):
+        seen["keyspace_limit"] = kwargs.get("keyspace_limit")
+
+    ctx = SimpleNamespace(
+        hcatHashType="1000",
+        hcatHashFile="dummy.hash",
+        hcatFingerprint=fake_hcatFingerprint,
+    )
+
+    responses = iter(["", "", "200000000000"])
+    monkeypatch.setattr(builtins, "input", lambda _prompt="": next(responses))
+    attacks.fingerprint_crack(ctx)
+
+    assert seen["keyspace_limit"] == 200_000_000_000
+
+
+def test_fingerprint_crack_zero_keyspace_limit_means_no_limit(monkeypatch, capsys):
+    from hate_crack import attacks
+
+    seen = {}
+
+    def fake_hcatFingerprint(hash_type, hash_file, max_expander_len, **kwargs):
+        seen["keyspace_limit"] = kwargs.get("keyspace_limit")
+
+    ctx = SimpleNamespace(
+        hcatHashType="1000",
+        hcatHashFile="dummy.hash",
+        hcatFingerprint=fake_hcatFingerprint,
+    )
+
+    responses = iter(["", "", "0"])
+    monkeypatch.setattr(builtins, "input", lambda _prompt="": next(responses))
+    attacks.fingerprint_crack(ctx)
+
+    assert seen["keyspace_limit"] == 0
+    assert "No limit" in capsys.readouterr().out
 
 
 class _SimulatingFakePopen:
@@ -284,9 +330,9 @@ def test_hcatFingerprint_dictionary_guard_checked_once_not_per_direction(
     guard_calls = []
     real_guard = hc_main._fingerprint_keyspace_guard
 
-    def counting_guard(left, right, label):
+    def counting_guard(left, right, label, limit):
         guard_calls.append(label)
-        return real_guard(left, right, label)
+        return real_guard(left, right, label, limit)
 
     monkeypatch.setattr(hc_main, "_fingerprint_keyspace_guard", counting_guard)
 
@@ -376,7 +422,9 @@ class TestFingerprintKeyspaceGuard:
             ),
         )
 
-        assert hc_main._fingerprint_keyspace_guard("left", "right", "label")
+        assert hc_main._fingerprint_keyspace_guard(
+            "left", "right", "label", 50_000_000_000
+        )
 
     def test_over_threshold_skips_without_prompting(self, monkeypatch):
         """Fingerprint is launched once and left to run; a keyspace guard
@@ -393,4 +441,21 @@ class TestFingerprintKeyspaceGuard:
             ),
         )
 
-        assert not hc_main._fingerprint_keyspace_guard("left", "right", "label")
+        assert not hc_main._fingerprint_keyspace_guard(
+            "left", "right", "label", 50_000_000_000
+        )
+
+    def test_falsy_limit_means_no_limit(self, monkeypatch):
+        from hate_crack import main as hc_main
+
+        monkeypatch.setattr(hc_main, "lineCount", lambda _p: 300_000)
+        monkeypatch.setattr(
+            builtins,
+            "input",
+            lambda *_a, **_k: (_ for _ in ()).throw(
+                AssertionError("should not prompt")
+            ),
+        )
+
+        assert hc_main._fingerprint_keyspace_guard("left", "right", "label", 0)
+        assert hc_main._fingerprint_keyspace_guard("left", "right", "label", None)

@@ -322,12 +322,35 @@ def fingerprint_crack(ctx: Any) -> None:
     finally:
         readline.set_completer(None)
 
+    while True:
+        limit_raw = input(
+            "\nSkip a combination step if it would exceed this many candidates "
+            "(default 50,000,000,000, 0 for no limit): "
+        ).strip()
+        if limit_raw == "":
+            keyspace_limit = None  # hcatFingerprint applies its own default
+            break
+        try:
+            keyspace_limit = int(limit_raw)
+        except ValueError:
+            print("Please enter a non-negative integer.")
+            continue
+        if keyspace_limit < 0:
+            print("Please enter a non-negative integer.")
+            continue
+        if keyspace_limit == 0:
+            print(
+                "[!] No limit: an oversized combination could run for a very long time."
+            )
+        break
+
     ctx.hcatFingerprint(
         ctx.hcatHashType,
         ctx.hcatHashFile,
         max_expander_len=max_expander_len,
         run_hybrid_on_expanded=True,
         dictionary_wordlist=wordlist_raw or None,
+        keyspace_limit=keyspace_limit,
     )
 
 
