@@ -591,6 +591,39 @@ class TestHcatRecycle:
         assert "/fake/best66.rule" in cmd
 
 
+class TestHcatTopMask:
+    def test_decodes_hex_wrapped_plaintext_before_statsgen(self, main_module, tmp_path):
+        """statsgen.py has no $HEX[...] awareness of its own -- a wrapped
+        plaintext must be decoded before it reaches .working, or mask
+        statistics get derived from the literal wrapper text."""
+        hash_file = str(tmp_path / "hashes.txt")
+        # "Sommer2025!" (non-ASCII "ö") -> hashcat wraps it as $HEX[...].
+        plain = "Sömmer2025!"
+        hex_plain = plain.encode("iso-8859-9").hex()
+        (tmp_path / "hashes.txt.out").write_text(
+            f"deadbeef:$HEX[{hex_plain}]\nfeedface:plainpass\n"
+        )
+        mock_proc = _make_mock_proc()
+
+        with (
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "hate_path", str(tmp_path)),
+            patch.object(main_module, "hcatHashCracked", 0),
+            patch.object(
+                main_module, "generate_session_id", return_value="test_session"
+            ),
+            patch("hate_crack.main.subprocess.Popen", return_value=mock_proc),
+        ):
+            main_module.hcatTopMask("1000", hash_file, 3600)
+
+        working_lines = (tmp_path / "hashes.txt.working").read_text().splitlines()
+        assert plain in working_lines
+        assert "plainpass" in working_lines
+        assert not any(line.startswith("$HEX[") for line in working_lines)
+
+
 class TestHcatGoodMeasure:
     def test_popen_called_at_least_once(self, main_module, tmp_path):
         hash_file = str(tmp_path / "hashes.txt")

@@ -318,6 +318,36 @@ def test_hcatFingerprint_self_combination_uses_capitalize_rule(monkeypatch, tmp_
         assert cmd[cmd.index("-k") + 1] == "c"
 
 
+def test_hcatFingerprint_decodes_hex_wrapped_plaintext_before_expanding(
+    monkeypatch, tmp_path
+):
+    """The expander binary has no $HEX[...] awareness of its own -- a
+    wrapped plaintext must be decoded before it reaches .expanded, or the
+    fingerprint attack rotates substrings of the literal wrapper text
+    instead of the real password."""
+    import hate_crack.main as hc_main
+
+    importlib.reload(hc_main)
+
+    hashfile = tmp_path / "hashes.txt"
+    # "Sömmer2025!" (non-ASCII "ö") -> hashcat wraps it as $HEX[...].
+    plain = "Sömmer2025!"
+    hex_plain = plain.encode("iso-8859-9").hex()
+    (tmp_path / "hashes.txt.out").write_text(f"deadbeef:$HEX[{hex_plain}]\n")
+
+    _install_fingerprint_test_env(monkeypatch, hc_main, tmp_path, hashfile)
+    monkeypatch.setattr(hc_main, "lineCount", lambda _p: 1)
+
+    seen = {"popen_args": []}
+    monkeypatch.setattr(hc_main.subprocess, "Popen", _SimulatingFakePopen(seen))
+
+    hc_main.hcatFingerprint("1000", str(hashfile), max_expander_len=7)
+
+    fragments = (tmp_path / "hashes.txt.expanded").read_text()
+    assert "Sömmer" in fragments
+    assert "$HEX[" not in fragments
+
+
 def test_hcatFingerprint_combines_against_dictionary_in_both_orders(
     monkeypatch, tmp_path
 ):
