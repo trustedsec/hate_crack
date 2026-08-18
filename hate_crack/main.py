@@ -2602,99 +2602,224 @@ def hcatRosettaMask(hcatHashType, hcatHashFile, description):
     _run_hcat_cmd(cmd, attack_name="Rosetta Mask", hash_file=hcatHashFile)
 
 
+_FINGERPRINT_KEYSPACE_LIMIT = 50_000_000_000
+
+
+def _fingerprint_expander_chain(max_expander_len):
+    """Escalating substring lengths to expand at, small to big.
+
+    E.g. max_expander_len=21 -> [7, 14, 21]; 24 -> [7, 14, 21, 24].
+    """
+    lengths = set(range(7, max_expander_len, 7))
+    lengths.add(max_expander_len)
+    return sorted(n for n in lengths if 7 <= n <= max_expander_len)
+
+
+def _fingerprint_keyspace_guard(left_path, right_path, label, unattended):
+    """Return True if a -a1 combination of left/right should proceed.
+
+    -a1's candidate count is exactly len(left) * len(right); on a
+    partially-cracked hash list this can run into the billions, so this
+    is checked before spending GPU time on it rather than after.
+    """
+    keyspace = lineCount(left_path) * lineCount(right_path)
+    if keyspace <= _FINGERPRINT_KEYSPACE_LIMIT:
+        return True
+    print(
+        f"[!] {label}: {keyspace:,} candidates exceeds the "
+        f"{_FINGERPRINT_KEYSPACE_LIMIT:,}-candidate guardrail."
+    )
+    if unattended:
+        print(f"[!] Skipping {label} (unattended mode).")
+        return False
+    return input(f"Proceed with {label} anyway? (y/N): ").strip().lower() == "y"
+
+
+def _fingerprint_expand_new(expander_len, hcatHashFile, new_plaintexts):
+    """Expand only newly-cracked plaintexts and merge the fragments into the
+    accumulating {hcatHashFile}.expanded file (deduped).
+
+    Only expanding the delta (not the whole cracked corpus) keeps each
+    convergence-loop iteration's cost proportional to what changed, since
+    the expander + combinator steps this feeds are the expensive part.
+    """
+    global hcatProcess
+
+    expander_bin = (
+        hcatExpanderBin if expander_len == 7 else f"expander{expander_len}.bin"
+    )
+    expander_path = os.path.join(hate_path, "hashcat-utils", "bin", expander_bin)
+    ensure_binary(
+        expander_path,
+        build_dir=os.path.join(hate_path, "hashcat-utils"),
+        name=expander_bin.replace(".bin", ""),
+    )
+
+    delta_path = f"{hcatHashFile}.working.new"
+    with open(delta_path, "w") as f:
+        f.write("\n".join(new_plaintexts) + "\n")
+
+    delta_expanded_path = f"{hcatHashFile}.expanded.delta"
+    with (
+        open(delta_path, "rb") as src,
+        open(delta_expanded_path, "wb") as dst,
+    ):
+        expander_proc = subprocess.Popen(
+            [expander_path], stdin=src, stdout=subprocess.PIPE
+        )
+        expander_stdout = expander_proc.stdout
+        if expander_stdout is None:
+            raise RuntimeError("expander stdout pipe was not created")
+        sort_proc = subprocess.Popen(
+            ["sort", "-u"],
+            stdin=expander_stdout,
+            stdout=dst,
+            env={**os.environ, "LC_ALL": "C"},
+        )
+        hcatProcess = sort_proc
+        expander_stdout.close()
+        try:
+            sort_proc.wait()
+            expander_proc.wait()
+        except KeyboardInterrupt:
+            print("Killing PID {0}...".format(str(sort_proc.pid)))
+            sort_proc.kill()
+            expander_proc.kill()
+
+    expanded_path = f"{hcatHashFile}.expanded"
+    fragments = set()
+    if os.path.exists(expanded_path):
+        with open(expanded_path, errors="replace") as f:
+            fragments = {line.rstrip("\n") for line in f if line.strip()}
+    with open(delta_expanded_path, errors="replace") as f:
+        fragments |= {line.rstrip("\n") for line in f if line.strip()}
+    with open(expanded_path, "w") as f:
+        for fragment in sorted(fragments):
+            f.write(fragment + "\n")
+
+
+def _fingerprint_combine(hcatHashType, hcatHashFile, left, right, *, label, unattended):
+    """Run a -a1 combination of left+right, gated by the keyspace guardrail.
+
+    Every side gets a cheap -j/-k capitalize rule for free Capitalized
+    coverage of the raw fragments/dictionary words.
+    """
+    if not _fingerprint_keyspace_guard(left, right, label, unattended):
+        return
+    cmd = [
+        hcatBin,
+        "-m",
+        hcatHashType,
+        hcatHashFile,
+        "--session",
+        generate_session_id(),
+        "-o",
+        f"{hcatHashFile}.out",
+        "-a",
+        "1",
+        "-j",
+        "c",
+        "-k",
+        "c",
+        left,
+        right,
+    ]
+    if _should_use_optimized_kernel("hcatFingerprint"):
+        _insert_optimized_flag(cmd)
+    cmd.extend(shlex.split(hcatTuning))
+    _append_potfile_arg(cmd)
+    _run_hcat_cmd(cmd, attack_name="Fingerprint", hash_file=hcatHashFile)
+
+
 # Fingerprint Attack
 def hcatFingerprint(
     hcatHashType,
     hcatHashFile,
-    expander_len: int = 7,
+    max_expander_len: int = 21,
     run_hybrid_on_expanded: bool = False,
+    dictionary_wordlist: str | None = None,
+    unattended: bool = False,
 ):
     global hcatFingerprintCount
-    global hcatProcess
 
     try:
-        expander_len = int(expander_len)
+        max_expander_len = int(max_expander_len)
     except Exception:
-        expander_len = 7
-    if expander_len < 7 or expander_len > 36:
-        raise ValueError("expander_len must be an integer between 7 and 36")
+        max_expander_len = 21
+    if max_expander_len < 7 or max_expander_len > 36:
+        raise ValueError("max_expander_len must be an integer between 7 and 36")
 
-    crackedBefore = lineCount(hcatHashFile + ".out")
-    while True:
-        _write_delimited_field(
-            f"{hcatHashFile}.out", f"{hcatHashFile}.working", 2, last_field=True
-        )
-        expander_bin = (
-            hcatExpanderBin if expander_len == 7 else f"expander{expander_len}.bin"
-        )
-        expander_path = os.path.join(hate_path, "hashcat-utils", "bin", expander_bin)
-        ensure_binary(
-            expander_path,
-            build_dir=os.path.join(hate_path, "hashcat-utils"),
-            name=expander_bin.replace(".bin", ""),
-        )
-        with (
-            open(f"{hcatHashFile}.working", "rb") as src,
-            open(f"{hcatHashFile}.expanded", "wb") as dst,
-        ):
-            expander_proc = subprocess.Popen(
-                [expander_path], stdin=src, stdout=subprocess.PIPE
-            )
-            expander_stdout = expander_proc.stdout
-            if expander_stdout is None:
-                raise RuntimeError("expander stdout pipe was not created")
-            sort_proc = subprocess.Popen(
-                ["sort", "-u"],
-                stdin=expander_stdout,
-                stdout=dst,
-                env={**os.environ, "LC_ALL": "C"},
-            )
-            hcatProcess = sort_proc
-            expander_stdout.close()
-            try:
-                sort_proc.wait()
-                expander_proc.wait()
-            except KeyboardInterrupt:
-                print("Killing PID {0}...".format(str(sort_proc.pid)))
-                sort_proc.kill()
-                expander_proc.kill()
-        if lineCount(f"{hcatHashFile}.expanded") == 0:
-            print(
-                "[!] Skipping Fingerprint Attack: no candidates to expand "
-                "(no cracked passwords yet)."
-            )
-            break
-        fingerprint_cmd = [
-            hcatBin,
-            "-m",
-            hcatHashType,
-            hcatHashFile,
-            "--session",
-            generate_session_id(),
-            "-o",
-            f"{hcatHashFile}.out",
-            "-a",
-            "1",
-            f"{hcatHashFile}.expanded",
-            f"{hcatHashFile}.expanded",
-        ]
-        if _should_use_optimized_kernel("hcatFingerprint"):
-            _insert_optimized_flag(fingerprint_cmd)
-        fingerprint_cmd.extend(shlex.split(hcatTuning))
-        _append_potfile_arg(fingerprint_cmd)
-        _run_hcat_cmd(
-            fingerprint_cmd, attack_name="Fingerprint", hash_file=hcatHashFile
-        )
+    resolved_dict = None
+    if dictionary_wordlist:
+        candidate = _resolve_wordlist_path(dictionary_wordlist, hcatWordlists)
+        if os.path.isfile(candidate):
+            resolved_dict = candidate
+        else:
+            print(f"[!] Wordlist not found: {candidate}")
 
-        # Secondary attack: run hybrid on the expanded candidates (mode 6/7 variants).
-        # This is intentionally optional to avoid changing the "extensive" pipeline ordering.
-        if run_hybrid_on_expanded:
-            hcatHybrid(hcatHashType, hcatHashFile, [f"{hcatHashFile}.expanded"])
+    expanded_path = f"{hcatHashFile}.expanded"
+    open(expanded_path, "w").close()  # fresh accumulator for this attack run
 
-        crackedAfter = lineCount(hcatHashFile + ".out")
-        if crackedAfter == crackedBefore:
-            break
-        crackedBefore = crackedAfter
+    any_candidates = False
+    for expander_len in _fingerprint_expander_chain(max_expander_len):
+        seen_plaintexts: set[str] = set()
+        crackedBefore = lineCount(hcatHashFile + ".out")
+        while True:
+            _write_delimited_field(
+                f"{hcatHashFile}.out", f"{hcatHashFile}.working", 2, last_field=True
+            )
+            with open(f"{hcatHashFile}.working", errors="replace") as f:
+                current_plaintexts = {line.rstrip("\n") for line in f if line.strip()}
+            new_plaintexts = current_plaintexts - seen_plaintexts
+            if not new_plaintexts:
+                break
+            seen_plaintexts |= new_plaintexts
+
+            _fingerprint_expand_new(expander_len, hcatHashFile, sorted(new_plaintexts))
+            any_candidates = True
+
+            _fingerprint_combine(
+                hcatHashType,
+                hcatHashFile,
+                expanded_path,
+                expanded_path,
+                label=f"Fingerprint self-combination (length {expander_len})",
+                unattended=unattended,
+            )
+            if resolved_dict:
+                _fingerprint_combine(
+                    hcatHashType,
+                    hcatHashFile,
+                    expanded_path,
+                    resolved_dict,
+                    label=f"Fingerprint dictionary-combination (length {expander_len})",
+                    unattended=unattended,
+                )
+                _fingerprint_combine(
+                    hcatHashType,
+                    hcatHashFile,
+                    resolved_dict,
+                    expanded_path,
+                    label=f"Fingerprint dictionary-combination (length {expander_len})",
+                    unattended=unattended,
+                )
+
+            # Secondary attack: run hybrid on the expanded candidates (mode 6/7
+            # variants). Intentionally optional to avoid changing the
+            # "extensive" pipeline ordering.
+            if run_hybrid_on_expanded:
+                hcatHybrid(hcatHashType, hcatHashFile, [expanded_path])
+
+            crackedAfter = lineCount(hcatHashFile + ".out")
+            if crackedAfter == crackedBefore:
+                break
+            crackedBefore = crackedAfter
+
+    if not any_candidates:
+        print(
+            "[!] Skipping Fingerprint Attack: no candidates to expand "
+            "(no cracked passwords yet)."
+        )
     hcatFingerprintCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
 

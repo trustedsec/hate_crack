@@ -257,7 +257,11 @@ def extensive_crack(ctx: Any) -> None:
         ctx.hcatTopMask(ctx.hcatHashType, ctx.hcatHashFile, hcatTargetTime)
         ctx.hcatRecycle(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatMaskCount)
         ctx.hcatFingerprint(
-            ctx.hcatHashType, ctx.hcatHashFile, 7, run_hybrid_on_expanded=False
+            ctx.hcatHashType,
+            ctx.hcatHashFile,
+            max_expander_len=21,
+            run_hybrid_on_expanded=False,
+            unattended=True,
         )
         ctx.hcatRecycle(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatFingerprintCount)
         ctx.hcatCombination(ctx.hcatHashType, ctx.hcatHashFile)
@@ -297,24 +301,29 @@ def top_mask_crack(ctx: Any) -> None:
 def fingerprint_crack(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("Fingerprint")
     while True:
-        raw = input("\nEnter expander max length (7-36) (7): ").strip()
+        raw = input("\nEnter max expander length to escalate to (7-36) (21): ").strip()
         if raw == "":
-            expander_len = 7
+            max_expander_len = 21
             break
         try:
-            expander_len = int(raw)
+            max_expander_len = int(raw)
         except ValueError:
             print("Please enter an integer between 7 and 36.")
             continue
-        if 7 <= expander_len <= 36:
+        if 7 <= max_expander_len <= 36:
             break
         print("Please enter an integer between 7 and 36.")
+
+    wordlist_raw = input(
+        "\nEnter a wordlist to combine expanded fragments against (blank to skip): "
+    ).strip()
 
     ctx.hcatFingerprint(
         ctx.hcatHashType,
         ctx.hcatHashFile,
-        expander_len,
+        max_expander_len=max_expander_len,
         run_hybrid_on_expanded=True,
+        dictionary_wordlist=wordlist_raw or None,
     )
 
 

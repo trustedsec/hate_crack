@@ -107,7 +107,7 @@ def test_hcatFingerprint_sort_uses_C_locale(monkeypatch, tmp_path):
 
     calls = _collect_sort_calls(monkeypatch, hc_main)
     hc_main.hcatFingerprint(
-        "1000", str(hashfile), expander_len=7, run_hybrid_on_expanded=False
+        "1000", str(hashfile), max_expander_len=7, run_hybrid_on_expanded=False
     )
 
     sort_calls = _sort_calls(calls)

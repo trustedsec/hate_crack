@@ -1,5 +1,6 @@
 """Tests for optimized kernel system - covers gaps not in test_main_utils.py::TestOptimizedKernel."""
 
+import io
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -48,26 +49,33 @@ class TestHcatFingerprintOptimizedFlag:
     def test_fingerprint_includes_optimized_flag(self, main_module, tmp_path):
         hash_file = tmp_path / "hashes.txt"
         hash_file.write_text("")
-        (tmp_path / "hashes.txt.out").write_text("")
-        # hcatFingerprint opens .working and .expanded inside the loop; create them.
-        (tmp_path / "hashes.txt.working").write_text("")
-        (tmp_path / "hashes.txt.expanded").write_text("")
+        (tmp_path / "hashes.txt.out").write_text("deadbeef:password1\n")
 
         captured_cmds = []
 
-        def fake_popen(cmd, **kwargs):
+        def fake_popen(cmd, stdin=None, stdout=None, **_kwargs):
             captured_cmds.append(list(cmd))
+            cmd0 = cmd[0]
+            if cmd0 == "sort":
+                data = stdin.read() if stdin is not None else b""
+                for line in sorted(set(data.splitlines())):
+                    stdout.write(line + b"\n")
+                stdout.flush()
+                proc_stdout = None
+            elif isinstance(cmd0, str) and "expander" in cmd0:
+                data = stdin.read() if stdin is not None else b""
+                proc_stdout = io.BytesIO(data)
+            else:
+                proc_stdout = MagicMock()
             proc = MagicMock()
-            proc.stdout = MagicMock()
+            proc.stdout = proc_stdout
             proc.pid = 1234
             proc.wait.return_value = 0
             return proc
 
-        # lineCount call sequence:
-        #   call 1 (initial, before loop): 1  -> crackedBefore=1, crackedAfter=0 -> enter loop
-        #   call 2 (top of loop body):     1  -> crackedBefore=1
-        #   call 3 (bottom of loop body):  1  -> crackedAfter=1 -> exit loop (1==1)
-        #   call 4 (final hcatFingerprintCount assignment): 1
+        # Constant lineCount makes each escalation length's while-loop
+        # converge after one iteration (crackedAfter == crackedBefore) and
+        # keeps the keyspace guard well under its threshold.
         with (
             patch("hate_crack.main.subprocess.Popen", side_effect=fake_popen),
             patch.object(main_module, "hcatBin", "hashcat"),
@@ -76,8 +84,7 @@ class TestHcatFingerprintOptimizedFlag:
             patch.object(main_module, "hate_path", str(tmp_path)),
             patch.object(main_module, "hcatExpanderBin", "expander.bin"),
             patch.object(main_module, "hcatHashCracked", 0),
-            patch("hate_crack.main.lineCount", side_effect=[1, 1, 1, 1]),
-            patch("hate_crack.main._write_delimited_field"),
+            patch("hate_crack.main.lineCount", lambda _p: 1),
             patch("hate_crack.main.ensure_binary"),
             patch("hate_crack.main.generate_session_id", return_value="test_session"),
         ):
