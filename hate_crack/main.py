@@ -2099,6 +2099,23 @@ def _write_delimited_field(
         return False
 
 
+def _extract_cracked_plaintexts(source_path, working_path):
+    """Extract the plaintext field from a cracked-hash file into
+    working_path, decoding any $HEX[...] wrapping in the process.
+
+    hashcat wraps a cracked plaintext in $HEX[...] whenever it contains a
+    byte that would break the outfile's colon-delimited format (non-UTF-8
+    bytes, control characters, a literal ":" in the password) -- common for
+    hash modes that allow full Unicode, like NTLM. A caller that reads
+    working_path afterward without this decode step gets that literal
+    wrapper text instead of the real password.
+    """
+    _write_delimited_field(source_path, working_path, 2, last_field=True)
+    converted = convert_hex(working_path)
+    with open(working_path, "w") as working:
+        working.writelines("\n".join(converted))
+
+
 def _write_field_sorted_unique(input_path, output_path, field_index, delimiter=":"):
     try:
         with (
@@ -2480,9 +2497,7 @@ def _valid_hcmask(mask: object) -> bool:
 def hcatTopMask(hcatHashType, hcatHashFile, hcatTargetTime):
     global hcatMaskCount
     global hcatProcess
-    _write_delimited_field(
-        f"{hcatHashFile}.out", f"{hcatHashFile}.working", 2, last_field=True
-    )
+    _extract_cracked_plaintexts(f"{hcatHashFile}.out", f"{hcatHashFile}.working")
     hcatProcess = subprocess.Popen(
         [
             sys.executable,
@@ -2795,8 +2810,8 @@ def hcatFingerprint(
         seen_plaintexts: set[str] = set()
         crackedBefore = lineCount(hcatHashFile + ".out")
         while True:
-            _write_delimited_field(
-                f"{hcatHashFile}.out", f"{hcatHashFile}.working", 2, last_field=True
+            _extract_cracked_plaintexts(
+                f"{hcatHashFile}.out", f"{hcatHashFile}.working"
             )
             with open(f"{hcatHashFile}.working", errors="replace") as f:
                 current_plaintexts = {line.rstrip("\n") for line in f if line.strip()}
@@ -4914,14 +4929,7 @@ def hcatLMtoNT():
         out_path=f"{hcatHashFile}.lm.cracked",
     )
 
-    _write_delimited_field(
-        f"{hcatHashFile}.lm.cracked", f"{hcatHashFile}.working", 2, last_field=True
-    )
-    converted = convert_hex("{hash_file}.working".format(hash_file=hcatHashFile))
-    with open(
-        "{hash_file}.working".format(hash_file=hcatHashFile), mode="w"
-    ) as working:
-        working.writelines("\n".join(converted))
+    _extract_cracked_plaintexts(f"{hcatHashFile}.lm.cracked", f"{hcatHashFile}.working")
     combine_path = os.path.join(hate_path, "hashcat-utils", "bin", hcatCombinatorBin)
     with open(f"{hcatHashFile}.combined", "wb") as combined_out:
         combine_proc = subprocess.Popen(
@@ -4981,13 +4989,7 @@ def hcatRecycle(hcatHashType, hcatHashFile, hcatNewPasswords):
     global hcatProcess
     working_file = hcatHashFile + ".working"
     if hcatNewPasswords > 0:
-        _write_delimited_field(f"{hcatHashFile}.out", working_file, 2, last_field=True)
-
-        converted = convert_hex(working_file)
-
-        # Overwrite working file with updated converted words
-        with open(working_file, "w") as f:
-            f.write("\n".join(converted))
+        _extract_cracked_plaintexts(f"{hcatHashFile}.out", working_file)
         for rule in hcatRules:
             rule_path = get_rule_path(rule)
             cmd = [
