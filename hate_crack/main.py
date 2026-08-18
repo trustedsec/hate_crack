@@ -2070,7 +2070,9 @@ def lineCount(file):
         return 0
 
 
-def _write_delimited_field(input_path, output_path, field_index, delimiter=":"):
+def _write_delimited_field(
+    input_path, output_path, field_index, delimiter=":", last_field=False
+):
     try:
         with (
             open(input_path, "r", errors="replace") as src,
@@ -2078,6 +2080,13 @@ def _write_delimited_field(input_path, output_path, field_index, delimiter=":"):
         ):
             for line in src:
                 line = line.rstrip("\n")
+                if last_field:
+                    # Hash components for some modes (NetNTLM, Kerberos, ...)
+                    # embed their own colons, so the plaintext is only ever
+                    # reliably found as the last field, not a fixed index.
+                    if delimiter in line:
+                        dst.write(line.rsplit(delimiter, 1)[-1] + "\n")
+                    continue
                 parts = line.split(delimiter, field_index)
                 if len(parts) >= field_index:
                     dst.write(parts[field_index - 1] + "\n")
@@ -2467,7 +2476,9 @@ def _valid_hcmask(mask: object) -> bool:
 def hcatTopMask(hcatHashType, hcatHashFile, hcatTargetTime):
     global hcatMaskCount
     global hcatProcess
-    _write_delimited_field(f"{hcatHashFile}.out", f"{hcatHashFile}.working", 2)
+    _write_delimited_field(
+        f"{hcatHashFile}.out", f"{hcatHashFile}.working", 2, last_field=True
+    )
     hcatProcess = subprocess.Popen(
         [
             sys.executable,
@@ -2610,7 +2621,9 @@ def hcatFingerprint(
 
     crackedBefore = lineCount(hcatHashFile + ".out")
     while True:
-        _write_delimited_field(f"{hcatHashFile}.out", f"{hcatHashFile}.working", 2)
+        _write_delimited_field(
+            f"{hcatHashFile}.out", f"{hcatHashFile}.working", 2, last_field=True
+        )
         expander_bin = (
             hcatExpanderBin if expander_len == 7 else f"expander{expander_len}.bin"
         )
@@ -4747,7 +4760,9 @@ def hcatLMtoNT():
         out_path=f"{hcatHashFile}.lm.cracked",
     )
 
-    _write_delimited_field(f"{hcatHashFile}.lm.cracked", f"{hcatHashFile}.working", 2)
+    _write_delimited_field(
+        f"{hcatHashFile}.lm.cracked", f"{hcatHashFile}.working", 2, last_field=True
+    )
     converted = convert_hex("{hash_file}.working".format(hash_file=hcatHashFile))
     with open(
         "{hash_file}.working".format(hash_file=hcatHashFile), mode="w"
@@ -4812,7 +4827,7 @@ def hcatRecycle(hcatHashType, hcatHashFile, hcatNewPasswords):
     global hcatProcess
     working_file = hcatHashFile + ".working"
     if hcatNewPasswords > 0:
-        _write_delimited_field(f"{hcatHashFile}.out", working_file, 2)
+        _write_delimited_field(f"{hcatHashFile}.out", working_file, 2, last_field=True)
 
         converted = convert_hex(working_file)
 
