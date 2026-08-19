@@ -4644,6 +4644,51 @@ def _spoonman_cache_mismatch(recorded, current):
     return None
 
 
+# hashcat's optimized kernels (-O) impose a maximum candidate length, and
+# anything over it is dropped without a word. 31 is the mode-0 figure, verified
+# against hashcat v7.1.2: with -O a 31-character plaintext cracks, a
+# 32-character one does not, and hashcat prints no warning and exits cleanly.
+# The real cap is mode-dependent, so this single number is a heuristic used
+# only to warn -- nothing filters candidates or changes an attack's behaviour
+# based on it, and no attempt is made to derive it per hash mode.
+OPTIMIZED_KERNEL_MAX_PLAIN_LENGTH = 31
+
+
+def _count_over_long_basewords(path, cap=OPTIMIZED_KERNEL_MAX_PLAIN_LENGTH):
+    """Count lines in *path* longer than *cap* characters; None if unreadable.
+
+    Streams the file one line at a time: a Spoonman baseword list is derived
+    from the whole corpus and can be nearly as large, so it must not be read
+    into memory just to print a warning.
+    """
+    try:
+        with open(path, encoding="latin-1") as handle:
+            return sum(1 for line in handle if len(line.rstrip("\r\n")) > cap)
+    except OSError:
+        return None
+
+
+def _warn_optimized_kernel_length_loss(basewords_path):
+    """Report how many basewords ``-O`` will silently drop, if ``-O`` is in play.
+
+    Spoonman's baseword list holds whole literal passwords -- every letterless
+    or unrepresentable corpus entry becomes its own baseword -- so a corpus with
+    long entries loses them outright, with nothing in hashcat's output to say
+    so. Informational only: it does not prompt and does not change the run.
+    """
+    if not _should_use_optimized_kernel("hcatQuickDictionary"):
+        return
+    over_long = _count_over_long_basewords(basewords_path)
+    if not over_long:
+        return
+    print(
+        f"[!] {over_long} baseword(s) exceed "
+        f"{OPTIMIZED_KERNEL_MAX_PLAIN_LENGTH} characters and will be dropped "
+        "silently by hashcat's optimized kernel (-O). Re-run with "
+        "--no-optimized-kernel (--no-optimize) to keep them."
+    )
+
+
 def hcatSpoonman(hcatHashType, hcatHashFile, corpus, coverage=None):
     """Spoonman Attack: derive basewords + rules from *corpus*, then crack with them.
 
@@ -4702,6 +4747,7 @@ def hcatSpoonman(hcatHashType, hcatHashFile, corpus, coverage=None):
     print(f"[*] Basewords: {basewords_path}")
     print(f"[*] Rules:     {rules_path}")
     print(f"[*] Coverage:  {os.path.join(cache_dir, 'coverage.txt')}")
+    _warn_optimized_kernel_length_loss(basewords_path)
 
     hcatQuickDictionary(
         hcatHashType,

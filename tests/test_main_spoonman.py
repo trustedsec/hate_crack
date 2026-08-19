@@ -3,6 +3,7 @@
 import gzip
 import json
 import os
+import tracemalloc
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -380,6 +381,131 @@ class TestHcatSpoonmanGzip:
             main_module.hcatSpoonman("1000", hash_file, corpus)
 
         generate.assert_not_called()
+
+
+class TestSpoonmanOptimizedKernelLengthWarning:
+    """``-O`` drops over-long candidates without saying anything.
+
+    Verified against hashcat v7.1.2 in mode 0: with ``-O`` a 31-character
+    plaintext cracks and a 32-character one does not, with no warning and a
+    clean exit. Spoonman's baseword list is full of whole literal passwords, so
+    a corpus with long entries loses them silently -- hence the warning.
+    """
+
+    # Invented tokens only, assembled to run past the cap.
+    LONG = "wibble" * 7  # 42 characters
+    ALSO_LONG = "quibblefox" + "zarplewidget" + "grumbleknobbler"  # 37
+
+    def _hash_file(self, tmp_path):
+        return str(tmp_path / "hashes.txt")
+
+    def _corpus(self, tmp_path, words):
+        path = tmp_path / "cracked.txt"
+        path.write_text("".join(f"{word}\n" for word in words), encoding="latin-1")
+        return str(path)
+
+    def _run(self, main_module, tmp_path, words):
+        corpus = self._corpus(tmp_path, words)
+        with patch.object(main_module, "hcatQuickDictionary") as quick:
+            main_module.hcatSpoonman("1000", self._hash_file(tmp_path), corpus)
+        return quick
+
+    def test_cap_is_the_verified_mode_zero_figure(self, main_module):
+        assert main_module.OPTIMIZED_KERNEL_MAX_PLAIN_LENGTH == 31
+
+    def test_warns_and_names_the_count(self, main_module, tmp_path, capsys):
+        quick = self._run(
+            main_module, tmp_path, [self.LONG, self.ALSO_LONG, "shortword"]
+        )
+        out = capsys.readouterr().out
+
+        # The two long entries really are in the list handed to hashcat, and
+        # they really are over the cap -- otherwise the count means nothing.
+        with open(quick.call_args[0][3], encoding="latin-1") as handle:
+            words = [line.rstrip("\n") for line in handle if line.strip()]
+        over = [word for word in words if len(word) > 31]
+        assert sorted(over) == sorted([self.LONG, self.ALSO_LONG])
+
+        assert "2 baseword(s) exceed 31 characters" in out
+        assert "-O" in out
+        assert "--no-optimized-kernel" in out
+
+    def test_no_warning_when_every_baseword_is_short(
+        self, main_module, tmp_path, capsys
+    ):
+        self._run(main_module, tmp_path, ["shortword", "otherword1", "Thirdword!"])
+        assert "exceed" not in capsys.readouterr().out
+
+    def test_no_warning_when_optimized_kernel_is_disabled(
+        self, main_module, tmp_path, capsys, monkeypatch
+    ):
+        """Exactly what --no-optimized-kernel sets, so nothing is dropped."""
+        monkeypatch.setattr(main_module, "_optimized_kernel_disabled", True)
+        self._run(main_module, tmp_path, [self.LONG, self.ALSO_LONG, "shortword"])
+        assert "exceed" not in capsys.readouterr().out
+
+    def test_no_warning_when_attack_is_not_in_the_optimized_set(
+        self, main_module, tmp_path, capsys, monkeypatch
+    ):
+        monkeypatch.setattr(
+            main_module,
+            "_optimized_kernel_attacks",
+            frozenset(main_module.DEFAULT_OPTIMIZED_ATTACKS) - {"hcatQuickDictionary"},
+        )
+        self._run(main_module, tmp_path, [self.LONG, self.ALSO_LONG, "shortword"])
+        assert "exceed" not in capsys.readouterr().out
+
+    def test_attack_still_runs_when_the_warning_fires(self, main_module, tmp_path):
+        """The warning is informational: same delegation, same paths."""
+        quick = self._run(main_module, tmp_path, [self.LONG, "shortword"])
+        quick.assert_called_once()
+        assert quick.call_args[0][3].endswith("basewords.txt")
+
+    @pytest.mark.parametrize("kind", ["missing", "directory"])
+    def test_unreadable_basewords_file_is_skipped_silently(
+        self, main_module, tmp_path, capsys, kind
+    ):
+        target = str(tmp_path / "nope.txt")
+        if kind == "directory":
+            target = str(tmp_path)
+        assert main_module._count_over_long_basewords(target) is None
+        # And the caller neither raises nor prints.
+        main_module._warn_optimized_kernel_length_loss(target)
+        assert capsys.readouterr().out == ""
+
+    def test_counts_lines_regardless_of_line_ending(self, main_module, tmp_path):
+        path = tmp_path / "basewords.txt"
+        # A trailing \r must not be counted as part of the baseword: a 31-char
+        # entry written CRLF is 32 bytes on the line but still fits.
+        path.write_bytes(b"w" * 31 + b"\r\n" + b"w" * 32 + b"\n")
+        assert main_module._count_over_long_basewords(str(path)) == 1
+
+    def test_does_not_read_the_whole_file_into_memory(self, main_module, tmp_path):
+        """A baseword list is corpus-sized; counting it must stream.
+
+        Measured, not asserted on the implementation's shape: a
+        read()/readlines() implementation has to hold the whole file, so its
+        peak allocation tracks the file size. 24 MB of basewords against a
+        2 MB ceiling separates the two unambiguously.
+        """
+        path = tmp_path / "basewords.txt"
+        line = ("wibble" * 10 + "\n").encode("latin-1")  # 61 bytes
+        chunk = line * 4096
+        with open(path, "wb") as handle:
+            for _ in range(96):
+                handle.write(chunk)
+        size = path.stat().st_size
+        assert size > 20 * 1024 * 1024
+
+        tracemalloc.start()
+        try:
+            count = main_module._count_over_long_basewords(str(path))
+            _current, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+
+        assert count == 96 * 4096  # every line is 60 characters, all over 31
+        assert peak < 2 * 1024 * 1024, f"peak {peak} against a {size}-byte file"
 
 
 class TestSpoonmanAttackHandler:
