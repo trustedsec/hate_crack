@@ -4738,7 +4738,33 @@ def _warn_optimized_kernel_length_loss(basewords_path):
     )
 
 
-def hcatSpoonman(hcatHashType, hcatHashFile, corpus, coverage=None):
+def _spoonman_wordlists(basewords_path, extra_wordlists):
+    """Build the dictionary list for the run: derived basewords, then the extras.
+
+    hashcat reads straight-mode dictionaries sequentially, so the order is the
+    order they are tried in and the derived basewords -- the corpus-specific
+    part, and the only part the rules were measured against -- go first.
+    A path that does not exist is named and skipped rather than handed to
+    hashcat, which would abort the whole run over one bad entry; if that leaves
+    nothing but the derived basewords, the attack proceeds with those.
+    """
+    wordlists = [basewords_path]
+    for extra in extra_wordlists or []:
+        if not os.path.exists(extra):
+            print(f"[!] Skipping wordlist (not found): {extra}")
+            continue
+        wordlists.append(extra)
+    return wordlists
+
+
+def hcatSpoonman(
+    hcatHashType,
+    hcatHashFile,
+    corpus,
+    coverage=None,
+    extra_wordlists=None,
+    baseword_cap=None,
+):
     """Spoonman Attack: derive basewords + rules from *corpus*, then crack with them.
 
     ``coverage`` picks which generated rule file to run: ``None`` for the full
@@ -4747,6 +4773,17 @@ def hcatSpoonman(hcatHashType, hcatHashFile, corpus, coverage=None):
     rulegen.generate()'s Counter pruning stays out of the way; once pruning
     fires, coverage is relative to the retained keys instead. See
     hate_crack/rulegen.py and issue #169.
+
+    ``extra_wordlists`` are additional dictionaries to cross the derived rules
+    against, appended after the derived basewords. This is the knob that
+    matters: measured against unseen passwords, the derived rule set saturates
+    almost immediately while most misses are a missing *baseword*.
+
+    ``baseword_cap`` runs ``basewords.top{N}.txt`` instead of the full derived
+    list. It trades reach for keyspace and is not an accuracy win. Like
+    ``coverage`` it participates in the cache key, so asking for a cap whose
+    file this cache directory does not hold re-derives rather than handing
+    hashcat a path that is not there.
     """
     if not os.path.isfile(corpus):
         print(f"Error: corpus not found: {corpus}")
@@ -4762,6 +4799,8 @@ def hcatSpoonman(hcatHashType, hcatHashFile, corpus, coverage=None):
     # different corpus with an older mtime would pass it. The provenance file
     # records which corpus the directory actually holds.
     basewords_path = os.path.join(cache_dir, "basewords.txt")
+    if baseword_cap is not None:
+        basewords_path = os.path.join(cache_dir, f"basewords.top{baseword_cap}.txt")
     rules_path = os.path.join(cache_dir, "rules.full.rule")
     if coverage is not None:
         rules_path = os.path.join(cache_dir, f"rules.top{coverage}.rule")
@@ -4787,7 +4826,10 @@ def hcatSpoonman(hcatHashType, hcatHashFile, corpus, coverage=None):
         try:
             with _wordlist_path(corpus) as resolved_corpus:
                 result = _rulegen.generate(
-                    resolved_corpus, cache_dir, leet_restore=True
+                    resolved_corpus,
+                    cache_dir,
+                    leet_restore=True,
+                    baseword_caps=() if baseword_cap is None else (baseword_cap,),
                 )
         except (OSError, ValueError) as e:
             print(f"Rule derivation failed: {e}")
@@ -4796,17 +4838,27 @@ def hcatSpoonman(hcatHashType, hcatHashFile, corpus, coverage=None):
         rules_path = result["rules"]
         if coverage is not None:
             rules_path = result["capped_rules"].get(coverage, rules_path)
+        if baseword_cap is not None:
+            basewords_path = result["capped_basewords"].get(
+                baseword_cap, basewords_path
+            )
         _write_spoonman_provenance(provenance_path, current_provenance)
     print(f"[*] Basewords: {basewords_path}")
     print(f"[*] Rules:     {rules_path}")
     print(f"[*] Coverage:  {os.path.join(cache_dir, 'coverage.txt')}")
+    # Scan the list actually being run: with a cap in effect that is the capped
+    # file, and its over-long count is not the uncapped file's.
     _warn_optimized_kernel_length_loss(basewords_path)
+
+    wordlists = _spoonman_wordlists(basewords_path, extra_wordlists)
+    for extra in wordlists[1:]:
+        print(f"[*] Also:      {extra}")
 
     hcatQuickDictionary(
         hcatHashType,
         hcatHashFile,
         f"-r {shlex.quote(rules_path)}",
-        basewords_path,
+        wordlists,
         attack_name="Spoonman",
     )
 

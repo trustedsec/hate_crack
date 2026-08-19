@@ -796,6 +796,7 @@ def generate(
     max_unique=MAX_UNIQUE_KEYS,
     leet_restore=True,
     leet_min_hits=2,
+    baseword_caps=(),
 ):
     """Derive basewords and rules from *corpus_path*, writing them under *outdir*.
 
@@ -807,6 +808,14 @@ def generate(
     (expected, and not a defect) and ``unrepresentable`` (a genuine loss) —
     because they mean opposite things; see the module docstring.
     ``literal_fallbacks`` remains as their sum for compatibility.
+
+    ``baseword_caps`` mirrors ``cover`` on the baseword side: for each N it
+    writes ``basewords.top{N}.txt`` holding the N most-frequent basewords, and
+    the paths come back keyed by N in ``capped_basewords``. The uncapped
+    ``basewords.txt`` is always written regardless. Unlike ``cover``, N is a
+    count of basewords rather than a coverage percentage — a baseword list is
+    overwhelmingly singletons (94% of one 360,000-password sample), so a
+    percentage-of-observations cut would keep almost the whole list.
 
     ``leet_restore`` reads the corpus **twice** so leet-substituted letters can
     be kept in the baseword instead of deleted from it — see the module
@@ -896,10 +905,25 @@ def generate(
     def _path(name):
         return os.path.join(outdir, name)
 
+    # One ranking, used for the full list and every cap, so a capped file is
+    # always a prefix of basewords.txt rather than a separately-ordered list.
+    ranked_bases = base_counts.most_common()
     basewords_path = _path("basewords.txt")
     with open(basewords_path, "w", encoding="latin-1") as f:
-        for base, _ in base_counts.most_common():
+        for base, _ in ranked_bases:
             f.write(base + "\n")
+
+    # The baseword side is the limiting one: measured against unseen
+    # passwords, most misses are a missing baseword rather than a missing
+    # rule. A cap therefore trades reach for keyspace and is not an accuracy
+    # win -- it exists so a run can be made to fit the time available.
+    capped_basewords = {}
+    for target in baseword_caps:
+        capped_base = _path(f"basewords.top{target}.txt")
+        with open(capped_base, "w", encoding="latin-1") as f:
+            for base, _ in ranked_bases[:target]:
+                f.write(base + "\n")
+        capped_basewords[target] = capped_base
 
     ranked = rule_counts.most_common()
     rules_path = _path("rules.full.rule")
@@ -1072,6 +1096,7 @@ def generate(
 
     return {
         "basewords": basewords_path,
+        "capped_basewords": capped_basewords,
         "rules": rules_path,
         "capped_rules": capped_paths,
         "coverage": coverage_path,

@@ -531,6 +531,104 @@ class TestGenerate:
         assert "self-check failures: 0" in report
 
 
+class TestGenerateBasewordCaps:
+    """``baseword_caps`` mirrors ``cover`` on the baseword side.
+
+    The audit that motivated this measured the attack as baseword-limited:
+    against unseen passwords 47-57% of misses were a missing baseword and only
+    18-21% a missing rule. A cap is therefore a keyspace budget, not an
+    accuracy setting -- these tests only pin the mechanics.
+    """
+
+    # Invented words only. Frequencies are deliberately distinct so the
+    # expected order is a fact about counts, not about tie-breaking.
+    CORPUS = [
+        "quibblefox",
+        "Quibblefox",
+        "quibblefox1",
+        "QUIBBLEFOX",  # quibblefox    x4
+        "zarplewidget",
+        "Zarplewidget",
+        "zarplewidget9",  # zarplewidget  x3
+        "grumbleknob",
+        "Grumbleknob",  # grumbleknob   x2
+        "flimberdoodle",  # flimberdoodle x1
+    ]
+    EXPECTED_ORDER = [
+        "quibblefox",
+        "zarplewidget",
+        "grumbleknob",
+        "flimberdoodle",
+    ]
+
+    def _write_corpus(self, tmp_path, passwords):
+        path = tmp_path / "corpus.txt"
+        path.write_text("\n".join(passwords) + "\n", encoding="latin-1")
+        return str(path)
+
+    def _lines(self, path):
+        with open(path, encoding="latin-1") as handle:
+            return handle.read().splitlines()
+
+    def _generate(self, tmp_path, **kwargs):
+        corpus = self._write_corpus(tmp_path, self.CORPUS)
+        out = tmp_path / "out"
+        return out, rulegen.generate(
+            corpus, str(out), print_fn=lambda *a: None, **kwargs
+        )
+
+    def test_baseword_frequency_order_is_what_the_test_assumes(self, tmp_path):
+        """Guard the premise: basewords.txt really is in descending frequency."""
+        out, _result = self._generate(tmp_path)
+        assert self._lines(out / "basewords.txt") == self.EXPECTED_ORDER
+
+    def test_writes_a_capped_file_per_requested_n(self, tmp_path):
+        out, result = self._generate(tmp_path, baseword_caps=(2, 5))
+
+        assert set(result["capped_basewords"]) == {2, 5}
+        assert result["capped_basewords"][2] == str(out / "basewords.top2.txt")
+        assert result["capped_basewords"][5] == str(out / "basewords.top5.txt")
+        assert self._lines(result["capped_basewords"][2]) == self.EXPECTED_ORDER[:2]
+
+    def test_cap_larger_than_the_baseword_count_writes_them_all(self, tmp_path):
+        _out, result = self._generate(tmp_path, baseword_caps=(2, 5))
+        # Only four distinct basewords exist, so top5 is the whole list and no
+        # error is raised for asking for more than there are.
+        assert self._lines(result["capped_basewords"][5]) == self.EXPECTED_ORDER
+
+    def test_uncapped_list_is_still_written(self, tmp_path):
+        out, result = self._generate(tmp_path, baseword_caps=(2,))
+        assert (out / "basewords.txt").is_file()
+        assert result["basewords"] == str(out / "basewords.txt")
+        assert self._lines(out / "basewords.txt") == self.EXPECTED_ORDER
+
+    def test_capped_file_is_a_prefix_of_the_full_list(self, tmp_path):
+        out, result = self._generate(tmp_path, baseword_caps=(3,))
+        full = self._lines(out / "basewords.txt")
+        capped = self._lines(result["capped_basewords"][3])
+        assert capped == full[: len(capped)]
+
+    def test_no_caps_requested_writes_no_capped_files(self, tmp_path):
+        out, result = self._generate(tmp_path)
+        assert result["capped_basewords"] == {}
+        assert not list(out.glob("basewords.top*.txt"))
+
+    def test_cap_of_one_keeps_only_the_most_frequent(self, tmp_path):
+        _out, result = self._generate(tmp_path, baseword_caps=(1,))
+        assert self._lines(result["capped_basewords"][1]) == self.EXPECTED_ORDER[:1]
+
+    def test_capped_output_is_deterministic(self, tmp_path):
+        """Constraint 4: the same corpus must produce byte-identical output."""
+        corpus = self._write_corpus(tmp_path, self.CORPUS)
+        first, second = tmp_path / "a", tmp_path / "b"
+        for out in (first, second):
+            rulegen.generate(
+                corpus, str(out), print_fn=lambda *a: None, baseword_caps=(2, 3)
+            )
+        for name in ("basewords.txt", "basewords.top2.txt", "basewords.top3.txt"):
+            assert (first / name).read_bytes() == (second / name).read_bytes(), name
+
+
 class TestLiteralFallbackSplit:
     """`literal_fallbacks` conflated two opposite things: a letterless password
     (expected, a fine dictionary entry) and one that hit a hashcat limit (a real

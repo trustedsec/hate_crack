@@ -570,12 +570,12 @@ def spoonman_attack(ctx: Any) -> None:
     print("SPOONMAN ATTACK")
     print("=" * 60)
     print("Derives a baseword list and hashcat rules from a corpus of known")
-    print("passwords, such as a previous engagement's cracked output. The rule")
-    print("file is sorted most-productive-first, so a capped set gets most of")
-    print("the coverage for a fraction of the keyspace.")
-    print("Coverage is long-tailed: the last few percent typically costs orders")
-    print("of magnitude more rules than the first half, so the smallest tier is")
-    print("usually the right choice.")
+    print("passwords, such as a previous engagement's cracked output.")
+    print("Against passwords it has not seen, the rule side saturates fast:")
+    print("the full rule set reaches only about three times what the top 50%")
+    print("does, for roughly 35x the rules. Most of what it misses is a")
+    print("missing baseword, not a missing rule — so the baseword source")
+    print("below is usually the setting that matters.")
     print("=" * 60)
 
     def _prompt_for_corpus_path() -> str:
@@ -620,8 +620,80 @@ def spoonman_attack(ctx: Any) -> None:
         return
     coverage = {"1": 50, "2": 75, "3": 95, "4": 99, "5": None}.get(choice)
 
+    basewords = _pick_spoonman_basewords(ctx)
+    if basewords is None:
+        return
+    extra_wordlists, baseword_cap = basewords
+
     _notify.prompt_notify_for_attack("Spoonman")
-    ctx.hcatSpoonman(ctx.hcatHashType, ctx.hcatHashFile, corpus, coverage=coverage)
+    ctx.hcatSpoonman(
+        ctx.hcatHashType,
+        ctx.hcatHashFile,
+        corpus,
+        coverage=coverage,
+        extra_wordlists=extra_wordlists,
+        baseword_cap=baseword_cap,
+    )
+
+
+def _pick_spoonman_basewords(ctx: Any):
+    """Pick the baseword side of the Spoonman cross product.
+
+    Returns ``(extra_wordlists, baseword_cap)``, or ``None`` to abandon the
+    attack — the same ``None``/``99`` convention the corpus-source and
+    rule-set menus above use.
+
+    This menu exists because the attack is baseword-limited: measured against
+    unseen passwords, 47-57% of misses were a missing baseword and only 18-21%
+    a missing rule. Adding wordlists widens the side that is actually short,
+    which is why option 2 is the recommended one.
+    """
+    items = [
+        ("1", "Derived basewords only"),
+        ("2", "Derived basewords + configured wordlists (recommended)"),
+        ("3", "Derived basewords, capped to the most frequent N"),
+        ("99", "Back to Main Menu"),
+    ]
+    while True:
+        choice = interactive_menu(
+            items,
+            title="\nSpoonman Attack — baseword source",
+            prompt="\n\tSelect baseword source: ",
+        )
+        if choice is None or choice == "99":
+            return None
+        if choice == "1":
+            return None, None
+        if choice == "2":
+            extra = [
+                os.path.join(ctx.hcatWordlists, name)
+                for name in ctx.list_wordlist_files(ctx.hcatWordlists)
+            ]
+            if not extra:
+                print(
+                    f"\t[!] No wordlists found in {ctx.hcatWordlists}; "
+                    "using the derived basewords only."
+                )
+            return extra, None
+        if choice == "3":
+            # Honest framing: this is a keyspace budget, not an accuracy
+            # setting. Measured on a held-out half of a 360,000-password
+            # corpus, the top-50% rules against a 5,000-baseword cap reached
+            # 0.4% of unseen passwords for 0.011e9 candidates, against 1.6%
+            # for 0.338e9 candidates uncapped.
+            print("\n\t[*] Capping the baseword list trades reach for keyspace:")
+            print("\t    in testing a 5,000-baseword cap reached roughly a")
+            print("\t    quarter of the uncapped reach for about a thirtieth of")
+            print("\t    the candidates. Use it to fit a run in the time you")
+            print("\t    have, not to make it more accurate.")
+            cap = _prompt_positive_int(
+                "\n\tMost frequent basewords to keep (blank or 0 = no cap): ",
+                None,
+            )
+            if cap is None:
+                print("\t[*] No cap applied; using the full derived baseword list.")
+            return None, cap
+        print("\t[!] Invalid selection.")
 
 
 def _prompt_positive_int(prompt: str, default: int | None) -> int | None:

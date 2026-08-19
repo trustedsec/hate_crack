@@ -90,6 +90,27 @@ def test_main_menu_no_longer_exposes_options_83_84():
     assert "82" in options
 
 
+def test_spoonman_routes_through_both_duplicate_menu_mappings(monkeypatch):
+    """hate_crack.py carries a menu mapping separate from main.py's.
+
+    The Spoonman baseword-source work (task 6) added no new menu key and did
+    not rename the handler, so neither mapping needed an edit -- but "no edit
+    needed" is only true while both still resolve to the same handler, which
+    is what this pins.
+    """
+    sentinel = "spoonman-both-mappings"
+    monkeypatch.setattr(
+        CLI_MODULE._attacks, "spoonman_attack", lambda *a, **k: sentinel
+    )
+
+    cli_options = CLI_MODULE.get_main_menu_options()
+    main_options = CLI_MODULE._main.get_main_menu_options()
+    assert "22" in cli_options
+    assert "22" in main_options
+    assert cli_options["22"]() == sentinel
+    assert main_options["22"]() == sentinel
+
+
 def test_main_menu_items_include_notifications_entry():
     items = dict(CLI_MODULE.get_main_menu_items())
     assert "82" in items
