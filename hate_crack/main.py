@@ -180,13 +180,21 @@ def list_wordlist_entries(directory):
 def list_wordlist_files(directory):
     """Wordlist filenames in *directory* -- files only, no directories.
 
-    Not every caller of this hands the name straight to hashcat as a
-    dictionary-position argument -- hashcat accepts a directory there.
-    Its remaining callers need files specifically:
+    Do not reach for this just because a wordlist listing is wanted: a caller
+    that hands the names to hashcat in the *dictionary position* of a straight
+    (``-a 0``) command wants :func:`list_wordlist_entries`, because hashcat
+    accepts a directory there and walks it -- and a wordlist collection
+    unpacked into subdirectories is the normal shape, so filtering them out
+    silently drops most of what the operator has. hcatDictionary and the
+    Spoonman attack's baseword-source menu both use the sibling for that
+    reason.
+
+    Its two callers need files specifically, and neither is that case:
     hcatYoloCombination builds an ``-a 1`` command, where hashcat rejects a
-    directory operand, and wordlist_optimize opens each path itself with
-    ``os.path.isfile``/``open()``, which needs a real file, not hashcat's
-    own directory handling.
+    directory operand; and attacks.wordlist_optimize expands an
+    operator-supplied directory into paths that main.wordlist_optimize opens
+    itself (``os.path.isfile``/``open()``), which needs a real file rather than
+    hashcat's own directory handling.
     """
     return [
         entry.name for entry in list_wordlist_entries(directory) if not entry.is_dir
@@ -4738,7 +4746,21 @@ def _warn_optimized_kernel_length_loss(basewords_path):
     )
 
 
-def _spoonman_wordlists(basewords_path, extra_wordlists):
+def _same_path(left, right):
+    """Do *left* and *right* resolve to the same filesystem object?
+
+    realpath rather than a string comparison: the two arrive from different
+    places (one typed or picked by the operator, one enumerated from a
+    directory listing), so a symlink, a ``./`` prefix, or a trailing slash is
+    ordinary rather than exotic.
+    """
+    try:
+        return os.path.realpath(left) == os.path.realpath(right)
+    except OSError:
+        return False
+
+
+def _spoonman_wordlists(basewords_path, extra_wordlists, corpus=None):
     """Build the dictionary list for the run: derived basewords, then the extras.
 
     hashcat reads straight-mode dictionaries sequentially, so the order is the
@@ -4747,14 +4769,76 @@ def _spoonman_wordlists(basewords_path, extra_wordlists):
     A path that does not exist is named and skipped rather than handed to
     hashcat, which would abort the whole run over one bad entry; if that leaves
     nothing but the derived basewords, the attack proceeds with those.
+
+    *corpus* is skipped if it turns up among the extras, which is a normal
+    accident rather than an exotic one: the corpus prompt's base directory is
+    hcatWordlists, so a corpus picked there is inside the very directory the
+    "derived basewords + configured wordlists" option enumerates. Feeding it
+    back in is pure waste -- its lines are ``<digest>:<plaintext>`` records,
+    which cannot be candidates -- and on a large corpus it is the dominant cost
+    of the run, with nothing on screen to say so.
     """
     wordlists = [basewords_path]
     for extra in extra_wordlists or []:
         if not os.path.exists(extra):
             print(f"[!] Skipping wordlist (not found): {extra}")
             continue
+        if corpus is not None and _same_path(extra, corpus):
+            print(
+                f"[!] Skipping wordlist (it is the corpus this attack derived "
+                f"from): {extra}"
+            )
+            continue
         wordlists.append(extra)
     return wordlists
+
+
+def _spoonman_capped_basewords(full_path, capped_path, cap):
+    """Materialize the *cap* most frequent basewords from a cached full list.
+
+    A cap is operator-chosen, so a warm cache cannot be expected to already
+    hold ``basewords.top{N}.txt`` for the N asked for -- and re-deriving to get
+    one would mean a two-pass read of the whole corpus, hours on a corpus of
+    the size rulegen.py's memory bound is written for. It is not needed:
+    rulegen.generate() ranks the basewords once and writes every capped file as
+    a **prefix** of basewords.txt, so the first *cap* lines of the cached full
+    list are byte-identical to what a derivation would have produced.
+
+    Deliberately does not touch the provenance record. Truncating a cached list
+    is not a derivation, so the Task 5 validity marker stays exactly as the
+    derivation that wrote basewords.txt left it.
+
+    Streams, because a baseword list can approach corpus size. Returns the
+    capped path, or *full_path* if it could not be written -- an unwritable
+    cache costs the cap, which is a keyspace preference, and must not cost the
+    attack.
+    """
+    try:
+        # Older than the full list means it belongs to a previous derivation
+        # (a capped file survives one, since generate() only writes the caps it
+        # was asked for), so it would be a stale prefix of a corpus that is no
+        # longer there.
+        if os.path.isfile(capped_path) and os.path.getmtime(
+            capped_path
+        ) >= os.path.getmtime(full_path):
+            return capped_path
+    except OSError:
+        pass
+    try:
+        with (
+            open(full_path, encoding="latin-1") as src,
+            open(capped_path, "w", encoding="latin-1") as dst,
+        ):
+            for index, line in enumerate(src):
+                if index >= cap:
+                    break
+                dst.write(line)
+    except OSError as e:
+        print(f"[!] Could not write the capped baseword list {capped_path}: {e}")
+        print("    Continuing with the full derived baseword list.")
+        return full_path
+    print(f"[*] Capped the cached baseword list to its {cap} most frequent entries")
+    return capped_path
 
 
 def hcatSpoonman(
@@ -4780,10 +4864,11 @@ def hcatSpoonman(
     almost immediately while most misses are a missing *baseword*.
 
     ``baseword_cap`` runs ``basewords.top{N}.txt`` instead of the full derived
-    list. It trades reach for keyspace and is not an accuracy win. Like
-    ``coverage`` it participates in the cache key, so asking for a cap whose
-    file this cache directory does not hold re-derives rather than handing
-    hashcat a path that is not there.
+    list. It trades reach for keyspace and is not an accuracy win. A cap does
+    **not** invalidate the cache: N is operator-chosen, so a warm cache will
+    usually not hold the file for it, and it is truncated out of the cached
+    full list instead of re-derived (see _spoonman_capped_basewords). Zero or
+    None means no cap.
     """
     if not os.path.isfile(corpus):
         print(f"Error: corpus not found: {corpus}")
@@ -4798,21 +4883,28 @@ def hcatSpoonman(
     # mtime comparison alone (as in hcatPrinceLing) is not enough here: a
     # different corpus with an older mtime would pass it. The provenance file
     # records which corpus the directory actually holds.
-    basewords_path = os.path.join(cache_dir, "basewords.txt")
-    if baseword_cap is not None:
-        basewords_path = os.path.join(cache_dir, f"basewords.top{baseword_cap}.txt")
+    # Cache validity is decided on the *uncapped* list, never on a capped one:
+    # a cap is a truncation of that list, not a separate derivation.
+    full_basewords_path = os.path.join(cache_dir, "basewords.txt")
+    basewords_path = full_basewords_path
     rules_path = os.path.join(cache_dir, "rules.full.rule")
     if coverage is not None:
         rules_path = os.path.join(cache_dir, f"rules.top{coverage}.rule")
     provenance_path = os.path.join(cache_dir, SPOONMAN_PROVENANCE_FILE)
     current_provenance = _spoonman_provenance(corpus)
-    cached = os.path.isfile(basewords_path) and os.path.isfile(rules_path)
+    cached = os.path.isfile(full_basewords_path) and os.path.isfile(rules_path)
     mismatch = _spoonman_cache_mismatch(
         _read_spoonman_provenance(provenance_path), current_provenance
     )
-    fresh = cached and os.path.getmtime(corpus) <= os.path.getmtime(basewords_path)
+    fresh = cached and os.path.getmtime(corpus) <= os.path.getmtime(full_basewords_path)
     if fresh and mismatch is None:
         print(f"[*] Reusing derived basewords and rules in {cache_dir}")
+        if baseword_cap:
+            basewords_path = _spoonman_capped_basewords(
+                full_basewords_path,
+                os.path.join(cache_dir, f"basewords.top{baseword_cap}.txt"),
+                baseword_cap,
+            )
     else:
         if cached and mismatch is not None:
             # Say why an expensive derivation is running again over what looks
@@ -4829,7 +4921,7 @@ def hcatSpoonman(
                     resolved_corpus,
                     cache_dir,
                     leet_restore=True,
-                    baseword_caps=() if baseword_cap is None else (baseword_cap,),
+                    baseword_caps=(baseword_cap,) if baseword_cap else (),
                 )
         except (OSError, ValueError) as e:
             print(f"Rule derivation failed: {e}")
@@ -4838,7 +4930,7 @@ def hcatSpoonman(
         rules_path = result["rules"]
         if coverage is not None:
             rules_path = result["capped_rules"].get(coverage, rules_path)
-        if baseword_cap is not None:
+        if baseword_cap:
             basewords_path = result["capped_basewords"].get(
                 baseword_cap, basewords_path
             )
@@ -4850,7 +4942,7 @@ def hcatSpoonman(
     # file, and its over-long count is not the uncapped file's.
     _warn_optimized_kernel_length_loss(basewords_path)
 
-    wordlists = _spoonman_wordlists(basewords_path, extra_wordlists)
+    wordlists = _spoonman_wordlists(basewords_path, extra_wordlists, corpus=corpus)
     for extra in wordlists[1:]:
         print(f"[*] Also:      {extra}")
 

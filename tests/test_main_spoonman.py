@@ -56,7 +56,7 @@ class TestHcatSpoonman:
         assert args[1] == self._hash_file(tmp_path)
         assert args[2].startswith("-r ")
         assert args[2].endswith("rules.full.rule")
-        assert args[3] == [_wordlists(quick)[0]]
+        assert len(args[3]) == 1
         assert args[3][0].endswith("basewords.txt")
         assert kwargs["attack_name"] == "Spoonman"
         assert os.path.isfile(args[3][0])
@@ -586,6 +586,88 @@ class TestSpoonmanExtraWordlists:
         )
         assert _wordlists(quick)[1] == str(directory)
 
+    def test_the_corpus_itself_is_skipped_if_it_turns_up_among_the_extras(
+        self, main_module, tmp_path, capsys
+    ):
+        """The corpus commonly lives *in* the configured wordlist directory.
+
+        The corpus prompt's base_dir is hcatWordlists, so the directory the
+        recommended baseword-source option enumerates is usually the one the
+        corpus was picked from. Handing it back to hashcat as a dictionary is
+        pure waste -- every line is a <digest>:<plaintext> record, which cannot
+        be a candidate -- and on a large corpus it is the dominant cost of the
+        run with nothing on screen to explain it.
+        """
+        wordlists = tmp_path / "wordlists"
+        wordlists.mkdir()
+        corpus = wordlists / "prev_engagement_cracked.txt"
+        corpus.write_text("quibblefox\nQuibblefox1\n", encoding="latin-1")
+        other = self._wordlist(wordlists, "other.txt")
+
+        quick = self._run(
+            main_module,
+            tmp_path,
+            str(corpus),
+            extra_wordlists=[other, str(corpus)],
+        )
+        out = capsys.readouterr().out
+
+        assert "prev_engagement_cracked.txt" in out
+        assert "it is the corpus this attack derived from" in out
+        passed = _wordlists(quick)
+        assert passed == [passed[0], other]
+
+    @pytest.mark.parametrize("style", ["symlink", "dot_prefix", "parent_traversal"])
+    def test_the_corpus_is_recognized_through_a_symlink_or_a_relative_form(
+        self, main_module, tmp_path, monkeypatch, style
+    ):
+        """realpath, not a string compare: the two paths arrive separately.
+
+        One is typed or picked by the operator, the other is joined onto a
+        directory listing, so the same file reaching the two sides spelled two
+        ways is ordinary.
+        """
+        wordlists = tmp_path / "wordlists"
+        wordlists.mkdir()
+        corpus = wordlists / "prev_engagement_cracked.txt"
+        corpus.write_text("quibblefox\nQuibblefox1\n", encoding="latin-1")
+
+        if style == "symlink":
+            alias = wordlists / "corpus_link.txt"
+            alias.symlink_to(corpus)
+            spelling = str(alias)
+        elif style == "dot_prefix":
+            monkeypatch.chdir(wordlists)
+            spelling = os.path.join(".", "prev_engagement_cracked.txt")
+        else:
+            # A form that really does exist, so the existence check cannot be
+            # what makes this pass.
+            spelling = os.path.join(
+                str(wordlists), "..", "wordlists", "prev_engagement_cracked.txt"
+            )
+        assert os.path.exists(spelling)
+
+        quick = self._run(
+            main_module, tmp_path, str(corpus), extra_wordlists=[spelling]
+        )
+
+        # Nothing but the derived basewords: the alias was recognized.
+        assert len(_wordlists(quick)) == 1
+
+    def test_a_different_file_in_the_corpus_directory_is_not_skipped(
+        self, main_module, tmp_path, capsys
+    ):
+        """Control for the skip above: only the corpus itself is dropped."""
+        wordlists = tmp_path / "wordlists"
+        wordlists.mkdir()
+        corpus = wordlists / "prev_engagement_cracked.txt"
+        corpus.write_text("quibblefox\nQuibblefox1\n", encoding="latin-1")
+        sibling = self._wordlist(wordlists, "prev_engagement_cracked_2.txt")
+
+        quick = self._run(main_module, tmp_path, str(corpus), extra_wordlists=[sibling])
+        assert "it is the corpus" not in capsys.readouterr().out
+        assert _wordlists(quick)[1] == sibling
+
     def test_extras_do_not_change_the_rule_file_or_the_cache(
         self, main_module, tmp_path, corpus, capsys
     ):
@@ -687,23 +769,31 @@ class TestSpoonmanBasewordCap:
     ):
         corpus = self._corpus(tmp_path)
         first = self._run(main_module, tmp_path, corpus, baseword_cap=2)
+        capped = _wordlists(first)[0]
+        written_at = os.path.getmtime(capped)
         capsys.readouterr()
 
         with patch("hate_crack.rulegen.generate") as generate:
             second = self._run(main_module, tmp_path, corpus, baseword_cap=2)
+        out = capsys.readouterr().out
 
         generate.assert_not_called()
-        assert "Reusing derived" in capsys.readouterr().out
-        assert _wordlists(second)[0] == _wordlists(first)[0]
+        assert "Reusing derived" in out
+        assert _wordlists(second)[0] == capped
+        # Reused as it stands: an up-to-date capped file is not rewritten.
+        assert os.path.getmtime(capped) == written_at
+        assert "Capped the cached baseword list" not in out
 
-    def test_cap_with_no_capped_file_regenerates_instead_of_passing_a_missing_path(
+    def test_cap_on_a_warm_cache_truncates_instead_of_re_deriving(
         self, main_module, tmp_path, capsys
     ):
-        """Task 5's cached check must account for the capped filename.
+        """A new N must not cost a two-pass read of the whole corpus.
 
-        A warm cache derived without a cap holds no basewords.topN.txt, so
-        asking for one has to re-derive. Handing hashcat a path that is not
-        there would abort the run.
+        N is operator-chosen, so a warm cache will usually not hold
+        basewords.top{N}.txt -- and re-deriving to get one would be hours on a
+        large corpus for a knob that invites "toggle it and see". The capped
+        file is a prefix of basewords.txt, so it is truncated out of the cached
+        list instead.
         """
         corpus = self._corpus(tmp_path)
         self._run(main_module, tmp_path, corpus)
@@ -713,29 +803,167 @@ class TestSpoonmanBasewordCap:
 
         with patch("hate_crack.rulegen.generate", wraps=rulegen.generate) as generate:
             quick = self._run(main_module, tmp_path, corpus, baseword_cap=2)
+        out = capsys.readouterr().out
 
-        generate.assert_called_once()
-        assert "Reusing derived" not in capsys.readouterr().out
+        generate.assert_not_called()
+        assert "Reusing derived" in out
+        assert "Capped the cached baseword list" in out
         passed = _wordlists(quick)[0]
         assert passed.endswith("basewords.top2.txt")
-        assert os.path.isfile(passed)
+        assert self._lines(passed) == ["quibblefox", "zarplewidget"]
 
-    def test_switching_cap_regenerates_and_keeps_the_earlier_capped_file(
+    def test_truncated_file_is_byte_identical_to_a_derived_one(
+        self, main_module, tmp_path
+    ):
+        """The shortcut is only sound if it produces the same bytes.
+
+        generate() ranks the basewords once and writes every capped file as a
+        prefix of basewords.txt, so truncating the cached list must give
+        exactly what a cold derivation for that cap would have written.
+        """
+        corpus = self._corpus(tmp_path)
+        # Cold cache with the cap: generate() writes the file itself.
+        derived = _wordlists(self._run(main_module, tmp_path, corpus, baseword_cap=2))[
+            0
+        ]
+        expected = open(derived, "rb").read()
+
+        # Now force the truncation path: drop the capped file, keep the cache.
+        os.remove(derived)
+        with patch("hate_crack.rulegen.generate") as generate:
+            truncated = _wordlists(
+                self._run(main_module, tmp_path, corpus, baseword_cap=2)
+            )[0]
+        generate.assert_not_called()
+
+        assert truncated == derived
+        assert open(truncated, "rb").read() == expected
+
+    def test_switching_cap_on_a_warm_cache_never_re_derives(
         self, main_module, tmp_path, capsys
     ):
         corpus = self._corpus(tmp_path)
         self._run(main_module, tmp_path, corpus, baseword_cap=2)
         capsys.readouterr()
 
-        quick = self._run(main_module, tmp_path, corpus, baseword_cap=1)
-        assert "Deriving basewords" in capsys.readouterr().out
-        passed = _wordlists(quick)[0]
-        assert self._lines(passed) == ["quibblefox"]
-        # The 2-cap file survives, so going back to it is a cache hit.
         with patch("hate_crack.rulegen.generate") as generate:
+            one = self._run(main_module, tmp_path, corpus, baseword_cap=1)
+            three = self._run(main_module, tmp_path, corpus, baseword_cap=3)
             again = self._run(main_module, tmp_path, corpus, baseword_cap=2)
+
         generate.assert_not_called()
+        assert "Deriving basewords" not in capsys.readouterr().out
+        assert self._lines(_wordlists(one)[0]) == ["quibblefox"]
+        assert self._lines(_wordlists(three)[0]) == [
+            "quibblefox",
+            "zarplewidget",
+            "grumbleknob",
+        ]
         assert self._lines(_wordlists(again)[0]) == ["quibblefox", "zarplewidget"]
+
+    def test_truncation_does_not_touch_the_provenance_record(
+        self, main_module, tmp_path
+    ):
+        """Truncating is not a derivation, so Task 5's marker must be untouched.
+
+        The record is deleted before a derivation and rewritten after it. A
+        truncation that went through either half would either break the
+        validity invariant or rewrite a record it did not earn.
+        """
+        corpus = self._corpus(tmp_path)
+        self._run(main_module, tmp_path, corpus)
+        provenance = os.path.join(
+            self._hash_file(tmp_path) + ".spoonman", "corpus.json"
+        )
+        before = open(provenance, "rb").read()
+        before_mtime = os.path.getmtime(provenance)
+
+        self._run(main_module, tmp_path, corpus, baseword_cap=2)
+
+        assert open(provenance, "rb").read() == before
+        assert os.path.getmtime(provenance) == before_mtime
+
+    def test_a_capped_file_older_than_the_cached_list_is_rebuilt(
+        self, main_module, tmp_path, capsys
+    ):
+        """A capped file survives a derivation it was not part of.
+
+        generate() only writes the caps it was asked for, so a top-N file from
+        an earlier corpus stays on disk when a later derivation replaces
+        basewords.txt. Reusing it would crack with the wrong corpus's
+        basewords -- exactly the class of bug Task 5 exists to prevent -- so
+        anything older than basewords.txt is rebuilt.
+        """
+        corpus = self._corpus(tmp_path)
+        first = self._run(main_module, tmp_path, corpus, baseword_cap=2)
+        capped = _wordlists(first)[0]
+        assert self._lines(capped) == ["quibblefox", "zarplewidget"]
+
+        # A different corpus, derived without a cap: basewords.txt is replaced
+        # and the stale top-2 file is left behind.
+        other = tmp_path / "other.txt"
+        other.write_text(
+            "flimberdoodle\nFlimberdoodle\nflimberdoodle1\nwibblesprocket\n",
+            encoding="latin-1",
+        )
+        self._run(main_module, tmp_path, str(other))
+        assert os.path.isfile(capped)
+        assert self._lines(capped) == ["quibblefox", "zarplewidget"]
+        # Pin the ordering rather than relying on filesystem timestamp
+        # resolution: the stale file is unambiguously older than the list it
+        # no longer belongs to.
+        full = os.path.join(os.path.dirname(capped), "basewords.txt")
+        os.utime(capped, (os.path.getmtime(full) - 10,) * 2)
+        capsys.readouterr()
+
+        # Asking for the same cap again must rebuild it from the new list.
+        third = self._run(main_module, tmp_path, str(other), baseword_cap=2)
+        assert self._lines(_wordlists(third)[0]) == [
+            "flimberdoodle",
+            "wibblesprocket",
+        ]
+
+    def test_unwritable_capped_file_falls_back_to_the_full_list(
+        self, main_module, tmp_path, capsys
+    ):
+        """A cap is a preference; failing to write one must not fail the run."""
+        corpus = self._corpus(tmp_path)
+        self._run(main_module, tmp_path, corpus)
+        cache_dir = self._hash_file(tmp_path) + ".spoonman"
+        # A directory where the capped file wants to be: open(..., "w") raises.
+        os.mkdir(os.path.join(cache_dir, "basewords.top2.txt"))
+        capsys.readouterr()
+
+        quick = self._run(main_module, tmp_path, corpus, baseword_cap=2)
+        out = capsys.readouterr().out
+
+        assert "Could not write the capped baseword list" in out
+        assert "Continuing with the full derived baseword list" in out
+        quick.assert_called_once()
+        assert _wordlists(quick)[0].endswith("basewords.txt")
+
+    @pytest.mark.parametrize("cap", [0, None])
+    @pytest.mark.parametrize("cache", ["cold", "warm"])
+    def test_zero_or_none_cap_means_no_cap(self, main_module, tmp_path, cap, cache):
+        """A cap of 0 would otherwise be an empty dictionary.
+
+        Unreachable from the menu, which maps 0 to None, but reachable by any
+        other caller -- and an empty baseword file makes hashcat try nothing.
+        Both cache states are covered because the cap is consulted twice, once
+        per branch, and each needs its own guard.
+        """
+        corpus = self._corpus(tmp_path)
+        if cache == "warm":
+            self._run(main_module, tmp_path, corpus)
+
+        quick = self._run(main_module, tmp_path, corpus, baseword_cap=cap)
+
+        passed = _wordlists(quick)[0]
+        assert passed.endswith("basewords.txt")
+        assert self._lines(passed) == ["quibblefox", "zarplewidget", "grumbleknob"]
+        # And no degenerate empty file was produced on the way.
+        cache_dir = self._hash_file(tmp_path) + ".spoonman"
+        assert not os.path.exists(os.path.join(cache_dir, "basewords.top0.txt"))
 
     def test_capped_run_writes_the_provenance_record(self, main_module, tmp_path):
         """Task 5's validity marker must survive the capped path."""
@@ -1170,42 +1398,94 @@ class TestSpoonmanBasewordSourceMenu:
     reorders a menu fails instead of spinning on the invalid-selection loop.
     """
 
-    def _ctx(self, tmp_path, corpus, wordlists=()):
+    def _ctx(self, tmp_path, corpus, main_module, wordlists=()):
+        """A ctx whose wordlist listing is the real one over a real directory.
+
+        A name ending in "/" becomes a subdirectory, which is how a wordlist
+        collection actually arrives, and the listing helper is the module's own
+        rather than a stub -- stubbing it is what let the files-only variant
+        look correct while dropping every subdirectory.
+        """
+        wordlists_dir = tmp_path / "wordlists"
+        wordlists_dir.mkdir(exist_ok=True)
+        for name in wordlists:
+            if name.endswith("/"):
+                (wordlists_dir / name.rstrip("/")).mkdir()
+            else:
+                (wordlists_dir / name).write_text("quibblefox\n", encoding="latin-1")
+
         ctx = MagicMock()
-        ctx.hcatWordlists = str(tmp_path / "wordlists")
+        ctx.hcatWordlists = str(wordlists_dir)
         ctx.hcatHashType = "1000"
         ctx.hcatHashFile = str(tmp_path / "hashes.txt")
         ctx.select_file_with_autocomplete.return_value = corpus
-        ctx.list_wordlist_files.return_value = list(wordlists)
+        ctx.list_wordlist_entries = main_module.list_wordlist_entries
         return ctx
 
     def _menu_items(self, menu):
         """Every (key, label) pair the baseword-source menu offered."""
         return [items for (items,), _kwargs in menu.call_args_list][-1]
 
-    def test_derived_only_passes_no_extras_and_no_cap(self, tmp_path, corpus):
-        ctx = self._ctx(tmp_path, corpus)
+    def test_derived_only_passes_no_extras_and_no_cap(
+        self, tmp_path, corpus, main_module
+    ):
+        ctx = self._ctx(tmp_path, corpus, main_module)
         with patch("hate_crack.attacks.interactive_menu", side_effect=["5", "1"]):
             attacks.spoonman_attack(ctx)
         kwargs = ctx.hcatSpoonman.call_args.kwargs
         assert kwargs["extra_wordlists"] is None
         assert kwargs["baseword_cap"] is None
 
-    def test_configured_wordlists_are_passed_as_absolute_paths(self, tmp_path, corpus):
-        ctx = self._ctx(tmp_path, corpus, wordlists=["alpha.txt", "beta.txt"])
+    def test_configured_wordlists_are_passed_as_absolute_paths(
+        self, tmp_path, corpus, main_module
+    ):
+        ctx = self._ctx(
+            tmp_path, corpus, main_module, wordlists=["alpha.txt", "beta.txt"]
+        )
         with patch("hate_crack.attacks.interactive_menu", side_effect=["5", "2"]):
             attacks.spoonman_attack(ctx)
 
-        ctx.list_wordlist_files.assert_called_once_with(ctx.hcatWordlists)
         assert ctx.hcatSpoonman.call_args.kwargs["extra_wordlists"] == [
             os.path.join(ctx.hcatWordlists, "alpha.txt"),
             os.path.join(ctx.hcatWordlists, "beta.txt"),
         ]
         assert ctx.hcatSpoonman.call_args.kwargs["baseword_cap"] is None
 
-    def test_recommended_option_is_the_wordlist_one(self, tmp_path, corpus):
+    def test_wordlist_subdirectories_are_included(self, tmp_path, corpus, main_module):
+        """A wordlist collection arrives as a subdirectory, not a loose file.
+
+        hashcat accepts a directory in the dictionary position of a straight
+        attack and walks it, so filtering subdirectories out would silently
+        narrow the one dimension this menu exists to widen -- an operator whose
+        wordlists live in rockyou/ and weakpass/ would pick the *recommended*
+        option and get almost nothing.
+        """
+        ctx = self._ctx(
+            tmp_path,
+            corpus,
+            main_module,
+            wordlists=["other.txt", "rockyou/", "weakpass/"],
+        )
+        with patch("hate_crack.attacks.interactive_menu", side_effect=["5", "2"]):
+            attacks.spoonman_attack(ctx)
+
+        passed = ctx.hcatSpoonman.call_args.kwargs["extra_wordlists"]
+        assert sorted(os.path.basename(p) for p in passed) == [
+            "other.txt",
+            "rockyou",
+            "weakpass",
+        ]
+        # And they really are directories, so hashcat's own walking is what
+        # consumes them.
+        for path in passed:
+            if path.endswith(("rockyou", "weakpass")):
+                assert os.path.isdir(path)
+
+    def test_recommended_option_is_the_wordlist_one(
+        self, tmp_path, corpus, main_module
+    ):
         """The attack is baseword-limited, so option 2 carries the marker."""
-        ctx = self._ctx(tmp_path, corpus)
+        ctx = self._ctx(tmp_path, corpus, main_module)
         with patch(
             "hate_crack.attacks.interactive_menu", side_effect=["5", "1"]
         ) as menu:
@@ -1217,9 +1497,9 @@ class TestSpoonmanBasewordSourceMenu:
         assert "recommended" not in items["3"].lower()
 
     def test_empty_wordlist_directory_says_so_and_still_attacks(
-        self, tmp_path, corpus, capsys
+        self, tmp_path, corpus, main_module, capsys
     ):
-        ctx = self._ctx(tmp_path, corpus, wordlists=[])
+        ctx = self._ctx(tmp_path, corpus, main_module, wordlists=[])
         with patch("hate_crack.attacks.interactive_menu", side_effect=["5", "2"]):
             attacks.spoonman_attack(ctx)
 
@@ -1227,8 +1507,10 @@ class TestSpoonmanBasewordSourceMenu:
         ctx.hcatSpoonman.assert_called_once()
         assert ctx.hcatSpoonman.call_args.kwargs["extra_wordlists"] == []
 
-    def test_cap_choice_prompts_for_n_and_passes_it(self, tmp_path, corpus):
-        ctx = self._ctx(tmp_path, corpus)
+    def test_cap_choice_prompts_for_n_and_passes_it(
+        self, tmp_path, corpus, main_module
+    ):
+        ctx = self._ctx(tmp_path, corpus, main_module)
         with (
             patch("hate_crack.attacks.interactive_menu", side_effect=["5", "3"]),
             patch("builtins.input", return_value="5000"),
@@ -1240,13 +1522,13 @@ class TestSpoonmanBasewordSourceMenu:
         assert kwargs["extra_wordlists"] is None
 
     def test_cap_prompt_does_not_present_the_cap_as_more_accurate(
-        self, tmp_path, corpus, capsys
+        self, tmp_path, corpus, main_module, capsys
     ):
         """Measured: a 5,000-baseword cap reached 0.4% against 1.6% uncapped.
 
         So the prompt must frame it as a keyspace trade, not an improvement.
         """
-        ctx = self._ctx(tmp_path, corpus)
+        ctx = self._ctx(tmp_path, corpus, main_module)
         with (
             patch("hate_crack.attacks.interactive_menu", side_effect=["5", "3"]),
             patch("builtins.input", return_value="5000"),
@@ -1258,8 +1540,10 @@ class TestSpoonmanBasewordSourceMenu:
         assert "not to make it more accurate" in out
 
     @pytest.mark.parametrize("entered", ["", "0"])
-    def test_blank_or_zero_cap_means_no_cap(self, tmp_path, corpus, capsys, entered):
-        ctx = self._ctx(tmp_path, corpus)
+    def test_blank_or_zero_cap_means_no_cap(
+        self, tmp_path, corpus, main_module, capsys, entered
+    ):
+        ctx = self._ctx(tmp_path, corpus, main_module)
         with (
             patch("hate_crack.attacks.interactive_menu", side_effect=["5", "3"]),
             patch("builtins.input", return_value=entered),
@@ -1271,15 +1555,15 @@ class TestSpoonmanBasewordSourceMenu:
 
     @pytest.mark.parametrize("choice", ["99", None])
     def test_backing_out_of_the_baseword_menu_attacks_nothing(
-        self, tmp_path, corpus, choice
+        self, tmp_path, corpus, main_module, choice
     ):
-        ctx = self._ctx(tmp_path, corpus)
+        ctx = self._ctx(tmp_path, corpus, main_module)
         with patch("hate_crack.attacks.interactive_menu", side_effect=["5", choice]):
             attacks.spoonman_attack(ctx)
         ctx.hcatSpoonman.assert_not_called()
 
-    def test_invalid_selection_reprompts(self, tmp_path, corpus, capsys):
-        ctx = self._ctx(tmp_path, corpus)
+    def test_invalid_selection_reprompts(self, tmp_path, corpus, main_module, capsys):
+        ctx = self._ctx(tmp_path, corpus, main_module)
         with patch(
             "hate_crack.attacks.interactive_menu", side_effect=["5", "bogus", "1"]
         ) as menu:
@@ -1290,10 +1574,10 @@ class TestSpoonmanBasewordSourceMenu:
         ctx.hcatSpoonman.assert_called_once()
 
     def test_intro_no_longer_claims_a_capped_rule_set_gets_most_coverage(
-        self, tmp_path, corpus, capsys
+        self, tmp_path, corpus, main_module, capsys
     ):
         """The old wording was contradicted by the measurement on new targets."""
-        ctx = self._ctx(tmp_path, corpus)
+        ctx = self._ctx(tmp_path, corpus, main_module)
         with patch("hate_crack.attacks.interactive_menu", side_effect=["5", "1"]):
             attacks.spoonman_attack(ctx)
 

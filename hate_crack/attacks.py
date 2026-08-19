@@ -636,7 +636,9 @@ def spoonman_attack(ctx: Any) -> None:
     )
 
 
-def _pick_spoonman_basewords(ctx: Any):
+def _pick_spoonman_basewords(
+    ctx: Any,
+) -> tuple[list[str] | None, int | None] | None:
     """Pick the baseword side of the Spoonman cross product.
 
     Returns ``(extra_wordlists, baseword_cap)``, or ``None`` to abandon the
@@ -665,9 +667,17 @@ def _pick_spoonman_basewords(ctx: Any):
         if choice == "1":
             return None, None
         if choice == "2":
+            # list_wordlist_entries, not list_wordlist_files: these go into the
+            # dictionary position of a straight (-a 0) command, where hashcat
+            # accepts a directory and walks it. A wordlist collection unpacked
+            # into subdirectories is the normal shape, and filtering those out
+            # would silently narrow the one dimension this menu exists to
+            # widen -- an operator with wordlists/rockyou/ and
+            # wordlists/weakpass/ would pick the recommended option and get
+            # almost nothing.
             extra = [
-                os.path.join(ctx.hcatWordlists, name)
-                for name in ctx.list_wordlist_files(ctx.hcatWordlists)
+                os.path.join(ctx.hcatWordlists, entry.name)
+                for entry in ctx.list_wordlist_entries(ctx.hcatWordlists)
             ]
             if not extra:
                 print(
