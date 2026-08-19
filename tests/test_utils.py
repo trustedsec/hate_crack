@@ -333,6 +333,32 @@ def test_line_count_and_write_helpers(tmp_path, monkeypatch):
     assert out_unique.read_text().splitlines() == ["2", "b"]
 
 
+def test_write_delimited_field_last_field_handles_embedded_colons(
+    tmp_path, monkeypatch
+):
+    """Hash components for modes like NetNTLM embed their own colons
+    (e.g. `user::domain:challenge:response:plain`), so the plaintext must be
+    read as the last field, not a fixed index."""
+    monkeypatch.setenv("HATE_CRACK_SKIP_INIT", "1")
+    from hate_crack import main as main_module
+
+    importlib.reload(main_module)
+
+    input_path = tmp_path / "input.txt"
+    input_path.write_text(
+        "simplehash:plain1\nuser::domain:challenge:response:plain2\nno-delim\n"
+    )
+    out_path = tmp_path / "out.txt"
+
+    assert (
+        main_module._write_delimited_field(
+            str(input_path), str(out_path), 2, last_field=True
+        )
+        is True
+    )
+    assert out_path.read_text().splitlines() == ["plain1", "plain2"]
+
+
 def test_get_customer_hashfiles_with_hashtype_filters(monkeypatch):
     hv = api.HashviewAPI("https://example", "key")
     monkeypatch.setattr(

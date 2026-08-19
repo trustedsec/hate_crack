@@ -100,10 +100,10 @@ def test_env_homed_key_set_is_pinned():
     assert {entry.env for entry in ENV_KEYS} == EXPECTED_ENV_HOMED
 
 
-def test_key_counts_are_sixteen_and_thirty_seven():
+def test_key_counts_are_sixteen_and_thirty_eight():
     assert len(ENV_KEYS) == 16
-    assert len(JSON_KEYS) == 37
-    assert len(CONFIG_SCHEMA) == 53
+    assert len(JSON_KEYS) == 38
+    assert len(CONFIG_SCHEMA) == 54
 
 
 def test_every_key_has_exactly_one_home():
@@ -130,7 +130,7 @@ def test_type_counts_match_config_json_example_value_types():
     Scoped to the ``home="json"`` keys, since those are exactly the ones
     config.json.example documents.
 
-    ``list`` splits into ``csv_list`` (5) and ``charset`` (2):
+    ``list`` splits into ``csv_list`` (6) and ``charset`` (2):
     hcatMiddleCombinatorMasks and hcatThoroughCombinatorMasks are lists of
     single characters (including a literal "," and " ") that csv_list's
     join/split/strip rules cannot represent losslessly, so they get the
@@ -163,8 +163,8 @@ def test_type_counts_match_config_json_example_value_types():
     list_derived = schema_type_counts.get("csv_list", 0) + schema_type_counts.get(
         "charset", 0
     )
-    assert list_derived == json_type_counts.get("list", 0) == 7
-    assert schema_type_counts.get("csv_list", 0) == 5
+    assert list_derived == json_type_counts.get("list", 0) == 8
+    assert schema_type_counts.get("csv_list", 0) == 6
     assert schema_type_counts.get("charset", 0) == 2
     # str splits into str/path; the two must sum to the JSON str count.
     str_and_path = schema_type_counts.get("str", 0) + schema_type_counts.get("path", 0)
