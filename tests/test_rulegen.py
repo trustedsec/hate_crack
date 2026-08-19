@@ -211,15 +211,14 @@ class TestCaseEncoding:
         assert rulegen.apply_rule(base, rule) == "SimPlewOrD"
 
     def test_position_36_boundary_all_uppercase(self):
-        """Position 36 is unaddressable; all-uppercase 37-char string uses u.
+        """Position 36 is unaddressable; all-uppercase 37-char string uses u+invert.
 
         "A"*36 + "B" (37 chars, all uppercase).
         Baseword is "a"*36 + "b", all lowercase.
-        direct: toggle 0-36 (37 toggles, exceeds limit)
-        u+invert: u + toggle position 36 (unaddressable); disqualified
+        direct: toggle 0-36 (37 toggles, exceeds function limit); disqualified
+        u+invert: u + toggle each lowercase = u + 0 (no lowercase) = cost 1, valid
         c+fix: c + toggle 1-36 (position 36 unaddressable); disqualified
-        u: cost 1, valid (uppercase all 37 chars)
-        Result: u (the only valid candidate).
+        Result: u+invert wins at cost 1 (emitted as single 'u' op).
         Verified: derive("A"*36+"B") == ("a"*36+"b", "u")
         """
         pw = "A" * 36 + "B"
@@ -299,7 +298,7 @@ class TestCaseEncoding:
             "SImpleword",  # first+interior upper
             "aBaBaB",  # alternating
             "simpleWord",  # last upper
-            "sIMPLEWORD",  # first+rest upper
+            "sIMPLEWORD",  # all-but-first upper
         ]
         for pw in patterns:
             base, rule = rulegen.derive(pw)
@@ -370,13 +369,13 @@ class TestBroadRoundTripProperty:
     def test_roundtrip_exhaustive_case_masks(self):
         """Exhaustive round-trip test: all case masks over a fixed stem.
 
-        Generates all 2^8 = 256 case patterns across an 8-letter stem
-        'alphaword', covering every combination of uppercase and lowercase.
+        Generates all 2^8 = 256 case patterns across an 8-letter stem,
+        covering every combination of uppercase and lowercase.
         Each is derived and applied, verifying round-trip.
         """
         import itertools
 
-        stem = "alphaword"
+        stem = "codebase"
         # Generate all case masks: True=upper, False=lower
         for mask in itertools.product([True, False], repeat=len(stem)):
             pw = "".join(c.upper() if m else c.lower() for c, m in zip(stem, mask))
@@ -393,7 +392,7 @@ class TestBroadRoundTripProperty:
         Uses fixed seed for determinism; covers:
         - Single bytes across the printable range
         - Combinations with digits and symbols
-        - Passwords from 1 to 35 characters
+        - Passwords from 1 to 60 characters (exercises >35 unaddressable positions)
         - High-byte characters (latin-1 encoding)
         """
         import random
@@ -409,8 +408,8 @@ class TestBroadRoundTripProperty:
         )
 
         for _ in range(100):
-            # Random length 1-35
-            length = random.randint(1, 35)
+            # Random length 1-60 (past the position-35 boundary)
+            length = random.randint(1, 60)
             pw = "".join(random.choice(charset) for _ in range(length))
             base, rule = rulegen.derive(pw)
             result = rulegen.apply_rule(base, rule)
