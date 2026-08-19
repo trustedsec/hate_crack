@@ -169,7 +169,7 @@ def count_ops(rule):
             i += 1
         elif op in "T$^":
             i += 2
-        elif op == "i":
+        elif op in "io":
             i += 3
         else:
             raise ValueError(f"unknown op {op!r} in rule {rule!r}")
@@ -283,19 +283,68 @@ def derive(pw):
     ops = []
     # Case ops apply to the pure-lowercase base, so positions are 0..len(base)-1.
     up = [c.isupper() for c in letters]
+
+    # Compute the cheapest case encoding from four candidate strategies.
+    # Each strategy is valid only if all required positions are addressable (< 36).
+    # Pick the minimum cost; break ties in order: none, c, u, direct.
+    candidates = []
+
+    # Strategy: none (no case ops) - valid only when no uppercase
     if not any(up):
-        pass
-    elif up[0] and not any(up[1:]):
-        ops.append("c")
-    elif all(up):
-        ops.append("u")
+        candidates.append((0, [], "none"))
+
+    # Strategy: c + fix - uppercase index 0, then toggle uppercase letters at >0
+    # and toggle index 0 if it should be lowercase.
+    c_ops = ["c"]
+    c_valid = True
+    for i, is_upper in enumerate(up):
+        if i > 0 and is_upper:
+            p = _pos(i)
+            if p is None:
+                c_valid = False
+                break
+            c_ops.append("T" + p)
+    if c_valid and not up[0]:
+        c_ops.append("T0")
+    if c_valid:
+        candidates.append((len(c_ops), c_ops, "c"))
+
+    # Strategy: u + invert - uppercase all, then toggle lowercase letters
+    u_ops = ["u"]
+    u_valid = True
+    for i, is_upper in enumerate(up):
+        if not is_upper:
+            p = _pos(i)
+            if p is None:
+                u_valid = False
+                break
+            u_ops.append("T" + p)
+    if u_valid:
+        candidates.append((len(u_ops), u_ops, "u"))
+
+    # Strategy: direct - toggle each uppercase letter
+    direct_ops = []
+    direct_valid = True
+    for i, is_upper in enumerate(up):
+        if is_upper:
+            p = _pos(i)
+            if p is None:
+                direct_valid = False
+                break
+            direct_ops.append("T" + p)
+    if direct_valid:
+        candidates.append((len(direct_ops), direct_ops, "direct"))
+
+    if candidates:
+        # Sort by cost, then by tie-break order: none, c, u, direct
+        order_map = {"none": 0, "c": 1, "u": 2, "direct": 3}
+        best_cost, best_ops, best_name = min(
+            candidates, key=lambda x: (x[0], order_map[x[2]])
+        )
+        ops.extend(best_ops)
     else:
-        for i, is_upper in enumerate(up):
-            if is_upper:
-                p = _pos(i)
-                if p is None:
-                    return (pw, ":")
-                ops.append("T" + p)
+        # All strategies disqualified; fall back to literal
+        return (pw, ":")
     # Interior non-letters, inserted at core-relative indices in increasing
     # order so each insert accounts for the shift from the ones before it.
     for idx, c in enumerate(core):
@@ -357,6 +406,12 @@ def apply_rule(word, rule):
             ch = rule[i + 2]
             p = min(p, len(s))
             s = s[:p] + ch + s[p:]
+            i += 3
+        elif op == "o":
+            p = POS.index(rule[i + 1])
+            ch = rule[i + 2]
+            if p < len(s):
+                s = s[:p] + ch + s[p + 1 :]
             i += 3
         else:
             raise ValueError(f"unknown op {op!r} in rule {rule!r}")
