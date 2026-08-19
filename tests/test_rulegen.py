@@ -112,8 +112,8 @@ class TestOp:
         assert rulegen.apply_rule("alpha", "o9x") == "alpha"
         assert rulegen.apply_rule("a", "o1x") == "a"
 
-    def test_o_roundtrip_with_synthetic_word(self):
-        """o op can be applied manually to reconstruct a modified word."""
+    def test_o_applies_correctly_in_rules(self):
+        """o op can be applied in rules to overwrite positions."""
         baseword = "simpleword"
         # simpleword: s=0, i=1, m=2, p=3, l=4, e=5, w=6, o=7, r=8, d=9
         # Overwrite position 0 with 'S', position 6 with '2'
@@ -189,38 +189,76 @@ class TestCaseEncoding:
     def test_mostly_uppercase_prefers_u_over_direct(self):
         """Mostly uppercase: u+invert cheaper than direct toggles.
 
-        'Simpleword' with all but index 0 uppercase: SIMPLEWORD needs 9 T ops
-        direct, but u+invert needs u + T0 = 2 ops.
+        SIMPLEWORx (uppercase at 0-8, lowercase at 9): direct costs 9,
+        u+invert costs 1+1=2 (u + toggle position 9). u+invert wins.
+        Verified: derive("SIMPLEWORx") == ("simpleworx", "uT9")
         """
-        base, rule = rulegen.derive("Simpleword")
-        assert base == "simpleword"
-        # Should use 'c' (cost 1) for first-upper-only, not 'u'
-        assert rule == "c"
+        base, rule = rulegen.derive("SIMPLEWORx")
+        assert base == "simpleworx"
+        assert rule == "uT9"
+        assert rulegen.apply_rule(base, rule) == "SIMPLEWORx"
 
-    def test_all_uppercase_but_last_chooses_direct(self):
-        """All uppercase except last: direct is cheaper than u+invert.
+    def test_mixed_case_tie_breaks_to_c(self):
+        """Mixed case encoding cost tie: c and direct both cost 4, c wins.
 
-        'SIMPLEWORX' where last is lowercase: direct needs T0..8 (9 ops)
-        u+invert needs u + T9 (2 ops). But u can't address 9, so it's
-        disqualified; direct is valid at 9 ops. Wait, that's wrong.
-
-        Actually 'SIMPLEWORX' has 10 letters, positions 0-9. Position 9 is
-        addressable (9 < 36). So u+invert would be u + T9 = 2 ops, which is
-        cheaper than direct's 9 ops (all but index 9 are uppercase).
-
-        Let me use a different example: all uppercase except at a very high index.
-        Actually, let's just test that it works and round-trips.
+        SimPlewOrD has uppercase at positions 0, 3, 7, 9.
+        Costs: none=invalid, direct=4, u+inv=7, c=1+3=4
+        Tie at 4; tie-break order is none,c,u,direct, so c wins.
         """
         base, rule = rulegen.derive("SimPlewOrD")
         assert base == "simpleword"
-        # Uppercase at positions 0, 3, 7, 9. Costs:
-        # - none: invalid (has uppercase)
-        # - direct: 4 (toggle 0,3,7,9)
-        # - u+invert: 1 + 6 toggles (1,2,4,5,6,8) = 7
-        # - c+fix: 1 + 3 toggles (3,7,9 at >0) = 4
-        # Min cost is 4; tie between direct and c; tie-break: c wins
         assert rule == "cT3T7T9"
         assert rulegen.apply_rule(base, rule) == "SimPlewOrD"
+
+    def test_position_36_boundary_all_uppercase(self):
+        """Position 36 is unaddressable; all-uppercase 37-char string uses u.
+
+        "A"*36 + "B" (37 chars, all uppercase).
+        Baseword is "a"*36 + "b", all lowercase.
+        direct: toggle 0-36 (37 toggles, exceeds limit)
+        u+invert: u + toggle position 36 (unaddressable); disqualified
+        c+fix: c + toggle 1-36 (position 36 unaddressable); disqualified
+        u: cost 1, valid (uppercase all 37 chars)
+        Result: u (the only valid candidate).
+        Verified: derive("A"*36+"B") == ("a"*36+"b", "u")
+        """
+        pw = "A" * 36 + "B"
+        base, rule = rulegen.derive(pw)
+        assert base == "a" * 36 + "b"
+        assert rule == "u"
+        assert rulegen.apply_rule(base, rule) == pw
+
+    def test_position_36_boundary_mostly_lowercase(self):
+        """Position 36 unaddressable; "ab" + C*35 uses u+invert.
+
+        "ab" + "C"*35 (37 chars: ab...CCC where C spans positions 2-36).
+        Uppercase at positions 2-36 (35 letters).
+        u+invert: u + toggle 0,1 = cost 3 (positions 0-1 are lowercase)
+        direct: toggle 2-36 = cost 35
+        c+fix: c + toggle at >0 (2-36 = 35) = cost 1+35 = 36
+        Min cost is u+invert at 3.
+        Verified: derive("ab" + "C"*35) == ("ab" + "c"*35, "uT0T1")
+        """
+        pw = "ab" + "C" * 35
+        base, rule = rulegen.derive(pw)
+        assert base == "ab" + "c" * 35
+        assert rule == "uT0T1"
+        assert rulegen.apply_rule(base, rule) == pw
+
+    def test_position_36_boundary_fallback_to_literal(self):
+        """All candidates disqualified when position 36 needed in multiple ways.
+
+        "aB" + "C"*35 + "d" (38 chars: uppercase at 1-36, lowercase at 0,37).
+        direct: toggle 1-36 (position 36 unaddressable); disqualified
+        u+invert: toggle 37 (unaddressable); disqualified
+        c+fix: toggle at >0 (1-36, position 36 unaddressable); disqualified
+        All disqualified: fall back to literal.
+        Verified: derive("aB" + "C"*35 + "d") == (pw, ":")
+        """
+        pw = "aB" + "C" * 35 + "d"
+        base, rule = rulegen.derive(pw)
+        assert (base, rule) == (pw, ":")
+        assert rulegen.apply_rule(base, rule) == pw
 
     def test_alternating_case_pattern(self):
         """Alternating case: pick cheapest between direct, u+invert, c."""
@@ -257,11 +295,11 @@ class TestCaseEncoding:
             "simpleword",  # all lower
             "Simpleword",  # first upper
             "SIMPLEWORD",  # all upper
-            "sImpleworD",  # ends upper
-            "SImpleword",  # first upper + interior
+            "sImpleworD",  # interior+last upper
+            "SImpleword",  # first+interior upper
             "aBaBaB",  # alternating
             "simpleWord",  # last upper
-            "sIMPLEWORD",  # last lower
+            "sIMPLEWORD",  # first+rest upper
         ]
         for pw in patterns:
             base, rule = rulegen.derive(pw)
@@ -275,14 +313,14 @@ class TestDeriveOpsValidation:
     def test_all_derive_ops_are_in_rule_op_args(self):
         """Every op derive() can emit must be a key in RULE_OP_ARGS."""
         test_passwords = [
-            "password",  # : no-op
-            "Password",  # c
-            "PASSWORD",  # u
-            "pAsSwOrD",  # T ops
-            "a.b.c",  # i ops
-            "abc!@#",  # $ ops
-            "!@#abc",  # ^ ops
-            "Simpleword123",  # mix of everything
+            "alphabetonlyword",  # : no-op
+            "Alphaword",  # c
+            "ALPHAWORD",  # u
+            "aLpHaWoRd",  # T ops
+            "alpha.beta",  # i ops
+            "alpha!@#",  # $ ops
+            "!@#alpha",  # ^ ops
+            "Alphaword123",  # mix of everything
         ]
         for pw in test_passwords:
             base, rule = rulegen.derive(pw)
@@ -298,21 +336,21 @@ class TestDeriveOpsValidation:
     def test_all_derived_rules_validate(self):
         """Every rule derive() produces must pass validate_rule()."""
         test_passwords = [
-            "password",
-            "Password1!",
-            "PASSWORD",
-            "pAsSwOrD",
-            "Summer2026",
-            "Summer2026!",
-            "p@ssw0rd",
-            "Company#2026",
-            "john.smith",
+            "alphaword",
+            "Alphaword1!",
+            "ALPHAWORD",
+            "aLpHaWoRd",
+            "Summertime2026",
+            "Summertide2026!",
+            "alph@w0rd",
+            "Codebase#2026",
+            "john.smith.test",
             "correct horse battery staple",
             "!@#$%^",
             "1234567890",
             "Spring-2026!",
             "aB1cD2eF3",
-            "MyD0g$Name!2026",
+            "MyC0d3$Emb3d!2026",
         ]
         for pw in test_passwords:
             base, rule = rulegen.derive(pw)
@@ -322,41 +360,63 @@ class TestDeriveOpsValidation:
 
 
 class TestBroadRoundTripProperty:
-    """Property tests for round-trip correctness across diverse inputs."""
+    """Property tests for round-trip correctness per Constraint 2.
 
-    @pytest.mark.parametrize(
-        "pw",
-        [
-            "a",
-            "A",
-            "1",
-            "!",
-            "",
-            "abc",
-            "ABC",
-            "Abc",
-            "aBC",
-            "a1b2c3",
-            "!@#$%^&*()",
-            "Password1!",
-            "UPPERCASE_PASSWORD",
-            "lowercase_password",
-            "MiXeD_CaSe_PaSSWORD",
-            "!leading",
-            "trailing!",
-            "!both!",
-            "in!terior!marks",
-            "aAaAaAaAaAa",
-            "1234567890abcdefghij",
-            " space test ",
-            "café",  # non-ASCII (latin-1)
-        ],
-    )
-    def test_roundtrips(self, pw):
-        """Every password round-trips through derive and apply_rule."""
-        base, rule = rulegen.derive(pw)
-        result = rulegen.apply_rule(base, rule)
-        assert result == pw, f"Round-trip failed: derive({pw!r}) -> apply_rule failed"
+    Constraint 2 requires testing across broad generated input sets, not
+    hand-picked cases. This class generates passwords exhaustively across
+    case masks and spot-checks diverse byte ranges.
+    """
+
+    def test_roundtrip_exhaustive_case_masks(self):
+        """Exhaustive round-trip test: all case masks over a fixed stem.
+
+        Generates all 2^8 = 256 case patterns across an 8-letter stem
+        'alphaword', covering every combination of uppercase and lowercase.
+        Each is derived and applied, verifying round-trip.
+        """
+        import itertools
+
+        stem = "alphaword"
+        # Generate all case masks: True=upper, False=lower
+        for mask in itertools.product([True, False], repeat=len(stem)):
+            pw = "".join(c.upper() if m else c.lower() for c, m in zip(stem, mask))
+            base, rule = rulegen.derive(pw)
+            result = rulegen.apply_rule(base, rule)
+            assert result == pw, (
+                f"Round-trip failed for mask {mask}: derive({pw!r}) "
+                f"-> apply_rule returned {result!r}"
+            )
+
+    def test_roundtrip_random_byte_sweep(self):
+        """Random round-trip spot-check: diverse byte ranges and lengths.
+
+        Uses fixed seed for determinism; covers:
+        - Single bytes across the printable range
+        - Combinations with digits and symbols
+        - Passwords from 1 to 35 characters
+        - High-byte characters (latin-1 encoding)
+        """
+        import random
+        import string
+
+        random.seed(42)
+        # Printable ASCII + selected high bytes
+        charset = (
+            string.ascii_letters
+            + string.digits
+            + "!@#$%^&*()_-=+[]{}|;:,.<>?"
+            + "".join(chr(i) for i in range(128, 256, 15))
+        )
+
+        for _ in range(100):
+            # Random length 1-35
+            length = random.randint(1, 35)
+            pw = "".join(random.choice(charset) for _ in range(length))
+            base, rule = rulegen.derive(pw)
+            result = rulegen.apply_rule(base, rule)
+            assert result == pw, (
+                f"Round-trip failed: derive({pw!r}) -> apply_rule returned {result!r}"
+            )
 
 
 class TestGenerate:

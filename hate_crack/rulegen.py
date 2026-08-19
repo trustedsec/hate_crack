@@ -12,6 +12,7 @@ supports natively:
     ${x}         append char x
     ^{x}         prepend char x
     i{p}{x}      insert char x at position p
+    o{p}{x}      overwrite char at position p with x
 
 The baseword list and the rule list together reconstruct 100% of the corpus,
 so the rule file is truncatable: it is sorted by how many passwords each rule
@@ -33,7 +34,7 @@ unbounded behaviour for anyone who has the memory to spare.
 Two hashcat limits bound what a rule can express, and both fall back to
 emitting the password verbatim as its own baseword with a ``:`` no-op rule:
 
-* Positions are encoded in a 36-character alphabet, so ``T``/``i`` cannot
+* Positions are encoded in a 36-character alphabet, so ``T``/``i``/``o`` cannot
   address past index 35.
 * hashcat rejects any rule with more than ``MAX_RULE_FUNCTIONS`` functions.
   It does so *silently* when other valid rules are present in the same file,
@@ -338,9 +339,7 @@ def derive(pw):
     if candidates:
         # Sort by cost, then by tie-break order: none, c, u, direct
         order_map = {"none": 0, "c": 1, "u": 2, "direct": 3}
-        best_cost, best_ops, best_name = min(
-            candidates, key=lambda x: (x[0], order_map[x[2]])
-        )
+        best_ops = min(candidates, key=lambda x: (x[0], order_map[x[2]]))[1]
         ops.extend(best_ops)
     else:
         # All strategies disqualified; fall back to literal
