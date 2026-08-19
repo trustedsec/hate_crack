@@ -160,6 +160,39 @@ class TestHcatSpoonmanGzip:
         for word in words:
             assert all(0x20 <= ord(c) <= 0x7E for c in word), word
 
+    def test_leet_restoration_is_enabled_and_actually_restores(
+        self, main_module, tmp_path
+    ):
+        """hcatSpoonman asks for leet restoration, and the run performs it.
+
+        Wraps the real generate() instead of replacing it, so this checks the
+        argument reached rulegen *and* that the derived basewords changed --
+        a mock's call_args alone would pass even if generate ignored the flag.
+        """
+        corpus = tmp_path / "cracked.txt"
+        # Three attestations of an invented compound, plus a leet-mangled form.
+        corpus.write_text(
+            "quibblefox\nquibblefox\nquibblefox\nQu1bblefox\n", encoding="latin-1"
+        )
+        seen = {}
+        real_generate = rulegen.generate
+
+        def spy(*args, **kwargs):
+            seen.update(kwargs)
+            return real_generate(*args, **kwargs)
+
+        with (
+            patch.object(main_module, "hcatQuickDictionary") as quick,
+            patch("hate_crack.rulegen.generate", spy),
+        ):
+            main_module.hcatSpoonman("1000", self._hash_file(tmp_path), str(corpus))
+
+        assert seen.get("leet_restore") is True
+        with open(quick.call_args[0][3], encoding="latin-1") as f:
+            words = [line.strip() for line in f if line.strip()]
+        # Without restoration this would also contain "qubblefox".
+        assert words == ["quibblefox"]
+
     def test_staleness_check_compares_original_corpus_not_temp_file(
         self, main_module, tmp_path
     ):

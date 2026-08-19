@@ -4590,7 +4590,9 @@ def hcatSpoonman(hcatHashType, hcatHashFile, corpus, coverage=None):
         print(f"[*] Deriving basewords and rules from {corpus}")
         try:
             with _wordlist_path(corpus) as resolved_corpus:
-                result = _rulegen.generate(resolved_corpus, cache_dir)
+                result = _rulegen.generate(
+                    resolved_corpus, cache_dir, leet_restore=True
+                )
         except (OSError, ValueError) as e:
             print(f"Rule derivation failed: {e}")
             return
