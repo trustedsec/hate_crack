@@ -43,9 +43,13 @@ Knowing that requires having read the corpus once already, which is why
   that dictionary. Every counter written out, and every statistic reported,
   comes from pass 2.
 
-The cost is a doubled read and a third live counter (pass 1's dictionary
-alongside pass 2's two), which the ``max_unique`` bound below applies to in
-both passes. ``leet_restore=False`` reads the corpus once and reproduces the
+The cost is a doubled read, plus pass 1's dictionary held live alongside pass
+2's two counters. The dictionary is filtered down to the keys that meet the
+attestation threshold before pass 2 starts — 93.4% of them fail it on a
+360,000-password sample, because a corpus's baseword tail is overwhelmingly
+singletons — so what is actually carried is a small fraction of a counter
+rather than a third full one. The ``max_unique`` bound below applies to both
+passes. ``leet_restore=False`` reads the corpus once and reproduces the
 letters-only output exactly.
 
 That 100% guarantee holds only while :func:`generate` keeps every key it sees.
@@ -449,6 +453,10 @@ REVERSE_LEET = {
 # four slots of the worst case ('1', three candidates each counting "leave it")
 # is 81 dictionary lookups — bounded. Passwords with five or more leet
 # characters are rare and are the ones least likely to attest anyway.
+#
+# This is a performance guard, not just a scope limit: the growth is
+# exponential in the number of slots, and removing the cap makes the test
+# suite time out on inputs that are merely long rather than pathological.
 MAX_LEET_SLOTS = 4
 
 
@@ -753,7 +761,10 @@ def generate(
     relative to the observations those keys account for, not to the whole
     corpus, and ``pruned`` is True in the returned dict. The bound applies to
     both passes, so a pruned attestation dictionary attests less and restores
-    less — it never restores wrongly.
+    less — it never restores wrongly, because pruning deletes keys outright and
+    so can only understate a count, never overstate one. The dictionary is also
+    filtered to keys meeting ``leet_min_hits`` before pass 2, which is
+    output-neutral for the same reason read in reverse.
     """
     if is_gzipped(corpus_path):
         raise ValueError(
@@ -774,6 +785,19 @@ def generate(
             max_unique=max_unique,
             count_rules=False,
         ).base_counts
+        # Drop every key that cannot satisfy _derive_leet_aware's
+        # `hits >= min_hits` gate. Provably output-neutral: a count is read only
+        # by that gate and by the -hits sort key, and a key below the threshold
+        # fails the gate before the sort ever sees it. It is pure ballast
+        # otherwise, and there is a lot of it — 93.4% of the keys on a
+        # 360,000-password sample, since a corpus's baseword tail is
+        # overwhelmingly singletons. Dropping them takes the peak back to
+        # roughly the two-counter budget the max_unique bound is sized for,
+        # instead of holding a third full-sized counter live across all of
+        # pass 2. Rebinding the name is what actually reclaims it: the
+        # unfiltered Counter has to become unreachable *before* pass 2 starts
+        # allocating, or the filter has bought nothing.
+        dictionary = {k: v for k, v in dictionary.items() if v >= leet_min_hits}
         scan = _scan_corpus(
             corpus_path,
             ascii_only,

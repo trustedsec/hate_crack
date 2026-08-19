@@ -1478,6 +1478,76 @@ class TestGenerateLeetRestore:
             )
         assert outs[0] == outs[1]
 
+    def test_subthreshold_dictionary_keys_are_output_neutral(self, tmp_path):
+        """generate() filters the attestation dictionary; that must not move output.
+
+        A key counted below min_hits can never satisfy _derive_leet_aware's
+        `hits >= min_hits` gate, so dropping it before pass 2 is free. Asserted
+        directly against derive_leet_aware so the property is pinned at the
+        level that relies on it, not just end to end.
+        """
+        full = Counter({"quibblefox": 7, "mirthbell": 1, "zanterwick": 1})
+        filtered = {k: v for k, v in full.items() if v >= 2}
+        assert set(filtered) == {"quibblefox"}  # the filter really dropped keys
+        for pw in _leet_round_trip_inputs():
+            assert rulegen.derive_leet_aware(pw, full) == rulegen.derive_leet_aware(
+                pw, filtered
+            ), pw
+
+    def test_over_filtering_the_dictionary_does_change_output(self, tmp_path):
+        """Negative control for the test above.
+
+        Without this, the equality above could hold for the wrong reason -- a
+        comparison insensitive to the dictionary altogether would pass it. A
+        filter one step *above* min_hits removes a key the gate would have
+        accepted, and that must be visible.
+        """
+        full = Counter({"quibblefox": 2, "mirthbell": 5})
+        over = {k: v for k, v in full.items() if v >= 3}
+        assert set(over) == {"mirthbell"}
+        # "quibblefox" is attested exactly at min_hits, so it restores from the
+        # full dictionary and is lost from the over-filtered one.
+        assert rulegen.derive_leet_aware("qu1bblefox", full) == ("quibblefox", "o21")
+        assert rulegen.derive_leet_aware("qu1bblefox", over) == rulegen.derive(
+            "qu1bblefox"
+        )
+
+    def test_generate_output_matches_an_unfiltered_reference(self, tmp_path):
+        """End to end: generate()'s filtered pass 2 equals an unfiltered one.
+
+        Builds the pass-1 dictionary by hand, derives every password against it
+        with no filtering at all, and checks generate() agrees. The corpus is
+        shaped so most pass-1 keys fall below min_hits, which is what the
+        filter drops.
+        """
+        passwords = (
+            ["quibblefox"] * 3
+            + ["Qu1bblefox"] * 2
+            + ["mirthbell"]
+            + ["zanterw1ck"]
+            # Attested at exactly min_hits, with a leet form that restores to
+            # it. This is the boundary case: a filter one step too high drops
+            # this key and the restoration is silently lost.
+            + ["vorblesnick"] * 2
+            + ["vorblesn1ck"]
+            + [f"single{chr(97 + i)}word1" for i in range(12)]
+        )
+        result = rulegen.generate(
+            self._write(tmp_path, passwords),
+            str(tmp_path / "out"),
+            print_fn=lambda *a: None,
+        )
+
+        unfiltered = Counter(rulegen.derive(pw)[0] for pw in passwords)
+        below = sum(1 for v in unfiltered.values() if v < 2)
+        assert below > 0, "corpus must exercise the filter to be meaningful"
+        expected = Counter(
+            rulegen.derive_leet_aware(pw, unfiltered)[0] for pw in passwords
+        )
+        produced = self._read(result["basewords"]).splitlines()
+        assert produced == [b for b, _ in expected.most_common()]
+        assert result["selfcheck_failures"] == []
+
     def test_pruning_still_applies_in_both_passes(self, tmp_path, monkeypatch):
         monkeypatch.setattr(rulegen, "_PRUNE_CHECK_INTERVAL", 5)
         lines = ["quibblefox"] * 20 + [f"tail{chr(97 + i)}zulu{i}" for i in range(40)]
