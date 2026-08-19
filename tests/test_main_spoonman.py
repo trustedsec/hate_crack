@@ -523,9 +523,26 @@ class TestSpoonmanOptimizedKernelLengthWarning:
         over = [word for word in words if len(word) > 31]
         assert sorted(over) == sorted([self.LONG, self.ALSO_LONG])
 
-        assert "2 baseword(s) exceed 31 characters" in out
+        assert "At least 2 baseword(s) exceed 31 characters" in out
         assert "-O" in out
         assert "--no-optimized-kernel" in out
+
+    def test_warning_does_not_present_the_count_as_exact(
+        self, main_module, tmp_path, capsys
+    ):
+        """The count is a floor in two directions and must read that way.
+
+        Spoonman runs at any hash mode -- these tests use 1000/NTLM -- and the
+        real -O cap is mode-dependent, and a rule that appends characters can
+        carry a baseword that fits here past the cap. An operator must not read
+        the number as the total loss, nor 31 as a universal limit.
+        """
+        self._run(main_module, tmp_path, [self.LONG, "shortword"])
+        out = capsys.readouterr().out
+        assert "At least" in out
+        assert "mode 0" in out
+        assert "varies by hash mode" in out
+        assert "appends characters" in out
 
     def test_no_warning_when_every_baseword_is_short(
         self, main_module, tmp_path, capsys
@@ -569,6 +586,33 @@ class TestSpoonmanOptimizedKernelLengthWarning:
         # And the caller neither raises nor prints.
         main_module._warn_optimized_kernel_length_loss(target)
         assert capsys.readouterr().out == ""
+
+    def test_announces_the_scan_for_a_large_baseword_list(
+        self, main_module, tmp_path, capsys, monkeypatch
+    ):
+        """A corpus-sized list takes long enough that silence looks like a hang."""
+        path = tmp_path / "basewords.txt"
+        path.write_text("shortword\n" * 1000, encoding="latin-1")
+        monkeypatch.setattr(
+            main_module, "SPOONMAN_BASEWORD_SCAN_NOTICE_BYTES", path.stat().st_size
+        )
+
+        main_module._warn_optimized_kernel_length_loss(str(path))
+        out = capsys.readouterr().out
+        assert "Scanning" in out
+        assert "basewords" in out
+        # Nothing was over the cap, so only the notice is printed.
+        assert "At least" not in out
+
+    def test_small_baseword_list_scans_without_announcing(
+        self, main_module, tmp_path, capsys
+    ):
+        path = tmp_path / "basewords.txt"
+        path.write_text(f"{self.LONG}\nshortword\n", encoding="latin-1")
+        main_module._warn_optimized_kernel_length_loss(str(path))
+        out = capsys.readouterr().out
+        assert "Scanning" not in out
+        assert "At least 1 baseword(s)" in out
 
     def test_counts_lines_regardless_of_line_ending(self, main_module, tmp_path):
         path = tmp_path / "basewords.txt"

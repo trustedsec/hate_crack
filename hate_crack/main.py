@@ -4678,6 +4678,12 @@ def _spoonman_cache_mismatch(recorded, current):
 # based on it, and no attempt is made to derive it per hash mode.
 OPTIMIZED_KERNEL_MAX_PLAIN_LENGTH = 31
 
+# Above this size, say that the baseword scan below is happening. The scan
+# streams, so it is cheap per byte, but a corpus-sized baseword list still
+# takes long enough that an unannounced pause before hashcat starts looks like
+# a hang.
+SPOONMAN_BASEWORD_SCAN_NOTICE_BYTES = 64 * 1024 * 1024
+
 
 def _count_over_long_basewords(path, cap=OPTIMIZED_KERNEL_MAX_PLAIN_LENGTH):
     """Count lines in *path* longer than *cap* characters; None if unreadable.
@@ -4703,13 +4709,31 @@ def _warn_optimized_kernel_length_loss(basewords_path):
     """
     if not _should_use_optimized_kernel("hcatQuickDictionary"):
         return
+    try:
+        size = os.path.getsize(basewords_path)
+    except OSError:
+        size = 0
+    if size >= SPOONMAN_BASEWORD_SCAN_NOTICE_BYTES:
+        print(
+            f"[*] Scanning {size // (1024 * 1024)} MB of basewords for entries "
+            "the optimized kernel would drop..."
+        )
     over_long = _count_over_long_basewords(basewords_path)
     if not over_long:
         return
+    # "At least", and 31 named as the mode-0 figure: the count is a floor in two
+    # directions. Spoonman runs at any hash mode and the real -O cap varies with
+    # the mode, and a rule that appends characters can carry a baseword that
+    # fits here past the cap. An operator must not read this as an exact loss.
     print(
-        f"[!] {over_long} baseword(s) exceed "
+        f"[!] At least {over_long} baseword(s) exceed "
         f"{OPTIMIZED_KERNEL_MAX_PLAIN_LENGTH} characters and will be dropped "
-        "silently by hashcat's optimized kernel (-O). Re-run with "
+        "silently by hashcat's optimized kernel (-O)."
+    )
+    print(
+        f"    {OPTIMIZED_KERNEL_MAX_PLAIN_LENGTH} is the cap verified for mode 0; "
+        "the real cap varies by hash mode, and a rule that appends characters "
+        "can push a shorter baseword over it. Re-run with "
         "--no-optimized-kernel (--no-optimize) to keep them."
     )
 
