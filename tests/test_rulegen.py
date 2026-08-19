@@ -376,15 +376,20 @@ class TestBroadRoundTripProperty:
         import itertools
 
         stem = "codebase"
-        # Generate all case masks: True=upper, False=lower
+        # Generate all case masks: True=upper, False=lower. Each is also
+        # crossed with the four edge-whitespace paddings, because a preserved
+        # leading space shifts every case op by one and a generated sweep is
+        # the only way to cover that against all 256 masks rather than the
+        # handful a hand-picked test would reach (Constraint 2).
         for mask in itertools.product([True, False], repeat=len(stem)):
-            pw = "".join(c.upper() if m else c.lower() for c, m in zip(stem, mask))
-            base, rule = rulegen.derive(pw)
-            result = rulegen.apply_rule(base, rule)
-            assert result == pw, (
-                f"Round-trip failed for mask {mask}: derive({pw!r}) "
-                f"-> apply_rule returned {result!r}"
-            )
+            cased = "".join(c.upper() if m else c.lower() for c, m in zip(stem, mask))
+            for pw in (cased, " " + cased, cased + " ", " " + cased + " "):
+                base, rule = rulegen.derive(pw)
+                result = rulegen.apply_rule(base, rule)
+                assert result == pw, (
+                    f"Round-trip failed for mask {mask}: derive({pw!r}) "
+                    f"-> apply_rule returned {result!r}"
+                )
 
     def test_roundtrip_random_byte_sweep(self):
         """Random round-trip spot-check: diverse byte ranges and lengths.
@@ -394,16 +399,22 @@ class TestBroadRoundTripProperty:
         - Combinations with digits and symbols
         - Passwords from 1 to 60 characters (exercises >35 unaddressable positions)
         - High-byte characters (latin-1 encoding)
+        - The space character, in every position including first and last,
+          which usable_plaintext(keep_whitespace=True) now lets through
         """
         import random
         import string
 
         random.seed(42)
-        # Printable ASCII + selected high bytes
+        # Printable ASCII + selected high bytes. The space is in the alphabet
+        # deliberately: rulegen stopped stripping edge whitespace, so a leading
+        # or trailing space is now part of derive()'s input domain and this
+        # sweep has to cover it.
         charset = (
             string.ascii_letters
             + string.digits
             + "!@#$%^&*()_-=+[]{}|;:,.<>?"
+            + " "
             + "".join(chr(i) for i in range(128, 256, 15))
         )
 
@@ -602,6 +613,162 @@ class TestLiteralFallbackSplit:
         assert "unrepresentable" in report
         # The letterless count must be stated plainly as not being a defect.
         assert "NOT a defect" in report
+
+
+class TestEdgeWhitespace:
+    """A leading or trailing space can be part of the password. It used to be
+    stripped before derivation, silently: the self-check compared against the
+    same stripped password, so it passed."""
+
+    def _run(self, tmp_path, lines):
+        corpus = tmp_path / "corpus.txt"
+        corpus.write_text("\n".join(lines) + "\n", encoding="latin-1")
+        return rulegen.generate(
+            str(corpus), str(tmp_path / "out"), print_fn=lambda *a: None
+        )
+
+    @pytest.mark.parametrize(
+        "pw",
+        [
+            "zorptangle ",
+            " zorptangle",
+            " zorptangle ",
+            "Zorptangle  ",
+            "zorptangle 9",
+        ],
+    )
+    def test_password_with_edge_whitespace_round_trips(self, tmp_path, pw):
+        result = self._run(tmp_path, [pw])
+        assert result["selfcheck_failures"] == []
+
+        basewords = (
+            (tmp_path / "out" / "basewords.txt")
+            .read_text(encoding="latin-1")
+            .splitlines()
+        )
+        rules = (
+            (tmp_path / "out" / "rules.full.rule")
+            .read_text(encoding="latin-1")
+            .splitlines()
+        )
+        # The space must survive all the way through the written files: the
+        # baseword-plus-rule pair has to rebuild the password including it.
+        produced = {rulegen.apply_rule(b, r) for b in basewords for r in rules}
+        assert pw in produced
+
+    def test_trailing_space_is_an_append_op_not_a_lost_character(self, tmp_path):
+        base, rule = rulegen.derive("zorptangle ")
+        assert base == "zorptangle"
+        assert rule == "$ "
+        assert rulegen.apply_rule(base, rule) == "zorptangle "
+        # And the emitted rule is one hashcat will actually accept.
+        assert rulegen.validate_rule(rule)
+
+    def test_leading_space_is_a_prepend_op(self, tmp_path):
+        base, rule = rulegen.derive(" zorptangle")
+        assert base == "zorptangle"
+        assert rule == "^ "
+        assert rulegen.apply_rule(base, rule) == " zorptangle"
+        assert rulegen.validate_rule(rule)
+
+    def test_padded_and_unpadded_forms_stay_distinct(self, tmp_path):
+        # Stripping made these one password with one rule. They are two.
+        result = self._run(tmp_path, ["zorptangle", "zorptangle "])
+        assert result["total"] == 2
+        assert result["basewords_count"] == 1
+        assert result["selfcheck_failures"] == []
+        # Naming the rules, not just counting them: a wrong-but-distinct second
+        # rule would satisfy a bare count of 2.
+        assert (tmp_path / "out" / "basewords.txt").read_text(
+            encoding="latin-1"
+        ) == "zorptangle\n"
+        assert set(
+            (tmp_path / "out" / "rules.full.rule")
+            .read_text(encoding="latin-1")
+            .splitlines()
+        ) == {":", "$ "}
+
+    def test_whitespace_only_lines_are_still_ignored(self, tmp_path):
+        result = self._run(tmp_path, ["zorptangle", "   ", "\t", "quibbleflange"])
+        assert result["total"] == 2
+
+    def test_hash_prefixed_line_with_a_trailing_space(self, tmp_path):
+        ntlm = "31d6cfe0d16ae931b73c59d7e0c089c0"
+        result = self._run(tmp_path, [f"{ntlm}:zorptangle "])
+        assert result["selfcheck_failures"] == []
+        basewords = (
+            (tmp_path / "out" / "basewords.txt")
+            .read_text(encoding="latin-1")
+            .splitlines()
+        )
+        assert basewords == ["zorptangle"]
+
+    def test_indented_hash_prefixed_corpus_does_not_poison_the_baseword(self, tmp_path):
+        """A column-padded corpus (hand-edited, or any tool that aligns fields)
+        must not weld the digest onto the baseword. This is the failure the
+        comment in _scan_corpus exists to prevent, and preserving leading
+        whitespace unconditionally would reintroduce it silently: the digest
+        would hide behind the indent from the hash-prefix detector, and the
+        self-check compares against the same poisoned string, so it passes."""
+        ntlm = "31d6cfe0d16ae931b73c59d7e0c089c0"
+        ntlm_b = "8846f7eaee8fb117ad06bdd830b7586c"
+        result = self._run(
+            tmp_path, [f"  {ntlm}:zorptangle", f"  {ntlm_b}:quibbleflange"]
+        )
+        basewords = (
+            (tmp_path / "out" / "basewords.txt")
+            .read_text(encoding="latin-1")
+            .splitlines()
+        )
+        assert sorted(basewords) == ["quibbleflange", "zorptangle"]
+        rules = (
+            (tmp_path / "out" / "rules.full.rule")
+            .read_text(encoding="latin-1")
+            .splitlines()
+        )
+        assert rules == [":"]
+        assert result["selfcheck_failures"] == []
+
+    def test_space_after_the_separator_is_part_of_the_password(self, tmp_path):
+        # The indent is formatting; the space past the colon is the password's.
+        ntlm = "31d6cfe0d16ae931b73c59d7e0c089c0"
+        result = self._run(tmp_path, [f"  {ntlm}: zorptangle"])
+        assert result["selfcheck_failures"] == []
+        rules = (
+            (tmp_path / "out" / "rules.full.rule")
+            .read_text(encoding="latin-1")
+            .splitlines()
+        )
+        assert rules == ["^ "]
+
+    def test_output_unchanged_for_a_corpus_without_edge_whitespace(self, tmp_path):
+        """Guard on the blast radius: keep_whitespace must be a no-op for every
+        corpus that has no edge whitespace to preserve, which is nearly all of
+        them."""
+        lines = [p for p in CORPUS if p]
+        result = self._run(tmp_path, lines)
+        out = tmp_path / "out"
+        produced = {
+            name: (out / name).read_bytes()
+            for name in ("basewords.txt", "rules.full.rule")
+        }
+        # Re-derive independently of the file-reading path and compare.
+        expected_bases = Counter()
+        expected_rules = Counter()
+        dictionary = Counter(rulegen.derive(p)[0] for p in lines)
+        dictionary = {k: v for k, v in dictionary.items() if v >= 2}
+        for p in lines:
+            base, rule = rulegen.derive_leet_aware(p, dictionary)
+            assert rulegen.apply_rule(base, rule) == p
+            expected_bases[base] += 1
+            expected_rules[rule] += 1
+        assert produced["basewords.txt"] == "".join(
+            b + "\n" for b, _ in expected_bases.most_common()
+        ).encode("latin-1")
+        assert produced["rules.full.rule"] == "".join(
+            r + "\n" for r, _ in expected_rules.most_common()
+        ).encode("latin-1")
+        assert result["selfcheck_failures"] == []
 
 
 class TestCorpusLineParsing:
@@ -1247,8 +1414,8 @@ def _leet_round_trip_inputs():
     """A broad, deterministic input set that leans on the leet-slot paths.
 
     Covers letters, digits, symbols, mixed case, leading/trailing/interior
-    non-letters, the empty string, long strings past the position-35 boundary,
-    and high bytes -- per Constraint 2.
+    non-letters, edge whitespace, the empty string, long strings past the
+    position-35 boundary, and high bytes -- per Constraint 2.
     """
     import itertools
     import random
@@ -1272,12 +1439,22 @@ def _leet_round_trip_inputs():
                     inputs.append(word.upper())
                     inputs.append(word.capitalize())
                     inputs.append("!!" + word + "99")
+                    # Edge whitespace crossed with a restored leet slot: a
+                    # preserved leading space shifts every case op and every
+                    # o/i position by one, so the two features have to be
+                    # exercised together, not just side by side.
+                    inputs.append(" " + word)
+                    inputs.append(word + " ")
+                    inputs.append(" " + word.capitalize() + " ")
 
     random.seed(1091)
+    # The space is in the alphabet deliberately -- rulegen no longer strips
+    # edge whitespace, so it is part of the input domain now.
     charset = (
         string.ascii_letters
         + string.digits
         + "!@#$%^&*()_-=+[]{}|;:,.<>?"
+        + " "
         + "".join(chr(i) for i in range(128, 256, 15))
     )
     for _ in range(400):

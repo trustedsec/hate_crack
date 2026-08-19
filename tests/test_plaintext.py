@@ -132,6 +132,113 @@ def test_usable_plaintext(raw, expected):
 
 
 # --------------------------------------------------------------------------
+# usable_plaintext(keep_whitespace=True)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("  token1  \n", "token1"),
+        ("\ttoken1\t", "token1"),
+        (" token1", "token1"),
+        ("token1 ", "token1"),
+    ],
+)
+def test_default_still_strips_surrounding_whitespace(raw, expected):
+    """The default is shared by corpus_stats and llm and must not change."""
+    assert plaintext.usable_plaintext(raw) == expected
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        (" token1", " token1"),
+        ("token1 ", "token1 "),
+        (" token1 ", " token1 "),
+        ("  token1  ", "  token1  "),
+        ("token1 \n", "token1 "),
+        (" token1\r\n", " token1"),
+        ("token1\n", "token1"),
+        ("\ttoken1", "\ttoken1"),
+    ],
+)
+def test_keep_whitespace_preserves_padding_but_drops_the_terminator(raw, expected):
+    assert plaintext.usable_plaintext(raw, keep_whitespace=True) == expected
+
+
+def test_keep_whitespace_still_strips_a_hash_prefix():
+    assert plaintext.usable_plaintext(f"{NTLM}:token1 ", keep_whitespace=True) == (
+        "token1 "
+    )
+
+
+def test_keep_whitespace_still_decodes_a_hex_wrapper():
+    assert plaintext.usable_plaintext("$HEX[68656c6c6f]\n", keep_whitespace=True) == (
+        "hello"
+    )
+    assert plaintext.usable_plaintext(
+        f"{NTLM}:$HEX[68656c6c6f]", keep_whitespace=True
+    ) == ("hello")
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        # A genuine password, no hash in sight: both edges are the password's.
+        ("  token1  ", "  token1  "),
+        (" token1", " token1"),
+        # An indented hash line: the indent sits in FRONT of the digest, so it
+        # is column formatting and the digest must still be recognised. Keeping
+        # it would weld the digest's hex letters onto the baseword.
+        (f" {NTLM}:token1", "token1"),
+        (f"   {NTLM}:token1", "token1"),
+        (f"\t{NTLM}:token1", "token1"),
+        # ... but a space AFTER the separator is inside the plaintext field,
+        # which is exactly where a password's own leading space appears.
+        (f" {NTLM}: token1", " token1"),
+        (f"{NTLM}: token1", " token1"),
+        (f" {NTLM}: token1 ", " token1 "),
+        # An indented wrapper: a wrapper encodes its own whitespace inside the
+        # hex, so an indent outside it is formatting too.
+        (" $HEX[68656c6c6f]", "hello"),
+        (f"  {NTLM}:$HEX[68656c6c6f]", "hello"),
+        # Trailing whitespace behaviour is unchanged by any of the above.
+        (f" {NTLM}:token1 ", "token1 "),
+    ],
+)
+def test_keep_whitespace_does_not_defeat_prefix_or_wrapper_detection(raw, expected):
+    """Stripping only the terminator would put the indent in front of the hash
+    field and the `$HEX[` marker, so neither detector matches and the whole
+    line becomes the password -- silently, since rulegen's self-check then
+    compares against that same poisoned string."""
+    assert plaintext.usable_plaintext(raw, keep_whitespace=True) == expected
+
+
+def test_indented_hash_line_does_not_poison_the_baseword():
+    """The concrete consequence of the bug above, pinned end to end."""
+    from hate_crack import rulegen
+
+    pw = plaintext.usable_plaintext(f"  {NTLM}:token1", keep_whitespace=True)
+    base, rule = rulegen.derive(pw)
+    assert base == "token"
+    # The digest's hex letters must not appear in the baseword, and the rule
+    # must not spend a pile of functions rebuilding the digest's digits.
+    assert rulegen.count_ops(rule) <= 2
+
+
+@pytest.mark.parametrize("raw", ["", "\n", "   ", "   \t ", " \r\n"])
+@pytest.mark.parametrize("keep", [False, True])
+def test_blank_and_whitespace_only_lines_are_discarded_either_way(raw, keep):
+    assert plaintext.usable_plaintext(raw, keep_whitespace=keep) == ""
+
+
+def test_keep_whitespace_is_keyword_only():
+    with pytest.raises(TypeError):
+        plaintext.usable_plaintext("token1", True)
+
+
+# --------------------------------------------------------------------------
 # looks_like_hash_line
 # --------------------------------------------------------------------------
 

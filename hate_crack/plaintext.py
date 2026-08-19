@@ -20,6 +20,16 @@ where an entry may legitimately contain a colon — a URL, a ratio, a time of da
 direction is worse than not splitting at all, because nothing downstream can
 detect it.
 
+Surrounding whitespace is a third case, and it is the one place these functions
+are deliberately lossy by default. :func:`usable_plaintext` strips it, because
+most callers want a token to count or to show a model and a stray space there is
+noise. But a leading or trailing space can genuinely be part of a password —
+0.06% of a sampled corpus — and a caller that has to reproduce the password
+exactly cannot afford to lose it, so ``keep_whitespace=True`` turns the
+stripping off. The default stays as it is because three callers share this
+function (rulegen, corpus_stats, llm) and only one of them needs the exact
+bytes; changing the default would alter the other two silently.
+
 This module deliberately has no imports from the rest of the package so both
 rulegen and corpus_stats can depend on it.
 """
@@ -148,17 +158,63 @@ def encode_hex_wrapper(raw):
         return "$HEX[" + raw.hex() + "]"
 
 
-def usable_plaintext(raw):
+def usable_plaintext(raw, *, keep_whitespace=False):
     """Return the password from a raw corpus line, or "" if there is none.
 
     Blank and whitespace-only lines are discarded. Leading hash fields are
     dropped and a ``$HEX[...]`` wrapper is decoded, both only when clearly
     present.
+
+    ``keep_whitespace`` keeps a leading or trailing space that is part of the
+    password, stripping only the line's own ``\\r``/``\\n`` terminator. The
+    default is False, and stays False, because most callers only want a token
+    to count or to feed a model, where a stray space is noise; a caller that
+    has to reproduce the password *exactly* — :func:`hate_crack.rulegen.generate`,
+    whose whole output is a baseword plus a rule that must rebuild it byte for
+    byte — opts in. Left on by default, the space is discarded silently and
+    even the reconstruction self-check passes, because it compares against the
+    already-stripped password.
+
+    Blank detection uses the un-stripped line either way, so a whitespace-only
+    line is still discarded rather than becoming a password made of spaces.
+
+    Leading whitespace is decided rather than kept blindly, because keeping it
+    blindly would defeat the two undo steps above: an indented line puts the
+    space *in front of* the hash field and the ``$HEX[`` marker, so neither
+    detector matches and the whole line becomes the password. Both detectors
+    therefore run against the un-indented form, and the indent is re-attached
+    only when neither of them matched — that is, only when nothing about the
+    line suggests the indent is formatting rather than password. A space
+    *after* the separator is a different question and is always kept: it is
+    inside the plaintext field, which is exactly where a password's own
+    leading space appears.
     """
-    stripped = raw.strip()
-    if not stripped:
+    if not raw.strip():
         return ""
-    stripped = strip_hash_prefix(stripped)
-    if not stripped:
-        return ""
-    return decode_hex_wrapper(stripped)
+    if not keep_whitespace:
+        text = strip_hash_prefix(raw.strip())
+        if not text:
+            return ""
+        return decode_hex_wrapper(text)
+
+    text = raw.rstrip("\r\n")
+    body = text.lstrip()
+
+    unprefixed = strip_hash_prefix(body)
+    if unprefixed != body:
+        # A leading hash field was consumed, so the indent sat in front of a
+        # hash and is line formatting. Everything after the separator is the
+        # password, a leading space included.
+        if not unprefixed:
+            return ""
+        return decode_hex_wrapper(unprefixed)
+
+    decoded = decode_hex_wrapper(body)
+    if decoded != body:
+        # A wrapper encodes any whitespace of its own *inside* the hex, so an
+        # indent outside it cannot be part of the password either.
+        return decoded
+
+    # Neither matched: nothing here says the leading whitespace is anything but
+    # part of the password, so keep the line as it came in.
+    return text

@@ -732,7 +732,15 @@ def _scan_corpus(
             # spends 20-30 rule functions rebuilding them, which both poisons
             # the baseword list and pushes real transformations over
             # MAX_RULE_FUNCTIONS into the literal fallback.
-            pw = usable_plaintext(stripped)
+            #
+            # keep_whitespace: a leading or trailing space can be part of the
+            # password, and this is the one caller that must rebuild it byte for
+            # byte. Letting usable_plaintext() strip it derives the stripped
+            # form instead, and does so silently — the self-check below compares
+            # against the same stripped password, so it passes. The line's own
+            # terminator is already gone (rstrip above), which is why opting in
+            # here is safe.
+            pw = usable_plaintext(stripped, keep_whitespace=True)
             if pw == "":
                 continue
             if ascii_only and not _is_printable_ascii(pw):
@@ -950,20 +958,20 @@ def generate(
         f.write(f"unique basewords:    {len(base_counts)}\n")
         f.write(f"unique rules:        {len(rule_counts)}\n")
         f.write(f"literal fallbacks:   {literal_fallbacks}\n")
-        f.write(f"  no_letter_literals: {no_letter_literals}\n")
+        f.write(f"no_letter_literals:  {no_letter_literals}\n")
         f.write(
-            "   (no ASCII letter anywhere, so the password is its own baseword\n"
-            "    with a ':' rule. This is NOT a defect: a digit- or symbol-only\n"
-            "    password has no letters-only core to derive, and it is a\n"
-            "    perfectly good dictionary entry as it stands.)\n"
+            "  (no ASCII letter anywhere, so the password is its own baseword\n"
+            "   with a ':' rule. This is NOT a defect: a digit- or symbol-only\n"
+            "   password has no letters-only core to derive, and it is a\n"
+            "   perfectly good dictionary entry as it stands. These two sum to\n"
+            "   the literal fallbacks above.)\n"
         )
-        f.write(f"  unrepresentable:    {unrepresentable}\n")
+        f.write(f"unrepresentable:     {unrepresentable}\n")
         f.write(
-            "   (has letters, but could not be encoded: a T/i/o position past\n"
-            "    index 35, or more than "
-            f"{MAX_RULE_FUNCTIONS} rule functions. This one IS a\n"
-            "    loss of expressiveness. Measured at zero on a 360,000-password\n"
-            "    sample, so anything above zero here is unusual.)\n"
+            "  (has letters, but could not be encoded: a T/i/o position past\n"
+            f"   index 35, or more than {MAX_RULE_FUNCTIONS} rule functions. This one IS\n"
+            "   a loss of expressiveness. Measured at zero on a 360,000-password\n"
+            "   sample, so anything above zero here is unusual.)\n"
         )
         f.write(f"hash-shaped lines:   {hash_shaped}\n")
         if leet_restore:
