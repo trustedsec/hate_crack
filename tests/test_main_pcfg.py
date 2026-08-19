@@ -120,6 +120,15 @@ class TestHcatPCFG:
 
 
 class TestHcatPrinceLing:
+    def _cache_name(self, main_module, ruleset="Default"):
+        """The cache filename for *ruleset* at the module's current --size.
+
+        Both inputs that decide the file's contents are in its name, so the
+        candidate budget has to be read from the module rather than hardcoded.
+        """
+        size = main_module.pcfgPrinceLingMaxCandidates
+        return f"pcfg_prince_ling_{ruleset}_{size}.txt"
+
     def _setup_pcfg_dirs(self, tmp_path, main_module, monkeypatch):
         """Lay out fake pcfg_cracker/Rules/<ruleset>/ and optimized_wordlists/."""
         pcfg_root = tmp_path / "pcfg_cracker"
@@ -137,7 +146,7 @@ class TestHcatPrinceLing:
 
     def test_regenerates_when_cache_stale(self, main_module, tmp_path, monkeypatch):
         rules_dir, opt_dir = self._setup_pcfg_dirs(tmp_path, main_module, monkeypatch)
-        cache = opt_dir / "pcfg_prince_ling_Default.txt"
+        cache = opt_dir / self._cache_name(main_module)
         # Cache exists but is older than ruleset
         cache.write_text("stale")
         old = rules_dir.stat().st_mtime - 100
@@ -177,7 +186,7 @@ class TestHcatPrinceLing:
 
     def test_skips_regen_when_cache_fresh(self, main_module, tmp_path, monkeypatch):
         rules_dir, opt_dir = self._setup_pcfg_dirs(tmp_path, main_module, monkeypatch)
-        cache = opt_dir / "pcfg_prince_ling_Default.txt"
+        cache = opt_dir / self._cache_name(main_module)
         cache.write_text("fresh")
         # Cache is newer than ruleset
         future = rules_dir.stat().st_mtime + 1000
@@ -191,6 +200,66 @@ class TestHcatPrinceLing:
 
         # subprocess.run was NOT called for prince_ling
         assert not mock_run.called
+
+    def test_changing_max_candidates_forces_regeneration(
+        self, main_module, tmp_path, monkeypatch
+    ):
+        """pcfgPrinceLingMaxCandidates is passed to prince_ling.py as --size, so
+        a cache generated under one value does not answer for another. Keyed only
+        on the ruleset, raising the setting silently reused the smaller wordlist.
+        """
+        rules_dir, opt_dir = self._setup_pcfg_dirs(tmp_path, main_module, monkeypatch)
+        monkeypatch.setattr(main_module, "pcfgPrinceLingMaxCandidates", 1000)
+
+        run_calls = []
+
+        def fake_run(cmd, **kwargs):
+            run_calls.append(cmd)
+            for i, part in enumerate(cmd):
+                if part == "--output":
+                    Path(cmd[i + 1]).write_text("generated")
+
+            class R:
+                returncode = 0
+
+            return R()
+
+        with (
+            patch("hate_crack.main.subprocess.run", side_effect=fake_run),
+            patch("hate_crack.main.hcatPrince"),
+        ):
+            main_module.hcatPrinceLing("0", str(tmp_path / "hashes.txt"))
+
+        assert len(run_calls) == 1
+        small_cache = opt_dir / self._cache_name(main_module)
+        assert small_cache.exists()
+        # Make the small cache unambiguously fresh, so only the changed budget
+        # can be what triggers the second generation.
+        future = rules_dir.stat().st_mtime + 1000
+        os.utime(small_cache, (future, future))
+
+        monkeypatch.setattr(main_module, "pcfgPrinceLingMaxCandidates", 2000)
+        # hcatPrinceLing restores hcatPrinceBaseList in a finally block, so the
+        # only place to observe which wordlist PRINCE actually got is inside it.
+        used = []
+
+        def capture_prince(*args, **kwargs):
+            used.append(list(main_module.hcatPrinceBaseList))
+
+        with (
+            patch("hate_crack.main.subprocess.run", side_effect=fake_run),
+            patch("hate_crack.main.hcatPrince", side_effect=capture_prince),
+        ):
+            main_module.hcatPrinceLing("0", str(tmp_path / "hashes.txt"))
+
+        assert len(run_calls) == 2
+        assert run_calls[1][run_calls[1].index("--size") + 1] == "2000"
+        # Each budget keeps its own cache rather than overwriting the other's.
+        big_cache = opt_dir / self._cache_name(main_module)
+        assert big_cache.exists()
+        assert small_cache.exists()
+        assert big_cache != small_cache
+        assert used == [[str(big_cache)]]
 
     def test_atomic_cache_write_cleans_tmp_on_failure(
         self, main_module, tmp_path, monkeypatch
@@ -213,14 +282,14 @@ class TestHcatPrinceLing:
             main_module.hcatPrinceLing("0", str(tmp_path / "hashes.txt"))
 
         # No real cache file created; tmp file cleaned up
-        assert not (opt_dir / "pcfg_prince_ling_Default.txt").exists()
-        assert not (opt_dir / "pcfg_prince_ling_Default.txt.tmp").exists()
+        assert not (opt_dir / self._cache_name(main_module)).exists()
+        assert not (opt_dir / (self._cache_name(main_module) + ".tmp")).exists()
 
     def test_restores_hcatPrinceBaseList_on_exception(
         self, main_module, tmp_path, monkeypatch
     ):
         rules_dir, opt_dir = self._setup_pcfg_dirs(tmp_path, main_module, monkeypatch)
-        cache = opt_dir / "pcfg_prince_ling_Default.txt"
+        cache = opt_dir / self._cache_name(main_module)
         cache.write_text("fresh")
         future = rules_dir.stat().st_mtime + 1000
         os.utime(cache, (future, future))
@@ -241,7 +310,7 @@ class TestHcatPrinceLing:
 
     def test_uses_sys_executable(self, main_module, tmp_path, monkeypatch):
         rules_dir, opt_dir = self._setup_pcfg_dirs(tmp_path, main_module, monkeypatch)
-        cache = opt_dir / "pcfg_prince_ling_Default.txt"
+        cache = opt_dir / self._cache_name(main_module)
         cache.write_text("stale")
         old = rules_dir.stat().st_mtime - 100
         os.utime(cache, (old, old))
@@ -273,7 +342,7 @@ class TestHcatPrinceLing:
         rules_dir, opt_dir = self._setup_pcfg_dirs(tmp_path, main_module, monkeypatch)
         # Cache file uses the resolved on-disk basename ("Default"), not the
         # raw (legacy, all-caps) config value.
-        cache = opt_dir / "pcfg_prince_ling_Default.txt"
+        cache = opt_dir / self._cache_name(main_module)
         cache.write_text("stale")
         old = rules_dir.stat().st_mtime - 100
         os.utime(cache, (old, old))

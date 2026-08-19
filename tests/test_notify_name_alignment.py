@@ -296,7 +296,10 @@ class TestHandlersPassThroughPromptName:
         (pcfg_root / "prince_ling.py").write_text("# stub")
         cache_dir = tmp_path / "optimized"
         cache_dir.mkdir(parents=True)
-        cache_path = cache_dir / "pcfg_prince_ling_DEFAULT.txt"
+        # The candidate budget is part of the cache filename, so that a change
+        # to it does not silently reuse a wordlist built at another size.
+        size = main_module.pcfgPrinceLingMaxCandidates
+        cache_path = cache_dir / f"pcfg_prince_ling_DEFAULT_{size}.txt"
         cache_path.write_text("password\n")
         # Make ruleset_dir older than cache so no regen runs.
         os.utime(pcfg_root / "Rules" / "DEFAULT", (0, 0))

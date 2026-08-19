@@ -1,6 +1,7 @@
 """Tests for hcatSpoonman and the Spoonman Attack handler (#169)."""
 
 import gzip
+import json
 import os
 from unittest.mock import MagicMock, patch
 
@@ -122,6 +123,170 @@ class TestHcatSpoonman:
         self._run(main_module, tmp_path, corpus, monkeypatch)
         quick = self._run(main_module, tmp_path, corpus, monkeypatch, coverage=99)
         assert quick.call_args[0][2].endswith("rules.top99.rule")
+
+
+class TestSpoonmanCacheProvenance:
+    """The derived-output cache must be keyed on the corpus, not just the hash file.
+
+    The cache directory is named after the *hash* file, so before the
+    provenance file the corpus identity never entered the key at all: derive
+    from corpus A, then invoke with corpus B whose mtime happens to be older
+    than the cache, and the attack reused A's basewords while announcing a
+    cache hit.
+    """
+
+    def _hash_file(self, tmp_path):
+        return str(tmp_path / "hashes.txt")
+
+    def _corpus(self, tmp_path, name, words):
+        path = tmp_path / name
+        path.write_text("".join(f"{word}\n" for word in words), encoding="latin-1")
+        return str(path)
+
+    def _run(self, main_module, tmp_path, corpus, **kwargs):
+        with patch.object(main_module, "hcatQuickDictionary") as quick:
+            main_module.hcatSpoonman(
+                "1000", self._hash_file(tmp_path), corpus, **kwargs
+            )
+        return quick
+
+    def _basewords(self, quick):
+        with open(quick.call_args[0][3], encoding="latin-1") as handle:
+            return {line.strip() for line in handle if line.strip()}
+
+    def _provenance_path(self, tmp_path):
+        return os.path.join(self._hash_file(tmp_path) + ".spoonman", "corpus.json")
+
+    def test_same_corpus_twice_reuses_the_cache(
+        self, main_module, tmp_path, corpus, capsys
+    ):
+        first = self._run(main_module, tmp_path, corpus)
+        capsys.readouterr()
+
+        with patch("hate_crack.rulegen.generate") as generate:
+            second = self._run(main_module, tmp_path, corpus)
+
+        generate.assert_not_called()
+        assert "Reusing derived" in capsys.readouterr().out
+        assert second.call_args[0][2] == first.call_args[0][2]
+        assert second.call_args[0][3] == first.call_args[0][3]
+
+    def test_different_corpus_with_older_mtime_regenerates(
+        self, main_module, tmp_path, capsys
+    ):
+        """The confirmed bug: B's basewords must be used, not A's."""
+        corpus_a = self._corpus(tmp_path, "a.txt", ["quibblefox", "quibblefox1"])
+        corpus_b = self._corpus(tmp_path, "b.txt", ["zarplewidget", "zarplewidget1"])
+
+        first = self._run(main_module, tmp_path, corpus_a)
+        assert "quibblefox" in self._basewords(first)
+        capsys.readouterr()
+
+        # B looks older than the cache A wrote, so the mtime check alone passes.
+        cache_mtime = os.path.getmtime(first.call_args[0][3])
+        os.utime(corpus_b, (cache_mtime - 100,) * 2)
+        assert os.path.getmtime(corpus_b) < cache_mtime
+
+        second = self._run(main_module, tmp_path, corpus_b)
+        out = capsys.readouterr().out
+
+        words = self._basewords(second)
+        assert "zarplewidget" in words
+        assert "quibblefox" not in words
+        assert "Reusing derived" not in out
+        assert "different corpus" in out
+
+    def test_corpus_modified_in_place_regenerates(self, main_module, tmp_path, capsys):
+        corpus = self._corpus(tmp_path, "a.txt", ["quibblefox", "quibblefox1"])
+        first = self._run(main_module, tmp_path, corpus)
+        cache_mtime = os.path.getmtime(first.call_args[0][3])
+        capsys.readouterr()
+
+        with open(corpus, "w", encoding="latin-1") as handle:
+            handle.write("zarplewidget\nzarplewidget1\n")
+        os.utime(corpus, (cache_mtime + 10,) * 2)
+
+        second = self._run(main_module, tmp_path, corpus)
+        assert "Deriving basewords" in capsys.readouterr().out
+        assert "zarplewidget" in self._basewords(second)
+
+    def test_same_mtime_but_different_size_regenerates(
+        self, main_module, tmp_path, capsys
+    ):
+        """Two corpora can share a path and an mtime and still differ."""
+        corpus = self._corpus(tmp_path, "a.txt", ["quibblefox", "quibblefox1"])
+        first = self._run(main_module, tmp_path, corpus)
+        original_mtime = os.path.getmtime(corpus)
+        assert os.path.getmtime(first.call_args[0][3]) >= original_mtime
+        capsys.readouterr()
+
+        with open(corpus, "w", encoding="latin-1") as handle:
+            handle.write("zarplewidget\nzarplewidget1\nzarplewidget2\n")
+        # Restore the mtime the cache was written against: only the size differs.
+        os.utime(corpus, (original_mtime,) * 2)
+
+        second = self._run(main_module, tmp_path, corpus)
+        out = capsys.readouterr().out
+        assert "Reusing derived" not in out
+        assert "zarplewidget" in self._basewords(second)
+
+    @pytest.mark.parametrize(
+        ("label", "contents"),
+        [
+            ("missing", None),
+            ("empty", ""),
+            ("malformed", "{not json at all"),
+            ("wrong type", '["a", "b"]'),
+            ("older version", '{"corpus": "/tmp/a.txt"}'),
+        ],
+    )
+    def test_unusable_provenance_regenerates_without_raising(
+        self, main_module, tmp_path, corpus, capsys, label, contents
+    ):
+        self._run(main_module, tmp_path, corpus)
+        provenance = self._provenance_path(tmp_path)
+        assert os.path.isfile(provenance)
+        if contents is None:
+            os.remove(provenance)
+        else:
+            with open(provenance, "w", encoding="utf-8") as handle:
+                handle.write(contents)
+        capsys.readouterr()
+
+        with patch("hate_crack.rulegen.generate", wraps=rulegen.generate) as generate:
+            quick = self._run(main_module, tmp_path, corpus)
+
+        generate.assert_called_once()
+        assert "Reusing derived" not in capsys.readouterr().out
+        assert os.path.isfile(quick.call_args[0][3])
+        # And the record is rewritten, so the next run is a hit again.
+        with patch("hate_crack.rulegen.generate") as generate_again:
+            self._run(main_module, tmp_path, corpus)
+        generate_again.assert_not_called()
+
+    def test_switching_coverage_tier_does_not_invalidate_the_cache(
+        self, main_module, tmp_path, corpus, capsys
+    ):
+        self._run(main_module, tmp_path, corpus)
+        capsys.readouterr()
+
+        with patch("hate_crack.rulegen.generate") as generate:
+            quick = self._run(main_module, tmp_path, corpus, coverage=75)
+
+        generate.assert_not_called()
+        assert "Reusing derived" in capsys.readouterr().out
+        assert quick.call_args[0][2].endswith("rules.top75.rule")
+
+    def test_provenance_records_the_corpus_it_derived_from(
+        self, main_module, tmp_path, corpus
+    ):
+        self._run(main_module, tmp_path, corpus)
+        with open(self._provenance_path(tmp_path), encoding="utf-8") as handle:
+            recorded = json.load(handle)
+
+        assert recorded["corpus"] == os.path.abspath(corpus)
+        assert recorded["size"] == os.path.getsize(corpus)
+        assert recorded["mtime"] == os.path.getmtime(corpus)
 
 
 class TestHcatSpoonmanGzip:

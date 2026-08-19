@@ -4510,8 +4510,16 @@ def hcatPrinceLing(hcatHashType, hcatHashFile):
         else str(hcatOptimizedWordlists)
     )
     os.makedirs(cache_dir, exist_ok=True)
+    # Both inputs that decide the file's contents are in its name: the ruleset
+    # the candidates come from, and the candidate budget passed to
+    # prince_ling.py as --size. Leaving the budget out made
+    # pcfgPrinceLingMaxCandidates silently inert once a cache existed -- raising
+    # it reused the smaller wordlist generated under the old value, with no
+    # indication the new setting had not taken effect. Keying on it instead lets
+    # each size keep its own cache.
     cache_path = os.path.join(
-        cache_dir, f"pcfg_prince_ling_{resolved_ruleset_name}.txt"
+        cache_dir,
+        f"pcfg_prince_ling_{resolved_ruleset_name}_{pcfgPrinceLingMaxCandidates}.txt",
     )
     tmp_path = cache_path + ".tmp"
 
@@ -4559,6 +4567,83 @@ def hcatPrinceLing(hcatHashType, hcatHashFile):
         hcatPrinceBaseList = original_base
 
 
+# Records which corpus a <hash file>.spoonman cache directory was derived from.
+# The cache directory is named after the *hash* file, so without this the corpus
+# never entered the cache key at all: deriving from one corpus and then invoking
+# the attack with a second one whose mtime happened to be older reused the
+# first corpus's basewords and rules, silently.
+SPOONMAN_PROVENANCE_FILE = "corpus.json"
+SPOONMAN_PROVENANCE_FIELDS = ("corpus", "size", "mtime")
+
+
+def _spoonman_provenance(corpus):
+    """Describe *corpus* for the cache key: absolute path, size, and mtime.
+
+    Returns None if it cannot be stat'd, which the caller treats as "cannot
+    prove the cache matches" and therefore re-derives.
+    """
+    try:
+        stat = os.stat(corpus)
+    except OSError:
+        return None
+    return {
+        "corpus": os.path.abspath(corpus),
+        "size": stat.st_size,
+        "mtime": stat.st_mtime,
+    }
+
+
+def _read_spoonman_provenance(path):
+    """Load a provenance file written by a previous run, or None.
+
+    Missing, empty, unreadable, malformed, and written-by-an-older-version
+    (any expected field absent) all come back as None rather than raising: a
+    cache we cannot vouch for is a cache miss, not an error.
+    """
+    try:
+        with open(path, encoding="utf-8") as handle:
+            recorded = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(recorded, dict):
+        return None
+    if any(field not in recorded for field in SPOONMAN_PROVENANCE_FIELDS):
+        return None
+    return recorded
+
+
+def _write_spoonman_provenance(path, provenance):
+    """Record *provenance* beside the derived output. Best effort.
+
+    A failure here only costs the next run its cache, so it must not abort an
+    attack whose expensive derivation has already succeeded.
+    """
+    if provenance is None:
+        return
+    try:
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(provenance, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+    except OSError as e:
+        print(f"[!] Could not record corpus provenance in {path}: {e}")
+
+
+def _spoonman_cache_mismatch(recorded, current):
+    """Explain why *recorded* does not describe *current*, or None if it does."""
+    if current is None:
+        return "the corpus could not be read"
+    if recorded is None:
+        return "its provenance record is missing or unreadable"
+    if recorded.get("corpus") != current["corpus"]:
+        return f"it was derived from a different corpus ({recorded.get('corpus')})"
+    if (
+        recorded.get("size") != current["size"]
+        or recorded.get("mtime") != current["mtime"]
+    ):
+        return "the corpus has changed since it was derived"
+    return None
+
+
 def hcatSpoonman(hcatHashType, hcatHashFile, corpus, coverage=None):
     """Spoonman Attack: derive basewords + rules from *corpus*, then crack with them.
 
@@ -4578,15 +4663,28 @@ def hcatSpoonman(hcatHashType, hcatHashFile, corpus, coverage=None):
     # removed by cleanup().
     cache_dir = f"{hcatHashFile}.spoonman"
     # Deriving is O(corpus), so reuse a previous run's output unless the corpus
-    # has changed since. Mirrors the staleness check in hcatPrinceLing.
+    # has changed since. The cache directory is keyed on the hash file, so the
+    # mtime comparison alone (as in hcatPrinceLing) is not enough here: a
+    # different corpus with an older mtime would pass it. The provenance file
+    # records which corpus the directory actually holds.
     basewords_path = os.path.join(cache_dir, "basewords.txt")
     rules_path = os.path.join(cache_dir, "rules.full.rule")
     if coverage is not None:
         rules_path = os.path.join(cache_dir, f"rules.top{coverage}.rule")
+    provenance_path = os.path.join(cache_dir, SPOONMAN_PROVENANCE_FILE)
+    current_provenance = _spoonman_provenance(corpus)
     cached = os.path.isfile(basewords_path) and os.path.isfile(rules_path)
-    if cached and os.path.getmtime(corpus) <= os.path.getmtime(basewords_path):
+    mismatch = _spoonman_cache_mismatch(
+        _read_spoonman_provenance(provenance_path), current_provenance
+    )
+    fresh = cached and os.path.getmtime(corpus) <= os.path.getmtime(basewords_path)
+    if fresh and mismatch is None:
         print(f"[*] Reusing derived basewords and rules in {cache_dir}")
     else:
+        if cached and mismatch is not None:
+            # Say why an expensive derivation is running again over what looks
+            # from the outside like a warm cache.
+            print(f"[*] Ignoring the cache in {cache_dir}: {mismatch}")
         print(f"[*] Deriving basewords and rules from {corpus}")
         try:
             with _wordlist_path(corpus) as resolved_corpus:
@@ -4600,6 +4698,7 @@ def hcatSpoonman(hcatHashType, hcatHashFile, corpus, coverage=None):
         rules_path = result["rules"]
         if coverage is not None:
             rules_path = result["capped_rules"].get(coverage, rules_path)
+        _write_spoonman_provenance(provenance_path, current_provenance)
     print(f"[*] Basewords: {basewords_path}")
     print(f"[*] Rules:     {rules_path}")
     print(f"[*] Coverage:  {os.path.join(cache_dir, 'coverage.txt')}")
