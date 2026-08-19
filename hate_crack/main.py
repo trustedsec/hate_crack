@@ -4628,6 +4628,31 @@ def _write_spoonman_provenance(path, provenance):
         print(f"[!] Could not record corpus provenance in {path}: {e}")
 
 
+def _invalidate_spoonman_provenance(path):
+    """Remove the provenance record, marking the cache directory invalid.
+
+    Called immediately before a derivation starts, which is what makes the
+    record a validity marker rather than a stale label. ``rulegen.generate()``
+    writes basewords.txt in place and non-atomically, and the derivation is a
+    two-pass O(corpus) operation an operator will plausibly Ctrl-C -- and
+    KeyboardInterrupt is deliberately not caught here, so it propagates. An
+    interrupt after basewords.txt was rewritten but before the new record was
+    written would otherwise leave the *previous* corpus's record beside the
+    *new* corpus's basewords: the next run against the previous corpus would
+    then match the record, pass the mtime check, announce a cache hit and crack
+    with the wrong corpus's basewords -- the exact failure this record exists
+    to prevent. With no record, a half-finished cache directory is a miss.
+    """
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        # Cannot invalidate, so say so: a reused stale record is the one
+        # outcome worth being loud about.
+        print(f"[!] Could not invalidate stale corpus provenance {path}: {e}")
+
+
 def _spoonman_cache_mismatch(recorded, current):
     """Explain why *recorded* does not describe *current*, or None if it does."""
     if current is None:
@@ -4731,6 +4756,10 @@ def hcatSpoonman(hcatHashType, hcatHashFile, corpus, coverage=None):
             # from the outside like a warm cache.
             print(f"[*] Ignoring the cache in {cache_dir}: {mismatch}")
         print(f"[*] Deriving basewords and rules from {corpus}")
+        # Drop the old record first: from here until the new one is written the
+        # cache directory is not to be trusted, including if this is
+        # interrupted. See _invalidate_spoonman_provenance.
+        _invalidate_spoonman_provenance(provenance_path)
         try:
             with _wordlist_path(corpus) as resolved_corpus:
                 result = _rulegen.generate(

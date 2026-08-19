@@ -265,6 +265,103 @@ class TestSpoonmanCacheProvenance:
             self._run(main_module, tmp_path, corpus)
         generate_again.assert_not_called()
 
+    @pytest.mark.parametrize(
+        ("label", "overrides"),
+        [
+            ("string size", {"size": "12"}),
+            ("null size", {"size": None}),
+            ("string mtime", {"mtime": "1700000000.0"}),
+            ("null mtime", {"mtime": None}),
+        ],
+    )
+    def test_wrong_typed_provenance_fields_regenerate(
+        self, main_module, tmp_path, corpus, capsys, label, overrides
+    ):
+        """A field of the right name but the wrong type is not a match.
+
+        Safe today because the comparison is ``!=``, which a string can never
+        satisfy against an int. Pinned so that a later change to coerce or
+        numerically compare these cannot start honouring a record it should
+        reject -- the corpus path is left correct here, so nothing but the
+        typed field can decide the outcome.
+        """
+        self._run(main_module, tmp_path, corpus)
+        provenance = self._provenance_path(tmp_path)
+        with open(provenance, encoding="utf-8") as handle:
+            recorded = json.load(handle)
+        recorded.update(overrides)
+        assert recorded["corpus"] == os.path.abspath(corpus)
+        with open(provenance, "w", encoding="utf-8") as handle:
+            json.dump(recorded, handle)
+        capsys.readouterr()
+
+        with patch("hate_crack.rulegen.generate", wraps=rulegen.generate) as generate:
+            self._run(main_module, tmp_path, corpus)
+
+        generate.assert_called_once()
+        assert "Reusing derived" not in capsys.readouterr().out
+
+    def test_interrupted_derivation_does_not_leave_a_matching_record(
+        self, main_module, tmp_path, capsys
+    ):
+        """Ctrl-C mid-derivation must not resurrect the wrong-corpus bug.
+
+        rulegen.generate() rewrites basewords.txt in place and
+        non-atomically, and KeyboardInterrupt is not caught by hcatSpoonman.
+        So an interrupt after the new basewords are on disk but before the new
+        record is written used to leave corpus A's record beside corpus B's
+        basewords -- and the next run against A matched the record, passed the
+        mtime check, announced a cache hit and cracked with B's basewords.
+        """
+        corpus_a = self._corpus(tmp_path, "a.txt", ["quibblefox", "quibblefox1"])
+        corpus_b = self._corpus(tmp_path, "b.txt", ["zarplewidget", "zarplewidget1"])
+
+        first = self._run(main_module, tmp_path, corpus_a)
+        basewords = first.call_args[0][3]
+        assert "quibblefox" in self._basewords(first)
+
+        real_generate = rulegen.generate
+
+        def interrupt_after_writing(*args, **kwargs):
+            # Write the real output, then interrupt exactly as a Ctrl-C during
+            # the coverage report or a capped-rule write would.
+            real_generate(*args, **kwargs)
+            raise KeyboardInterrupt
+
+        with (
+            patch.object(main_module, "hcatQuickDictionary") as quick,
+            patch("hate_crack.rulegen.generate", interrupt_after_writing),
+            pytest.raises(KeyboardInterrupt),
+        ):
+            main_module.hcatSpoonman("1000", self._hash_file(tmp_path), corpus_b)
+        quick.assert_not_called()
+
+        # State check: B's basewords are on disk under A's cache directory.
+        with open(basewords, encoding="latin-1") as handle:
+            words = {line.strip() for line in handle if line.strip()}
+        assert "zarplewidget" in words
+        capsys.readouterr()
+
+        # Now the run that used to crack with the wrong corpus.
+        third = self._run(main_module, tmp_path, corpus_a)
+        out = capsys.readouterr().out
+        assert "Reusing derived" not in out
+        assert "quibblefox" in self._basewords(third)
+        assert "zarplewidget" not in self._basewords(third)
+
+    def test_failed_derivation_leaves_no_record(self, main_module, tmp_path, corpus):
+        """The OSError/ValueError path returns early; the record must be gone."""
+        self._run(main_module, tmp_path, corpus)
+        provenance = self._provenance_path(tmp_path)
+        assert os.path.isfile(provenance)
+
+        empty = tmp_path / "empty.txt"
+        empty.write_text("", encoding="latin-1")
+        quick = self._run(main_module, tmp_path, str(empty))
+
+        quick.assert_not_called()
+        assert not os.path.exists(provenance)
+
     def test_switching_coverage_tier_does_not_invalidate_the_cache(
         self, main_module, tmp_path, corpus, capsys
     ):
