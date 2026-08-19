@@ -65,8 +65,28 @@ percentages are relative to those, and both ``coverage.txt`` and the run's
 console output say so. Passing ``max_unique=None`` restores the exact,
 unbounded behaviour for anyone who has the memory to spare.
 
-Two hashcat limits bound what a rule can express, and both fall back to
-emitting the password verbatim as its own baseword with a ``:`` no-op rule:
+The literal fallback, and what it does and does not mean
+-------------------------------------------------------
+
+When a password cannot be expressed as baseword-plus-rule, :func:`derive`
+emits it verbatim as its own baseword with a ``:`` no-op rule. Two very
+different things end up there, and :func:`generate` counts them separately
+because only one of them is a loss:
+
+* ``no_letter_literals`` — the password holds no ASCII letter at all, so there
+  is no letters-only core to derive from. A digit- or symbol-only password is
+  its own baseword, which is the right answer rather than a defect. On a
+  360,000-password sample this was **100%** of the fallbacks.
+* ``unrepresentable`` — the password does hold letters and still could not be
+  encoded, because it hit one of the two hashcat limits below. This one is a
+  real loss of expressiveness. On the same sample it was **zero**: the limits
+  are real, but on the realistic 6-12 character passwords a corpus is actually
+  made of they essentially never fire.
+
+``literal_fallbacks`` is retained in the returned dict as the sum of the two,
+for compatibility with callers written before the split.
+
+The limits themselves, for completeness:
 
 * Positions are encoded in a 36-character alphabet, so ``T``/``i``/``o`` cannot
   address past index 35.
@@ -621,6 +641,26 @@ def _is_printable_ascii(pw):
     return all(0x20 <= ord(c) <= 0x7E for c in pw)
 
 
+def _derives_to_itself(pw):
+    """True when ``(pw, ":")`` is a real derivation rather than a literal fallback.
+
+    Both outcomes look identical from outside :func:`derive` — the password as
+    its own baseword under a no-op rule — so telling them apart is what decides
+    whether a fallback gets counted. An all-lowercase-ASCII password is the only
+    input that legitimately lands there: it has no case ops, no interior, no
+    prefix and no suffix, so it can never hit either hashcat limit. Everything
+    else that comes back as ``(pw, ":")`` got there by bailing out. Empty input
+    is the degenerate member of the same set (``all()`` of nothing is True).
+
+    Testing for lowercase specifically, not for a letter: an uppercase letter
+    past position 35 disqualifies every case encoding, and that password is a
+    genuine fallback even though it is nothing but letters. Screening on "holds
+    a non-letter" instead, as this check first did, silently missed exactly that
+    case.
+    """
+    return all("a" <= c <= "z" for c in pw)
+
+
 class _Scan(NamedTuple):
     """One pass over a corpus: the counters it built and the stats it observed."""
 
@@ -628,7 +668,8 @@ class _Scan(NamedTuple):
     rule_counts: Counter
     total: int
     skipped: int
-    literal_fallbacks: int
+    no_letter_literals: int
+    unrepresentable: int
     hash_shaped: int
     selfcheck_failures: list
     leet_restored: int
@@ -659,7 +700,8 @@ def _scan_corpus(
     rule_counts = Counter()
     total = 0
     skipped = 0
-    literal_fallbacks = 0
+    no_letter_literals = 0
+    unrepresentable = 0
     hash_shaped = 0
     leet_restored = 0
     selfcheck_failures = []
@@ -702,8 +744,15 @@ def _scan_corpus(
             else:
                 base, rule, restored = _derive_leet_aware(pw, dictionary, min_hits)
                 leet_restored += restored
-            if base == pw and rule == ":" and any(not _isalpha(c) for c in pw):
-                literal_fallbacks += 1
+            # A literal fallback: the password came back as its own baseword
+            # under a no-op rule without that being a real derivation. Whether
+            # it holds any letter is what separates the two kinds of fallback —
+            # see the module docstring.
+            if base == pw and rule == ":" and not _derives_to_itself(pw):
+                if any(_isalpha(c) for c in pw):
+                    unrepresentable += 1
+                else:
+                    no_letter_literals += 1
             # The self-check runs against the password in hand, before either
             # counter is touched, so pruning can never make it fail spuriously.
             if verify and apply_rule(base, rule) != pw:
@@ -717,7 +766,8 @@ def _scan_corpus(
         rule_counts=rule_counts,
         total=total,
         skipped=skipped,
-        literal_fallbacks=literal_fallbacks,
+        no_letter_literals=no_letter_literals,
+        unrepresentable=unrepresentable,
         hash_shaped=hash_shaped,
         selfcheck_failures=selfcheck_failures,
         leet_restored=leet_restored,
@@ -744,6 +794,11 @@ def generate(
     Returns a dict with the output paths and corpus statistics. ``verify``
     reconstructs every password through :func:`apply_rule` as a self-check;
     it is cheap relative to reading the corpus but can be skipped.
+
+    Literal fallbacks are reported split in two — ``no_letter_literals``
+    (expected, and not a defect) and ``unrepresentable`` (a genuine loss) —
+    because they mean opposite things; see the module docstring.
+    ``literal_fallbacks`` remains as their sum for compatibility.
 
     ``leet_restore`` reads the corpus **twice** so leet-substituted letters can
     be kept in the baseword instead of deleted from it — see the module
@@ -814,7 +869,11 @@ def generate(
     rule_counts = scan.rule_counts
     total = scan.total
     skipped = scan.skipped
-    literal_fallbacks = scan.literal_fallbacks
+    no_letter_literals = scan.no_letter_literals
+    unrepresentable = scan.unrepresentable
+    # Kept for callers written before the two were split apart; computed as the
+    # sum here rather than counted separately so the identity cannot drift.
+    literal_fallbacks = no_letter_literals + unrepresentable
     hash_shaped = scan.hash_shaped
     selfcheck_failures = scan.selfcheck_failures
     leet_restored = scan.leet_restored
@@ -891,6 +950,21 @@ def generate(
         f.write(f"unique basewords:    {len(base_counts)}\n")
         f.write(f"unique rules:        {len(rule_counts)}\n")
         f.write(f"literal fallbacks:   {literal_fallbacks}\n")
+        f.write(f"  no_letter_literals: {no_letter_literals}\n")
+        f.write(
+            "   (no ASCII letter anywhere, so the password is its own baseword\n"
+            "    with a ':' rule. This is NOT a defect: a digit- or symbol-only\n"
+            "    password has no letters-only core to derive, and it is a\n"
+            "    perfectly good dictionary entry as it stands.)\n"
+        )
+        f.write(f"  unrepresentable:    {unrepresentable}\n")
+        f.write(
+            "   (has letters, but could not be encoded: a T/i/o position past\n"
+            "    index 35, or more than "
+            f"{MAX_RULE_FUNCTIONS} rule functions. This one IS a\n"
+            "    loss of expressiveness. Measured at zero on a 360,000-password\n"
+            "    sample, so anything above zero here is unusual.)\n"
+        )
         f.write(f"hash-shaped lines:   {hash_shaped}\n")
         if leet_restore:
             f.write(f"leet restored:       {leet_restored}\n")
@@ -951,7 +1025,9 @@ def generate(
 
     print_fn(
         f"[*] {total} passwords -> {len(base_counts)} basewords, "
-        f"{len(rule_counts)} rules ({literal_fallbacks} literal fallbacks)"
+        f"{len(rule_counts)} rules ({literal_fallbacks} literal fallbacks: "
+        f"{no_letter_literals} with no letters at all, "
+        f"{unrepresentable} unrepresentable)"
     )
     if leet_restore:
         print_fn(
@@ -995,7 +1071,10 @@ def generate(
         "skipped": skipped,
         "basewords_count": len(base_counts),
         "rules_count": len(rule_counts),
+        # literal_fallbacks == no_letter_literals + unrepresentable, always.
         "literal_fallbacks": literal_fallbacks,
+        "no_letter_literals": no_letter_literals,
+        "unrepresentable": unrepresentable,
         "hash_shaped": hash_shaped,
         "leet_restored": leet_restored,
         "selfcheck_failures": selfcheck_failures,

@@ -520,6 +520,90 @@ class TestGenerate:
         assert "self-check failures: 0" in report
 
 
+class TestLiteralFallbackSplit:
+    """`literal_fallbacks` conflated two opposite things: a letterless password
+    (expected, a fine dictionary entry) and one that hit a hashcat limit (a real
+    loss). They are counted separately now."""
+
+    def _run(self, tmp_path, passwords):
+        corpus = tmp_path / "corpus.txt"
+        corpus.write_text("\n".join(passwords) + "\n", encoding="latin-1")
+        return rulegen.generate(
+            str(corpus), str(tmp_path / "out"), print_fn=lambda *a: None
+        )
+
+    def test_digit_only_corpus_is_all_letterless_literals(self, tmp_path):
+        lines = ["1029384756", "5647382910", "1122334455"]
+        result = self._run(tmp_path, lines)
+        assert result["no_letter_literals"] == len(lines)
+        assert result["unrepresentable"] == 0
+
+    def test_symbol_only_lines_are_letterless_literals_too(self, tmp_path):
+        result = self._run(tmp_path, ["!@#%^&*", "-=+_~"])
+        assert result["no_letter_literals"] == 2
+        assert result["unrepresentable"] == 0
+
+    def test_over_function_limit_with_letters_is_unrepresentable(self, tmp_path):
+        # A synthetic word whose interior is 34 separators: every position is
+        # addressable (max index 34, under the 35 ceiling) and the case mask
+        # costs nothing, so the ONLY thing that can push this to the literal
+        # fallback is the function count -- 34 inserts against a limit of 31.
+        pw = "z" + "-" * 34 + "q"
+        interior = [i for i, c in enumerate(pw) if not rulegen._isalpha(c)]
+        assert max(interior) < len(rulegen.POS), "position limit would fire first"
+        assert rulegen._case_ops([c.isupper() for c in pw if rulegen._isalpha(c)]) == []
+        assert len(interior) > rulegen.MAX_RULE_FUNCTIONS
+        assert rulegen.derive(pw) == (pw, ":")
+
+        result = self._run(tmp_path, [pw])
+        assert result["unrepresentable"] == 1
+        assert result["no_letter_literals"] == 0
+
+    def test_toggle_past_position_35_is_unrepresentable(self, tmp_path):
+        # An uppercase letter at index 36 needs a T there, which the
+        # 36-character position alphabet cannot address; the trailing lowercase
+        # letter past 35 also rules out the u+invert encoding, so every case
+        # encoding is disqualified and _case_ops has nothing to return.
+        pw = "z" * 36 + "Q" + "w"
+        assert rulegen._case_ops([c.isupper() for c in pw]) is None
+        assert rulegen.derive(pw) == (pw, ":")
+
+        result = self._run(tmp_path, [pw])
+        assert result["unrepresentable"] == 1
+
+    def test_letters_only_password_is_neither(self, tmp_path):
+        # "(pw, ':')" is also the legitimate answer for an all-lowercase
+        # password. That is a derivation, not a fallback, and must not count.
+        result = self._run(tmp_path, ["quibbleflange"])
+        assert result["no_letter_literals"] == 0
+        assert result["unrepresentable"] == 0
+        assert result["literal_fallbacks"] == 0
+
+    @pytest.mark.parametrize(
+        "lines",
+        [
+            ["1029384756"],
+            ["z" + "-" * 34 + "q"],
+            ["1029384756", "z" + "-" * 34 + "q", "quibbleflange", "Zorptangle99!"],
+            [p for p in CORPUS if p],
+        ],
+    )
+    def test_literal_fallbacks_is_the_sum_of_the_two(self, tmp_path, lines):
+        result = self._run(tmp_path, lines)
+        assert (
+            result["literal_fallbacks"]
+            == result["no_letter_literals"] + result["unrepresentable"]
+        )
+
+    def test_coverage_report_labels_and_explains_both(self, tmp_path):
+        self._run(tmp_path, ["1029384756", "z" + "-" * 34 + "q", "Zorptangle99!"])
+        report = (tmp_path / "out" / "coverage.txt").read_text(encoding="latin-1")
+        assert "no_letter_literals" in report
+        assert "unrepresentable" in report
+        # The letterless count must be stated plainly as not being a defect.
+        assert "NOT a defect" in report
+
+
 class TestCorpusLineParsing:
     """The corpus this attack is built for is a previous engagement's cracked
     output, whose lines carry the hash in front of the password."""
