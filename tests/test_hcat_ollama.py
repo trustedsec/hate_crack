@@ -228,6 +228,60 @@ def test_generation_error_reports_and_aborts(ollama_env, capsys):
     popen.assert_not_called()
 
 
+def test_empty_candidates_on_vllm_backend_names_vllm_not_ollama(ollama_env, capsys):
+    with (
+        ollama_globals(ollama_env.tmp_path),
+        mock.patch.object(hc_main, "llmBackend", "vllm"),
+        mock.patch.object(hc_main, "llmApiKey", "sk-real-vllm-key"),
+        mock.patch("hate_crack.main.llm.generate_candidates", return_value=[]),
+        mock.patch("subprocess.Popen") as popen,
+    ):
+        hc_main.hcatOllama(
+            "0",
+            ollama_env.hash_file,
+            "target",
+            {"company": "X", "industry": "Y", "location": "Z"},
+        )
+    captured = capsys.readouterr()
+    assert "vLLM returned no usable password candidates" in captured.out
+    assert "Ollama returned" not in captured.out
+    popen.assert_not_called()
+
+
+def test_generation_error_on_vllm_backend_does_not_mention_ollama(ollama_env, capsys):
+    """Regression guard for the backend-aware connection-help text.
+
+    A vLLM operator must not be told to run ``ollama serve``/``ollama pull`` --
+    that is the exact misleading-error class the backend selector exists to
+    remove. Checks presence of the vLLM-appropriate text AND absence of the
+    Ollama-specific text, so a refactor that collapses back to one hardcoded
+    string fails here even if it happens to still print *something*.
+    """
+    with (
+        ollama_globals(ollama_env.tmp_path),
+        mock.patch.object(hc_main, "llmBackend", "vllm"),
+        mock.patch.object(hc_main, "llmApiKey", "sk-real-vllm-key"),
+        mock.patch(
+            "hate_crack.main.llm.generate_candidates",
+            side_effect=Exception("connection refused"),
+        ),
+        mock.patch("subprocess.Popen") as popen,
+    ):
+        hc_main.hcatOllama(
+            "0",
+            ollama_env.hash_file,
+            "target",
+            {"company": "X", "industry": "Y", "location": "Z"},
+        )
+    captured = capsys.readouterr()
+    assert "vLLM" in captured.out
+    assert OLLAMA_URL in captured.out
+    assert "ollama serve" not in captured.out
+    assert "ollama pull" not in captured.out
+    assert "Ensure Ollama is running" not in captured.out
+    popen.assert_not_called()
+
+
 def test_timeout_error_reports_timeout_guidance(ollama_env, capsys):
     with (
         ollama_globals(ollama_env.tmp_path),

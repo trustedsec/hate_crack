@@ -48,8 +48,8 @@ def test_defaults_only_matches_schema(tmp_path, monkeypatch):
     assert isinstance(result, ConfigLoadResult)
     expected_keys = {entry.legacy for entry in CONFIG_SCHEMA}
     assert set(result.config.keys()) == expected_keys
-    # 14 .env-homed integration keys + 39 config.json-homed settings.
-    assert len(expected_keys) == 53
+    # 16 .env-homed integration keys + 39 config.json-homed settings.
+    assert len(expected_keys) == 55
     for entry in CONFIG_SCHEMA:
         # path-typed defaults are expanded by load_config()'s uniform
         # post-merge normalization pass (see _normalize_path_values), so a
@@ -80,13 +80,22 @@ def test_env_file_overrides_default_for_an_env_homed_key(tmp_path):
 
 @pytest.mark.parametrize("entry", ENV_KEYS, ids=lambda entry: entry.env)
 def test_every_integration_key_resolves_from_the_env_file(tmp_path, entry):
-    """Requirement 1, first half: each of the twelve resolves from `.env`."""
-    raw = {"int": "7", "bool": "1", "path": "/tmp/synthetic", "str": "synthetic"}[
-        entry.type
-    ]
-    expected = {"int": 7, "bool": True, "path": "/tmp/synthetic", "str": "synthetic"}[
-        entry.type
-    ]
+    """Requirement 1, first half: each of the sixteen resolves from `.env`."""
+    if entry.choices is not None:
+        # A closed-value str key (e.g. LLM_BACKEND) rejects the generic
+        # synthetic string below, so exercise it with one of its own choices
+        # instead -- still a real round trip, just not the shared literal.
+        raw = expected = entry.choices[0]
+    else:
+        raw = {"int": "7", "bool": "1", "path": "/tmp/synthetic", "str": "synthetic"}[
+            entry.type
+        ]
+        expected = {
+            "int": 7,
+            "bool": True,
+            "path": "/tmp/synthetic",
+            "str": "synthetic",
+        }[entry.type]
     env_path = _write_env(tmp_path, {entry.env: raw})
     result = load_config(env_path=env_path, legacy_json_path=None, environ={})
     assert result.config[entry.legacy] == expected

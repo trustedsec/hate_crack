@@ -56,6 +56,8 @@ def test_writes_hcmask_file_and_runs_mask_attack(tmp_path):
         "8 char passwords with digits",
         timeout=300.0,
         no_cloud=False,
+        backend="ollama",
+        api_key="ollama",
     )
     hcmask_path = f"{hash_file}.hcmask"
     assert os.path.isfile(hcmask_path)
@@ -162,6 +164,72 @@ def test_generic_generation_error_prints_message_and_skips_hashcat_run(
     out = capsys.readouterr().out.lower()
     assert "error generating masks" in out
     assert "ollama" in out
+
+
+def test_vllm_backend_reaches_generate_masks_and_the_spinner(tmp_path, capsys):
+    """The Rosetta mask attack now supports LLM_BACKEND=vllm --
+    HashcatRosetta's nlmask.generate_masks() gained think/extra_request_body
+    upstream (#275), and llm.generate_masks() forwards the vllm-shaped
+    kwargs via rosetta_backend_kwargs. The old pre-flight refusal is gone:
+    hcatRosettaMask must reach the spinner and call llm.generate_masks.
+    """
+    hash_file = tmp_path / "hashes.txt"
+    hash_file.touch()
+
+    with (
+        rosetta_mask_globals(),
+        mock.patch.object(hc_main, "llmBackend", "vllm"),
+        mock.patch.object(hc_main, "llmApiKey", "sk-real-vllm-key"),
+        mock.patch.object(
+            hc_main.llm, "generate_masks", return_value=["?d?d?d?d"]
+        ) as gen,
+        mock.patch("subprocess.Popen", return_value=_make_proc()) as popen,
+    ):
+        hc_main.hcatRosettaMask("0", str(hash_file), "pins")
+
+    gen.assert_called_once_with(
+        OLLAMA_URL,
+        MODEL,
+        2048,
+        "pins",
+        timeout=300.0,
+        no_cloud=False,
+        backend="vllm",
+        api_key="sk-real-vllm-key",
+    )
+    out = capsys.readouterr().out
+    assert "Generating masks via vLLM" in out
+    popen.assert_called_once()
+
+
+def test_generation_error_on_vllm_backend_does_not_mention_ollama(tmp_path, capsys):
+    """If llm.generate_masks itself raises RosettaBackendRefused -- now
+    meaning "this HashcatRosetta submodule predates think/extra_request_body
+    support", not "backend unsupported" -- the refusal message must be
+    printed alone, no follow-up "Ensure the configured vLLM server..."
+    advice, since the refusal already names the real, precise reason.
+    """
+    hash_file = tmp_path / "hashes.txt"
+    hash_file.touch()
+
+    with (
+        rosetta_mask_globals(),
+        mock.patch.object(hc_main, "llmBackend", "vllm"),
+        mock.patch.object(hc_main, "llmApiKey", "sk-real-vllm-key"),
+        mock.patch.object(
+            hc_main.llm,
+            "generate_masks",
+            side_effect=hc_main.llm.RosettaBackendRefused("vllm"),
+        ),
+        mock.patch("subprocess.Popen") as popen,
+    ):
+        hc_main.hcatRosettaMask("0", str(hash_file), "pins")
+
+    popen.assert_not_called()
+    out = capsys.readouterr().out
+    assert "predates the think/extra_request_body" in out
+    assert "Ensure the configured" not in out
+    assert "ollama serve" not in out
 
 
 def test_hcmask_file_removed_by_cleanup(tmp_path, monkeypatch):

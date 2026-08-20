@@ -68,7 +68,7 @@ def test_env_file_holds_exactly_the_integration_keys(tmp_path):
 
     parsed = dotenv_values(str(env_path))
     assert set(parsed) == {entry.env for entry in ENV_KEYS}
-    assert len(parsed) == 14
+    assert len(parsed) == 16
 
 
 def test_json_homed_values_in_the_input_are_not_rendered(tmp_path):

@@ -12,10 +12,45 @@ supports natively:
     ${x}         append char x
     ^{x}         prepend char x
     i{p}{x}      insert char x at position p
+    o{p}{x}      overwrite char at position p with x
 
 The baseword list and the rule list together reconstruct 100% of the corpus,
 so the rule file is truncatable: it is sorted by how many passwords each rule
 rebuilds, most productive first.
+
+Leet restoration, and why :func:`generate` reads the corpus twice
+----------------------------------------------------------------
+
+A letters-only core throws away every leet-substituted letter: a synthetic
+``Sw1ftK1ng`` becomes the baseword ``swftkng`` plus two ``i`` inserts, which
+rebuilds exactly that one password and combines productively with nothing.
+Keeping a letter in the slot and overwriting it with ``o{p}{x}`` costs the same
+one function per slot and leaves a pronounceable word in the list.
+
+Reversing a leet substitution is ambiguous, though — ``1`` is ``i`` or ``l``,
+``$`` is ``s``, ``0`` is ``o`` — and a wrong guess splits one baseword into two.
+Measured on a 360,000-password sample, a *static* reverse-leet map produced
+4.2% *more* unique basewords than deleting the letter did, so restoration is
+gated on attestation instead: a slot is only restored when the resulting
+baseword was already derived from some other password in the same corpus.
+
+Knowing that requires having read the corpus once already, which is why
+``leet_restore=True`` makes :func:`generate` read it **twice**:
+
+* Pass 1 is exactly the letters-only derivation, and its baseword counter is
+  kept as the attestation dictionary. Its own statistics are discarded.
+* Pass 2 re-derives every password through :func:`derive_leet_aware` against
+  that dictionary. Every counter written out, and every statistic reported,
+  comes from pass 2.
+
+The cost is a doubled read, plus pass 1's dictionary held live alongside pass
+2's two counters. The dictionary is filtered down to the keys that meet the
+attestation threshold before pass 2 starts — 93.4% of them fail it on a
+360,000-password sample, because a corpus's baseword tail is overwhelmingly
+singletons — so what is actually carried is a small fraction of a counter
+rather than a third full one. The ``max_unique`` bound below applies to both
+passes. ``leet_restore=False`` reads the corpus once and reproduces the
+letters-only output exactly.
 
 That 100% guarantee holds only while :func:`generate` keeps every key it sees.
 A corpus large enough to threaten the machine's RAM makes that impossible: the
@@ -30,10 +65,30 @@ percentages are relative to those, and both ``coverage.txt`` and the run's
 console output say so. Passing ``max_unique=None`` restores the exact,
 unbounded behaviour for anyone who has the memory to spare.
 
-Two hashcat limits bound what a rule can express, and both fall back to
-emitting the password verbatim as its own baseword with a ``:`` no-op rule:
+The literal fallback, and what it does and does not mean
+-------------------------------------------------------
 
-* Positions are encoded in a 36-character alphabet, so ``T``/``i`` cannot
+When a password cannot be expressed as baseword-plus-rule, :func:`derive`
+emits it verbatim as its own baseword with a ``:`` no-op rule. Two very
+different things end up there, and :func:`generate` counts them separately
+because only one of them is a loss:
+
+* ``no_letter_literals`` — the password holds no ASCII letter at all, so there
+  is no letters-only core to derive from. A digit- or symbol-only password is
+  its own baseword, which is the right answer rather than a defect. On a
+  360,000-password sample this was **100%** of the fallbacks.
+* ``unrepresentable`` — the password does hold letters and still could not be
+  encoded, because it hit one of the two hashcat limits below. This one is a
+  real loss of expressiveness. On the same sample it was **zero**: the limits
+  are real, but on the realistic 6-12 character passwords a corpus is actually
+  made of they essentially never fire.
+
+``literal_fallbacks`` is retained in the returned dict as the sum of the two,
+for compatibility with callers written before the split.
+
+The limits themselves, for completeness:
+
+* Positions are encoded in a 36-character alphabet, so ``T``/``i``/``o`` cannot
   address past index 35.
 * hashcat rejects any rule with more than ``MAX_RULE_FUNCTIONS`` functions.
   It does so *silently* when other valid rules are present in the same file,
@@ -41,8 +96,10 @@ emitting the password verbatim as its own baseword with a ``:`` no-op rule:
   missing coverage.
 """
 
+import itertools
 import os
 from collections import Counter
+from typing import NamedTuple
 
 from hate_crack.plaintext import is_gzipped, looks_like_hash_line, usable_plaintext
 
@@ -169,7 +226,7 @@ def count_ops(rule):
             i += 1
         elif op in "T$^":
             i += 2
-        elif op == "i":
+        elif op in "io":
             i += 3
         else:
             raise ValueError(f"unknown op {op!r} in rule {rule!r}")
@@ -264,6 +321,85 @@ def validate_rule(rule):
     return count > 0
 
 
+# Tie-break order among equally-cheap case encodings, per :func:`_case_ops`.
+_CASE_STRATEGY_ORDER = {"none": 0, "c": 1, "u": 2, "direct": 3}
+
+
+def _case_ops(flags):
+    """Return the cheapest case-op list for the case mask *flags*, or None.
+
+    *flags* has one entry per baseword position: True where the position must
+    end up uppercase, False where it must end up lowercase, and None where the
+    caller does not care — which is what :func:`derive_leet_aware` passes for a
+    restored leet slot, since an ``o`` op overwrites that position afterwards
+    and whatever case it held is discarded.
+
+    Four encodings are costed in rule functions and the cheapest wins:
+
+    ``none``    no ops at all; available only when nothing must be uppercase.
+    ``c``       capitalize, then toggle every other required uppercase, plus
+                position 0 back down if it must be lowercase.
+    ``u``       uppercase everything, then toggle every required lowercase.
+    ``direct``  toggle each required uppercase individually.
+
+    An encoding is disqualified when it would need a ``T`` at a position past
+    the 36-character :data:`POS` alphabet. Ties break in the order ``none, c,
+    u, direct``. Returns None only when every encoding is disqualified, which
+    the caller answers with the literal fallback.
+    """
+    candidates = []
+
+    # Strategy: none (no case ops) - valid only when no uppercase
+    if not any(flags):
+        candidates.append((0, [], "none"))
+
+    # Strategy: c + fix - uppercase index 0, then toggle uppercase letters at >0
+    # and toggle index 0 if it should be lowercase.
+    c_ops = ["c"]
+    c_valid = True
+    for i, is_upper in enumerate(flags):
+        if i > 0 and is_upper:
+            p = _pos(i)
+            if p is None:
+                c_valid = False
+                break
+            c_ops.append("T" + p)
+    if c_valid and flags[0] is False:
+        c_ops.append("T0")
+    if c_valid:
+        candidates.append((len(c_ops), c_ops, "c"))
+
+    # Strategy: u + invert - uppercase all, then toggle lowercase letters
+    u_ops = ["u"]
+    u_valid = True
+    for i, is_upper in enumerate(flags):
+        if is_upper is False:
+            p = _pos(i)
+            if p is None:
+                u_valid = False
+                break
+            u_ops.append("T" + p)
+    if u_valid:
+        candidates.append((len(u_ops), u_ops, "u"))
+
+    # Strategy: direct - toggle each uppercase letter
+    direct_ops = []
+    direct_valid = True
+    for i, is_upper in enumerate(flags):
+        if is_upper:
+            p = _pos(i)
+            if p is None:
+                direct_valid = False
+                break
+            direct_ops.append("T" + p)
+    if direct_valid:
+        candidates.append((len(direct_ops), direct_ops, "direct"))
+
+    if not candidates:
+        return None
+    return min(candidates, key=lambda x: (x[0], _CASE_STRATEGY_ORDER[x[2]]))[1]
+
+
 def derive(pw):
     """Return ``(baseword, rule)`` such that applying *rule* to *baseword* yields *pw*.
 
@@ -280,22 +416,12 @@ def derive(pw):
     first, last = idxs[0], idxs[-1]
     prefix, core, suffix = pw[:first], pw[first : last + 1], pw[last + 1 :]
 
-    ops = []
     # Case ops apply to the pure-lowercase base, so positions are 0..len(base)-1.
-    up = [c.isupper() for c in letters]
-    if not any(up):
-        pass
-    elif up[0] and not any(up[1:]):
-        ops.append("c")
-    elif all(up):
-        ops.append("u")
-    else:
-        for i, is_upper in enumerate(up):
-            if is_upper:
-                p = _pos(i)
-                if p is None:
-                    return (pw, ":")
-                ops.append("T" + p)
+    case_ops = _case_ops([c.isupper() for c in letters])
+    if case_ops is None:
+        # Every case encoding needed an unaddressable position; fall back.
+        return (pw, ":")
+    ops = list(case_ops)
     # Interior non-letters, inserted at core-relative indices in increasing
     # order so each insert accounts for the shift from the ones before it.
     for idx, c in enumerate(core):
@@ -316,6 +442,148 @@ def derive(pw):
         return (pw, ":")
 
     return (base, "".join(ops) if ops else ":")
+
+
+# Candidate letters each leet character may stand in for, most-to-least
+# conventional within an entry. Every value is a list because the mapping is
+# one-to-many in general: '1' is as often 'l' as 'i', and treating the
+# single-candidate entries as a different shape would only invite a caller to
+# forget which is which.
+#
+# This map alone is NOT enough to restore a letter — applied unconditionally it
+# makes the baseword list worse (see the module docstring). It only proposes
+# candidates; :func:`derive_leet_aware` picks among them by corpus attestation.
+REVERSE_LEET = {
+    "@": ["a"],
+    "0": ["o"],
+    "3": ["e"],
+    "$": ["s"],
+    "4": ["a"],
+    "7": ["t"],
+    "5": ["s"],
+    "9": ["g"],
+    "8": ["b"],
+    "+": ["t"],
+    "!": ["i"],
+    "1": ["i", "l"],
+}
+
+# Most leet slots one password may have before restoration is skipped for it.
+# Each slot multiplies the candidate search by 1 + len(REVERSE_LEET[char]), so
+# four slots of the worst case ('1', three candidates each counting "leave it")
+# is 81 dictionary lookups — bounded. Passwords with five or more leet
+# characters are rare and are the ones least likely to attest anyway.
+#
+# This is a performance guard, not just a scope limit: the growth is
+# exponential in the number of slots, and removing the cap makes the test
+# suite time out on inputs that are merely long rather than pathological.
+MAX_LEET_SLOTS = 4
+
+
+def derive_leet_aware(pw, dictionary, min_hits=2):
+    """Like :func:`derive`, but restores leet-substituted letters into the baseword.
+
+    *dictionary* maps letters-only baseword to how many corpus passwords
+    produced it — :func:`generate`'s pass-1 counter. A candidate restoration is
+    only accepted when *dictionary* attests its baseword at least *min_hits*
+    times, so an ambiguous or wrong reversal never enters the output; see the
+    module docstring for why that gate exists.
+
+    Falls back to exactly ``derive(pw)`` whenever there is nothing to restore,
+    nothing attested, or the restored form cannot be expressed within hashcat's
+    limits. With an empty *dictionary* it is therefore ``derive`` outright.
+    """
+    base, rule, _ = _derive_leet_aware(pw, dictionary, min_hits)
+    return (base, rule)
+
+
+def _derive_leet_aware(pw, dictionary, min_hits=2):
+    """:func:`derive_leet_aware` plus a flag for whether anything was restored.
+
+    The flag is what :func:`generate` counts as ``leet_restored``. Returning it
+    from here rather than comparing against a second ``derive(pw)`` call in the
+    caller keeps pass 2 at one derivation per password.
+    """
+    letters = [c for c in pw if _isalpha(c)]
+    if not letters:
+        return (*derive(pw), False)
+    idxs = [i for i, c in enumerate(pw) if _isalpha(c)]
+    first, last = idxs[0], idxs[-1]
+    prefix, core, suffix = pw[:first], pw[first : last + 1], pw[last + 1 :]
+
+    # Only interior non-letters can be restored: a leading or trailing one is
+    # already a position-independent ^ or $ op, which combines across passwords
+    # better than anything inside the word could.
+    slots = [i for i, c in enumerate(core) if not _isalpha(c) and c in REVERSE_LEET]
+    if not slots or len(slots) > MAX_LEET_SLOTS:
+        return (*derive(pw), False)
+
+    # Each slot may be left alone (None) or restored to one of its candidates.
+    # The all-None combination is deliberately included: it is today's
+    # letters-only baseword, and when the corpus attests that more strongly
+    # than any restoration, leaving the letter out is the right answer.
+    options = [[None, *REVERSE_LEET[core[i]]] for i in slots]
+    best = None
+    for combo in itertools.product(*options):
+        chosen = {
+            slot: letter for slot, letter in zip(slots, combo) if letter is not None
+        }
+        candidate = "".join(
+            c.lower() if _isalpha(c) else chosen.get(idx, "")
+            for idx, c in enumerate(core)
+        )
+        hits = dictionary.get(candidate, 0)
+        if hits < min_hits:
+            continue
+        # Most-attested wins; then the more letters restored, since that is the
+        # more word-like baseword; then lexicographic, purely so the result
+        # cannot depend on iteration order (Constraint 4).
+        key = (-hits, -len(chosen), candidate)
+        if best is None or key < best[0]:
+            best = (key, candidate, chosen)
+    if best is None:
+        return (*derive(pw), False)
+    _, base, chosen = best
+    if not chosen:
+        # The letters-only baseword won on attestation. Nothing was restored,
+        # so this is derive()'s answer; take it rather than rebuilding it.
+        return (*derive(pw), False)
+
+    # Case ops index into the restored baseword, which interleaves the restored
+    # letters with the real ones. A restored slot's case is a don't-care: the o
+    # op below overwrites it with the leet character regardless.
+    flags = [
+        c.isupper() if _isalpha(c) else None
+        for idx, c in enumerate(core)
+        if _isalpha(c) or idx in chosen
+    ]
+    case_ops = _case_ops(flags)
+    if case_ops is None:
+        return (*derive(pw), False)
+    ops = list(case_ops)
+
+    # Both ops address the core-relative index directly. For an insert that is
+    # the same accounting derive() does. For an overwrite it holds because the
+    # restored letter sits at baseword index (letters + restorations to its
+    # left) and the inserts already emitted have shifted it right by exactly
+    # the number of un-restored slots to its left; the two sum to the core
+    # index. Position 0 is always a letter, since a core begins with one.
+    for idx, c in enumerate(core):
+        if _isalpha(c):
+            continue
+        p = _pos(idx)
+        if p is None:
+            return (*derive(pw), False)
+        ops.append(("o" if idx in chosen else "i") + p + c)
+    for c in suffix:
+        ops.append("$" + c)
+    for c in reversed(prefix):
+        ops.append("^" + c)
+
+    if len(ops) > MAX_RULE_FUNCTIONS:
+        return (*derive(pw), False)
+
+    return (base, "".join(ops) if ops else ":", True)
 
 
 def apply_rule(word, rule):
@@ -358,6 +626,12 @@ def apply_rule(word, rule):
             p = min(p, len(s))
             s = s[:p] + ch + s[p:]
             i += 3
+        elif op == "o":
+            p = POS.index(rule[i + 1])
+            ch = rule[i + 2]
+            if p < len(s):
+                s = s[:p] + ch + s[p + 1 :]
+            i += 3
         else:
             raise ValueError(f"unknown op {op!r} in rule {rule!r}")
     return s
@@ -367,41 +641,69 @@ def _is_printable_ascii(pw):
     return all(0x20 <= ord(c) <= 0x7E for c in pw)
 
 
-def generate(
-    corpus_path,
-    outdir,
-    cover=(50, 75, 95, 99),
-    ascii_only=False,
-    verify=True,
-    print_fn=print,
-    max_unique=MAX_UNIQUE_KEYS,
-):
-    """Derive basewords and rules from *corpus_path*, writing them under *outdir*.
+def _derives_to_itself(pw):
+    """True when ``(pw, ":")`` is a real derivation rather than a literal fallback.
 
-    Returns a dict with the output paths and corpus statistics. ``verify``
-    reconstructs every password through :func:`apply_rule` as a self-check;
-    it is cheap relative to reading the corpus but can be skipped.
+    Both outcomes look identical from outside :func:`derive` — the password as
+    its own baseword under a no-op rule — so telling them apart is what decides
+    whether a fallback gets counted. An all-lowercase-ASCII password is the only
+    input that legitimately lands there: it has no case ops, no interior, no
+    prefix and no suffix, so it can never hit either hashcat limit. Everything
+    else that comes back as ``(pw, ":")`` got there by bailing out. Empty input
+    is the degenerate member of the same set (``all()`` of nothing is True).
 
-    ``max_unique`` bounds how many distinct keys the baseword and rule counters
-    may each hold; once either exceeds it, its lowest-frequency keys are
-    discarded (see :func:`_prune_counter`). ``None`` disables the bound and
-    restores the exact but unbounded behaviour. When pruning fires the results
-    describe only the retained keys: the reported coverage percentages are
-    relative to the observations those keys account for, not to the whole
-    corpus, and ``pruned`` is True in the returned dict.
+    Testing for lowercase specifically, not for a letter: an uppercase letter
+    past position 35 disqualifies every case encoding, and that password is a
+    genuine fallback even though it is nothing but letters. Screening on "holds
+    a non-letter" instead, as this check first did, silently missed exactly that
+    case.
     """
-    if is_gzipped(corpus_path):
-        raise ValueError(
-            f"{corpus_path} is gzip-compressed; decompress it before calling generate()"
-        )
+    return all("a" <= c <= "z" for c in pw)
 
-    os.makedirs(outdir, exist_ok=True)
+
+class _Scan(NamedTuple):
+    """One pass over a corpus: the counters it built and the stats it observed."""
+
+    base_counts: Counter
+    rule_counts: Counter
+    total: int
+    skipped: int
+    no_letter_literals: int
+    unrepresentable: int
+    hash_shaped: int
+    selfcheck_failures: list
+    leet_restored: int
+    pruned_basewords: int
+    pruned_baseword_hits: int
+    pruned_rules: int
+    pruned_rule_hits: int
+
+
+def _scan_corpus(
+    corpus_path,
+    ascii_only,
+    verify,
+    max_unique,
+    dictionary=None,
+    min_hits=2,
+    count_rules=True,
+):
+    """Read *corpus_path* once, deriving a baseword and rule for each password.
+
+    With *dictionary* set, derivation goes through :func:`_derive_leet_aware`
+    against it; otherwise it is plain :func:`derive`. *count_rules* False skips
+    the rule counter entirely, which is what pass 1 of a ``leet_restore`` run
+    wants: it needs only the baseword counter, and building a rule counter it
+    will throw away would hold a second counter's worth of memory for nothing.
+    """
     base_counts = Counter()
     rule_counts = Counter()
     total = 0
     skipped = 0
-    literal_fallbacks = 0
+    no_letter_literals = 0
+    unrepresentable = 0
     hash_shaped = 0
+    leet_restored = 0
     selfcheck_failures = []
     lines_read = 0
     pruned_basewords = 0
@@ -430,22 +732,172 @@ def generate(
             # spends 20-30 rule functions rebuilding them, which both poisons
             # the baseword list and pushes real transformations over
             # MAX_RULE_FUNCTIONS into the literal fallback.
-            pw = usable_plaintext(stripped)
+            #
+            # keep_whitespace: a leading or trailing space can be part of the
+            # password, and this is the one caller that must rebuild it byte for
+            # byte. Letting usable_plaintext() strip it derives the stripped
+            # form instead, and does so silently — the self-check below compares
+            # against the same stripped password, so it passes. The line's own
+            # terminator is already gone (rstrip above), which is why opting in
+            # here is safe.
+            pw = usable_plaintext(stripped, keep_whitespace=True)
             if pw == "":
                 continue
             if ascii_only and not _is_printable_ascii(pw):
                 skipped += 1
                 continue
             total += 1
-            base, rule = derive(pw)
-            if base == pw and rule == ":" and any(not _isalpha(c) for c in pw):
-                literal_fallbacks += 1
+            if dictionary is None:
+                base, rule = derive(pw)
+            else:
+                base, rule, restored = _derive_leet_aware(pw, dictionary, min_hits)
+                leet_restored += restored
+            # A literal fallback: the password came back as its own baseword
+            # under a no-op rule without that being a real derivation. Whether
+            # it holds any letter is what separates the two kinds of fallback —
+            # see the module docstring.
+            if base == pw and rule == ":" and not _derives_to_itself(pw):
+                if any(_isalpha(c) for c in pw):
+                    unrepresentable += 1
+                else:
+                    no_letter_literals += 1
             # The self-check runs against the password in hand, before either
             # counter is touched, so pruning can never make it fail spuriously.
             if verify and apply_rule(base, rule) != pw:
                 selfcheck_failures.append(pw)
             base_counts[base] += 1
-            rule_counts[rule] += 1
+            if count_rules:
+                rule_counts[rule] += 1
+
+    return _Scan(
+        base_counts=base_counts,
+        rule_counts=rule_counts,
+        total=total,
+        skipped=skipped,
+        no_letter_literals=no_letter_literals,
+        unrepresentable=unrepresentable,
+        hash_shaped=hash_shaped,
+        selfcheck_failures=selfcheck_failures,
+        leet_restored=leet_restored,
+        pruned_basewords=pruned_basewords,
+        pruned_baseword_hits=pruned_baseword_hits,
+        pruned_rules=pruned_rules,
+        pruned_rule_hits=pruned_rule_hits,
+    )
+
+
+def generate(
+    corpus_path,
+    outdir,
+    cover=(50, 75, 95, 99),
+    ascii_only=False,
+    verify=True,
+    print_fn=print,
+    max_unique=MAX_UNIQUE_KEYS,
+    leet_restore=True,
+    leet_min_hits=2,
+    baseword_caps=(),
+):
+    """Derive basewords and rules from *corpus_path*, writing them under *outdir*.
+
+    Returns a dict with the output paths and corpus statistics. ``verify``
+    reconstructs every password through :func:`apply_rule` as a self-check;
+    it is cheap relative to reading the corpus but can be skipped.
+
+    Literal fallbacks are reported split in two — ``no_letter_literals``
+    (expected, and not a defect) and ``unrepresentable`` (a genuine loss) —
+    because they mean opposite things; see the module docstring.
+    ``literal_fallbacks`` remains as their sum for compatibility.
+
+    ``baseword_caps`` mirrors ``cover`` on the baseword side: for each N it
+    writes ``basewords.top{N}.txt`` holding the N most-frequent basewords, and
+    the paths come back keyed by N in ``capped_basewords``. The uncapped
+    ``basewords.txt`` is always written regardless. Unlike ``cover``, N is a
+    count of basewords rather than a coverage percentage — a baseword list is
+    overwhelmingly singletons (94% of one 360,000-password sample), so a
+    percentage-of-observations cut would keep almost the whole list.
+
+    ``leet_restore`` reads the corpus **twice** so leet-substituted letters can
+    be kept in the baseword instead of deleted from it — see the module
+    docstring for the mechanism and for why one pass cannot do it. Pass 1's
+    baseword counter becomes the attestation dictionary; a restoration needs
+    ``leet_min_hits`` attestations to be accepted. Every counter written and
+    every statistic returned comes from pass 2. ``leet_restore=False`` reads the
+    corpus once and derives exactly as :func:`derive` does.
+
+    ``max_unique`` bounds how many distinct keys the baseword and rule counters
+    may each hold; once either exceeds it, its lowest-frequency keys are
+    discarded (see :func:`_prune_counter`). ``None`` disables the bound and
+    restores the exact but unbounded behaviour. When pruning fires the results
+    describe only the retained keys: the reported coverage percentages are
+    relative to the observations those keys account for, not to the whole
+    corpus, and ``pruned`` is True in the returned dict. The bound applies to
+    both passes, so a pruned attestation dictionary attests less and restores
+    less — it never restores wrongly, because pruning deletes keys outright and
+    so can only understate a count, never overstate one. The dictionary is also
+    filtered to keys meeting ``leet_min_hits`` before pass 2, which is
+    output-neutral for the same reason read in reverse.
+    """
+    if is_gzipped(corpus_path):
+        raise ValueError(
+            f"{corpus_path} is gzip-compressed; decompress it before calling generate()"
+        )
+
+    os.makedirs(outdir, exist_ok=True)
+
+    if leet_restore:
+        # Pass 1 exists only for its baseword counter, so it skips both the
+        # rule counter and the self-check; every statistic below comes from
+        # pass 2. `dictionary` is dropped before the output is written so the
+        # three-counter peak does not outlive the read.
+        dictionary = _scan_corpus(
+            corpus_path,
+            ascii_only,
+            verify=False,
+            max_unique=max_unique,
+            count_rules=False,
+        ).base_counts
+        # Drop every key that cannot satisfy _derive_leet_aware's
+        # `hits >= min_hits` gate. Provably output-neutral: a count is read only
+        # by that gate and by the -hits sort key, and a key below the threshold
+        # fails the gate before the sort ever sees it. It is pure ballast
+        # otherwise, and there is a lot of it — 93.4% of the keys on a
+        # 360,000-password sample, since a corpus's baseword tail is
+        # overwhelmingly singletons. Dropping them takes the peak back to
+        # roughly the two-counter budget the max_unique bound is sized for,
+        # instead of holding a third full-sized counter live across all of
+        # pass 2. Rebinding the name is what actually reclaims it: the
+        # unfiltered Counter has to become unreachable *before* pass 2 starts
+        # allocating, or the filter has bought nothing.
+        dictionary = {k: v for k, v in dictionary.items() if v >= leet_min_hits}
+        scan = _scan_corpus(
+            corpus_path,
+            ascii_only,
+            verify,
+            max_unique,
+            dictionary=dictionary,
+            min_hits=leet_min_hits,
+        )
+        del dictionary
+    else:
+        scan = _scan_corpus(corpus_path, ascii_only, verify, max_unique)
+
+    base_counts = scan.base_counts
+    rule_counts = scan.rule_counts
+    total = scan.total
+    skipped = scan.skipped
+    no_letter_literals = scan.no_letter_literals
+    unrepresentable = scan.unrepresentable
+    # Kept for callers written before the two were split apart; computed as the
+    # sum here rather than counted separately so the identity cannot drift.
+    literal_fallbacks = no_letter_literals + unrepresentable
+    hash_shaped = scan.hash_shaped
+    selfcheck_failures = scan.selfcheck_failures
+    leet_restored = scan.leet_restored
+    pruned_basewords = scan.pruned_basewords
+    pruned_baseword_hits = scan.pruned_baseword_hits
+    pruned_rules = scan.pruned_rules
+    pruned_rule_hits = scan.pruned_rule_hits
 
     if total == 0:
         raise ValueError(f"no passwords read from {corpus_path}")
@@ -453,10 +905,25 @@ def generate(
     def _path(name):
         return os.path.join(outdir, name)
 
+    # One ranking, used for the full list and every cap, so a capped file is
+    # always a prefix of basewords.txt rather than a separately-ordered list.
+    ranked_bases = base_counts.most_common()
     basewords_path = _path("basewords.txt")
     with open(basewords_path, "w", encoding="latin-1") as f:
-        for base, _ in base_counts.most_common():
+        for base, _ in ranked_bases:
             f.write(base + "\n")
+
+    # The baseword side is the limiting one: measured against unseen
+    # passwords, most misses are a missing baseword rather than a missing
+    # rule. A cap therefore trades reach for keyspace and is not an accuracy
+    # win -- it exists so a run can be made to fit the time available.
+    capped_basewords = {}
+    for target in baseword_caps:
+        capped_base = _path(f"basewords.top{target}.txt")
+        with open(capped_base, "w", encoding="latin-1") as f:
+            for base, _ in ranked_bases[:target]:
+                f.write(base + "\n")
+        capped_basewords[target] = capped_base
 
     ranked = rule_counts.most_common()
     rules_path = _path("rules.full.rule")
@@ -515,7 +982,31 @@ def generate(
         f.write(f"unique basewords:    {len(base_counts)}\n")
         f.write(f"unique rules:        {len(rule_counts)}\n")
         f.write(f"literal fallbacks:   {literal_fallbacks}\n")
+        f.write(f"no_letter_literals:  {no_letter_literals}\n")
+        f.write(
+            "  (no ASCII letter anywhere, so the password is its own baseword\n"
+            "   with a ':' rule. This is NOT a defect: a digit- or symbol-only\n"
+            "   password has no letters-only core to derive, and it is a\n"
+            "   perfectly good dictionary entry as it stands. These two sum to\n"
+            "   the literal fallbacks above.)\n"
+        )
+        f.write(f"unrepresentable:     {unrepresentable}\n")
+        f.write(
+            "  (has letters, but could not be encoded: a T/i/o position past\n"
+            f"   index 35, or more than {MAX_RULE_FUNCTIONS} rule functions. This one IS\n"
+            "   a loss of expressiveness. Measured at zero on a 360,000-password\n"
+            "   sample, so anything above zero here is unusual.)\n"
+        )
         f.write(f"hash-shaped lines:   {hash_shaped}\n")
+        if leet_restore:
+            f.write(f"leet restored:       {leet_restored}\n")
+            f.write(
+                "  (the corpus was read TWICE: pass 1 built the attestation\n"
+                "   dictionary of letters-only basewords, pass 2 re-derived every\n"
+                "   password against it, keeping a leet-substituted letter in the\n"
+                f"   baseword when at least {leet_min_hits} other passwords attested\n"
+                "   the restored form. All figures here come from pass 2.)\n"
+            )
         if verify:
             f.write(f"self-check failures: {len(selfcheck_failures)} (must be 0)\n")
         if pruned:
@@ -566,8 +1057,15 @@ def generate(
 
     print_fn(
         f"[*] {total} passwords -> {len(base_counts)} basewords, "
-        f"{len(rule_counts)} rules ({literal_fallbacks} literal fallbacks)"
+        f"{len(rule_counts)} rules ({literal_fallbacks} literal fallbacks: "
+        f"{no_letter_literals} with no letters at all, "
+        f"{unrepresentable} unrepresentable)"
     )
+    if leet_restore:
+        print_fn(
+            f"[*] {leet_restored} basewords kept a leet-substituted letter "
+            "(corpus read twice: attestation pass, then derivation pass)"
+        )
     if pruned:
         print_fn(
             f"[!] Memory bound reached: {pruned_basewords} basewords and "
@@ -598,6 +1096,7 @@ def generate(
 
     return {
         "basewords": basewords_path,
+        "capped_basewords": capped_basewords,
         "rules": rules_path,
         "capped_rules": capped_paths,
         "coverage": coverage_path,
@@ -605,8 +1104,12 @@ def generate(
         "skipped": skipped,
         "basewords_count": len(base_counts),
         "rules_count": len(rule_counts),
+        # literal_fallbacks == no_letter_literals + unrepresentable, always.
         "literal_fallbacks": literal_fallbacks,
+        "no_letter_literals": no_letter_literals,
+        "unrepresentable": unrepresentable,
         "hash_shaped": hash_shaped,
+        "leet_restored": leet_restored,
         "selfcheck_failures": selfcheck_failures,
         "milestones": milestones,
         "pruned": pruned,

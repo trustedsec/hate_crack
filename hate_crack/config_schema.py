@@ -273,10 +273,17 @@ CONFIG_SCHEMA: tuple[ConfigKey, ...] = (
     # for the ollama CLI gets the same target here without a second setting.
     ConfigKey("OLLAMA_HOST", "ollamaHost", "str", "localhost:11434", home="env"),
     ConfigKey("OLLAMA_MODEL", "ollamaModel", "str", "qwen2.5:32b", home="env"),
-    # Refuse Ollama cloud models, which the local daemon proxies to
-    # ollama.com. Off by default: turning it on for everyone would break a
-    # user who deliberately configured a cloud model. Worth having because
-    # LLM prompts here carry recovered plaintexts and client target details.
+    # The "nothing leaves this host" toggle for every LLM backend (Ollama,
+    # vLLM, generic OpenAI-compatible). Two checks, both gated by this one
+    # key: refuse an Ollama cloud model (which the local daemon proxies to
+    # ollama.com -- the name is the only signal before the data has already
+    # left), and refuse a configured backend URL that resolves off this
+    # host/network (loopback/private/link-local addresses and *.local/
+    # *.internal/*.lan/*.localdomain names are allowed; an unresolvable host
+    # is refused too, fail-closed). Off by default: turning it on for
+    # everyone would break a user who deliberately configured a cloud model
+    # or remote server. Worth having because LLM prompts here carry sampled
+    # recovered plaintexts and client target details.
     ConfigKey("OLLAMA_NO_CLOUD", "ollamaNoCloud", "bool", False, home="env"),
     ConfigKey("OLLAMA_NUM_CTX", "ollamaNumCtx", "int", 8192, home="env"),
     ConfigKey("OLLAMA_TIMEOUT", "ollamaTimeout", "int", 300, home="env"),
@@ -284,6 +291,27 @@ CONFIG_SCHEMA: tuple[ConfigKey, ...] = (
         "OLLAMA_MAX_SAMPLE_LINES", "ollamaMaxSampleLines", "int", 500, home="env"
     ),
     ConfigKey("OLLAMA_AUTO_RESEARCH", "ollamaAutoResearch", "bool", True, home="env"),
+    # Which OpenAI-compatible server the LLM attacks (menu 12) and the Rosetta
+    # mask attack (menu 23) talk to, and the credential it authenticates with.
+    # Deliberately separate from the OLLAMA_* keys above rather than folded
+    # into them or replacing them: the OLLAMA_* keys keep owning the host,
+    # model, timeout, context and sampling settings for every backend, because
+    # vLLM and a generic OpenAI-compatible server want the exact same knobs
+    # under the exact same names. Renaming them to something backend-neutral
+    # would break every existing .env for no functional gain, so do not "tidy"
+    # this by merging LLM_BACKEND/LLM_API_KEY into that block or removing the
+    # OLLAMA_* prefix -- see the vLLM backend brief for the reasoning.
+    ConfigKey(
+        "LLM_BACKEND",
+        "llmBackend",
+        "str",
+        "ollama",
+        choices=("ollama", "vllm", "openai"),
+        home="env",
+    ),
+    # Defaults to the literal "ollama", the placeholder Ollama's own server
+    # ignores, so an existing install's request shape is unchanged.
+    ConfigKey("LLM_API_KEY", "llmApiKey", "str", "ollama", home="env"),
     # Bounds the local corpus-profiling pass behind the LLM attacks. That pass
     # is pure Python at roughly 135k lines/s, so an uncapped run over a 29 GB
     # hashmob dump takes hours and grows an unbounded distinct-password set;

@@ -80,6 +80,8 @@ class TestCountOps:
             ("T0T1T2", 3),
             ("i1.i3.", 2),
             ("ci50$!", 3),
+            ("o0a", 1),
+            ("o1bo5c", 2),
         ],
     )
     def test_counts_ops(self, rule, expected):
@@ -88,6 +90,48 @@ class TestCountOps:
     def test_rejects_unknown_op(self):
         with pytest.raises(ValueError, match="unknown op"):
             rulegen.count_ops("z")
+
+    def test_o_counts_in_complex_rule(self):
+        """o op counts correctly when mixed with other ops."""
+        # c=1, o0a=1, u=1, total=3
+        assert rulegen.count_ops("co0au") == 3
+
+
+class TestOp:
+    """Tests for the 'o' (overwrite) operation."""
+
+    def test_o_in_range_overwrites_character(self):
+        """o{p}{x} overwrites the character at position p with x."""
+        assert rulegen.apply_rule("alpha", "o1x") == "axpha"
+        assert rulegen.apply_rule("alpha", "o0X") == "Xlpha"
+        assert rulegen.apply_rule("alpha", "o4z") == "alphz"
+
+    def test_o_out_of_range_is_noop(self):
+        """o{p}{x} leaves the word unchanged if p >= len(s)."""
+        assert rulegen.apply_rule("alpha", "o5x") == "alpha"
+        assert rulegen.apply_rule("alpha", "o9x") == "alpha"
+        assert rulegen.apply_rule("a", "o1x") == "a"
+
+    def test_o_applies_correctly_in_rules(self):
+        """o op can be applied in rules to overwrite positions."""
+        baseword = "simpleword"
+        # simpleword: s=0, i=1, m=2, p=3, l=4, e=5, w=6, o=7, r=8, d=9
+        # Overwrite position 0 with 'S', position 6 with '2'
+        rule = "o0So62"
+        result = rulegen.apply_rule(baseword, rule)
+        assert result == "Simple2ord"
+        # Verify the rule passes validation
+        assert rulegen.validate_rule(rule)
+
+    def test_o_combined_with_other_ops(self):
+        """o can be combined with other ops in the same rule."""
+        # test: t=0, e=1, s=2, t=3
+        # o1X (overwrite position 1 'e' with 'X'), then u (uppercase all)
+        # -> tXst -> TXST
+        assert rulegen.apply_rule("test", "o1Xu") == "TXST"
+        # test: prepend "A", overwrite position 1 with "B", append "!"
+        # -> Atest -> ABest -> ABest!
+        assert rulegen.apply_rule("test", "^Ao1B$!") == "ABest!"
 
 
 class TestDeriveShapes:
@@ -119,6 +163,270 @@ class TestDeriveShapes:
         # Appends come before prepends; prepends are emitted in reverse.
         assert rule == "$!^2^1"
         assert rulegen.apply_rule(base, rule) == "12ab!"
+
+
+class TestCaseEncoding:
+    """Tests for case-encoding selection: choose the cheapest of four strategies."""
+
+    def test_all_lowercase_emits_no_case_op_regression(self):
+        """All-lowercase words emit no case op (cost 0)."""
+        base, rule = rulegen.derive("simpleword")
+        assert base == "simpleword"
+        assert rule == ":"
+
+    def test_capitalized_emits_c_regression(self):
+        """First-letter-uppercase (only) emits 'c' (cost 1)."""
+        base, rule = rulegen.derive("Simpleword")
+        assert base == "simpleword"
+        assert rule == "c"
+
+    def test_all_uppercase_emits_u_regression(self):
+        """All-uppercase words emit 'u' (cost 1)."""
+        base, rule = rulegen.derive("SIMPLEWORD")
+        assert base == "simpleword"
+        assert rule == "u"
+
+    def test_mostly_uppercase_prefers_u_over_direct(self):
+        """Mostly uppercase: u+invert cheaper than direct toggles.
+
+        SIMPLEWORx (uppercase at 0-8, lowercase at 9): direct costs 9,
+        u+invert costs 1+1=2 (u + toggle position 9). u+invert wins.
+        Verified: derive("SIMPLEWORx") == ("simpleworx", "uT9")
+        """
+        base, rule = rulegen.derive("SIMPLEWORx")
+        assert base == "simpleworx"
+        assert rule == "uT9"
+        assert rulegen.apply_rule(base, rule) == "SIMPLEWORx"
+
+    def test_mixed_case_tie_breaks_to_c(self):
+        """Mixed case encoding cost tie: c and direct both cost 4, c wins.
+
+        SimPlewOrD has uppercase at positions 0, 3, 7, 9.
+        Costs: none=invalid, direct=4, u+inv=7, c=1+3=4
+        Tie at 4; tie-break order is none,c,u,direct, so c wins.
+        """
+        base, rule = rulegen.derive("SimPlewOrD")
+        assert base == "simpleword"
+        assert rule == "cT3T7T9"
+        assert rulegen.apply_rule(base, rule) == "SimPlewOrD"
+
+    def test_position_36_boundary_all_uppercase(self):
+        """Position 36 is unaddressable; all-uppercase 37-char string uses u+invert.
+
+        "A"*36 + "B" (37 chars, all uppercase).
+        Baseword is "a"*36 + "b", all lowercase.
+        direct: toggle 0-36 (37 toggles, exceeds function limit); disqualified
+        u+invert: u + toggle each lowercase = u + 0 (no lowercase) = cost 1, valid
+        c+fix: c + toggle 1-36 (position 36 unaddressable); disqualified
+        Result: u+invert wins at cost 1 (emitted as single 'u' op).
+        Verified: derive("A"*36+"B") == ("a"*36+"b", "u")
+        """
+        pw = "A" * 36 + "B"
+        base, rule = rulegen.derive(pw)
+        assert base == "a" * 36 + "b"
+        assert rule == "u"
+        assert rulegen.apply_rule(base, rule) == pw
+
+    def test_position_36_boundary_mostly_lowercase(self):
+        """Position 36 unaddressable; "ab" + C*35 uses u+invert.
+
+        "ab" + "C"*35 (37 chars: ab...CCC where C spans positions 2-36).
+        Uppercase at positions 2-36 (35 letters).
+        u+invert: u + toggle 0,1 = cost 3 (positions 0-1 are lowercase)
+        direct: toggle 2-36 = cost 35
+        c+fix: c + toggle at >0 (2-36 = 35) = cost 1+35 = 36
+        Min cost is u+invert at 3.
+        Verified: derive("ab" + "C"*35) == ("ab" + "c"*35, "uT0T1")
+        """
+        pw = "ab" + "C" * 35
+        base, rule = rulegen.derive(pw)
+        assert base == "ab" + "c" * 35
+        assert rule == "uT0T1"
+        assert rulegen.apply_rule(base, rule) == pw
+
+    def test_position_36_boundary_fallback_to_literal(self):
+        """All candidates disqualified when position 36 needed in multiple ways.
+
+        "aB" + "C"*35 + "d" (38 chars: uppercase at 1-36, lowercase at 0,37).
+        direct: toggle 1-36 (position 36 unaddressable); disqualified
+        u+invert: toggle 37 (unaddressable); disqualified
+        c+fix: toggle at >0 (1-36, position 36 unaddressable); disqualified
+        All disqualified: fall back to literal.
+        Verified: derive("aB" + "C"*35 + "d") == (pw, ":")
+        """
+        pw = "aB" + "C" * 35 + "d"
+        base, rule = rulegen.derive(pw)
+        assert (base, rule) == (pw, ":")
+        assert rulegen.apply_rule(base, rule) == pw
+
+    def test_alternating_case_pattern(self):
+        """Alternating case: pick cheapest between direct, u+invert, c."""
+        # aBaBaB: uppercase at 1,3,5. Direct = 3, u+invert = 1+3 = 4, c = 1+3 = 4
+        # Min cost is 3 (direct), so expect three T ops
+        base, rule = rulegen.derive("aBaBaB")
+        assert base == "ababab"
+        # Uppercase at positions 1, 3, 5
+        assert rule == "T1T3T5"
+        assert rulegen.apply_rule(base, rule) == "aBaBaB"
+
+    def test_interior_uppercase_single(self):
+        """Interior single uppercase: direct might be cheaper."""
+        # sImpleword: uppercase at 1. Direct = 1, u+invert = 1+8 = 9, c = 1+1+1 = 3
+        # Min is 1 (direct)
+        base, rule = rulegen.derive("sImpleword")
+        assert base == "simpleword"
+        assert rule == "T1"
+        assert rulegen.apply_rule(base, rule) == "sImpleword"
+
+    def test_uppercase_at_both_ends_middle_lower(self):
+        # SImpleworD: uppercase at 0, 1, 9
+        # Costs: none=invalid, direct=3, u+inv=1+7=8, c=1+2=3 (toggle 1,9 at >0)
+        # Tie at cost 3 between direct and c; tie-break: c wins
+        base, rule = rulegen.derive("SImpleworD")
+        assert base == "simpleword"
+        # c + T1 + T9
+        assert rule == "cT1T9"
+        assert rulegen.apply_rule(base, rule) == "SImpleworD"
+
+    def test_roundtrip_all_case_patterns(self):
+        """All case patterns round-trip correctly."""
+        patterns = [
+            "simpleword",  # all lower
+            "Simpleword",  # first upper
+            "SIMPLEWORD",  # all upper
+            "sImpleworD",  # interior+last upper
+            "SImpleword",  # first+interior upper
+            "aBaBaB",  # alternating
+            "simpleWord",  # last upper
+            "sIMPLEWORD",  # all-but-first upper
+        ]
+        for pw in patterns:
+            base, rule = rulegen.derive(pw)
+            result = rulegen.apply_rule(base, rule)
+            assert result == pw, f"Round-trip failed for {pw}: got {result}"
+
+
+class TestDeriveOpsValidation:
+    """Ensure all ops emitted by derive() are known to RULE_OP_ARGS."""
+
+    def test_all_derive_ops_are_in_rule_op_args(self):
+        """Every op derive() can emit must be a key in RULE_OP_ARGS."""
+        test_passwords = [
+            "alphabetonlyword",  # : no-op
+            "Alphaword",  # c
+            "ALPHAWORD",  # u
+            "aLpHaWoRd",  # T ops
+            "alpha.beta",  # i ops
+            "alpha!@#",  # $ ops
+            "!@#alpha",  # ^ ops
+            "Alphaword123",  # mix of everything
+        ]
+        for pw in test_passwords:
+            base, rule = rulegen.derive(pw)
+            if rule != ":":
+                i = 0
+                while i < len(rule):
+                    op = rule[i]
+                    assert op in rulegen.RULE_OP_ARGS, (
+                        f"Op {op!r} from derive({pw!r}) not in RULE_OP_ARGS"
+                    )
+                    i += 1 + len(rulegen.RULE_OP_ARGS[op])
+
+    def test_all_derived_rules_validate(self):
+        """Every rule derive() produces must pass validate_rule()."""
+        test_passwords = [
+            "alphaword",
+            "Alphaword1!",
+            "ALPHAWORD",
+            "aLpHaWoRd",
+            "Zorptangle2026",
+            "Gribblefox2026!",
+            "alph@w0rd",
+            "Codebase#2026",
+            "john.smith.test",
+            "correct horse battery staple",
+            "!@#$%^",
+            "1234567890",
+            "Spring-2026!",
+            "aB1cD2eF3",
+            "MyZ0rpt$Gr1bble!2026",
+        ]
+        for pw in test_passwords:
+            base, rule = rulegen.derive(pw)
+            assert rulegen.validate_rule(rule), (
+                f"Rule {rule!r} from derive({pw!r}) fails validate_rule()"
+            )
+
+
+class TestBroadRoundTripProperty:
+    """Property tests for round-trip correctness per Constraint 2.
+
+    Constraint 2 requires testing across broad generated input sets, not
+    hand-picked cases. This class generates passwords exhaustively across
+    case masks and spot-checks diverse byte ranges.
+    """
+
+    def test_roundtrip_exhaustive_case_masks(self):
+        """Exhaustive round-trip test: all case masks over a fixed stem.
+
+        Generates all 2^8 = 256 case patterns across an 8-letter stem,
+        covering every combination of uppercase and lowercase.
+        Each is derived and applied, verifying round-trip.
+        """
+        import itertools
+
+        stem = "codebase"
+        # Generate all case masks: True=upper, False=lower. Each is also
+        # crossed with the four edge-whitespace paddings, because a preserved
+        # leading space shifts every case op by one and a generated sweep is
+        # the only way to cover that against all 256 masks rather than the
+        # handful a hand-picked test would reach (Constraint 2).
+        for mask in itertools.product([True, False], repeat=len(stem)):
+            cased = "".join(c.upper() if m else c.lower() for c, m in zip(stem, mask))
+            for pw in (cased, " " + cased, cased + " ", " " + cased + " "):
+                base, rule = rulegen.derive(pw)
+                result = rulegen.apply_rule(base, rule)
+                assert result == pw, (
+                    f"Round-trip failed for mask {mask}: derive({pw!r}) "
+                    f"-> apply_rule returned {result!r}"
+                )
+
+    def test_roundtrip_random_byte_sweep(self):
+        """Random round-trip spot-check: diverse byte ranges and lengths.
+
+        Uses fixed seed for determinism; covers:
+        - Single bytes across the printable range
+        - Combinations with digits and symbols
+        - Passwords from 1 to 60 characters (exercises >35 unaddressable positions)
+        - High-byte characters (latin-1 encoding)
+        - The space character, in every position including first and last,
+          which usable_plaintext(keep_whitespace=True) now lets through
+        """
+        import random
+        import string
+
+        random.seed(42)
+        # Printable ASCII + selected high bytes. The space is in the alphabet
+        # deliberately: rulegen stopped stripping edge whitespace, so a leading
+        # or trailing space is now part of derive()'s input domain and this
+        # sweep has to cover it.
+        charset = (
+            string.ascii_letters
+            + string.digits
+            + "!@#$%^&*()_-=+[]{}|;:,.<>?"
+            + " "
+            + "".join(chr(i) for i in range(128, 256, 15))
+        )
+
+        for _ in range(100):
+            # Random length 1-60 (past the position-35 boundary)
+            length = random.randint(1, 60)
+            pw = "".join(random.choice(charset) for _ in range(length))
+            base, rule = rulegen.derive(pw)
+            result = rulegen.apply_rule(base, rule)
+            assert result == pw, (
+                f"Round-trip failed: derive({pw!r}) -> apply_rule returned {result!r}"
+            )
 
 
 class TestGenerate:
@@ -221,6 +529,344 @@ class TestGenerate:
         report = (out / "coverage.txt").read_text(encoding="latin-1")
         assert corpus in report
         assert "self-check failures: 0" in report
+
+
+class TestGenerateBasewordCaps:
+    """``baseword_caps`` mirrors ``cover`` on the baseword side.
+
+    The audit that motivated this measured the attack as baseword-limited:
+    against unseen passwords 47-57% of misses were a missing baseword and only
+    18-21% a missing rule. A cap is therefore a keyspace budget, not an
+    accuracy setting -- these tests only pin the mechanics.
+    """
+
+    # Invented words only. Frequencies are deliberately distinct so the
+    # expected order is a fact about counts, not about tie-breaking.
+    CORPUS = [
+        "quibblefox",
+        "Quibblefox",
+        "quibblefox1",
+        "QUIBBLEFOX",  # quibblefox    x4
+        "zarplewidget",
+        "Zarplewidget",
+        "zarplewidget9",  # zarplewidget  x3
+        "grumbleknob",
+        "Grumbleknob",  # grumbleknob   x2
+        "flimberdoodle",  # flimberdoodle x1
+    ]
+    EXPECTED_ORDER = [
+        "quibblefox",
+        "zarplewidget",
+        "grumbleknob",
+        "flimberdoodle",
+    ]
+
+    def _write_corpus(self, tmp_path, passwords):
+        path = tmp_path / "corpus.txt"
+        path.write_text("\n".join(passwords) + "\n", encoding="latin-1")
+        return str(path)
+
+    def _lines(self, path):
+        with open(path, encoding="latin-1") as handle:
+            return handle.read().splitlines()
+
+    def _generate(self, tmp_path, **kwargs):
+        corpus = self._write_corpus(tmp_path, self.CORPUS)
+        out = tmp_path / "out"
+        return out, rulegen.generate(
+            corpus, str(out), print_fn=lambda *a: None, **kwargs
+        )
+
+    def test_baseword_frequency_order_is_what_the_test_assumes(self, tmp_path):
+        """Guard the premise: basewords.txt really is in descending frequency."""
+        out, _result = self._generate(tmp_path)
+        assert self._lines(out / "basewords.txt") == self.EXPECTED_ORDER
+
+    def test_writes_a_capped_file_per_requested_n(self, tmp_path):
+        out, result = self._generate(tmp_path, baseword_caps=(2, 5))
+
+        assert set(result["capped_basewords"]) == {2, 5}
+        assert result["capped_basewords"][2] == str(out / "basewords.top2.txt")
+        assert result["capped_basewords"][5] == str(out / "basewords.top5.txt")
+        assert self._lines(result["capped_basewords"][2]) == self.EXPECTED_ORDER[:2]
+
+    def test_cap_larger_than_the_baseword_count_writes_them_all(self, tmp_path):
+        _out, result = self._generate(tmp_path, baseword_caps=(2, 5))
+        # Only four distinct basewords exist, so top5 is the whole list and no
+        # error is raised for asking for more than there are.
+        assert self._lines(result["capped_basewords"][5]) == self.EXPECTED_ORDER
+
+    def test_uncapped_list_is_still_written(self, tmp_path):
+        out, result = self._generate(tmp_path, baseword_caps=(2,))
+        assert (out / "basewords.txt").is_file()
+        assert result["basewords"] == str(out / "basewords.txt")
+        assert self._lines(out / "basewords.txt") == self.EXPECTED_ORDER
+
+    def test_capped_file_is_a_prefix_of_the_full_list(self, tmp_path):
+        out, result = self._generate(tmp_path, baseword_caps=(3,))
+        full = self._lines(out / "basewords.txt")
+        capped = self._lines(result["capped_basewords"][3])
+        assert capped == full[: len(capped)]
+
+    def test_no_caps_requested_writes_no_capped_files(self, tmp_path):
+        out, result = self._generate(tmp_path)
+        assert result["capped_basewords"] == {}
+        assert not list(out.glob("basewords.top*.txt"))
+
+    def test_cap_of_one_keeps_only_the_most_frequent(self, tmp_path):
+        _out, result = self._generate(tmp_path, baseword_caps=(1,))
+        assert self._lines(result["capped_basewords"][1]) == self.EXPECTED_ORDER[:1]
+
+    def test_capped_output_is_deterministic(self, tmp_path):
+        """Constraint 4: the same corpus must produce byte-identical output."""
+        corpus = self._write_corpus(tmp_path, self.CORPUS)
+        first, second = tmp_path / "a", tmp_path / "b"
+        for out in (first, second):
+            rulegen.generate(
+                corpus, str(out), print_fn=lambda *a: None, baseword_caps=(2, 3)
+            )
+        for name in ("basewords.txt", "basewords.top2.txt", "basewords.top3.txt"):
+            assert (first / name).read_bytes() == (second / name).read_bytes(), name
+
+
+class TestLiteralFallbackSplit:
+    """`literal_fallbacks` conflated two opposite things: a letterless password
+    (expected, a fine dictionary entry) and one that hit a hashcat limit (a real
+    loss). They are counted separately now."""
+
+    def _run(self, tmp_path, passwords):
+        corpus = tmp_path / "corpus.txt"
+        corpus.write_text("\n".join(passwords) + "\n", encoding="latin-1")
+        return rulegen.generate(
+            str(corpus), str(tmp_path / "out"), print_fn=lambda *a: None
+        )
+
+    def test_digit_only_corpus_is_all_letterless_literals(self, tmp_path):
+        lines = ["1029384756", "5647382910", "1122334455"]
+        result = self._run(tmp_path, lines)
+        assert result["no_letter_literals"] == len(lines)
+        assert result["unrepresentable"] == 0
+
+    def test_symbol_only_lines_are_letterless_literals_too(self, tmp_path):
+        result = self._run(tmp_path, ["!@#%^&*", "-=+_~"])
+        assert result["no_letter_literals"] == 2
+        assert result["unrepresentable"] == 0
+
+    def test_over_function_limit_with_letters_is_unrepresentable(self, tmp_path):
+        # A synthetic word whose interior is 34 separators: every position is
+        # addressable (max index 34, under the 35 ceiling) and the case mask
+        # costs nothing, so the ONLY thing that can push this to the literal
+        # fallback is the function count -- 34 inserts against a limit of 31.
+        pw = "z" + "-" * 34 + "q"
+        interior = [i for i, c in enumerate(pw) if not rulegen._isalpha(c)]
+        assert max(interior) < len(rulegen.POS), "position limit would fire first"
+        assert rulegen._case_ops([c.isupper() for c in pw if rulegen._isalpha(c)]) == []
+        assert len(interior) > rulegen.MAX_RULE_FUNCTIONS
+        assert rulegen.derive(pw) == (pw, ":")
+
+        result = self._run(tmp_path, [pw])
+        assert result["unrepresentable"] == 1
+        assert result["no_letter_literals"] == 0
+
+    def test_toggle_past_position_35_is_unrepresentable(self, tmp_path):
+        # An uppercase letter at index 36 needs a T there, which the
+        # 36-character position alphabet cannot address; the trailing lowercase
+        # letter past 35 also rules out the u+invert encoding, so every case
+        # encoding is disqualified and _case_ops has nothing to return.
+        pw = "z" * 36 + "Q" + "w"
+        assert rulegen._case_ops([c.isupper() for c in pw]) is None
+        assert rulegen.derive(pw) == (pw, ":")
+
+        result = self._run(tmp_path, [pw])
+        assert result["unrepresentable"] == 1
+
+    def test_letters_only_password_is_neither(self, tmp_path):
+        # "(pw, ':')" is also the legitimate answer for an all-lowercase
+        # password. That is a derivation, not a fallback, and must not count.
+        result = self._run(tmp_path, ["quibbleflange"])
+        assert result["no_letter_literals"] == 0
+        assert result["unrepresentable"] == 0
+        assert result["literal_fallbacks"] == 0
+
+    @pytest.mark.parametrize(
+        "lines",
+        [
+            ["1029384756"],
+            ["z" + "-" * 34 + "q"],
+            ["1029384756", "z" + "-" * 34 + "q", "quibbleflange", "Zorptangle99!"],
+            [p for p in CORPUS if p],
+        ],
+    )
+    def test_literal_fallbacks_is_the_sum_of_the_two(self, tmp_path, lines):
+        result = self._run(tmp_path, lines)
+        assert (
+            result["literal_fallbacks"]
+            == result["no_letter_literals"] + result["unrepresentable"]
+        )
+
+    def test_coverage_report_labels_and_explains_both(self, tmp_path):
+        self._run(tmp_path, ["1029384756", "z" + "-" * 34 + "q", "Zorptangle99!"])
+        report = (tmp_path / "out" / "coverage.txt").read_text(encoding="latin-1")
+        assert "no_letter_literals" in report
+        assert "unrepresentable" in report
+        # The letterless count must be stated plainly as not being a defect.
+        assert "NOT a defect" in report
+
+
+class TestEdgeWhitespace:
+    """A leading or trailing space can be part of the password. It used to be
+    stripped before derivation, silently: the self-check compared against the
+    same stripped password, so it passed."""
+
+    def _run(self, tmp_path, lines):
+        corpus = tmp_path / "corpus.txt"
+        corpus.write_text("\n".join(lines) + "\n", encoding="latin-1")
+        return rulegen.generate(
+            str(corpus), str(tmp_path / "out"), print_fn=lambda *a: None
+        )
+
+    @pytest.mark.parametrize(
+        "pw",
+        [
+            "zorptangle ",
+            " zorptangle",
+            " zorptangle ",
+            "Zorptangle  ",
+            "zorptangle 9",
+        ],
+    )
+    def test_password_with_edge_whitespace_round_trips(self, tmp_path, pw):
+        result = self._run(tmp_path, [pw])
+        assert result["selfcheck_failures"] == []
+
+        basewords = (
+            (tmp_path / "out" / "basewords.txt")
+            .read_text(encoding="latin-1")
+            .splitlines()
+        )
+        rules = (
+            (tmp_path / "out" / "rules.full.rule")
+            .read_text(encoding="latin-1")
+            .splitlines()
+        )
+        # The space must survive all the way through the written files: the
+        # baseword-plus-rule pair has to rebuild the password including it.
+        produced = {rulegen.apply_rule(b, r) for b in basewords for r in rules}
+        assert pw in produced
+
+    def test_trailing_space_is_an_append_op_not_a_lost_character(self, tmp_path):
+        base, rule = rulegen.derive("zorptangle ")
+        assert base == "zorptangle"
+        assert rule == "$ "
+        assert rulegen.apply_rule(base, rule) == "zorptangle "
+        # And the emitted rule is one hashcat will actually accept.
+        assert rulegen.validate_rule(rule)
+
+    def test_leading_space_is_a_prepend_op(self, tmp_path):
+        base, rule = rulegen.derive(" zorptangle")
+        assert base == "zorptangle"
+        assert rule == "^ "
+        assert rulegen.apply_rule(base, rule) == " zorptangle"
+        assert rulegen.validate_rule(rule)
+
+    def test_padded_and_unpadded_forms_stay_distinct(self, tmp_path):
+        # Stripping made these one password with one rule. They are two.
+        result = self._run(tmp_path, ["zorptangle", "zorptangle "])
+        assert result["total"] == 2
+        assert result["basewords_count"] == 1
+        assert result["selfcheck_failures"] == []
+        # Naming the rules, not just counting them: a wrong-but-distinct second
+        # rule would satisfy a bare count of 2.
+        assert (tmp_path / "out" / "basewords.txt").read_text(
+            encoding="latin-1"
+        ) == "zorptangle\n"
+        assert set(
+            (tmp_path / "out" / "rules.full.rule")
+            .read_text(encoding="latin-1")
+            .splitlines()
+        ) == {":", "$ "}
+
+    def test_whitespace_only_lines_are_still_ignored(self, tmp_path):
+        result = self._run(tmp_path, ["zorptangle", "   ", "\t", "quibbleflange"])
+        assert result["total"] == 2
+
+    def test_hash_prefixed_line_with_a_trailing_space(self, tmp_path):
+        ntlm = "31d6cfe0d16ae931b73c59d7e0c089c0"
+        result = self._run(tmp_path, [f"{ntlm}:zorptangle "])
+        assert result["selfcheck_failures"] == []
+        basewords = (
+            (tmp_path / "out" / "basewords.txt")
+            .read_text(encoding="latin-1")
+            .splitlines()
+        )
+        assert basewords == ["zorptangle"]
+
+    def test_indented_hash_prefixed_corpus_does_not_poison_the_baseword(self, tmp_path):
+        """A column-padded corpus (hand-edited, or any tool that aligns fields)
+        must not weld the digest onto the baseword. This is the failure the
+        comment in _scan_corpus exists to prevent, and preserving leading
+        whitespace unconditionally would reintroduce it silently: the digest
+        would hide behind the indent from the hash-prefix detector, and the
+        self-check compares against the same poisoned string, so it passes."""
+        ntlm = "31d6cfe0d16ae931b73c59d7e0c089c0"
+        ntlm_b = "8846f7eaee8fb117ad06bdd830b7586c"
+        result = self._run(
+            tmp_path, [f"  {ntlm}:zorptangle", f"  {ntlm_b}:quibbleflange"]
+        )
+        basewords = (
+            (tmp_path / "out" / "basewords.txt")
+            .read_text(encoding="latin-1")
+            .splitlines()
+        )
+        assert sorted(basewords) == ["quibbleflange", "zorptangle"]
+        rules = (
+            (tmp_path / "out" / "rules.full.rule")
+            .read_text(encoding="latin-1")
+            .splitlines()
+        )
+        assert rules == [":"]
+        assert result["selfcheck_failures"] == []
+
+    def test_space_after_the_separator_is_part_of_the_password(self, tmp_path):
+        # The indent is formatting; the space past the colon is the password's.
+        ntlm = "31d6cfe0d16ae931b73c59d7e0c089c0"
+        result = self._run(tmp_path, [f"  {ntlm}: zorptangle"])
+        assert result["selfcheck_failures"] == []
+        rules = (
+            (tmp_path / "out" / "rules.full.rule")
+            .read_text(encoding="latin-1")
+            .splitlines()
+        )
+        assert rules == ["^ "]
+
+    def test_output_unchanged_for_a_corpus_without_edge_whitespace(self, tmp_path):
+        """Guard on the blast radius: keep_whitespace must be a no-op for every
+        corpus that has no edge whitespace to preserve, which is nearly all of
+        them."""
+        lines = [p for p in CORPUS if p]
+        result = self._run(tmp_path, lines)
+        out = tmp_path / "out"
+        produced = {
+            name: (out / name).read_bytes()
+            for name in ("basewords.txt", "rules.full.rule")
+        }
+        # Re-derive independently of the file-reading path and compare.
+        expected_bases = Counter()
+        expected_rules = Counter()
+        dictionary = Counter(rulegen.derive(p)[0] for p in lines)
+        dictionary = {k: v for k, v in dictionary.items() if v >= 2}
+        for p in lines:
+            base, rule = rulegen.derive_leet_aware(p, dictionary)
+            assert rulegen.apply_rule(base, rule) == p
+            expected_bases[base] += 1
+            expected_rules[rule] += 1
+        assert produced["basewords.txt"] == "".join(
+            b + "\n" for b, _ in expected_bases.most_common()
+        ).encode("latin-1")
+        assert produced["rules.full.rule"] == "".join(
+            r + "\n" for r, _ in expected_rules.most_common()
+        ).encode("latin-1")
+        assert result["selfcheck_failures"] == []
 
 
 class TestCorpusLineParsing:
@@ -589,3 +1235,687 @@ class TestPruneCounter:
         keys, _ = rulegen._prune_counter(counter, 3)
         assert keys == 3
         assert len(counter) == 1
+
+
+class TestReverseLeetMap:
+    """The map only proposes candidates; attestation decides (see module doc)."""
+
+    def test_map_covers_the_documented_minimum(self):
+        expected = {
+            "@": ["a"],
+            "0": ["o"],
+            "3": ["e"],
+            "$": ["s"],
+            "4": ["a"],
+            "7": ["t"],
+            "5": ["s"],
+            "9": ["g"],
+            "8": ["b"],
+            "+": ["t"],
+            "!": ["i"],
+            "1": ["i", "l"],
+        }
+        for leet, letters in expected.items():
+            assert rulegen.REVERSE_LEET[leet] == letters, leet
+
+    def test_every_candidate_is_a_lowercase_letter(self):
+        for leet, letters in rulegen.REVERSE_LEET.items():
+            assert letters, leet
+            for letter in letters:
+                assert letter.islower() and letter.isalpha(), (leet, letter)
+
+    def test_no_leet_key_is_itself_a_letter(self):
+        # A letter never needs restoring: it is already in the baseword.
+        for leet in rulegen.REVERSE_LEET:
+            assert not rulegen._isalpha(leet), leet
+
+    def test_slot_cap_is_the_documented_constant(self):
+        assert rulegen.MAX_LEET_SLOTS == 4
+
+
+class TestDeriveLeetAware:
+    """Corpus-informed restoration of leet-substituted letters into the baseword."""
+
+    # Synthetic invented compounds, none of them a password from any corpus.
+    DICT = Counter(
+        {
+            "quibblefox": 7,
+            "mirthbell": 5,
+            "zanterwick": 4,
+            "plumdorf": 3,
+            "griblenaut": 6,
+            "ziziziziz": 4,
+            "ziziziziziz": 4,
+        }
+    )
+
+    def test_restores_an_attested_letter_with_o_not_i(self):
+        base, rule = rulegen.derive_leet_aware("qu1bblefox", self.DICT)
+        assert base == "quibblefox"
+        assert rule == "o21"
+        assert "i" not in rule
+        assert rulegen.apply_rule(base, rule) == "qu1bblefox"
+        # Contrast with the letters-only derivation this replaces.
+        assert rulegen.derive("qu1bblefox") == ("qubblefox", "i21")
+
+    def test_restores_two_slots_and_keeps_the_case_ops_cheapest(self):
+        base, rule = rulegen.derive_leet_aware("Z@nterw1ck", self.DICT)
+        assert base == "zanterwick"
+        # 'c' for the leading capital, then the two overwrites left to right.
+        assert rule == "co1@o71"
+        assert rulegen.apply_rule(base, rule) == "Z@nterw1ck"
+
+    def test_case_positions_index_the_restored_baseword(self):
+        """A restored letter shifts every later letter's case position by one."""
+        base, rule = rulegen.derive_leet_aware("Gr1bleNaut", self.DICT)
+        assert base == "griblenaut"
+        # 'N' is at index 6 of the restored baseword "griblenaut" but index 5
+        # of the letters-only "grblenaut", so the toggle position has to move.
+        assert rule == "cT6o21"
+        assert rulegen.derive("Gr1bleNaut") == ("grblenaut", "cT5i21")
+        assert rulegen.apply_rule(base, rule) == "Gr1bleNaut"
+
+    def test_mixed_restored_and_unrestored_slots_interleave_correctly(self):
+        """An un-restored slot still inserts, and does not disturb the o positions."""
+        d = Counter({"mirthbell": 5})
+        # '-' is not a leet character, so it stays an insert; '1' restores.
+        base, rule = rulegen.derive_leet_aware("m1rth-bell", d)
+        assert base == "mirthbell"
+        assert rule == "o11i5-"
+        assert rulegen.apply_rule(base, rule) == "m1rth-bell"
+
+    def test_unrestored_leet_slot_before_a_restored_one(self):
+        """An insert to the left of an overwrite must not shift its position.
+
+        The dictionary here attests only the form that leaves the first '1'
+        out and restores the second, so the rule has to emit i then o -- the
+        case an off-by-one in the position accounting would break.
+        """
+        base, rule = rulegen.derive_leet_aware("m1rthbe1l", Counter({"mrthbell": 5}))
+        assert base == "mrthbell"
+        assert rule == "i11o71"
+        assert rulegen.apply_rule(base, rule) == "m1rthbe1l"
+
+    def test_both_leet_slots_restore_when_that_form_is_attested(self):
+        base, rule = rulegen.derive_leet_aware("m1rthbe1l", Counter({"mirthbell": 5}))
+        assert base == "mirthbell"
+        assert rule == "o11o71"
+        assert rulegen.apply_rule(base, rule) == "m1rthbe1l"
+
+    def test_suffix_and_prefix_still_come_last(self):
+        base, rule = rulegen.derive_leet_aware("!!qu1bblefox99", self.DICT)
+        assert base == "quibblefox"
+        assert rule == "o21$9$9^!^!"
+        assert rulegen.apply_rule(base, rule) == "!!qu1bblefox99"
+
+    def test_leading_leet_character_is_not_a_slot(self):
+        """A leading non-letter is already a position-independent ^ op."""
+        assert rulegen.derive_leet_aware("1quibblefox", self.DICT) == rulegen.derive(
+            "1quibblefox"
+        )
+
+    def test_trailing_leet_character_is_not_a_slot(self):
+        assert rulegen.derive_leet_aware("quibblefox1", self.DICT) == rulegen.derive(
+            "quibblefox1"
+        )
+
+    def test_non_leet_interior_character_is_not_a_slot(self):
+        d = Counter({"quibblefox": 7})
+        # '%' has no reverse-leet candidate, so there is nothing to restore.
+        assert rulegen.derive_leet_aware("quibble%fox", d) == rulegen.derive(
+            "quibble%fox"
+        )
+
+
+class TestDeriveLeetAwareAttestation:
+    def test_empty_dictionary_returns_exactly_derive(self):
+        for pw in CORPUS + [
+            "qu1bblefox",
+            "Z@nterw1ck",
+            "m1rthb3ll",
+            "pl0md0rf",
+            "gr!blenaut",
+        ]:
+            assert rulegen.derive_leet_aware(pw, {}) == rulegen.derive(pw), pw
+
+    def test_unattested_candidate_is_not_restored(self):
+        # The dictionary knows something else entirely.
+        d = Counter({"unrelatedword": 99})
+        assert rulegen.derive_leet_aware("qu1bblefox", d) == rulegen.derive(
+            "qu1bblefox"
+        )
+
+    def test_min_hits_gates_a_thinly_attested_candidate(self):
+        d = Counter({"quibblefox": 1})
+        # Default min_hits=2: one attestation is not enough.
+        assert rulegen.derive_leet_aware("qu1bblefox", d) == rulegen.derive(
+            "qu1bblefox"
+        )
+        # Lowering the bar accepts it.
+        assert rulegen.derive_leet_aware("qu1bblefox", d, min_hits=1) == (
+            "quibblefox",
+            "o21",
+        )
+
+    def test_letters_only_baseword_can_win_on_attestation(self):
+        """When deleting the letter is better attested, do not restore.
+
+        This is the case a static reverse-leet map gets wrong, and the reason
+        the all-slots-left-alone combination is in the search.
+        """
+        d = Counter({"grbblefox": 50, "gribblefox": 3})
+        assert rulegen.derive_leet_aware("gr1bblefox", d) == rulegen.derive(
+            "gr1bblefox"
+        )
+        assert rulegen.derive("gr1bblefox")[0] == "grbblefox"
+
+    @pytest.mark.parametrize(
+        ("counts", "expected_base"),
+        [
+            ({"gribble": 9, "grlbble": 3}, "gribble"),
+            ({"gribble": 3, "grlbble": 9}, "grlbble"),
+        ],
+    )
+    def test_ambiguous_one_resolves_by_attestation_not_map_order(
+        self, counts, expected_base
+    ):
+        """'1' is 'i' or 'l'; the corpus decides, not the map's ordering."""
+        base, rule = rulegen.derive_leet_aware("gr1bble", Counter(counts))
+        assert base == expected_base
+        assert rule == "o21"
+        assert rulegen.apply_rule(base, rule) == "gr1bble"
+
+    def test_ambiguous_one_with_neither_candidate_attested(self):
+        assert rulegen.derive_leet_aware("gr1bble", Counter({"grbbleX": 9})) == (
+            rulegen.derive("gr1bble")
+        )
+
+    def test_count_tie_prefers_more_slots_restored(self):
+        """Equal attestation: the more-restored form wins over lexicographic.
+
+        Chosen so the two tie-breaks disagree -- "zinterwck" (one slot) sorts
+        *before* "zinterwick" (two slots), so a selection that skipped straight
+        to lexicographic order would pick the wrong one.
+        """
+        d = Counter({"zinterwick": 4, "zinterwck": 4})
+        assert sorted(d) == ["zinterwck", "zinterwick"]
+        base, rule = rulegen.derive_leet_aware("z1nterw1ck", d)
+        assert base == "zinterwick"
+        assert rule == "o11o71"
+        assert rulegen.apply_rule(base, rule) == "z1nterw1ck"
+
+    def test_count_and_slot_tie_prefers_the_lexicographically_smaller(self):
+        """The final tie-break exists only so the result cannot vary (Constraint 4)."""
+        d = Counter({"gribble": 4, "grlbble": 4})
+        base, _ = rulegen.derive_leet_aware("gr1bble", d)
+        assert base == "gribble"
+
+
+class TestDeriveLeetAwareLimits:
+    def test_four_slots_restore(self):
+        d = Counter({"ziziziziz": 4})
+        base, rule = rulegen.derive_leet_aware("z1z1z1z1z", d)
+        assert base == "ziziziziz"
+        assert rule == "o11o31o51o71"
+        assert rulegen.apply_rule(base, rule) == "z1z1z1z1z"
+
+    def test_five_slots_falls_back_to_derive(self):
+        """One slot past MAX_LEET_SLOTS, with the restored form well attested."""
+        d = Counter({"ziziziziziz": 40})
+        pw = "z1z1z1z1z1z"
+        assert rulegen.derive_leet_aware(pw, d) == rulegen.derive(pw)
+        assert rulegen.derive(pw)[0] == "zzzzzz"
+
+    def test_slot_at_the_last_addressable_position_restores(self):
+        d = Counter({"a" * 35 + "ib": 4})
+        pw = "a" * 35 + "1b"
+        base, rule = rulegen.derive_leet_aware(pw, d)
+        assert base == "a" * 35 + "ib"
+        assert rule == "oZ1"  # position 35 is 'Z' in the POS alphabet
+        assert rulegen.apply_rule(base, rule) == pw
+
+    def test_slot_past_the_addressable_range_falls_back(self):
+        d = Counter({"a" * 36 + "ib": 4})
+        pw = "a" * 36 + "1b"
+        assert rulegen.derive_leet_aware(pw, d) == rulegen.derive(pw)
+        assert rulegen.derive_leet_aware(pw, d) == (pw, ":")
+
+    def test_over_the_function_limit_falls_back(self):
+        # 30 trailing appends + one overwrite is 31 functions; a 31st append
+        # would be 32, over the limit, so the whole thing falls back.
+        d = Counter({"quibblefox": 7})
+        ok = "qu1bblefox" + "!" * 30
+        base, rule = rulegen.derive_leet_aware(ok, d)
+        assert base == "quibblefox"
+        assert rulegen.count_ops(rule) == rulegen.MAX_RULE_FUNCTIONS
+        assert rulegen.apply_rule(base, rule) == ok
+
+        over = "qu1bblefox" + "!" * 31
+        assert rulegen.derive_leet_aware(over, d) == rulegen.derive(over)
+
+    def test_every_emitted_rule_validates(self):
+        d = Counter({"quibblefox": 7, "mirthbell": 5, "zanterwick": 4})
+        for pw in [
+            "qu1bblefox",
+            "Qu1bblefox!",
+            "m1rthbell",
+            "M1RTHBELL",
+            "z@nterw1ck",
+            "!!z@nterw1ck99",
+            "m1rth-bell",
+        ]:
+            _, rule = rulegen.derive_leet_aware(pw, d)
+            assert rulegen.validate_rule(rule), (pw, rule)
+
+
+def _leet_round_trip_inputs():
+    """A broad, deterministic input set that leans on the leet-slot paths.
+
+    Covers letters, digits, symbols, mixed case, leading/trailing/interior
+    non-letters, edge whitespace, the empty string, long strings past the
+    position-35 boundary, and high bytes -- per Constraint 2.
+    """
+    import itertools
+    import random
+    import string
+
+    stems = ["quibblefox", "mirthbell", "zanterwick", "plumdorf", "griblenaut"]
+    leet_chars = list(rulegen.REVERSE_LEET)
+    inputs = ["", "x", "1234567890", "!@#$%^", "..leading", "trailing.."]
+
+    # Every substitution of one or two letters in each stem, over a spread of
+    # case masks and affixes.
+    for stem in stems:
+        for k in (1, 2, 3):
+            for positions in itertools.combinations(range(1, len(stem) - 1), k):
+                for leet in leet_chars:
+                    chars = list(stem)
+                    for p in positions:
+                        chars[p] = leet
+                    word = "".join(chars)
+                    inputs.append(word)
+                    inputs.append(word.upper())
+                    inputs.append(word.capitalize())
+                    inputs.append("!!" + word + "99")
+                    # Edge whitespace crossed with a restored leet slot: a
+                    # preserved leading space shifts every case op and every
+                    # o/i position by one, so the two features have to be
+                    # exercised together, not just side by side.
+                    inputs.append(" " + word)
+                    inputs.append(word + " ")
+                    inputs.append(" " + word.capitalize() + " ")
+
+    random.seed(1091)
+    # The space is in the alphabet deliberately -- rulegen no longer strips
+    # edge whitespace, so it is part of the input domain now.
+    charset = (
+        string.ascii_letters
+        + string.digits
+        + "!@#$%^&*()_-=+[]{}|;:,.<>?"
+        + " "
+        + "".join(chr(i) for i in range(128, 256, 15))
+    )
+    for _ in range(400):
+        length = random.randint(1, 60)
+        inputs.append("".join(random.choice(charset) for _ in range(length)))
+    # Long strings built from a stem so leet slots land past position 35 too.
+    for stem in stems:
+        inputs.append((stem.replace("o", "0") + "-") * 5)
+        inputs.append((stem.replace("e", "3").upper() + "1") * 4)
+    return inputs
+
+
+class TestLeetAwareRoundTripProperty:
+    """Constraint 2 over derive_leet_aware: the round trip must always hold."""
+
+    INPUTS = _leet_round_trip_inputs()
+
+    def _rich_dictionary(self):
+        """Attest every letters-only and every partially-restored form.
+
+        Deliberately generous: it makes restoration fire on a large share of
+        the inputs, which is what gives the round-trip assertions teeth. A
+        realistic corpus attests far less (measured: 0.2% of basewords moved on
+        a 360,000-password sample), so a thin dictionary would leave most of
+        this sweep on the plain-derive path and prove much less.
+        """
+        d = Counter()
+        for pw in self.INPUTS:
+            letters = [c for c in pw if rulegen._isalpha(c)]
+            if letters:
+                d["".join(c.lower() for c in letters)] += 9
+        for stem in ["quibblefox", "mirthbell", "zanterwick", "plumdorf", "griblenaut"]:
+            d[stem] += 9
+        return d
+
+    def test_round_trip_with_a_rich_dictionary(self):
+        d = self._rich_dictionary()
+        restored = 0
+        for pw in self.INPUTS:
+            base, rule = rulegen.derive_leet_aware(pw, d)
+            assert rulegen.apply_rule(base, rule) == pw, (pw, base, rule)
+            if (base, rule) != rulegen.derive(pw):
+                restored += 1
+        # Guard against a vacuous sweep: if restoration never fired, the
+        # assertions above only re-tested derive().
+        assert restored > 100, restored
+
+    def test_exhaustive_case_masks_over_a_restored_slot(self):
+        """All 2^10 case masks x every restorable slot, with the stem attested.
+
+        The analogue of the derive() case-mask sweep, and the test that pins
+        the thing restoration actually changes: a restored letter occupies a
+        baseword position, so every case op after it shifts by one. Indexing
+        the case mask into the letters-only core instead would break here.
+        """
+        import itertools
+
+        stem = "zanterwick"
+        d = Counter({stem: 9})
+        # Only a slot whose letter some leet character maps to can restore.
+        slots = {1: "@", 3: "7", 4: "3", 7: "1"}
+        for slot, leet in slots.items():
+            assert stem[slot] in rulegen.REVERSE_LEET[leet], (slot, leet)
+            for mask in itertools.product([True, False], repeat=len(stem)):
+                cased = "".join(
+                    c.upper() if m else c.lower() for c, m in zip(stem, mask)
+                )
+                pw = cased[:slot] + leet + cased[slot + 1 :]
+                base, rule = rulegen.derive_leet_aware(pw, d)
+                assert base == stem, (pw, base)
+                assert rulegen.apply_rule(base, rule) == pw, (pw, base, rule)
+
+    def test_round_trip_with_an_empty_dictionary(self):
+        for pw in self.INPUTS:
+            base, rule = rulegen.derive_leet_aware(pw, {})
+            assert rulegen.apply_rule(base, rule) == pw, (pw, base, rule)
+
+    def test_empty_dictionary_is_derive_for_every_input(self):
+        for pw in self.INPUTS:
+            assert rulegen.derive_leet_aware(pw, {}) == rulegen.derive(pw), pw
+
+    def test_restored_rules_respect_the_function_limit(self):
+        d = self._rich_dictionary()
+        for pw in self.INPUTS:
+            _, rule = rulegen.derive_leet_aware(pw, d)
+            assert rulegen.count_ops(rule) <= rulegen.MAX_RULE_FUNCTIONS, (pw, rule)
+
+    def test_restored_rules_all_validate(self):
+        """Restricted to printable-ASCII inputs, as validate_rule() requires.
+
+        A high byte in the password becomes a high byte in the rule's literal
+        argument, which hashcat will not accept -- true of derive() before this
+        task too, and not something restoration changes.
+        """
+        d = self._rich_dictionary()
+        checked = 0
+        for pw in self.INPUTS:
+            if not pw or not rulegen._is_printable_ascii(pw):
+                continue
+            _, rule = rulegen.derive_leet_aware(pw, d)
+            assert rulegen.validate_rule(rule), (pw, rule)
+            checked += 1
+        assert checked > 500, checked
+
+    def test_restoration_never_lengthens_the_rule(self):
+        """o replaces i one-for-one, so restoring must not cost extra functions.
+
+        Case ops can move (positions index the restored baseword), so this is
+        an upper bound rather than an equality -- but a restoration that made
+        the rule longer would be a regression in the thing the task is for.
+        """
+        d = self._rich_dictionary()
+        for pw in self.INPUTS:
+            _, plain = rulegen.derive(pw)
+            _, restored = rulegen.derive_leet_aware(pw, d)
+            assert rulegen.count_ops(restored) <= rulegen.count_ops(plain) + 1, (
+                pw,
+                plain,
+                restored,
+            )
+
+
+class TestGenerateLeetRestore:
+    # 3 bare, 2 leet-mangled capitalised, 2 of an unrelated word. Every string
+    # is an invented compound.
+    CORPUS = ["quibblefox"] * 3 + ["Qu1bblefox"] * 2 + ["mirthbell"] * 2
+
+    # Pinned from the letters-only implementation this task builds on.
+    ONE_PASS_BASEWORDS = "quibblefox\nqubblefox\nmirthbell\n"
+    ONE_PASS_RULES = ":\nci21\n"
+    # Pass 2 folds "qubblefox" into "quibblefox" and swaps the insert for an
+    # overwrite.
+    TWO_PASS_BASEWORDS = "quibblefox\nmirthbell\n"
+    TWO_PASS_RULES = ":\nco21\n"
+
+    def _write(self, tmp_path, lines=None, name="corpus.txt"):
+        path = tmp_path / name
+        path.write_text("\n".join(lines or self.CORPUS) + "\n", encoding="latin-1")
+        return str(path)
+
+    def _read(self, path):
+        with open(path, encoding="latin-1") as f:
+            return f.read()
+
+    def test_leet_restore_off_reproduces_the_letters_only_output(self, tmp_path):
+        result = rulegen.generate(
+            self._write(tmp_path),
+            str(tmp_path / "out"),
+            print_fn=lambda *a: None,
+            leet_restore=False,
+        )
+        assert self._read(result["basewords"]) == self.ONE_PASS_BASEWORDS
+        assert self._read(result["rules"]) == self.ONE_PASS_RULES
+        assert result["leet_restored"] == 0
+        assert result["selfcheck_failures"] == []
+        report = self._read(result["coverage"])
+        assert "leet restored" not in report
+        assert "read TWICE" not in report
+
+    def test_leet_restore_on_folds_the_mangled_form_into_the_real_word(self, tmp_path):
+        result = rulegen.generate(
+            self._write(tmp_path), str(tmp_path / "out"), print_fn=lambda *a: None
+        )
+        assert self._read(result["basewords"]) == self.TWO_PASS_BASEWORDS
+        assert self._read(result["rules"]) == self.TWO_PASS_RULES
+        assert result["leet_restored"] == 2
+        assert result["basewords_count"] == 2
+        assert result["total"] == 7
+        assert result["selfcheck_failures"] == []
+
+    def test_leet_restore_defaults_to_on(self, tmp_path):
+        result = rulegen.generate(
+            self._write(tmp_path), str(tmp_path / "out"), print_fn=lambda *a: None
+        )
+        assert self._read(result["basewords"]) == self.TWO_PASS_BASEWORDS
+
+    def test_coverage_report_declares_the_second_pass(self, tmp_path):
+        result = rulegen.generate(
+            self._write(tmp_path), str(tmp_path / "out"), print_fn=lambda *a: None
+        )
+        report = self._read(result["coverage"])
+        assert "leet restored:       2\n" in report
+        assert "read TWICE" in report
+        assert "pass 1" in report and "pass 2" in report
+
+    def test_console_output_mentions_the_second_pass(self, tmp_path):
+        messages = []
+        rulegen.generate(
+            self._write(tmp_path), str(tmp_path / "out"), print_fn=messages.append
+        )
+        assert any("leet-substituted letter" in m for m in messages)
+        assert any("read twice" in m for m in messages)
+
+    def test_reads_the_corpus_twice_only_when_enabled(self, tmp_path, monkeypatch):
+        """Observe the actual opens rather than trusting the code path.
+
+        Counts the difference rather than an absolute, because the gzip sniff
+        in :func:`generate` opens the corpus once as well and is not a pass.
+        """
+        import builtins
+
+        corpus = self._write(tmp_path)
+        real_open = builtins.open
+        opens = []
+
+        def counting_open(file, *args, **kwargs):
+            if str(file) == corpus:
+                opens.append(str(file))
+            return real_open(file, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "open", counting_open)
+        rulegen.generate(
+            corpus, str(tmp_path / "one"), print_fn=lambda *a: None, leet_restore=False
+        )
+        one_pass = len(opens)
+        assert one_pass >= 1
+        opens.clear()
+        rulegen.generate(
+            corpus, str(tmp_path / "two"), print_fn=lambda *a: None, leet_restore=True
+        )
+        assert len(opens) == one_pass + 1
+
+    def test_min_hits_is_configurable(self, tmp_path):
+        # A single attestation, so the default min_hits=2 restores nothing.
+        lines = ["quibblefox", "Qu1bblefox"]
+        result = rulegen.generate(
+            self._write(tmp_path, lines),
+            str(tmp_path / "out2"),
+            print_fn=lambda *a: None,
+        )
+        assert result["leet_restored"] == 0
+        result = rulegen.generate(
+            self._write(tmp_path, lines),
+            str(tmp_path / "out1"),
+            print_fn=lambda *a: None,
+            leet_min_hits=1,
+        )
+        assert result["leet_restored"] == 1
+
+    def test_full_rule_set_still_reconstructs_the_whole_corpus(self, tmp_path):
+        passwords = [p for p in CORPUS if p] + self.CORPUS
+        result = rulegen.generate(
+            self._write(tmp_path, passwords),
+            str(tmp_path / "out"),
+            print_fn=lambda *a: None,
+        )
+        basewords = self._read(result["basewords"]).splitlines()
+        rules = self._read(result["rules"]).splitlines()
+        produced = {rulegen.apply_rule(b, r) for b in basewords for r in rules}
+        assert set(passwords) <= produced
+        assert result["selfcheck_failures"] == []
+
+    def test_every_generated_rule_validates(self, tmp_path):
+        passwords = [p for p in CORPUS if p] + self.CORPUS
+        result = rulegen.generate(
+            self._write(tmp_path, passwords),
+            str(tmp_path / "out"),
+            print_fn=lambda *a: None,
+        )
+        for rule in self._read(result["rules"]).splitlines():
+            assert rulegen.validate_rule(rule), rule
+
+    @pytest.mark.parametrize("leet_restore", [False, True])
+    def test_two_runs_produce_identical_bytes(self, tmp_path, leet_restore):
+        """Constraint 4: no reliance on set iteration order or hash seeding."""
+        passwords = [p for p in CORPUS if p] + self.CORPUS * 2
+        corpus = self._write(tmp_path, passwords)
+        outs = []
+        for name in ("a", "b"):
+            result = rulegen.generate(
+                corpus,
+                str(tmp_path / name),
+                print_fn=lambda *a: None,
+                leet_restore=leet_restore,
+            )
+            outs.append(
+                (
+                    self._read(result["basewords"]),
+                    self._read(result["rules"]),
+                    self._read(result["capped_rules"][50]),
+                )
+            )
+        assert outs[0] == outs[1]
+
+    def test_subthreshold_dictionary_keys_are_output_neutral(self, tmp_path):
+        """generate() filters the attestation dictionary; that must not move output.
+
+        A key counted below min_hits can never satisfy _derive_leet_aware's
+        `hits >= min_hits` gate, so dropping it before pass 2 is free. Asserted
+        directly against derive_leet_aware so the property is pinned at the
+        level that relies on it, not just end to end.
+        """
+        full = Counter({"quibblefox": 7, "mirthbell": 1, "zanterwick": 1})
+        filtered = {k: v for k, v in full.items() if v >= 2}
+        assert set(filtered) == {"quibblefox"}  # the filter really dropped keys
+        for pw in _leet_round_trip_inputs():
+            assert rulegen.derive_leet_aware(pw, full) == rulegen.derive_leet_aware(
+                pw, filtered
+            ), pw
+
+    def test_over_filtering_the_dictionary_does_change_output(self, tmp_path):
+        """Negative control for the test above.
+
+        Without this, the equality above could hold for the wrong reason -- a
+        comparison insensitive to the dictionary altogether would pass it. A
+        filter one step *above* min_hits removes a key the gate would have
+        accepted, and that must be visible.
+        """
+        full = Counter({"quibblefox": 2, "mirthbell": 5})
+        over = {k: v for k, v in full.items() if v >= 3}
+        assert set(over) == {"mirthbell"}
+        # "quibblefox" is attested exactly at min_hits, so it restores from the
+        # full dictionary and is lost from the over-filtered one.
+        assert rulegen.derive_leet_aware("qu1bblefox", full) == ("quibblefox", "o21")
+        assert rulegen.derive_leet_aware("qu1bblefox", over) == rulegen.derive(
+            "qu1bblefox"
+        )
+
+    def test_generate_output_matches_an_unfiltered_reference(self, tmp_path):
+        """End to end: generate()'s filtered pass 2 equals an unfiltered one.
+
+        Builds the pass-1 dictionary by hand, derives every password against it
+        with no filtering at all, and checks generate() agrees. The corpus is
+        shaped so most pass-1 keys fall below min_hits, which is what the
+        filter drops.
+        """
+        passwords = (
+            ["quibblefox"] * 3
+            + ["Qu1bblefox"] * 2
+            + ["mirthbell"]
+            + ["zanterw1ck"]
+            # Attested at exactly min_hits, with a leet form that restores to
+            # it. This is the boundary case: a filter one step too high drops
+            # this key and the restoration is silently lost.
+            + ["vorblesnick"] * 2
+            + ["vorblesn1ck"]
+            + [f"single{chr(97 + i)}word1" for i in range(12)]
+        )
+        result = rulegen.generate(
+            self._write(tmp_path, passwords),
+            str(tmp_path / "out"),
+            print_fn=lambda *a: None,
+        )
+
+        unfiltered = Counter(rulegen.derive(pw)[0] for pw in passwords)
+        below = sum(1 for v in unfiltered.values() if v < 2)
+        assert below > 0, "corpus must exercise the filter to be meaningful"
+        expected = Counter(
+            rulegen.derive_leet_aware(pw, unfiltered)[0] for pw in passwords
+        )
+        produced = self._read(result["basewords"]).splitlines()
+        assert produced == [b for b, _ in expected.most_common()]
+        assert result["selfcheck_failures"] == []
+
+    def test_pruning_still_applies_in_both_passes(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(rulegen, "_PRUNE_CHECK_INTERVAL", 5)
+        lines = ["quibblefox"] * 20 + [f"tail{chr(97 + i)}zulu{i}" for i in range(40)]
+        result = rulegen.generate(
+            self._write(tmp_path, lines),
+            str(tmp_path / "out"),
+            print_fn=lambda *a: None,
+            max_unique=5,
+        )
+        assert result["pruned"] is True
+        assert result["basewords_count"] <= 5
+        assert result["selfcheck_failures"] == []

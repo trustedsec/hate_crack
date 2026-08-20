@@ -184,13 +184,21 @@ def list_wordlist_entries(directory):
 def list_wordlist_files(directory):
     """Wordlist filenames in *directory* -- files only, no directories.
 
-    Not every caller of this hands the name straight to hashcat as a
-    dictionary-position argument -- hashcat accepts a directory there.
-    Its remaining callers need files specifically:
+    Do not reach for this just because a wordlist listing is wanted: a caller
+    that hands the names to hashcat in the *dictionary position* of a straight
+    (``-a 0``) command wants :func:`list_wordlist_entries`, because hashcat
+    accepts a directory there and walks it -- and a wordlist collection
+    unpacked into subdirectories is the normal shape, so filtering them out
+    silently drops most of what the operator has. hcatDictionary and the
+    Spoonman attack's baseword-source menu both use the sibling for that
+    reason.
+
+    Its two callers need files specifically, and neither is that case:
     hcatYoloCombination builds an ``-a 1`` command, where hashcat rejects a
-    directory operand, and wordlist_optimize opens each path itself with
-    ``os.path.isfile``/``open()``, which needs a real file, not hashcat's
-    own directory handling.
+    directory operand; and attacks.wordlist_optimize expands an
+    operator-supplied directory into paths that main.wordlist_optimize opens
+    itself (``os.path.isfile``/``open()``), which needs a real file rather than
+    hashcat's own directory handling.
     """
     return [
         entry.name for entry in list_wordlist_entries(directory) if not entry.is_dir
@@ -1067,6 +1075,12 @@ ollamaNumCtx = int(config_parser.get("ollamaNumCtx", 8192))
 ollamaTimeout = float(config_parser.get("ollamaTimeout", 300))
 ollamaMaxSampleLines = int(config_parser.get("ollamaMaxSampleLines", 500))
 ollamaAutoResearch = bool(config_parser.get("ollamaAutoResearch", True))
+# Which OpenAI-compatible server the LLM attacks talk to (see llm.backend_extra_body
+# for why "vllm" and "openai" each need a different request shape) and the
+# credential it authenticates with. The ollama* settings above still supply
+# the host, model, timeout, context and sampling for every backend.
+llmBackend = config_parser.get("llmBackend", "ollama")
+llmApiKey = config_parser.get("llmApiKey", "ollama")
 
 hcatCorpusProfileMaxLines = int(config_parser.get("hcatCorpusProfileMaxLines", 5000000))
 omenMaxCandidates = int(config_parser.get("omenMaxCandidates", 100000000))
@@ -2540,17 +2554,58 @@ def hcatTopMask(hcatHashType, hcatHashFile, hcatTargetTime):
     hcatMaskCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
 
+def _llm_backend_label() -> str:
+    """The human-facing name for the configured LLM backend, for spinner text."""
+    return {
+        "ollama": "Ollama",
+        "vllm": "vLLM",
+        "openai": "an OpenAI-compatible server",
+    }.get(llmBackend, llmBackend)
+
+
+def _llm_connection_help() -> str:
+    """Backend-aware follow-up line for a failed LLM request.
+
+    Ollama gets the ``ollama serve`` / ``ollama pull`` guidance that always
+    applied here; a vLLM or generic OpenAI-compatible operator is not running
+    either of those tools, so telling them to would be actively misleading.
+    """
+    if llmBackend == "ollama":
+        return (
+            "Ensure Ollama is running (ollama serve) and the model is pulled "
+            f"(ollama pull {ollamaModel})."
+        )
+    return (
+        f"Ensure the configured {_llm_backend_label()} server at {ollamaUrl} is "
+        f"running and serving the model {ollamaModel!r}."
+    )
+
+
 # Rosetta Mask Attack: natural-language description -> hashcat masks
 def hcatRosettaMask(hcatHashType, hcatHashFile, description):
     """Turn a plain-English description into hashcat masks and run them.
 
-    Asks the local Ollama model (via ``llm.generate_masks``) for masks
+    Asks the configured LLM backend (via ``llm.generate_masks``) for masks
     matching *description*, screens the result with ``_valid_hcmask``, writes
     the survivors to ``<hcatHashFile>.hcmask``, and runs a ``-a 3`` mask
     attack against them immediately — mirroring ``hcatTopMask``'s tail.
+
+    All three configured backends (Ollama, vLLM, an OpenAI-compatible server)
+    are supported -- ``llm.generate_masks`` shapes the request per backend via
+    ``llm.rosetta_backend_kwargs``. If the installed HashcatRosetta submodule
+    predates the ``think``/``extra_request_body`` parameters that requires,
+    ``llm.generate_masks`` still raises ``llm.RosettaBackendRefused`` for a
+    non-Ollama backend, caught below with a message telling the operator to
+    update the submodule.
     """
+    destination_warning = llm.offsite_destination_warning(
+        ollamaUrl, llmBackend, no_cloud=ollamaNoCloud
+    )
+    if destination_warning is not None:
+        print(destination_warning)
+
     try:
-        with spinner(f"Generating masks via Ollama ({ollamaModel})..."):
+        with spinner(f"Generating masks via {_llm_backend_label()} ({ollamaModel})..."):
             masks = llm.generate_masks(
                 ollamaUrl,
                 ollamaModel,
@@ -2558,20 +2613,37 @@ def hcatRosettaMask(hcatHashType, hcatHashFile, description):
                 description,
                 timeout=ollamaTimeout,
                 no_cloud=ollamaNoCloud,
+                backend=llmBackend,
+                api_key=llmApiKey,
             )
     except llm.LLMTimeoutError:
-        print(f"Error: the Ollama request timed out after {ollamaTimeout:g} seconds.")
+        print(
+            f"Error: the {_llm_backend_label()} request timed out after {ollamaTimeout:g} seconds."
+        )
         print(
             f"The model ({ollamaModel}) may still be loading into VRAM. Retry, or "
             "raise OLLAMA_TIMEOUT in the .env file to wait longer."
         )
         return
+    except llm.RosettaBackendRefused as e:
+        # A precise, self-contained refusal -- printing the generic
+        # connection-help line after it would tell the operator to go check
+        # a server that is not the problem (the exact failure mode this
+        # exception type exists to prevent). Reached when llmBackend is not
+        # "ollama" and the installed HashcatRosetta submodule predates the
+        # think/extra_request_body parameters that backend needs; the
+        # message tells the operator to update the submodule.
+        print(f"Error: {e}")
+        return
+    except llm.CloudDestinationRefused as e:
+        # Same reasoning as the RosettaBackendRefused branch above: a precise,
+        # self-contained refusal, not a connectivity problem, so the generic
+        # connection-help line below would be misleading.
+        print(f"Error: {e}")
+        return
     except Exception as e:
         print(f"Error generating masks: {e}")
-        print(
-            "Ensure Ollama is running (ollama serve) and the model is pulled "
-            f"(ollama pull {ollamaModel})."
-        )
+        print(_llm_connection_help())
         return
 
     valid_masks = [mask for mask in masks if _valid_hcmask(mask)]
@@ -3666,22 +3738,32 @@ def _corpus_context(path, source_label="wordlist"):
 
 
 def hcatOllamaResearchTarget(company):
-    """Ask the local Ollama model what it knows about *company*.
+    """Ask the configured LLM backend what it knows about *company*.
 
     Returns a dict with "industry", "location", and "parent_company" keys; any
     value may be an empty string when the model is not confident or the request
     failed. Never raises: research is a convenience, so any failure degrades to
     empty suggestions (blank prompts) rather than blocking the attack.
 
-    Uses only the configured local Ollama server — the company name is never
-    sent to a third-party service.
+    Uses the configured local server (Ollama, vLLM, or another
+    OpenAI-compatible server) — see ``OLLAMA_NO_CLOUD`` for the guard that
+    keeps the company name from reaching a cloud model or an offsite
+    destination.
     """
     blank = {"industry": "", "location": "", "parent_company": ""}
     if not ollamaAutoResearch or not company:
         return blank
 
+    destination_warning = llm.offsite_destination_warning(
+        ollamaUrl, llmBackend, no_cloud=ollamaNoCloud
+    )
+    if destination_warning is not None:
+        print(destination_warning)
+
     try:
-        with spinner(f"Researching {company} via Ollama ({ollamaModel})..."):
+        with spinner(
+            f"Researching {company} via {_llm_backend_label()} ({ollamaModel})..."
+        ):
             result = llm.research_target(
                 ollamaUrl,
                 ollamaModel,
@@ -3689,12 +3771,17 @@ def hcatOllamaResearchTarget(company):
                 company,
                 timeout=ollamaTimeout,
                 no_cloud=ollamaNoCloud,
+                backend=llmBackend,
+                api_key=llmApiKey,
             )
     except llm.LLMTimeoutError:
         print(
             f"Note: target research timed out after {ollamaTimeout:g} seconds — "
             "enter the details manually."
         )
+        return blank
+    except llm.CloudDestinationRefused as e:
+        print(f"Note: {e} Enter the details manually.")
         return blank
     except Exception as e:
         print(f"Note: target research unavailable ({e}) — enter the details manually.")
@@ -3742,9 +3829,17 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
         print(f"Error: Unknown LLM generation mode: {mode}")
         return
 
+    destination_warning = llm.offsite_destination_warning(
+        ollamaUrl, llmBackend, no_cloud=ollamaNoCloud
+    )
+    if destination_warning is not None:
+        print(destination_warning)
+
     # Step B: generate candidates via the Atomic Agents module.
     try:
-        with spinner(f"Generating password candidates via Ollama ({ollamaModel})..."):
+        with spinner(
+            f"Generating password candidates via {_llm_backend_label()} ({ollamaModel})..."
+        ):
             candidates = llm.generate_candidates(
                 ollamaUrl,
                 ollamaModel,
@@ -3753,9 +3848,13 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
                 gen_context,
                 timeout=ollamaTimeout,
                 no_cloud=ollamaNoCloud,
+                backend=llmBackend,
+                api_key=llmApiKey,
             )
     except llm.LLMTimeoutError:
-        print(f"Error: the Ollama request timed out after {ollamaTimeout:g} seconds.")
+        print(
+            f"Error: the {_llm_backend_label()} request timed out after {ollamaTimeout:g} seconds."
+        )
         print(
             f"The model ({ollamaModel}) may still be loading into VRAM. Retry, or "
             "raise OLLAMA_TIMEOUT in the .env file to wait longer."
@@ -3766,16 +3865,18 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
         # non-misleading message if generate_candidates ever rejects its input.
         print(f"Error: {e}")
         return
+    except llm.CloudDestinationRefused as e:
+        # A precise, self-contained refusal, not a connectivity problem, so
+        # the generic connection-help line below would be misleading.
+        print(f"Error: {e}")
+        return
     except Exception as e:
         print(f"Error generating candidates: {e}")
-        print(
-            "Ensure Ollama is running (ollama serve) and the model is pulled "
-            f"(ollama pull {ollamaModel})."
-        )
+        print(_llm_connection_help())
         return
 
     if not candidates:
-        print("Error: Ollama returned no usable password candidates.")
+        print(f"Error: {_llm_backend_label()} returned no usable password candidates.")
         return
 
     try:
@@ -3911,12 +4012,17 @@ def _llm_pattern_rules(gen_context):
     Validation is not optional. hashcat drops an invalid rule silently when the
     file also holds valid ones, so an unscreened bad line becomes missing
     coverage the operator never hears about rather than an error.
+
+    Not a standalone operator entry point -- only ``hcatOllamaPatterns`` calls
+    this, and it has already printed ``llm.offsite_destination_warning`` once
+    for the whole (patterns + rules) request pair, so this function does not
+    print it again.
     """
     rules = []
     seen = set()
     discarded = 0
     for attempt in range(1, MAX_RULE_REQUESTS + 1):
-        label = f"Inferring hashcat rules via Ollama ({ollamaModel})"
+        label = f"Inferring hashcat rules via {_llm_backend_label()} ({ollamaModel})"
         if attempt > 1:
             label += f" — retry {attempt - 1}, {len(rules)} rules so far"
         try:
@@ -3928,13 +4034,18 @@ def _llm_pattern_rules(gen_context):
                     gen_context,
                     timeout=ollamaTimeout,
                     no_cloud=ollamaNoCloud,
+                    backend=llmBackend,
+                    api_key=llmApiKey,
                 )
         except llm.LLMTimeoutError:
             print(
-                f"Error: the Ollama rule request timed out after {ollamaTimeout:g} s."
+                f"Error: the {_llm_backend_label()} rule request timed out after {ollamaTimeout:g} s."
             )
             return (None, 0) if attempt == 1 else (rules, discarded)
         except ValueError as e:
+            print(f"Error: {e}")
+            return (None, 0) if attempt == 1 else (rules, discarded)
+        except llm.CloudDestinationRefused as e:
             print(f"Error: {e}")
             return (None, 0) if attempt == 1 else (rules, discarded)
         except Exception as e:
@@ -3982,8 +4093,16 @@ def hcatOllamaPatterns(hcatHashType, hcatHashFile, source_path):
     if gen_context is None:
         return
 
+    destination_warning = llm.offsite_destination_warning(
+        ollamaUrl, llmBackend, no_cloud=ollamaNoCloud
+    )
+    if destination_warning is not None:
+        print(destination_warning)
+
     try:
-        with spinner(f"Inferring password patterns via Ollama ({ollamaModel})..."):
+        with spinner(
+            f"Inferring password patterns via {_llm_backend_label()} ({ollamaModel})..."
+        ):
             raw_patterns = llm.generate_candidates(
                 ollamaUrl,
                 ollamaModel,
@@ -3992,9 +4111,13 @@ def hcatOllamaPatterns(hcatHashType, hcatHashFile, source_path):
                 gen_context,
                 timeout=ollamaTimeout,
                 no_cloud=ollamaNoCloud,
+                backend=llmBackend,
+                api_key=llmApiKey,
             )
     except llm.LLMTimeoutError:
-        print(f"Error: the Ollama request timed out after {ollamaTimeout:g} seconds.")
+        print(
+            f"Error: the {_llm_backend_label()} request timed out after {ollamaTimeout:g} seconds."
+        )
         print(
             f"The model ({ollamaModel}) may still be loading into VRAM. Retry, or "
             "raise OLLAMA_TIMEOUT in the .env file to wait longer."
@@ -4003,12 +4126,12 @@ def hcatOllamaPatterns(hcatHashType, hcatHashFile, source_path):
     except ValueError as e:
         print(f"Error: {e}")
         return
+    except llm.CloudDestinationRefused as e:
+        print(f"Error: {e}")
+        return
     except Exception as e:
         print(f"Error inferring patterns: {e}")
-        print(
-            "Ensure Ollama is running (ollama serve) and the model is pulled "
-            f"(ollama pull {ollamaModel})."
-        )
+        print(_llm_connection_help())
         return
 
     seen = set()
@@ -4688,8 +4811,16 @@ def hcatPrinceLing(hcatHashType, hcatHashFile):
         else str(hcatOptimizedWordlists)
     )
     os.makedirs(cache_dir, exist_ok=True)
+    # Both inputs that decide the file's contents are in its name: the ruleset
+    # the candidates come from, and the candidate budget passed to
+    # prince_ling.py as --size. Leaving the budget out made
+    # pcfgPrinceLingMaxCandidates silently inert once a cache existed -- raising
+    # it reused the smaller wordlist generated under the old value, with no
+    # indication the new setting had not taken effect. Keying on it instead lets
+    # each size keep its own cache.
     cache_path = os.path.join(
-        cache_dir, f"pcfg_prince_ling_{resolved_ruleset_name}.txt"
+        cache_dir,
+        f"pcfg_prince_ling_{resolved_ruleset_name}_{pcfgPrinceLingMaxCandidates}.txt",
     )
     tmp_path = cache_path + ".tmp"
 
@@ -4737,7 +4868,331 @@ def hcatPrinceLing(hcatHashType, hcatHashFile):
         hcatPrinceBaseList = original_base
 
 
-def hcatSpoonman(hcatHashType, hcatHashFile, corpus, coverage=None):
+# Records which corpus a <hash file>.spoonman cache directory was derived from.
+# The cache directory is named after the *hash* file, so without this the corpus
+# never entered the cache key at all: deriving from one corpus and then invoking
+# the attack with a second one whose mtime happened to be older reused the
+# first corpus's basewords and rules, silently.
+SPOONMAN_PROVENANCE_FILE = "corpus.json"
+SPOONMAN_PROVENANCE_FIELDS = ("corpus", "size", "mtime")
+
+
+def _spoonman_provenance(corpus):
+    """Describe *corpus* for the cache key: absolute path, size, and mtime.
+
+    Returns None if it cannot be stat'd, which the caller treats as "cannot
+    prove the cache matches" and therefore re-derives.
+    """
+    try:
+        stat = os.stat(corpus)
+    except OSError:
+        return None
+    return {
+        "corpus": os.path.abspath(corpus),
+        "size": stat.st_size,
+        "mtime": stat.st_mtime,
+    }
+
+
+def _read_spoonman_provenance(path):
+    """Load a provenance file written by a previous run, or None.
+
+    Missing, empty, unreadable, malformed, and written-by-an-older-version
+    (any expected field absent) all come back as None rather than raising: a
+    cache we cannot vouch for is a cache miss, not an error.
+    """
+    try:
+        with open(path, encoding="utf-8") as handle:
+            recorded = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(recorded, dict):
+        return None
+    if any(field not in recorded for field in SPOONMAN_PROVENANCE_FIELDS):
+        return None
+    return recorded
+
+
+def _write_spoonman_provenance(path, provenance):
+    """Record *provenance* beside the derived output. Best effort.
+
+    A failure here only costs the next run its cache, so it must not abort an
+    attack whose expensive derivation has already succeeded.
+    """
+    if provenance is None:
+        return
+    try:
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(provenance, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+    except OSError as e:
+        print(f"[!] Could not record corpus provenance in {path}: {e}")
+
+
+def _invalidate_spoonman_provenance(path):
+    """Remove the provenance record, marking the cache directory invalid.
+
+    Called immediately before a derivation starts, which is what makes the
+    record a validity marker rather than a stale label. ``rulegen.generate()``
+    writes basewords.txt in place and non-atomically, and the derivation is a
+    two-pass O(corpus) operation an operator will plausibly Ctrl-C -- and
+    KeyboardInterrupt is deliberately not caught here, so it propagates. An
+    interrupt after basewords.txt was rewritten but before the new record was
+    written would otherwise leave the *previous* corpus's record beside the
+    *new* corpus's basewords: the next run against the previous corpus would
+    then match the record, pass the mtime check, announce a cache hit and crack
+    with the wrong corpus's basewords -- the exact failure this record exists
+    to prevent. With no record, a half-finished cache directory is a miss.
+    """
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        # Cannot invalidate, so say so: a reused stale record is the one
+        # outcome worth being loud about.
+        print(f"[!] Could not invalidate stale corpus provenance {path}: {e}")
+
+
+def _spoonman_cache_mismatch(recorded, current):
+    """Explain why *recorded* does not describe *current*, or None if it does."""
+    if current is None:
+        return "the corpus could not be read"
+    if recorded is None:
+        return "its provenance record is missing or unreadable"
+    if recorded.get("corpus") != current["corpus"]:
+        return f"it was derived from a different corpus ({recorded.get('corpus')})"
+    if (
+        recorded.get("size") != current["size"]
+        or recorded.get("mtime") != current["mtime"]
+    ):
+        return "the corpus has changed since it was derived"
+    return None
+
+
+# hashcat's optimized kernels (-O) impose a maximum candidate length, and
+# anything over it is dropped without a word. 31 is the mode-0 figure, verified
+# against hashcat v7.1.2: with -O a 31-character plaintext cracks, a
+# 32-character one does not, and hashcat prints no warning and exits cleanly.
+# The real cap is mode-dependent, so this single number is a heuristic used
+# only to warn -- nothing filters candidates or changes an attack's behaviour
+# based on it, and no attempt is made to derive it per hash mode.
+OPTIMIZED_KERNEL_MAX_PLAIN_LENGTH = 31
+
+# Above this size, say that the baseword scan below is happening. The scan
+# streams, so it is cheap per byte, but a corpus-sized baseword list still
+# takes long enough that an unannounced pause before hashcat starts looks like
+# a hang.
+SPOONMAN_BASEWORD_SCAN_NOTICE_BYTES = 64 * 1024 * 1024
+
+
+def _count_over_long_basewords(path, cap=OPTIMIZED_KERNEL_MAX_PLAIN_LENGTH):
+    """Count lines in *path* longer than *cap* characters; None if unreadable.
+
+    Streams the file one line at a time: a Spoonman baseword list is derived
+    from the whole corpus and can be nearly as large, so it must not be read
+    into memory just to print a warning.
+    """
+    try:
+        with open(path, encoding="latin-1") as handle:
+            return sum(1 for line in handle if len(line.rstrip("\r\n")) > cap)
+    except OSError:
+        return None
+
+
+def _warn_optimized_kernel_length_loss(basewords_path):
+    """Report how many basewords ``-O`` will silently drop, if ``-O`` is in play.
+
+    Spoonman's baseword list holds whole literal passwords -- every letterless
+    or unrepresentable corpus entry becomes its own baseword -- so a corpus with
+    long entries loses them outright, with nothing in hashcat's output to say
+    so. Informational only: it does not prompt and does not change the run.
+
+    Scope is the derived baseword list only -- the capped file when a cap is in
+    effect, the uncapped one otherwise. Extra wordlists are **not** counted:
+    this runs before _spoonman_wordlists builds the operand list, and an extra
+    can be a directory, so counting them would mean walking arbitrary
+    operator-supplied trees. Over-long entries in an extra wordlist are dropped
+    by ``-O`` just the same and go unreported, which is one more reason the
+    printed count is worded as a floor.
+    """
+    if not _should_use_optimized_kernel("hcatQuickDictionary"):
+        return
+    try:
+        size = os.path.getsize(basewords_path)
+    except OSError:
+        size = 0
+    if size >= SPOONMAN_BASEWORD_SCAN_NOTICE_BYTES:
+        print(
+            f"[*] Scanning {size // (1024 * 1024)} MB of basewords for entries "
+            "the optimized kernel would drop..."
+        )
+    over_long = _count_over_long_basewords(basewords_path)
+    if not over_long:
+        return
+    # "At least", and 31 named as the mode-0 figure: the count is a floor in two
+    # directions. Spoonman runs at any hash mode and the real -O cap varies with
+    # the mode, and a rule that appends characters can carry a baseword that
+    # fits here past the cap. An operator must not read this as an exact loss.
+    print(
+        f"[!] At least {over_long} baseword(s) exceed "
+        f"{OPTIMIZED_KERNEL_MAX_PLAIN_LENGTH} characters and will be dropped "
+        "silently by hashcat's optimized kernel (-O)."
+    )
+    print(
+        f"    {OPTIMIZED_KERNEL_MAX_PLAIN_LENGTH} is the cap verified for mode 0; "
+        "the real cap varies by hash mode, and a rule that appends characters "
+        "can push a shorter baseword over it. Re-run with "
+        "--no-optimized-kernel (--no-optimize) to keep them."
+    )
+
+
+def _same_path(left, right):
+    """Do *left* and *right* resolve to the same filesystem object?
+
+    realpath rather than a string comparison: the two arrive from different
+    places (one typed or picked by the operator, one enumerated from a
+    directory listing), so a symlink, a ``./`` prefix, or a trailing slash is
+    ordinary rather than exotic.
+    """
+    try:
+        return os.path.realpath(left) == os.path.realpath(right)
+    except OSError:
+        return False
+
+
+def _path_contains(container, target):
+    """Does directory *container* hold *target* somewhere beneath it?
+
+    _same_path alone is depth-blind, and the extras it screens are enumerated
+    with list_wordlist_entries, which deliberately includes directories so
+    hashcat walks them. A corpus one level inside an offered directory is
+    therefore the expected shape, not a corner case -- a wordlist collection
+    with the corpus unpacked into its own subdirectory beside the others.
+
+    Both sides go through realpath so a symlinked directory whose target holds
+    the corpus is caught too. The separator is appended before the prefix test
+    because a bare string prefix would also match a sibling whose name merely
+    starts the same way -- ``lists`` would "contain" ``lists2/corpus.txt`` --
+    and it is what makes a non-directory *container* answer False on its own,
+    since nothing resolves to a path beneath a plain file.
+    """
+    try:
+        container_real = os.path.realpath(container)
+        target_real = os.path.realpath(target)
+    except OSError:
+        return False
+    return target_real.startswith(container_real.rstrip(os.sep) + os.sep)
+
+
+def _spoonman_wordlists(basewords_path, extra_wordlists, corpus=None):
+    """Build the dictionary list for the run: derived basewords, then the extras.
+
+    hashcat reads straight-mode dictionaries sequentially, so the order is the
+    order they are tried in and the derived basewords -- the corpus-specific
+    part, and the only part the rules were measured against -- go first.
+    A path that does not exist is named and skipped rather than handed to
+    hashcat, which would abort the whole run over one bad entry; if that leaves
+    nothing but the derived basewords, the attack proceeds with those.
+
+    *corpus* is skipped if it turns up among the extras, which is a normal
+    accident rather than an exotic one: the corpus prompt's base directory is
+    hcatWordlists, so a corpus picked there is inside the very directory the
+    "derived basewords + configured wordlists" option enumerates. Feeding it
+    back in is pure waste -- its lines are ``<digest>:<plaintext>`` records,
+    which cannot be candidates -- and on a large corpus it is the dominant cost
+    of the run, with nothing on screen to say so.
+
+    An extra that is a **directory containing** the corpus is skipped for the
+    same reason: hashcat walks a directory operand, so handing it one that holds
+    the corpus feeds the corpus in just as surely as naming the file. The extras
+    are enumerated with list_wordlist_entries, which includes directories on
+    purpose, so this is the common spelling rather than the rare one. The whole
+    directory goes, not just the corpus inside it -- an operand is all-or-nothing
+    to hashcat, and there is no way to hand it a directory minus one file.
+    """
+    wordlists = [basewords_path]
+    for extra in extra_wordlists or []:
+        if not os.path.exists(extra):
+            print(f"[!] Skipping wordlist (not found): {extra}")
+            continue
+        if corpus is not None and _same_path(extra, corpus):
+            print(
+                f"[!] Skipping wordlist (it is the corpus this attack derived "
+                f"from): {extra}"
+            )
+            continue
+        if corpus is not None and _path_contains(extra, corpus):
+            print(
+                f"[!] Skipping wordlist (it is a directory containing the corpus "
+                f"this attack derived from): {extra}"
+            )
+            continue
+        wordlists.append(extra)
+    return wordlists
+
+
+def _spoonman_capped_basewords(full_path, capped_path, cap):
+    """Materialize the *cap* most frequent basewords from a cached full list.
+
+    A cap is operator-chosen, so a warm cache cannot be expected to already
+    hold ``basewords.top{N}.txt`` for the N asked for -- and re-deriving to get
+    one would mean a two-pass read of the whole corpus, hours on a corpus of
+    the size rulegen.py's memory bound is written for. It is not needed:
+    rulegen.generate() ranks the basewords once and writes every capped file as
+    a **prefix** of basewords.txt, so the first *cap* lines of the cached full
+    list are byte-identical to what a derivation would have produced.
+
+    Deliberately does not touch the provenance record. Truncating a cached list
+    is not a derivation, so the Task 5 validity marker stays exactly as the
+    derivation that wrote basewords.txt left it.
+
+    Streams, because a baseword list can approach corpus size. Returns the
+    capped path, or *full_path* if it could not be written -- an unwritable
+    cache costs the cap, which is a keyspace preference, and must not cost the
+    attack.
+    """
+    try:
+        # Older than the full list means it belongs to a previous derivation
+        # (a capped file survives one, since generate() only writes the caps it
+        # was asked for), so it would be a stale prefix of a corpus that is no
+        # longer there.
+        # Strictly newer, deliberately: on a coarse-mtime filesystem (HFS+,
+        # FAT, some NFS) a derivation landing in the same tick as an earlier
+        # capped write would compare equal, and reusing on equality would serve
+        # that stale prefix. The cost of being wrong the other way is a rebuild
+        # that produces byte-identical output from a file already on disk.
+        if os.path.isfile(capped_path) and os.path.getmtime(
+            capped_path
+        ) > os.path.getmtime(full_path):
+            return capped_path
+    except OSError:
+        pass
+    try:
+        with (
+            open(full_path, encoding="latin-1") as src,
+            open(capped_path, "w", encoding="latin-1") as dst,
+        ):
+            for index, line in enumerate(src):
+                if index >= cap:
+                    break
+                dst.write(line)
+    except OSError as e:
+        print(f"[!] Could not write the capped baseword list {capped_path}: {e}")
+        print("    Continuing with the full derived baseword list.")
+        return full_path
+    print(f"[*] Capped the cached baseword list to its {cap} most frequent entries")
+    return capped_path
+
+
+def hcatSpoonman(
+    hcatHashType,
+    hcatHashFile,
+    corpus,
+    coverage=None,
+    extra_wordlists=None,
+    baseword_cap=None,
+):
     """Spoonman Attack: derive basewords + rules from *corpus*, then crack with them.
 
     ``coverage`` picks which generated rule file to run: ``None`` for the full
@@ -4746,6 +5201,20 @@ def hcatSpoonman(hcatHashType, hcatHashFile, corpus, coverage=None):
     rulegen.generate()'s Counter pruning stays out of the way; once pruning
     fires, coverage is relative to the retained keys instead. See
     hate_crack/rulegen.py and issue #169.
+
+    ``extra_wordlists`` are additional dictionaries to cross the derived rules
+    against, appended after the derived basewords. This is the knob that
+    matters: measured against unseen passwords, the derived rule set saturates
+    almost immediately while most misses are a missing *baseword*.
+
+    ``baseword_cap`` runs ``basewords.top{N}.txt`` instead of the full derived
+    list. It trades reach for keyspace and is not an accuracy win. A cap does
+    **not** invalidate the cache: N is operator-chosen, so a warm cache will
+    usually not hold the file for it, and it is truncated out of the cached
+    full list instead of re-derived (see _spoonman_capped_basewords). Zero or
+    None means no cap. Like ``coverage``, it is relative to what generate()
+    retained: once the Counter pruning fires, a cap is the top N of the
+    *retained* basewords rather than of every baseword the corpus held.
     """
     if not os.path.isfile(corpus):
         print(f"Error: corpus not found: {corpus}")
@@ -4756,19 +5225,50 @@ def hcatSpoonman(hcatHashType, hcatHashFile, corpus, coverage=None):
     # removed by cleanup().
     cache_dir = f"{hcatHashFile}.spoonman"
     # Deriving is O(corpus), so reuse a previous run's output unless the corpus
-    # has changed since. Mirrors the staleness check in hcatPrinceLing.
-    basewords_path = os.path.join(cache_dir, "basewords.txt")
+    # has changed since. The cache directory is keyed on the hash file, so the
+    # mtime comparison alone (as in hcatPrinceLing) is not enough here: a
+    # different corpus with an older mtime would pass it. The provenance file
+    # records which corpus the directory actually holds.
+    # Cache validity is decided on the *uncapped* list, never on a capped one:
+    # a cap is a truncation of that list, not a separate derivation.
+    full_basewords_path = os.path.join(cache_dir, "basewords.txt")
+    basewords_path = full_basewords_path
     rules_path = os.path.join(cache_dir, "rules.full.rule")
     if coverage is not None:
         rules_path = os.path.join(cache_dir, f"rules.top{coverage}.rule")
-    cached = os.path.isfile(basewords_path) and os.path.isfile(rules_path)
-    if cached and os.path.getmtime(corpus) <= os.path.getmtime(basewords_path):
+    provenance_path = os.path.join(cache_dir, SPOONMAN_PROVENANCE_FILE)
+    current_provenance = _spoonman_provenance(corpus)
+    cached = os.path.isfile(full_basewords_path) and os.path.isfile(rules_path)
+    mismatch = _spoonman_cache_mismatch(
+        _read_spoonman_provenance(provenance_path), current_provenance
+    )
+    fresh = cached and os.path.getmtime(corpus) <= os.path.getmtime(full_basewords_path)
+    if fresh and mismatch is None:
         print(f"[*] Reusing derived basewords and rules in {cache_dir}")
+        if baseword_cap:
+            basewords_path = _spoonman_capped_basewords(
+                full_basewords_path,
+                os.path.join(cache_dir, f"basewords.top{baseword_cap}.txt"),
+                baseword_cap,
+            )
     else:
+        if cached and mismatch is not None:
+            # Say why an expensive derivation is running again over what looks
+            # from the outside like a warm cache.
+            print(f"[*] Ignoring the cache in {cache_dir}: {mismatch}")
         print(f"[*] Deriving basewords and rules from {corpus}")
+        # Drop the old record first: from here until the new one is written the
+        # cache directory is not to be trusted, including if this is
+        # interrupted. See _invalidate_spoonman_provenance.
+        _invalidate_spoonman_provenance(provenance_path)
         try:
             with _wordlist_path(corpus) as resolved_corpus:
-                result = _rulegen.generate(resolved_corpus, cache_dir)
+                result = _rulegen.generate(
+                    resolved_corpus,
+                    cache_dir,
+                    leet_restore=True,
+                    baseword_caps=(baseword_cap,) if baseword_cap else (),
+                )
         except (OSError, ValueError) as e:
             print(f"Rule derivation failed: {e}")
             return
@@ -4776,15 +5276,27 @@ def hcatSpoonman(hcatHashType, hcatHashFile, corpus, coverage=None):
         rules_path = result["rules"]
         if coverage is not None:
             rules_path = result["capped_rules"].get(coverage, rules_path)
+        if baseword_cap:
+            basewords_path = result["capped_basewords"].get(
+                baseword_cap, basewords_path
+            )
+        _write_spoonman_provenance(provenance_path, current_provenance)
     print(f"[*] Basewords: {basewords_path}")
     print(f"[*] Rules:     {rules_path}")
     print(f"[*] Coverage:  {os.path.join(cache_dir, 'coverage.txt')}")
+    # Scan the list actually being run: with a cap in effect that is the capped
+    # file, and its over-long count is not the uncapped file's.
+    _warn_optimized_kernel_length_loss(basewords_path)
+
+    wordlists = _spoonman_wordlists(basewords_path, extra_wordlists, corpus=corpus)
+    for extra in wordlists[1:]:
+        print(f"[*] Also:      {extra}")
 
     hcatQuickDictionary(
         hcatHashType,
         hcatHashFile,
         f"-r {shlex.quote(rules_path)}",
-        basewords_path,
+        wordlists,
         attack_name="Spoonman",
     )
 

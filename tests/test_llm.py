@@ -52,6 +52,8 @@ def test_target_mode_returns_candidates():
             "target",
             {"company": "AcmeCorp", "industry": "Finance", "location": "NYC"},
             no_cloud=False,
+            backend="ollama",
+            api_key="ollama",
         )
     assert out == ["AcmeCorp2024", "Finance123"]
     # The instruction the agent received must include the target context.
@@ -71,6 +73,8 @@ def test_wordlist_mode_includes_sample_in_request():
             "wordlist",
             {"sample": "password\nletmein\nsummer2024"},
             no_cloud=False,
+            backend="ollama",
+            api_key="ollama",
         )
     run_arg = agent_instance.run.call_args[0][0]
     assert "letmein" in run_arg.request
@@ -88,6 +92,8 @@ def test_cracked_mode_includes_sample_in_request():
             "cracked",
             {"sample": "Summer2024!\nAcme2023\nP@ssw0rd1"},
             no_cloud=False,
+            backend="ollama",
+            api_key="ollama",
         )
     assert out == ["Winter2025!"]
     run_arg = agent_instance.run.call_args[0][0]
@@ -108,6 +114,8 @@ def test_cracked_mode_uses_its_own_prompt_not_the_denylist_one():
             "cracked",
             {"sample": "Summer2024!"},
             no_cloud=False,
+            backend="ollama",
+            api_key="ollama",
         )
     config = agent_cls.__getitem__.return_value.call_args.kwargs["config"]
     assert config.system_prompt_generator is llm._CRACKED_PROMPT
@@ -124,6 +132,8 @@ def test_wordlist_mode_still_uses_wordlist_prompt():
             "wordlist",
             {"sample": "password"},
             no_cloud=False,
+            backend="ollama",
+            api_key="ollama",
         )
     config = agent_cls.__getitem__.return_value.call_args.kwargs["config"]
     assert config.system_prompt_generator is llm._WORDLIST_PROMPT
@@ -139,6 +149,8 @@ def test_target_mode_still_uses_target_prompt():
             "target",
             {"company": "X", "industry": "Y", "location": "Z"},
             no_cloud=False,
+            backend="ollama",
+            api_key="ollama",
         )
     config = agent_cls.__getitem__.return_value.call_args.kwargs["config"]
     assert config.system_prompt_generator is llm._TARGET_PROMPT
@@ -161,6 +173,8 @@ def test_target_mode_includes_parent_company_when_present():
                 "parent_company": "Acquired by Global Holdings in 2022",
             },
             no_cloud=False,
+            backend="ollama",
+            api_key="ollama",
         )
     run_arg = agent_instance.run.call_args[0][0]
     # Verify all fields are in the request.
@@ -185,6 +199,8 @@ def test_target_mode_handles_empty_parent_company():
                 "parent_company": "",
             },
             no_cloud=False,
+            backend="ollama",
+            api_key="ollama",
         )
     run_arg = agent_instance.run.call_args[0][0]
     # Verify required fields are present but no empty parens appear.
@@ -230,6 +246,8 @@ def test_dedupes_and_caps_length():
             "target",
             {"company": "X", "industry": "Y", "location": "Z"},
             no_cloud=False,
+            backend="ollama",
+            api_key="ollama",
         )
     assert out == ["keep", "dup"]  # trimmed, deduped, blank + >128 dropped
 
@@ -244,6 +262,8 @@ def test_num_ctx_forwarded_via_model_api_parameters():
             "target",
             {"company": "X", "industry": "Y", "location": "Z"},
             no_cloud=False,
+            backend="ollama",
+            api_key="ollama",
         )
     # AtomicAgent[In, Out](config=<AgentConfig>) — inspect the config.
     config = agent_cls.__getitem__.return_value.call_args.kwargs["config"]
@@ -261,7 +281,14 @@ def test_generate_candidates_rejects_unknown_mode_before_building_client():
     """generate_candidates surfaces _build_request's ValueError to its caller."""
     with pytest.raises(ValueError, match="Unknown LLM generation mode: bogus"):
         llm.generate_candidates(
-            "http://localhost:11434", "qwen2.5:32b", 2048, "bogus", {}, no_cloud=False
+            "http://localhost:11434",
+            "qwen2.5:32b",
+            2048,
+            "bogus",
+            {},
+            no_cloud=False,
+            backend="ollama",
+            api_key="ollama",
         )
 
 
@@ -276,6 +303,8 @@ def test_timeout_forwarded_to_openai_client():
             {"company": "X", "industry": "Y", "location": "Z"},
             timeout=42.5,
             no_cloud=False,
+            backend="ollama",
+            api_key="ollama",
         )
     assert openai_cls.call_args.kwargs["timeout"] == 42.5
 
@@ -290,6 +319,8 @@ def test_default_timeout_used_when_omitted():
             "target",
             {"company": "X", "industry": "Y", "location": "Z"},
             no_cloud=False,
+            backend="ollama",
+            api_key="ollama",
         )
     assert llm.DEFAULT_TIMEOUT_SECONDS == 300.0
     assert openai_cls.call_args.kwargs["timeout"] == llm.DEFAULT_TIMEOUT_SECONDS
@@ -311,6 +342,8 @@ def test_api_timeout_reraised_as_domain_error():
                 {"company": "X", "industry": "Y", "location": "Z"},
                 timeout=1.0,
                 no_cloud=False,
+                backend="ollama",
+                api_key="ollama",
             )
 
 
@@ -355,6 +388,8 @@ def test_research_target_returns_fields_and_passes_company():
             2048,
             "Acme Rail Services",
             no_cloud=False,
+            backend="ollama",
+            api_key="ollama",
         )
     assert out.industry == "freight rail maintenance"
     assert out.location == "Omaha, Nebraska"
@@ -367,7 +402,13 @@ def test_research_target_uses_research_prompt_and_num_ctx():
     )
     with p_instr, p_openai, p_agent:
         llm.research_target(
-            "http://localhost:11434", "qwen2.5:32b", 4096, "Acme", no_cloud=False
+            "http://localhost:11434",
+            "qwen2.5:32b",
+            4096,
+            "Acme",
+            no_cloud=False,
+            backend="ollama",
+            api_key="ollama",
         )
     config = agent_cls.__getitem__.return_value.call_args.kwargs["config"]
     assert config.system_prompt_generator is llm._RESEARCH_PROMPT
@@ -386,7 +427,13 @@ def test_research_target_strips_and_blanks_whitespace_only():
     )
     with p_instr, p_openai, p_agent:
         out = llm.research_target(
-            "http://localhost:11434", "m", 2048, "Acme", no_cloud=False
+            "http://localhost:11434",
+            "m",
+            2048,
+            "Acme",
+            no_cloud=False,
+            backend="ollama",
+            api_key="ollama",
         )
     assert out.industry == "healthcare"
     assert out.location == ""
@@ -398,7 +445,13 @@ def test_research_target_caps_overlong_values():
     )
     with p_instr, p_openai, p_agent:
         out = llm.research_target(
-            "http://localhost:11434", "m", 2048, "Acme", no_cloud=False
+            "http://localhost:11434",
+            "m",
+            2048,
+            "Acme",
+            no_cloud=False,
+            backend="ollama",
+            api_key="ollama",
         )
     assert len(out.industry) == llm.MAX_RESEARCH_FIELD_LEN
     assert len(out.location) == llm.MAX_RESEARCH_FIELD_LEN
@@ -410,7 +463,13 @@ def test_research_target_tolerates_non_string_fields():
     )
     with p_instr, p_openai, p_agent:
         out = llm.research_target(
-            "http://localhost:11434", "m", 2048, "Acme", no_cloud=False
+            "http://localhost:11434",
+            "m",
+            2048,
+            "Acme",
+            no_cloud=False,
+            backend="ollama",
+            api_key="ollama",
         )
     assert out.industry == ""
     assert out.location == ""
@@ -426,7 +485,14 @@ def test_research_target_timeout_forwarded_and_translated():
     with p_instr, p_openai as openai_cls, p_agent:
         with pytest.raises(llm.LLMTimeoutError):
             llm.research_target(
-                "http://localhost:11434", "m", 2048, "Acme", timeout=7.5, no_cloud=False
+                "http://localhost:11434",
+                "m",
+                2048,
+                "Acme",
+                timeout=7.5,
+                no_cloud=False,
+                backend="ollama",
+                api_key="ollama",
             )
     assert openai_cls.call_args.kwargs["timeout"] == 7.5
 
@@ -448,6 +514,8 @@ def test_research_target_includes_parent_company_field():
             2048,
             "Acme Health Services",
             no_cloud=False,
+            backend="ollama",
+            api_key="ollama",
         )
     assert out.parent_company == "Acquired by Global Health Corp in 2023"
 
@@ -463,6 +531,8 @@ def test_research_target_handles_empty_parent_company():
             2048,
             "Independent Clinic",
             no_cloud=False,
+            backend="ollama",
+            api_key="ollama",
         )
     assert out.parent_company == ""
 
@@ -481,10 +551,11 @@ def _rosetta_suggestion(mask, custom_charsets=()):
 def test_generate_masks_returns_masks(monkeypatch):
     captured = {}
 
-    def fake_generate_masks(description, *, model, client, extra_options):
+    def fake_generate_masks(description, *, model, client, extra_options, host=None):
         captured["description"] = description
         captured["model"] = model
         captured["extra_options"] = extra_options
+        captured["host"] = host
         return [
             _rosetta_suggestion("?u?l?l?l?d?d"),
             _rosetta_suggestion("?l?l?l?l?l?l?d"),
@@ -498,12 +569,15 @@ def test_generate_masks_returns_masks(monkeypatch):
         2048,
         "8 character passwords, capitalized word plus two digits",
         no_cloud=False,
+        backend="ollama",
+        api_key="ollama",
     )
 
     assert out == ["?u?l?l?l?d?d", "?l?l?l?l?l?l?d"]
     assert captured["model"] == "qwen2.5:32b"
     assert captured["extra_options"] == {"num_ctx": 2048}
     assert "8 character passwords" in captured["description"]
+    assert captured["host"] == "http://localhost:11434"
 
 
 def test_generate_masks_combines_custom_charsets(monkeypatch):
@@ -519,6 +593,8 @@ def test_generate_masks_combines_custom_charsets(monkeypatch):
         2048,
         "four vowels then two digits",
         no_cloud=False,
+        backend="ollama",
+        api_key="ollama",
     )
 
     assert out == ["aeiou,?1?1?1?1?d?d"]
@@ -536,7 +612,13 @@ def test_generate_masks_dedupes_combined_lines(monkeypatch):
     )
 
     out = llm.generate_masks(
-        "http://localhost:11434", "qwen2.5:32b", 2048, "four digit pins", no_cloud=False
+        "http://localhost:11434",
+        "qwen2.5:32b",
+        2048,
+        "four digit pins",
+        no_cloud=False,
+        backend="ollama",
+        api_key="ollama",
     )
 
     assert out == ["?d?d?d?d", "?u?l?l?l"]
@@ -556,7 +638,13 @@ def test_generate_masks_raises_llm_timeout_error(monkeypatch):
 
     with pytest.raises(llm.LLMTimeoutError):
         llm.generate_masks(
-            "http://localhost:11434", "qwen2.5:32b", 2048, "pins", no_cloud=False
+            "http://localhost:11434",
+            "qwen2.5:32b",
+            2048,
+            "pins",
+            no_cloud=False,
+            backend="ollama",
+            api_key="ollama",
         )
 
 
@@ -568,7 +656,13 @@ def test_generate_masks_reraises_non_timeout_rosetta_errors(monkeypatch):
 
     with pytest.raises(llm._RosettaMaskGenerationError):
         llm.generate_masks(
-            "http://localhost:11434", "qwen2.5:32b", 2048, "pins", no_cloud=False
+            "http://localhost:11434",
+            "qwen2.5:32b",
+            2048,
+            "pins",
+            no_cloud=False,
+            backend="ollama",
+            api_key="ollama",
         )
 
 
@@ -577,7 +671,13 @@ def test_generate_masks_raises_runtime_error_when_rosetta_unavailable(monkeypatc
 
     with pytest.raises(RuntimeError, match="HashcatRosetta is unavailable"):
         llm.generate_masks(
-            "http://localhost:11434", "qwen2.5:32b", 2048, "pins", no_cloud=False
+            "http://localhost:11434",
+            "qwen2.5:32b",
+            2048,
+            "pins",
+            no_cloud=False,
+            backend="ollama",
+            api_key="ollama",
         )
 
 
@@ -589,4 +689,366 @@ def test_generate_masks_refuses_cloud_model_when_no_cloud():
             2048,
             "pins",
             no_cloud=True,
+            backend="ollama",
+            api_key="ollama",
         )
+
+
+# ---------------------------------------------------------------------------
+# backend_extra_body
+# ---------------------------------------------------------------------------
+
+
+def test_backend_extra_body_ollama_uses_options_num_ctx():
+    assert llm.backend_extra_body("ollama", 4096) == {"options": {"num_ctx": 4096}}
+
+
+def test_backend_extra_body_vllm_disables_thinking_via_chat_template_kwargs():
+    """The verified fix for vLLM's reasoning-parser trap: 'thinking', not
+    'enable_thinking' -- the latter silently returns an empty object rather
+    than erroring, so this must check the exact key, not just dict truthiness.
+    """
+    body = llm.backend_extra_body("vllm", 4096)
+    assert body["chat_template_kwargs"]["thinking"] is False
+    # Regression guard: no leaked Ollama-shaped field, and not the wrong key.
+    assert "options" not in body
+    assert "enable_thinking" not in body["chat_template_kwargs"]
+
+
+def test_backend_extra_body_openai_is_empty():
+    assert llm.backend_extra_body("openai", 4096) == {}
+
+
+def test_backend_extra_body_rejects_unknown_backend():
+    with pytest.raises(ValueError, match="bogus"):
+        llm.backend_extra_body("bogus", 4096)
+
+
+# ---------------------------------------------------------------------------
+# _build_client
+# ---------------------------------------------------------------------------
+
+
+def test_build_client_passes_configured_api_key_through():
+    with (
+        mock.patch("hate_crack.llm.OpenAI") as openai_cls,
+        mock.patch("hate_crack.llm.instructor.from_openai"),
+    ):
+        llm._build_client("http://localhost:8000", "sk-real-vllm-key", 30.0)
+    assert openai_cls.call_args.kwargs["api_key"] == "sk-real-vllm-key"
+    assert openai_cls.call_args.kwargs["base_url"] == "http://localhost:8000/v1"
+    assert openai_cls.call_args.kwargs["timeout"] == 30.0
+
+
+def test_generate_candidates_forwards_backend_and_api_key():
+    """The vllm branch's extra_body reaches model_api_parameters, and the
+    configured api_key reaches the OpenAI client -- not just "some value".
+    """
+    p_instr, p_openai, p_agent, agent_cls, agent_instance = _patch_agent(["x"])
+    with p_instr, p_openai as openai_cls, p_agent:
+        llm.generate_candidates(
+            "http://localhost:8000",
+            "qwen2.5:32b",
+            2048,
+            "target",
+            {"company": "X", "industry": "Y", "location": "Z"},
+            no_cloud=False,
+            backend="vllm",
+            api_key="sk-real-vllm-key",
+        )
+    assert openai_cls.call_args.kwargs["api_key"] == "sk-real-vllm-key"
+    config = agent_cls.__getitem__.return_value.call_args.kwargs["config"]
+    assert config.model_api_parameters["extra_body"] == {
+        "chat_template_kwargs": {"thinking": False}
+    }
+
+
+# ---------------------------------------------------------------------------
+# rosetta_backend_kwargs
+# ---------------------------------------------------------------------------
+
+
+def test_rosetta_backend_kwargs_ollama_uses_extra_options_and_no_think():
+    kwargs = llm.rosetta_backend_kwargs("ollama", 4096)
+    assert kwargs == {"extra_options": {"num_ctx": 4096}}
+    # Deliberately absent: leaving nlmask.generate_masks()'s own think
+    # default (True) untouched is what keeps this path byte-identical to
+    # before this function existed.
+    assert "think" not in kwargs
+
+
+def test_rosetta_backend_kwargs_vllm_disables_thinking_and_omits_extra_options():
+    kwargs = llm.rosetta_backend_kwargs("vllm", 4096)
+    assert kwargs["think"] is False
+    thinking_kwargs = kwargs["extra_request_body"]["chat_template_kwargs"]
+    assert thinking_kwargs["thinking"] is False
+    # Regression guard: no leaked Ollama-shaped field, and not the wrong key.
+    assert "extra_options" not in kwargs
+    assert "enable_thinking" not in thinking_kwargs
+
+
+def test_rosetta_backend_kwargs_openai_disables_thinking_only():
+    assert llm.rosetta_backend_kwargs("openai", 4096) == {"think": False}
+
+
+def test_rosetta_backend_kwargs_rejects_unknown_backend():
+    with pytest.raises(ValueError, match="bogus"):
+        llm.rosetta_backend_kwargs("bogus", 4096)
+
+
+# ---------------------------------------------------------------------------
+# generate_masks: no longer refuses vllm/openai, forwards backend kwargs,
+# and still guards a HashcatRosetta submodule too old to accept them.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("backend", ["vllm", "openai"])
+def test_generate_masks_no_longer_refuses_non_ollama_backend(monkeypatch, backend):
+    """The upstream fix (think/extra_request_body params on
+    nlmask.generate_masks) landed, so a current HashcatRosetta checkout must
+    not be refused for vllm/openai any more.
+    """
+
+    def current_signature_stub(
+        description,
+        *,
+        model,
+        client,
+        extra_options=None,
+        think=True,
+        extra_request_body=None,
+        host=None,
+    ):
+        return []
+
+    monkeypatch.setattr(llm, "_rosetta_generate_masks", current_signature_stub)
+
+    out = llm.generate_masks(
+        "http://localhost:8000",
+        "qwen2.5:32b",
+        2048,
+        "pins",
+        no_cloud=False,
+        backend=backend,
+        api_key="sk-real-vllm-key",
+    )
+    assert out == []
+
+
+def test_generate_masks_forwards_vllm_kwargs_to_rosetta(monkeypatch):
+    captured = {}
+
+    def fake_generate_masks(
+        description,
+        *,
+        model,
+        client,
+        extra_options=None,
+        think=True,
+        extra_request_body=None,
+        host=None,
+    ):
+        if extra_options is not None:
+            captured["extra_options"] = extra_options
+        if think is not True:
+            captured["think"] = think
+        if extra_request_body is not None:
+            captured["extra_request_body"] = extra_request_body
+        return []
+
+    monkeypatch.setattr(llm, "_rosetta_generate_masks", fake_generate_masks)
+
+    llm.generate_masks(
+        "http://localhost:8000",
+        "qwen2.5:32b",
+        2048,
+        "pins",
+        no_cloud=False,
+        backend="vllm",
+        api_key="sk-real-vllm-key",
+    )
+
+    assert captured["think"] is False
+    assert captured["extra_request_body"] == {
+        "chat_template_kwargs": {"thinking": False}
+    }
+    assert "extra_options" not in captured
+
+
+def test_generate_masks_forwards_host_so_error_messages_name_the_real_server(
+    monkeypatch,
+):
+    """nlmask.generate_masks()'s own resolve_base_url(host) is used only to
+    build its error-message text -- the actual request always rides on the
+    `client` object, which generate_masks() already builds against `url`.
+    Omitting `host=` left it falling back to OLLAMA_HOST/localhost, so a
+    failed request to a remote vLLM host reported 'could not reach Ollama at
+    http://localhost:11434/v1' -- the right request, the wrong error message.
+    This asserts the actual forwarded value, not merely that the kwarg is
+    present.
+    """
+    captured = {}
+
+    def fake_generate_masks(
+        description,
+        *,
+        model,
+        client,
+        host=None,
+        extra_options=None,
+        think=True,
+        extra_request_body=None,
+    ):
+        captured["host"] = host
+        return []
+
+    monkeypatch.setattr(llm, "_rosetta_generate_masks", fake_generate_masks)
+
+    llm.generate_masks(
+        "http://vllm-remote.example:8000",
+        "qwen2.5:32b",
+        2048,
+        "pins",
+        no_cloud=False,
+        backend="vllm",
+        api_key="sk-real-vllm-key",
+    )
+
+    assert captured["host"] == "http://vllm-remote.example:8000"
+
+
+def test_generate_masks_forwards_ollama_kwargs_without_think(monkeypatch):
+    captured = {}
+
+    def fake_generate_masks(description, *, model, client, **kwargs):
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr(llm, "_rosetta_generate_masks", fake_generate_masks)
+
+    llm.generate_masks(
+        "http://localhost:11434",
+        "qwen2.5:32b",
+        2048,
+        "pins",
+        no_cloud=False,
+        backend="ollama",
+        api_key="ollama",
+    )
+
+    assert captured == {
+        "extra_options": {"num_ctx": 2048},
+        "host": "http://localhost:11434",
+    }
+    assert "think" not in captured
+
+
+def test_generate_masks_capability_guard_refuses_old_submodule_for_non_ollama(
+    monkeypatch,
+):
+    """A stubbed _rosetta_generate_masks whose signature lacks
+    think/extra_request_body must raise RosettaBackendRefused for a
+    non-ollama backend -- this is the "submodule too old" meaning the
+    exception now carries.
+    """
+
+    def old_signature_stub(
+        description, *, model, client, extra_options=None, host=None
+    ):
+        return []
+
+    monkeypatch.setattr(llm, "_rosetta_generate_masks", old_signature_stub)
+
+    with pytest.raises(llm.RosettaBackendRefused) as exc:
+        llm.generate_masks(
+            "http://localhost:8000",
+            "qwen2.5:32b",
+            2048,
+            "pins",
+            no_cloud=False,
+            backend="vllm",
+            api_key="sk-real-vllm-key",
+        )
+    # Still a RuntimeError, so existing callers that catch RuntimeError
+    # (including the "HashcatRosetta is unavailable" case) keep working.
+    assert isinstance(exc.value, RuntimeError)
+    assert exc.value.backend == "vllm"
+
+
+def test_generate_masks_capability_guard_does_not_apply_to_ollama(monkeypatch):
+    """An old submodule signature (missing think/extra_request_body) must not
+    break the Ollama path, which never needed those parameters."""
+
+    def old_signature_stub(
+        description, *, model, client, extra_options=None, host=None
+    ):
+        return []
+
+    monkeypatch.setattr(llm, "_rosetta_generate_masks", old_signature_stub)
+
+    out = llm.generate_masks(
+        "http://localhost:11434",
+        "qwen2.5:32b",
+        2048,
+        "pins",
+        no_cloud=False,
+        backend="ollama",
+        api_key="ollama",
+    )
+    assert out == []
+
+
+# ---------------------------------------------------------------------------
+# _resolve_api_key / empty LLM_API_KEY handling
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("raw", ["", "   ", "\t\n"])
+def test_resolve_api_key_substitutes_the_inert_placeholder(raw):
+    assert llm._resolve_api_key(raw) == "ollama"
+
+
+def test_resolve_api_key_passes_through_a_real_key():
+    assert llm._resolve_api_key("sk-real-vllm-key") == "sk-real-vllm-key"
+
+
+def test_build_client_never_passes_an_empty_api_key_to_openai():
+    """openai.OpenAI(api_key='') raises OpenAIError: Missing credentials --
+    confirmed directly against the SDK. An operator who clears LLM_API_KEY=
+    for a vLLM server with no auth must not hit that SDK error.
+    """
+    with (
+        mock.patch("hate_crack.llm.OpenAI") as openai_cls,
+        mock.patch("hate_crack.llm.instructor.from_openai"),
+    ):
+        llm._build_client("http://localhost:8000", "", 30.0)
+    assert openai_cls.call_args.kwargs["api_key"] == "ollama"
+
+
+def test_generate_masks_substitutes_empty_api_key(monkeypatch):
+    """generate_masks builds its own OpenAI client directly (not through
+    _build_client), so it needs the same empty-key guard independently."""
+    captured = {}
+
+    def fake_openai(*, base_url, api_key, timeout):
+        captured["api_key"] = api_key
+        return mock.MagicMock()
+
+    monkeypatch.setattr(llm, "OpenAI", fake_openai)
+    monkeypatch.setattr(
+        llm,
+        "_rosetta_generate_masks",
+        lambda description, **kwargs: [],
+    )
+
+    llm.generate_masks(
+        "http://localhost:8000",
+        "qwen2.5:32b",
+        2048,
+        "pins",
+        no_cloud=False,
+        backend="ollama",
+        api_key="   ",
+    )
+
+    assert captured["api_key"] == "ollama"

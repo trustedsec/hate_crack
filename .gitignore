@@ -54,6 +54,18 @@ hashcat.potfile
 # logs when hcatDebugLogPath points somewhere else inside the tree.
 hashcat_debug/
 hashcat_debug*.log
+# Operator wordlist collections, same relative-default reasoning as
+# hashcat_debug/ above: config.json.example ships hcatWordlists as
+# "./wordlists" and hcatOptimizedWordlists as "./optimized_wordlists", so on a
+# checkout that kept the defaults the corpora land in the repo. They are also
+# large enough to matter -- a real collection runs to tens of gigabytes -- and
+# a cracked-password corpus is client data, which is the one thing that must
+# never reach a public remote. Untracked content here also blocks the
+# `git status --porcelain` dirty check in _run_upgrade(), so an operator using
+# the shipped defaults cannot self-upgrade until it is ignored. No tracked file
+# matches either pattern.
+wordlists/
+optimized_wordlists/
 hate_crack/__init__.pyc
 hate_crack/_version.py
 __pycache__/

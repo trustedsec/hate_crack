@@ -24,6 +24,11 @@ def _make_ctx(hash_type: str = "1000", hash_file: str = "/tmp/hashes.txt") -> Ma
     ctx = MagicMock()
     ctx.hcatHashType = hash_type
     ctx.hcatHashFile = hash_file
+    # Default backend for every attack that reads ctx.llmBackend (currently
+    # only the Rosetta mask path) -- a bare MagicMock attribute would compare
+    # unequal to "ollama" and trip the non-ollama refusal in every caller
+    # that did not opt into testing that refusal specifically.
+    ctx.llmBackend = "ollama"
     return ctx
 
 
@@ -715,6 +720,24 @@ class TestRosettaAttack:
         with (
             patch("hate_crack.attacks.interactive_menu", return_value="4"),
             patch("builtins.input", return_value="  8 char passwords with digits  "),
+        ):
+            rosetta_attack(ctx)
+
+        ctx.hcatRosettaMask.assert_called_once_with(
+            ctx.hcatHashType, ctx.hcatHashFile, "8 char passwords with digits"
+        )
+
+    def test_mask_choice_on_vllm_backend_reaches_the_prompt(self) -> None:
+        """The pre-flight `ctx.llmBackend != "ollama"` gate is gone (#275) --
+        llm.generate_masks() now supports vllm/openai via
+        rosetta_backend_kwargs, so rosetta_attack must prompt for a
+        description and call hcatRosettaMask instead of short-circuiting."""
+        ctx = _make_ctx()
+        ctx.llmBackend = "vllm"
+
+        with (
+            patch("hate_crack.attacks.interactive_menu", return_value="4"),
+            patch("builtins.input", return_value="8 char passwords with digits"),
         ):
             rosetta_attack(ctx)
 

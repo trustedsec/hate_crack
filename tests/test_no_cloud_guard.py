@@ -97,6 +97,16 @@ def test_every_entry_point_requires_an_explicit_policy(name):
 
 
 @pytest.mark.parametrize("name", ENTRY_POINTS)
+@pytest.mark.parametrize("param_name", ["backend", "api_key"])
+def test_every_entry_point_requires_an_explicit_backend_and_api_key(name, param_name):
+    """Mirrors ``no_cloud``: a new call site must state its backend and
+    credential rather than silently inheriting a permissive default."""
+    parameter = inspect.signature(getattr(llm, name)).parameters[param_name]
+    assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
+    assert parameter.default is inspect.Parameter.empty
+
+
+@pytest.mark.parametrize("name", ENTRY_POINTS)
 def test_every_entry_point_refuses_before_building_a_client(name, monkeypatch):
     """The refusal must happen before any network object is constructed.
 
@@ -122,6 +132,8 @@ def test_every_entry_point_refuses_before_building_a_client(name, monkeypatch):
             "gpt-oss:120b-cloud",
             8192,
             no_cloud=True,
+            backend="ollama",
+            api_key="ollama",
             **kwargs,
         )
 
