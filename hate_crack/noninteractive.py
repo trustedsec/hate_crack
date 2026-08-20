@@ -41,6 +41,9 @@ def build_rule_chains(ctx: Any, rule_tokens: list[str] | None) -> list[str]:
     return chains
 
 
+SKIPPED_BY_COVERAGE = 3
+
+
 def run_noninteractive(ctx: Any, args: Any) -> int:
     """Run a non-interactive attack. Returns a process exit code.
 
@@ -48,7 +51,36 @@ def run_noninteractive(ctx: Any, args: Any) -> int:
     ``resolve_path``, ``hcatHashType``/``hcatHashFile`` already set by the
     preprocessing block in ``main()``). ``args`` is the parsed subparser
     namespace whose ``command`` selects the attack.
+
+    Exit codes: 0 ran, 1 bad input, 2 unknown command, and -- only when
+    ``--exit-code-on-skip`` is passed -- 3 for "coverage had already seen all of
+    this, so nothing was launched". That is behind a flag because coverage is
+    enabled by default, so returning 3 unconditionally would start failing
+    existing cron and ``set -e`` harnesses the first time an attack repeated,
+    without them having changed anything.
     """
+    # ctx is duck-typed -- normally the main module, but tests pass a stand-in --
+    # so the counters are optional rather than required of every caller.
+    reset = getattr(ctx, "reset_run_counters", None)
+    if callable(reset):
+        reset()
+
+    code = _dispatch(ctx, args)
+    if code != 0:
+        return code
+
+    counters = getattr(ctx, "run_counters", None)
+    launches, skips = counters() if callable(counters) else (0, 0)
+    if getattr(args, "exit_code_on_skip", False) and skips and not launches:
+        print(
+            f"[coverage] every pass of `{args.command}` was already covered; "
+            "nothing was launched"
+        )
+        return SKIPPED_BY_COVERAGE
+    return code
+
+
+def _dispatch(ctx: Any, args: Any) -> int:
     command = args.command
 
     if command == "quick":

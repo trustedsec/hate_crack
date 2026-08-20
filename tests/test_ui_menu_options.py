@@ -118,3 +118,35 @@ def test_main_menu_items_include_notifications_entry():
     assert "Notifications" in items["82"]
     assert "83" not in items
     assert "84" not in items
+
+
+def test_main_menu_exposes_attack_coverage_at_85():
+    """85, not 83: options 83 and 84 are retired notification toggles, and
+    reusing one would hand an operator's muscle memory a different feature."""
+    items = dict(CLI_MODULE.get_main_menu_items())
+    options = CLI_MODULE.get_main_menu_options()
+    assert "85" in items
+    assert "Attack Coverage" in items["85"]
+    assert "85" in options
+    assert callable(options["85"])
+
+
+def test_coverage_menu_routes_through_both_duplicate_menu_mappings():
+    """hate_crack.py carries a menu mapping separate from main.py's, and both
+    must carry option 85 pointing at the same handler.
+
+    Compared by qualified name, not by object identity: the suite purges
+    hate_crack.main from sys.modules between tests, so CLI_MODULE._main can be
+    a different module object than the live one and an `is` check passes alone
+    while failing in a full run. The failure this guards -- 85 added to one
+    mapping only, or pointed at a different handler -- is caught either way.
+    """
+    cli_options = CLI_MODULE.get_main_menu_options()
+    main_options = CLI_MODULE._main.get_main_menu_options()
+    assert "85" in cli_options, "hate_crack.py mapping is missing option 85"
+    assert "85" in main_options, "main.py mapping is missing option 85"
+    assert (
+        cli_options["85"].__qualname__
+        == main_options["85"].__qualname__
+        == "coverage_submenu"
+    )

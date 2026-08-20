@@ -1436,6 +1436,23 @@ _rule_debug_mode_enabled = True
 # consulting or writing the per-target coverage store at all.
 _coverage_enabled = True
 
+# Per-invocation tallies, so a scripted run can tell "the attack ran" from "the
+# attack was skipped because coverage had already seen all of it". Both are
+# reset by reset_run_counters() at the start of a non-interactive command.
+_hcat_launch_count = 0
+_coverage_skip_count = 0
+
+
+def reset_run_counters() -> None:
+    global _hcat_launch_count, _coverage_skip_count
+    _hcat_launch_count = 0
+    _coverage_skip_count = 0
+
+
+def run_counters() -> tuple[int, int]:
+    """(hashcat launches, coverage skips) since the last reset."""
+    return _hcat_launch_count, _coverage_skip_count
+
 
 def _open_wordlist(path):
     """Open a wordlist file, transparently decompressing gzip by magic bytes.
@@ -1641,6 +1658,98 @@ def _apply_coverage(cmd, spec, attack_name: str):
     return cmd, plan, temp_paths
 
 
+def _coverage_report(hash_file: str) -> str:
+    """Human-readable coverage summary for one hash file.
+
+    Shared by the CLI subcommand and the menu so the two cannot drift.
+    """
+    target = _coverage.target_id(hash_file)
+    if target is None:
+        return f"[!] Cannot read {hash_file}."
+
+    summary = _coverage_store().summary(target)
+    if not summary["runs"]:
+        return f"No attacks recorded against {os.path.basename(hash_file)} yet."
+
+    lines = [
+        f"Coverage for {os.path.basename(hash_file)}",
+        f"  target id : {target[:16]}...",
+        f"  entries   : {summary['entries']} rule/mask/wordlist entries covered",
+        f"  runs      : {summary['runs']}",
+        f"  last run  : {summary['last_run']}",
+        "",
+        f"  {'attack':<32}{'entries':>9}{'runs':>7}",
+        f"  {'-' * 32}{'-' * 9}{'-' * 7}",
+    ]
+    for attack, entries, runs in summary["by_attack"]:
+        lines.append(f"  {(attack or '(unnamed)')[:32]:<32}{entries:>9}{runs:>7}")
+    lines.append("")
+    lines.append(
+        "  An attack with runs but no entries was logged rather than filtered:"
+    )
+    lines.append("  a dynamic generator (PRINCE, PCFG, OMEN, Markov, LLM), or a repeat")
+    lines.append("  that added nothing new.")
+    return "\n".join(lines)
+
+
+def _coverage_history_report(hash_file: str) -> str:
+    target = _coverage.target_id(hash_file)
+    if target is None:
+        return f"[!] Cannot read {hash_file}."
+    rows = _coverage_store().history(target)
+    if not rows:
+        return f"No attacks recorded against {os.path.basename(hash_file)} yet."
+    lines = [f"Run history for {os.path.basename(hash_file)}", ""]
+    for attack, detail, ran_at in rows:
+        suffix = f"  {detail}" if detail else ""
+        lines.append(f"  {ran_at}  {attack or '(unnamed)'}{suffix}")
+    return "\n".join(lines)
+
+
+def _coverage_forget(hash_file: str) -> str:
+    target = _coverage.target_id(hash_file)
+    if target is None:
+        return f"[!] Cannot read {hash_file}."
+    dropped = _coverage_store().forget_target(target)
+    return (
+        f"Dropped {dropped} covered entr{'y' if dropped == 1 else 'ies'} and the "
+        f"run history for {os.path.basename(hash_file)}. It will be attacked as "
+        "though for the first time."
+    )
+
+
+def _run_coverage_command(args) -> int:
+    """`hate_crack coverage status|history|forget --hashfile X`."""
+    command = getattr(args, "coverage_command", None)
+    if not command:
+        print("Error: coverage needs one of: status, history, forget")
+        return 2
+
+    hash_file = resolve_path(args.hashfile)
+    if not hash_file or not os.path.isfile(hash_file):
+        print(f"Error: hash file not found: {args.hashfile}")
+        return 1
+
+    if command == "status":
+        print(_coverage_report(hash_file))
+        return 0
+    if command == "history":
+        print(_coverage_history_report(hash_file))
+        return 0
+    if command == "forget":
+        if not args.yes:
+            print(_coverage_report(hash_file))
+            answer = input("\n[?] Drop all of this and start over? [y/N]: ").strip()
+            if answer.lower() not in ("y", "yes"):
+                print("Left unchanged.")
+                return 0
+        print(_coverage_forget(hash_file))
+        return 0
+
+    print(f"Error: unknown coverage command: {command}")
+    return 2
+
+
 def _run_hcat_cmd(
     cmd,
     attack_name: str = "",
@@ -1667,12 +1776,16 @@ def _run_hcat_cmd(
     plan = None
     temp_paths: list[str] = []
 
+    global _hcat_launch_count, _coverage_skip_count
+
     if coverage is not None and _coverage_enabled:
         applied = _apply_coverage(cmd, coverage, attack_name)
         if applied is None:
+            _coverage_skip_count += 1
             return
         cmd, plan, temp_paths = applied
 
+    _hcat_launch_count += 1
     try:
         completed = _run_hcat_cmd_uncovered(
             cmd,
@@ -7467,6 +7580,44 @@ def rule_tools_submenu():
     return _attacks.rule_tools_submenu(_attack_ctx())
 
 
+def coverage_submenu():
+    """Submenu for the per-target coverage store (main-menu option 83).
+
+    The inline ``interactive_menu`` import mirrors ``notifications_submenu``
+    below: re-importing per call lets tests patch the real menu function.
+    """
+    from hate_crack.menu import interactive_menu
+
+    if not hcatHashFile:
+        print("\n[!] Load a hash file first.")
+        return
+
+    while True:
+        items = [
+            ("1", "Show coverage for this hash file"),
+            ("2", "Show run history for this hash file"),
+            ("3", "Forget all coverage for this hash file"),
+            ("99", "Back to main menu"),
+        ]
+        choice = interactive_menu(items, title="\nAttack Coverage:")
+        if choice in (None, "99"):
+            return
+        if choice == "1":
+            print()
+            print(_coverage_report(hcatHashFile))
+        elif choice == "2":
+            print()
+            print(_coverage_history_report(hcatHashFile))
+        elif choice == "3":
+            print()
+            print(_coverage_report(hcatHashFile))
+            answer = input("\n[?] Drop all of this and start over? [y/N]: ").strip()
+            if answer.lower() in ("y", "yes"):
+                print(_coverage_forget(hcatHashFile))
+            else:
+                print("Left unchanged.")
+
+
 def notifications_submenu():
     """Submenu for all Pushover notification controls (main-menu option 82).
 
@@ -7845,6 +7996,7 @@ def get_main_menu_items():
         ("80", "Wordlist Tools"),
         ("81", "Rule File Tools"),
         ("82", "Notifications"),
+        ("85", "Attack Coverage"),
         ("93", "Regenerate .out from POT file"),
     ]
     if hashview_api_key:
@@ -7892,6 +8044,7 @@ def get_main_menu_options():
         "80": wordlist_tools_submenu,
         "81": rule_tools_submenu,
         "82": notifications_submenu,
+        "85": coverage_submenu,
         "93": restore_potfile_output,
         "95": pipal,
         "96": export_excel,
@@ -8081,6 +8234,16 @@ def main():
             ),
         )
         parser.add_argument(
+            "--exit-code-on-skip",
+            dest="exit_code_on_skip",
+            action="store_true",
+            help=(
+                "In a scripted run, exit 3 when coverage skipped every pass of "
+                "the attack and nothing was launched. Off by default so that "
+                "enabling coverage does not start failing existing harnesses."
+            ),
+        )
+        parser.add_argument(
             "--coverage",
             dest="coverage",
             action=argparse.BooleanOptionalAction,
@@ -8098,6 +8261,29 @@ def main():
 
         subparsers = parser.add_subparsers(dest="command")
         _noninteractive.add_attack_subparsers(subparsers)
+
+        coverage_parser = subparsers.add_parser(
+            "coverage",
+            help="Inspect or reset per-target attack coverage",
+        )
+        coverage_subparsers = coverage_parser.add_subparsers(dest="coverage_command")
+        for name, blurb in (
+            ("status", "Show what has already been run against a hash file"),
+            ("history", "List every attack run against a hash file"),
+            ("forget", "Drop all coverage for a hash file so it can be re-attacked"),
+        ):
+            sub = coverage_subparsers.add_parser(name, help=blurb)
+            sub.add_argument(
+                "--hashfile",
+                required=True,
+                help="Hash file whose coverage to act on (identified by content)",
+            )
+            if name == "forget":
+                sub.add_argument(
+                    "--yes",
+                    action="store_true",
+                    help="Skip the confirmation prompt",
+                )
 
         hashview_parser = subparsers.add_parser(
             "hashview", help="Hashview menu actions"
@@ -8220,7 +8406,9 @@ def main():
             argv = argv_temp  # Fallback if subcommand not found
 
     has_attack_subcommand = any(arg in _noninteractive.ATTACK_COMMANDS for arg in argv)
-    use_subcommand_parser = "hashview" in argv or has_attack_subcommand
+    use_subcommand_parser = (
+        "hashview" in argv or "coverage" in argv or has_attack_subcommand
+    )
     parser, hashview_parser = _build_parser(
         include_positional=not use_subcommand_parser,
         include_subcommands=use_subcommand_parser,
@@ -8299,6 +8487,9 @@ def main():
             print_fn=print,
         )
         sys.exit(0)
+
+    if getattr(args, "command", None) == "coverage":
+        sys.exit(_run_coverage_command(args))
 
     if getattr(args, "command", None) == "hashview":
         if not hashview_api_key:

@@ -134,6 +134,7 @@ def get_main_menu_options():
         "80": _attacks.wordlist_tools_submenu,
         "81": _attacks.rule_tools_submenu,
         "82": notifications_submenu,
+        "85": coverage_submenu,
         "93": _attacks.restore_potfile_output,
         "95": pipal,
         "96": export_excel,

@@ -719,8 +719,42 @@ Three deliberate limits:
 
 Set `coverage_enabled` to `false` in `config.json` to turn this off, or pass
 `--no-coverage` for a single run — which neither consults nor updates the store.
-The store lives in `~/.hate_crack/coverage/attack_coverage.sqlite3`; deleting it
-resets coverage for every target.
+
+#### Inspecting and resetting coverage
+
+Main-menu option **85 — Attack Coverage** shows what has been run against the
+loaded hash file, its run history, and can clear it. The same three actions are
+scriptable:
+
+```bash
+# What has already been run against this hash file?
+hate_crack coverage status --hashfile hashes.txt
+
+# Every attack that has run against it, oldest first
+hate_crack coverage history --hashfile hashes.txt
+
+# Start over for this hash file only (prompts unless --yes)
+hate_crack coverage forget --hashfile hashes.txt --yes
+```
+
+The hash file is identified by content, so these work regardless of where it has
+been moved since. `forget` affects only that one target — the store lives in
+`~/.hate_crack/coverage/attack_coverage.sqlite3`, and deleting the file resets
+coverage for *every* target.
+
+#### Scripted runs
+
+A scripted attack that coverage skips entirely still exits `0` by default, so
+enabling coverage cannot start failing an existing harness. Pass
+`--exit-code-on-skip` to get exit code **3** instead when nothing was launched:
+
+```bash
+hate_crack --exit-code-on-skip hashes.txt dict
+# 0 = ran, 1 = bad input, 2 = unknown command, 3 = everything was already covered
+```
+
+Exit 3 means *nothing* ran. A pass that was partially filtered — some entries
+skipped, some tried — still exits `0`, because the attack did do work.
 
 ### Notifications (menu option 82)
 

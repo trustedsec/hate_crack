@@ -355,3 +355,45 @@ def test_target_id_memo_notices_a_changed_file(tmp_path):
     _write(path, "two\n")
     assert ac.target_id(str(path)) != first
     ac.clear_target_memo()
+
+
+# --- summary ---------------------------------------------------------------
+
+
+def test_summary_of_an_unknown_target_is_empty(store):
+    summary = store.summary("nope")
+    assert summary["entries"] == 0
+    assert summary["runs"] == 0
+    assert summary["by_attack"] == []
+    assert summary["last_run"] is None
+
+
+def test_summary_counts_entries_and_runs_per_attack(store):
+    store.record(["a", "b", "c"], target="T", kind="rule", attack="Dictionary")
+    store.record(["d"], target="T", kind="mask", attack="Top Mask")
+    store.log_run("T", attack="PRINCE", kind="history")
+    store.record(["z"], target="OTHER", kind="rule", attack="Dictionary")
+
+    summary = store.summary("T")
+    assert summary["entries"] == 4, "only this target's keys"
+    assert summary["runs"] == 3, "including the unfiltered PRINCE run"
+    assert dict((a, n) for a, n, _ in summary["by_attack"]) == {
+        "Dictionary": 3,
+        "Top Mask": 1,
+        "PRINCE": 0,
+    }
+    assert summary["last_run"] is not None
+
+
+def test_summary_does_not_double_count_a_repeated_run(store):
+    store.record(["a", "b"], target="T", kind="rule", attack="Dictionary")
+    store.record(["a", "b"], target="T", kind="rule", attack="Dictionary")
+    summary = store.summary("T")
+    assert summary["entries"] == 2, "the repeat added no keys"
+    assert summary["runs"] == 2, "but it is still a run that happened"
+
+
+def test_summary_survives_a_broken_store(tmp_path, monkeypatch):
+    s = ac.CoverageStore(tmp_path / "cov.sqlite3")
+    monkeypatch.setattr(s, "_connect", lambda: None)
+    assert s.summary("T")["entries"] == 0

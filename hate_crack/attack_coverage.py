@@ -314,6 +314,45 @@ class CoverageStore:
 
     # -- history -----------------------------------------------------------
 
+    def summary(self, target: str) -> dict:
+        """Counts for one target: total entries, runs, and a per-attack split.
+
+        ``by_attack`` rows are ``(attack, entries, runs)``. An attack with zero
+        entries but a nonzero run count is one that was logged rather than
+        filtered -- a dynamic generator, or a repeat that added no new keys.
+        """
+        empty = {"entries": 0, "runs": 0, "by_attack": [], "last_run": None}
+        conn = self._connect()
+        if conn is None:
+            return empty
+        try:
+            entries = conn.execute(
+                "SELECT COUNT(*) FROM covered WHERE run_id IN "
+                "(SELECT id FROM runs WHERE target = ?)",
+                (target,),
+            ).fetchone()[0]
+            runs, last_run = conn.execute(
+                "SELECT COUNT(*), MAX(ran_at) FROM runs WHERE target = ?",
+                (target,),
+            ).fetchone()
+            by_attack = conn.execute(
+                "SELECT runs.attack, "
+                "       COUNT(covered.key), "
+                "       COUNT(DISTINCT runs.id) "
+                "FROM runs LEFT JOIN covered ON covered.run_id = runs.id "
+                "WHERE runs.target = ? "
+                "GROUP BY runs.attack ORDER BY runs.attack",
+                (target,),
+            ).fetchall()
+        except sqlite3.Error:
+            return empty
+        return {
+            "entries": entries,
+            "runs": runs,
+            "by_attack": [(row[0], row[1], row[2]) for row in by_attack],
+            "last_run": last_run,
+        }
+
     def history(self, target: str) -> list[tuple[str, str, str]]:
         """(attack, detail, ran_at) rows for a target, oldest first."""
         conn = self._connect()
