@@ -201,6 +201,70 @@ def test_escape_mask_literal_doubles_question_marks():
     assert hc_main._escape_mask_literal("Pass?word") == "Pass??word"
 
 
+def test_escape_mask_literal_doubles_backslashes():
+    """A backslash is hashcat's hcmask *field* escape, consumed before the
+    mask is tokenized, so an unescaped one eats the following character."""
+    from hate_crack import main as hc_main
+
+    assert hc_main._escape_mask_literal("pass\\word") == "pass\\\\word"
+    # A trailing backslash would otherwise vanish entirely.
+    assert hc_main._escape_mask_literal("back\\") == "back\\\\"
+    # Both escapes apply, and are order-independent.
+    assert hc_main._escape_mask_literal("a\\?b") == "a\\\\??b"
+
+
+def test_escape_mask_literal_leaves_commas_alone():
+    """format_hcmask_line escapes the comma when it assembles the line;
+    doing it here too would emit ``\\,`` -- a literal backslash plus a
+    field break."""
+    from hate_crack import main as hc_main
+
+    assert hc_main._escape_mask_literal("a,b") == "a,b"
+
+
+def test_build_hcmask_lines_backslash_literal_survives_hashcat():
+    """Pins the exact emitted line for a backslash-bearing literal.
+
+    Expectations verified with ``hashcat --stdout -a 3``: this line
+    enumerates ``pass\\word0``..``pass\\word9``. Before the fix it emitted
+    ``pass\\word?1``, which hashcat read as ``password?1`` -- a mask that can
+    never match the plaintext the cluster was built from.
+
+    This also guards a future submodule bump: HashcatRosetta's nightly
+    ``format_hcmask_line`` escapes backslashes itself, and if that lands here
+    while ``_escape_mask_literal`` still does too, this assertion fails rather
+    than silently emitting a doubled backslash.
+    """
+    from hate_crack import main as hc_main
+
+    template = hc_main._SmartMaskTemplate(
+        fixed_runs=((0, "L", "pass\\word"),),
+        variable_positions=(1,),
+        variable_charsets=("0123456789",),
+        length_combinations=((1,),),
+        member_count=3,
+        total_positions=2,
+    )
+    assert hc_main._build_hcmask_lines(template) == ["0123456789,pass\\\\word?1"]
+
+
+def test_build_hcmask_lines_backslash_and_comma_and_question_mark():
+    """All three special characters in one literal, each escaped by whichever
+    layer owns it: '\\' and '?' here, ',' by format_hcmask_line."""
+    from hate_crack import main as hc_main
+
+    template = hc_main._SmartMaskTemplate(
+        fixed_runs=((0, "S", "a\\b,c?d"),),
+        variable_positions=(1,),
+        variable_charsets=("0123456789",),
+        length_combinations=((1,),),
+        member_count=3,
+        total_positions=2,
+    )
+    # hashcat: field parse -> "a\b,c??d?1", mask expand -> literal "a\b,c?d" + digit.
+    assert hc_main._build_hcmask_lines(template) == ["0123456789,a\\\\b\\,c??d?1"]
+
+
 def test_build_hcmask_lines_single_length_combination():
     from hate_crack import main as hc_main
 

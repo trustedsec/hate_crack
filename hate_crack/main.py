@@ -3585,13 +3585,37 @@ def _cluster_smart_mask_templates(
 
 
 def _escape_mask_literal(text: str) -> str:
-    """Escape literal '?' characters for use inside a hashcat mask string.
+    r"""Escape a literal for use inside a hashcat mask string.
 
-    hashcat's mask grammar reserves '?' as a token marker; a literal '?'
-    in fixed skeleton text must be doubled ('??') so hashcat treats it as
-    a literal character rather than a dangling/unknown token.
+    Two characters need it, and they are consumed by two different stages of
+    hashcat's pipeline:
+
+    - **'?' is the mask token marker**, interpreted by ``mp_expand``, so a
+      literal '?' must be doubled ('??') or it reads as a dangling/unknown
+      token.
+    - **'\' is the hcmask *field* escape**, consumed earlier by
+      ``mask_ctx_parse_maskfile`` (src/mpsp.c), which drops any backslash and
+      takes the next character literally. An unescaped '\' therefore eats the
+      character after it -- a cluster built from ``pass\word`` emitted
+      ``pass\word?1?1`` and hashcat enumerated ``passwordNN``, a mask that can
+      never match the plaintext it was derived from. Verified with
+      ``hashcat --stdout -a 3``. A trailing '\' vanishes outright.
+
+    The two substitutions are order-independent: doubling '?' introduces no
+    backslashes and doubling '\' introduces no '?'.
+
+    Commas are deliberately *not* escaped here. A comma is also a field
+    separator, but ``rosetta_format_hcmask_line`` already escapes it when it
+    assembles the line, and doing it in both places would emit ``\\,`` and
+    produce a literal backslash followed by a field break. That split matters
+    if HashcatRosetta is ever bumped to a version whose
+    ``format_hcmask_line`` escapes backslashes too (nightly does): the
+    backslash handling below would then have to move out of here for exactly
+    the same double-escaping reason. ``test_build_hcmask_lines_backslash_*``
+    pins the resulting candidates so that change fails loudly instead of
+    silently corrupting masks.
     """
-    return text.replace("?", "??")
+    return text.replace("\\", "\\\\").replace("?", "??")
 
 
 # hashcat's own ``-1``..``-8`` / ``?1``-``?8`` ceiling, which Rosetta's
