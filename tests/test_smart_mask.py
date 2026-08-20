@@ -187,3 +187,78 @@ def test_different_shapes_do_not_cluster_together():
         plaintexts, min_cluster_size=3
     )
     assert templates == []  # each shape bucket only has 1-2 members
+
+
+def test_escape_mask_literal_doubles_question_marks():
+    from hate_crack import main as hc_main
+
+    assert hc_main._escape_mask_literal("CrawlingHorse") == "CrawlingHorse"
+    assert hc_main._escape_mask_literal("Pass?word") == "Pass??word"
+
+
+def test_build_hcmask_lines_single_length_combination():
+    from hate_crack import main as hc_main
+
+    template = hc_main._SmartMaskTemplate(
+        fixed_runs=((0, "L", "CrawlingHorse"),),
+        variable_positions=(1,),
+        variable_charsets=("0123456789",),
+        length_combinations=((3,),),
+        member_count=4,
+        total_positions=2,
+    )
+    assert hc_main._build_hcmask_lines(template) == ["0123456789,CrawlingHorse?1?1?1"]
+
+
+def test_build_hcmask_lines_multiple_length_combinations_produce_multiple_lines():
+    from hate_crack import main as hc_main
+
+    template = hc_main._SmartMaskTemplate(
+        fixed_runs=(
+            (0, "L", "ChangeMe"),
+            (1, "D", "2"),
+            (2, "L", "day"),
+        ),
+        variable_positions=(3, 4),
+        variable_charsets=("0123456789", "!@#$%^&*()"),
+        length_combinations=((4, 2), (4, 3)),
+        member_count=11,
+        total_positions=5,
+    )
+    assert hc_main._build_hcmask_lines(template) == [
+        "0123456789,!@#$%^&*(),ChangeMe2day?1?1?1?1?2?2",
+        "0123456789,!@#$%^&*(),ChangeMe2day?1?1?1?1?2?2?2",
+    ]
+
+
+def test_build_hcmask_lines_escapes_literal_question_mark_in_fixed_run():
+    from hate_crack import main as hc_main
+
+    template = hc_main._SmartMaskTemplate(
+        fixed_runs=((0, "S", "Pass?word"),),
+        variable_positions=(1,),
+        variable_charsets=("0123456789",),
+        length_combinations=((2,),),
+        member_count=3,
+        total_positions=2,
+    )
+    assert hc_main._build_hcmask_lines(template) == ["0123456789,Pass??word?1?1"]
+
+
+def test_build_hcmask_lines_output_parses_as_valid_hcmask():
+    """Every generated line must round-trip through HashcatRosetta's own
+    parser -- this is the same grammar hashcat's -a3 mode expects."""
+    from hate_crack import main as hc_main
+    from hashcat_rosetta.mask import parse_hcmask_line
+
+    template = hc_main._SmartMaskTemplate(
+        fixed_runs=((0, "L", "CrawlingHorse"),),
+        variable_positions=(1,),
+        variable_charsets=("0123456789",),
+        length_combinations=((3,),),
+        member_count=4,
+        total_positions=2,
+    )
+    for line in hc_main._build_hcmask_lines(template):
+        parsed = parse_hcmask_line(line)
+        assert parsed.mask == "CrawlingHorse?1?1?1"

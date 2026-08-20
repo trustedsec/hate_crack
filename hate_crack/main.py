@@ -99,12 +99,14 @@ try:
     from hashcat_rosetta.debug_analyzer import DebugAnalyzer
     from hashcat_rosetta.formatting import display_rule_opcodes_summary
     from hashcat_rosetta.mask import MaskError as RosettaMaskError
+    from hashcat_rosetta.mask import format_hcmask_line as rosetta_format_hcmask_line
     from hashcat_rosetta.mask import parse_hcmask_line as rosetta_parse_hcmask_line
 except ImportError as rosetta_import_error:
     ROSETTA_IMPORT_ERROR = rosetta_import_error
     display_rule_opcodes_summary = None
     DebugAnalyzer = None
     RosettaMaskError = None
+    rosetta_format_hcmask_line = None
     rosetta_parse_hcmask_line = None
 
 
@@ -3043,6 +3045,40 @@ def _cluster_smart_mask_templates(
             if template is not None:
                 templates.append(template)
     return templates, skipped_no_stem
+
+
+def _escape_mask_literal(text: str) -> str:
+    """Escape literal '?' characters for use inside a hashcat mask string.
+
+    hashcat's mask grammar reserves '?' as a token marker; a literal '?'
+    in fixed skeleton text must be doubled ('??') so hashcat treats it as
+    a literal character rather than a dangling/unknown token.
+    """
+    return text.replace("?", "??")
+
+
+def _build_hcmask_lines(template: "_SmartMaskTemplate") -> list[str]:
+    """Build one .hcmask line per observed variable-run length
+    combination: literal text for fixed positions (escaped), repeated
+    ``?N`` tokens for variable positions.
+    """
+    fixed_by_position = {
+        position: content for position, _run_type, content in template.fixed_runs
+    }
+    lines = []
+    for lengths in template.length_combinations:
+        mask_parts = []
+        for position in range(template.total_positions):
+            if position in fixed_by_position:
+                mask_parts.append(_escape_mask_literal(fixed_by_position[position]))
+            else:
+                slot_index = template.variable_positions.index(position)
+                slot = slot_index + 1
+                length = lengths[slot_index]
+                mask_parts.append(f"?{slot}" * length)
+        mask = "".join(mask_parts)
+        lines.append(rosetta_format_hcmask_line(list(template.variable_charsets), mask))
+    return lines
 
 
 # Combinator Attack
