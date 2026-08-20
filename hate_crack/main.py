@@ -4714,6 +4714,14 @@ def _warn_optimized_kernel_length_loss(basewords_path):
     or unrepresentable corpus entry becomes its own baseword -- so a corpus with
     long entries loses them outright, with nothing in hashcat's output to say
     so. Informational only: it does not prompt and does not change the run.
+
+    Scope is the derived baseword list only -- the capped file when a cap is in
+    effect, the uncapped one otherwise. Extra wordlists are **not** counted:
+    this runs before _spoonman_wordlists builds the operand list, and an extra
+    can be a directory, so counting them would mean walking arbitrary
+    operator-supplied trees. Over-long entries in an extra wordlist are dropped
+    by ``-O`` just the same and go unreported, which is one more reason the
+    printed count is worded as a floor.
     """
     if not _should_use_optimized_kernel("hcatQuickDictionary"):
         return
@@ -4760,6 +4768,30 @@ def _same_path(left, right):
         return False
 
 
+def _path_contains(container, target):
+    """Does directory *container* hold *target* somewhere beneath it?
+
+    _same_path alone is depth-blind, and the extras it screens are enumerated
+    with list_wordlist_entries, which deliberately includes directories so
+    hashcat walks them. A corpus one level inside an offered directory is
+    therefore the expected shape, not a corner case -- a wordlist collection
+    with the corpus unpacked into its own subdirectory beside the others.
+
+    Both sides go through realpath so a symlinked directory whose target holds
+    the corpus is caught too. The separator is appended before the prefix test
+    because a bare string prefix would also match a sibling whose name merely
+    starts the same way -- ``lists`` would "contain" ``lists2/corpus.txt`` --
+    and it is what makes a non-directory *container* answer False on its own,
+    since nothing resolves to a path beneath a plain file.
+    """
+    try:
+        container_real = os.path.realpath(container)
+        target_real = os.path.realpath(target)
+    except OSError:
+        return False
+    return target_real.startswith(container_real.rstrip(os.sep) + os.sep)
+
+
 def _spoonman_wordlists(basewords_path, extra_wordlists, corpus=None):
     """Build the dictionary list for the run: derived basewords, then the extras.
 
@@ -4777,6 +4809,14 @@ def _spoonman_wordlists(basewords_path, extra_wordlists, corpus=None):
     back in is pure waste -- its lines are ``<digest>:<plaintext>`` records,
     which cannot be candidates -- and on a large corpus it is the dominant cost
     of the run, with nothing on screen to say so.
+
+    An extra that is a **directory containing** the corpus is skipped for the
+    same reason: hashcat walks a directory operand, so handing it one that holds
+    the corpus feeds the corpus in just as surely as naming the file. The extras
+    are enumerated with list_wordlist_entries, which includes directories on
+    purpose, so this is the common spelling rather than the rare one. The whole
+    directory goes, not just the corpus inside it -- an operand is all-or-nothing
+    to hashcat, and there is no way to hand it a directory minus one file.
     """
     wordlists = [basewords_path]
     for extra in extra_wordlists or []:
@@ -4787,6 +4827,12 @@ def _spoonman_wordlists(basewords_path, extra_wordlists, corpus=None):
             print(
                 f"[!] Skipping wordlist (it is the corpus this attack derived "
                 f"from): {extra}"
+            )
+            continue
+        if corpus is not None and _path_contains(extra, corpus):
+            print(
+                f"[!] Skipping wordlist (it is a directory containing the corpus "
+                f"this attack derived from): {extra}"
             )
             continue
         wordlists.append(extra)
@@ -4818,9 +4864,14 @@ def _spoonman_capped_basewords(full_path, capped_path, cap):
         # (a capped file survives one, since generate() only writes the caps it
         # was asked for), so it would be a stale prefix of a corpus that is no
         # longer there.
+        # Strictly newer, deliberately: on a coarse-mtime filesystem (HFS+,
+        # FAT, some NFS) a derivation landing in the same tick as an earlier
+        # capped write would compare equal, and reusing on equality would serve
+        # that stale prefix. The cost of being wrong the other way is a rebuild
+        # that produces byte-identical output from a file already on disk.
         if os.path.isfile(capped_path) and os.path.getmtime(
             capped_path
-        ) >= os.path.getmtime(full_path):
+        ) > os.path.getmtime(full_path):
             return capped_path
     except OSError:
         pass
@@ -4868,7 +4919,9 @@ def hcatSpoonman(
     **not** invalidate the cache: N is operator-chosen, so a warm cache will
     usually not hold the file for it, and it is truncated out of the cached
     full list instead of re-derived (see _spoonman_capped_basewords). Zero or
-    None means no cap.
+    None means no cap. Like ``coverage``, it is relative to what generate()
+    retained: once the Counter pruning fires, a cap is the top N of the
+    *retained* basewords rather than of every baseword the corpus held.
     """
     if not os.path.isfile(corpus):
         print(f"Error: corpus not found: {corpus}")

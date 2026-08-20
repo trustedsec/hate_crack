@@ -339,8 +339,8 @@ class TestDeriveOpsValidation:
             "Alphaword1!",
             "ALPHAWORD",
             "aLpHaWoRd",
-            "Summertime2026",
-            "Summertide2026!",
+            "Zorptangle2026",
+            "Gribblefox2026!",
             "alph@w0rd",
             "Codebase#2026",
             "john.smith.test",
@@ -349,7 +349,7 @@ class TestDeriveOpsValidation:
             "1234567890",
             "Spring-2026!",
             "aB1cD2eF3",
-            "MyC0d3$Emb3d!2026",
+            "MyZ0rpt$Gr1bble!2026",
         ]
         for pw in test_passwords:
             base, rule = rulegen.derive(pw)

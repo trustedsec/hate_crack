@@ -668,6 +668,93 @@ class TestSpoonmanExtraWordlists:
         assert "it is the corpus" not in capsys.readouterr().out
         assert _wordlists(quick)[1] == sibling
 
+    def test_a_directory_containing_the_corpus_is_skipped(
+        self, main_module, tmp_path, capsys
+    ):
+        """The extras include directories, so the guard cannot be depth-blind.
+
+        list_wordlist_entries deliberately offers directories (hashcat walks a
+        directory operand), so the common shape is a wordlist collection with
+        the corpus unpacked into a subdirectory of its own. Comparing only the
+        top-level entry against the corpus would hand hashcat the directory
+        holding it and enumerate every <digest>:<plaintext> record in it.
+        """
+        wordlists = tmp_path / "wordlists"
+        corpus_dir = wordlists / "cracked_dump"
+        corpus_dir.mkdir(parents=True)
+        corpus = corpus_dir / "found.txt"
+        corpus.write_text("quibblefox\nQuibblefox1\n", encoding="latin-1")
+        other = self._wordlist(wordlists, "other.txt")
+        assert os.path.isdir(corpus_dir) and os.path.isfile(corpus)
+        assert os.path.isfile(other)
+
+        quick = self._run(
+            main_module,
+            tmp_path,
+            str(corpus),
+            extra_wordlists=[str(corpus_dir), other],
+        )
+        out = capsys.readouterr().out
+
+        assert "directory containing the corpus" in out
+        assert "cracked_dump" in out
+        passed = _wordlists(quick)
+        assert str(corpus_dir) not in passed
+        assert passed == [passed[0], other]
+
+    @pytest.mark.parametrize(
+        ("corpus_dir_name", "offered_name"),
+        [
+            ("cracked_dump", "sibling"),
+            # The string-prefix trap, and the direction that matters: the
+            # offered directory's path is a bare prefix of the corpus's path,
+            # so a startswith test without a separator would "contain" it and
+            # silently drop a directory holding nothing but ordinary wordlists.
+            ("cracked_dump2", "cracked_dump"),
+        ],
+    )
+    def test_a_directory_that_does_not_contain_the_corpus_is_passed_through(
+        self, main_module, tmp_path, capsys, corpus_dir_name, offered_name
+    ):
+        """Control for the skip above: do not over-skip."""
+        wordlists = tmp_path / "wordlists"
+        corpus_dir = wordlists / corpus_dir_name
+        corpus_dir.mkdir(parents=True)
+        corpus = corpus_dir / "found.txt"
+        corpus.write_text("quibblefox\nQuibblefox1\n", encoding="latin-1")
+        sibling = wordlists / offered_name
+        sibling.mkdir()
+        self._wordlist(sibling, "words.txt")
+        assert os.path.isdir(sibling) and os.path.isfile(corpus)
+        assert str(corpus).startswith(str(sibling)) == (offered_name == "cracked_dump")
+
+        quick = self._run(
+            main_module, tmp_path, str(corpus), extra_wordlists=[str(sibling)]
+        )
+
+        assert "the corpus" not in capsys.readouterr().out
+        assert _wordlists(quick)[1] == str(sibling)
+
+    def test_a_symlinked_directory_whose_target_holds_the_corpus_is_skipped(
+        self, main_module, tmp_path, capsys
+    ):
+        """Both sides resolve through realpath, so an aliased parent is caught."""
+        wordlists = tmp_path / "wordlists"
+        corpus_dir = wordlists / "cracked_dump"
+        corpus_dir.mkdir(parents=True)
+        corpus = corpus_dir / "found.txt"
+        corpus.write_text("quibblefox\nQuibblefox1\n", encoding="latin-1")
+        alias = wordlists / "dump_link"
+        alias.symlink_to(corpus_dir, target_is_directory=True)
+        assert os.path.isdir(alias) and os.path.isfile(alias / "found.txt")
+
+        quick = self._run(
+            main_module, tmp_path, str(corpus), extra_wordlists=[str(alias)]
+        )
+
+        assert "directory containing the corpus" in capsys.readouterr().out
+        assert len(_wordlists(quick)) == 1
+
     def test_extras_do_not_change_the_rule_file_or_the_cache(
         self, main_module, tmp_path, corpus, capsys
     ):
@@ -770,6 +857,12 @@ class TestSpoonmanBasewordCap:
         corpus = self._corpus(tmp_path)
         first = self._run(main_module, tmp_path, corpus, baseword_cap=2)
         capped = _wordlists(first)[0]
+        # Pin the ordering rather than relying on filesystem timestamp
+        # resolution: reuse requires the capped file to be *strictly* newer than
+        # the list it was cut from, so on a coarse-mtime filesystem a derivation
+        # that wrote both within one tick would compare equal and rebuild.
+        full = os.path.join(os.path.dirname(capped), "basewords.txt")
+        os.utime(capped, (os.path.getmtime(full) + 10,) * 2)
         written_at = os.path.getmtime(capped)
         capsys.readouterr()
 
@@ -922,6 +1015,35 @@ class TestSpoonmanBasewordCap:
             "flimberdoodle",
             "wibblesprocket",
         ]
+
+    def test_a_capped_file_stamped_the_same_as_the_list_is_rebuilt(
+        self, main_module, tmp_path
+    ):
+        """Equality is not freshness.
+
+        A coarse-mtime filesystem (HFS+, FAT, some NFS) cannot distinguish a
+        capped file written just *before* a derivation from one written just
+        after it, so reusing on equality would serve a stale prefix of a corpus
+        that is no longer there -- the Task 5 bug class. Only strictly newer
+        counts as current; a needless rebuild is byte-identical and cheap.
+        """
+        corpus = self._corpus(tmp_path)
+        self._run(main_module, tmp_path, corpus)
+        cache_dir = self._hash_file(tmp_path) + ".spoonman"
+        full = os.path.join(cache_dir, "basewords.txt")
+        capped = os.path.join(cache_dir, "basewords.top2.txt")
+        assert os.path.isfile(full) and not os.path.exists(capped)
+        with open(capped, "w", encoding="latin-1") as handle:
+            handle.write("staleword\n")
+        stamp = os.path.getmtime(full)
+        os.utime(capped, (stamp, stamp))
+        assert os.path.getmtime(capped) == os.path.getmtime(full)
+
+        with patch("hate_crack.rulegen.generate") as generate:
+            quick = self._run(main_module, tmp_path, corpus, baseword_cap=2)
+
+        generate.assert_not_called()
+        assert self._lines(_wordlists(quick)[0]) == ["quibblefox", "zarplewidget"]
 
     def test_unwritable_capped_file_falls_back_to_the_full_list(
         self, main_module, tmp_path, capsys
