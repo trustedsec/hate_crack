@@ -201,25 +201,23 @@ def test_escape_mask_literal_doubles_question_marks():
     assert hc_main._escape_mask_literal("Pass?word") == "Pass??word"
 
 
-def test_escape_mask_literal_doubles_backslashes():
-    """A backslash is hashcat's hcmask *field* escape, consumed before the
-    mask is tokenized, so an unescaped one eats the following character."""
+def test_escape_mask_literal_leaves_field_escapes_to_the_assembler():
+    r"""'\' and ',' are hcmask *field* escapes, consumed by
+    mask_ctx_parse_maskfile before the mask is tokenized, and
+    format_hcmask_line escapes both when it assembles the line. Doing it here
+    as well would double-escape: a doubled backslash for '\', and a literal
+    backslash plus a real field break for ','.
+
+    The assembled-line tests below are what actually pin the behaviour; these
+    only pin which layer owns which character.
+    """
     from hate_crack import main as hc_main
 
-    assert hc_main._escape_mask_literal("pass\\word") == "pass\\\\word"
-    # A trailing backslash would otherwise vanish entirely.
-    assert hc_main._escape_mask_literal("back\\") == "back\\\\"
-    # Both escapes apply, and are order-independent.
-    assert hc_main._escape_mask_literal("a\\?b") == "a\\\\??b"
-
-
-def test_escape_mask_literal_leaves_commas_alone():
-    """format_hcmask_line escapes the comma when it assembles the line;
-    doing it here too would emit ``\\,`` -- a literal backslash plus a
-    field break."""
-    from hate_crack import main as hc_main
-
+    assert hc_main._escape_mask_literal("pass\\word") == "pass\\word"
+    assert hc_main._escape_mask_literal("back\\") == "back\\"
     assert hc_main._escape_mask_literal("a,b") == "a,b"
+    # '?' is still ours: mp_expand reads it after the field escapes are gone.
+    assert hc_main._escape_mask_literal("a\\?b") == "a\\??b"
 
 
 def test_build_hcmask_lines_backslash_literal_survives_hashcat():
@@ -230,10 +228,16 @@ def test_build_hcmask_lines_backslash_literal_survives_hashcat():
     ``pass\\word?1``, which hashcat read as ``password?1`` -- a mask that can
     never match the plaintext the cluster was built from.
 
-    This also guards a future submodule bump: HashcatRosetta's nightly
-    ``format_hcmask_line`` escapes backslashes itself, and if that lands here
-    while ``_escape_mask_literal`` still does too, this assertion fails rather
-    than silently emitting a doubled backslash.
+    This pins the *assembled* line rather than one layer's output, which is
+    what let the escaping move from ``_escape_mask_literal`` to
+    ``format_hcmask_line`` safely: the line is byte-identical either way, and
+    when the submodule bump landed with both layers still escaping, this
+    assertion failed on a doubled backslash instead of quietly corrupting the
+    mask. It guards a move back the same way.
+
+    Because it depends on the pinned HashcatRosetta commit, a submodule
+    working tree left behind an updated pin fails here too -- run
+    ``git submodule update --init HashcatRosetta`` if it does.
     """
     from hate_crack import main as hc_main
 

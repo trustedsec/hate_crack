@@ -3593,29 +3593,25 @@ def _escape_mask_literal(text: str) -> str:
     - **'?' is the mask token marker**, interpreted by ``mp_expand``, so a
       literal '?' must be doubled ('??') or it reads as a dangling/unknown
       token.
-    - **'\' is the hcmask *field* escape**, consumed earlier by
-      ``mask_ctx_parse_maskfile`` (src/mpsp.c), which drops any backslash and
-      takes the next character literally. An unescaped '\' therefore eats the
-      character after it -- a cluster built from ``pass\word`` emitted
-      ``pass\word?1?1`` and hashcat enumerated ``passwordNN``, a mask that can
-      never match the plaintext it was derived from. Verified with
-      ``hashcat --stdout -a 3``. A trailing '\' vanishes outright.
+    Only '?' is escaped here, because it is the only one this layer owns.
 
-    The two substitutions are order-independent: doubling '?' introduces no
-    backslashes and doubling '\' introduces no '?'.
+    The hcmask *field* escapes -- '\' and ',' -- belong to whatever assembles
+    the line, which is ``rosetta_format_hcmask_line``. Both are consumed
+    earlier than '?', by ``mask_ctx_parse_maskfile`` (src/mpsp.c): a backslash
+    is dropped and the next character taken literally, and an unescaped comma
+    starts a new field. Escaping either one here as well would double-escape
+    it -- a literal backslash followed by a field break for ',', and a doubled
+    backslash for '\'. HashcatRosetta has escaped both since the commit this
+    submodule is pinned to, so this function must *not*.
 
-    Commas are deliberately *not* escaped here. A comma is also a field
-    separator, but ``rosetta_format_hcmask_line`` already escapes it when it
-    assembles the line, and doing it in both places would emit ``\\,`` and
-    produce a literal backslash followed by a field break. That split matters
-    if HashcatRosetta is ever bumped to a version whose
-    ``format_hcmask_line`` escapes backslashes too (nightly does): the
-    backslash handling below would then have to move out of here for exactly
-    the same double-escaping reason. ``test_build_hcmask_lines_backslash_*``
-    pins the resulting candidates so that change fails loudly instead of
-    silently corrupting masks.
+    That leaves '?' unambiguous: it is interpreted by ``mp_expand`` after the
+    field escapes are already gone, so a literal '?' must be doubled ('??')
+    here or it reads as a dangling/unknown token.
+    ``test_build_hcmask_lines_*`` pins the fully assembled lines rather than
+    this function's output alone, so a submodule move in either direction
+    fails loudly instead of silently corrupting masks.
     """
-    return text.replace("\\", "\\\\").replace("?", "??")
+    return text.replace("?", "??")
 
 
 # hashcat's own ``-1``..``-8`` / ``?1``-``?8`` ceiling, which Rosetta's
