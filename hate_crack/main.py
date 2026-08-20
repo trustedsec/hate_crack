@@ -3637,6 +3637,29 @@ def _escape_mask_literal(text: str) -> str:
 _SMART_MASK_MAX_CHARSET_SLOTS = 8
 
 
+# hashcat's builtin charset tokens, keyed by the character *set* each one
+# enumerates. Matching on the set rather than the string matters because
+# _infer_charset returns observed characters in sorted order, which is not the
+# order hashcat writes them in.
+#
+# Kept as a local copy rather than imported from HashcatRosetta so mask
+# building does not depend on the optional import; test_smart_mask's
+# test_builtin_token_table_matches_rosetta pins the two together.
+_SMART_MASK_BUILTIN_TOKENS: dict[frozenset[str], str] = {
+    frozenset("abcdefghijklmnopqrstuvwxyz"): "?l",
+    frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZ"): "?u",
+    frozenset("0123456789"): "?d",
+    frozenset("0123456789abcdef"): "?h",
+    frozenset("0123456789ABCDEF"): "?H",
+    frozenset(" !\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"): "?s",
+    frozenset(
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        " !\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
+    ): "?a",
+    frozenset(chr(i) for i in range(256)): "?b",
+}
+
+
 class SmartMaskSlotLimit(Exception):
     """A template needs more custom-charset slots than hashcat has.
 
@@ -3653,39 +3676,57 @@ class SmartMaskSlotLimit(Exception):
         )
 
 
-def _assign_charset_slots(charsets: Sequence[str]) -> tuple[list[str], list[int]]:
-    """Map per-position charsets onto shared ``?N`` slots.
+def _assign_mask_tokens(charsets: Sequence[str]) -> tuple[list[str], list[str]]:
+    """Map per-position charsets onto the mask token that enumerates each.
 
-    Returns the deduplicated slot definitions and, per variable position,
-    the 1-based slot it uses.
+    Returns the custom charset definitions the line needs and, per variable
+    position, the token to repeat for that position. Three cases, in the
+    order they are tried, each exactly equivalent to spending a slot but
+    cheaper:
 
-    Positions with identical charsets share one slot. This is exactly
-    equivalent -- ``?1`` used twice enumerates what two identically-defined
-    slots would -- and it is what keeps the 8-slot ceiling from being a
-    ceiling on *variable runs*, which is the form the limit used to take. A
-    date-suffixed template varying five separate digit runs needs one slot,
-    not five, so it now builds instead of being dropped.
+    - **A charset hashcat already has a token for** becomes that token, so
+      a varying digit run is ``?d?d`` rather than a ``0123456789`` field
+      plus ``?1?1``.
+    - **A single-character charset** becomes the escaped literal itself. A
+      run that varies only in length has exactly one character in it, and
+      ``?1`` over a one-character set is that character.
+    - **Anything else** takes a shared ``?N`` slot, shared across positions
+      with an identical charset -- ``?1`` used twice enumerates what two
+      identically-defined slots would.
 
-    Raises :class:`SmartMaskSlotLimit` when the distinct charsets genuinely
-    exceed what hashcat can hold.
+    All three exist to keep the 8-slot ceiling from acting as a ceiling on
+    *variable runs*, which is the form the limit used to take. A
+    date-suffixed template varying five separate digit runs now spends no
+    slots at all.
+
+    Raises :class:`SmartMaskSlotLimit` when the charsets that genuinely
+    need a slot exceed what hashcat can hold.
     """
-    slot_by_charset: dict[str, int] = {}
-    slots: list[int] = []
+    slot_by_charset: dict[str, str] = {}
+    tokens: list[str] = []
     for charset in charsets:
-        slot = slot_by_charset.get(charset)
-        if slot is None:
-            slot = len(slot_by_charset) + 1
-            slot_by_charset[charset] = slot
-        slots.append(slot)
+        builtin = _SMART_MASK_BUILTIN_TOKENS.get(frozenset(charset))
+        if builtin is not None:
+            tokens.append(builtin)
+            continue
+        if len(set(charset)) == 1:
+            tokens.append(_escape_mask_literal(charset[0]))
+            continue
+        token = slot_by_charset.get(charset)
+        if token is None:
+            token = f"?{len(slot_by_charset) + 1}"
+            slot_by_charset[charset] = token
+        tokens.append(token)
     if len(slot_by_charset) > _SMART_MASK_MAX_CHARSET_SLOTS:
         raise SmartMaskSlotLimit(len(slot_by_charset))
-    return list(slot_by_charset), slots
+    return list(slot_by_charset), tokens
 
 
 def _build_hcmask_lines(template: "_SmartMaskTemplate") -> list[str]:
     """Build one .hcmask line per observed variable-run length
-    combination: literal text for fixed positions (escaped), repeated
-    ``?N`` tokens for variable positions.
+    combination: literal text for fixed positions (escaped), and for each
+    variable position the token :func:`_assign_mask_tokens` chose for it,
+    repeated to that position's length.
 
     Raises :class:`SmartMaskSlotLimit` if the template needs more than
     hashcat's eight custom-charset slots. ``hcatSmartMask`` checks that up
@@ -3696,9 +3737,7 @@ def _build_hcmask_lines(template: "_SmartMaskTemplate") -> list[str]:
     # available (see hcatSmartMask's guard clause); this assert is purely
     # so ty narrows the guarded import's `Unknown | None` type here too.
     assert rosetta_format_hcmask_line is not None
-    custom_charsets, slot_by_variable = _assign_charset_slots(
-        template.variable_charsets
-    )
+    custom_charsets, token_by_variable = _assign_mask_tokens(template.variable_charsets)
     fixed_by_position = {
         position: content for position, _run_type, content in template.fixed_runs
     }
@@ -3709,10 +3748,9 @@ def _build_hcmask_lines(template: "_SmartMaskTemplate") -> list[str]:
             if position in fixed_by_position:
                 mask_parts.append(_escape_mask_literal(fixed_by_position[position]))
             else:
-                slot_index = template.variable_positions.index(position)
-                slot = slot_by_variable[slot_index]
-                length = lengths[slot_index]
-                mask_parts.append(f"?{slot}" * length)
+                variable_index = template.variable_positions.index(position)
+                token = token_by_variable[variable_index]
+                mask_parts.append(token * lengths[variable_index])
         mask = "".join(mask_parts)
         lines.append(rosetta_format_hcmask_line(custom_charsets, mask))
     return lines
@@ -3790,7 +3828,9 @@ def hcatSmartMask(
                 f"[!] Smart Mask (template {index}/{len(templates)}, "
                 f"{template.member_count} accounts): {exc.needed} distinct "
                 f"charsets across {len(template.variable_positions)} varying "
-                f"runs, and hashcat has only "
+                f"runs need a custom slot each (hashcat's own ?d/?l/?u/?s "
+                f"and single-character runs are already inlined), and "
+                f"hashcat has only "
                 f"{_SMART_MASK_MAX_CHARSET_SLOTS} charset slots (?1-?8). "
                 "Skipping."
             )

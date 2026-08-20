@@ -249,7 +249,7 @@ def test_build_hcmask_lines_backslash_literal_survives_hashcat():
         member_count=3,
         total_positions=2,
     )
-    assert hc_main._build_hcmask_lines(template) == ["0123456789,pass\\\\word?1"]
+    assert hc_main._build_hcmask_lines(template) == ["pass\\\\word?d"]
 
 
 def test_build_hcmask_lines_backslash_and_comma_and_question_mark():
@@ -266,7 +266,7 @@ def test_build_hcmask_lines_backslash_and_comma_and_question_mark():
         total_positions=2,
     )
     # hashcat: field parse -> "a\b,c??d?1", mask expand -> literal "a\b,c?d" + digit.
-    assert hc_main._build_hcmask_lines(template) == ["0123456789,a\\\\b\\,c??d?1"]
+    assert hc_main._build_hcmask_lines(template) == ["a\\\\b\\,c??d?d"]
 
 
 def test_build_hcmask_lines_single_length_combination():
@@ -280,7 +280,7 @@ def test_build_hcmask_lines_single_length_combination():
         member_count=4,
         total_positions=2,
     )
-    assert hc_main._build_hcmask_lines(template) == ["0123456789,CrawlingHorse?1?1?1"]
+    assert hc_main._build_hcmask_lines(template) == ["CrawlingHorse?d?d?d"]
 
 
 def test_build_hcmask_lines_multiple_length_combinations_produce_multiple_lines():
@@ -299,8 +299,8 @@ def test_build_hcmask_lines_multiple_length_combinations_produce_multiple_lines(
         total_positions=5,
     )
     assert hc_main._build_hcmask_lines(template) == [
-        "0123456789,!@#$%^&*(),ChangeMe2day?1?1?1?1?2?2",
-        "0123456789,!@#$%^&*(),ChangeMe2day?1?1?1?1?2?2?2",
+        "!@#$%^&*(),ChangeMe2day?d?d?d?d?1?1",
+        "!@#$%^&*(),ChangeMe2day?d?d?d?d?1?1?1",
     ]
 
 
@@ -315,28 +315,177 @@ def test_build_hcmask_lines_escapes_literal_question_mark_in_fixed_run():
         member_count=3,
         total_positions=2,
     )
-    assert hc_main._build_hcmask_lines(template) == ["0123456789,Pass??word?1?1"]
+    assert hc_main._build_hcmask_lines(template) == ["Pass??word?d?d"]
+
+
+def test_builtin_token_table_matches_rosetta():
+    """The local builtin table must stay identical to hashcat's own, as
+    HashcatRosetta transcribes it.
+
+    main.py keeps its own copy so the table survives the optional-import
+    path (a missing submodule must not turn into a NameError halfway
+    through mask building), which makes drift possible -- this is the guard
+    against it.
+    """
+    from hate_crack import main as hc_main  # noqa: F401  (puts rosetta on sys.path)
+    from hashcat_rosetta.mask import BUILTIN_CHARSETS
+
+    assert hc_main._SMART_MASK_BUILTIN_TOKENS == {
+        frozenset(charset): token for token, charset in BUILTIN_CHARSETS.items()
+    }
+
+
+@pytest.mark.parametrize(
+    ("charset", "token"),
+    [
+        ("0123456789", "?d"),
+        ("abcdefghijklmnopqrstuvwxyz", "?l"),
+        ("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "?u"),
+        ("0123456789abcdef", "?h"),
+        ("0123456789ABCDEF", "?H"),
+        (" !\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~", "?s"),
+        (
+            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+            " !\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~",
+            "?a",
+        ),
+        ("".join(chr(i) for i in range(256)), "?b"),
+    ],
+)
+def test_builtin_charsets_use_their_token_and_take_no_slot(charset, token):
+    """A charset hashcat already has a token for is written as that token.
+
+    Same keyspace, a shorter line, and -- the reason it matters -- one more
+    of the eight ?1-?8 slots left for a charset that genuinely needs one.
+    """
+    from hate_crack import main as hc_main
+
+    template = hc_main._SmartMaskTemplate(
+        fixed_runs=((0, "L", "stem"),),
+        variable_positions=(1,),
+        variable_charsets=(charset,),
+        length_combinations=((2,),),
+        member_count=3,
+        total_positions=2,
+    )
+    assert hc_main._build_hcmask_lines(template) == [f"stem{token}{token}"]
+
+
+def test_builtin_match_ignores_charset_ordering():
+    """_infer_charset returns observed characters sorted, so the match has to
+    be on the character set, not the string hashcat happens to write."""
+    from hate_crack import main as hc_main
+
+    template = hc_main._SmartMaskTemplate(
+        fixed_runs=((0, "L", "stem"),),
+        variable_positions=(1,),
+        variable_charsets=("9876543210",),
+        length_combinations=((1,),),
+        member_count=3,
+        total_positions=2,
+    )
+    assert hc_main._build_hcmask_lines(template) == ["stem?d"]
+
+
+def test_single_character_charset_becomes_a_literal():
+    """A run that varies only in length has a one-character charset. Inlining
+    it costs nothing and frees the slot it would otherwise hold."""
+    from hate_crack import main as hc_main
+
+    template = hc_main._SmartMaskTemplate(
+        fixed_runs=((0, "L", "stem"),),
+        variable_positions=(1,),
+        variable_charsets=("#",),
+        length_combinations=((1,), (3,)),
+        member_count=3,
+        total_positions=2,
+    )
+    assert hc_main._build_hcmask_lines(template) == ["stem#", "stem###"]
+
+
+def test_single_character_charset_literal_is_escaped():
+    """An inlined '?' is a mask token marker and must be doubled, exactly as a
+    fixed-run literal is."""
+    from hate_crack import main as hc_main
+    from hashcat_rosetta import mask as rosetta_mask
+
+    template = hc_main._SmartMaskTemplate(
+        fixed_runs=((0, "L", "stem"),),
+        variable_positions=(1,),
+        variable_charsets=("?",),
+        length_combinations=((2,),),
+        member_count=3,
+        total_positions=2,
+    )
+    (line,) = hc_main._build_hcmask_lines(template)
+    assert line == "stem????"
+    assert rosetta_mask.parse_hcmask_line(line).mask == "stem????"
+
+
+def test_builtin_substitution_preserves_keyspace():
+    """The rewrite must be exactly equivalent -- same candidates, same count."""
+    from hate_crack import main as hc_main
+    from hashcat_rosetta import mask as rosetta_mask
+
+    template = hc_main._SmartMaskTemplate(
+        fixed_runs=((0, "L", "stem"),),
+        variable_positions=(1, 2),
+        variable_charsets=("0123456789", "#"),
+        length_combinations=((3, 2),),
+        member_count=3,
+        total_positions=3,
+    )
+    (line,) = hc_main._build_hcmask_lines(template)
+    assert line == "stem?d?d?d##"
+    explicit = rosetta_mask.parse_hcmask_line("0123456789,#,stem?1?1?1?2?2")
+    assert rosetta_mask.keyspace(rosetta_mask.parse_hcmask_line(line)) == (
+        rosetta_mask.keyspace(explicit)
+    )
+
+
+def test_builtins_do_not_count_against_the_slot_limit():
+    """Eight genuinely custom charsets plus any number of builtin ones still
+    builds -- before this, the digit runs alone could exhaust the slots and
+    drop the whole template."""
+    from hate_crack import main as hc_main
+    from hashcat_rosetta import mask as rosetta_mask
+
+    charsets = tuple("abcdefgh"[i] * 2 + "z" for i in range(8)) + ("0123456789",) * 4
+    template = hc_main._SmartMaskTemplate(
+        fixed_runs=tuple((i, "L", "x") for i in range(0, 24, 2)),
+        variable_positions=tuple(range(1, 24, 2)),
+        variable_charsets=charsets,
+        length_combinations=((1,) * 12,),
+        member_count=3,
+        total_positions=24,
+    )
+    (line,) = hc_main._build_hcmask_lines(template)
+    parsed = rosetta_mask.parse_hcmask_line(line)
+    assert len(parsed.custom) == 8
+    assert parsed.mask.endswith("x?dx?dx?dx?d")
 
 
 def test_identical_charsets_share_one_slot():
-    """Nine varying digit runs need one ?1, not nine slots.
+    """Nine varying runs over the same charset need one ?1, not nine slots.
 
     ``?1`` repeated at several positions enumerates exactly what several
     identically-defined slots would, so sharing is free -- and it is what stops
     hashcat's eight-slot ceiling from acting as a ceiling on varying runs.
+    The charset here is deliberately not a hashcat builtin: a builtin would
+    take no slot at all and so would not exercise sharing.
     """
     from hate_crack import main as hc_main
 
     template = hc_main._SmartMaskTemplate(
         fixed_runs=tuple((i, "L", "x") for i in range(0, 18, 2)),
         variable_positions=tuple(range(1, 18, 2)),
-        variable_charsets=("0123456789",) * 9,
+        variable_charsets=("0246",) * 9,
         length_combinations=((1,) * 9,),
         member_count=3,
         total_positions=18,
     )
     lines = hc_main._build_hcmask_lines(template)
-    assert lines == ["0123456789," + "x?1" * 9]
+    assert lines == ["0246," + "x?1" * 9]
 
 
 def test_slot_sharing_preserves_per_position_charsets():
@@ -346,12 +495,12 @@ def test_slot_sharing_preserves_per_position_charsets():
     template = hc_main._SmartMaskTemplate(
         fixed_runs=((0, "L", "a"), (2, "L", "b"), (4, "L", "c")),
         variable_positions=(1, 3, 5),
-        variable_charsets=("0123456789", "abc", "0123456789"),
+        variable_charsets=("0246", "abc", "0246"),
         length_combinations=((1, 1, 1),),
         member_count=3,
         total_positions=6,
     )
-    assert hc_main._build_hcmask_lines(template) == ["0123456789,abc,a?1b?2c?1"]
+    assert hc_main._build_hcmask_lines(template) == ["0246,abc,a?1b?2c?1"]
 
 
 def test_nine_distinct_charsets_raise_the_slot_limit():
@@ -360,7 +509,7 @@ def test_nine_distinct_charsets_raise_the_slot_limit():
     template = hc_main._SmartMaskTemplate(
         fixed_runs=tuple((i, "L", "x") for i in range(0, 18, 2)),
         variable_positions=tuple(range(1, 18, 2)),
-        variable_charsets=tuple("abcdefghi"[i] * 3 for i in range(9)),
+        variable_charsets=tuple("abcdefghi"[i] * 2 + "z" for i in range(9)),
         length_combinations=((1,) * 9,),
         member_count=3,
         total_positions=18,
@@ -378,7 +527,7 @@ def test_eight_distinct_charsets_still_build():
     template = hc_main._SmartMaskTemplate(
         fixed_runs=tuple((i, "L", "x") for i in range(0, 16, 2)),
         variable_positions=tuple(range(1, 16, 2)),
-        variable_charsets=tuple("abcdefgh"[i] * 3 for i in range(8)),
+        variable_charsets=tuple("abcdefgh"[i] * 2 + "z" for i in range(8)),
         length_combinations=((1,) * 8,),
         member_count=3,
         total_positions=16,
@@ -405,7 +554,7 @@ def test_build_hcmask_lines_output_parses_as_valid_hcmask():
     )
     for line in hc_main._build_hcmask_lines(template):
         parsed = parse_hcmask_line(line)
-        assert parsed.mask == "CrawlingHorse?1?1?1"
+        assert parsed.mask == "CrawlingHorse?d?d?d"
 
 
 def _install_smart_mask_test_env(monkeypatch, hc_main, hashfile):
@@ -482,7 +631,7 @@ def test_hcatSmartMask_runs_a_single_attack_for_one_qualifying_template(
     assert len(popen_calls) == 1
     cmd = popen_calls[0]
     assert cmd[cmd.index("-a") + 1] == "3"
-    assert hcmask_snapshots == [b"0123456789,CrawlingHorse?1?1?1\n"]
+    assert hcmask_snapshots == [b"CrawlingHorse?d?d?d\n"]
     assert hc_main.hcatSmartMaskCount == 4  # lineCount(...) - hcatHashCracked(0)
 
 
@@ -516,8 +665,8 @@ def test_hcatSmartMask_combines_multiple_templates_into_one_hcmask_file(
     assert len(hcmask_snapshots) == 1
     lines = hcmask_snapshots[0].decode("latin-1").splitlines()
     assert lines == [
-        "0123456789,CrawlingHorse?1?1?1",
-        "0123456789,ChangeMe?1?1",
+        "CrawlingHorse?d?d?d",
+        "ChangeMe?d?d",
     ]
 
 
@@ -596,7 +745,7 @@ def test_hcatSmartMask_keyspace_guard_only_excludes_the_oversized_template(
     assert "exceeds the 500-candidate guardrail" in capsys.readouterr().out
     assert len(popen_calls) == 1
     lines = hcmask_snapshots[0].decode("latin-1").splitlines()
-    assert lines == ["0123456789,ChangeMe?1?1"]
+    assert lines == ["ChangeMe?d?d"]
 
 
 def test_hcatSmartMask_no_qualifying_cluster_skips_hashcat(
