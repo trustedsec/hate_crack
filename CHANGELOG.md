@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
-## [Unreleased]
+## [2.30.0] - 2026-08-20
 
 ### Changed
 - **The Spoonman Attack (menu 22) now reports "literal fallbacks" split into the two opposite things it was conflating.** A single `literal_fallbacks` count covered both a password with no ASCII letter anywhere — which is its own baseword under a `:` rule, the correct answer and a perfectly good dictionary entry — and a password that holds letters but could not be encoded within hashcat's limits, which is a real loss of expressiveness. Only the second is a defect, so an operator reading the combined number as "expressiveness lost" was reading something else: on a 360,000-password sample of a real corpus, **100%** of the fallbacks were the letterless kind and **zero** hit a limit. `coverage.txt` and `generate()`'s returned dict now carry `no_letter_literals` and `unrepresentable` separately, each with a one-line explanation in the report that says plainly which one is not a defect, and the console summary breaks the total down the same way. `literal_fallbacks` stays in the returned dict as the sum of the two, so nothing downstream breaks. The module docstring no longer leads with the two hashcat limits (a `T`/`i`/`o` position past index 35, and more than 31 rule functions) as the primary cause of a fallback; they are real but were measured never to fire on the realistic 6-12 character passwords a corpus is made of.
