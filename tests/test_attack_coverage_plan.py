@@ -57,7 +57,9 @@ def test_partial_overlap_filters_to_novel_entries(env):
     partial = env["tmp"] / "partial.rule"
     partial.write_text("c\n$1\n")
     covered = set(
-        ac.plan_run(_spec(env, rule_files=(str(partial),)), ac.set_lookup(set())).record_keys
+        ac.plan_run(
+            _spec(env, rule_files=(str(partial),)), ac.set_lookup(set())
+        ).record_keys
     )
 
     plan = ac.plan_run(_spec(env), ac.set_lookup(covered))
@@ -135,8 +137,12 @@ def test_chained_rule_files_are_all_or_nothing(env):
 def test_chained_rule_files_differ_from_the_reverse_order(env):
     second = env["tmp"] / "r2.rule"
     second.write_text("$9\n")
-    forward = ac.plan_run(_spec(env, rule_files=(env["rules"], str(second))), ac.set_lookup(set()))
-    reverse = ac.plan_run(_spec(env, rule_files=(str(second), env["rules"])), ac.set_lookup(set()))
+    forward = ac.plan_run(
+        _spec(env, rule_files=(env["rules"], str(second))), ac.set_lookup(set())
+    )
+    reverse = ac.plan_run(
+        _spec(env, rule_files=(str(second), env["rules"])), ac.set_lookup(set())
+    )
     assert set(forward.record_keys) != set(reverse.record_keys)
 
 

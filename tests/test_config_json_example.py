@@ -61,6 +61,7 @@ EXPECTED_KEYS = {
     "update_channel",
     "restore_potfile_on_start",
     "rule_debug_mode_enabled",
+    "coverage_enabled",
 }
 
 

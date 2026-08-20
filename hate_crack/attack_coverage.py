@@ -40,6 +40,7 @@ of this costs a dependency.
 """
 
 import hashlib
+import json
 import os
 import sqlite3
 from dataclasses import dataclass, field
@@ -52,8 +53,12 @@ DB_FILENAME = "attack_coverage.sqlite3"
 
 _READ_CHUNK = 1024 * 1024
 
-# SQLite parameter limit is 999 on older builds; stay well inside it.
-_QUERY_CHUNK = 500
+# Membership test for an arbitrarily large key set, as one static statement
+# with a single bound parameter. json_each sidesteps SQLite's 999-parameter
+# limit without interpolating anything into the SQL.
+_COVERED_IN_JSON = (
+    "SELECT key FROM covered WHERE key IN (SELECT value FROM json_each(?))"
+)
 
 # Schema notes, all measured at the realistic scale of ~191k keys (the
 # d3ad0ne+T0XlC pair over five wordlists, which is one Dictionary attack):
@@ -65,11 +70,11 @@ _QUERY_CHUNK = 500
 # - `covered` is WITHOUT ROWID *because* it is now narrow. A wide WITHOUT ROWID
 #   table is a pessimization -- it puts the whole row in the key B-tree and
 #   measured slower to insert with no size win. Narrow, it earns its keep.
-# - Lookup speed was never the deciding factor: `WHERE key IN (...)` over 38k
-#   keys runs in ~65 ms either way, since the primary key index serves it. What
-#   the primary key really buys is INSERT OR IGNORE deduplication, which is why
-#   the store stays at 27.5 MB after ten identical runs where an append-only
-#   file would have reached 124 MB.
+# - Lookup speed was never the deciding factor: a 38k-key membership test runs
+#   in ~57 ms, and every schema variant tried landed within 10 ms of that,
+#   because the primary key index serves them all. What the primary key really
+#   buys is INSERT OR IGNORE deduplication, which is why the store stays at
+#   27.5 MB after ten identical runs where an append-only file reached 124 MB.
 _SCHEMA = """
 -- One row per hashcat invocation. This is also the run history: a dynamic
 -- candidate generator (PRINCE, PCFG, OMEN, Markov, LLM) has no fixed set to
@@ -174,27 +179,54 @@ class CoverageStore:
     def covered(self, keys: Sequence[str]) -> set[str]:
         """Return the subset of ``keys`` already recorded.
 
-        Queried in chunks rather than loaded wholesale: a Dictionary attack asks
-        about ~191k keys, and only those matter.
+        Queried rather than loaded wholesale: a Dictionary attack asks about
+        ~191k keys, and only those matter.
+
+        The whole key set goes over as one JSON parameter. The obvious
+        alternative -- an ``IN (?,?,?...)`` clause -- would have to be built by
+        string interpolation and chunked under SQLite's 999-parameter limit;
+        this is a single static statement with one bound value, and measured
+        slightly faster besides (57 ms against 65 ms for the chunked form).
         """
         if not keys:
             return set()
         conn = self._connect()
         if conn is None:
             return set()
-        found: set[str] = set()
+        payload = json.dumps(list(keys))
         try:
-            for start in range(0, len(keys), _QUERY_CHUNK):
-                chunk = keys[start : start + _QUERY_CHUNK]
-                placeholders = ",".join("?" * len(chunk))
-                rows = conn.execute(
-                    f"SELECT key FROM covered WHERE key IN ({placeholders})",  # noqa: S608
-                    tuple(chunk),
-                ).fetchall()
-                found.update(row[0] for row in rows)
+            rows = conn.execute(_COVERED_IN_JSON, (payload,)).fetchall()
+        except sqlite3.Error:
+            return self._covered_via_temp_table(conn, keys)
+        return {row[0] for row in rows}
+
+    def _covered_via_temp_table(
+        self, conn: sqlite3.Connection, keys: Sequence[str]
+    ) -> set[str]:
+        """Fallback for a SQLite built without the JSON1 extension.
+
+        Correct but slower: the planner joins from ``covered``, so this scales
+        with the size of the store rather than the size of the probe. Still
+        static SQL, which is the point -- the alternative fallback would mean
+        interpolating placeholders after all.
+        """
+        try:
+            conn.execute(
+                "CREATE TEMP TABLE IF NOT EXISTS coverage_probe "
+                "(key TEXT PRIMARY KEY) WITHOUT ROWID"
+            )
+            conn.execute("DELETE FROM coverage_probe")
+            conn.executemany(
+                "INSERT OR IGNORE INTO coverage_probe (key) VALUES (?)",
+                [(key,) for key in keys],
+            )
+            rows = conn.execute(
+                "SELECT covered.key FROM covered "
+                "JOIN coverage_probe ON covered.key = coverage_probe.key"
+            ).fetchall()
         except sqlite3.Error:
             return set()
-        return found
+        return {row[0] for row in rows}
 
     def covered_lookup(self) -> Callable[[Sequence[str]], set[str]]:
         return self.covered
@@ -583,9 +615,7 @@ def plan_run(
         if not mask_entries:
             return _INERT
         single_file = (
-            spec.mask_files[0]
-            if len(spec.mask_files) == 1 and not spec.masks
-            else None
+            spec.mask_files[0] if len(spec.mask_files) == 1 and not spec.masks else None
         )
         return _plan_entries(
             kind="mask",

@@ -45,5 +45,6 @@
   "weakpass_min_rank": -1,
   "update_channel": "main",
   "restore_potfile_on_start": false,
-  "rule_debug_mode_enabled": true
+  "rule_debug_mode_enabled": true,
+  "coverage_enabled": true
 }

@@ -175,9 +175,28 @@ def test_covered_table_stores_no_per_key_metadata(store):
 
 
 def test_covered_handles_more_keys_than_the_sqlite_parameter_limit(store):
+    """The 999-parameter limit is why the query binds one JSON value, not N."""
     keys = [f"k{i}" for i in range(2500)]
     store.record(keys, target="t")
     assert store.covered(keys) == set(keys)
+
+
+def test_covered_query_interpolates_nothing(store):
+    """Static SQL with a single bound parameter -- no placeholder building."""
+    assert "?" == ac._COVERED_IN_JSON[ac._COVERED_IN_JSON.index("json_each(") + 10]
+    assert ac._COVERED_IN_JSON.count("?") == 1
+
+
+def test_covered_falls_back_when_json1_is_missing(store, monkeypatch):
+    """A SQLite built without JSON1 must still answer correctly."""
+    keys = [f"k{i}" for i in range(1200)]
+    store.record(keys, target="t")
+    # sqlite3.Connection is immutable, so stand in a statement that fails the
+    # same way a missing json_each would.
+    monkeypatch.setattr(
+        ac, "_COVERED_IN_JSON", "SELECT key FROM covered WHERE key IN (nope(?))"
+    )
+    assert store.covered(keys + ["absent"]) == set(keys)
 
 
 # --- history ---------------------------------------------------------------
@@ -220,11 +239,15 @@ def test_membership_lookup_uses_the_primary_key_index(store):
     store.record(["k1"], target="t")
     plan = (
         store._connect()
-        .execute("EXPLAIN QUERY PLAN SELECT key FROM covered WHERE key IN (?, ?)", ("a", "b"))
+        .execute(
+            "EXPLAIN QUERY PLAN SELECT key FROM covered WHERE key IN (?, ?)", ("a", "b")
+        )
         .fetchall()
     )
     detail = " ".join(row[3] for row in plan)
-    assert "SCAN" not in detail.upper(), f"membership query degraded to a scan: {detail}"
+    assert "SCAN" not in detail.upper(), (
+        f"membership query degraded to a scan: {detail}"
+    )
 
 
 def test_forget_target_uses_the_run_index(store):

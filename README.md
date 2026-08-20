@@ -662,6 +662,54 @@ controlled by the attack they delegate to, not by their own name: PRINCE-LING
 follows `hcatPrince`, while Spoonman, Rosetta, and the LLM pattern-rule modes
 follow `hcatQuickDictionary`.
 
+### Attack coverage tracking (`coverage_enabled`)
+
+Across a long engagement the same hash file gets attacked in many sessions with
+a rotating set of wordlists, rule files and mask lists, and it is easy to burn
+hours re-running ground you already covered — especially since the same rule
+line lives in more than one rule file. hate_crack records what it has already
+run against each hash file and offers to skip the overlap.
+
+Coverage is recorded **per entry, not per file**: individual rule lines and
+individual `.hcmask` lines, each paired with the wordlist it ran against. That
+is what lets it recognise that a custom rule file you run today repeats 40 of
+the rules `best64.rule` already covered last week, and it is also why a rule is
+only "covered" for the specific wordlist it was tried with — the same rules over
+a different corpus try entirely different candidates.
+
+The hash file is identified by a sha256 of its contents, so coverage survives
+renaming or moving it between sessions. Wordlists are identified the same way,
+with the digest memoized against size and mtime so a multi-gigabyte corpus is
+hashed once rather than on every attack.
+
+You are only prompted when there is genuinely something to skip:
+
+```
+[*] Coverage: 40 of 45 rules in this Dictionary have already been run against this hash file.
+[?] Skip them and run only the 5 new rules? [Y/n]:
+```
+
+Answer `Y` and hate_crack builds a temporary rule file holding just the untried
+entries; if *every* entry is a repeat, it skips the hashcat launch entirely.
+Answer `n` to run the whole thing anyway.
+
+Two deliberate limits:
+
+- **Coverage is recorded only on clean completion.** A ctrl-C or a hashcat error
+  records nothing, so the store never claims ground that was not actually
+  covered.
+- **Dynamic candidate generators are never filtered.** PRINCE, PCFG, OMEN,
+  Markov brute force and the LLM modes have no fixed set to diff, so they are
+  logged as having run and otherwise left alone. Chained rule files (`-r a -r b`)
+  are tracked as a single unit rather than per entry, because hashcat applies the
+  *cartesian product* of the two files and dropping an individual line would
+  silently remove every combination it took part in.
+
+Set `coverage_enabled` to `false` in `config.json` to turn this off, or pass
+`--no-coverage` for a single run — which neither consults nor updates the store.
+The store lives in `~/.hate_crack/coverage/attack_coverage.sqlite3`; deleting it
+resets coverage for every target.
+
 ### Notifications (menu option 82)
 
 hate_crack can send Pushover push notifications when attacks complete and,

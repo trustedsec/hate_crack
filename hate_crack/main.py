@@ -83,6 +83,7 @@ from hate_crack.progress import spinner  # noqa: E402
 from hate_crack import corpus_stats as _corpus_stats  # noqa: E402
 from hate_crack import plaintext as _plaintext  # noqa: E402
 from hate_crack import rulegen as _rulegen  # noqa: E402
+from hate_crack import attack_coverage as _coverage  # noqa: E402
 from hate_crack.menu import interactive_menu  # noqa: E402
 from hate_crack.username_detect import detect_username_hash_format  # noqa: E402
 
@@ -342,6 +343,7 @@ class FlagOverrides(NamedTuple):
     optimized_kernel_disabled: bool
     potfile_path: str
     rule_debug_mode_enabled: bool
+    coverage_enabled: bool
 
 
 def _flag_or_config(flag_value, config_value):
@@ -449,6 +451,12 @@ def resolve_flag_overrides(
             _flag_or_config(
                 getattr(args, "rule_debug_mode", None),
                 config.get("rule_debug_mode_enabled", True),
+            )
+        ),
+        coverage_enabled=bool(
+            _flag_or_config(
+                getattr(args, "coverage", None),
+                config.get("coverage_enabled", True),
             )
         ),
     )
@@ -1423,6 +1431,11 @@ _DEBUG_MODE_UNSUPPORTED_MSG = b"Invalid --debug-mode value specified."
 # verbose logging.
 _rule_debug_mode_enabled = True
 
+# Set from ``flags.coverage_enabled`` in main(); --no-coverage (or
+# ``coverage_enabled: false`` in config.json) stops _run_hcat_cmd from
+# consulting or writing the per-target coverage store at all.
+_coverage_enabled = True
+
 
 def _open_wordlist(path):
     """Open a wordlist file, transparently decompressing gzip by magic bytes.
@@ -1452,7 +1465,170 @@ def _debug_cmd(cmd):
         print(f"[DEBUG] hashcat cmd: {_format_cmd(cmd)}")
 
 
+def _coverage_store():
+    return _coverage.get_store()
+
+
+def _write_filtered_entries(entries, suffix):
+    """Write the still-untried entries to a temp rule/mask file.
+
+    Follows the existing temp-file idiom in this module (``delete=False``, the
+    caller unlinks in a ``finally``). Written as bytes with explicit newlines
+    because rule lines are whitespace-significant and must survive verbatim.
+    """
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        suffix=suffix,
+        prefix="hate_crack_coverage_",
+        delete=False,
+        encoding="utf-8",
+        newline="\n",
+    ) as handle:
+        for entry in entries:
+            handle.write(entry + "\n")
+        return handle.name
+
+
+def _prompt_coverage_filter(plan, attack_name: str) -> bool:
+    """Ask whether to skip the already-covered entries. Default is yes.
+
+    Only reached when there is genuine overlap, so a fresh engagement never
+    sees this prompt.
+    """
+    noun = {"rule": "rule", "mask": "mask", "wordlist": "wordlist"}.get(
+        plan.kind, "entry"
+    )
+    plural = "" if plan.covered_count == 1 else "s"
+    print(
+        f"\n[*] Coverage: {plan.covered_count} of {plan.total_count} {noun}{plural} "
+        f"in this {attack_name or 'attack'} have already been run against this "
+        "hash file."
+    )
+    if plan.skip:
+        return True
+    if non_interactive:
+        # A scripted run has nobody to ask; the config/CLI default already
+        # decided that filtering is wanted by getting this far.
+        return True
+    answer = input(
+        f"[?] Skip them and run only the {plan.total_count - plan.covered_count} "
+        f"new {noun}{plural}? [Y/n]: "
+    ).strip()
+    return answer.lower() not in ("n", "no")
+
+
+def _apply_coverage(cmd, spec, attack_name: str):
+    """Resolve coverage for a pending run.
+
+    Returns ``None`` when the whole run is a repeat and should be skipped, or
+    ``(cmd, plan, temp_paths)`` otherwise. ``plan`` is ``None`` when coverage
+    could not be established, which means neither filter nor record.
+    """
+    store = _coverage_store()
+    plan = _coverage.plan_run(spec, store.covered, store=store)
+    if plan.is_inert:
+        return cmd, None, []
+
+    if not plan.has_overlap:
+        return cmd, plan, []
+
+    if not _prompt_coverage_filter(plan, attack_name):
+        print("[*] Running everything, as requested.")
+        return cmd, plan, []
+
+    if plan.skip:
+        print(
+            f"[*] Skipping {attack_name or 'this attack'}: every "
+            f"{plan.kind or 'entry'} in it has already been run against this "
+            "hash file."
+        )
+        return None
+
+    if not plan.filtered_entries:
+        # Overlap exists but this run shape cannot be split (chained -r files
+        # are a cartesian product; a multi-source mask run has no single file
+        # to rewrite). Run it whole.
+        return cmd, plan, []
+
+    cmd = list(cmd)
+    temp_paths: list[str] = []
+
+    if plan.kind == "wordlist":
+        # Drop the already-covered wordlists from the positional arguments.
+        keep = set(plan.filtered_entries)
+        dropped = [arg for arg in spec.wordlists if arg not in keep]
+        cmd = [arg for arg in cmd if arg not in set(dropped)]
+    elif plan.source_path is not None:
+        suffix = ".hcmask" if plan.kind == "mask" else ".rule"
+        replacement = _write_filtered_entries(plan.filtered_entries, suffix)
+        temp_paths.append(replacement)
+        cmd = [replacement if arg == plan.source_path else arg for arg in cmd]
+
+    print(
+        f"[*] Coverage: running {len(plan.filtered_entries)} new "
+        f"{plan.kind} entr{'y' if len(plan.filtered_entries) == 1 else 'ies'} "
+        f"and skipping {plan.covered_count} already covered."
+    )
+    return cmd, plan, temp_paths
+
+
 def _run_hcat_cmd(
+    cmd,
+    attack_name: str = "",
+    hash_file: str | None = None,
+    *,
+    coverage=None,
+    stdin=None,
+    companion_procs=None,
+    reraise_interrupt: bool = False,
+    out_path: str | None = None,
+):
+    """Run hashcat, first consulting the coverage store when given a spec.
+
+    ``coverage`` is a :class:`hate_crack.attack_coverage.CoverageSpec` naming
+    the wordlists, rule files and masks this command enumerates. The assembled
+    ``cmd`` cannot supply that itself -- it has no way to say which positional
+    argument is a wordlist and which is a mask -- which is why the attack
+    functions pass it explicitly. Omitting it disables coverage for that
+    invocation, which is how dynamic candidate generators opt out.
+
+    Coverage is recorded only on clean completion, so a ctrl-C or a hashcat
+    error never leaves the store claiming ground that was not covered.
+    """
+    plan = None
+    temp_paths: list[str] = []
+
+    if coverage is not None and _coverage_enabled:
+        applied = _apply_coverage(cmd, coverage, attack_name)
+        if applied is None:
+            return
+        cmd, plan, temp_paths = applied
+
+    try:
+        completed = _run_hcat_cmd_uncovered(
+            cmd,
+            attack_name,
+            hash_file,
+            stdin=stdin,
+            companion_procs=companion_procs,
+            reraise_interrupt=reraise_interrupt,
+            out_path=out_path,
+        )
+    finally:
+        for path in temp_paths:
+            with contextlib.suppress(OSError):
+                os.unlink(path)
+
+    if plan is not None and completed:
+        _coverage_store().record(
+            plan.record_keys,
+            target=plan.target,
+            kind=plan.kind,
+            attack=attack_name,
+        )
+
+
+def _run_hcat_cmd_uncovered(
     cmd,
     attack_name: str = "",
     hash_file: str | None = None,
@@ -1461,8 +1637,11 @@ def _run_hcat_cmd(
     companion_procs=None,
     reraise_interrupt: bool = False,
     out_path: str | None = None,
-):
+) -> bool:
     """Execute a hashcat subprocess and bracket it with notify hooks.
+
+    Returns True when hashcat ran to completion (cracked or exhausted) and was
+    not interrupted -- the condition under which coverage may be recorded.
 
     This consolidates the ``hcatProcess = subprocess.Popen(cmd); try:
     wait() except KeyboardInterrupt: kill()`` dance that was duplicated
@@ -1554,7 +1733,10 @@ def _run_hcat_cmd(
                 _debug_mode_level = 4
                 fallback_cmd = list(cmd)
                 fallback_cmd[debug_mode_idx] = "4"
-                return _run_hcat_cmd(
+                # Re-enter the inner runner, not the coverage wrapper:
+                # coverage has already been applied to this cmd, and applying
+                # it twice would filter an already-filtered rule file.
+                return _run_hcat_cmd_uncovered(
                     fallback_cmd,
                     attack_name,
                     hash_file,
@@ -1582,6 +1764,14 @@ def _run_hcat_cmd(
 
     if interrupted and reraise_interrupt:
         raise KeyboardInterrupt
+
+    # hashcat exits 0 when every hash cracked and 1 when the keyspace was
+    # exhausted; both mean the candidates really were tried. Anything else is
+    # an abort or an error, and must not be recorded as covered. A missing
+    # returncode only happens behind a test double -- a real Popen always has
+    # one set by wait() -- so it is treated as completion rather than failure.
+    returncode = getattr(hcatProcess, "returncode", None)
+    return not interrupted and returncode in (0, 1, None)
 
 
 def _is_gzipped(path: str) -> bool:
@@ -2367,7 +2557,16 @@ def hcatDictionary(hcatHashType, hcatHashFile):
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
     cmd = _add_debug_mode_for_rules(cmd)
-    _run_hcat_cmd(cmd, attack_name="Dictionary", hash_file=hcatHashFile)
+    _run_hcat_cmd(
+        cmd,
+        attack_name="Dictionary",
+        hash_file=hcatHashFile,
+        coverage=_coverage.CoverageSpec(
+            hash_file=hcatHashFile,
+            wordlists=tuple(optimized_lists),
+            rule_files=(rule_best66,),
+        ),
+    )
 
     rule_d3ad0ne = get_rule_path("d3ad0ne.rule")
     rule_toxic = get_rule_path("T0XlC.rule")
@@ -2403,7 +2602,16 @@ def hcatDictionary(hcatHashType, hcatHashFile):
             cmd.extend(shlex.split(hcatTuning))
             _append_potfile_arg(cmd)
             cmd = _add_debug_mode_for_rules(cmd)
-            _run_hcat_cmd(cmd, attack_name="Dictionary", hash_file=hcatHashFile)
+            _run_hcat_cmd(
+                cmd,
+                attack_name="Dictionary",
+                hash_file=hcatHashFile,
+                coverage=_coverage.CoverageSpec(
+                    hash_file=hcatHashFile,
+                    wordlists=(wordlist,),
+                    rule_files=(combined_path,),
+                ),
+            )
         finally:
             os.unlink(combined_path)
 
@@ -2549,7 +2757,15 @@ def hcatTopMask(hcatHashType, hcatHashFile, hcatTargetTime):
         _insert_optimized_flag(cmd)
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
-    _run_hcat_cmd(cmd, attack_name="Top Mask", hash_file=hcatHashFile)
+    _run_hcat_cmd(
+        cmd,
+        attack_name="Top Mask",
+        hash_file=hcatHashFile,
+        coverage=_coverage.CoverageSpec(
+            hash_file=hcatHashFile,
+            mask_files=(f"{hcatHashFile}.hcmask",),
+        ),
+    )
 
     hcatMaskCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
@@ -4481,6 +4697,10 @@ def hcatCorporateMasks(
                 attack_name=f"Corporate Masks (len {n})",
                 hash_file=hcatHashFile,
                 reraise_interrupt=True,
+                coverage=_coverage.CoverageSpec(
+                    hash_file=hcatHashFile,
+                    mask_files=(mask_path,),
+                ),
             )
     except KeyboardInterrupt:
         pass
@@ -4523,7 +4743,21 @@ def hcatAdHocMask(
         _insert_optimized_flag(cmd)
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
-    _run_hcat_cmd(cmd, attack_name="Ad-hoc Mask", hash_file=hcatHashFile)
+    _run_hcat_cmd(
+        cmd,
+        attack_name="Ad-hoc Mask",
+        hash_file=hcatHashFile,
+        coverage=_coverage.CoverageSpec(
+            hash_file=hcatHashFile,
+            masks=(mask,),
+            variant=(
+                f"charsets:{custom_charsets}|"
+                f"inc:{increment_min or ''}-{increment_max or ''}"
+                if (increment or custom_charsets)
+                else ""
+            ),
+        ),
+    )
 
 
 def hcatMarkovTrain(source_file, hcatHashFile):
@@ -5706,7 +5940,16 @@ def hcatGoodMeasure(hcatHashType, hcatHashFile):
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
     cmd = _add_debug_mode_for_rules(cmd)
-    _run_hcat_cmd(cmd, attack_name="Good Measure", hash_file=hcatHashFile)
+    _run_hcat_cmd(
+        cmd,
+        attack_name="Good Measure",
+        hash_file=hcatHashFile,
+        coverage=_coverage.CoverageSpec(
+            hash_file=hcatHashFile,
+            wordlists=(hcatGoodMeasureBaseList,),
+            rule_files=(rule_combinator, rule_insidepro),
+        ),
+    )
 
     hcatExtraCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
@@ -7697,6 +7940,18 @@ def main():
                 "only controls hate_crack's own verbose logging."
             ),
         )
+        parser.add_argument(
+            "--coverage",
+            dest="coverage",
+            action=argparse.BooleanOptionalAction,
+            default=None,
+            help=(
+                "Track which rules, masks and wordlists have already been run "
+                "against this hash file, and offer to skip them on a later "
+                "attack. Overrides `coverage_enabled` in config.json for this "
+                "run; --no-coverage neither consults nor updates the store."
+            ),
+        )
         hashview_parser = None
         if not include_subcommands:
             return parser, hashview_parser
@@ -7847,9 +8102,10 @@ def main():
         hcat_bin=hcatBin,
     )
 
-    global debug_mode, _rule_debug_mode_enabled
+    global debug_mode, _rule_debug_mode_enabled, _coverage_enabled
     debug_mode = flags.debug
     _rule_debug_mode_enabled = flags.rule_debug_mode_enabled
+    _coverage_enabled = flags.coverage_enabled
     if flags.optimized_kernel_disabled:
         disable_optimized_kernel()
         print("[*] Optimized kernels (-O) disabled for this run")
