@@ -2989,7 +2989,10 @@ def hcatRosettaMask(hcatHashType, hcatHashFile, description):
         return
 
     hcmask_path = f"{hcatHashFile}.hcmask"
-    with open(hcmask_path, "w", encoding="utf-8") as f:
+    # latin-1, matching hcatSmartMask's .hcmask write: keeps any byte >= 0x80
+    # an LLM backend might emit in a mask literal from being re-encoded into
+    # a different, multi-byte UTF-8 sequence.
+    with open(hcmask_path, "w", encoding="latin-1") as f:
         f.writelines(f"{mask}\n" for mask in valid_masks)
     print(f"Generated {len(valid_masks)} mask(s) -> {hcmask_path}")
 
@@ -3549,7 +3552,12 @@ def hcatSmartMask(
                 continue
 
             hcmask_path = f"{hcatHashFile}.smartmask{index}.hcmask"
-            with open(hcmask_path, "w", encoding="utf-8") as f:
+            # latin-1: fixed-run literals and charsets come from decoded
+            # $HEX[...] plaintexts, where each character already represents
+            # one raw byte (see convert_hex). UTF-8 would re-encode any byte
+            # >= 0x80 into a different, multi-byte sequence, corrupting the
+            # exact bytes hashcat needs to try.
+            with open(hcmask_path, "w", encoding="latin-1") as f:
                 f.writelines(f"{line}\n" for line in lines)
 
             cmd = [
@@ -7508,12 +7516,16 @@ def convert_hex(working_file):
         for line in f:
             match = re.search(regex, line.rstrip("\n"))
             if match:
-                try:
-                    processed_words.append(
-                        binascii.unhexlify(match.group(1)).decode("iso-8859-9")
-                    )
-                except UnicodeDecodeError:
-                    pass
+                # latin-1, not iso-8859-9: matches the byte-preserving convention
+                # the rest of the codebase already uses (see
+                # hate_crack.plaintext.decode_hex_wrapper) -- one raw byte maps
+                # to one character, which callers that write these characters
+                # back out to a hashcat-facing file (e.g. hcatSmartMask's
+                # .hcmask) must re-encode with the same codec to round-trip
+                # the original bytes exactly.
+                processed_words.append(
+                    binascii.unhexlify(match.group(1)).decode("latin-1")
+                )
             else:
                 processed_words.append(line.rstrip("\n"))
 

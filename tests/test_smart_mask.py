@@ -387,6 +387,38 @@ def test_hcatSmartMask_decodes_hex_wrapped_plaintext(monkeypatch, tmp_path):
     assert len(popen_calls) == 1  # the $HEX[...] entry still joined the cluster
 
 
+def test_hcatSmartMask_hcmask_file_preserves_high_bytes_from_hex_wrapper(
+    monkeypatch, tmp_path
+):
+    """A cracked plaintext containing a byte >= 0x80 (why hashcat had to
+    $HEX[...]-wrap it in the first place) must reach the .hcmask file as
+    that exact byte. Writing the file as UTF-8 would re-encode it into a
+    different, multi-byte sequence that hashcat would never match."""
+    import hate_crack.main as hc_main
+
+    importlib.reload(hc_main)
+
+    hashfile = tmp_path / "hashes.txt"
+    plain_stem = "Sömmer"  # "ö" (U+00F6) -> single byte 0xF6 in latin-1
+    hex_lines = "\n".join(
+        f"h{i}:$HEX[{(plain_stem + digits).encode('latin-1').hex()}]"
+        for i, digits in enumerate(["432", "559", "134"])
+    )
+    (tmp_path / "hashes.txt.out").write_text(hex_lines + "\n")
+    _install_smart_mask_test_env(monkeypatch, hc_main, hashfile)
+    monkeypatch.setattr(hc_main, "lineCount", lambda _p: 3)
+
+    popen_calls = []
+    monkeypatch.setattr(hc_main.subprocess, "Popen", _NoopPopen(popen_calls))
+
+    hc_main.hcatSmartMask("1000", str(hashfile))
+
+    hcmask_path = tmp_path / "hashes.txt.smartmask1.hcmask"
+    raw_bytes = hcmask_path.read_bytes()
+    assert b"S\xf6mmer" in raw_bytes  # the original single byte, not UTF-8's \xc3\xb6
+    assert b"\xc3\xb6" not in raw_bytes
+
+
 def test_hcatSmartMask_keyspace_guard_skips_oversized_template(
     monkeypatch, tmp_path, capsys
 ):

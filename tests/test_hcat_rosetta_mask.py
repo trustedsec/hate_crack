@@ -70,6 +70,28 @@ def test_writes_hcmask_file_and_runs_mask_attack(tmp_path):
     assert hcmask_path in cmd
 
 
+def test_hcmask_file_preserves_high_bytes_in_generated_mask_literals(tmp_path):
+    """A mask literal containing a byte >= 0x80 must reach the .hcmask file
+    as that exact byte, not a UTF-8 re-encoding of it -- see the identical
+    concern in hcatSmartMask's own .hcmask write."""
+    hash_file = tmp_path / "hashes.txt"
+    hash_file.touch()
+
+    with (
+        rosetta_mask_globals(),
+        mock.patch(
+            "hate_crack.main.llm.generate_masks",
+            return_value=["Sömmer?d?d?d"],  # "ö" -> single byte 0xF6 in latin-1
+        ),
+        mock.patch("subprocess.Popen", return_value=_make_proc()),
+    ):
+        hc_main.hcatRosettaMask("0", str(hash_file), "a mask with a literal stem")
+
+    raw_bytes = (tmp_path / "hashes.txt.hcmask").read_bytes()
+    assert b"S\xf6mmer" in raw_bytes  # the original single byte, not \xc3\xb6
+    assert b"\xc3\xb6" not in raw_bytes
+
+
 def test_tuning_and_potfile_reach_the_command(tmp_path):
     hash_file = tmp_path / "hashes.txt"
     hash_file.touch()
