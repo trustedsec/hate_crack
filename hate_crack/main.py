@@ -2867,6 +2867,49 @@ def hcatFingerprint(
     hcatFingerprintCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
 
+# Smart Mask Attack
+def _tokenize_runs(plaintext: str) -> list[tuple[str, str]]:
+    """Split *plaintext* into maximal same-class runs: "L" (isalpha),
+    "D" (isdigit), "S" (everything else -- symbols, whitespace, non-ASCII
+    punctuation). Case is not distinguished within an "L" run.
+
+    E.g. "ChangeMe2day1624$!" -> [("L","ChangeMe"), ("D","2"), ("L","day"),
+    ("D","1624"), ("S","$!")].
+    """
+    runs: list[tuple[str, str]] = []
+    current_type: str | None = None
+    current_chars: list[str] = []
+    for char in plaintext:
+        if char.isalpha():
+            run_type = "L"
+        elif char.isdigit():
+            run_type = "D"
+        else:
+            run_type = "S"
+        if run_type == current_type:
+            current_chars.append(char)
+        else:
+            if current_type is not None:
+                runs.append((current_type, "".join(current_chars)))
+            current_type = run_type
+            current_chars = [char]
+    if current_type is not None:
+        runs.append((current_type, "".join(current_chars)))
+    return runs
+
+
+def _shape_signature(runs: list[tuple[str, str]]) -> tuple[str, ...]:
+    """The run-type sequence alone, e.g. ("L", "D", "L", "D", "S")."""
+    return tuple(run_type for run_type, _content in runs)
+
+
+def _seed_key(runs: list[tuple[str, str]]) -> tuple[str, ...]:
+    """The content of every "L" run, in order -- a cheap first
+    approximation of "same generator template", since generator stems are
+    almost always alphabetic."""
+    return tuple(content for run_type, content in runs if run_type == "L")
+
+
 # Combinator Attack
 def hcatCombination(hcatHashType, hcatHashFile, wordlists=None):
     global hcatCombinationCount
