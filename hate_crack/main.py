@@ -2910,6 +2910,141 @@ def _seed_key(runs: list[tuple[str, str]]) -> tuple[str, ...]:
     return tuple(content for run_type, content in runs if run_type == "L")
 
 
+_SMART_MASK_MIN_CLUSTER_SIZE = 3
+_SMART_MASK_CHARSET_COVERAGE_THRESHOLD = 0.5
+
+# Known generator alphabets, smallest first. Checked in this order so an
+# all-lowercase sample matches "lowercase" rather than the larger
+# "mixed_letters" superset it's also technically a subset of.
+_SMART_MASK_KNOWN_ALPHABETS = (
+    "0123456789",
+    "!@#$%^&*()",
+    "abcdefghijklmnopqrstuvwxyz",
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
+)
+
+
+def _infer_charset(observed_chars: set[str]) -> str:
+    """Expand observed_chars to a known alphabet when they look like a
+    partial sample of it, otherwise use exactly what was observed.
+
+    "Look like a partial sample" means observed_chars is a subset of a
+    known alphabet and covers at least
+    _SMART_MASK_CHARSET_COVERAGE_THRESHOLD of it -- e.g. 9 of the 10 US
+    shift-row symbols already observed infers the tenth too.
+    """
+    for alphabet in _SMART_MASK_KNOWN_ALPHABETS:
+        alphabet_set = set(alphabet)
+        if observed_chars <= alphabet_set:
+            coverage = len(observed_chars) / len(alphabet_set)
+            if coverage >= _SMART_MASK_CHARSET_COVERAGE_THRESHOLD:
+                return alphabet
+    return "".join(sorted(observed_chars))
+
+
+@dataclasses.dataclass(frozen=True)
+class _SmartMaskTemplate:
+    """One detected literal-skeleton pattern, ready to become .hcmask lines.
+
+    ``fixed_runs`` holds every constant (position, run_type, content)
+    triple; ``variable_positions`` names the remaining positions, in
+    order, each paired by index with an entry in ``variable_charsets``.
+    ``length_combinations`` is the set of observed per-member length
+    tuples for the variable positions (one hcmask line per entry).
+    """
+
+    fixed_runs: tuple[tuple[int, str, str], ...]
+    variable_positions: tuple[int, ...]
+    variable_charsets: tuple[str, ...]
+    length_combinations: tuple[tuple[int, ...], ...]
+    member_count: int
+    total_positions: int
+
+
+def _build_template(
+    group: list[list[tuple[str, str]]],
+) -> "_SmartMaskTemplate | None":
+    """Given a same-shape, same-seed-key group of run lists, determine
+    which run positions are constant vs. variable across every member.
+
+    Returns None if every position is constant (exact password reuse --
+    nothing left for a mask attack to vary).
+    """
+    total_positions = len(group[0])
+    fixed_runs: list[tuple[int, str, str]] = []
+    variable_positions: list[int] = []
+    for position in range(total_positions):
+        run_type = group[0][position][0]
+        contents_at_position = {runs[position][1] for runs in group}
+        if len(contents_at_position) == 1:
+            fixed_runs.append((position, run_type, group[0][position][1]))
+        else:
+            variable_positions.append(position)
+
+    if not variable_positions:
+        return None
+
+    variable_charsets = []
+    for position in variable_positions:
+        observed_chars: set[str] = set()
+        for runs in group:
+            observed_chars.update(runs[position][1])
+        variable_charsets.append(_infer_charset(observed_chars))
+
+    length_combinations = sorted(
+        {
+            tuple(len(runs[position][1]) for position in variable_positions)
+            for runs in group
+        }
+    )
+
+    return _SmartMaskTemplate(
+        fixed_runs=tuple(fixed_runs),
+        variable_positions=tuple(variable_positions),
+        variable_charsets=tuple(variable_charsets),
+        length_combinations=tuple(length_combinations),
+        member_count=len(group),
+        total_positions=total_positions,
+    )
+
+
+def _cluster_smart_mask_templates(
+    plaintexts: list[str], min_cluster_size: int = _SMART_MASK_MIN_CLUSTER_SIZE
+) -> tuple[list["_SmartMaskTemplate"], int]:
+    """Group plaintexts into literal-skeleton templates.
+
+    Returns (templates, skipped_no_stem_count). A shape bucket whose seed
+    key is empty (no alphabetic run at all -- an all-digit/symbol stem)
+    is skipped rather than risking a bogus merge of unrelated generators;
+    skipped_no_stem_count reports how many plaintexts that affected so
+    the caller can log it instead of silently dropping them.
+    """
+    shape_buckets: dict[tuple[str, ...], list[list[tuple[str, str]]]] = {}
+    for plaintext in plaintexts:
+        runs = _tokenize_runs(plaintext)
+        if not runs:
+            continue
+        shape_buckets.setdefault(_shape_signature(runs), []).append(runs)
+
+    templates: list[_SmartMaskTemplate] = []
+    skipped_no_stem = 0
+    for members in shape_buckets.values():
+        seed_groups: dict[tuple[str, ...], list[list[tuple[str, str]]]] = {}
+        for runs in members:
+            seed_groups.setdefault(_seed_key(runs), []).append(runs)
+        for seed, group in seed_groups.items():
+            if not seed:
+                skipped_no_stem += len(group)
+                continue
+            if len(group) < min_cluster_size:
+                continue
+            template = _build_template(group)
+            if template is not None:
+                templates.append(template)
+    return templates, skipped_no_stem
+
+
 # Combinator Attack
 def hcatCombination(hcatHashType, hcatHashFile, wordlists=None):
     global hcatCombinationCount
