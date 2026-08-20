@@ -3097,9 +3097,6 @@ def hcatSmartMask(
     """Detect literal-skeleton password patterns among already-cracked
     plaintexts and run a targeted -a3 mask attack per pattern against the
     full remaining hash list.
-
-    See docs/superpowers/specs/2026-08-20-smart-mask-pattern-detection-design.md
-    for the clustering algorithm this implements.
     """
     global hcatSmartMaskCount
 
