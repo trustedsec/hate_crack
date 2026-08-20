@@ -126,15 +126,6 @@ def test_hashcat_error_records_nothing(main_module, store, env):
     assert plan.covered_count == 0
 
 
-def test_exhausted_and_cracked_both_count_as_covered(main_module, store, env):
-    for code in (0, 1):
-        store.forget_target(ac.target_id(env["hashes"]))
-        cmd = ["hashcat", env["hashes"], env["wordlist"], "-r", env["rules"]]
-        _run(main_module, cmd, _spec(env), returncode=code)
-        plan = ac.plan_run(_spec(env), store.covered, store=store)
-        assert plan.skip is True, f"exit {code} should count as covered"
-
-
 # --- filtering -------------------------------------------------------------
 
 
@@ -239,17 +230,18 @@ def test_a_run_with_no_spec_is_untouched(main_module, store, env):
 
 
 def test_eligible_attacks_pass_a_coverage_spec(main_module):
-    """The five wired attack functions; dynamic generators stay unwired."""
+    """The wired attack functions; dynamic generators stay unwired."""
     source = inspect.getsource(main_module)
     for func in (
         "hcatDictionary",
+        "hcatQuickDictionary",
         "hcatTopMask",
         "hcatAdHocMask",
         "hcatCorporateMasks",
         "hcatGoodMeasure",
     ):
         body = source.split(f"def {func}(", 1)[1].split("\ndef ", 1)[0]
-        assert "coverage=_coverage.CoverageSpec" in body, f"{func} passes no spec"
+        assert "coverage=" in body, f"{func} passes no coverage spec"
 
 
 def test_dynamic_generators_do_not_pass_a_spec(main_module):
@@ -345,3 +337,196 @@ def test_closed_stdin_takes_the_default_instead_of_crashing(main_module, capsys)
     ):
         assert main_module._prompt_coverage_filter(plan, "Dictionary") is True
     assert "No input available" in capsys.readouterr().out
+
+
+# --- hcatQuickDictionary ---------------------------------------------------
+
+
+def test_quick_dictionary_extracts_rule_files_from_the_chain(main_module):
+    spec = main_module._quick_dictionary_coverage(
+        "h.txt", "-r a.rule -r b.rule", "wl.txt", False
+    )
+    assert spec.rule_files == ("a.rule", "b.rule")
+    assert spec.wordlists == ("wl.txt",)
+
+
+def test_quick_dictionary_handles_a_rule_less_chain(main_module):
+    spec = main_module._quick_dictionary_coverage(
+        "h.txt", "", ["a.txt", "b.txt"], False
+    )
+    assert spec.rule_files == ()
+    assert spec.wordlists == ("a.txt", "b.txt")
+
+
+def test_quick_dictionary_ignores_a_trailing_dash_r(main_module):
+    """A malformed chain must not index past the end."""
+    spec = main_module._quick_dictionary_coverage("h.txt", "-r", "wl.txt", False)
+    assert spec.rule_files == ()
+
+
+def test_loopback_opts_out_of_coverage_entirely(main_module):
+    """--loopback recycles fresh cracks, so its candidate set is not static."""
+    assert (
+        main_module._quick_dictionary_coverage("h.txt", "-r a.rule", "wl.txt", True)
+        is None
+    )
+
+
+def test_loopback_run_is_never_filtered_or_recorded(main_module, store, env):
+    """End to end: a loopback repeat must still launch."""
+    chain = f"-r {env['rules']}"
+    launched = []
+    with (
+        patch.object(
+            main_module.subprocess,
+            "Popen",
+            lambda cmd, **kw: launched.append(list(cmd)) or FakePopen(cmd),
+        ),
+        patch.object(main_module, "_coverage_enabled", True),
+        patch.object(main_module, "hcatBin", "hashcat"),
+        patch.object(main_module, "hcatTuning", ""),
+        patch.object(main_module, "hcatPotfilePath", ""),
+        patch.object(main_module, "generate_session_id", lambda: "s"),
+    ):
+        for _ in range(2):
+            main_module.hcatQuickDictionary(
+                "1000", env["hashes"], chain, env["wordlist"], loopback=True
+            )
+    assert len(launched) == 2, "a loopback run must never be skipped as a repeat"
+    plan = ac.plan_run(_spec(env), store.covered, store=store)
+    assert plan.covered_count == 0, "a loopback run must record no coverage"
+
+
+# --- exit codes ------------------------------------------------------------
+
+
+def test_exit_zero_does_not_record_coverage(main_module, store, env):
+    """hashcat exits 0 when all hashes cracked -- without finishing the
+    keyspace, and possibly having enumerated nothing at all ("All hashes found
+    as potfile entries"). Recording that would skip untried candidates later."""
+    cmd = ["hashcat", env["hashes"], env["wordlist"], "-r", env["rules"]]
+    _run(main_module, cmd, _spec(env), returncode=0)
+    plan = ac.plan_run(_spec(env), store.covered, store=store)
+    assert plan.covered_count == 0
+
+
+def test_only_exhausted_records_coverage(main_module, store, env):
+    cmd = ["hashcat", env["hashes"], env["wordlist"], "-r", env["rules"]]
+    _run(main_module, cmd, _spec(env), returncode=1)
+    plan = ac.plan_run(_spec(env), store.covered, store=store)
+    assert plan.skip is True
+
+
+# --- ad-hoc mask spec ------------------------------------------------------
+
+
+def test_a_mask_file_is_tracked_per_line_not_by_path(main_module, tmp_path):
+    """Menu option 2 passes a .hcmask path. Tracked as a literal it would be
+    keyed on the path, so appending masks and re-running would look like a
+    repeat and be skipped."""
+    masks = tmp_path / "corp.hcmask"
+    masks.write_text("?u?l?l?l?d?d\n?d?d?d?d\n")
+    spec = main_module._adhoc_mask_coverage("h.txt", str(masks), "", False, "", "")
+    assert spec.mask_files == (str(masks),)
+    assert spec.masks == ()
+
+
+def test_a_literal_mask_is_tracked_as_a_mask(main_module):
+    spec = main_module._adhoc_mask_coverage("h.txt", "?a?a?a?a", "", False, "", "")
+    assert spec.masks == ("?a?a?a?a",)
+    assert spec.mask_files == ()
+
+
+def test_increment_with_blank_bounds_differs_from_no_increment(main_module):
+    """Blank bounds are the documented way to increment over the full keyspace,
+    so this is the default incremental answer, not a corner case."""
+    without = main_module._adhoc_mask_coverage(
+        "h.txt", "?1?1?1", "-1 ?l?d", False, "", ""
+    )
+    with_inc = main_module._adhoc_mask_coverage(
+        "h.txt", "?1?1?1", "-1 ?l?d", True, "", ""
+    )
+    assert without.variant != with_inc.variant
+
+
+# --- run history for unfiltered attacks ------------------------------------
+
+
+def test_an_unfiltered_attack_is_logged_as_having_run(main_module, store, env):
+    """Dynamic generators are never filtered, but the issue asks that they be
+    logged so an operator can ask "did I already run PRINCE on this?"."""
+    with (
+        patch.object(main_module.subprocess, "Popen", lambda cmd, **kw: FakePopen(cmd)),
+        patch.object(main_module, "_coverage_enabled", True),
+    ):
+        main_module._run_hcat_cmd(
+            ["hashcat", env["hashes"]], attack_name="PRINCE", hash_file=env["hashes"]
+        )
+    assert [row[0] for row in store.history(ac.target_id(env["hashes"]))] == ["PRINCE"]
+
+
+def test_an_interrupted_unfiltered_attack_is_not_logged(main_module, store, env):
+    with (
+        patch.object(
+            main_module.subprocess,
+            "Popen",
+            lambda cmd, **kw: FakePopen(cmd, raise_interrupt=True),
+        ),
+        patch.object(main_module, "_coverage_enabled", True),
+    ):
+        main_module._run_hcat_cmd(
+            ["hashcat", env["hashes"]], attack_name="PRINCE", hash_file=env["hashes"]
+        )
+    assert store.history(ac.target_id(env["hashes"])) == []
+
+
+def test_no_coverage_flag_logs_no_history(main_module, store, env):
+    with (
+        patch.object(main_module.subprocess, "Popen", lambda cmd, **kw: FakePopen(cmd)),
+        patch.object(main_module, "_coverage_enabled", False),
+    ):
+        main_module._run_hcat_cmd(
+            ["hashcat", env["hashes"]], attack_name="PRINCE", hash_file=env["hashes"]
+        )
+    assert store.history(ac.target_id(env["hashes"])) == []
+
+
+# --- a full repeat is still the operator's call ----------------------------
+
+
+def test_declining_a_full_skip_runs_the_attack(main_module, store, env):
+    """Without this, re-running a covered attack meant restarting the tool."""
+    cmd = ["hashcat", env["hashes"], env["wordlist"], "-r", env["rules"]]
+    _run(main_module, cmd, _spec(env))
+    launched = _run(main_module, cmd, _spec(env), answer="n")
+    assert len(launched) == 1, "declining the skip must run the attack"
+
+
+def test_a_full_skip_defaults_to_skipping(main_module, store, env):
+    cmd = ["hashcat", env["hashes"], env["wordlist"], "-r", env["rules"]]
+    _run(main_module, cmd, _spec(env))
+    assert _run(main_module, cmd, _spec(env), answer="") == []
+
+
+def test_a_scripted_full_repeat_skips_without_prompting(main_module, store, env):
+    cmd = ["hashcat", env["hashes"], env["wordlist"], "-r", env["rules"]]
+    _run(main_module, cmd, _spec(env))
+    launched = []
+
+    def explode(*a, **kw):
+        raise AssertionError("a scripted run must never prompt")
+
+    with (
+        patch.object(
+            main_module.subprocess,
+            "Popen",
+            lambda cmd, **kw: launched.append(list(cmd)) or FakePopen(cmd),
+        ),
+        patch.object(main_module, "_coverage_enabled", True),
+        patch.object(main_module, "non_interactive", True),
+        patch("builtins.input", explode),
+    ):
+        main_module._run_hcat_cmd(
+            cmd, attack_name="Dictionary", hash_file=env["hashes"], coverage=_spec(env)
+        )
+    assert launched == []

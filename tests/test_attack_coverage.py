@@ -302,3 +302,56 @@ def test_concurrent_writer_does_not_error(store, tmp_path):
     finally:
         other.close()
     assert store.covered(["k1", "k2"]) == {"k1", "k2"}
+
+
+# --- lossless round trip ---------------------------------------------------
+
+
+def test_read_entries_preserves_non_utf8_bytes(tmp_path):
+    """rulegen.py writes latin-1, so undecodable bytes must survive verbatim."""
+    path = tmp_path / "latin1.rule"
+    path.write_bytes(b"$\xe9\nc\n")
+    entries = ac.read_entries(str(path))
+    assert len(entries) == 2
+    assert entries[0].encode("utf-8", errors="surrogateescape") == b"$\xe9"
+
+
+def test_read_entries_does_not_split_on_exotic_line_breaks(tmp_path):
+    r"""str.splitlines() breaks on \x0b, \x0c, \x1c-\x1e and U+2028 -- all of
+    which a rule can legitimately append. Only \n and \r\n are terminators."""
+    path = tmp_path / "vt.rule"
+    path.write_bytes("$\x0b\n$\x0c\n$ \n".encode())
+    assert ac.read_entries(str(path)) == ["$\x0b", "$\x0c", "$ "]
+
+
+def test_read_entries_handles_a_missing_final_newline(tmp_path):
+    path = tmp_path / "r.rule"
+    path.write_bytes(b"c\n$1")
+    assert ac.read_entries(str(path)) == ["c", "$1"]
+
+
+# --- target memo -----------------------------------------------------------
+
+
+def test_target_id_is_memoized(tmp_path, monkeypatch):
+    """hcatCorporateMasks asks once per mask length; a large NTLM dump would
+    otherwise be re-read eight times."""
+    ac.clear_target_memo()
+    path = _write(tmp_path / "t.hash", "aad3b435b51404ee\n")
+    first = ac.target_id(path)
+    calls = []
+    monkeypatch.setattr(ac, "_sha256_file", lambda p: calls.append(p) or "x" * 64)
+    assert ac.target_id(path) == first
+    assert calls == []
+    ac.clear_target_memo()
+
+
+def test_target_id_memo_notices_a_changed_file(tmp_path):
+    ac.clear_target_memo()
+    path = tmp_path / "t.hash"
+    _write(path, "one\n")
+    first = ac.target_id(str(path))
+    os.utime(path, (0, 0))
+    _write(path, "two\n")
+    assert ac.target_id(str(path)) != first
+    ac.clear_target_memo()

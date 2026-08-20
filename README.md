@@ -690,20 +690,29 @@ You are only prompted when there is genuinely something to skip:
 ```
 
 Answer `Y` and hate_crack builds a temporary rule file holding just the untried
-entries; if *every* entry is a repeat, it skips the hashcat launch entirely.
-Answer `n` to run the whole thing anyway.
+entries; answer `n` to run the whole thing anyway. If *every* entry is a repeat
+you are asked whether to skip the attack outright, so deliberately re-running
+covered ground never requires restarting the tool.
 
-Two deliberate limits:
+Attacks that are never filtered are still recorded as having run, which is what
+lets you answer "did I already run PRINCE against this target?".
 
-- **Coverage is recorded only on clean completion.** A ctrl-C or a hashcat error
-  records nothing, so the store never claims ground that was not actually
-  covered.
+Three deliberate limits:
+
+- **Coverage is recorded only when hashcat exhausts the keyspace** (exit 1). A
+  ctrl-C or an error records nothing, and neither does exit 0 — that means every
+  hash cracked, which hashcat reports *without* finishing the keyspace, and in
+  the degenerate "all hashes found as potfile entries" case without trying a
+  single candidate. Under-recording only costs a redundant run later.
 - **Dynamic candidate generators are never filtered.** PRINCE, PCFG, OMEN,
   Markov brute force and the LLM modes have no fixed set to diff, so they are
   logged as having run and otherwise left alone. Chained rule files (`-r a -r b`)
   are tracked as a single unit rather than per entry, because hashcat applies the
   *cartesian product* of the two files and dropping an individual line would
   silently remove every combination it took part in.
+- **`--loopback` runs are never filtered or recorded.** hashcat feeds freshly
+  cracked plaintexts back in as candidates, so what such a run covers depends on
+  what had already been cracked at the time.
 
 Set `coverage_enabled` to `false` in `config.json` to turn this off, or pass
 `--no-coverage` for a single run — which neither consults nor updates the store.

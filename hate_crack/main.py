@@ -1477,15 +1477,18 @@ def _write_filtered_entries(entries, suffix):
     because rule lines are whitespace-significant and must survive verbatim.
     """
     with tempfile.NamedTemporaryFile(
-        mode="w",
+        mode="wb",
         suffix=suffix,
         prefix="hate_crack_coverage_",
         delete=False,
-        encoding="utf-8",
-        newline="\n",
     ) as handle:
         for entry in entries:
-            handle.write(entry + "\n")
+            # surrogateescape mirrors read_entries' decode, so a rule file that
+            # is not valid UTF-8 (rulegen.py writes latin-1) round-trips byte
+            # for byte instead of picking up U+FFFD and becoming a different
+            # rule. Newlines are written explicitly rather than via text-mode
+            # translation.
+            handle.write(entry.encode("utf-8", errors="surrogateescape") + b"\n")
         return handle.name
 
 
@@ -1554,7 +1557,18 @@ def _prompt_coverage_filter(plan, attack_name: str) -> bool:
         f"{attack_name or 'attack'} have already been run against this hash file."
     )
     if plan.skip:
-        return True
+        if non_interactive:
+            return True
+        try:
+            # A full repeat is the highest-stakes call the feature makes, so the
+            # operator gets the same say here as on a partial overlap. Without
+            # this, deliberately re-running a covered attack meant restarting
+            # the whole tool with --no-coverage.
+            answer = input("[?] Skip this attack entirely? [Y/n]: ").strip()
+        except EOFError:
+            print("[*] No input available; taking the default and skipping.")
+            return True
+        return answer.lower() not in ("n", "no")
     if non_interactive:
         # A scripted run has nobody to ask; the config/CLI default already
         # decided that filtering is wanted by getting this far.
@@ -1681,6 +1695,14 @@ def _run_hcat_cmd(
             kind=plan.kind,
             attack=attack_name,
         )
+    elif completed and _coverage_enabled and attack_name and hash_file:
+        # Attacks that carry no spec are never filtered, but the issue asks for
+        # them to be logged as having run -- this is what lets an operator ask
+        # "did I already run PRINCE against this target?" about a generator with
+        # no fixed keyspace to diff. One row, no keys.
+        target = _coverage.target_id(hash_file)
+        if target:
+            _coverage_store().log_run(target, attack=attack_name, kind="history")
 
 
 def _run_hcat_cmd_uncovered(
@@ -1820,13 +1842,24 @@ def _run_hcat_cmd_uncovered(
     if interrupted and reraise_interrupt:
         raise KeyboardInterrupt
 
-    # hashcat exits 0 when every hash cracked and 1 when the keyspace was
-    # exhausted; both mean the candidates really were tried. Anything else is
-    # an abort or an error, and must not be recorded as covered. A missing
-    # returncode only happens behind a test double -- a real Popen always has
-    # one set by wait() -- so it is treated as completion rather than failure.
+    # Only exit 1 -- keyspace exhausted -- proves the candidates were actually
+    # enumerated, which is the sole condition under which coverage may be
+    # recorded.
+    #
+    # Exit 0 deliberately does NOT count. It means every hash was cracked, and
+    # hashcat reports that *without* finishing the keyspace -- including the
+    # degenerate case where it enumerates nothing at all, printing "All hashes
+    # found as potfile entries" and exiting immediately. That case is live in
+    # this project: the potfile matches on the hash string rather than the mode,
+    # so one stray cross-mode entry can make hashcat exit 0 having tried
+    # nothing, after which every later attack on that file would be skipped as
+    # already covered. Under-recording here only costs a redundant run later,
+    # and when all hashes are already cracked there is nothing left to lose.
+    #
+    # A missing returncode only happens behind a test double -- a real Popen
+    # always has one set by wait().
     returncode = getattr(hcatProcess, "returncode", None)
-    return not interrupted and returncode in (0, 1, None)
+    return not interrupted and returncode in (1, None)
 
 
 def _is_gzipped(path: str) -> bool:
@@ -2711,7 +2744,39 @@ def hcatQuickDictionary(
     )
     cmd = _add_debug_mode_for_rules(cmd)
     _debug_cmd(cmd)
-    _run_hcat_cmd(cmd, attack_name=attack_name, hash_file=hcatHashFile)
+    _run_hcat_cmd(
+        cmd,
+        attack_name=attack_name,
+        hash_file=hcatHashFile,
+        coverage=_quick_dictionary_coverage(
+            hcatHashFile, hcatChains, wordlists, loopback
+        ),
+    )
+
+
+def _quick_dictionary_coverage(hash_file, chains, wordlists, loopback):
+    """Build the coverage spec for hcatQuickDictionary, or None to opt out.
+
+    ``--loopback`` opts out: hashcat feeds newly-cracked plaintexts back in as
+    candidates, so what the run covers depends on what was already cracked at
+    the time. Recording its rules as covered would let a later loopback run --
+    with more cracks to recycle, and therefore different candidates -- be
+    skipped as a repeat.
+    """
+    if loopback:
+        return None
+    # Named `args`, not `tokens`: bandit's B105 heuristic reads any comparison
+    # against a variable called `token` as a hardcoded credential.
+    args = shlex.split(chains) if chains else []
+    rule_files = tuple(
+        args[index + 1] for index, arg in enumerate(args[:-1]) if arg == "-r"
+    )
+    lists = tuple(wordlists) if isinstance(wordlists, list) else (wordlists,)
+    return _coverage.CoverageSpec(
+        hash_file=hash_file,
+        wordlists=lists,
+        rule_files=rule_files,
+    )
 
 
 def _valid_hcmask(mask: object) -> bool:
@@ -4802,17 +4867,36 @@ def hcatAdHocMask(
         cmd,
         attack_name="Ad-hoc Mask",
         hash_file=hcatHashFile,
-        coverage=_coverage.CoverageSpec(
-            hash_file=hcatHashFile,
-            masks=(mask,),
-            variant=(
-                f"charsets:{custom_charsets}|"
-                f"inc:{increment_min or ''}-{increment_max or ''}"
-                if (increment or custom_charsets)
-                else ""
-            ),
+        coverage=_adhoc_mask_coverage(
+            hcatHashFile, mask, custom_charsets, increment, increment_min, increment_max
         ),
     )
+
+
+def _adhoc_mask_coverage(
+    hash_file, mask, custom_charsets, increment, increment_min, increment_max
+):
+    """Build the coverage spec for hcatAdHocMask.
+
+    ``mask`` is either a literal mask string or a path to a ``.hcmask`` file --
+    the menu's option 2 passes a file. The two must not be conflated: a file
+    tracked as a literal would be keyed on its *path*, so appending new mask
+    lines to it and re-running would look like an exact repeat and be skipped.
+    Tracked as a file it is keyed per line, and becomes filterable besides.
+    """
+    variant = (
+        # The increment flag itself has to be in the key. Leaving both bounds
+        # blank is the documented way to increment over the mask's full
+        # keyspace, so "increment, no bounds" and "no increment" would
+        # otherwise produce the same variant while covering different lengths.
+        f"charsets:{custom_charsets}|inc:{int(bool(increment))}:"
+        f"{increment_min or ''}-{increment_max or ''}"
+    )
+    if os.path.isfile(mask):
+        return _coverage.CoverageSpec(
+            hash_file=hash_file, mask_files=(mask,), variant=variant
+        )
+    return _coverage.CoverageSpec(hash_file=hash_file, masks=(mask,), variant=variant)
 
 
 def hcatMarkovTrain(source_file, hcatHashFile):

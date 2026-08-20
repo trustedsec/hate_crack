@@ -53,6 +53,9 @@ DB_FILENAME = "attack_coverage.sqlite3"
 
 _READ_CHUNK = 1024 * 1024
 
+# Above this, say so before spending minutes reading a corpus.
+_LARGE_FILE_NOTICE_BYTES = 1024 * 1024 * 1024
+
 # Membership test for an arbitrarily large key set, as one static statement
 # with a single bound parameter. json_each sidesteps SQLite's 999-parameter
 # limit without interpolating anything into the SQL.
@@ -367,6 +370,15 @@ class CoverageStore:
                 self._fingerprints[real] = (stamp[0], stamp[1], row[2])
                 return row[2]
 
+        if stat.st_size >= _LARGE_FILE_NOTICE_BYTES:
+            # Otherwise this is minutes of dead silence before hashcat even
+            # starts: the first fingerprint of a multi-gigabyte corpus is a
+            # full sequential read, and it happens inside plan_run.
+            print(
+                f"[*] Coverage: fingerprinting {os.path.basename(real)} "
+                f"({stat.st_size / 1e9:.1f} GB) for the first time; "
+                "subsequent runs reuse it."
+            )
         try:
             digest = _sha256_file(real)
         except OSError:
@@ -411,17 +423,41 @@ def reset_store() -> None:
 # --- target identity -------------------------------------------------------
 
 
+_target_memo: dict[str, tuple[int, int, str]] = {}
+
+
+def clear_target_memo() -> None:
+    _target_memo.clear()
+
+
 def target_id(hash_file: str) -> str | None:
     """Content hash of the hash file, or None if it cannot be read.
 
     Returning None rather than raising lets every caller treat "we cannot
     identify this target" as "do not filter", which is the safe direction: an
     unfiltered run wastes time, a wrongly filtered one silently skips work.
+
+    Memoized on ``(size, mtime_ns)`` for the life of the process. Hash files are
+    usually small, but not always -- a large NTLM dump runs to hundreds of
+    megabytes, and ``hcatCorporateMasks`` asks once per mask length, so an
+    unmemoized read multiplied that by eight.
     """
     try:
-        return _sha256_file(hash_file)
+        stat = os.stat(hash_file)
     except OSError:
         return None
+
+    stamp = (stat.st_size, stat.st_mtime_ns)
+    cached = _target_memo.get(hash_file)
+    if cached is not None and cached[:2] == stamp:
+        return cached[2]
+
+    try:
+        digest = _sha256_file(hash_file)
+    except OSError:
+        return None
+    _target_memo[hash_file] = (stamp[0], stamp[1], digest)
+    return digest
 
 
 # --- rule / mask entry parsing --------------------------------------------
@@ -435,12 +471,28 @@ def read_entries(path: str) -> list[str]:
     as ``$`` -- so no other trimming happens. Blank lines and ``#`` comments are
     dropped, and duplicates are collapsed while preserving first-seen order so
     a filtered file we later write keeps the author's ordering.
+
+    Read as bytes and decoded with ``surrogateescape`` so the round trip is
+    lossless. Two reasons this matters rather than being pedantry: rule files in
+    this project are not all UTF-8 (``rulegen.py`` writes latin-1), and
+    ``errors="replace"`` would turn an undecodable byte into U+FFFD -- so the
+    filtered file we hand back to hashcat would contain a *different rule*, and
+    the store would record the mangled entry as covered permanently. Splitting
+    is on ``\\n``/``\\r\\n`` only, unlike ``str.splitlines()``, which also
+    breaks on ``\\x0b``, ``\\x0c``, ``\\x1c``-``\\x1e`` and U+2028/2029/0085 --
+    every one of which a rule can legitimately append.
     """
     try:
-        with open(path, "r", encoding="utf-8", errors="replace") as handle:
-            lines = handle.read().splitlines()
+        with open(path, "rb") as handle:
+            raw = handle.read()
     except OSError:
         return []
+
+    text = raw.decode("utf-8", errors="surrogateescape")
+    lines = text.split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
+    lines = [line[:-1] if line.endswith("\r") else line for line in lines]
 
     entries: list[str] = []
     seen: set[str] = set()
