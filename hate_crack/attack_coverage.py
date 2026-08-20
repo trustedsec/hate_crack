@@ -560,9 +560,18 @@ def entry_key(
     ``variant`` carries the run modifiers that change what an entry actually
     tries -- an ``--increment 1-8`` mask run covers different candidates than
     the same mask without it -- so the two are never conflated.
+
+    The encode must be *injective*, which ``errors="replace"`` is not: it maps
+    every byte ``read_entries`` could not decode to the same U+FFFD, so rules
+    differing only in non-UTF-8 bytes -- ``$\\xc3$\\xa1`` and ``$\\xc3$\\xa9``,
+    say -- shared a key, and running one marked the other covered. Bandrel's
+    Spoonman rule file alone collapsed 154 distinct rules that way.
+    ``surrogatepass`` distinguishes them and, unlike ``surrogateescape``, cannot
+    raise on a surrogate outside the ``\\udc80``-``\\udcff`` range -- an encode
+    error here would take down an attack the store exists only to speed up.
     """
     payload = f"{target}\x00{kind}\x00{wordlist_fp}\x00{variant}\x00{entry}"
-    return hashlib.sha256(payload.encode("utf-8", errors="replace")).hexdigest()
+    return hashlib.sha256(payload.encode("utf-8", errors="surrogatepass")).hexdigest()
 
 
 # --- planning --------------------------------------------------------------

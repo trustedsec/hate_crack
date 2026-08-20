@@ -324,6 +324,59 @@ def test_prompt_pluralises_a_single_covered_entry(main_module, capsys):
     assert "only the 2 masks?" in prompts[0], prompts[0]
 
 
+def test_prompt_names_the_wordlists_the_overlap_was_measured_against(
+    main_module, capsys
+):
+    """ "against this hash file" alone reads as a claim about the rule file the
+    operator just picked, which is what made a correct full-overlap report look
+    like a bug."""
+    plan = ac.RunPlan(kind="rule", covered_count=7337, total_count=7337, target="t")
+    spec = ac.CoverageSpec(
+        hash_file="ntlm.txt",
+        wordlists=("/Passwords/rockyou.txt",),
+        rule_files=("top50.rule",),
+    )
+    with (
+        patch.object(main_module, "non_interactive", False),
+        patch("builtins.input", lambda prompt="": "y"),
+    ):
+        main_module._prompt_coverage_filter(plan, "Quick Crack", spec)
+    out = capsys.readouterr().out
+    assert "with rockyou.txt" in out
+    assert "tracked individually" in out
+
+
+def test_prompt_scope_omits_wordlists_for_a_wordlist_diff(main_module, capsys):
+    """The wordlists *are* the entries being diffed, so naming them again would
+    say "3 of 3 wordlists ... against this hash file with <those 3 wordlists>"."""
+    plan = ac.RunPlan(kind="wordlist", covered_count=1, total_count=2, target="t")
+    spec = ac.CoverageSpec(hash_file="ntlm.txt", wordlists=("/Passwords/rockyou.txt",))
+    with (
+        patch.object(main_module, "non_interactive", False),
+        patch("builtins.input", lambda prompt="": "y"),
+    ):
+        main_module._prompt_coverage_filter(plan, "Quick Crack", spec)
+    out = capsys.readouterr().out
+    assert "against this hash file." in out
+    assert "rockyou" not in out
+
+
+def test_prompt_scope_truncates_a_long_wordlist_directory(main_module, capsys):
+    plan = ac.RunPlan(kind="rule", covered_count=1, total_count=2, target="t")
+    spec = ac.CoverageSpec(
+        hash_file="ntlm.txt",
+        wordlists=tuple(f"/w/list{i}.txt" for i in range(6)),
+        rule_files=("best64.rule",),
+    )
+    with (
+        patch.object(main_module, "non_interactive", False),
+        patch("builtins.input", lambda prompt="": "y"),
+    ):
+        main_module._prompt_coverage_filter(plan, "Dictionary", spec)
+    out = capsys.readouterr().out
+    assert "list0.txt, list1.txt, list2.txt, +3 more" in out
+
+
 def test_closed_stdin_takes_the_default_instead_of_crashing(main_module, capsys):
     """A piped or cron-driven run that never set non_interactive."""
 

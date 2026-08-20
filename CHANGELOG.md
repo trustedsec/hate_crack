@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [Unreleased]
+
+### Fixed
+- **Coverage no longer conflates rules that differ only in non-UTF-8 bytes, and the overlap prompt now names the wordlists it measured against (#273).** `entry_key()` encoded its payload with `errors="replace"`, which maps every undecodable byte to the same U+FFFD — so two rules that `read_entries()` had correctly kept apart as surrogates, `$\xc3$\xa1` and `$\xc3$\xa9` say, hashed to one key, and running either marked the other covered. That is the unsafe direction: coverage is supposed to fail toward running too much, never toward silently skipping untried candidates. Bandrel's `Spoonmanv1.full` rule file alone collapsed 154 of its 1,420,541 rules that way. The encode is now `surrogatepass`, which is injective over every string `read_entries()` can produce and — unlike `surrogateescape` — cannot raise on a surrogate outside `\udc80`-`\udcff`, since an encode error here would take down an attack the store exists only to speed up. No migration is needed: keys for pure-UTF-8 entries are byte-identical, and the previously-collapsed ones simply read as uncovered and run again.
+
+  The prompt wording changes for a related reason. Rules and masks are tracked per *line*, so a rule file an operator has never selected can legitimately come back 100% covered when a larger file already ran every line in it — `Spoonmanv1.top50` is wholly contained in `Spoonmanv1.full`. Reporting that as "already been run against this hash file" reads as a claim about the file just picked and looks like a bug; it now names the wordlists the overlap was measured against, and a full-coverage report adds one line explaining that per-line tracking is why a first-time file can be fully covered.
+
 ## [2.31.0] - 2026-08-20
 
 ### Added

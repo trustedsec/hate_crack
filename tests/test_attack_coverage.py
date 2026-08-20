@@ -137,6 +137,24 @@ def test_entry_key_fields_cannot_bleed_into_each_other():
     assert ac.entry_key("t", "rule", "ab", "c") != ac.entry_key("t", "rule", "a", "bc")
 
 
+def test_entry_key_distinguishes_rules_with_undecodable_bytes(tmp_path):
+    """Non-UTF-8 rules must not share a key.
+
+    ``read_entries`` decodes with surrogateescape, so ``$\\xa1`` and ``$\\xa9``
+    survive as distinct strings. Keying them with ``errors="replace"`` mapped
+    both bytes to U+FFFD and collapsed them, so running one rule marked the
+    other covered -- 154 rules of Bandrel's Spoonman file, in the wild.
+    """
+    path = tmp_path / "latin1.rule"
+    path.write_bytes(b"$\xc3$\xa1\n$\xc3$\xa9\n$\xc3$\xb3\n")
+
+    entries = ac.read_entries(str(path))
+    assert len(entries) == 3
+
+    keys = {ac.entry_key("t", "rule", "wlfp", entry) for entry in entries}
+    assert len(keys) == 3
+
+
 # --- store round trip ------------------------------------------------------
 
 

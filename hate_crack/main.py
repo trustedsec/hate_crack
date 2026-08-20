@@ -1558,7 +1558,25 @@ def _replace_rule_arg(cmd, source_path: str, replacement: str, kind: str):
     return result
 
 
-def _prompt_coverage_filter(plan, attack_name: str) -> bool:
+def _coverage_overlap_scope(plan, spec) -> str:
+    """The " against ..." clause naming what the overlap was measured against.
+
+    Rules and masks are tracked per *line*, not per file, so a rule file the
+    operator has never selected before can still come back fully covered when
+    its lines already ran inside a larger one. Saying only "this hash file"
+    reads as a claim about the file they picked, which looks like a bug; naming
+    the wordlists makes the real claim checkable.
+    """
+    if plan.kind == "wordlist" or not spec.wordlists:
+        return "this hash file"
+    names = sorted({os.path.basename(path) for path in spec.wordlists})
+    shown = ", ".join(names[:3])
+    if len(names) > 3:
+        shown += f", +{len(names) - 3} more"
+    return f"this hash file with {shown}"
+
+
+def _prompt_coverage_filter(plan, attack_name: str, spec=None) -> bool:
     """Ask whether to skip the already-covered entries. Default is yes.
 
     Only reached when there is genuine overlap, so a fresh engagement never
@@ -1568,11 +1586,20 @@ def _prompt_coverage_filter(plan, attack_name: str) -> bool:
         plan.kind, "entry"
     )
     remaining = plan.total_count - plan.covered_count
+    scope = (
+        _coverage_overlap_scope(plan, spec) if spec is not None else "this hash file"
+    )
     print(
         f"\n[*] Coverage: {plan.covered_count} of {plan.total_count} "
         f"{_plural(noun, plan.covered_count)} in this "
-        f"{attack_name or 'attack'} have already been run against this hash file."
+        f"{attack_name or 'attack'} have already been run against {scope}."
     )
+    if plan.kind in ("rule", "mask") and plan.covered_count == plan.total_count:
+        print(
+            f"    ({noun}s are tracked individually, so this can happen the "
+            f"first time a {noun} file is used, if a larger one already "
+            f"covered every line in it.)"
+        )
     if plan.skip:
         if non_interactive:
             return True
@@ -1619,7 +1646,7 @@ def _apply_coverage(cmd, spec, attack_name: str):
     if not plan.has_overlap:
         return cmd, plan, []
 
-    if not _prompt_coverage_filter(plan, attack_name):
+    if not _prompt_coverage_filter(plan, attack_name, spec):
         print("[*] Running everything, as requested.")
         return cmd, plan, []
 
