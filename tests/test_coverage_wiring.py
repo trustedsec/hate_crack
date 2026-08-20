@@ -364,39 +364,6 @@ def test_quick_dictionary_ignores_a_trailing_dash_r(main_module):
     assert spec.rule_files == ()
 
 
-def test_loopback_opts_out_of_coverage_entirely(main_module):
-    """--loopback recycles fresh cracks, so its candidate set is not static."""
-    assert (
-        main_module._quick_dictionary_coverage("h.txt", "-r a.rule", "wl.txt", True)
-        is None
-    )
-
-
-def test_loopback_run_is_never_filtered_or_recorded(main_module, store, env):
-    """End to end: a loopback repeat must still launch."""
-    chain = f"-r {env['rules']}"
-    launched = []
-    with (
-        patch.object(
-            main_module.subprocess,
-            "Popen",
-            lambda cmd, **kw: launched.append(list(cmd)) or FakePopen(cmd),
-        ),
-        patch.object(main_module, "_coverage_enabled", True),
-        patch.object(main_module, "hcatBin", "hashcat"),
-        patch.object(main_module, "hcatTuning", ""),
-        patch.object(main_module, "hcatPotfilePath", ""),
-        patch.object(main_module, "generate_session_id", lambda: "s"),
-    ):
-        for _ in range(2):
-            main_module.hcatQuickDictionary(
-                "1000", env["hashes"], chain, env["wordlist"], loopback=True
-            )
-    assert len(launched) == 2, "a loopback run must never be skipped as a repeat"
-    plan = ac.plan_run(_spec(env), store.covered, store=store)
-    assert plan.covered_count == 0, "a loopback run must record no coverage"
-
-
 # --- exit codes ------------------------------------------------------------
 
 
@@ -530,3 +497,76 @@ def test_a_scripted_full_repeat_skips_without_prompting(main_module, store, env)
             cmd, attack_name="Dictionary", hash_file=env["hashes"], coverage=_spec(env)
         )
     assert launched == []
+
+
+# --- loopback records but is never filtered --------------------------------
+
+
+def test_loopback_builds_a_record_only_spec(main_module):
+    spec = main_module._quick_dictionary_coverage("h.txt", "-r a.rule", "wl.txt", True)
+    assert spec is not None, "loopback should record, not opt out entirely"
+    assert spec.record_only is True
+    assert spec.rule_files == ("a.rule",)
+
+
+def test_non_loopback_spec_is_filterable(main_module):
+    spec = main_module._quick_dictionary_coverage("h.txt", "-r a.rule", "wl.txt", False)
+    assert spec.record_only is False
+
+
+def _quick(main_module, env, launched, loopback):
+    with (
+        patch.object(
+            main_module.subprocess,
+            "Popen",
+            lambda cmd, **kw: launched.append(list(cmd)) or FakePopen(cmd),
+        ),
+        patch.object(main_module, "_coverage_enabled", True),
+        patch.object(main_module, "non_interactive", False),
+        patch.object(main_module, "hcatBin", "hashcat"),
+        patch.object(main_module, "hcatTuning", ""),
+        patch.object(main_module, "hcatPotfilePath", ""),
+        patch.object(main_module, "generate_session_id", lambda: "s"),
+        patch("builtins.input", lambda *a: "y"),
+    ):
+        main_module.hcatQuickDictionary(
+            "1000",
+            env["hashes"],
+            f"-r {env['rules']}",
+            env["wordlist"],
+            loopback=loopback,
+        )
+
+
+def test_a_loopback_repeat_still_runs_in_full(main_module, store, env):
+    launched = []
+    _quick(main_module, env, launched, loopback=True)
+    _quick(main_module, env, launched, loopback=True)
+    assert len(launched) == 2, "loopback covers new ground each time"
+
+
+def test_a_loopback_run_covers_a_later_plain_run(main_module, store, env):
+    launched = []
+    _quick(main_module, env, launched, loopback=True)
+    _quick(main_module, env, launched, loopback=False)
+    assert len(launched) == 1, "the plain repeat should be skipped as covered"
+
+
+def test_an_interrupted_loopback_run_records_nothing(main_module, store, env):
+    with (
+        patch.object(
+            main_module.subprocess,
+            "Popen",
+            lambda cmd, **kw: FakePopen(cmd, raise_interrupt=True),
+        ),
+        patch.object(main_module, "_coverage_enabled", True),
+        patch.object(main_module, "hcatBin", "hashcat"),
+        patch.object(main_module, "hcatTuning", ""),
+        patch.object(main_module, "hcatPotfilePath", ""),
+        patch.object(main_module, "generate_session_id", lambda: "s"),
+    ):
+        main_module.hcatQuickDictionary(
+            "1000", env["hashes"], f"-r {env['rules']}", env["wordlist"], loopback=True
+        )
+    plan = ac.plan_run(_spec(env), store.covered, store=store)
+    assert plan.covered_count == 0

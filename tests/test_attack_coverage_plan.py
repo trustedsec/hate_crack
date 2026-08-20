@@ -246,3 +246,53 @@ def test_spec_with_no_dimension_at_all_is_inert(env):
     plan = ac.plan_run(ac.CoverageSpec(hash_file=env["hashes"]), ac.set_lookup(set()))
     assert plan.skip is False
     assert plan.record_keys == []
+
+
+# --- record-only specs ----------------------------------------------------
+
+
+def test_record_only_never_filters(env):
+    """A record-only run tries everything, so nothing is ever dropped from it."""
+    covered = set(ac.plan_run(_spec(env), ac.set_lookup(set())).record_keys)
+    plan = ac.plan_run(_spec(env, record_only=True), ac.set_lookup(covered))
+    assert plan.skip is False
+    assert plan.covered_count == 0, "record-only must report no overlap, so no prompt"
+    assert plan.filtered_entries is None
+    assert plan.has_overlap is False
+
+
+def test_record_only_still_records_everything(env):
+    """The asymmetry: it may not be filtered, but it really did try these."""
+    plain = ac.plan_run(_spec(env), ac.set_lookup(set()))
+    recorded = ac.plan_run(_spec(env, record_only=True), ac.set_lookup(set()))
+    assert set(recorded.record_keys) == set(plain.record_keys)
+
+
+def test_a_record_only_run_covers_a_later_ordinary_run(env):
+    """A loopback run adds candidates, never removes them, so a later plain run
+    of the same wordlist and rules is a genuine repeat."""
+    covered = set(
+        ac.plan_run(_spec(env, record_only=True), ac.set_lookup(set())).record_keys
+    )
+    assert ac.plan_run(_spec(env), ac.set_lookup(covered)).skip is True
+
+
+def test_a_record_only_run_is_never_skipped_by_an_earlier_one(env):
+    covered = set(
+        ac.plan_run(_spec(env, record_only=True), ac.set_lookup(set())).record_keys
+    )
+    assert (
+        ac.plan_run(_spec(env, record_only=True), ac.set_lookup(covered)).skip is False
+    )
+
+
+def test_record_only_still_goes_inert_when_identity_is_unknown(env, tmp_path):
+    spec = ac.CoverageSpec(
+        hash_file=str(tmp_path / "gone.txt"),
+        wordlists=(env["wordlist"],),
+        rule_files=(env["rules"],),
+        record_only=True,
+    )
+    plan = ac.plan_run(spec, ac.set_lookup(set()))
+    assert plan.is_inert
+    assert plan.record_keys == []

@@ -546,6 +546,14 @@ class CoverageSpec:
     masks: tuple[str, ...] = ()
     # Run modifiers that change what an entry tries (e.g. "inc:1-8").
     variant: str = ""
+    # Record what this run covers, but never filter it against what is already
+    # covered. The two directions are not symmetric for a run that enumerates a
+    # *superset* of its declared entries -- ``--loopback`` being the case that
+    # motivates this. Such a run really does try every declared entry, so
+    # recording it is sound and lets a later ordinary run of the same wordlist
+    # and rules be recognised as a repeat. Filtering it would be unsound,
+    # because the extra candidates differ every time.
+    record_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -585,6 +593,11 @@ def set_lookup(covered: set) -> Callable[[Sequence[str]], set[str]]:
     return lambda keys: {key for key in keys if key in covered}
 
 
+def _NOTHING_COVERED(keys: Sequence[str]) -> set[str]:  # noqa: N802
+    """Lookup used by record-only runs: report no overlap, so nothing filters."""
+    return set()
+
+
 def _chain_entry(rule_files: tuple[str, ...]) -> str | None:
     """Collapse chained rule files into one opaque, order-sensitive entry.
 
@@ -618,6 +631,12 @@ def plan_run(
         return _INERT
 
     store = store if store is not None else get_store()
+
+    if spec.record_only:
+        # Answering "nothing is covered" makes _plan_entries treat every entry
+        # as novel: no overlap to report, so no prompt and no filtering, while
+        # record_keys still covers the whole declared set.
+        lookup = _NOTHING_COVERED
 
     wordlist_fps: list[str] = []
     for path in spec.wordlists:

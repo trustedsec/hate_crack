@@ -2755,16 +2755,16 @@ def hcatQuickDictionary(
 
 
 def _quick_dictionary_coverage(hash_file, chains, wordlists, loopback):
-    """Build the coverage spec for hcatQuickDictionary, or None to opt out.
+    """Build the coverage spec for hcatQuickDictionary.
 
-    ``--loopback`` opts out: hashcat feeds newly-cracked plaintexts back in as
-    candidates, so what the run covers depends on what was already cracked at
-    the time. Recording its rules as covered would let a later loopback run --
-    with more cracks to recycle, and therefore different candidates -- be
-    skipped as a repeat.
+    ``--loopback`` is recorded but never filtered. hashcat feeds newly-cracked
+    plaintexts back in as *extra* candidates, so the run tries the full wordlist
+    and rule set plus whatever those recycled plaintexts reach. Recording it is
+    therefore sound -- it really did try everything declared here, so a later
+    ordinary run of the same wordlist and rules is a genuine repeat. Filtering
+    it would not be: a second loopback run has more cracks to recycle and so
+    reaches ground the first one could not.
     """
-    if loopback:
-        return None
     # Named `args`, not `tokens`: bandit's B105 heuristic reads any comparison
     # against a variable called `token` as a hardcoded credential.
     args = shlex.split(chains) if chains else []
@@ -2776,6 +2776,7 @@ def _quick_dictionary_coverage(hash_file, chains, wordlists, loopback):
         hash_file=hash_file,
         wordlists=lists,
         rule_files=rule_files,
+        record_only=bool(loopback),
     )
 
 

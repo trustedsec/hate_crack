@@ -710,9 +710,12 @@ Three deliberate limits:
   are tracked as a single unit rather than per entry, because hashcat applies the
   *cartesian product* of the two files and dropping an individual line would
   silently remove every combination it took part in.
-- **`--loopback` runs are never filtered or recorded.** hashcat feeds freshly
-  cracked plaintexts back in as candidates, so what such a run covers depends on
-  what had already been cracked at the time.
+- **`--loopback` runs are recorded but never filtered.** hashcat feeds freshly
+  cracked plaintexts back in as *extra* candidates, so such a run tries the full
+  wordlist and rule set plus whatever those recycled plaintexts reach. That makes
+  the two directions asymmetric: recording it is sound, so a later ordinary run
+  of the same wordlist and rules is correctly recognised as a repeat, but a
+  second loopback run has more cracks to recycle and is never skipped.
 
 Set `coverage_enabled` to `false` in `config.json` to turn this off, or pass
 `--no-coverage` for a single run — which neither consults nor updates the store.
