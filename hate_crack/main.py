@@ -30,7 +30,7 @@ from types import SimpleNamespace
 
 #!/usr/bin/env python3
 
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, Sequence
 
 requests: Any = None
 REQUESTS_AVAILABLE = False
@@ -3594,15 +3594,74 @@ def _escape_mask_literal(text: str) -> str:
     return text.replace("?", "??")
 
 
+# hashcat's own ``-1``..``-8`` / ``?1``-``?8`` ceiling, which Rosetta's
+# parse_hcmask_line enforces. Slot exhaustion is the only reason a
+# structurally sound template cannot be expressed as an hcmask line.
+_SMART_MASK_MAX_CHARSET_SLOTS = 8
+
+
+class SmartMaskSlotLimit(Exception):
+    """A template needs more custom-charset slots than hashcat has.
+
+    Its own type rather than a bare ValueError so the caller can name the
+    limit in the operator-facing message instead of surfacing whatever
+    string the mask layer happened to raise.
+    """
+
+    def __init__(self, needed: int):
+        self.needed = needed
+        super().__init__(
+            f"needs {needed} distinct charsets, above hashcat's "
+            f"{_SMART_MASK_MAX_CHARSET_SLOTS}-slot limit"
+        )
+
+
+def _assign_charset_slots(charsets: Sequence[str]) -> tuple[list[str], list[int]]:
+    """Map per-position charsets onto shared ``?N`` slots.
+
+    Returns the deduplicated slot definitions and, per variable position,
+    the 1-based slot it uses.
+
+    Positions with identical charsets share one slot. This is exactly
+    equivalent -- ``?1`` used twice enumerates what two identically-defined
+    slots would -- and it is what keeps the 8-slot ceiling from being a
+    ceiling on *variable runs*, which is the form the limit used to take. A
+    date-suffixed template varying five separate digit runs needs one slot,
+    not five, so it now builds instead of being dropped.
+
+    Raises :class:`SmartMaskSlotLimit` when the distinct charsets genuinely
+    exceed what hashcat can hold.
+    """
+    slot_by_charset: dict[str, int] = {}
+    slots: list[int] = []
+    for charset in charsets:
+        slot = slot_by_charset.get(charset)
+        if slot is None:
+            slot = len(slot_by_charset) + 1
+            slot_by_charset[charset] = slot
+        slots.append(slot)
+    if len(slot_by_charset) > _SMART_MASK_MAX_CHARSET_SLOTS:
+        raise SmartMaskSlotLimit(len(slot_by_charset))
+    return list(slot_by_charset), slots
+
+
 def _build_hcmask_lines(template: "_SmartMaskTemplate") -> list[str]:
     """Build one .hcmask line per observed variable-run length
     combination: literal text for fixed positions (escaped), repeated
     ``?N`` tokens for variable positions.
+
+    Raises :class:`SmartMaskSlotLimit` if the template needs more than
+    hashcat's eight custom-charset slots. ``hcatSmartMask`` checks that up
+    front so it can report which template was dropped and why; the raise is
+    the backstop for any other caller.
     """
     # Callers only reach this function after confirming Rosetta is
     # available (see hcatSmartMask's guard clause); this assert is purely
     # so ty narrows the guarded import's `Unknown | None` type here too.
     assert rosetta_format_hcmask_line is not None
+    custom_charsets, slot_by_variable = _assign_charset_slots(
+        template.variable_charsets
+    )
     fixed_by_position = {
         position: content for position, _run_type, content in template.fixed_runs
     }
@@ -3614,11 +3673,11 @@ def _build_hcmask_lines(template: "_SmartMaskTemplate") -> list[str]:
                 mask_parts.append(_escape_mask_literal(fixed_by_position[position]))
             else:
                 slot_index = template.variable_positions.index(position)
-                slot = slot_index + 1
+                slot = slot_by_variable[slot_index]
                 length = lengths[slot_index]
                 mask_parts.append(f"?{slot}" * length)
         mask = "".join(mask_parts)
-        lines.append(rosetta_format_hcmask_line(list(template.variable_charsets), mask))
+        lines.append(rosetta_format_hcmask_line(custom_charsets, mask))
     return lines
 
 
@@ -3677,6 +3736,19 @@ def hcatSmartMask(
         try:
             lines = _build_hcmask_lines(template)
             parsed_lines = [rosetta_parse_hcmask_line(line) for line in lines]
+        except SmartMaskSlotLimit as exc:
+            # Named separately from the generic unbuildable case because it is
+            # the one failure an operator can act on: it says the cluster is
+            # too internally varied to express, not that something is wrong.
+            print(
+                f"[!] Smart Mask (template {index}/{len(templates)}, "
+                f"{template.member_count} accounts): {exc.needed} distinct "
+                f"charsets across {len(template.variable_positions)} varying "
+                f"runs, and hashcat has only "
+                f"{_SMART_MASK_MAX_CHARSET_SLOTS} charset slots (?1-?8). "
+                "Skipping."
+            )
+            continue
         except RosettaMaskError as exc:
             print(f"[!] Smart Mask: skipping an unbuildable template ({exc}).")
             continue

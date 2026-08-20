@@ -1,5 +1,7 @@
 import importlib
 
+import pytest
+
 
 def test_tokenize_runs_splits_letters_digits_symbols():
     from hate_crack import main as hc_main
@@ -246,6 +248,77 @@ def test_build_hcmask_lines_escapes_literal_question_mark_in_fixed_run():
         total_positions=2,
     )
     assert hc_main._build_hcmask_lines(template) == ["0123456789,Pass??word?1?1"]
+
+
+def test_identical_charsets_share_one_slot():
+    """Nine varying digit runs need one ?1, not nine slots.
+
+    ``?1`` repeated at several positions enumerates exactly what several
+    identically-defined slots would, so sharing is free -- and it is what stops
+    hashcat's eight-slot ceiling from acting as a ceiling on varying runs.
+    """
+    from hate_crack import main as hc_main
+
+    template = hc_main._SmartMaskTemplate(
+        fixed_runs=tuple((i, "L", "x") for i in range(0, 18, 2)),
+        variable_positions=tuple(range(1, 18, 2)),
+        variable_charsets=("0123456789",) * 9,
+        length_combinations=((1,) * 9,),
+        member_count=3,
+        total_positions=18,
+    )
+    lines = hc_main._build_hcmask_lines(template)
+    assert lines == ["0123456789," + "x?1" * 9]
+
+
+def test_slot_sharing_preserves_per_position_charsets():
+    """Sharing must key on the charset, not collapse distinct ones together."""
+    from hate_crack import main as hc_main
+
+    template = hc_main._SmartMaskTemplate(
+        fixed_runs=((0, "L", "a"), (2, "L", "b"), (4, "L", "c")),
+        variable_positions=(1, 3, 5),
+        variable_charsets=("0123456789", "abc", "0123456789"),
+        length_combinations=((1, 1, 1),),
+        member_count=3,
+        total_positions=6,
+    )
+    assert hc_main._build_hcmask_lines(template) == ["0123456789,abc,a?1b?2c?1"]
+
+
+def test_nine_distinct_charsets_raise_the_slot_limit():
+    from hate_crack import main as hc_main
+
+    template = hc_main._SmartMaskTemplate(
+        fixed_runs=tuple((i, "L", "x") for i in range(0, 18, 2)),
+        variable_positions=tuple(range(1, 18, 2)),
+        variable_charsets=tuple("abcdefghi"[i] * 3 for i in range(9)),
+        length_combinations=((1,) * 9,),
+        member_count=3,
+        total_positions=18,
+    )
+    with pytest.raises(hc_main.SmartMaskSlotLimit) as excinfo:
+        hc_main._build_hcmask_lines(template)
+    assert excinfo.value.needed == 9
+
+
+def test_eight_distinct_charsets_still_build():
+    """Eight is allowed, so the guard must not be off by one."""
+    from hate_crack import main as hc_main
+    from hashcat_rosetta.mask import parse_hcmask_line
+
+    template = hc_main._SmartMaskTemplate(
+        fixed_runs=tuple((i, "L", "x") for i in range(0, 16, 2)),
+        variable_positions=tuple(range(1, 16, 2)),
+        variable_charsets=tuple("abcdefgh"[i] * 3 for i in range(8)),
+        length_combinations=((1,) * 8,),
+        member_count=3,
+        total_positions=16,
+    )
+    (line,) = hc_main._build_hcmask_lines(template)
+    parsed = parse_hcmask_line(line)
+    assert len(parsed.custom) == 8
+    assert parsed.mask == "".join(f"x?{n}" for n in range(1, 9))
 
 
 def test_build_hcmask_lines_output_parses_as_valid_hcmask():
@@ -710,3 +783,46 @@ def test_smart_mask_crack_rejects_negative_then_accepts_blank(monkeypatch):
     attacks.smart_mask_crack(ctx)
 
     assert seen["keyspace_limit"] is None
+
+
+def test_hcatSmartMask_reports_a_slot_exhausted_template_instead_of_dropping_it_quietly(
+    monkeypatch, tmp_path, capsys
+):
+    """Nine runs of nine *different* charsets cannot be expressed at all.
+
+    Before the guard this surfaced as an opaque "unbuildable template" from the
+    mask parser, with nothing naming the cause; the whole cluster went missing
+    for a reason the operator could not act on.
+    """
+    import hate_crack.main as hc_main
+
+    importlib.reload(hc_main)
+
+    # Nine varying runs, each drawing on a different alphabet, separated by
+    # fixed letter runs so the shape signature stays stable across members.
+    alphabets = ["01", "23", "45", "67", "89", "!@", "#$", "%^", "&*"]
+    members = []
+    for pick in range(2):
+        parts = []
+        for index, alphabet in enumerate(alphabets):
+            parts.append(chr(ord("a") + index))
+            parts.append(alphabet[pick])
+        members.append("".join(parts))
+    members.append(members[0][:-1] + alphabets[-1][0])
+
+    hashfile = tmp_path / "hashes.txt"
+    (tmp_path / "hashes.txt.out").write_text(
+        "".join(f"{i}:{m}\n" for i, m in enumerate(members))
+    )
+    _install_smart_mask_test_env(monkeypatch, hc_main, hashfile)
+    monkeypatch.setattr(hc_main, "lineCount", lambda _p: 3)
+
+    popen_calls = []
+    monkeypatch.setattr(hc_main.subprocess, "Popen", _NoopPopen(popen_calls))
+
+    hc_main.hcatSmartMask("1000", str(hashfile))
+
+    out = capsys.readouterr().out
+    assert "charset slots" in out, out
+    assert "9 distinct charsets" in out, out
+    assert popen_calls == [], "an inexpressible template must not launch hashcat"
