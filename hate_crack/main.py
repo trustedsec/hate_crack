@@ -3119,6 +3119,10 @@ def _build_hcmask_lines(template: "_SmartMaskTemplate") -> list[str]:
     combination: literal text for fixed positions (escaped), repeated
     ``?N`` tokens for variable positions.
     """
+    # Callers only reach this function after confirming Rosetta is
+    # available (see hcatSmartMask's guard clause); this assert is purely
+    # so ty narrows the guarded import's `Unknown | None` type here too.
+    assert rosetta_format_hcmask_line is not None
     fixed_by_position = {
         position: content for position, _run_type, content in template.fixed_runs
     }
@@ -3153,7 +3157,12 @@ def hcatSmartMask(
     """
     global hcatSmartMaskCount
 
-    if rosetta_parse_hcmask_line is None or rosetta_format_hcmask_line is None:
+    if (
+        rosetta_parse_hcmask_line is None
+        or rosetta_format_hcmask_line is None
+        or RosettaMaskError is None
+        or rosetta_keyspace is None
+    ):
         print(f"[!] Smart Mask: {rosetta_unavailable_reason()}")
         hcatSmartMaskCount = 0
         return
