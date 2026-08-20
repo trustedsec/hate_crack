@@ -130,6 +130,7 @@ def get_main_menu_options():
         "22": _attacks.spoonman_attack,
         "23": _attacks.rosetta_attack,
         "24": _attacks.corporate_masks_crack,
+        "25": _attacks.smart_mask_crack,
         "80": _attacks.wordlist_tools_submenu,
         "81": _attacks.rule_tools_submenu,
         "82": notifications_submenu,

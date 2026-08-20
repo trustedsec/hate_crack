@@ -6319,6 +6319,10 @@ def fingerprint_crack():
     return _attacks.fingerprint_crack(_attack_ctx())
 
 
+def smart_mask_crack():
+    return _attacks.smart_mask_crack(_attack_ctx())
+
+
 def combinator_crack():
     return _attacks.combinator_crack(_attack_ctx())
 
@@ -6952,6 +6956,7 @@ def get_main_menu_items():
         ("22", "Spoonman Attack"),
         ("23", "Rosetta Attack"),
         ("24", "Corporate Masks Brute Force"),
+        ("25", "Smart Mask Attack"),
         ("80", "Wordlist Tools"),
         ("81", "Rule File Tools"),
         ("82", "Notifications"),
@@ -6998,6 +7003,7 @@ def get_main_menu_options():
         "22": spoonman_attack,
         "23": rosetta_attack,
         "24": corporate_masks_crack,
+        "25": smart_mask_crack,
         "80": wordlist_tools_submenu,
         "81": rule_tools_submenu,
         "82": notifications_submenu,

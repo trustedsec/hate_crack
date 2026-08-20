@@ -925,6 +925,7 @@ All tests use mocked API calls, so they can run without connectivity to a Hashvi
   (22) Spoonman Attack
   (23) Rosetta Attack
   (24) Corporate Masks Brute Force
+  (25) Smart Mask Attack
 
   (80) Wordlist Tools
   (81) Rule File Tools
@@ -972,6 +973,7 @@ Runs several attack methods provided by Martin Bos (formerly known as pure_hate)
     * `rockyou.txt` with `T0XlC.rule`
   * Top Mask Attack (Target Time = 4 Hours)
   * Fingerprint Attack
+  * Smart Mask Attack
   * Combinator Attack
   * Hybrid Attack
   * Extra - Just For Good Measure
@@ -988,6 +990,9 @@ Presents the user a choice of target cracking time to spend (default 4 hours).
 https://hashcat.net/wiki/doku.php?id=fingerprint_attack
 
 Runs a fingerprint attack using passwords already cracked for the current session. Expander substring length escalates automatically (7, 14, 21, ... up to the chosen ceiling), and an optional wordlist can be combined against the expanded fragments in addition to self-combination. Set `hcatFingerprintWordlist` in `config.json` to a default wordlist path so the prompt offers it instead of asking for a path every time; leave it as `""` to always ask (or skip).
+
+#### Smart Mask Attack
+Looks for literal "skeleton" patterns shared by 3+ already-cracked passwords for the current session -- e.g. a fixed stem like `CrawlingHorse` followed by a run of digits, or `ChangeMe2day` followed by digits and symbols drawn from a consistent charset. For each pattern found, runs a targeted `-a 3` mask attack (using the exact observed literal text and an inferred charset for the varying part) against the full remaining hash list, so other accounts sharing that stem get swept up even though brute-forcing the stem itself was never tried. Prompts once, before the attack starts, for an optional candidate-count guardrail (default 50,000,000,000; 0 disables it).
 
 #### Combinator Attack
 https://hashcat.net/wiki/doku.php?id=combinator_attack
