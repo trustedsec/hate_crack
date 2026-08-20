@@ -3605,7 +3605,8 @@ def hcatSmartMask(
     keyspace_limit: int | None = None,
 ):
     """Detect literal-skeleton password patterns among already-cracked
-    plaintexts and run a targeted -a3 mask attack per pattern against the
+    plaintexts and run a single targeted -a3 mask attack -- one mask line
+    per qualifying template, combined into one .hcmask file -- against the
     full remaining hash list.
     """
     global hcatSmartMaskCount
@@ -3643,58 +3644,72 @@ def hcatSmartMask(
         hcatSmartMaskCount = 0
         return
 
+    all_lines = []
+    accounts_covered = 0
+    for index, template in enumerate(templates, start=1):
+        try:
+            lines = _build_hcmask_lines(template)
+            parsed_lines = [rosetta_parse_hcmask_line(line) for line in lines]
+        except RosettaMaskError as exc:
+            print(f"[!] Smart Mask: skipping an unbuildable template ({exc}).")
+            continue
+
+        candidate_total = sum(rosetta_keyspace(p) for p in parsed_lines)
+        if keyspace_limit and candidate_total > keyspace_limit:
+            print(
+                f"[!] Smart Mask (template {index}/{len(templates)}, "
+                f"{template.member_count} accounts): {candidate_total:,} "
+                f"candidates exceeds the {keyspace_limit:,}-candidate guardrail. "
+                "Skipping."
+            )
+            continue
+
+        all_lines.extend(lines)
+        accounts_covered += template.member_count
+
+    if not all_lines:
+        print(
+            "[*] Smart Mask: no templates survived validation or the keyspace "
+            "guardrail."
+        )
+        hcatSmartMaskCount = 0
+        return
+
+    hcmask_path = f"{hcatHashFile}.smartmask.hcmask"
+    # latin-1: fixed-run literals and charsets come from decoded $HEX[...]
+    # plaintexts, where each character already represents one raw byte (see
+    # convert_hex). UTF-8 would re-encode any byte >= 0x80 into a different,
+    # multi-byte sequence, corrupting the exact bytes hashcat needs to try.
+    with open(hcmask_path, "w", encoding="latin-1") as f:
+        f.writelines(f"{line}\n" for line in all_lines)
+
+    cmd = [
+        hcatBin,
+        "-m",
+        hcatHashType,
+        hcatHashFile,
+        "--session",
+        generate_session_id(),
+        "-o",
+        f"{hcatHashFile}.out",
+        "-a",
+        "3",
+        hcmask_path,
+    ]
+    if _should_use_optimized_kernel("hcatSmartMask"):
+        _insert_optimized_flag(cmd)
+    cmd.extend(shlex.split(hcatTuning))
+    _append_potfile_arg(cmd)
+    label = f"Smart Mask ({len(all_lines)} pattern(s), {accounts_covered} accounts)"
     try:
-        for index, template in enumerate(templates, start=1):
-            try:
-                lines = _build_hcmask_lines(template)
-                parsed_lines = [rosetta_parse_hcmask_line(line) for line in lines]
-            except RosettaMaskError as exc:
-                print(f"[!] Smart Mask: skipping an unbuildable template ({exc}).")
-                continue
-
-            candidate_total = sum(rosetta_keyspace(p) for p in parsed_lines)
-            label = (
-                f"Smart Mask (template {index}/{len(templates)}, "
-                f"{template.member_count} accounts)"
-            )
-            if keyspace_limit and candidate_total > keyspace_limit:
-                print(
-                    f"[!] {label}: {candidate_total:,} candidates exceeds the "
-                    f"{keyspace_limit:,}-candidate guardrail. Skipping."
-                )
-                continue
-
-            hcmask_path = f"{hcatHashFile}.smartmask{index}.hcmask"
-            # latin-1: fixed-run literals and charsets come from decoded
-            # $HEX[...] plaintexts, where each character already represents
-            # one raw byte (see convert_hex). UTF-8 would re-encode any byte
-            # >= 0x80 into a different, multi-byte sequence, corrupting the
-            # exact bytes hashcat needs to try.
-            with open(hcmask_path, "w", encoding="latin-1") as f:
-                f.writelines(f"{line}\n" for line in lines)
-
-            cmd = [
-                hcatBin,
-                "-m",
-                hcatHashType,
-                hcatHashFile,
-                "--session",
-                generate_session_id(),
-                "-o",
-                f"{hcatHashFile}.out",
-                "-a",
-                "3",
-                hcmask_path,
-            ]
-            if _should_use_optimized_kernel("hcatSmartMask"):
-                _insert_optimized_flag(cmd)
-            cmd.extend(shlex.split(hcatTuning))
-            _append_potfile_arg(cmd)
-            _run_hcat_cmd(
-                cmd, attack_name=label, hash_file=hcatHashFile, reraise_interrupt=True
-            )
+        _run_hcat_cmd(
+            cmd, attack_name=label, hash_file=hcatHashFile, reraise_interrupt=True
+        )
     except KeyboardInterrupt:
         pass
+    finally:
+        if os.path.exists(hcmask_path):
+            os.remove(hcmask_path)
 
     hcatSmartMaskCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
@@ -6516,6 +6531,11 @@ def cleanup():
             os.remove(hcatHashFile + ".masks")
         if os.path.exists(hcatHashFile + ".hcmask"):
             os.remove(hcatHashFile + ".hcmask")
+        # Belt-and-braces: hcatSmartMask already removes this itself once its
+        # attack finishes, but a hard kill between writing it and that cleanup
+        # would otherwise leave it behind.
+        if os.path.exists(hcatHashFile + ".smartmask.hcmask"):
+            os.remove(hcatHashFile + ".smartmask.hcmask")
         if os.path.exists(hcatHashFile + ".working"):
             os.remove(hcatHashFile + ".working")
         if os.path.exists(hcatHashFile + ".expanded"):
