@@ -24,6 +24,7 @@
   "pcfgRuleset": "Default",
   "pcfgMaxCandidates": 50000000,
   "pcfgPrinceLingMaxCandidates": 10000000,
+  "hcatSmartMaskMinClusterSize": 3,
   "check_for_updates": true,
   "optimizedKernelAttacks": [
     "hcatDictionary", "hcatQuickDictionary", "hcatBandrel", "hcatGoodMeasure",

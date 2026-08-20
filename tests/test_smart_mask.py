@@ -344,6 +344,28 @@ def test_hcatSmartMask_no_qualifying_cluster_skips_hashcat(
     assert "no qualifying clusters found" in capsys.readouterr().out
 
 
+def test_hcatSmartMask_uses_configured_min_cluster_size(monkeypatch, tmp_path):
+    import hate_crack.main as hc_main
+
+    importlib.reload(hc_main)
+
+    hashfile = tmp_path / "hashes.txt"
+    (tmp_path / "hashes.txt.out").write_text("a:CrawlingHorse432\nb:CrawlingHorse559\n")
+    _install_smart_mask_test_env(monkeypatch, hc_main, hashfile)
+    monkeypatch.setattr(hc_main, "lineCount", lambda _p: 2)
+
+    popen_calls = []
+    monkeypatch.setattr(hc_main.subprocess, "Popen", _NoopPopen(popen_calls))
+
+    # The built-in default (_SMART_MASK_MIN_CLUSTER_SIZE == 3) would reject
+    # this 2-member cluster; the configured override lets it through.
+    monkeypatch.setattr(hc_main, "hcatSmartMaskMinClusterSize", 2)
+
+    hc_main.hcatSmartMask("1000", str(hashfile))
+
+    assert len(popen_calls) == 1
+
+
 def test_hcatSmartMask_decodes_hex_wrapped_plaintext(monkeypatch, tmp_path):
     import hate_crack.main as hc_main
 

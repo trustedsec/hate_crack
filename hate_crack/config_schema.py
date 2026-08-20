@@ -300,6 +300,9 @@ CONFIG_SCHEMA: tuple[ConfigKey, ...] = (
         "int",
         10000000,
     ),
+    ConfigKey(
+        "HCAT_SMART_MASK_MIN_CLUSTER_SIZE", "hcatSmartMaskMinClusterSize", "int", 3
+    ),
     ConfigKey("CHECK_FOR_UPDATES", "check_for_updates", "bool", True),
     ConfigKey(
         "OPTIMIZED_KERNEL_ATTACKS",

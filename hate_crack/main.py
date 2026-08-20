@@ -1075,6 +1075,7 @@ pcfgMaxCandidates = int(config_parser.get("pcfgMaxCandidates", 50000000))
 pcfgPrinceLingMaxCandidates = int(
     config_parser.get("pcfgPrinceLingMaxCandidates", 10000000)
 )
+hcatSmartMaskMinClusterSize = int(config_parser.get("hcatSmartMaskMinClusterSize", 3))
 
 try:
     _cfg_optimized = config_parser["optimizedKernelAttacks"]
@@ -2892,6 +2893,10 @@ def _seed_key(runs: list[tuple[str, str]]) -> tuple[str, ...]:
     return tuple(content for run_type, content in runs if run_type == "L")
 
 
+# Pure-function default for _cluster_smart_mask_templates when called
+# directly (e.g. from tests) without an explicit min_cluster_size.
+# hcatSmartMask itself uses the config-configurable hcatSmartMaskMinClusterSize
+# global instead, which defaults to this same value.
 _SMART_MASK_MIN_CLUSTER_SIZE = 3
 _SMART_MASK_CHARSET_COVERAGE_THRESHOLD = 0.5
 
@@ -3082,7 +3087,7 @@ def hcatSmartMask(
         return
 
     if min_cluster_size is None:
-        min_cluster_size = _SMART_MASK_MIN_CLUSTER_SIZE
+        min_cluster_size = hcatSmartMaskMinClusterSize
     if keyspace_limit is None:
         keyspace_limit = _SMART_MASK_KEYSPACE_LIMIT
 
