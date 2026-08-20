@@ -209,7 +209,7 @@ def _install_fingerprint_test_env(monkeypatch, hc_main, tmp_path, hashfile):
     monkeypatch.setattr(hc_main, "ensure_binary", lambda binary_path, **_k: binary_path)
     monkeypatch.setattr(hc_main, "hate_path", str(tmp_path))
     monkeypatch.setattr(hc_main, "hcatHashFile", str(hashfile))
-    monkeypatch.setattr(hc_main, "generate_session_id", lambda: "test_session")
+    monkeypatch.setattr(hc_main, "generate_session_id", lambda *_: "test_session")
     monkeypatch.setattr(hc_main, "hcatBin", "hashcat")
     monkeypatch.setattr(hc_main, "hcatTuning", "")
 

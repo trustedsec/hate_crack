@@ -41,9 +41,9 @@ def _patched(main_module, tmp_path):
     ``patch.object`` rather than raw assignment: ``hate_crack.main`` is shared
     across the session, so anything set here has to be restored afterwards.
 
-    ``generate_session_id`` is stubbed because it reads the *module-global*
-    ``hcatHashFile`` rather than the argument hcatHybrid was called with, so it
-    otherwise depends on whatever an earlier test left there.
+    ``generate_session_id`` is stubbed so the asserted commands carry one fixed
+    session name; what it builds from the hash file and attack label is covered
+    in test_main_utils.py::TestGenerateSessionId.
     """
     with (
         patch.object(main_module, "hcatBin", "hashcat"),

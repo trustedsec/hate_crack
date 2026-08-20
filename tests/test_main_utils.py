@@ -1,5 +1,8 @@
 """Tests for utility functions in hate_crack/main.py."""
 
+import ast
+import inspect
+import re
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -47,43 +50,106 @@ class TestAppendPotfileArg:
 
 class TestGenerateSessionId:
     def test_basic_filename(self, main_module):
-        with patch("hate_crack.main.hcatHashFile", "/tmp/myfile.txt", create=True):
-            result = main_module.generate_session_id()
-        assert result == "myfile"
+        assert main_module.generate_session_id("/tmp/myfile.txt") == "myfile"
 
     def test_with_hyphens_and_underscores(self, main_module):
-        with patch(
-            "hate_crack.main.hcatHashFile", "/path/to/my-file_v2.txt", create=True
-        ):
-            result = main_module.generate_session_id()
+        result = main_module.generate_session_id("/path/to/my-file_v2.txt")
         assert result == "my-file_v2"
 
     def test_dots_replaced(self, main_module):
-        with patch(
-            "hate_crack.main.hcatHashFile", "/tmp/file.with.dots.txt", create=True
-        ):
-            result = main_module.generate_session_id()
+        result = main_module.generate_session_id("/tmp/file.with.dots.txt")
         assert result == "file_with_dots"
 
     def test_spaces_replaced(self, main_module):
-        with patch(
-            "hate_crack.main.hcatHashFile", "/tmp/file with spaces.txt", create=True
-        ):
-            result = main_module.generate_session_id()
+        result = main_module.generate_session_id("/tmp/file with spaces.txt")
         assert result == "file_with_spaces"
 
     def test_returns_nonempty_string(self, main_module):
-        with patch("hate_crack.main.hcatHashFile", "/tmp/somefile.txt", create=True):
-            result = main_module.generate_session_id()
+        result = main_module.generate_session_id("/tmp/somefile.txt")
         assert isinstance(result, str)
         assert len(result) > 0
 
     def test_only_safe_chars(self, main_module):
-        with patch("hate_crack.main.hcatHashFile", "/tmp/f!le@na#me.txt", create=True):
-            result = main_module.generate_session_id()
-        import re
-
+        result = main_module.generate_session_id("/tmp/f!le@na#me.txt")
         assert re.fullmatch(r"[a-zA-Z0-9_-]+", result) is not None
+
+    def test_attack_label_is_appended(self, main_module):
+        """hashcat names .restore/.log/.pid after the session, so the attack
+        has to be in it or every attack shares one set of them."""
+        result = main_module.generate_session_id("/tmp/myfile.txt", "Brute Force")
+        assert result == "myfile_Brute_Force"
+
+    def test_different_attacks_get_different_sessions(self, main_module):
+        first = main_module.generate_session_id("/tmp/myfile.txt", "Hybrid a6 1")
+        second = main_module.generate_session_id("/tmp/myfile.txt", "Hybrid a7 1")
+        assert first != second
+
+    def test_illegal_runs_in_a_label_collapse(self, main_module):
+        """Otherwise "Corporate Masks (len 9)" becomes a row of underscores."""
+        result = main_module.generate_session_id(
+            "/tmp/myfile.txt", "Corporate Masks (len 9)"
+        )
+        assert result == "myfile_Corporate_Masks_len_9"
+
+    def test_attack_label_stays_within_the_safe_charset(self, main_module):
+        result = main_module.generate_session_id("/tmp/myfile.txt", "Ad-hoc Mask!")
+        assert re.fullmatch(r"[a-zA-Z0-9_-]+", result) is not None
+
+    def test_derived_hash_file_names_the_session(self, main_module):
+        """hcatLMtoNT attacks {file}.lm and {file}.nt, not the original."""
+        assert main_module.generate_session_id("/tmp/h.txt.lm") == "h_txt"
+        assert (
+            main_module.generate_session_id("/tmp/h.txt.lm", "LM to NT LM phase")
+            == "h_txt_LM_to_NT_LM_phase"
+        )
+
+    def test_a_name_of_only_illegal_characters_falls_back(self, main_module):
+        """hashcat rejects an empty --session."""
+        assert main_module.generate_session_id("/tmp/!!!.txt") == "hate_crack"
+
+    def test_empty_attack_label_adds_no_separator(self, main_module):
+        assert main_module.generate_session_id("/tmp/myfile.txt", "") == "myfile"
+
+
+class TestEveryCallSiteNamesItsAttack:
+    """Static guard over main.py's ~36 call sites.
+
+    A new attack that copies an existing one's command block is the likely way
+    a bare or unlabelled call reappears, and the symptom -- two attacks sharing
+    a restore file -- is invisible from the hate_crack side. Parsed rather than
+    grepped so a reformat cannot quietly defeat it.
+    """
+
+    def _call_sites(self, main_module):
+        source = inspect.getsource(main_module)
+        tree = ast.parse(source)
+        return [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "generate_session_id"
+        ]
+
+    def test_there_are_call_sites_to_check(self, main_module):
+        assert len(self._call_sites(main_module)) > 30
+
+    def test_no_call_site_relies_on_the_module_global(self, main_module):
+        for call in self._call_sites(main_module):
+            assert call.args, f"line {call.lineno}: no hash file passed"
+
+    def test_every_call_site_passes_an_attack_label(self, main_module):
+        for call in self._call_sites(main_module):
+            assert len(call.args) == 2, (
+                f"line {call.lineno}: no attack label, so this attack would "
+                "share a session (and a .restore file) with every other one"
+            )
+
+    def test_no_attack_label_is_an_empty_string(self, main_module):
+        for call in self._call_sites(main_module):
+            label = call.args[1]
+            if isinstance(label, ast.Constant):
+                assert label.value, f"line {call.lineno}: empty attack label"
 
 
 class TestEnsureHashfileInCwd:

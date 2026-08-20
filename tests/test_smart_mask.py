@@ -412,7 +412,7 @@ def _install_smart_mask_test_env(monkeypatch, hc_main, hashfile):
     monkeypatch.setenv("HATE_CRACK_SKIP_INIT", "1")
     monkeypatch.setattr(hc_main, "hcatHashCracked", 0)
     monkeypatch.setattr(hc_main, "hcatHashFile", str(hashfile))
-    monkeypatch.setattr(hc_main, "generate_session_id", lambda: "test_session")
+    monkeypatch.setattr(hc_main, "generate_session_id", lambda *_: "test_session")
     monkeypatch.setattr(hc_main, "hcatBin", "hashcat")
     monkeypatch.setattr(hc_main, "hcatTuning", "")
     monkeypatch.setattr(hc_main, "hcatPotfilePath", "")

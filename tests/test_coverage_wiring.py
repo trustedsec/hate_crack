@@ -579,7 +579,7 @@ def _quick(main_module, env, launched, loopback):
         patch.object(main_module, "hcatBin", "hashcat"),
         patch.object(main_module, "hcatTuning", ""),
         patch.object(main_module, "hcatPotfilePath", ""),
-        patch.object(main_module, "generate_session_id", lambda: "s"),
+        patch.object(main_module, "generate_session_id", lambda *_: "s"),
         patch("builtins.input", lambda *a: "y"),
     ):
         main_module.hcatQuickDictionary(
@@ -616,7 +616,7 @@ def test_an_interrupted_loopback_run_records_nothing(main_module, store, env):
         patch.object(main_module, "hcatBin", "hashcat"),
         patch.object(main_module, "hcatTuning", ""),
         patch.object(main_module, "hcatPotfilePath", ""),
-        patch.object(main_module, "generate_session_id", lambda: "s"),
+        patch.object(main_module, "generate_session_id", lambda *_: "s"),
     ):
         main_module.hcatQuickDictionary(
             "1000", env["hashes"], f"-r {env['rules']}", env["wordlist"], loopback=True

@@ -2076,20 +2076,37 @@ def _add_debug_mode_for_rules(cmd):
     return cmd
 
 
-# Sanitize filename for use as hashcat session name
-def generate_session_id():
-    """Sanitize the hashfile name for use as a hashcat session name
+# Sanitize a hash file name and attack label into a hashcat session name
+def generate_session_id(hash_file, attack=""):
+    """Build a hashcat ``--session`` name from *hash_file* and *attack*.
 
-    Hashcat session names can only contain alphanumeric characters, hyphens, and underscores.
-    This function removes the file extension and replaces problematic characters.
+    hashcat session names may hold only alphanumerics, hyphens and underscores,
+    so both parts are sanitized and joined with an underscore. Runs of illegal
+    characters collapse to a single one, which is what keeps a label like
+    ``"Corporate Masks (len 9)"`` from becoming a row of underscores.
+
+    *hash_file* is a parameter rather than a read of the module global because
+    the two are not always the same file. hcatLMtoNT drives hashcat against
+    ``{hash_file}.lm`` and then ``{hash_file}.nt``, and every attack function
+    takes its target as an argument that shadows the global name locally -- so
+    reading the global here named the session after something the command was
+    not attacking, and depended on import-time state besides.
+
+    *attack* is in the name because hashcat derives its whole per-session file
+    set from it: ``{session}.restore``, ``.log``, ``.pid`` and ``.outfiles``
+    under its session directory. With the name keyed on the hash file alone,
+    every attack against one hash file shared that set, so each attack
+    overwrote the previous one's restore point and appended to its log, and two
+    hate_crack instances working the same file trampled each other's. Passing
+    the same label used for notifications keeps the session name, the
+    notification and the coverage store's attack column reading alike.
     """
-    # Get just the filename without path
-    filename = os.path.basename(hcatHashFile)
-    # Remove extension
-    name_without_ext = os.path.splitext(filename)[0]
-    # Replace any non-alphanumeric chars (except - and _) with underscore
-    sanitized = re.sub(r"[^a-zA-Z0-9_-]", "_", name_without_ext)
-    return sanitized
+    stem = os.path.splitext(os.path.basename(hash_file))[0]
+    parts = [part for part in (stem, attack) if part]
+    sanitized = re.sub(r"[^a-zA-Z0-9_-]+", "_", "_".join(parts)).strip("_")
+    # A name made entirely of illegal characters would otherwise reach hashcat
+    # empty, which it rejects.
+    return sanitized or "hate_crack"
 
 
 # Help
@@ -2738,7 +2755,7 @@ def hcatBruteForce(hcatHashType, hcatHashFile, hcatMinLen, hcatMaxLen):
         hcatHashType,
         hcatHashFile,
         "--session",
-        generate_session_id(),
+        generate_session_id(hcatHashFile, "Brute Force"),
         "-o",
         f"{hcatHashFile}.out",
         "--increment",
@@ -2774,7 +2791,7 @@ def hcatDictionary(hcatHashType, hcatHashFile):
         hcatHashType,
         hcatHashFile,
         "--session",
-        generate_session_id(),
+        generate_session_id(hcatHashFile, "Dictionary"),
         "-o",
         f"{hcatHashFile}.out",
     ]
@@ -2818,7 +2835,7 @@ def hcatDictionary(hcatHashType, hcatHashFile):
                 hcatHashType,
                 hcatHashFile,
                 "--session",
-                generate_session_id(),
+                generate_session_id(hcatHashFile, "Dictionary Rules"),
                 "-o",
                 f"{hcatHashFile}.out",
                 wordlist,
@@ -2864,7 +2881,7 @@ def hcatQuickDictionary(
         hcatHashType,
         hcatHashFile,
         "--session",
-        generate_session_id(),
+        generate_session_id(hcatHashFile, attack_name),
         "-o",
         f"{hcatHashFile}.out",
     ]
@@ -3007,7 +3024,7 @@ def hcatTopMask(hcatHashType, hcatHashFile, hcatTargetTime):
         hcatHashType,
         hcatHashFile,
         "--session",
-        generate_session_id(),
+        generate_session_id(hcatHashFile, "Top Mask"),
         "-o",
         f"{hcatHashFile}.out",
         "-a",
@@ -3142,7 +3159,7 @@ def hcatRosettaMask(hcatHashType, hcatHashFile, description):
         hcatHashType,
         hcatHashFile,
         "--session",
-        generate_session_id(),
+        generate_session_id(hcatHashFile, "Rosetta Mask"),
         "-o",
         f"{hcatHashFile}.out",
         "-a",
@@ -3267,7 +3284,7 @@ def _fingerprint_run_combine(hcatHashType, hcatHashFile, left, right):
         hcatHashType,
         hcatHashFile,
         "--session",
-        generate_session_id(),
+        generate_session_id(hcatHashFile, "Fingerprint"),
         "-o",
         f"{hcatHashFile}.out",
         "-a",
@@ -3817,7 +3834,7 @@ def hcatSmartMask(
         hcatHashType,
         hcatHashFile,
         "--session",
-        generate_session_id(),
+        generate_session_id(hcatHashFile, "Smart Mask"),
         "-o",
         f"{hcatHashFile}.out",
         "-a",
@@ -3878,7 +3895,7 @@ def hcatCombination(hcatHashType, hcatHashFile, wordlists=None):
         hcatHashType,
         hcatHashFile,
         "--session",
-        generate_session_id(),
+        generate_session_id(hcatHashFile, "Combinator"),
         "-o",
         f"{hcatHashFile}.out",
         "-a",
@@ -3914,7 +3931,7 @@ def hcatCombinator3(hcatHashType, hcatHashFile, wordlists):
             hcatHashType,
             hcatHashFile,
             "--session",
-            generate_session_id(),
+            generate_session_id(hcatHashFile, "Combinator 3"),
             "-o",
             f"{hcatHashFile}.out",
         ]
@@ -3960,7 +3977,7 @@ def hcatCombinatorX(hcatHashType, hcatHashFile, wordlists, separator=None):
             hcatHashType,
             hcatHashFile,
             "--session",
-            generate_session_id(),
+            generate_session_id(hcatHashFile, "Combinator X"),
             "-o",
             f"{hcatHashFile}.out",
         ]
@@ -3997,7 +4014,7 @@ def hcatNgramX(hcatHashType, hcatHashFile, corpus, group_size=3):
             hcatHashType,
             hcatHashFile,
             "--session",
-            generate_session_id(),
+            generate_session_id(hcatHashFile, "N-gram"),
             "-o",
             f"{hcatHashFile}.out",
         ]
@@ -4103,7 +4120,7 @@ def hcatHybrid(hcatHashType, hcatHashFile, wordlists=None):
                         hcatHashType,
                         hcatHashFile,
                         "--session",
-                        generate_session_id(),
+                        generate_session_id(hcatHashFile, f"Hybrid a{mode} {length}"),
                         "-o",
                         f"{hcatHashFile}.out",
                         "-a",
@@ -4146,7 +4163,7 @@ def hcatYoloCombination(hcatHashType, hcatHashFile):
                 hcatHashType,
                 hcatHashFile,
                 "--session",
-                generate_session_id(),
+                generate_session_id(hcatHashFile, "YOLO Combination"),
                 "-o",
                 f"{hcatHashFile}.out",
                 "-a",
@@ -4194,7 +4211,7 @@ def hcatBandrel(hcatHashType, hcatHashFile):
             "-a",
             "3",
             "--session",
-            generate_session_id(),
+            generate_session_id(hcatHashFile, "Bandrel Company"),
             "-o",
             f"{hcatHashFile}.out",
             "--runtime",
@@ -4234,7 +4251,7 @@ def hcatBandrel(hcatHashType, hcatHashFile):
             "-a",
             "3",
             "--session",
-            generate_session_id(),
+            generate_session_id(hcatHashFile, "Bandrel Pipal"),
             "-o",
             f"{hcatHashFile}.out",
             "--runtime",
@@ -4563,7 +4580,7 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
         hcatHashType,
         hcatHashFile,
         "--session",
-        generate_session_id(),
+        generate_session_id(hcatHashFile, "LLM Candidates"),
         "-o",
         f"{hcatHashFile}.out",
         candidates_path,
@@ -4600,7 +4617,7 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
             hcatHashType,
             hcatHashFile,
             "--session",
-            generate_session_id(),
+            generate_session_id(hcatHashFile, "LLM Rules"),
             "-o",
             f"{hcatHashFile}.out",
             "-r",
@@ -4898,7 +4915,7 @@ def hcatMiddleCombinator(hcatHashType, hcatHashFile):
                 hcatHashType,
                 hcatHashFile,
                 "--session",
-                generate_session_id(),
+                generate_session_id(hcatHashFile, "Middle Combinator"),
                 "-o",
                 f"{hcatHashFile}.out",
                 "-a",
@@ -4944,7 +4961,7 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
         hcatHashType,
         hcatHashFile,
         "--session",
-        generate_session_id(),
+        generate_session_id(hcatHashFile, "Thorough Combinator"),
         "-o",
         f"{hcatHashFile}.out",
         "-a",
@@ -4966,7 +4983,7 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
                 hcatHashType,
                 hcatHashFile,
                 "--session",
-                generate_session_id(),
+                generate_session_id(hcatHashFile, "Thorough Combinator Left"),
                 "-o",
                 f"{hcatHashFile}.out",
                 "-a",
@@ -4996,7 +5013,7 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
                 hcatHashType,
                 hcatHashFile,
                 "--session",
-                generate_session_id(),
+                generate_session_id(hcatHashFile, "Thorough Combinator Right"),
                 "-o",
                 f"{hcatHashFile}.out",
                 "-a",
@@ -5026,7 +5043,7 @@ def hcatThoroughCombinator(hcatHashType, hcatHashFile):
                 hcatHashType,
                 hcatHashFile,
                 "--session",
-                generate_session_id(),
+                generate_session_id(hcatHashFile, "Thorough Combinator Both"),
                 "-o",
                 f"{hcatHashFile}.out",
                 "-a",
@@ -5061,7 +5078,7 @@ def hcatPathwellBruteForce(hcatHashType, hcatHashFile):
         hcatHashType,
         hcatHashFile,
         "--session",
-        generate_session_id(),
+        generate_session_id(hcatHashFile, "Pathwell Brute Force"),
         "-o",
         f"{hcatHashFile}.out",
         "-a",
@@ -5122,7 +5139,7 @@ def hcatCorporateMasks(
                 hcatHashType,
                 hcatHashFile,
                 "--session",
-                generate_session_id(),
+                generate_session_id(hcatHashFile, f"Corporate Masks {n}"),
                 "-o",
                 f"{hcatHashFile}.out",
                 "-a",
@@ -5163,7 +5180,7 @@ def hcatAdHocMask(
         hcatHashType,
         hcatHashFile,
         "--session",
-        generate_session_id(),
+        generate_session_id(hcatHashFile, "Ad-hoc Mask"),
         "-o",
         f"{hcatHashFile}.out",
         "-a",
@@ -5305,7 +5322,7 @@ def hcatMarkovBruteForce(hcatHashType, hcatHashFile, hcatMinLen, hcatMaxLen):
         hcatHashType,
         hcatHashFile,
         "--session",
-        generate_session_id(),
+        generate_session_id(hcatHashFile, "Markov Brute Force"),
         "-o",
         f"{hcatHashFile}.out",
         "--markov-hcstat2",
@@ -5393,7 +5410,7 @@ def hcatPrince(hcatHashType, hcatHashFile, attack_name="PRINCE"):
         hcatHashType,
         hcatHashFile,
         "--session",
-        generate_session_id(),
+        generate_session_id(hcatHashFile, attack_name),
         "-o",
         f"{hcatHashFile}.out",
         "-r",
@@ -5467,7 +5484,7 @@ def hcatPCFG(hcatHashType, hcatHashFile):
         hcatHashType,
         hcatHashFile,
         "--session",
-        generate_session_id(),
+        generate_session_id(hcatHashFile, "PCFG"),
         "-o",
         f"{hcatHashFile}.out",
     ]
@@ -6193,7 +6210,7 @@ def hcatPermute(hcatHashType, hcatHashFile, wordlist):
         hcatHashType,
         hcatHashFile,
         "--session",
-        generate_session_id(),
+        generate_session_id(hcatHashFile, "Permute"),
         "-o",
         f"{hcatHashFile}.out",
     ]
@@ -6332,7 +6349,7 @@ def hcatOmen(hcatHashType, hcatHashFile, max_candidates, hcatChains=""):
         hcatHashType,
         hcatHashFile,
         "--session",
-        generate_session_id(),
+        generate_session_id(hcatHashFile, "OMEN"),
         "-o",
         f"{hcatHashFile}.out",
     ]
@@ -6386,7 +6403,7 @@ def hcatGoodMeasure(hcatHashType, hcatHashFile):
         hcatHashType,
         hcatHashFile,
         "--session",
-        generate_session_id(),
+        generate_session_id(hcatHashFile, "Good Measure"),
         "-o",
         f"{hcatHashFile}.out",
         "-r",
@@ -6425,7 +6442,7 @@ def hcatLMtoNT():
         "3000",
         f"{hcatHashFile}.lm",
         "--session",
-        generate_session_id(),
+        generate_session_id(f"{hcatHashFile}.lm", "LM to NT LM phase"),
         "-o",
         f"{hcatHashFile}.lm.cracked",
         "-1",
@@ -6476,7 +6493,7 @@ def hcatLMtoNT():
         "1000",
         f"{hcatHashFile}.nt",
         "--session",
-        generate_session_id(),
+        generate_session_id(f"{hcatHashFile}.nt", "LM to NT NT phase"),
         "-o",
         f"{hcatHashFile}.nt.out",
         f"{hcatHashFile}.combined",
@@ -6515,7 +6532,7 @@ def hcatRecycle(hcatHashType, hcatHashFile, hcatNewPasswords):
                 hcatHashType,
                 hcatHashFile,
                 "--session",
-                generate_session_id(),
+                generate_session_id(hcatHashFile, "Recycle"),
                 "-o",
                 f"{hcatHashFile}.out",
                 f"{hcatHashFile}.working",
@@ -6554,7 +6571,7 @@ def hcatGenerateRules(hcatHashType, hcatHashFile, rule_count, wordlist):
             hcatHashType,
             hcatHashFile,
             "--session",
-            generate_session_id(),
+            generate_session_id(hcatHashFile, "Random Rules"),
             "-o",
             f"{hcatHashFile}.out",
             "-r",
