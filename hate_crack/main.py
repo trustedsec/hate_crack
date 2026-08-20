@@ -4021,9 +4021,45 @@ def hcatNgramX(hcatHashType, hcatHashFile, corpus, group_size=3):
 
 
 # Hybrid Attack
+#
+# The mask side is fixed: 1 to 4 positions drawn from ?s?d, appended (-a 6) and
+# then prepended (-a 7). Length 1 is included and runs first -- a single
+# trailing digit or symbol is both the cheapest pass here and the decoration a
+# hybrid attack exists to catch.
+_HYBRID_CHARSET = "?s?d"
+_HYBRID_MASK_LENGTHS = (1, 2, 3, 4)
+
+
+def _hybrid_coverage(hash_file, wordlist, mode, mask):
+    """Build the coverage spec for one hcatHybrid pass.
+
+    The mask is recorded in hcmask inline form (``?s?d,?1?1``) rather than as
+    the bare ``?1?1`` the command line carries, because ``?1`` names nothing
+    without its ``-1`` definition: every pass would otherwise share a key with
+    any other attack that spelled ``-1`` differently. The inline form is only
+    ever a key -- hashcat is still handed ``-1 ?s?d`` and the bare mask, since
+    comma-separated charsets are valid in an hcmask file but not on argv.
+
+    The attack mode goes in the variant. Appending a mask to a word and
+    prepending it enumerate disjoint candidate sets, so mode 6 and mode 7 must
+    never collapse onto one key.
+    """
+    return _coverage.CoverageSpec(
+        hash_file=hash_file,
+        wordlists=(wordlist,),
+        masks=(f"{_HYBRID_CHARSET},{mask}",),
+        variant=f"hybrid:a{mode}",
+    )
+
+
 def hcatHybrid(hcatHashType, hcatHashFile, wordlists=None):
     global hcatHybridCount
     global hcatProcess
+
+    # Reset before the early returns below: extensive_crack hands this straight
+    # to hcatRecycle, so a hybrid that never launched must not leave the
+    # previous hybrid run's count standing.
+    hcatHybridCount = 0
 
     # Use provided wordlists or fall back to config default
     if wordlists is None:
@@ -4036,42 +4072,62 @@ def hcatHybrid(hcatHashType, hcatHashFile, wordlists=None):
     resolved_wordlists = []
     for wordlist in wordlists:
         resolved = _resolve_wordlist_path(wordlist, hcatWordlists)
-        if any(ch in resolved for ch in "*?[]") or os.path.isfile(resolved):
+        if any(ch in resolved for ch in "*?[]"):
+            # A pattern has to be expanded here. The command goes to Popen as a
+            # list with no shell, so an unexpanded glob would reach hashcat
+            # verbatim and fail as a missing file.
+            matches = sorted(glob.glob(resolved))
+            if matches:
+                resolved_wordlists.extend(matches)
+            else:
+                print(f"[!] Wordlist pattern matched nothing: {resolved}")
+        elif os.path.isfile(resolved):
             resolved_wordlists.append(resolved)
         else:
             print(f"[!] Wordlist not found: {resolved}")
+    # Order-preserving dedupe: the same list named twice is eight wasted passes.
+    resolved_wordlists = list(dict.fromkeys(resolved_wordlists))
     if not resolved_wordlists:
         print("[!] No valid wordlists found. Aborting hybrid attack.")
         return
 
-    for wordlist in resolved_wordlists:
-        variants = [
-            ["-a", "6", "-1", "?s?d", wordlist, "?1?1"],
-            ["-a", "6", "-1", "?s?d", wordlist, "?1?1?1"],
-            ["-a", "6", "-1", "?s?d", wordlist, "?1?1?1?1"],
-            ["-a", "7", "-1", "?s?d", "?1?1", wordlist],
-            ["-a", "7", "-1", "?s?d", "?1?1?1", wordlist],
-            ["-a", "7", "-1", "?s?d", "?1?1?1?1", wordlist],
-        ]
-        for args in variants:
-            cmd = [
-                hcatBin,
-                "-m",
-                hcatHashType,
-                hcatHashFile,
-                "--session",
-                generate_session_id(),
-                "-o",
-                f"{hcatHashFile}.out",
-                *args,
-            ]
-            if _should_use_optimized_kernel("hcatHybrid"):
-                _insert_optimized_flag(cmd)
-            cmd.extend(shlex.split(hcatTuning))
-            _append_potfile_arg(cmd)
-            _run_hcat_cmd(cmd, attack_name="Hybrid", hash_file=hcatHashFile)
+    try:
+        for wordlist in resolved_wordlists:
+            for mode in ("6", "7"):
+                for length in _HYBRID_MASK_LENGTHS:
+                    mask = "?1" * length
+                    positional = [wordlist, mask] if mode == "6" else [mask, wordlist]
+                    cmd = [
+                        hcatBin,
+                        "-m",
+                        hcatHashType,
+                        hcatHashFile,
+                        "--session",
+                        generate_session_id(),
+                        "-o",
+                        f"{hcatHashFile}.out",
+                        "-a",
+                        mode,
+                        "-1",
+                        _HYBRID_CHARSET,
+                        *positional,
+                    ]
+                    if _should_use_optimized_kernel("hcatHybrid"):
+                        _insert_optimized_flag(cmd)
+                    cmd.extend(shlex.split(hcatTuning))
+                    _append_potfile_arg(cmd)
+                    _run_hcat_cmd(
+                        cmd,
+                        attack_name="Hybrid",
+                        hash_file=hcatHashFile,
+                        reraise_interrupt=True,
+                        coverage=_hybrid_coverage(hcatHashFile, wordlist, mode, mask),
+                    )
+    except KeyboardInterrupt:
+        # One ctrl-C abandons the whole attack, not just the current pass.
+        pass
 
-        hcatHybridCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
+    hcatHybridCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
 
 # YOLO Combination Attack

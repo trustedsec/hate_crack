@@ -1096,13 +1096,21 @@ Runs a combinator attack using the "rockyou.txt" wordlist.
 #### Hybrid Attack
 https://hashcat.net/wiki/doku.php?id=hybrid_attack
 
-* Runs several hybrid attacks using the "rockyou.txt" wordlists.
+* Runs several hybrid attacks using the "rockyou.txt" wordlists. Each mask
+  length from 1 to 4 is tried appended and then prepended, cheapest first, and
+  a single ctrl-C abandons the whole attack rather than only the current pass.
+  - Hybrid Wordlist + Mask - ?s?d wordlists/rockyou.txt ?1
   - Hybrid Wordlist + Mask - ?s?d wordlists/rockyou.txt ?1?1
   - Hybrid Wordlist + Mask - ?s?d wordlists/rockyou.txt ?1?1?1
   - Hybrid Wordlist + Mask - ?s?d wordlists/rockyou.txt ?1?1?1?1
+  - Hybrid Mask + Wordlist - ?s?d ?1 wordlists/rockyou.txt
   - Hybrid Mask + Wordlist - ?s?d ?1?1 wordlists/rockyou.txt
   - Hybrid Mask + Wordlist - ?s?d ?1?1?1 wordlists/rockyou.txt
   - Hybrid Mask + Wordlist - ?s?d ?1?1?1?1 wordlists/rockyou.txt
+
+  Each pass declares what it covers to the attack-coverage store, so a repeat
+  hybrid against the same hash file offers to skip the passes already run.
+  Wordlist entries may be glob patterns; they are expanded before hashcat runs.
 
 #### Pathwell Top 100 Mask Brute Force Crack
 Runs a brute force attack using the top 100 masks from KoreLogic:

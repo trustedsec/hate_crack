@@ -299,6 +299,29 @@ class TestHybridCrack:
 
         ctx.hcatHybrid.assert_not_called()
 
+    def test_spelled_out_no_also_declines_the_default(self) -> None:
+        """ "no" is not "n", and answering it must not silently use the default."""
+        ctx = _make_ctx()
+        ctx.select_file_with_autocomplete.return_value = None
+
+        with patch("builtins.input", return_value="no"):
+            hybrid_crack(ctx)
+
+        ctx.hcatHybrid.assert_not_called()
+
+    def test_glob_selection_is_passed_through_unexpanded(self) -> None:
+        """hcatHybrid expands the pattern; rejecting it here would make a glob
+        usable from config.json but not from this prompt."""
+        ctx = _make_ctx()
+        ctx.select_file_with_autocomplete.return_value = ["/wl/rock*.txt"]
+        ctx._resolve_wordlist_path.side_effect = lambda wl, _: wl
+
+        with patch("builtins.input", return_value="n"):
+            hybrid_crack(ctx)
+
+        ctx.hcatHybrid.assert_called_once()
+        assert ctx.hcatHybrid.call_args[0][2] == ["/wl/rock*.txt"]
+
 
 class TestSimpleAttacks:
     def test_pathwell_crack(self) -> None:

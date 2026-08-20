@@ -467,7 +467,7 @@ def hybrid_crack(ctx: Any) -> None:
         input("\nUse default hybrid wordlist from config? (Y/n): ").strip().lower()
     )
 
-    if use_default != "n":
+    if use_default not in ("n", "no"):
         print("\nUsing default wordlist(s) from config:")
         if isinstance(ctx.hcatHybridlist, list):
             for wl in ctx.hcatHybridlist:
@@ -501,7 +501,13 @@ def hybrid_crack(ctx: Any) -> None:
         valid_wordlists = []
         for wl in wordlists:
             resolved = ctx._resolve_wordlist_path(wl, ctx.hcatWordlists)
-            if os.path.isfile(resolved):
+            if any(ch in resolved for ch in "*?[]"):
+                # hcatHybrid expands the pattern and reports what it matched;
+                # rejecting it here would make a glob usable from config.json
+                # but not from this prompt.
+                valid_wordlists.append(resolved)
+                print(f"✓ Pattern: {resolved}")
+            elif os.path.isfile(resolved):
                 valid_wordlists.append(resolved)
                 print(f"✓ Found: {resolved}")
             else:
