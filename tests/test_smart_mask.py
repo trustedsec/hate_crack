@@ -1,3 +1,6 @@
+import importlib
+
+
 def test_tokenize_runs_splits_letters_digits_symbols():
     from hate_crack import main as hc_main
 
@@ -262,3 +265,169 @@ def test_build_hcmask_lines_output_parses_as_valid_hcmask():
     for line in hc_main._build_hcmask_lines(template):
         parsed = parse_hcmask_line(line)
         assert parsed.mask == "CrawlingHorse?1?1?1"
+
+
+def _install_smart_mask_test_env(monkeypatch, hc_main, hashfile):
+    monkeypatch.setenv("HATE_CRACK_SKIP_INIT", "1")
+    monkeypatch.setattr(hc_main, "hcatHashCracked", 0)
+    monkeypatch.setattr(hc_main, "hcatHashFile", str(hashfile))
+    monkeypatch.setattr(hc_main, "generate_session_id", lambda: "test_session")
+    monkeypatch.setattr(hc_main, "hcatBin", "hashcat")
+    monkeypatch.setattr(hc_main, "hcatTuning", "")
+    monkeypatch.setattr(hc_main, "hcatPotfilePath", "")
+
+
+class _NoopPopen:
+    """Popen stand-in for hashcat invocations: records the command, never
+    actually runs anything."""
+
+    def __init__(self, seen):
+        self.seen = seen
+
+    def __call__(self, args, **_kwargs):
+        self.seen.append(list(args))
+        return self._Proc()
+
+    class _Proc:
+        pid = 4321
+
+        def wait(self, timeout=None):
+            return 0
+
+        def kill(self):
+            return None
+
+
+def test_hcatSmartMask_runs_one_attack_per_qualifying_template(monkeypatch, tmp_path):
+    import hate_crack.main as hc_main
+
+    importlib.reload(hc_main)
+
+    hashfile = tmp_path / "hashes.txt"
+    (tmp_path / "hashes.txt.out").write_text(
+        "a:CrawlingHorse432\nb:CrawlingHorse559\nc:CrawlingHorse134\nd:CrawlingHorse795\n"
+    )
+    _install_smart_mask_test_env(monkeypatch, hc_main, hashfile)
+    monkeypatch.setattr(hc_main, "lineCount", lambda _p: 4)
+
+    popen_calls = []
+    monkeypatch.setattr(hc_main.subprocess, "Popen", _NoopPopen(popen_calls))
+
+    hc_main.hcatSmartMask("1000", str(hashfile))
+
+    assert len(popen_calls) == 1
+    cmd = popen_calls[0]
+    assert cmd[cmd.index("-a") + 1] == "3"
+    hcmask_path = tmp_path / "hashes.txt.smartmask1.hcmask"
+    assert hcmask_path.read_text().strip() == "0123456789,CrawlingHorse?1?1?1"
+    assert hc_main.hcatSmartMaskCount == 4  # lineCount(...) - hcatHashCracked(0)
+
+
+def test_hcatSmartMask_no_qualifying_cluster_skips_hashcat(
+    monkeypatch, tmp_path, capsys
+):
+    import hate_crack.main as hc_main
+
+    importlib.reload(hc_main)
+
+    hashfile = tmp_path / "hashes.txt"
+    (tmp_path / "hashes.txt.out").write_text("a:onlyone123\n")
+    _install_smart_mask_test_env(monkeypatch, hc_main, hashfile)
+    monkeypatch.setattr(hc_main, "lineCount", lambda _p: 1)
+
+    popen_calls = []
+    monkeypatch.setattr(hc_main.subprocess, "Popen", _NoopPopen(popen_calls))
+
+    hc_main.hcatSmartMask("1000", str(hashfile))
+
+    assert popen_calls == []
+    assert "no qualifying clusters found" in capsys.readouterr().out
+
+
+def test_hcatSmartMask_decodes_hex_wrapped_plaintext(monkeypatch, tmp_path):
+    import hate_crack.main as hc_main
+
+    importlib.reload(hc_main)
+
+    hashfile = tmp_path / "hashes.txt"
+    hex_plain = "CrawlingHorse432".encode("iso-8859-9").hex()
+    (tmp_path / "hashes.txt.out").write_text(
+        f"h0:$HEX[{hex_plain}]\nh1:CrawlingHorse559\nh2:CrawlingHorse134\n"
+    )
+    _install_smart_mask_test_env(monkeypatch, hc_main, hashfile)
+    monkeypatch.setattr(hc_main, "lineCount", lambda _p: 3)
+
+    popen_calls = []
+    monkeypatch.setattr(hc_main.subprocess, "Popen", _NoopPopen(popen_calls))
+
+    hc_main.hcatSmartMask("1000", str(hashfile))
+
+    assert len(popen_calls) == 1  # the $HEX[...] entry still joined the cluster
+
+
+def test_hcatSmartMask_keyspace_guard_skips_oversized_template(
+    monkeypatch, tmp_path, capsys
+):
+    import hate_crack.main as hc_main
+
+    importlib.reload(hc_main)
+
+    hashfile = tmp_path / "hashes.txt"
+    (tmp_path / "hashes.txt.out").write_text(
+        "a:CrawlingHorse432\nb:CrawlingHorse559\nc:CrawlingHorse134\n"
+    )
+    _install_smart_mask_test_env(monkeypatch, hc_main, hashfile)
+    monkeypatch.setattr(hc_main, "lineCount", lambda _p: 3)
+
+    popen_calls = []
+    monkeypatch.setattr(hc_main.subprocess, "Popen", _NoopPopen(popen_calls))
+
+    hc_main.hcatSmartMask("1000", str(hashfile), keyspace_limit=1)
+
+    assert popen_calls == []
+    assert "exceeds the 1-candidate guardrail" in capsys.readouterr().out
+
+
+def test_hcatSmartMask_prints_warning_when_rosetta_unavailable(
+    monkeypatch, tmp_path, capsys
+):
+    import hate_crack.main as hc_main
+
+    importlib.reload(hc_main)
+
+    hashfile = tmp_path / "hashes.txt"
+    (tmp_path / "hashes.txt.out").write_text(
+        "a:CrawlingHorse432\nb:CrawlingHorse559\nc:CrawlingHorse134\n"
+    )
+    _install_smart_mask_test_env(monkeypatch, hc_main, hashfile)
+    monkeypatch.setattr(hc_main, "lineCount", lambda _p: 3)
+    monkeypatch.setattr(hc_main, "rosetta_parse_hcmask_line", None)
+    monkeypatch.setattr(hc_main, "rosetta_format_hcmask_line", None)
+
+    popen_calls = []
+    monkeypatch.setattr(hc_main.subprocess, "Popen", _NoopPopen(popen_calls))
+
+    hc_main.hcatSmartMask("1000", str(hashfile))
+
+    assert popen_calls == []
+    assert "HashcatRosetta is unavailable" in capsys.readouterr().out
+
+
+def test_hcatSmartMask_reports_skipped_all_digit_stems(monkeypatch, tmp_path, capsys):
+    import hate_crack.main as hc_main
+
+    importlib.reload(hc_main)
+
+    hashfile = tmp_path / "hashes.txt"
+    (tmp_path / "hashes.txt.out").write_text("a:111222\nb:333444\nc:555666\n")
+    _install_smart_mask_test_env(monkeypatch, hc_main, hashfile)
+    monkeypatch.setattr(hc_main, "lineCount", lambda _p: 3)
+
+    popen_calls = []
+    monkeypatch.setattr(hc_main.subprocess, "Popen", _NoopPopen(popen_calls))
+
+    hc_main.hcatSmartMask("1000", str(hashfile))
+
+    assert popen_calls == []
+    out = capsys.readouterr().out
+    assert "skipping 3 plaintext(s) with no alphabetic stem" in out

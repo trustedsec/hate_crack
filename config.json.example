@@ -32,7 +32,7 @@
     "hcatMarkovBruteForce", "hcatFingerprint",
     "hcatCombination", "hcatCombinator3", "hcatCombinatorX", "hcatHybrid",
     "hcatYoloCombination", "hcatMiddleCombinator", "hcatThoroughCombinator",
-    "hcatCombipow", "hcatPrince", "hcatPermute", "hcatPCFG"
+    "hcatCombipow", "hcatPrince", "hcatPermute", "hcatPCFG", "hcatSmartMask"
   ],
   "notify_enabled": false,
   "notify_per_crack_enabled": false,

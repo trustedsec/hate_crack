@@ -293,6 +293,7 @@ CONFIG_SCHEMA: tuple[ConfigKey, ...] = (
             "hcatPrince",
             "hcatPermute",
             "hcatPCFG",
+            "hcatSmartMask",
         ],
     ),
     ConfigKey("NOTIFY_ENABLED", "notify_enabled", "bool", False),

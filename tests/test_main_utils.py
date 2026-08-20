@@ -566,6 +566,7 @@ class TestOptimizedKernel:
             "hcatTopMask",
             "hcatRosettaMask",
             "hcatPathwellBruteForce",
+            "hcatSmartMask",
         ],
     )
     def test_optimized_attacks_return_true(self, main_module, attack_name):

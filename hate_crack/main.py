@@ -100,6 +100,7 @@ try:
     from hashcat_rosetta.formatting import display_rule_opcodes_summary
     from hashcat_rosetta.mask import MaskError as RosettaMaskError
     from hashcat_rosetta.mask import format_hcmask_line as rosetta_format_hcmask_line
+    from hashcat_rosetta.mask import keyspace as rosetta_keyspace
     from hashcat_rosetta.mask import parse_hcmask_line as rosetta_parse_hcmask_line
 except ImportError as rosetta_import_error:
     ROSETTA_IMPORT_ERROR = rosetta_import_error
@@ -107,6 +108,7 @@ except ImportError as rosetta_import_error:
     DebugAnalyzer = None
     RosettaMaskError = None
     rosetta_format_hcmask_line = None
+    rosetta_keyspace = None
     rosetta_parse_hcmask_line = None
 
 
@@ -231,6 +233,7 @@ DEFAULT_OPTIMIZED_ATTACKS = frozenset(
         "hcatPrince",
         "hcatPermute",
         "hcatPCFG",
+        "hcatSmartMask",
     }
 )
 
@@ -1398,6 +1401,7 @@ hcatBruteCount = 0
 hcatDictionaryCount = 0
 hcatMaskCount = 0
 hcatFingerprintCount = 0
+hcatSmartMaskCount = 0
 hcatCombinationCount = 0
 hcatCombinator3Count = 0
 hcatCombinatorXCount = 0
@@ -3079,6 +3083,103 @@ def _build_hcmask_lines(template: "_SmartMaskTemplate") -> list[str]:
         mask = "".join(mask_parts)
         lines.append(rosetta_format_hcmask_line(list(template.variable_charsets), mask))
     return lines
+
+
+_SMART_MASK_KEYSPACE_LIMIT = 50_000_000_000
+
+
+def hcatSmartMask(
+    hcatHashType,
+    hcatHashFile,
+    min_cluster_size: int | None = None,
+    keyspace_limit: int | None = None,
+):
+    """Detect literal-skeleton password patterns among already-cracked
+    plaintexts and run a targeted -a3 mask attack per pattern against the
+    full remaining hash list.
+
+    See docs/superpowers/specs/2026-08-20-smart-mask-pattern-detection-design.md
+    for the clustering algorithm this implements.
+    """
+    global hcatSmartMaskCount
+
+    if rosetta_parse_hcmask_line is None or rosetta_format_hcmask_line is None:
+        print(f"[!] Smart Mask: {rosetta_unavailable_reason()}")
+        hcatSmartMaskCount = 0
+        return
+
+    if min_cluster_size is None:
+        min_cluster_size = _SMART_MASK_MIN_CLUSTER_SIZE
+    if keyspace_limit is None:
+        keyspace_limit = _SMART_MASK_KEYSPACE_LIMIT
+
+    _extract_cracked_plaintexts(f"{hcatHashFile}.out", f"{hcatHashFile}.working")
+    with open(f"{hcatHashFile}.working", errors="replace") as f:
+        plaintexts = [line.rstrip("\n") for line in f if line.strip()]
+
+    templates, skipped_no_stem = _cluster_smart_mask_templates(
+        plaintexts, min_cluster_size
+    )
+    if skipped_no_stem:
+        print(
+            f"[!] Smart Mask: skipping {skipped_no_stem} plaintext(s) with no "
+            "alphabetic stem (all-digit/symbol passwords) -- unsupported in "
+            "this version."
+        )
+    if not templates:
+        print("[*] Smart Mask: no qualifying clusters found.")
+        hcatSmartMaskCount = 0
+        return
+
+    try:
+        for index, template in enumerate(templates, start=1):
+            try:
+                lines = _build_hcmask_lines(template)
+                parsed_lines = [rosetta_parse_hcmask_line(line) for line in lines]
+            except RosettaMaskError as exc:
+                print(f"[!] Smart Mask: skipping an unbuildable template ({exc}).")
+                continue
+
+            candidate_total = sum(rosetta_keyspace(p) for p in parsed_lines)
+            label = (
+                f"Smart Mask (template {index}/{len(templates)}, "
+                f"{template.member_count} accounts)"
+            )
+            if keyspace_limit and candidate_total > keyspace_limit:
+                print(
+                    f"[!] {label}: {candidate_total:,} candidates exceeds the "
+                    f"{keyspace_limit:,}-candidate guardrail. Skipping."
+                )
+                continue
+
+            hcmask_path = f"{hcatHashFile}.smartmask{index}.hcmask"
+            with open(hcmask_path, "w", encoding="utf-8") as f:
+                f.writelines(f"{line}\n" for line in lines)
+
+            cmd = [
+                hcatBin,
+                "-m",
+                hcatHashType,
+                hcatHashFile,
+                "--session",
+                generate_session_id(),
+                "-o",
+                f"{hcatHashFile}.out",
+                "-a",
+                "3",
+                hcmask_path,
+            ]
+            if _should_use_optimized_kernel("hcatSmartMask"):
+                _insert_optimized_flag(cmd)
+            cmd.extend(shlex.split(hcatTuning))
+            _append_potfile_arg(cmd)
+            _run_hcat_cmd(
+                cmd, attack_name=label, hash_file=hcatHashFile, reraise_interrupt=True
+            )
+    except KeyboardInterrupt:
+        pass
+
+    hcatSmartMaskCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
 
 # Combinator Attack
