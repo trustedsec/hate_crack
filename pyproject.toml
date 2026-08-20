@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=83.0.0", "setuptools-scm>=10.2.1"]
+requires = ["setuptools>=84.0.0", "setuptools-scm>=10.2.1"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -14,7 +14,7 @@ dependencies = [
     "packaging>=26.3",
     "simple-term-menu==1.6.6",
     "click>=8.4.2",
-    "atomic-agents>=2.9.1",
+    "atomic-agents>=2.10.0",
     # Imported directly by hate_crack/llm.py; declared explicitly rather than
     # relying on atomic-agents pulling them in transitively.
     "instructor>=1.14.5",
@@ -143,8 +143,8 @@ testpaths = [
 
 [dependency-groups]
 dev = [
-    "ty==0.0.69",
-    "ruff==0.16.2",
+    "ty==0.0.72",
+    "ruff==0.16.3",
     "pytest==9.1.1",
     "pytest-cov==7.1.0",
     "pytest-timeout>=2.4.0",

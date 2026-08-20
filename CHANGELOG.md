@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [Unreleased]
+
+### Changed
+- **Dependency bumps: `atomic-agents>=2.10.0`, `setuptools>=84.0.0` (build), `ruff==0.16.3` and `ty==0.0.72` (dev), and `astral-sh/setup-uv` v9.0.0 -> v10.0.1 across all four workflow pins (#280, #281, #282, #284, #285).** No source change was needed for any of them: ruff 0.16.3 reports no new findings over the 165 formatted files, and ty 0.0.72 reports one diagnostic *fewer* than 0.0.69 (51 warnings, zero errors, an `invalid-assignment` that upstream now resolves), so the gate's scope and expectations are unchanged. The `setup-uv` bump moves the pinned commit to `20cfd1bf`, verified against the upstream `v10.0.1` tag rather than taken from the bot's comment.
+- **The proposed `openai>=3.1.0` bump (#283) was declined rather than merged, because it does not resolve.** `instructor` — which `hate_crack/llm.py` imports directly and which the `openai` pin exists to pair with — caps `openai>=2.0.0,<3.0.0` in every release published to date, up to and including 1.15.4, so raising the floor to 3.1.0 makes the dependency set unsatisfiable and `uv lock` fails outright. This is a bot bumping one half of a coupled pair; the bump becomes available once instructor widens its own range, and there is nothing to do here until it does. The floor stays at `>=2.53.0`, which currently resolves to openai 2.54.0.
+
 ## [2.30.0] - 2026-08-20
 
 ### Changed
