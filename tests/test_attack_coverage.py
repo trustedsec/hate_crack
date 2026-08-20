@@ -415,3 +415,87 @@ def test_summary_survives_a_broken_store(tmp_path, monkeypatch):
     s = ac.CoverageStore(tmp_path / "cov.sqlite3")
     monkeypatch.setattr(s, "_connect", lambda: None)
     assert s.summary("T")["entries"] == 0
+
+
+# --- mask canonicalization -------------------------------------------------
+
+
+class TestCanonicalMaskEntry:
+    """Two hcmask lines that enumerate the same candidates must key alike;
+    two that do not must not."""
+
+    def test_charset_token_and_literal_spelling_agree(self):
+        # ?d and 0123456789 expand to the same charset.
+        assert ac.canonical_mask_entry("?d,?1?1") == ac.canonical_mask_entry(
+            "0123456789,?1?1"
+        )
+
+    def test_duplicate_chars_collapse(self):
+        # hashcat deduplicates a custom charset, so "aa" is the charset "a".
+        assert ac.canonical_mask_entry("aa,?1?1") == ac.canonical_mask_entry("a,?1?1")
+
+    def test_charset_order_is_irrelevant(self):
+        # Order changes enumeration order, not the candidate set.
+        assert ac.canonical_mask_entry("ab,?1?1") == ac.canonical_mask_entry("ba,?1?1")
+
+    def test_slot_order_is_relevant(self):
+        # ?1 and ?2 are not interchangeable: "a" then "b" differs from "b" then "a".
+        assert ac.canonical_mask_entry("a,b,?1?2") != ac.canonical_mask_entry(
+            "b,a,?1?2"
+        )
+
+    def test_different_masks_stay_distinct(self):
+        assert ac.canonical_mask_entry("abc,?1?1") != ac.canonical_mask_entry(
+            "abc,?1?1?1"
+        )
+
+    def test_trailing_space_is_significant(self):
+        # A mask is whitespace-significant: the space is a literal position.
+        assert ac.canonical_mask_entry("abc,?1?1 ") != ac.canonical_mask_entry(
+            "abc,?1?1"
+        )
+
+    def test_plain_mask_is_returned_verbatim(self):
+        # Keeps pre-existing keys for charset-less masks bit-identical.
+        for entry in ("?d?d?d?d", "Summer?d?d", "?a?a ", ""):
+            assert ac.canonical_mask_entry(entry) == entry
+
+    def test_unparseable_mask_keys_on_raw_text(self):
+        # Invalid is hashcat's to report; this must still be stable, not raise.
+        assert ac.canonical_mask_entry("abc,?z?z") == "abc,?z?z"
+        assert ac.canonical_mask_entry("a,b,c,d,e,f,g,h,i,?1") == (
+            "a,b,c,d,e,f,g,h,i,?1"
+        )
+
+    def test_stable_across_calls(self):
+        assert ac.canonical_mask_entry("?d,?1?1") == ac.canonical_mask_entry("?d,?1?1")
+
+
+class TestEntryKeyMaskCanonicalization:
+    def test_equivalent_masks_share_a_key(self):
+        assert ac.entry_key("t", "mask", "", "?d,?1?1") == ac.entry_key(
+            "t", "mask", "", "0123456789,?1?1"
+        )
+
+    def test_rule_entries_are_not_canonicalized(self):
+        # A rule has no such normalization and its text is significant.
+        assert ac.entry_key("t", "rule", "", "?d,?1?1") != ac.entry_key(
+            "t", "rule", "", "0123456789,?1?1"
+        )
+
+    def test_plain_mask_key_unchanged_by_canonicalization(self):
+        # Guards the migration property: charset-less mask keys are exactly
+        # what they were before canonical_mask_entry existed.
+        import hashlib
+
+        payload = "t\x00mask\x00wl\x00\x00?d?d?d?d"
+        expected = hashlib.sha256(
+            payload.encode("utf-8", errors="surrogatepass")
+        ).hexdigest()
+        assert ac.entry_key("t", "mask", "wl", "?d?d?d?d", "") == expected
+
+    def test_equivalent_masks_recorded_once(self, store, tmp_path):
+        # End-to-end through the store: the second spelling reads as covered.
+        k = ac.entry_key("t", "mask", "", "aa,?1?1")
+        store.record([k], target="t", kind="mask", attack="Smart Mask")
+        assert store.covered([ac.entry_key("t", "mask", "", "a,?1?1")]) == {k}

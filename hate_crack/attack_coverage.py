@@ -43,10 +43,31 @@ import hashlib
 import json
 import os
 import sqlite3
+import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Iterable, Sequence
+
+# Import HashcatRosetta for mask canonicalization. Like hate_crack.llm, this
+# module needs its own path setup rather than relying on main.py's: main.py
+# imports attack_coverage (~line 86) *before* its own sys.path insertion
+# (~line 99), so a bare `import hashcat_rosetta` here would always fail. See
+# hate_crack.llm's identical guard for why these are kept separate per module.
+_ROSETTA_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "HashcatRosetta")
+)
+# Holds the ImportError when HashcatRosetta could not be imported, else None.
+ROSETTA_MASK_IMPORT_ERROR = None
+try:
+    if _ROSETTA_DIR not in sys.path:
+        sys.path.insert(0, _ROSETTA_DIR)
+    from hashcat_rosetta.mask import expand_custom_charsets as _rosetta_expand_charsets
+    from hashcat_rosetta.mask import parse_hcmask_line as _rosetta_parse_hcmask_line
+except ImportError as _rosetta_mask_import_error:
+    ROSETTA_MASK_IMPORT_ERROR = _rosetta_mask_import_error
+    _rosetta_expand_charsets = None
+    _rosetta_parse_hcmask_line = None
 
 COVERAGE_DIRNAME = "coverage"
 DB_FILENAME = "attack_coverage.sqlite3"
@@ -520,6 +541,11 @@ def read_entries(path: str) -> list[str]:
     is on ``\\n``/``\\r\\n`` only, unlike ``str.splitlines()``, which also
     breaks on ``\\x0b``, ``\\x0c``, ``\\x1c``-``\\x1e`` and U+2028/2029/0085 --
     every one of which a rule can legitimately append.
+
+    Entries stay verbatim here even for .hcmask files, because the return value
+    is also what gets written back out as a filtered file for hashcat to run.
+    Mask normalization belongs in the key, not the content:
+    :func:`canonical_mask_entry` does it at :func:`entry_key` time.
     """
     try:
         with open(path, "rb") as handle:
@@ -548,6 +574,48 @@ def read_entries(path: str) -> list[str]:
 # --- keys ------------------------------------------------------------------
 
 
+def canonical_mask_entry(entry: str) -> str:
+    """Reduce a mask entry to the candidate set it enumerates.
+
+    Two hcmask lines with different text can try exactly the same candidates,
+    and keying on raw text records the second one as uncovered. Only the custom
+    charset fields cause this, in three ways HashcatRosetta's expansion
+    resolves: a charset can be spelled as a token (``?d`` and ``0123456789``
+    expand identically), hashcat deduplicates it (``aa`` is the charset ``a``),
+    and its character order changes only the enumeration order, not the set.
+
+    Whitespace is *not* normalized, deliberately. A mask is
+    whitespace-significant in the same way a rule is -- a trailing space in
+    ``?d?d `` is a literal space position, and a mask with one genuinely
+    enumerates different candidates than a mask without it.
+
+    Returns the entry unchanged when it has no custom charsets (so the
+    overwhelmingly common plain-mask key is bit-identical to what earlier
+    versions recorded), when the mask does not parse, or when the Rosetta
+    submodule is unavailable. An unparseable mask is hashcat's problem to
+    report, not this function's -- it must still get a stable key.
+    """
+    if _rosetta_parse_hcmask_line is None or _rosetta_expand_charsets is None:
+        return entry
+    if "," not in entry:
+        # Fast path: no field separator means no custom charsets, so the
+        # canonical form is the raw text. Avoids a parse per mask per key.
+        return entry
+    try:
+        parsed = _rosetta_parse_hcmask_line(entry)
+        if not parsed.custom:
+            return entry
+        expanded = _rosetta_expand_charsets(parsed.custom)
+    except Exception:
+        # Includes MaskError; a bad mask keys on its raw text.
+        return entry
+
+    # Sort within each charset (order is enumeration order only), but keep the
+    # charsets in slot order -- ?1 and ?2 are not interchangeable.
+    normalized = ["".join(sorted(set(charset))) for charset in expanded]
+    return "\x00".join(normalized) + "\x00" + parsed.mask
+
+
 def entry_key(
     target: str,
     kind: str,
@@ -561,6 +629,11 @@ def entry_key(
     tries -- an ``--increment 1-8`` mask run covers different candidates than
     the same mask without it -- so the two are never conflated.
 
+    Mask entries are keyed on their canonical form (see
+    :func:`canonical_mask_entry`) so two spellings of the same charset are not
+    recorded as two separate masks. Rule entries are keyed on raw text: a rule
+    has no equivalent normalization, and its whitespace is significant.
+
     The encode must be *injective*, which ``errors="replace"`` is not: it maps
     every byte ``read_entries`` could not decode to the same U+FFFD, so rules
     differing only in non-UTF-8 bytes -- ``$\\xc3$\\xa1`` and ``$\\xc3$\\xa9``,
@@ -570,6 +643,8 @@ def entry_key(
     raise on a surrogate outside the ``\\udc80``-``\\udcff`` range -- an encode
     error here would take down an attack the store exists only to speed up.
     """
+    if kind == "mask":
+        entry = canonical_mask_entry(entry)
     payload = f"{target}\x00{kind}\x00{wordlist_fp}\x00{variant}\x00{entry}"
     return hashlib.sha256(payload.encode("utf-8", errors="surrogatepass")).hexdigest()
 

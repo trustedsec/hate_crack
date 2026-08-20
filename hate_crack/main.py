@@ -3735,6 +3735,15 @@ def hcatSmartMask(
     for index, template in enumerate(templates, start=1):
         try:
             lines = _build_hcmask_lines(template)
+            # This parse is the validation step, not a redundant sanity check
+            # on our own output. rosetta's format_hcmask_line is a pure string
+            # builder that does not validate at all: it will return a line with
+            # too many charset fields, a bad token or an unescaped literal just
+            # as happily as a good one. Only parse_hcmask_line raises.
+            # _assign_charset_slots now catches the slot-count case up front
+            # (SmartMaskSlotLimit, below), so this guards the rest of the
+            # grammar -- drop it and a malformed .hcmask reaches hashcat and
+            # fails at run time instead of being skipped here.
             parsed_lines = [rosetta_parse_hcmask_line(line) for line in lines]
         except SmartMaskSlotLimit as exc:
             # Named separately from the generic unbuildable case because it is
