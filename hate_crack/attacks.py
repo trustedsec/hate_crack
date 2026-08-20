@@ -263,6 +263,8 @@ def extensive_crack(ctx: Any) -> None:
             run_hybrid_on_expanded=False,
         )
         ctx.hcatRecycle(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatFingerprintCount)
+        ctx.hcatSmartMask(ctx.hcatHashType, ctx.hcatHashFile)
+        ctx.hcatRecycle(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatSmartMaskCount)
         ctx.hcatCombination(ctx.hcatHashType, ctx.hcatHashFile)
         ctx.hcatRecycle(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatCombinationCount)
         ctx.hcatHybrid(ctx.hcatHashType, ctx.hcatHashFile)
@@ -376,6 +378,31 @@ def fingerprint_crack(ctx: Any) -> None:
         dictionary_wordlist=wordlist_raw,
         keyspace_limit=keyspace_limit,
     )
+
+
+def smart_mask_crack(ctx: Any) -> None:
+    _notify.prompt_notify_for_attack("Smart Mask")
+    while True:
+        limit_raw = input(
+            "\nSkip a template if it would exceed this many candidates "
+            "(default 50,000,000,000, 0 for no limit): "
+        ).strip()
+        if limit_raw == "":
+            keyspace_limit = None  # hcatSmartMask applies its own default
+            break
+        try:
+            keyspace_limit = int(limit_raw)
+        except ValueError:
+            print("Please enter a non-negative integer.")
+            continue
+        if keyspace_limit < 0:
+            print("Please enter a non-negative integer.")
+            continue
+        if keyspace_limit == 0:
+            print("[!] No limit: an oversized template could run for a very long time.")
+        break
+
+    ctx.hcatSmartMask(ctx.hcatHashType, ctx.hcatHashFile, keyspace_limit=keyspace_limit)
 
 
 def combinator_crack(ctx: Any) -> None:

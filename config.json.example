@@ -24,6 +24,7 @@
   "pcfgRuleset": "Default",
   "pcfgMaxCandidates": 50000000,
   "pcfgPrinceLingMaxCandidates": 10000000,
+  "hcatSmartMaskMinClusterSize": 3,
   "check_for_updates": true,
   "optimizedKernelAttacks": [
     "hcatDictionary", "hcatQuickDictionary", "hcatBandrel", "hcatGoodMeasure",
@@ -32,7 +33,7 @@
     "hcatMarkovBruteForce", "hcatFingerprint",
     "hcatCombination", "hcatCombinator3", "hcatCombinatorX", "hcatHybrid",
     "hcatYoloCombination", "hcatMiddleCombinator", "hcatThoroughCombinator",
-    "hcatCombipow", "hcatPrince", "hcatPermute", "hcatPCFG"
+    "hcatCombipow", "hcatPrince", "hcatPermute", "hcatPCFG", "hcatSmartMask"
   ],
   "notify_enabled": false,
   "notify_per_crack_enabled": false,

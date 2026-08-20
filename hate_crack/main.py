@@ -99,12 +99,16 @@ try:
     from hashcat_rosetta.debug_analyzer import DebugAnalyzer
     from hashcat_rosetta.formatting import display_rule_opcodes_summary
     from hashcat_rosetta.mask import MaskError as RosettaMaskError
+    from hashcat_rosetta.mask import format_hcmask_line as rosetta_format_hcmask_line
+    from hashcat_rosetta.mask import keyspace as rosetta_keyspace
     from hashcat_rosetta.mask import parse_hcmask_line as rosetta_parse_hcmask_line
 except ImportError as rosetta_import_error:
     ROSETTA_IMPORT_ERROR = rosetta_import_error
     display_rule_opcodes_summary = None
     DebugAnalyzer = None
     RosettaMaskError = None
+    rosetta_format_hcmask_line = None
+    rosetta_keyspace = None
     rosetta_parse_hcmask_line = None
 
 
@@ -211,34 +215,11 @@ def list_rule_files(directory):
     return [entry.name for entry in _visible_entries(directory) if not entry.is_dir]
 
 
-DEFAULT_OPTIMIZED_ATTACKS = frozenset(
-    {
-        "hcatDictionary",
-        "hcatQuickDictionary",
-        "hcatBandrel",
-        "hcatGoodMeasure",
-        "hcatRecycle",
-        "hcatBruteForce",
-        "hcatTopMask",
-        "hcatRosettaMask",
-        "hcatPathwellBruteForce",
-        "hcatCorporateMasks",
-        "hcatAdHocMask",
-        "hcatMarkovBruteForce",
-        "hcatFingerprint",
-        "hcatCombination",
-        "hcatCombinator3",
-        "hcatCombinatorX",
-        "hcatHybrid",
-        "hcatYoloCombination",
-        "hcatMiddleCombinator",
-        "hcatThoroughCombinator",
-        "hcatCombipow",
-        "hcatPrince",
-        "hcatPermute",
-        "hcatPCFG",
-    }
-)
+# Single source of truth is _config_schema.DEFAULT_OPTIMIZED_ATTACKS -- this
+# used to be a hand-synced literal copy of that list, which is exactly the
+# kind of drift that let hcatRosettaMask ship without -O for eleven days
+# (#270) before anyone noticed.
+DEFAULT_OPTIMIZED_ATTACKS = frozenset(_config_schema.DEFAULT_OPTIMIZED_ATTACKS)
 
 # Every attack that consults the setting, whether or not it is optimized by
 # default. The four names below honour optimizedKernelAttacks but are absent
@@ -1108,6 +1089,7 @@ pcfgMaxCandidates = int(config_parser.get("pcfgMaxCandidates", 50000000))
 pcfgPrinceLingMaxCandidates = int(
     config_parser.get("pcfgPrinceLingMaxCandidates", 10000000)
 )
+hcatSmartMaskMinClusterSize = int(config_parser.get("hcatSmartMaskMinClusterSize", 3))
 
 try:
     _cfg_optimized = config_parser["optimizedKernelAttacks"]
@@ -1410,6 +1392,7 @@ hcatBruteCount = 0
 hcatDictionaryCount = 0
 hcatMaskCount = 0
 hcatFingerprintCount = 0
+hcatSmartMaskCount = 0
 hcatCombinationCount = 0
 hcatCombinator3Count = 0
 hcatCombinatorXCount = 0
@@ -2937,6 +2920,325 @@ def hcatFingerprint(
             "(no cracked passwords yet)."
         )
     hcatFingerprintCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
+
+
+# Smart Mask Attack
+def _tokenize_runs(plaintext: str) -> list[tuple[str, str]]:
+    """Split *plaintext* into maximal same-class runs: "L" (isalpha),
+    "D" (isdigit), "S" (everything else -- symbols, whitespace, non-ASCII
+    punctuation). Case is not distinguished within an "L" run.
+
+    E.g. "ChangeMe2day1624$!" -> [("L","ChangeMe"), ("D","2"), ("L","day"),
+    ("D","1624"), ("S","$!")].
+    """
+    runs: list[tuple[str, str]] = []
+    current_type: str | None = None
+    current_chars: list[str] = []
+    for char in plaintext:
+        if char.isalpha():
+            run_type = "L"
+        elif char.isdigit():
+            run_type = "D"
+        else:
+            run_type = "S"
+        if run_type == current_type:
+            current_chars.append(char)
+        else:
+            if current_type is not None:
+                runs.append((current_type, "".join(current_chars)))
+            current_type = run_type
+            current_chars = [char]
+    if current_type is not None:
+        runs.append((current_type, "".join(current_chars)))
+    return runs
+
+
+def _shape_signature(runs: list[tuple[str, str]]) -> tuple[str, ...]:
+    """The run-type sequence alone, e.g. ("L", "D", "L", "D", "S")."""
+    return tuple(run_type for run_type, _content in runs)
+
+
+def _seed_key(runs: list[tuple[str, str]]) -> tuple[str, ...]:
+    """The content of every "L" run, in order -- a cheap first
+    approximation of "same generator template", since generator stems are
+    almost always alphabetic."""
+    return tuple(content for run_type, content in runs if run_type == "L")
+
+
+# Pure-function default for _cluster_smart_mask_templates when called
+# directly (e.g. from tests) without an explicit min_cluster_size.
+# hcatSmartMask itself uses the config-configurable hcatSmartMaskMinClusterSize
+# global instead, which defaults to this same value.
+_SMART_MASK_MIN_CLUSTER_SIZE = 3
+_SMART_MASK_CHARSET_COVERAGE_THRESHOLD = 0.5
+
+# Known generator alphabets, smallest first. Checked in this order so an
+# all-lowercase sample matches "lowercase" rather than the larger
+# "mixed_letters" superset it's also technically a subset of.
+_SMART_MASK_KNOWN_ALPHABETS = (
+    "0123456789",
+    "!@#$%^&*()",
+    "abcdefghijklmnopqrstuvwxyz",
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
+)
+
+
+def _infer_charset(observed_chars: set[str]) -> str:
+    """Expand observed_chars to a known alphabet when they look like a
+    partial sample of it, otherwise use exactly what was observed.
+
+    "Look like a partial sample" means observed_chars is a subset of a
+    known alphabet and covers at least
+    _SMART_MASK_CHARSET_COVERAGE_THRESHOLD of it -- e.g. 9 of the 10 US
+    shift-row symbols already observed infers the tenth too.
+    """
+    for alphabet in _SMART_MASK_KNOWN_ALPHABETS:
+        alphabet_set = set(alphabet)
+        if observed_chars <= alphabet_set:
+            coverage = len(observed_chars) / len(alphabet_set)
+            if coverage >= _SMART_MASK_CHARSET_COVERAGE_THRESHOLD:
+                return alphabet
+    return "".join(sorted(observed_chars))
+
+
+@dataclasses.dataclass(frozen=True)
+class _SmartMaskTemplate:
+    """One detected literal-skeleton pattern, ready to become .hcmask lines.
+
+    ``fixed_runs`` holds every constant (position, run_type, content)
+    triple; ``variable_positions`` names the remaining positions, in
+    order, each paired by index with an entry in ``variable_charsets``.
+    ``length_combinations`` is the set of observed per-member length
+    tuples for the variable positions (one hcmask line per entry).
+    """
+
+    fixed_runs: tuple[tuple[int, str, str], ...]
+    variable_positions: tuple[int, ...]
+    variable_charsets: tuple[str, ...]
+    length_combinations: tuple[tuple[int, ...], ...]
+    member_count: int
+    total_positions: int
+
+
+def _build_template(
+    group: list[list[tuple[str, str]]],
+) -> "_SmartMaskTemplate | None":
+    """Given a same-shape, same-seed-key group of run lists, determine
+    which run positions are constant vs. variable across every member.
+
+    Returns None if every position is constant (exact password reuse --
+    nothing left for a mask attack to vary).
+    """
+    total_positions = len(group[0])
+    fixed_runs: list[tuple[int, str, str]] = []
+    variable_positions: list[int] = []
+    for position in range(total_positions):
+        run_type = group[0][position][0]
+        contents_at_position = {runs[position][1] for runs in group}
+        if len(contents_at_position) == 1:
+            fixed_runs.append((position, run_type, group[0][position][1]))
+        else:
+            variable_positions.append(position)
+
+    if not variable_positions:
+        return None
+
+    variable_charsets = []
+    for position in variable_positions:
+        observed_chars: set[str] = set()
+        for runs in group:
+            observed_chars.update(runs[position][1])
+        variable_charsets.append(_infer_charset(observed_chars))
+
+    length_combinations = sorted(
+        {
+            tuple(len(runs[position][1]) for position in variable_positions)
+            for runs in group
+        }
+    )
+
+    return _SmartMaskTemplate(
+        fixed_runs=tuple(fixed_runs),
+        variable_positions=tuple(variable_positions),
+        variable_charsets=tuple(variable_charsets),
+        length_combinations=tuple(length_combinations),
+        member_count=len(group),
+        total_positions=total_positions,
+    )
+
+
+def _cluster_smart_mask_templates(
+    plaintexts: list[str], min_cluster_size: int = _SMART_MASK_MIN_CLUSTER_SIZE
+) -> tuple[list["_SmartMaskTemplate"], int]:
+    """Group plaintexts into literal-skeleton templates.
+
+    Returns (templates, skipped_no_stem_count). A shape bucket whose seed
+    key is empty (no alphabetic run at all -- an all-digit/symbol stem)
+    is skipped rather than risking a bogus merge of unrelated generators;
+    skipped_no_stem_count reports how many plaintexts that affected so
+    the caller can log it instead of silently dropping them.
+    """
+    shape_buckets: dict[tuple[str, ...], list[list[tuple[str, str]]]] = {}
+    for plaintext in plaintexts:
+        runs = _tokenize_runs(plaintext)
+        if not runs:
+            continue
+        shape_buckets.setdefault(_shape_signature(runs), []).append(runs)
+
+    templates: list[_SmartMaskTemplate] = []
+    skipped_no_stem = 0
+    for members in shape_buckets.values():
+        seed_groups: dict[tuple[str, ...], list[list[tuple[str, str]]]] = {}
+        for runs in members:
+            seed_groups.setdefault(_seed_key(runs), []).append(runs)
+        for seed, group in seed_groups.items():
+            if not seed:
+                skipped_no_stem += len(group)
+                continue
+            if len(group) < min_cluster_size:
+                continue
+            template = _build_template(group)
+            if template is not None:
+                templates.append(template)
+    return templates, skipped_no_stem
+
+
+def _escape_mask_literal(text: str) -> str:
+    """Escape literal '?' characters for use inside a hashcat mask string.
+
+    hashcat's mask grammar reserves '?' as a token marker; a literal '?'
+    in fixed skeleton text must be doubled ('??') so hashcat treats it as
+    a literal character rather than a dangling/unknown token.
+    """
+    return text.replace("?", "??")
+
+
+def _build_hcmask_lines(template: "_SmartMaskTemplate") -> list[str]:
+    """Build one .hcmask line per observed variable-run length
+    combination: literal text for fixed positions (escaped), repeated
+    ``?N`` tokens for variable positions.
+    """
+    # Callers only reach this function after confirming Rosetta is
+    # available (see hcatSmartMask's guard clause); this assert is purely
+    # so ty narrows the guarded import's `Unknown | None` type here too.
+    assert rosetta_format_hcmask_line is not None
+    fixed_by_position = {
+        position: content for position, _run_type, content in template.fixed_runs
+    }
+    lines = []
+    for lengths in template.length_combinations:
+        mask_parts = []
+        for position in range(template.total_positions):
+            if position in fixed_by_position:
+                mask_parts.append(_escape_mask_literal(fixed_by_position[position]))
+            else:
+                slot_index = template.variable_positions.index(position)
+                slot = slot_index + 1
+                length = lengths[slot_index]
+                mask_parts.append(f"?{slot}" * length)
+        mask = "".join(mask_parts)
+        lines.append(rosetta_format_hcmask_line(list(template.variable_charsets), mask))
+    return lines
+
+
+_SMART_MASK_KEYSPACE_LIMIT = 50_000_000_000
+
+
+def hcatSmartMask(
+    hcatHashType,
+    hcatHashFile,
+    min_cluster_size: int | None = None,
+    keyspace_limit: int | None = None,
+):
+    """Detect literal-skeleton password patterns among already-cracked
+    plaintexts and run a targeted -a3 mask attack per pattern against the
+    full remaining hash list.
+    """
+    global hcatSmartMaskCount
+
+    if (
+        rosetta_parse_hcmask_line is None
+        or rosetta_format_hcmask_line is None
+        or RosettaMaskError is None
+        or rosetta_keyspace is None
+    ):
+        print(f"[!] Smart Mask: {rosetta_unavailable_reason()}")
+        hcatSmartMaskCount = 0
+        return
+
+    if min_cluster_size is None:
+        min_cluster_size = hcatSmartMaskMinClusterSize
+    if keyspace_limit is None:
+        keyspace_limit = _SMART_MASK_KEYSPACE_LIMIT
+
+    _extract_cracked_plaintexts(f"{hcatHashFile}.out", f"{hcatHashFile}.working")
+    with open(f"{hcatHashFile}.working", errors="replace") as f:
+        plaintexts = [line.rstrip("\n") for line in f if line.strip()]
+
+    templates, skipped_no_stem = _cluster_smart_mask_templates(
+        plaintexts, min_cluster_size
+    )
+    if skipped_no_stem:
+        print(
+            f"[!] Smart Mask: skipping {skipped_no_stem} plaintext(s) with no "
+            "alphabetic stem (all-digit/symbol passwords) -- unsupported in "
+            "this version."
+        )
+    if not templates:
+        print("[*] Smart Mask: no qualifying clusters found.")
+        hcatSmartMaskCount = 0
+        return
+
+    try:
+        for index, template in enumerate(templates, start=1):
+            try:
+                lines = _build_hcmask_lines(template)
+                parsed_lines = [rosetta_parse_hcmask_line(line) for line in lines]
+            except RosettaMaskError as exc:
+                print(f"[!] Smart Mask: skipping an unbuildable template ({exc}).")
+                continue
+
+            candidate_total = sum(rosetta_keyspace(p) for p in parsed_lines)
+            label = (
+                f"Smart Mask (template {index}/{len(templates)}, "
+                f"{template.member_count} accounts)"
+            )
+            if keyspace_limit and candidate_total > keyspace_limit:
+                print(
+                    f"[!] {label}: {candidate_total:,} candidates exceeds the "
+                    f"{keyspace_limit:,}-candidate guardrail. Skipping."
+                )
+                continue
+
+            hcmask_path = f"{hcatHashFile}.smartmask{index}.hcmask"
+            with open(hcmask_path, "w", encoding="utf-8") as f:
+                f.writelines(f"{line}\n" for line in lines)
+
+            cmd = [
+                hcatBin,
+                "-m",
+                hcatHashType,
+                hcatHashFile,
+                "--session",
+                generate_session_id(),
+                "-o",
+                f"{hcatHashFile}.out",
+                "-a",
+                "3",
+                hcmask_path,
+            ]
+            if _should_use_optimized_kernel("hcatSmartMask"):
+                _insert_optimized_flag(cmd)
+            cmd.extend(shlex.split(hcatTuning))
+            _append_potfile_arg(cmd)
+            _run_hcat_cmd(
+                cmd, attack_name=label, hash_file=hcatHashFile, reraise_interrupt=True
+            )
+    except KeyboardInterrupt:
+        pass
+
+    hcatSmartMaskCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
 
 # Combinator Attack
@@ -6519,6 +6821,10 @@ def fingerprint_crack():
     return _attacks.fingerprint_crack(_attack_ctx())
 
 
+def smart_mask_crack():
+    return _attacks.smart_mask_crack(_attack_ctx())
+
+
 def combinator_crack():
     return _attacks.combinator_crack(_attack_ctx())
 
@@ -7152,6 +7458,7 @@ def get_main_menu_items():
         ("22", "Spoonman Attack"),
         ("23", "Rosetta Attack"),
         ("24", "Corporate Masks Brute Force"),
+        ("25", "Smart Mask Attack"),
         ("80", "Wordlist Tools"),
         ("81", "Rule File Tools"),
         ("82", "Notifications"),
@@ -7198,6 +7505,7 @@ def get_main_menu_options():
         "22": spoonman_attack,
         "23": rosetta_attack,
         "24": corporate_masks_crack,
+        "25": smart_mask_crack,
         "80": wordlist_tools_submenu,
         "81": rule_tools_submenu,
         "82": notifications_submenu,

@@ -97,6 +97,43 @@ class ConfigKey:
     home: Home = "json"
 
 
+# Single source of truth for which attacks use hashcat's -O (optimized
+# kernels) by default. hate_crack/main.py's DEFAULT_OPTIMIZED_ATTACKS
+# derives from this list rather than repeating it -- the two used to be
+# hand-synced copies, which is exactly the kind of drift that let
+# hcatRosettaMask ship without -O for eleven days (#270) before anyone
+# noticed. config.json.example still carries its own copy (JSON can't
+# import Python), guarded by test_config_json_example.py's
+# test_optimized_kernel_attacks_matches_code_default.
+DEFAULT_OPTIMIZED_ATTACKS = [
+    "hcatDictionary",
+    "hcatQuickDictionary",
+    "hcatBandrel",
+    "hcatGoodMeasure",
+    "hcatRecycle",
+    "hcatBruteForce",
+    "hcatTopMask",
+    "hcatRosettaMask",
+    "hcatPathwellBruteForce",
+    "hcatCorporateMasks",
+    "hcatAdHocMask",
+    "hcatMarkovBruteForce",
+    "hcatFingerprint",
+    "hcatCombination",
+    "hcatCombinator3",
+    "hcatCombinatorX",
+    "hcatHybrid",
+    "hcatYoloCombination",
+    "hcatMiddleCombinator",
+    "hcatThoroughCombinator",
+    "hcatCombipow",
+    "hcatPrince",
+    "hcatPermute",
+    "hcatPCFG",
+    "hcatSmartMask",
+]
+
+
 # ---------------------------------------------------------------------------
 # The schema table. Written literally -- do NOT regenerate this from
 # config.json.example at import time. This table is the schema of record and
@@ -291,37 +328,15 @@ CONFIG_SCHEMA: tuple[ConfigKey, ...] = (
         "int",
         10000000,
     ),
+    ConfigKey(
+        "HCAT_SMART_MASK_MIN_CLUSTER_SIZE", "hcatSmartMaskMinClusterSize", "int", 3
+    ),
     ConfigKey("CHECK_FOR_UPDATES", "check_for_updates", "bool", True),
     ConfigKey(
         "OPTIMIZED_KERNEL_ATTACKS",
         "optimizedKernelAttacks",
         "csv_list",
-        [
-            "hcatDictionary",
-            "hcatQuickDictionary",
-            "hcatBandrel",
-            "hcatGoodMeasure",
-            "hcatRecycle",
-            "hcatBruteForce",
-            "hcatTopMask",
-            "hcatRosettaMask",
-            "hcatPathwellBruteForce",
-            "hcatCorporateMasks",
-            "hcatAdHocMask",
-            "hcatMarkovBruteForce",
-            "hcatFingerprint",
-            "hcatCombination",
-            "hcatCombinator3",
-            "hcatCombinatorX",
-            "hcatHybrid",
-            "hcatYoloCombination",
-            "hcatMiddleCombinator",
-            "hcatThoroughCombinator",
-            "hcatCombipow",
-            "hcatPrince",
-            "hcatPermute",
-            "hcatPCFG",
-        ],
+        DEFAULT_OPTIMIZED_ATTACKS,
     ),
     ConfigKey("NOTIFY_ENABLED", "notify_enabled", "bool", False),
     # Pushover credentials are third-party service secrets: home="env". The

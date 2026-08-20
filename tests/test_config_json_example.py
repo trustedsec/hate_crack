@@ -47,6 +47,7 @@ EXPECTED_KEYS = {
     "pcfgRuleset",
     "pcfgMaxCandidates",
     "pcfgPrinceLingMaxCandidates",
+    "hcatSmartMaskMinClusterSize",
     "check_for_updates",
     "optimizedKernelAttacks",
     "notify_enabled",
