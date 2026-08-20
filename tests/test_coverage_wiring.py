@@ -261,3 +261,87 @@ def test_dynamic_generators_do_not_pass_a_spec(main_module):
             continue
         body = source.split(f"def {func}(", 1)[1].split("\ndef ", 1)[0]
         assert "coverage=" not in body, f"{func} must not be coverage-filtered"
+
+
+# --- argument rewriting must not hit look-alike paths ----------------------
+
+
+def test_dropping_a_wordlist_leaves_a_matching_output_path_alone(main_module):
+    """A covered wordlist can share its name with an -o value."""
+    cmd = ["hashcat", "h.txt", "-o", "wl.txt", "wl.txt", "keep.txt"]
+    out = main_module._drop_wordlist_args(cmd, {"wl.txt"}, "h.txt")
+    assert out == ["hashcat", "h.txt", "-o", "wl.txt", "keep.txt"], (
+        "only the bare positional wordlist should be dropped"
+    )
+
+
+def test_a_wordlist_that_is_also_the_hash_file_is_never_dropped(main_module):
+    """Positionally indistinguishable, so the safe answer is to keep it: a
+    wrongly dropped wordlist skips untried candidates, a kept one wastes time."""
+    cmd = ["hashcat", "same.txt", "same.txt"]
+    assert main_module._drop_wordlist_args(cmd, {"same.txt"}, "same.txt") == cmd
+
+
+def test_dropping_a_wordlist_never_removes_a_flag_value(main_module):
+    cmd = ["hashcat", "--session", "wl.txt", "wl.txt"]
+    assert main_module._drop_wordlist_args(cmd, {"wl.txt"}, "h.txt") == [
+        "hashcat",
+        "--session",
+        "wl.txt",
+    ]
+
+
+def test_rule_replacement_is_scoped_to_the_r_flag(main_module):
+    cmd = ["hashcat", "r.rule", "-o", "r.rule", "-r", "r.rule"]
+    out = main_module._replace_rule_arg(cmd, "r.rule", "/tmp/new.rule", "rule")
+    assert out == ["hashcat", "r.rule", "-o", "r.rule", "-r", "/tmp/new.rule"]
+
+
+def test_mask_replacement_skips_flag_values(main_module):
+    cmd = ["hashcat", "-o", "m.hcmask", "m.hcmask"]
+    out = main_module._replace_rule_arg(cmd, "m.hcmask", "/tmp/new.hcmask", "mask")
+    assert out == ["hashcat", "-o", "m.hcmask", "/tmp/new.hcmask"]
+
+
+# --- the prompt ------------------------------------------------------------
+
+
+def test_prompt_pluralises_both_counts_independently(main_module, capsys):
+    """The covered count and the remaining count pluralise separately -- one
+    was previously driven by the other, producing "the 1 new rules"."""
+    prompts = []
+    plan = ac.RunPlan(kind="rule", covered_count=3, total_count=4, target="t")
+    with (
+        patch.object(main_module, "non_interactive", False),
+        patch("builtins.input", lambda prompt="": prompts.append(prompt) or "y"),
+    ):
+        main_module._prompt_coverage_filter(plan, "Dictionary")
+    assert "3 of 4 rules" in capsys.readouterr().out
+    assert "only the 1 rule?" in prompts[0], prompts[0]
+
+
+def test_prompt_pluralises_a_single_covered_entry(main_module, capsys):
+    prompts = []
+    plan = ac.RunPlan(kind="mask", covered_count=1, total_count=3, target="t")
+    with (
+        patch.object(main_module, "non_interactive", False),
+        patch("builtins.input", lambda prompt="": prompts.append(prompt) or "y"),
+    ):
+        main_module._prompt_coverage_filter(plan, "Top Mask")
+    assert "1 of 3 mask " in capsys.readouterr().out
+    assert "only the 2 masks?" in prompts[0], prompts[0]
+
+
+def test_closed_stdin_takes_the_default_instead_of_crashing(main_module, capsys):
+    """A piped or cron-driven run that never set non_interactive."""
+
+    def eof(*args, **kwargs):
+        raise EOFError
+
+    plan = ac.RunPlan(kind="rule", covered_count=1, total_count=2, target="t")
+    with (
+        patch.object(main_module, "non_interactive", False),
+        patch("builtins.input", eof),
+    ):
+        assert main_module._prompt_coverage_filter(plan, "Dictionary") is True
+    assert "No input available" in capsys.readouterr().out

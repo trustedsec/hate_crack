@@ -1489,6 +1489,55 @@ def _write_filtered_entries(entries, suffix):
         return handle.name
 
 
+def _plural(noun: str, count: int) -> str:
+    return noun if count == 1 else noun + "s"
+
+
+def _drop_wordlist_args(cmd, dropped: set, hash_file: str):
+    """Remove covered wordlists from a command's positional arguments.
+
+    Matching on the bare string is not enough: a wordlist path can legitimately
+    coincide with the hash file or with the value of a flag such as ``-o``, and
+    dropping it there would silently change where hashcat writes its output or
+    which hashes it attacks. Only bare positional occurrences are removed --
+    never the hash file, and never a token that follows a flag.
+    """
+    result = []
+    previous_was_flag = False
+    for arg in cmd:
+        text = str(arg)
+        if text in dropped and not previous_was_flag and text != hash_file:
+            previous_was_flag = False
+            continue
+        result.append(arg)
+        previous_was_flag = text.startswith("-")
+    return result
+
+
+def _replace_rule_arg(cmd, source_path: str, replacement: str, kind: str):
+    """Swap a rule or mask file for its filtered rewrite.
+
+    Scoped to the argument the relevant flag actually points at, for the same
+    reason as ``_drop_wordlist_args``: replacing every token equal to
+    ``source_path`` would also rewrite an identically-named hash file or output
+    path. A mask file is positional, so it is matched as a bare argument.
+    """
+    result = list(cmd)
+    if kind == "mask":
+        for index, arg in enumerate(result):
+            if str(arg) == source_path and (
+                index == 0 or not str(result[index - 1]).startswith("-")
+            ):
+                result[index] = replacement
+                return result
+        return result
+    for index in range(1, len(result)):
+        if str(result[index - 1]) == "-r" and str(result[index]) == source_path:
+            result[index] = replacement
+            return result
+    return result
+
+
 def _prompt_coverage_filter(plan, attack_name: str) -> bool:
     """Ask whether to skip the already-covered entries. Default is yes.
 
@@ -1498,11 +1547,11 @@ def _prompt_coverage_filter(plan, attack_name: str) -> bool:
     noun = {"rule": "rule", "mask": "mask", "wordlist": "wordlist"}.get(
         plan.kind, "entry"
     )
-    plural = "" if plan.covered_count == 1 else "s"
+    remaining = plan.total_count - plan.covered_count
     print(
-        f"\n[*] Coverage: {plan.covered_count} of {plan.total_count} {noun}{plural} "
-        f"in this {attack_name or 'attack'} have already been run against this "
-        "hash file."
+        f"\n[*] Coverage: {plan.covered_count} of {plan.total_count} "
+        f"{_plural(noun, plan.covered_count)} in this "
+        f"{attack_name or 'attack'} have already been run against this hash file."
     )
     if plan.skip:
         return True
@@ -1510,10 +1559,17 @@ def _prompt_coverage_filter(plan, attack_name: str) -> bool:
         # A scripted run has nobody to ask; the config/CLI default already
         # decided that filtering is wanted by getting this far.
         return True
-    answer = input(
-        f"[?] Skip them and run only the {plan.total_count - plan.covered_count} "
-        f"new {noun}{plural}? [Y/n]: "
-    ).strip()
+    try:
+        answer = input(
+            f"[?] Skip them and run only the {remaining} "
+            f"{_plural(noun, remaining)}? [Y/n]: "
+        ).strip()
+    except EOFError:
+        # stdin is closed -- a piped or cron-driven run that never set
+        # non_interactive. Take the documented default rather than letting an
+        # unanswerable prompt kill the attack.
+        print("[*] No input available; taking the default and filtering.")
+        return True
     return answer.lower() not in ("n", "no")
 
 
@@ -1554,15 +1610,14 @@ def _apply_coverage(cmd, spec, attack_name: str):
     temp_paths: list[str] = []
 
     if plan.kind == "wordlist":
-        # Drop the already-covered wordlists from the positional arguments.
         keep = set(plan.filtered_entries)
-        dropped = [arg for arg in spec.wordlists if arg not in keep]
-        cmd = [arg for arg in cmd if arg not in set(dropped)]
+        dropped = {arg for arg in spec.wordlists if arg not in keep}
+        cmd = _drop_wordlist_args(cmd, dropped, spec.hash_file)
     elif plan.source_path is not None:
         suffix = ".hcmask" if plan.kind == "mask" else ".rule"
         replacement = _write_filtered_entries(plan.filtered_entries, suffix)
         temp_paths.append(replacement)
-        cmd = [replacement if arg == plan.source_path else arg for arg in cmd]
+        cmd = _replace_rule_arg(cmd, plan.source_path, replacement, plan.kind)
 
     print(
         f"[*] Coverage: running {len(plan.filtered_entries)} new "
