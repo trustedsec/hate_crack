@@ -279,13 +279,31 @@ def _install_smart_mask_test_env(monkeypatch, hc_main, hashfile):
 
 class _NoopPopen:
     """Popen stand-in for hashcat invocations: records the command, never
-    actually runs anything."""
+    actually runs anything.
 
-    def __init__(self, seen):
+    ``hcmask_snapshots``, when given a list, gets the raw bytes of any
+    ``.hcmask`` file argument at invocation time -- hcatSmartMask deletes
+    that file once its attack finishes, so a test asserting on its content
+    must capture it here rather than reading the path after the call.
+    """
+
+    def __init__(self, seen, hcmask_snapshots=None):
         self.seen = seen
+        self.hcmask_snapshots = hcmask_snapshots
 
     def __call__(self, args, **_kwargs):
+        import os
+
         self.seen.append(list(args))
+        if self.hcmask_snapshots is not None:
+            for arg in args:
+                if (
+                    isinstance(arg, str)
+                    and arg.endswith(".hcmask")
+                    and os.path.isfile(arg)
+                ):
+                    with open(arg, "rb") as f:
+                        self.hcmask_snapshots.append(f.read())
         return self._Proc()
 
     class _Proc:
@@ -298,7 +316,9 @@ class _NoopPopen:
             return None
 
 
-def test_hcatSmartMask_runs_one_attack_per_qualifying_template(monkeypatch, tmp_path):
+def test_hcatSmartMask_runs_a_single_attack_for_one_qualifying_template(
+    monkeypatch, tmp_path
+):
     import hate_crack.main as hc_main
 
     importlib.reload(hc_main)
@@ -311,16 +331,131 @@ def test_hcatSmartMask_runs_one_attack_per_qualifying_template(monkeypatch, tmp_
     monkeypatch.setattr(hc_main, "lineCount", lambda _p: 4)
 
     popen_calls = []
-    monkeypatch.setattr(hc_main.subprocess, "Popen", _NoopPopen(popen_calls))
+    hcmask_snapshots = []
+    monkeypatch.setattr(
+        hc_main.subprocess, "Popen", _NoopPopen(popen_calls, hcmask_snapshots)
+    )
 
     hc_main.hcatSmartMask("1000", str(hashfile))
 
     assert len(popen_calls) == 1
     cmd = popen_calls[0]
     assert cmd[cmd.index("-a") + 1] == "3"
-    hcmask_path = tmp_path / "hashes.txt.smartmask1.hcmask"
-    assert hcmask_path.read_text().strip() == "0123456789,CrawlingHorse?1?1?1"
+    assert hcmask_snapshots == [b"0123456789,CrawlingHorse?1?1?1\n"]
     assert hc_main.hcatSmartMaskCount == 4  # lineCount(...) - hcatHashCracked(0)
+
+
+def test_hcatSmartMask_combines_multiple_templates_into_one_hcmask_file(
+    monkeypatch, tmp_path
+):
+    """Two unrelated clusters (different literal stems) must produce exactly
+    one hashcat invocation over one .hcmask file containing both mask
+    lines, not one invocation per template."""
+    import hate_crack.main as hc_main
+
+    importlib.reload(hc_main)
+
+    hashfile = tmp_path / "hashes.txt"
+    (tmp_path / "hashes.txt.out").write_text(
+        "a:CrawlingHorse432\nb:CrawlingHorse559\nc:CrawlingHorse134\n"
+        "d:ChangeMe24\ne:ChangeMe37\nf:ChangeMe81\n"
+    )
+    _install_smart_mask_test_env(monkeypatch, hc_main, hashfile)
+    monkeypatch.setattr(hc_main, "lineCount", lambda _p: 6)
+
+    popen_calls = []
+    hcmask_snapshots = []
+    monkeypatch.setattr(
+        hc_main.subprocess, "Popen", _NoopPopen(popen_calls, hcmask_snapshots)
+    )
+
+    hc_main.hcatSmartMask("1000", str(hashfile))
+
+    assert len(popen_calls) == 1
+    assert len(hcmask_snapshots) == 1
+    lines = hcmask_snapshots[0].decode("latin-1").splitlines()
+    assert lines == [
+        "0123456789,CrawlingHorse?1?1?1",
+        "0123456789,ChangeMe?1?1",
+    ]
+
+
+def test_hcatSmartMask_removes_the_hcmask_file_after_the_attack(monkeypatch, tmp_path):
+    import os
+
+    import hate_crack.main as hc_main
+
+    importlib.reload(hc_main)
+
+    hashfile = tmp_path / "hashes.txt"
+    (tmp_path / "hashes.txt.out").write_text(
+        "a:CrawlingHorse432\nb:CrawlingHorse559\nc:CrawlingHorse134\n"
+    )
+    _install_smart_mask_test_env(monkeypatch, hc_main, hashfile)
+    monkeypatch.setattr(hc_main, "lineCount", lambda _p: 3)
+
+    popen_calls = []
+    monkeypatch.setattr(hc_main.subprocess, "Popen", _NoopPopen(popen_calls))
+
+    hc_main.hcatSmartMask("1000", str(hashfile))
+
+    assert len(popen_calls) == 1  # the attack did run
+    assert not os.path.exists(tmp_path / "hashes.txt.smartmask.hcmask")
+
+
+def test_smartmask_hcmask_file_removed_by_cleanup(tmp_path, monkeypatch):
+    """Mirrors test_main_spoonman.test_cleanup_removes_derived_output: a
+    belt-and-braces backstop for the case where hcatSmartMask's own cleanup
+    never ran (e.g. the process was killed mid-attack)."""
+    import os
+
+    import hate_crack.main as hc_main
+
+    hash_file = str(tmp_path / "hashes.txt")
+    hcmask_path = hash_file + ".smartmask.hcmask"
+    with open(hcmask_path, "w") as f:
+        f.write("0123456789,CrawlingHorse?1?1?1\n")
+
+    monkeypatch.setattr(hc_main, "hcatHashFile", hash_file)
+    monkeypatch.setattr(hc_main, "hcatHashFileOrig", hash_file)
+    monkeypatch.setattr(hc_main, "hcatHashType", "1000")
+    monkeypatch.setattr(hc_main, "pwdump_format", False)
+    hc_main.cleanup()
+
+    assert not os.path.exists(hcmask_path)
+
+
+def test_hcatSmartMask_keyspace_guard_only_excludes_the_oversized_template(
+    monkeypatch, tmp_path, capsys
+):
+    """One oversized template among several must be dropped from the
+    combined .hcmask file, while the rest still run in a single attack."""
+    import hate_crack.main as hc_main
+
+    importlib.reload(hc_main)
+
+    hashfile = tmp_path / "hashes.txt"
+    (tmp_path / "hashes.txt.out").write_text(
+        "a:CrawlingHorse432\nb:CrawlingHorse559\nc:CrawlingHorse134\n"
+        "d:ChangeMe24\ne:ChangeMe37\nf:ChangeMe81\n"
+    )
+    _install_smart_mask_test_env(monkeypatch, hc_main, hashfile)
+    monkeypatch.setattr(hc_main, "lineCount", lambda _p: 6)
+
+    popen_calls = []
+    hcmask_snapshots = []
+    monkeypatch.setattr(
+        hc_main.subprocess, "Popen", _NoopPopen(popen_calls, hcmask_snapshots)
+    )
+
+    # CrawlingHorse's ?1?1?1 is 10**3 = 1000 candidates; a limit of 500
+    # excludes it while admitting ChangeMe's ?1?1 (10**2 = 100 candidates).
+    hc_main.hcatSmartMask("1000", str(hashfile), keyspace_limit=500)
+
+    assert "exceeds the 500-candidate guardrail" in capsys.readouterr().out
+    assert len(popen_calls) == 1
+    lines = hcmask_snapshots[0].decode("latin-1").splitlines()
+    assert lines == ["0123456789,ChangeMe?1?1"]
 
 
 def test_hcatSmartMask_no_qualifying_cluster_skips_hashcat(
@@ -409,12 +544,14 @@ def test_hcatSmartMask_hcmask_file_preserves_high_bytes_from_hex_wrapper(
     monkeypatch.setattr(hc_main, "lineCount", lambda _p: 3)
 
     popen_calls = []
-    monkeypatch.setattr(hc_main.subprocess, "Popen", _NoopPopen(popen_calls))
+    hcmask_snapshots = []
+    monkeypatch.setattr(
+        hc_main.subprocess, "Popen", _NoopPopen(popen_calls, hcmask_snapshots)
+    )
 
     hc_main.hcatSmartMask("1000", str(hashfile))
 
-    hcmask_path = tmp_path / "hashes.txt.smartmask1.hcmask"
-    raw_bytes = hcmask_path.read_bytes()
+    raw_bytes = hcmask_snapshots[0]
     assert b"S\xf6mmer" in raw_bytes  # the original single byte, not UTF-8's \xc3\xb6
     assert b"\xc3\xb6" not in raw_bytes
 
