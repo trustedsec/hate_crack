@@ -431,3 +431,91 @@ def test_hcatSmartMask_reports_skipped_all_digit_stems(monkeypatch, tmp_path, ca
     assert popen_calls == []
     out = capsys.readouterr().out
     assert "skipping 3 plaintext(s) with no alphabetic stem" in out
+
+
+def test_smart_mask_crack_default_keyspace_limit_passes_none(monkeypatch):
+    import builtins
+    from types import SimpleNamespace
+    from hate_crack import attacks
+
+    seen = {}
+
+    def fake_hcatSmartMask(hash_type, hash_file, **kwargs):
+        seen["hash_type"] = hash_type
+        seen["hash_file"] = hash_file
+        seen["keyspace_limit"] = kwargs.get("keyspace_limit")
+
+    ctx = SimpleNamespace(
+        hcatHashType="1000",
+        hcatHashFile="dummy.hash",
+        hcatSmartMask=fake_hcatSmartMask,
+    )
+
+    monkeypatch.setattr(builtins, "input", lambda _prompt="": "")
+    attacks.smart_mask_crack(ctx)
+
+    assert seen["hash_type"] == "1000"
+    assert seen["hash_file"] == "dummy.hash"
+    assert seen["keyspace_limit"] is None
+
+
+def test_smart_mask_crack_custom_keyspace_limit(monkeypatch):
+    import builtins
+    from types import SimpleNamespace
+    from hate_crack import attacks
+
+    seen = {}
+
+    def fake_hcatSmartMask(hash_type, hash_file, **kwargs):
+        seen["keyspace_limit"] = kwargs.get("keyspace_limit")
+
+    ctx = SimpleNamespace(
+        hcatHashType="1000", hcatHashFile="dummy.hash", hcatSmartMask=fake_hcatSmartMask
+    )
+
+    monkeypatch.setattr(builtins, "input", lambda _prompt="": "12345")
+    attacks.smart_mask_crack(ctx)
+
+    assert seen["keyspace_limit"] == 12345
+
+
+def test_smart_mask_crack_zero_keyspace_limit_warns_no_limit(monkeypatch, capsys):
+    import builtins
+    from types import SimpleNamespace
+    from hate_crack import attacks
+
+    seen = {}
+
+    def fake_hcatSmartMask(hash_type, hash_file, **kwargs):
+        seen["keyspace_limit"] = kwargs.get("keyspace_limit")
+
+    ctx = SimpleNamespace(
+        hcatHashType="1000", hcatHashFile="dummy.hash", hcatSmartMask=fake_hcatSmartMask
+    )
+
+    monkeypatch.setattr(builtins, "input", lambda _prompt="": "0")
+    attacks.smart_mask_crack(ctx)
+
+    assert seen["keyspace_limit"] == 0
+    assert "No limit" in capsys.readouterr().out
+
+
+def test_smart_mask_crack_rejects_negative_then_accepts_blank(monkeypatch):
+    import builtins
+    from types import SimpleNamespace
+    from hate_crack import attacks
+
+    seen = {}
+
+    def fake_hcatSmartMask(hash_type, hash_file, **kwargs):
+        seen["keyspace_limit"] = kwargs.get("keyspace_limit")
+
+    ctx = SimpleNamespace(
+        hcatHashType="1000", hcatHashFile="dummy.hash", hcatSmartMask=fake_hcatSmartMask
+    )
+
+    responses = iter(["-5", ""])
+    monkeypatch.setattr(builtins, "input", lambda _prompt="": next(responses))
+    attacks.smart_mask_crack(ctx)
+
+    assert seen["keyspace_limit"] is None

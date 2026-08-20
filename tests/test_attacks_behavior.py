@@ -130,6 +130,7 @@ class TestExtensiveCrack:
             max_expander_len=21,
             run_hybrid_on_expanded=False,
         )
+        ctx.hcatSmartMask.assert_called_once_with(ctx.hcatHashType, ctx.hcatHashFile)
         ctx.hcatCombination.assert_called_once_with(ctx.hcatHashType, ctx.hcatHashFile)
         ctx.hcatHybrid.assert_called_once_with(ctx.hcatHashType, ctx.hcatHashFile)
         ctx.hcatGoodMeasure.assert_called_once_with(ctx.hcatHashType, ctx.hcatHashFile)
@@ -140,8 +141,9 @@ class TestExtensiveCrack:
         extensive_crack(ctx)
 
         # extensive_crack calls hcatRecycle after: brute, dictionary, mask,
-        # fingerprint, combination, hybrid, and once more at the end (hcatExtraCount)
-        assert ctx.hcatRecycle.call_count == 7
+        # fingerprint, smart mask, combination, hybrid, and once more at the
+        # end (hcatExtraCount)
+        assert ctx.hcatRecycle.call_count == 8
         ctx.hcatRecycle.assert_any_call(
             ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatBruteCount
         )
@@ -153,6 +155,9 @@ class TestExtensiveCrack:
         )
         ctx.hcatRecycle.assert_any_call(
             ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatFingerprintCount
+        )
+        ctx.hcatRecycle.assert_any_call(
+            ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatSmartMaskCount
         )
         ctx.hcatRecycle.assert_any_call(
             ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatCombinationCount
