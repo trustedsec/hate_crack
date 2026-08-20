@@ -207,35 +207,11 @@ def list_rule_files(directory):
     return [entry.name for entry in _visible_entries(directory) if not entry.is_dir]
 
 
-DEFAULT_OPTIMIZED_ATTACKS = frozenset(
-    {
-        "hcatDictionary",
-        "hcatQuickDictionary",
-        "hcatBandrel",
-        "hcatGoodMeasure",
-        "hcatRecycle",
-        "hcatBruteForce",
-        "hcatTopMask",
-        "hcatRosettaMask",
-        "hcatPathwellBruteForce",
-        "hcatCorporateMasks",
-        "hcatAdHocMask",
-        "hcatMarkovBruteForce",
-        "hcatFingerprint",
-        "hcatCombination",
-        "hcatCombinator3",
-        "hcatCombinatorX",
-        "hcatHybrid",
-        "hcatYoloCombination",
-        "hcatMiddleCombinator",
-        "hcatThoroughCombinator",
-        "hcatCombipow",
-        "hcatPrince",
-        "hcatPermute",
-        "hcatPCFG",
-        "hcatSmartMask",
-    }
-)
+# Single source of truth is _config_schema.DEFAULT_OPTIMIZED_ATTACKS -- this
+# used to be a hand-synced literal copy of that list, which is exactly the
+# kind of drift that let hcatRosettaMask ship without -O for eleven days
+# (#270) before anyone noticed.
+DEFAULT_OPTIMIZED_ATTACKS = frozenset(_config_schema.DEFAULT_OPTIMIZED_ATTACKS)
 
 # Every attack that consults the setting, whether or not it is optimized by
 # default. The four names below honour optimizedKernelAttacks but are absent
