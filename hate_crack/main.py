@@ -1674,9 +1674,20 @@ def _apply_coverage(cmd, spec, attack_name: str, decision_cache: dict | None = N
     only once. The first call with overlap prompts and stores its answer in
     the shared dict; every later call sharing that same dict reuses it
     without prompting again, even though each has its own, different plan.
+
+    ``decision_cache["plans"]``, when present (populated by
+    ``_prime_coverage_decision``), supplies this spec's ``RunPlan`` directly
+    instead of recomputing it. Diffing a multi-million-line rule file against
+    the covered set hashes every one of its lines, so recomputing it here
+    after already computing it once while priming the aggregate decision
+    would pay that cost twice for every file in the batch.
     """
     store = _coverage_store()
-    plan = _coverage.plan_run(spec, store.covered, store=store)
+    plan = None
+    if decision_cache is not None:
+        plan = decision_cache.get("plans", {}).get(spec)
+    if plan is None:
+        plan = _coverage.plan_run(spec, store.covered, store=store)
     if plan.is_inert:
         return cmd, None, []
 
@@ -3009,13 +3020,28 @@ def _prime_coverage_decision(
     operator saw, rather than a true picture of the whole selection.
 
     Returns an empty dict when there is nothing to prime -- no coverage
-    store, or nothing in the batch is covered yet -- so the batch behaves
-    exactly as if coverage were untouched.
+    store, nothing in the batch is covered yet, or a record-only (loopback)
+    batch, which never has overlap to report -- so the batch behaves exactly
+    as if coverage were untouched.
+
+    The ``RunPlan`` computed here for each chain is handed back under the
+    ``"plans"`` key so ``_apply_coverage`` can reuse it instead of diffing
+    the same rule file against the covered set a second time once the batch
+    actually starts running (see its docstring). That reuse is why this
+    function always returns those plans, even when there is nothing to
+    prompt about.
     """
-    if not _coverage_enabled or not chains:
+    if not _coverage_enabled or not chains or loopback:
         return {}
 
+    if len(chains) > 1:
+        print(
+            f"[*] Checking coverage across {len(chains)} selected rule "
+            "files before starting..."
+        )
+
     store = _coverage_store()
+    plan_cache: dict = {}
     plans = []
     first_spec = None
     for chain in chains:
@@ -3023,16 +3049,19 @@ def _prime_coverage_decision(
         if first_spec is None:
             first_spec = spec
         plan = _coverage.plan_run(spec, store.covered, store=store)
+        plan_cache[spec] = plan
         if not plan.is_inert:
             plans.append(plan)
 
+    decision: dict = {"plans": plan_cache}
+
     if not plans:
-        return {}
+        return decision
 
     total_count = sum(plan.total_count for plan in plans)
     covered_count = sum(plan.covered_count for plan in plans)
     if covered_count == 0:
-        return {}
+        return decision
 
     aggregate = _coverage.RunPlan(
         kind=plans[0].kind,
@@ -3040,9 +3069,10 @@ def _prime_coverage_decision(
         covered_count=covered_count,
         total_count=total_count,
     )
-    return {
-        "apply_filtering": _prompt_coverage_filter(aggregate, attack_name, first_spec)
-    }
+    decision["apply_filtering"] = _prompt_coverage_filter(
+        aggregate, attack_name, first_spec
+    )
+    return decision
 
 
 def _valid_hcmask(mask: object) -> bool:
