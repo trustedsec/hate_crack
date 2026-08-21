@@ -1096,33 +1096,37 @@ Runs a combinator attack using the "rockyou.txt" wordlist.
 #### Hybrid Attack
 https://hashcat.net/wiki/doku.php?id=hybrid_attack
 
-* Runs several hybrid attacks using the "rockyou.txt" wordlists. Each mask
-  length from 1 to 4 is tried appended and then prepended, cheapest first, and
-  a single ctrl-C abandons the whole attack rather than only the current pass.
+* Runs sixteen hybrid passes per wordlist, cheapest first. Each mask length
+  from 1 to 4 is tried appended and then prepended, first over `?s?d` and then
+  over `?a`, and a single ctrl-C abandons the whole attack rather than only the
+  current pass.
   - Hybrid Wordlist + Mask - ?s?d wordlists/rockyou.txt ?1
-  - Hybrid Wordlist + Mask - ?s?d wordlists/rockyou.txt ?1?1
-  - Hybrid Wordlist + Mask - ?s?d wordlists/rockyou.txt ?1?1?1
-  - Hybrid Wordlist + Mask - ?s?d wordlists/rockyou.txt ?1?1?1?1
   - Hybrid Mask + Wordlist - ?s?d ?1 wordlists/rockyou.txt
-  - Hybrid Mask + Wordlist - ?s?d ?1?1 wordlists/rockyou.txt
-  - Hybrid Mask + Wordlist - ?s?d ?1?1?1 wordlists/rockyou.txt
-  - Hybrid Mask + Wordlist - ?s?d ?1?1?1?1 wordlists/rockyou.txt
+  - ... the same for ?1?1, ?1?1?1 and ?1?1?1?1
+  - Hybrid Wordlist + Mask - wordlists/rockyou.txt ?a
+  - Hybrid Mask + Wordlist - ?a wordlists/rockyou.txt
+  - ... the same for ?a?a, ?a?a?a and ?a?a?a?a
 
-  Those passes then repeat over the full `?a` charset (every printable
-  character, so a superset of `?s?d` plus letters), again lengths 1 to 4 in both
-  directions. That sweep is far larger — over rockyou.txt its longest mask alone
-  is ~1.2e15 candidates — so it runs last, ordered by mask length across every
-  wordlist, under a single time budget shared by all of its passes:
+  `?a` is every printable character, so the second group is a superset of the
+  first plus letters and roughly 24x the work at the longest mask — over
+  rockyou.txt those passes alone are ~1.2e15 candidates, about ten hours for
+  NTLM on hardware doing 32 GH/s. That is why the cheap `?s?d` group runs first
+  and why the attack as a whole is time-bounded:
 
-  - `hcatHybridIncrementRuntime` in `config.json`, in seconds, default `3600`.
-    Each pass is given whatever is left of the budget as hashcat's `--runtime`,
-    and any pass that no budget remains for is reported rather than skipped
-    quietly. Set it to `0` to switch the sweep off entirely; the fixed-length
-    `?s?d` passes above are never time-capped.
+  - `hcatHybridMaxRuntime` in `config.json`, in seconds, default `3600`, is the
+    time the **whole attack** may spend — not the time one pass may spend. All
+    sixteen passes share one deadline, and each is handed whatever is left of it
+    as hashcat's `--runtime`. Any pass the budget does not reach is reported
+    rather than skipped quietly. Set it to `0` for no limit, which runs every
+    pass to exhaustion.
+
+  Within each group the order is by mask length across every wordlist rather
+  than all lengths of one wordlist and then the next, so a budget that runs out
+  has still given every wordlist its cheap passes.
 
   Each pass declares what it covers to the attack-coverage store, so a repeat
   hybrid against the same hash file offers to skip the passes already run. A
-  sweep pass that runs out of budget is not recorded, so it will be retried.
+  pass that runs out of budget is not recorded, so it will be retried.
   Wordlist entries may be glob patterns; they are expanded before hashcat runs.
 
 #### Pathwell Top 100 Mask Brute Force Crack

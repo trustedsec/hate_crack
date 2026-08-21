@@ -1098,7 +1098,7 @@ pcfgPrinceLingMaxCandidates = int(
     config_parser.get("pcfgPrinceLingMaxCandidates", 10000000)
 )
 hcatSmartMaskMinClusterSize = int(config_parser.get("hcatSmartMaskMinClusterSize", 3))
-hcatHybridIncrementRuntime = int(config_parser.get("hcatHybridIncrementRuntime", 3600))
+hcatHybridMaxRuntime = int(config_parser.get("hcatHybridMaxRuntime", 3600))
 
 try:
     _cfg_optimized = config_parser["optimizedKernelAttacks"]
@@ -4087,10 +4087,9 @@ def hcatNgramX(hcatHashType, hcatHashFile, corpus, group_size=3):
 _HYBRID_CHARSET = "?s?d"
 _HYBRID_MASK_LENGTHS = (1, 2, 3, 4)
 
-# The full-charset sweep that follows those passes. ?a is every printable
-# character, so it re-covers the ?s?d ground and adds letters -- 95**4 rather
-# than 43**4 at the longest length, which is why it runs last and under a time
-# budget (hcatHybridIncrementRuntime).
+# Then the same lengths over ?a, every printable character -- a superset of the
+# ?s?d ground plus letters, and 95**4 rather than 43**4 at the longest length.
+# It comes second because it is the same ground plus more, at 24x the cost.
 #
 # Run as one invocation per length rather than as a single `--increment 1-4`,
 # for two reasons verified against hashcat 7.1.2 and not documented anywhere
@@ -4098,8 +4097,8 @@ _HYBRID_MASK_LENGTHS = (1, 2, 3, 4)
 # length as its own job (`Guess.Queue.Mod: 2/6`) -- but:
 #
 #   * `--runtime` is applied per queued length, not to the invocation, so one
-#     `--increment` pass with a one-hour cap can spend four hours. Separate
-#     invocations let the deadline below govern the sweep as a whole.
+#     `--increment` pass under a one-hour cap can spend four hours. Separate
+#     invocations let one deadline govern the attack as a whole.
 #   * a length cut short inside an `--increment` run still exits 1, the code
 #     _run_hcat_cmd_uncovered reads as "keyspace exhausted", so coverage would
 #     record ground that was never enumerated. A standalone mask cut short by
@@ -4111,48 +4110,27 @@ _HYBRID_FULL_CHARSET = "?a"
 _HYBRID_CHARSET_SLOT = "?1"
 
 
-def _run_hybrid_full_charset_sweep(hcatHashType, hcatHashFile, wordlists):
-    """Run the ?a sweep over *wordlists*, bounded by one shared time budget.
+def _hybrid_passes(wordlists):
+    """Yield ``(wordlist, mode, mask, charset)`` for every pass, cheapest first.
 
-    Ordered by mask length across all wordlists rather than per wordlist,
-    because the budget is shared: length 4 over the first wordlist would
-    otherwise consume the whole hour and leave the second wordlist without even
-    its length-1 pass. Every pass gets what remains of the budget, so hashcat
-    stops the sweep rather than the sweep overrunning it.
+    The ?s?d group precedes the ?a group because the second enumerates the
+    first's candidates and more, so the cheap subset gets its chance to crack
+    before 24x the work repeats it.
+
+    Within a group the order is by mask length across *all* wordlists rather
+    than all lengths of one wordlist and then the next. That matters because
+    every pass draws on one shared budget: length 4 over the first wordlist
+    would otherwise consume the whole hour and leave a second wordlist without
+    even its length-1 pass.
     """
-    if hcatHybridIncrementRuntime <= 0:
-        return
-
-    deadline = time.monotonic() + hcatHybridIncrementRuntime
-    print(
-        f"\n[*] Hybrid full-charset sweep ({_HYBRID_FULL_CHARSET}, lengths "
-        f"{_HYBRID_MASK_LENGTHS[0]}-{_HYBRID_MASK_LENGTHS[-1]}), "
-        f"{hcatHybridIncrementRuntime}s budget across all passes."
-    )
-    skipped = 0
-    for length in _HYBRID_MASK_LENGTHS:
-        for wordlist in wordlists:
-            for mode in ("6", "7"):
-                remaining = int(deadline - time.monotonic())
-                if remaining <= 0:
-                    skipped += 1
-                    continue
-                _run_hybrid_pass(
-                    hcatHashType,
-                    hcatHashFile,
-                    wordlist,
-                    mode,
-                    _HYBRID_FULL_CHARSET * length,
-                    runtime=remaining,
-                )
-    if skipped:
-        # Say so rather than ending quietly: a sweep that ran out of budget has
-        # left candidates untried, and the operator is the one who decides
-        # whether to raise hcatHybridIncrementRuntime or move on.
-        print(
-            f"[*] Full-charset sweep budget spent; {skipped} pass(es) not run. "
-            "Raise hcatHybridIncrementRuntime in config.json to go further."
-        )
+    for charset, slot in (
+        (_HYBRID_CHARSET, _HYBRID_CHARSET_SLOT),
+        ("", _HYBRID_FULL_CHARSET),
+    ):
+        for length in _HYBRID_MASK_LENGTHS:
+            for wordlist in wordlists:
+                for mode in ("6", "7"):
+                    yield wordlist, mode, slot * length, charset
 
 
 def _hybrid_coverage(hash_file, wordlist, mode, mask, charset=""):
@@ -4257,22 +4235,56 @@ def hcatHybrid(hcatHashType, hcatHashFile, wordlists=None):
         print("[!] No valid wordlists found. Aborting hybrid attack.")
         return
 
+    # One deadline for the whole attack, not one per pass. hashcat's --runtime
+    # bounds a single invocation, so handing every pass the configured value
+    # would multiply the cap by the number of passes -- sixteen of them for a
+    # single wordlist. Each pass instead gets whatever is left, which is what
+    # makes hcatHybridMaxRuntime the time the attack takes rather than the time
+    # one arbitrary pass takes.
+    deadline = None
+    if hcatHybridMaxRuntime > 0:
+        deadline = time.monotonic() + hcatHybridMaxRuntime
+        print(
+            f"\n[*] Hybrid attack budget: {hcatHybridMaxRuntime}s across all "
+            "passes. Set hcatHybridMaxRuntime to 0 in config.json to run every "
+            "pass to exhaustion."
+        )
+
+    skipped = 0
     try:
-        for wordlist in resolved_wordlists:
-            for mode in ("6", "7"):
-                for length in _HYBRID_MASK_LENGTHS:
-                    _run_hybrid_pass(
-                        hcatHashType,
-                        hcatHashFile,
-                        wordlist,
-                        mode,
-                        _HYBRID_CHARSET_SLOT * length,
-                        charset=_HYBRID_CHARSET,
-                    )
-        _run_hybrid_full_charset_sweep(hcatHashType, hcatHashFile, resolved_wordlists)
+        for wordlist, mode, mask, charset in _hybrid_passes(resolved_wordlists):
+            runtime = 0
+            if deadline is not None:
+                # int() truncates, so a pass is skipped once under a second is
+                # left. That is not just tidiness: hashcat rejects
+                # `--runtime 0` outright ("Invalid --runtime value specified",
+                # exit 255), so rounding down to zero and passing it anyway
+                # would fail the pass rather than shorten it.
+                runtime = int(deadline - time.monotonic())
+                if runtime <= 0:
+                    skipped += 1
+                    continue
+            _run_hybrid_pass(
+                hcatHashType,
+                hcatHashFile,
+                wordlist,
+                mode,
+                mask,
+                charset=charset,
+                runtime=runtime,
+            )
     except KeyboardInterrupt:
         # One ctrl-C abandons the whole attack, not just the current pass.
         pass
+
+    if skipped:
+        # Say so rather than ending quietly: passes the budget did not reach
+        # have left candidates untried, and whether to raise the budget or move
+        # on is the operator's call, not something to decide by omission.
+        print(
+            f"[*] Hybrid budget spent; {skipped} pass(es) not run. "
+            "Raise hcatHybridMaxRuntime in config.json to go further."
+        )
 
     hcatHybridCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 

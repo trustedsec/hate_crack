@@ -36,7 +36,7 @@ def env(tmp_path):
 
 
 @contextmanager
-def _patched(main_module, tmp_path, increment_runtime=0):
+def _patched(main_module, tmp_path, max_runtime=0):
     """Patch the module globals hcatHybrid reads.
 
     ``patch.object`` rather than raw assignment: ``hate_crack.main`` is shared
@@ -46,9 +46,9 @@ def _patched(main_module, tmp_path, increment_runtime=0):
     session name; what it builds from the hash file and attack label is covered
     in test_main_utils.py::TestGenerateSessionId.
 
-    ``increment_runtime`` defaults to 0, which switches the trailing
-    full-charset sweep off, so the fixed-length assertions below see only the
-    ?s?d passes. TestFullCharsetSweep turns it on.
+    ``max_runtime`` defaults to 0, which is "no time limit": every pass runs
+    and none carries a ``--runtime``, which is what the structural assertions
+    below want. TestTimeBudget sets a budget.
     """
     with (
         patch.object(main_module, "hcatBin", "hashcat"),
@@ -58,9 +58,19 @@ def _patched(main_module, tmp_path, increment_runtime=0):
         patch.object(main_module, "hcatHashCracked", 0),
         patch.object(main_module, "_optimized_kernel_disabled", True),
         patch.object(main_module, "generate_session_id", return_value="test_session"),
-        patch.object(main_module, "hcatHybridIncrementRuntime", increment_runtime),
+        patch.object(main_module, "hcatHybridMaxRuntime", max_runtime),
     ):
         yield
+
+
+def _fixed(runner):
+    """Just the ?s?d passes."""
+    return [p for p in _passes(runner) if "?1" in p[1]]
+
+
+def _sweep(runner):
+    """Just the ?a passes."""
+    return [p for p in _passes(runner) if "?a" in p[1]]
 
 
 def _passes(runner):
@@ -105,14 +115,16 @@ class TestMaskMatrix:
             main_module.hcatHybrid("1000", env["hashes"], [env["wordlist"]])
 
         wl = env["wordlist"]
-        assert _passes(runner) == [
+        # Length-major, both directions per length -- the order the shared
+        # budget needs (see _hybrid_passes).
+        assert _fixed(runner) == [
             ("6", "?1", wl),
-            ("6", "?1?1", wl),
-            ("6", "?1?1?1", wl),
-            ("6", "?1?1?1?1", wl),
             ("7", "?1", wl),
+            ("6", "?1?1", wl),
             ("7", "?1?1", wl),
+            ("6", "?1?1?1", wl),
             ("7", "?1?1?1", wl),
+            ("6", "?1?1?1?1", wl),
             ("7", "?1?1?1?1", wl),
         ]
 
@@ -127,7 +139,7 @@ class TestMaskMatrix:
         masks = {mask for _, mask, _ in _passes(runner)}
         assert "?1" in masks
 
-    def test_charset_is_declared_for_every_pass(self, main_module, env):
+    def test_charset_is_declared_for_every_slot_pass(self, main_module, env):
         """?1 means nothing to hashcat without its -1 definition."""
         with (
             _patched(main_module, env["tmp"]),
@@ -135,9 +147,14 @@ class TestMaskMatrix:
         ):
             main_module.hcatHybrid("1000", env["hashes"], [env["wordlist"]])
 
+        checked = 0
         for call in runner.call_args_list:
             cmd = call[0][0]
+            if not any(re.fullmatch(r"(\?1)+", str(arg)) for arg in cmd):
+                continue
+            checked += 1
             assert cmd[cmd.index("-1") + 1] == "?s?d"
+        assert checked == 8
 
 
 class TestInterrupt:
@@ -241,7 +258,7 @@ class TestWordlistResolution:
                 "1000", env["hashes"], [env["wordlist"], env["wordlist"]]
             )
 
-        assert runner.call_count == 8
+        assert runner.call_count == 16
 
     def test_missing_wordlist_aborts(self, main_module, env, capsys):
         with (
@@ -280,7 +297,7 @@ class TestHybridCount:
         ):
             main_module.hcatHybrid("1000", env["hashes"], [env["wordlist"]])
 
-        assert main_module.hcatHybridCount == 8
+        assert main_module.hcatHybridCount == 16
 
 
 class TestCoverageSpec:
@@ -292,7 +309,7 @@ class TestCoverageSpec:
             main_module.hcatHybrid("1000", env["hashes"], [env["wordlist"]])
 
         specs = [call.kwargs["coverage"] for call in runner.call_args_list]
-        assert len(specs) == 8
+        assert len(specs) == 16
         for spec in specs:
             assert spec.wordlists == (env["wordlist"],)
             assert spec.hash_file == env["hashes"]
@@ -370,32 +387,17 @@ class TestCoverageSpec:
 
 
 class TestFullCharsetSweep:
-    """The ?a sweep that follows the ?s?d passes, under one time budget."""
-
-    def test_zero_runtime_skips_the_sweep_silently(self, main_module, env, capsys):
-        """Disabled means disabled: no sweep, and no budget-spent nagging about
-        a setting the operator turned off deliberately."""
-        with (
-            _patched(main_module, env["tmp"], increment_runtime=0),
-            patch.object(main_module, "_run_hcat_cmd") as runner,
-        ):
-            main_module.hcatHybrid("1000", env["hashes"], [env["wordlist"]])
-
-        assert not [mask for _, mask, _ in _passes(runner) if "?a" in mask]
-        out = capsys.readouterr().out
-        assert "full-charset sweep" not in out.lower()
-        assert "not run" not in out
+    """The ?a passes that follow the ?s?d ones."""
 
     def test_sweep_runs_each_length_in_both_directions(self, main_module, env):
         with (
-            _patched(main_module, env["tmp"], increment_runtime=3600),
+            _patched(main_module, env["tmp"]),
             patch.object(main_module, "_run_hcat_cmd") as runner,
         ):
             main_module.hcatHybrid("1000", env["hashes"], [env["wordlist"]])
 
         wl = env["wordlist"]
-        sweep = [p for p in _passes(runner) if "?a" in p[1]]
-        assert sweep == [
+        assert _sweep(runner) == [
             ("6", "?a", wl),
             ("7", "?a", wl),
             ("6", "?a?a", wl),
@@ -409,7 +411,7 @@ class TestFullCharsetSweep:
     def test_sweep_runs_after_the_cheap_fixed_length_passes(self, main_module, env):
         """?a is a superset of ?s?d, so the cheap subset should crack first."""
         with (
-            _patched(main_module, env["tmp"], increment_runtime=3600),
+            _patched(main_module, env["tmp"]),
             patch.object(main_module, "_run_hcat_cmd") as runner,
         ):
             main_module.hcatHybrid("1000", env["hashes"], [env["wordlist"]])
@@ -420,7 +422,7 @@ class TestFullCharsetSweep:
     def test_sweep_carries_no_custom_charset(self, main_module, env):
         """?a is a hashcat builtin; a -1 definition would be meaningless."""
         with (
-            _patched(main_module, env["tmp"], increment_runtime=3600),
+            _patched(main_module, env["tmp"]),
             patch.object(main_module, "_run_hcat_cmd") as runner,
         ):
             main_module.hcatHybrid("1000", env["hashes"], [env["wordlist"]])
@@ -434,6 +436,118 @@ class TestFullCharsetSweep:
             assert "-1" not in cmd
         assert checked == 8
 
+
+class TestTimeBudget:
+    """hcatHybridMaxRuntime bounds the attack, not one pass of it."""
+
+    def test_zero_means_no_limit_and_says_nothing(self, main_module, env, capsys):
+        with (
+            _patched(main_module, env["tmp"], max_runtime=0),
+            patch.object(main_module, "_run_hcat_cmd") as runner,
+        ):
+            main_module.hcatHybrid("1000", env["hashes"], [env["wordlist"]])
+
+        assert len(_passes(runner)) == 16
+        assert _runtimes(runner) == [None] * 16
+        out = capsys.readouterr().out
+        assert "budget" not in out.lower()
+
+    def test_every_pass_is_capped_when_a_budget_is_set(self, main_module, env):
+        """Including the ?s?d passes: the budget is the attack's, not the
+        sweep's, and a length-4 ?s?d pass over a big list is not cheap either."""
+        with (
+            _patched(main_module, env["tmp"], max_runtime=3600),
+            patch.object(main_module, "_run_hcat_cmd") as runner,
+        ):
+            main_module.hcatHybrid("1000", env["hashes"], [env["wordlist"]])
+
+        runtimes = _runtimes(runner)
+        assert len(runtimes) == 16
+        assert all(rt is not None for rt in runtimes)
+
+    def test_each_pass_gets_what_remains_rather_than_the_full_cap(
+        self, main_module, env
+    ):
+        """hashcat applies --runtime per invocation, so handing every pass the
+        configured value would multiply the cap by sixteen."""
+        clock = iter([1000.0] + [1000.0 + 100 * n for n in range(1, 40)])
+
+        with (
+            _patched(main_module, env["tmp"], max_runtime=500),
+            patch.object(main_module.time, "monotonic", lambda: next(clock)),
+            patch.object(main_module, "_run_hcat_cmd") as runner,
+        ):
+            main_module.hcatHybrid("1000", env["hashes"], [env["wordlist"]])
+
+        assert _runtimes(runner) == [400, 300, 200, 100]
+
+    def test_the_budget_covers_the_whole_attack_not_each_pass(self, main_module, env):
+        """The regression this replaces: sixteen passes each given the full
+        3600s would have been a sixteen-hour "one hour" cap."""
+        clock = iter([0.0] + [float(n) for n in range(1, 60)])
+
+        with (
+            _patched(main_module, env["tmp"], max_runtime=10),
+            patch.object(main_module.time, "monotonic", lambda: next(clock)),
+            patch.object(main_module, "_run_hcat_cmd") as runner,
+        ):
+            main_module.hcatHybrid("1000", env["hashes"], [env["wordlist"]])
+
+        assert sum(_runtimes(runner)) <= 10 * len(_runtimes(runner))
+        assert max(_runtimes(runner)) <= 10
+
+    def test_never_emits_runtime_zero(self, main_module, env):
+        """hashcat rejects `--runtime 0` ("Invalid --runtime value specified",
+        exit 255), so a budget rounding down to zero must skip the pass rather
+        than pass the value through and fail it."""
+        # Leaves 0.5s at the third pass, which truncates to 0.
+        clock = iter([0.0, 0.1, 0.2, 4.5] + [4.6] * 40)
+
+        with (
+            _patched(main_module, env["tmp"], max_runtime=5),
+            patch.object(main_module.time, "monotonic", lambda: next(clock)),
+            patch.object(main_module, "_run_hcat_cmd") as runner,
+        ):
+            main_module.hcatHybrid("1000", env["hashes"], [env["wordlist"]])
+
+        assert _runtimes(runner) == [4, 4]
+        for call in runner.call_args_list:
+            cmd = call[0][0]
+            assert "0" not in cmd[cmd.index("--runtime") + 1]
+
+    def test_budget_exhaustion_stops_the_attack_and_says_so(
+        self, main_module, env, capsys
+    ):
+        clock = iter([1000.0] + [9999.0] * 40)
+
+        with (
+            _patched(main_module, env["tmp"], max_runtime=60),
+            patch.object(main_module.time, "monotonic", lambda: next(clock)),
+            patch.object(main_module, "_run_hcat_cmd") as runner,
+        ):
+            main_module.hcatHybrid("1000", env["hashes"], [env["wordlist"]])
+
+        assert runner.call_count == 0
+        out = capsys.readouterr().out
+        assert "16 pass(es) not run" in out
+        assert "hcatHybridMaxRuntime" in out
+
+    def test_the_cheapest_passes_are_the_ones_that_survive_a_small_budget(
+        self, main_module, env
+    ):
+        """A budget that only covers three passes should have spent them on the
+        shortest masks, not on whatever happened to be first."""
+        clock = iter([0.0, 1.0, 2.0, 3.0] + [999.0] * 40)
+
+        with (
+            _patched(main_module, env["tmp"], max_runtime=10),
+            patch.object(main_module.time, "monotonic", lambda: next(clock)),
+            patch.object(main_module, "_run_hcat_cmd") as runner,
+        ):
+            main_module.hcatHybrid("1000", env["hashes"], [env["wordlist"]])
+
+        assert [mask for _, mask, _ in _passes(runner)] == ["?1", "?1", "?1?1"]
+
     def test_length_major_order_so_a_shared_budget_reaches_every_wordlist(
         self, main_module, env
     ):
@@ -442,66 +556,18 @@ class TestFullCharsetSweep:
         second.write_text("charlie\n")
 
         with (
-            _patched(main_module, env["tmp"], increment_runtime=3600),
+            _patched(main_module, env["tmp"], max_runtime=3600),
             patch.object(main_module, "_run_hcat_cmd") as runner,
         ):
             main_module.hcatHybrid(
                 "1000", env["hashes"], [env["wordlist"], str(second)]
             )
 
-        sweep = [p for p in _passes(runner) if "?a" in p[1]]
-        # Every length-1 pass, for both wordlists, precedes any longer mask.
-        first_long = next(i for i, p in enumerate(sweep) if p[1] != "?a")
-        assert {p[2] for p in sweep[:first_long]} == {env["wordlist"], str(second)}
+        fixed = _fixed(runner)
+        first_long = next(i for i, p in enumerate(fixed) if p[1] != "?1")
+        assert {p[2] for p in fixed[:first_long]} == {env["wordlist"], str(second)}
 
-    def test_each_pass_gets_what_remains_of_the_budget(self, main_module, env):
-        """hashcat applies --runtime per invocation, so the passes have to share
-        one deadline or eight of them would spend eight hours."""
-        clock = iter([1000.0] + [1000.0 + 100 * n for n in range(1, 40)])
-
-        with (
-            _patched(main_module, env["tmp"], increment_runtime=500),
-            patch.object(main_module.time, "monotonic", lambda: next(clock)),
-            patch.object(main_module, "_run_hcat_cmd") as runner,
-        ):
-            main_module.hcatHybrid("1000", env["hashes"], [env["wordlist"]])
-
-        sweep_runtimes = [rt for rt in _runtimes(runner) if rt is not None]
-        assert sweep_runtimes == [400, 300, 200, 100]
-        assert sweep_runtimes == sorted(sweep_runtimes, reverse=True)
-
-    def test_budget_exhaustion_stops_the_sweep_and_says_so(
-        self, main_module, env, capsys
-    ):
-        clock = iter([1000.0] + [9999.0] * 40)
-
-        with (
-            _patched(main_module, env["tmp"], increment_runtime=60),
-            patch.object(main_module.time, "monotonic", lambda: next(clock)),
-            patch.object(main_module, "_run_hcat_cmd") as runner,
-        ):
-            main_module.hcatHybrid("1000", env["hashes"], [env["wordlist"]])
-
-        assert not [mask for _, mask, _ in _passes(runner) if "?a" in mask]
-        out = capsys.readouterr().out
-        assert "8 pass(es) not run" in out
-        assert "hcatHybridIncrementRuntime" in out
-
-    def test_fixed_length_passes_are_never_time_capped(self, main_module, env):
-        """Only the sweep is budgeted; the ?s?d passes run to exhaustion."""
-        with (
-            _patched(main_module, env["tmp"], increment_runtime=3600),
-            patch.object(main_module, "_run_hcat_cmd") as runner,
-        ):
-            main_module.hcatHybrid("1000", env["hashes"], [env["wordlist"]])
-
-        for (_, mask, _), runtime in zip(_passes(runner), _runtimes(runner)):
-            if "?1" in mask:
-                assert runtime is None
-            else:
-                assert runtime is not None
-
-    def test_a_truncated_sweep_pass_records_no_coverage(
+    def test_a_truncated_pass_records_no_coverage(
         self, main_module, env, tmp_path, monkeypatch
     ):
         """hashcat exits 4 when --runtime cuts a mask short, and only exit 1
@@ -522,7 +588,7 @@ class TestFullCharsetSweep:
 
         try:
             with (
-                _patched(main_module, env["tmp"], increment_runtime=3600),
+                _patched(main_module, env["tmp"], max_runtime=3600),
                 patch("hate_crack.main.subprocess.Popen", RuntimeAbortedPopen),
             ):
                 main_module.hcatHybrid("1000", env["hashes"], [env["wordlist"]])
@@ -553,5 +619,5 @@ def test_expanded_fingerprint_candidates_still_reach_hybrid(main_module, env):
     ):
         main_module.hcatHybrid("1000", env["hashes"], [str(expanded)])
 
-    assert runner.call_count == 8
+    assert runner.call_count == 16
     assert {wordlist for _, _, wordlist in _passes(runner)} == {str(expanded)}

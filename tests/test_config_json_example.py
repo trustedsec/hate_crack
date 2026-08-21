@@ -48,7 +48,7 @@ EXPECTED_KEYS = {
     "pcfgMaxCandidates",
     "pcfgPrinceLingMaxCandidates",
     "hcatSmartMaskMinClusterSize",
-    "hcatHybridIncrementRuntime",
+    "hcatHybridMaxRuntime",
     "check_for_updates",
     "optimizedKernelAttacks",
     "notify_enabled",
