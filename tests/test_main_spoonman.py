@@ -750,7 +750,7 @@ class TestSpoonmanExtraWordlists:
     def test_a_symlinked_directory_whose_target_holds_the_corpus_is_skipped(
         self, main_module, tmp_path, capsys
     ):
-        """Both sides resolve through realpath, so an aliased parent is caught."""
+        """Both sides resolve via os.stat identity, so an aliased parent is caught."""
         wordlists = tmp_path / "wordlists"
         corpus_dir = wordlists / "cracked_dump"
         corpus_dir.mkdir(parents=True)
