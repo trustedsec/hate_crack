@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
-## [Unreleased]
+## [2.33.1] - 2026-08-21
 
 ### Added
 - **`CONTRIBUTING.md`, which the repo has never had.** Publishing `CLAUDE.md` made this urgent rather than merely nice: that file is written for maintainers and says, in four places, never to push a work branch or open a pull request for one. Correct for someone with push access whose branches merge locally — and, to the outside contributor who can now read it, indistinguishable from "this project does not accept pull requests." With no `CONTRIBUTING.md`, no issue template and no PR template, that was the only public statement of process.
