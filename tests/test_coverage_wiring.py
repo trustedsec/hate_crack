@@ -173,6 +173,60 @@ def test_declining_the_prompt_runs_everything(main_module, store, env):
     assert launched[0][launched[0].index("-r") + 1] == env["rules"]
 
 
+def test_skip_message_cites_the_rule_file(main_module, store, env, capsys):
+    """A batch that skips several rule files back to back must say which
+    file each skip is about, not just repeat an identical generic line."""
+    cmd = ["hashcat", env["hashes"], env["wordlist"], "-r", env["rules"]]
+    _run(main_module, cmd, _spec(env))
+    _run(main_module, cmd, _spec(env))  # second run: full repeat, gets skipped
+    out = capsys.readouterr().out
+    assert f"Skipping Dictionary ({os.path.basename(env['rules'])})" in out
+
+
+def test_chained_rules_are_cited_together(main_module, store, env, capsys):
+    chained = env["tmp"] / "chained.rule"
+    chained.write_text("l\n")
+    cmd = [
+        "hashcat",
+        env["hashes"],
+        env["wordlist"],
+        "-r",
+        env["rules"],
+        "-r",
+        str(chained),
+    ]
+    _run(main_module, cmd, _spec(env, rule_files=(env["rules"], str(chained))))
+    _run(main_module, cmd, _spec(env, rule_files=(env["rules"], str(chained))))
+    out = capsys.readouterr().out
+    assert (
+        f"Skipping Dictionary ({os.path.basename(env['rules'])} + chained.rule)" in out
+    )
+
+
+def test_declined_run_message_cites_the_rule_file(main_module, store, env, capsys):
+    partial = env["tmp"] / "partial.rule"
+    partial.write_text("c\n$1\n")
+    cmd = ["hashcat", env["hashes"], env["wordlist"], "-r", str(partial)]
+    _run(main_module, cmd, _spec(env, rule_files=(str(partial),)))
+
+    cmd = ["hashcat", env["hashes"], env["wordlist"], "-r", env["rules"]]
+    _run(main_module, cmd, _spec(env), answer="n")
+    out = capsys.readouterr().out
+    assert f"Running everything in {os.path.basename(env['rules'])}" in out
+
+
+def test_partial_overlap_message_cites_the_rule_file(main_module, store, env, capsys):
+    partial = env["tmp"] / "partial.rule"
+    partial.write_text("c\n$1\n")
+    cmd = ["hashcat", env["hashes"], env["wordlist"], "-r", str(partial)]
+    _run(main_module, cmd, _spec(env, rule_files=(str(partial),)))
+
+    cmd = ["hashcat", env["hashes"], env["wordlist"], "-r", env["rules"]]
+    _run(main_module, cmd, _spec(env))
+    out = capsys.readouterr().out
+    assert f"Coverage ({os.path.basename(env['rules'])}): running" in out
+
+
 def test_no_prompt_when_there_is_no_overlap(main_module, store, env):
     """A fresh engagement must not be interrupted by a question."""
     cmd = ["hashcat", env["hashes"], env["wordlist"], "-r", env["rules"]]
@@ -236,6 +290,46 @@ def test_shared_decision_cache_prompts_only_once(main_module, store, env):
 
     assert len(prompts) == 1, "the second run must reuse the first's answer"
     assert seen_rules == [["q"], ["z"]], "each run's own overlap must still be filtered"
+
+
+def test_shared_decision_cache_skip_messages_cite_each_file(
+    main_module, store, env, capsys
+):
+    """The real-world case that prompted this: several rule files, all
+    already fully covered, skipped back to back under one shared decision.
+    Each skip line must name its own file -- otherwise a batch of N skips
+    all reads as the same indistinguishable line."""
+    cmd = ["hashcat", env["hashes"], env["wordlist"], "-r", env["rules"]]
+    _run(main_module, cmd, _spec(env))  # fully covers "c", "$1", "u"
+
+    full_a = env["tmp"] / "full_a.rule"
+    full_a.write_text("c\n$1\n")  # subset of what's covered -> fully covered
+    full_b = env["tmp"] / "full_b.rule"
+    full_b.write_text("u\n")  # also a subset -> fully covered
+
+    decision_cache: dict = {}
+    with (
+        patch.object(main_module.subprocess, "Popen", lambda cmd, **kw: FakePopen(cmd)),
+        patch.object(main_module, "_coverage_enabled", True),
+        patch.object(main_module, "non_interactive", False),
+        patch("builtins.input", lambda *a: "y"),
+    ):
+        main_module._run_hcat_cmd(
+            ["hashcat", env["hashes"], env["wordlist"], "-r", str(full_a)],
+            attack_name="Quick Crack",
+            coverage=_spec(env, rule_files=(str(full_a),)),
+            coverage_decision=decision_cache,
+        )
+        main_module._run_hcat_cmd(
+            ["hashcat", env["hashes"], env["wordlist"], "-r", str(full_b)],
+            attack_name="Quick Crack",
+            coverage=_spec(env, rule_files=(str(full_b),)),
+            coverage_decision=decision_cache,
+        )
+
+    out = capsys.readouterr().out
+    assert "Skipping Quick Crack (full_a.rule)" in out
+    assert "Skipping Quick Crack (full_b.rule)" in out
 
 
 def test_shared_decision_cache_honors_a_declined_prompt(main_module, store, env):

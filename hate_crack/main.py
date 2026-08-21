@@ -1586,6 +1586,26 @@ def _coverage_overlap_scope(plan, spec) -> str:
     return f"this hash file with {shown}"
 
 
+def _coverage_spec_label(spec) -> str:
+    """A short, human name for what one coverage spec's own run covers.
+
+    A batch (Quick Crack/Loopback selecting several rule files) issues one
+    ``_apply_coverage`` call per file against the same wordlist and hash
+    file, so without this every per-run message -- "skipping", "running
+    everything", "running N new entries" -- reads identically no matter
+    which file it is about.
+    """
+    if spec.rule_files:
+        return " + ".join(os.path.basename(path) for path in spec.rule_files)
+    if spec.mask_files:
+        return " + ".join(os.path.basename(path) for path in spec.mask_files)
+    if spec.masks:
+        return ", ".join(spec.masks)
+    if spec.wordlists:
+        return ", ".join(os.path.basename(path) for path in spec.wordlists)
+    return "this run"
+
+
 def _prompt_coverage_filter(plan, attack_name: str, spec=None) -> bool:
     """Ask whether to skip the already-covered entries. Default is yes.
 
@@ -1670,13 +1690,15 @@ def _apply_coverage(cmd, spec, attack_name: str, decision_cache: dict | None = N
         if decision_cache is not None:
             decision_cache["apply_filtering"] = apply_filtering
 
+    label = _coverage_spec_label(spec)
+
     if not apply_filtering:
-        print("[*] Running everything, as requested.")
+        print(f"[*] Running everything in {label}, as requested.")
         return cmd, plan, []
 
     if plan.skip:
         print(
-            f"[*] Skipping {attack_name or 'this attack'}: every "
+            f"[*] Skipping {attack_name or 'this attack'} ({label}): every "
             f"{plan.kind or 'entry'} in it has already been run against this "
             "hash file."
         )
@@ -1702,7 +1724,7 @@ def _apply_coverage(cmd, spec, attack_name: str, decision_cache: dict | None = N
         cmd = _replace_rule_arg(cmd, plan.source_path, replacement, plan.kind)
 
     print(
-        f"[*] Coverage: running {len(plan.filtered_entries)} new "
+        f"[*] Coverage ({label}): running {len(plan.filtered_entries)} new "
         f"{plan.kind} entr{'y' if len(plan.filtered_entries) == 1 else 'ies'} "
         f"and skipping {plan.covered_count} already covered."
     )
