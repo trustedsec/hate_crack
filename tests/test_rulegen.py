@@ -1098,6 +1098,10 @@ class TestBailoutLineBreakFix:
         hexed = "$HEX[" + pw.encode("latin-1").hex() + "]"
         result = self._run(tmp_path, [hexed, "quibbleflange1"])
         assert result["unwritable_basewords"] == 0
+        # The bail-out password has letters, so its literal-pair fallback is
+        # a genuine loss (unrepresentable), not the expected no-letter case.
+        assert result["unrepresentable"] == 1
+        assert result["no_letter_literals"] == 0
         assert result["selfcheck_failures"] == []
 
     def test_function_limit_bailout_with_addressable_break_is_written(self, tmp_path):
@@ -1114,6 +1118,10 @@ class TestBailoutLineBreakFix:
         hexed = "$HEX[" + pw.encode("latin-1").hex() + "]"
         result = self._run(tmp_path, [hexed, "quibbleflange1"])
         assert result["unwritable_basewords"] == 0
+        # The bail-out password has letters, so its literal-pair fallback is
+        # a genuine loss (unrepresentable), not the expected no-letter case.
+        assert result["unrepresentable"] == 1
+        assert result["no_letter_literals"] == 0
         assert result["selfcheck_failures"] == []
 
     def test_coincidence_trap_is_not_miscounted_as_unrepresentable(self, tmp_path):
