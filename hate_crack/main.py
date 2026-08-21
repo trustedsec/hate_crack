@@ -1674,20 +1674,9 @@ def _apply_coverage(cmd, spec, attack_name: str, decision_cache: dict | None = N
     only once. The first call with overlap prompts and stores its answer in
     the shared dict; every later call sharing that same dict reuses it
     without prompting again, even though each has its own, different plan.
-
-    ``decision_cache["plans"]``, when present (populated by
-    ``_prime_coverage_decision``), supplies this spec's ``RunPlan`` directly
-    instead of recomputing it. Diffing a multi-million-line rule file against
-    the covered set hashes every one of its lines, so recomputing it here
-    after already computing it once while priming the aggregate decision
-    would pay that cost twice for every file in the batch.
     """
     store = _coverage_store()
-    plan = None
-    if decision_cache is not None:
-        plan = decision_cache.get("plans", {}).get(spec)
-    if plan is None:
-        plan = _coverage.plan_run(spec, store.covered, store=store)
+    plan = _coverage.plan_run(spec, store.covered, store=store)
     if plan.is_inert:
         return cmd, None, []
 
@@ -3003,76 +2992,71 @@ def _quick_dictionary_coverage(hash_file, chains, wordlists, loopback):
     )
 
 
+def _prompt_skip_covered_batch(attack_name: str, num_chains: int) -> bool:
+    """Ask, without pre-computing any counts, whether to skip already-tried
+    rule lines across a whole batch of selected rule files, or run every one
+    of them in full.
+
+    Only reached when ``attack_name`` has run against this hash file before
+    (see ``_prime_coverage_decision``); a fresh engagement never sees this.
+    Default is yes, matching ``_prompt_coverage_filter``.
+    """
+    plural = "" if num_chains == 1 else "s"
+    print(
+        f"\n[*] {attack_name or 'This attack'} has run against this hash file before."
+    )
+    if non_interactive:
+        return True
+    try:
+        answer = input(
+            f"[?] Skip rule lines already tried in the {num_chains} selected "
+            f"rule file{plural}, or run everything? [Y/n]: "
+        ).strip()
+    except EOFError:
+        print("[*] No input available; taking the default and filtering.")
+        return True
+    return answer.lower() not in ("n", "no")
+
+
 def _prime_coverage_decision(
     hash_file, chains, wordlists, attack_name: str, loopback: bool = False
 ) -> dict:
-    """Compute one combined coverage view across every chain about to run,
-    and if there is overlap anywhere in it, ask the "skip already-covered
-    ground?" question exactly once for the whole batch, before any of it
-    runs.
+    """Ask once, up front, whether to skip already-covered rule lines for
+    this whole batch of selected rule files -- before any of it runs, and
+    without diffing any of them first.
 
-    Quick Crack and Loopback run one hashcat invocation per selected rule
-    file/chain against the same wordlist. Passing the returned dict to
-    every subsequent ``_run_hcat_cmd(..., coverage_decision=...)`` call
-    reuses this one decision (see ``_apply_coverage``) -- but without this,
-    that first call's *own* possibly-unrepresentative numbers (a huge rule
-    file that happens to be fully covered, say) drove the only prompt an
-    operator saw, rather than a true picture of the whole selection.
+    Finding the exact overlap for a display like "N of M rules already
+    covered" means reading and hashing every selected rule file's lines,
+    which for a large batch (YOLO across dozens of files, some
+    multi-million lines) is exactly the slow, silent-feeling step an
+    operator should not have to wait through just to be asked a yes/no
+    question. So this checks only whether ``attack_name`` has ever run
+    against this hash file before -- one cheap store lookup, no file
+    reading -- and, if so, asks plainly. The real per-file diffing still
+    happens lazily, once per chain, inside ``_apply_coverage`` exactly as
+    it always has; this only decides up front whether that filtering is
+    wanted.
 
-    Returns an empty dict when there is nothing to prime -- no coverage
-    store, nothing in the batch is covered yet, or a record-only (loopback)
-    batch, which never has overlap to report -- so the batch behaves exactly
-    as if coverage were untouched.
-
-    The ``RunPlan`` computed here for each chain is handed back under the
-    ``"plans"`` key so ``_apply_coverage`` can reuse it instead of diffing
-    the same rule file against the covered set a second time once the batch
-    actually starts running (see its docstring). That reuse is why this
-    function always returns those plans, even when there is nothing to
-    prompt about.
+    Returns an empty dict when there is nothing to ask about: coverage is
+    disabled, the batch is empty, it is a record-only (loopback) run that
+    can never overlap, or ``attack_name`` has never run against this hash
+    file before -- so a fresh engagement never sees the prompt.
     """
     if not _coverage_enabled or not chains or loopback:
         return {}
 
-    if len(chains) > 1:
-        print(
-            f"[*] Checking coverage across {len(chains)} selected rule "
-            "files before starting..."
-        )
+    target = _coverage.target_id(hash_file)
+    if target is None:
+        return {}
 
-    store = _coverage_store()
-    plan_cache: dict = {}
-    plans = []
-    first_spec = None
-    for chain in chains:
-        spec = _quick_dictionary_coverage(hash_file, chain, wordlists, loopback)
-        if first_spec is None:
-            first_spec = spec
-        plan = _coverage.plan_run(spec, store.covered, store=store)
-        plan_cache[spec] = plan
-        if not plan.is_inert:
-            plans.append(plan)
-
-    decision: dict = {"plans": plan_cache}
-
-    if not plans:
-        return decision
-
-    total_count = sum(plan.total_count for plan in plans)
-    covered_count = sum(plan.covered_count for plan in plans)
-    if covered_count == 0:
-        return decision
-
-    aggregate = _coverage.RunPlan(
-        kind=plans[0].kind,
-        skip=covered_count == total_count,
-        covered_count=covered_count,
-        total_count=total_count,
+    has_run_before = any(
+        attack == attack_name and runs
+        for attack, _entries, runs in _coverage_store().summary(target)["by_attack"]
     )
-    decision["apply_filtering"] = _prompt_coverage_filter(
-        aggregate, attack_name, first_spec
-    )
-    return decision
+    if not has_run_before:
+        return {}
+
+    return {"apply_filtering": _prompt_skip_covered_batch(attack_name, len(chains))}
 
 
 def _valid_hcmask(mask: object) -> bool:

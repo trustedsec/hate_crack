@@ -376,18 +376,26 @@ def test_shared_decision_cache_honors_a_declined_prompt(main_module, store, env)
 # --- priming an aggregate decision up front --------------------------------
 
 
-def test_prime_coverage_decision_prompts_once_with_aggregate_counts(
+def test_prime_coverage_decision_asks_without_diffing_any_file(
     main_module, store, env, capsys
 ):
-    """Priming must sum covered/total across every selected chain and show
-    ONE prompt reflecting that combined picture, before any chain runs."""
+    """The whole point: decide whether to filter without reading/hashing any
+    of the selected rule files first -- only a cheap "has this attack run
+    against this hash file before?" lookup."""
     cmd = ["hashcat", env["hashes"], env["wordlist"], "-r", env["rules"]]
-    _run(main_module, cmd, _spec(env))  # fully covers "c", "$1", "u"
+    _run(main_module, cmd, _spec(env), returncode=1)  # records "Dictionary" ran
 
-    partial_a = env["tmp"] / "partial_a.rule"
-    partial_a.write_text("c\n$1\nq\n")  # 2 of 3 already covered
-    partial_b = env["tmp"] / "partial_b.rule"
-    partial_b.write_text("c\nz\n")  # 1 of 2 already covered
+    huge_a = env["tmp"] / "huge_a.rule"
+    huge_a.write_text("q\n")
+    huge_b = env["tmp"] / "huge_b.rule"
+    huge_b.write_text("z\n")
+
+    calls = []
+    real_plan_run = main_module._coverage.plan_run
+
+    def counting_plan_run(spec, *a, **k):
+        calls.append(spec)
+        return real_plan_run(spec, *a, **k)
 
     prompts = []
 
@@ -397,57 +405,66 @@ def test_prime_coverage_decision_prompts_once_with_aggregate_counts(
 
     with (
         patch.object(main_module, "_coverage_enabled", True),
+        patch.object(main_module._coverage, "plan_run", counting_plan_run),
         patch("builtins.input", counting_input),
     ):
         decision = main_module._prime_coverage_decision(
             env["hashes"],
-            [f"-r {partial_a}", f"-r {partial_b}"],
+            [f"-r {huge_a}", f"-r {huge_b}"],
             env["wordlist"],
-            "Quick Crack",
+            "Dictionary",
         )
 
+    assert calls == [], "priming must not diff any rule file"
     assert decision.get("apply_filtering") is True
-    assert len(prompts) == 1, "one prompt for the whole batch, not per chain"
+    assert len(prompts) == 1, "one prompt for the whole batch"
     out = capsys.readouterr().out
-    assert "3 of 5 rules" in out, (
-        "aggregate must sum both partials' covered/total counts"
-    )
+    assert "Dictionary has run against this hash file before" in out
+    assert "2 selected rule files" in prompts[0]
 
 
-def test_prime_coverage_decision_is_empty_when_nothing_is_covered(
+def test_prime_coverage_decision_is_a_noop_on_a_fresh_engagement(
     main_module, store, env
 ):
-    fresh_a = env["tmp"] / "fresh_a.rule"
-    fresh_a.write_text("l\n")
-    fresh_b = env["tmp"] / "fresh_b.rule"
-    fresh_b.write_text("u\n")
+    """Quick Crack has never run against this hash file, so there is nothing
+    to skip -- a fresh engagement must not be asked."""
+    with patch.object(main_module, "_coverage_enabled", True):
+        decision = main_module._prime_coverage_decision(
+            env["hashes"], [f"-r {env['rules']}"], env["wordlist"], "Quick Crack"
+        )
+    assert decision == {}
+
+
+def test_prime_coverage_decision_is_scoped_to_the_attack_name(main_module, store, env):
+    """Some other attack having run before this hash file must not trigger
+    the prompt for an attack that has never run against it."""
+    cmd = ["hashcat", env["hashes"], env["wordlist"]]
+    with (
+        patch.object(main_module.subprocess, "Popen", lambda cmd, **kw: FakePopen(cmd)),
+        patch.object(main_module, "_coverage_enabled", True),
+    ):
+        main_module._run_hcat_cmd(cmd, attack_name="PRINCE", hash_file=env["hashes"])
 
     with patch.object(main_module, "_coverage_enabled", True):
         decision = main_module._prime_coverage_decision(
-            env["hashes"],
-            [f"-r {fresh_a}", f"-r {fresh_b}"],
-            env["wordlist"],
-            "Quick Crack",
+            env["hashes"], [f"-r {env['rules']}"], env["wordlist"], "Quick Crack"
         )
-
-    assert "apply_filtering" not in decision, (
-        "no overlap anywhere means nothing to ask about"
-    )
+    assert decision == {}
 
 
 def test_prime_coverage_decision_honors_a_declined_prompt(main_module, store, env):
     cmd = ["hashcat", env["hashes"], env["wordlist"], "-r", env["rules"]]
-    _run(main_module, cmd, _spec(env))  # fully covers "c", "$1", "u"
+    _run(main_module, cmd, _spec(env), returncode=1)
 
-    partial_a = env["tmp"] / "partial_a.rule"
-    partial_a.write_text("c\n$1\nq\n")
+    other = env["tmp"] / "other.rule"
+    other.write_text("z\n")
 
     with (
         patch.object(main_module, "_coverage_enabled", True),
         patch("builtins.input", lambda *a: "n"),
     ):
         decision = main_module._prime_coverage_decision(
-            env["hashes"], [f"-r {partial_a}"], env["wordlist"], "Quick Crack"
+            env["hashes"], [f"-r {other}"], env["wordlist"], "Dictionary"
         )
 
     assert decision.get("apply_filtering") is False
@@ -469,21 +486,14 @@ def test_prime_coverage_decision_empty_chain_list_is_a_noop(main_module, store, 
     assert decision == {}
 
 
-def test_prime_coverage_decision_skips_priming_for_loopback(main_module, store, env):
-    """record_only specs never have overlap to report, so priming a loopback
-    batch would only pay the cost of diffing every rule file for a prompt
-    that can never fire. Skip the work entirely."""
-    calls = []
-    real_plan_run = main_module._coverage.plan_run
+def test_prime_coverage_decision_skips_the_lookup_for_loopback(main_module, store, env):
+    """record_only specs never have overlap to report, so a loopback batch
+    is never worth even the cheap existence check -- return early regardless
+    of whether "Loopback" has run against this hash file before."""
+    cmd = ["hashcat", env["hashes"], env["wordlist"], "-r", env["rules"]]
+    _run(main_module, cmd, _spec(env, record_only=True), returncode=1)
 
-    def counting_plan_run(spec, *a, **k):
-        calls.append(spec)
-        return real_plan_run(spec, *a, **k)
-
-    with (
-        patch.object(main_module, "_coverage_enabled", True),
-        patch.object(main_module._coverage, "plan_run", counting_plan_run),
-    ):
+    with patch.object(main_module, "_coverage_enabled", True):
         decision = main_module._prime_coverage_decision(
             env["hashes"],
             [f"-r {env['rules']}"],
@@ -493,81 +503,6 @@ def test_prime_coverage_decision_skips_priming_for_loopback(main_module, store, 
         )
 
     assert decision == {}
-    assert calls == [], "loopback priming must not diff any rule file"
-
-
-def test_priming_avoids_recomputing_the_plan_for_the_real_run(main_module, store, env):
-    """Once _prime_coverage_decision has diffed a rule file to build the
-    aggregate, _apply_coverage must reuse that plan instead of diffing the
-    same (potentially multi-million-line) file a second time."""
-    cmd = ["hashcat", env["hashes"], env["wordlist"], "-r", env["rules"]]
-    _run(main_module, cmd, _spec(env))  # fully covers "c", "$1", "u"
-
-    partial_a = env["tmp"] / "partial_a.rule"
-    partial_a.write_text("c\n$1\nq\n")
-    partial_b = env["tmp"] / "partial_b.rule"
-    partial_b.write_text("c\nz\n")
-
-    calls = []
-    real_plan_run = main_module._coverage.plan_run
-
-    def counting_plan_run(spec, *a, **k):
-        calls.append(spec)
-        return real_plan_run(spec, *a, **k)
-
-    with (
-        patch.object(main_module, "_coverage_enabled", True),
-        patch.object(main_module._coverage, "plan_run", counting_plan_run),
-        patch("builtins.input", lambda *a: "y"),
-    ):
-        decision = main_module._prime_coverage_decision(
-            env["hashes"],
-            [f"-r {partial_a}", f"-r {partial_b}"],
-            env["wordlist"],
-            "Quick Crack",
-        )
-        assert len(calls) == 2, "priming diffs each chain exactly once"
-
-        with (
-            patch.object(
-                main_module.subprocess, "Popen", lambda cmd, **kw: FakePopen(cmd)
-            ),
-            patch.object(main_module, "non_interactive", False),
-        ):
-            main_module._run_hcat_cmd(
-                ["hashcat", env["hashes"], env["wordlist"], "-r", str(partial_a)],
-                attack_name="Quick Crack",
-                coverage=_spec(env, rule_files=(str(partial_a),)),
-                coverage_decision=decision,
-            )
-            main_module._run_hcat_cmd(
-                ["hashcat", env["hashes"], env["wordlist"], "-r", str(partial_b)],
-                attack_name="Quick Crack",
-                coverage=_spec(env, rule_files=(str(partial_b),)),
-                coverage_decision=decision,
-            )
-
-    assert len(calls) == 2, (
-        "the real runs must reuse the primed plans, not diff each file again"
-    )
-
-
-def test_priming_a_multi_file_batch_prints_a_progress_notice(
-    main_module, store, env, capsys
-):
-    """A large YOLO-style selection can take real wall-clock time to diff --
-    say something before going silent, or it reads as hung."""
-    other = env["tmp"] / "other.rule"
-    other.write_text("l\n")
-    with patch.object(main_module, "_coverage_enabled", True):
-        main_module._prime_coverage_decision(
-            env["hashes"],
-            [f"-r {env['rules']}", f"-r {other}"],
-            env["wordlist"],
-            "Quick Crack",
-        )
-    out = capsys.readouterr().out
-    assert "Checking coverage across 2 selected rule files" in out
 
 
 # --- opting out ------------------------------------------------------------
