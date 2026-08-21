@@ -187,6 +187,7 @@ def _quick_crack_ctx(hc_module, wordlist_dir, tmp_path):
         list_wordlist_entries=hc_module.list_wordlist_entries,
         list_rule_files=hc_module.list_rule_files,
         hcatQuickDictionary=lambda *a, **k: calls.append((a, k)),
+        _prime_coverage_decision=lambda *a, **k: {},
     ), calls
 
 

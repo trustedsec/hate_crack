@@ -205,10 +205,14 @@ def quick_crack(ctx: Any) -> None:
     if selected_rules is None:
         return
 
-    # Shared across every chain below so the "skip already-covered ground?"
-    # prompt fires once for the whole selection instead of once per rule
-    # file -- see hate_crack.main._apply_coverage.
-    coverage_decision: dict = {}
+    # Primed once, up front, against the combined coverage across every
+    # selected rule file -- so the "skip already-covered ground?" prompt (if
+    # any) reflects the whole batch and fires before any hashcat invocation,
+    # not just the first chain's own numbers. See
+    # hate_crack.main._prime_coverage_decision / _apply_coverage.
+    coverage_decision = ctx._prime_coverage_decision(
+        ctx.hcatHashFile, selected_rules, wordlist_choice, "Quick Crack"
+    )
     for chain in selected_rules:
         ctx.hcatQuickDictionary(
             ctx.hcatHashType,
@@ -234,10 +238,18 @@ def loopback_attack(ctx: Any) -> None:
     if selected_rules is None:
         return
 
-    # Shared across every chain below so the "skip already-covered ground?"
-    # prompt fires once for the whole selection instead of once per rule
-    # file -- see hate_crack.main._apply_coverage.
-    coverage_decision: dict = {}
+    # Primed once, up front, against the combined coverage across every
+    # selected rule file -- so the "skip already-covered ground?" prompt (if
+    # any) reflects the whole batch and fires before any hashcat invocation,
+    # not just the first chain's own numbers. See
+    # hate_crack.main._prime_coverage_decision / _apply_coverage.
+    coverage_decision = ctx._prime_coverage_decision(
+        ctx.hcatHashFile,
+        selected_rules,
+        empty_wordlist,
+        "Loopback",
+        loopback=True,
+    )
     for chain in selected_rules:
         ctx.hcatQuickDictionary(
             ctx.hcatHashType,

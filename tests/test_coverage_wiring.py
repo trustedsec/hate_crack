@@ -279,6 +279,100 @@ def test_shared_decision_cache_honors_a_declined_prompt(main_module, store, env)
     assert launched[1][launched[1].index("-r") + 1] == str(partial_b)
 
 
+# --- priming an aggregate decision up front --------------------------------
+
+
+def test_prime_coverage_decision_prompts_once_with_aggregate_counts(
+    main_module, store, env, capsys
+):
+    """Priming must sum covered/total across every selected chain and show
+    ONE prompt reflecting that combined picture, before any chain runs."""
+    cmd = ["hashcat", env["hashes"], env["wordlist"], "-r", env["rules"]]
+    _run(main_module, cmd, _spec(env))  # fully covers "c", "$1", "u"
+
+    partial_a = env["tmp"] / "partial_a.rule"
+    partial_a.write_text("c\n$1\nq\n")  # 2 of 3 already covered
+    partial_b = env["tmp"] / "partial_b.rule"
+    partial_b.write_text("c\nz\n")  # 1 of 2 already covered
+
+    prompts = []
+
+    def counting_input(prompt=""):
+        prompts.append(prompt)
+        return "y"
+
+    with (
+        patch.object(main_module, "_coverage_enabled", True),
+        patch("builtins.input", counting_input),
+    ):
+        decision = main_module._prime_coverage_decision(
+            env["hashes"],
+            [f"-r {partial_a}", f"-r {partial_b}"],
+            env["wordlist"],
+            "Quick Crack",
+        )
+
+    assert decision == {"apply_filtering": True}
+    assert len(prompts) == 1, "one prompt for the whole batch, not per chain"
+    out = capsys.readouterr().out
+    assert "3 of 5 rules" in out, (
+        "aggregate must sum both partials' covered/total counts"
+    )
+
+
+def test_prime_coverage_decision_is_empty_when_nothing_is_covered(
+    main_module, store, env
+):
+    fresh_a = env["tmp"] / "fresh_a.rule"
+    fresh_a.write_text("l\n")
+    fresh_b = env["tmp"] / "fresh_b.rule"
+    fresh_b.write_text("u\n")
+
+    with patch.object(main_module, "_coverage_enabled", True):
+        decision = main_module._prime_coverage_decision(
+            env["hashes"],
+            [f"-r {fresh_a}", f"-r {fresh_b}"],
+            env["wordlist"],
+            "Quick Crack",
+        )
+
+    assert decision == {}
+
+
+def test_prime_coverage_decision_honors_a_declined_prompt(main_module, store, env):
+    cmd = ["hashcat", env["hashes"], env["wordlist"], "-r", env["rules"]]
+    _run(main_module, cmd, _spec(env))  # fully covers "c", "$1", "u"
+
+    partial_a = env["tmp"] / "partial_a.rule"
+    partial_a.write_text("c\n$1\nq\n")
+
+    with (
+        patch.object(main_module, "_coverage_enabled", True),
+        patch("builtins.input", lambda *a: "n"),
+    ):
+        decision = main_module._prime_coverage_decision(
+            env["hashes"], [f"-r {partial_a}"], env["wordlist"], "Quick Crack"
+        )
+
+    assert decision == {"apply_filtering": False}
+
+
+def test_prime_coverage_decision_disabled_flag_is_a_noop(main_module, store, env):
+    with patch.object(main_module, "_coverage_enabled", False):
+        decision = main_module._prime_coverage_decision(
+            env["hashes"], [f"-r {env['rules']}"], env["wordlist"], "Quick Crack"
+        )
+    assert decision == {}
+
+
+def test_prime_coverage_decision_empty_chain_list_is_a_noop(main_module, store, env):
+    with patch.object(main_module, "_coverage_enabled", True):
+        decision = main_module._prime_coverage_decision(
+            env["hashes"], [], env["wordlist"], "Quick Crack"
+        )
+    assert decision == {}
+
+
 # --- opting out ------------------------------------------------------------
 
 

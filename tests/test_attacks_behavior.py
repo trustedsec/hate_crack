@@ -144,6 +144,41 @@ class TestLoopbackAttack:
             "every call in the batch must share the same decision object"
         )
 
+    def test_coverage_decision_is_primed_before_any_run(self, tmp_path: Path) -> None:
+        """The aggregate coverage prompt (if any) must be computed from every
+        selected rule file up front -- before the first hashcat invocation --
+        rather than reactively from whichever chain happens to run first.
+        See hate_crack.main._prime_coverage_decision."""
+        ctx = _make_ctx()
+        ctx.hcatWordlists = str(tmp_path / "wordlists")
+        ctx.rulesDirectory = str(tmp_path / "rules")
+        rules_dir = tmp_path / "rules"
+        rules_dir.mkdir()
+        (rules_dir / "best66.rule").write_text("")
+        (rules_dir / "d3ad0ne.rule").write_text("")
+        ctx.list_rule_files.return_value = ["best66.rule", "d3ad0ne.rule"]
+
+        call_order = []
+        ctx._prime_coverage_decision.side_effect = lambda *a, **k: (
+            call_order.append("prime") or {}
+        )
+        ctx.hcatQuickDictionary.side_effect = lambda *a, **k: call_order.append("run")
+
+        with patch("builtins.input", return_value="1,2"):
+            loopback_attack(ctx)
+
+        assert call_order == ["prime", "run", "run"]
+        ctx._prime_coverage_decision.assert_called_once_with(
+            ctx.hcatHashFile,
+            [
+                "-r " + str(rules_dir / "best66.rule"),
+                "-r " + str(rules_dir / "d3ad0ne.rule"),
+            ],
+            os.path.join(ctx.hcatWordlists, "empty.txt"),
+            "Loopback",
+            loopback=True,
+        )
+
 
 class TestExtensiveCrack:
     def test_calls_all_attack_methods(self) -> None:

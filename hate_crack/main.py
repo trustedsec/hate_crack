@@ -2970,6 +2970,59 @@ def _quick_dictionary_coverage(hash_file, chains, wordlists, loopback):
     )
 
 
+def _prime_coverage_decision(
+    hash_file, chains, wordlists, attack_name: str, loopback: bool = False
+) -> dict:
+    """Compute one combined coverage view across every chain about to run,
+    and if there is overlap anywhere in it, ask the "skip already-covered
+    ground?" question exactly once for the whole batch, before any of it
+    runs.
+
+    Quick Crack and Loopback run one hashcat invocation per selected rule
+    file/chain against the same wordlist. Passing the returned dict to
+    every subsequent ``_run_hcat_cmd(..., coverage_decision=...)`` call
+    reuses this one decision (see ``_apply_coverage``) -- but without this,
+    that first call's *own* possibly-unrepresentative numbers (a huge rule
+    file that happens to be fully covered, say) drove the only prompt an
+    operator saw, rather than a true picture of the whole selection.
+
+    Returns an empty dict when there is nothing to prime -- no coverage
+    store, or nothing in the batch is covered yet -- so the batch behaves
+    exactly as if coverage were untouched.
+    """
+    if not _coverage_enabled or not chains:
+        return {}
+
+    store = _coverage_store()
+    plans = []
+    first_spec = None
+    for chain in chains:
+        spec = _quick_dictionary_coverage(hash_file, chain, wordlists, loopback)
+        if first_spec is None:
+            first_spec = spec
+        plan = _coverage.plan_run(spec, store.covered, store=store)
+        if not plan.is_inert:
+            plans.append(plan)
+
+    if not plans:
+        return {}
+
+    total_count = sum(plan.total_count for plan in plans)
+    covered_count = sum(plan.covered_count for plan in plans)
+    if covered_count == 0:
+        return {}
+
+    aggregate = _coverage.RunPlan(
+        kind=plans[0].kind,
+        skip=covered_count == total_count,
+        covered_count=covered_count,
+        total_count=total_count,
+    )
+    return {
+        "apply_filtering": _prompt_coverage_filter(aggregate, attack_name, first_spec)
+    }
+
+
 def _valid_hcmask(mask: object) -> bool:
     """Is *mask* a syntactically valid hashcat brute-force mask (or hcmask line)?
 
