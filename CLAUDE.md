@@ -270,6 +270,12 @@ branch.** Pushing a branch that will only ever be merged locally leaves an
 orphaned remote branch and, if a PR was opened, a review artifact nobody asked
 for. There is no `--base` question to get right anymore, because there is no PR.
 
+**That rule is for maintainers with push access, and only for them.** This file
+is published, so an outside contributor reads it too — and for them a fork plus
+a pull request is the only available route and an entirely welcome one.
+`CONTRIBUTING.md` says so directly and sends them at `nightly-dev` rather than
+`main`; keep the two in step if this section changes.
+
 Two exceptions still PR directly to `main`, as documented below: workflow file
 changes (they must exist on the default branch to fire) and a security fix that
 must ship immediately.

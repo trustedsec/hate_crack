@@ -24,10 +24,17 @@ config.json~
 .env~
 # Playwright MCP scratch output (console logs, traces, screenshots).
 .playwright-mcp/
-hashcat.pot
 # hcatPotfilePath falls back to "hashcat.potfile" inside the checkout, so the
 # name hate_crack itself writes needs covering too, not just hashcat's default.
-hashcat.potfile
+#
+# Both spellings are globbed rather than named, because hcatPotfilePath is a
+# configurable setting: point it at engagement.potfile or client.pot and the two
+# literal names that used to be listed here matched nothing. A potfile is a
+# hash:plaintext list, so that was the same exposure as the artifacts below with
+# a different filename. SECRET_ARTIFACT_PATTERNS in tests/test_repo_hygiene.py
+# has always used these globs; .gitignore was the narrower of the two.
+*.pot
+*.potfile
 # Cracked-plaintext session artifacts. `.out` is a hash:plaintext list and
 # `.passwords` is pure plaintext; the rest carry hashes or intermediate cracks.
 # These were ignored only by .git/info/exclude, which is local-only and does not

@@ -339,6 +339,11 @@ def pristine_checkout(tmp_path_factory):
         "cracked.xlsx",
         "hashcat.potfile",
         "hashcat.pot",
+        # hcatPotfilePath is configurable, so the two literal spellings above
+        # are not the only names a potfile can have.
+        "client.pot",
+        "engagement.potfile",
+        "some/nested/dir/client.pot",
         # The raw NTDS extract. The derived spellings just above were covered
         # while these were not, so a fresh clone staged the source dump.
         "corp.ntds",

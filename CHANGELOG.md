@@ -9,7 +9,17 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ## [Unreleased]
 
+### Added
+- **`CONTRIBUTING.md`, which the repo has never had.** Publishing `CLAUDE.md` made this urgent rather than merely nice: that file is written for maintainers and says, in four places, never to push a work branch or open a pull request for one. Correct for someone with push access whose branches merge locally — and, to the outside contributor who can now read it, indistinguishable from "this project does not accept pull requests." With no `CONTRIBUTING.md`, no issue template and no PR template, that was the only public statement of process.
+
+  It covers the things a contributor cannot infer: that pull requests target `nightly-dev` and not the `main` that GitHub preselects, since `main` holds the last released state and takes work only through a batch integration merge; the two exceptions that legitimately go straight to `main`; the setup and the exact gate commands; that a `[Unreleased]` changelog entry carrying its issue as `(#NNN)` is how closing keywords get assembled at release time; and where the six wiring steps for a new attack live. `CLAUDE.md` now scopes its no-pull-request rule to maintainers and points at the new file, so the two do not contradict each other.
+
+  It also leads with engagement data, because this tool's working files are somebody else's hash dumps and cracked passwords: no hashes, plaintexts, basewords, potfiles, NTDS extracts, or client-identifying hostnames in an issue, a PR, a fixture, or a pasted traceback.
+
 ### Fixed
+- **A potfile under any name but the two hardcoded ones was not gitignored.** `.gitignore` listed the literal `hashcat.pot` and `hashcat.potfile`, but `hcatPotfilePath` is a configurable setting — point it at `client.pot` or `engagement.potfile` and nothing matched. A potfile is a hash:plaintext list, so this was the same exposure as the artifacts alongside it with a different filename. Both spellings are now globbed (`*.pot`, `*.potfile`).
+
+  Notably `SECRET_ARTIFACT_PATTERNS` in `tests/test_repo_hygiene.py` had used the globs all along, so the suite would have caught such a file being *tracked* while `.gitignore` did nothing to stop it being *staged* — the test list and the ignore file had silently disagreed about the same rule. Three cases were added to the gitignore-coverage test to keep them in step. Found while fact-checking a claim written into `CONTRIBUTING.md`, which is the second gap of this shape in as many days after the raw NTDS extract.
 - **A raw NTDS extract was not gitignored, so a fresh clone would stage a domain-wide hash dump on `git add -A`.** Every file *derived* from one was already covered — `corp.ntds.nt` by `*.nt`, `corp.ntds.nt.out` by `*.out` — but `corp.ntds` and `ntds.dit` themselves matched nothing, and neither did an explicitly-named `users.hashes`. `*.ntds`, `ntds.dit` and `*.hashes` now join the cracked-artifact block.
 
   This is the same gap the rest of that block exists to close, one step upstream and missed at the time: the artifacts were covered locally by a `*ntds*` line in `.git/info/exclude`, which is local-only and does not clone, so the protection existed on the machine that wrote the rule and nowhere else. Of 86 patterns in one operator's exclude file, 64 were already covered by the tracked `.gitignore` and the raw dump was the only genuinely dangerous remainder — the rest were engagement-specific names, or already-covered spellings, or too broad to ship.
