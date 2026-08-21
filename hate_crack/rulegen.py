@@ -74,9 +74,13 @@ The literal fallback, and what it does and does not mean
 -------------------------------------------------------
 
 When a password cannot be expressed as baseword-plus-rule, :func:`derive`
-emits it verbatim as its own baseword with a ``:`` no-op rule. Two very
-different things end up there, and :func:`generate` counts them separately
-because only one of them is a loss:
+falls back to :func:`_literal_pair`, which emits it verbatim as its own
+baseword with a ``:`` no-op rule -- except when the password holds a CR or
+LF, in which case the break is lifted out of the baseword into an escaped
+``i{p}{x}`` insert op instead (:func:`_literal_with_line_breaks`; #295), since
+a wordlist line has no escape syntax to hold the raw byte. Two very
+different things end up in this fallback, and :func:`generate` counts them
+separately because only one of them is a loss:
 
 * ``no_letter_literals`` — the password holds no ASCII letter at all, so there
   is no letters-only core to derive from. A digit- or symbol-only password is
@@ -1118,11 +1122,13 @@ def generate(
         f.write(f"literal fallbacks:   {literal_fallbacks}\n")
         f.write(f"no_letter_literals:  {no_letter_literals}\n")
         f.write(
-            "  (no ASCII letter anywhere, so the password is its own baseword\n"
-            "   with a ':' rule. This is NOT a defect: a digit- or symbol-only\n"
-            "   password has no letters-only core to derive, and it is a\n"
-            "   perfectly good dictionary entry as it stands. These two sum to\n"
-            "   the literal fallbacks above.)\n"
+            "  (no ASCII letter anywhere, so the password is its own baseword --\n"
+            "   with a ':' rule, unless it holds a CR or LF, in which case the\n"
+            "   break is lifted into an escaped insert op instead (#295) and\n"
+            "   kept out of the baseword. Either way this is NOT a defect: a\n"
+            "   digit- or symbol-only password has no letters-only core to\n"
+            "   derive, and it is a perfectly good dictionary entry as it\n"
+            "   stands. These two sum to the literal fallbacks above.)\n"
         )
         f.write(f"unrepresentable:     {unrepresentable}\n")
         f.write(
