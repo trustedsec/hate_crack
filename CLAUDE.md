@@ -195,16 +195,35 @@ commit it", never "purge it later."**
 
 ## Branching Policy
 
-**Feature and fix branches stay local. Never push them, and never open a PR for
-them.** They are merged into `nightly-dev` locally, and only `nightly-dev` is
-pushed. `main` receives work only through a batch integration merge from
-`nightly-dev`.
+**Feature and fix branches branch from `nightly-dev` and land on `nightly-dev`.
+Never on `main`.** `main` receives work only through a batch integration merge.
+
+**A work branch may be pushed, and normally gets a pull request against
+`nightly-dev`.** Revised 2026-08-21: this section used to say branches stay
+local and never get a PR, which had stopped being true. Of the six most recent
+work-branch PRs, all six targeted `nightly-dev` and five landed as
+fast-forwards — so the practice was already settled, and the rule was simply
+out of date. Both are legitimate:
+
+- **Open a PR** when the change wants review, or a CI run before it lands, or a
+  durable record of the reasoning. This is the default for anything
+  non-trivial.
+- **Merge locally without one** when the change is small enough that a review
+  adds nothing. `ci.yml` runs on every push to `nightly-dev`, so this still
+  gets CI — just after the merge rather than before it.
+
+What is *not* optional is the merge mechanics. **However the change is
+reviewed, it lands as a local fast-forward — never with a GitHub merge
+button.** The PR exists for the CI run, the review, and the record; it is not
+the thing that performs the merge. See the linear-history section below, and
+note the evidence for the rule: every work-branch PR that was merged through
+the GitHub UI (#247, #277, #278, #279) left a merge commit behind.
 
 `nightly-dev` may be pushed as often as needed — there is no batching
 requirement. Push it whenever a change is merged and verified.
 
 ```bash
-# Branch from nightly-dev, not main. Local only.
+# Branch from nightly-dev, not main.
 git fetch origin
 git worktree add /tmp/hate_crack-<task> -b <branch> origin/nightly-dev
 
@@ -216,15 +235,22 @@ git rebase origin/nightly-dev
 
 # ... re-run the gates after rebasing, not before ...
 
-# Merge locally from the main checkout, then push nightly-dev alone.
+# Optional: push the branch and open a PR against nightly-dev for review/CI.
+# Do NOT use --base main, and do NOT merge it with the GitHub button.
+git push -u origin <branch>
+gh pr create --base nightly-dev --head <branch>
+
+# Merge locally from the main checkout either way, then push nightly-dev alone.
+# GitHub marks the PR merged on its own once the commits reach the base branch.
 git checkout nightly-dev
 git merge --ff-only origin/nightly-dev     # pick up anything new first
 git merge --ff-only <branch>               # linear: no merge commit
 git push origin nightly-dev
 
-# Clean up: the branch has served its purpose and has no remote counterpart.
+# Clean up. Delete the remote branch too if you pushed one.
 git worktree remove /tmp/hate_crack-<task>   # --force if it has submodules
 git branch -d <branch>
+git push origin --delete <branch>            # only if it was pushed
 ```
 
 ### History stays linear — always rebase, never a merge commit
@@ -265,16 +291,23 @@ turn every subsequent merge-down into a conflict.
 Note that history before 2026-07-30 contains merge commits. They stay. This
 policy applies going forward; shared history is not rewritten.
 
-**Do not run `git push -u origin <branch>` or `gh pr create` for a work
-branch.** Pushing a branch that will only ever be merged locally leaves an
-orphaned remote branch and, if a PR was opened, a review artifact nobody asked
-for. There is no `--base` question to get right anymore, because there is no PR.
+**A work-branch PR takes `--base nightly-dev`. Never `--base main`.** That is
+the one thing to get right when opening one, and it is where this has actually
+gone wrong: #277, #278 and #279 each pointed a work branch at `main`, which both
+bypasses the batch-integration model and — because they were merged through the
+UI — left a merge commit in `main`'s history.
 
-**That rule is for maintainers with push access, and only for them.** This file
-is published, so an outside contributor reads it too — and for them a fork plus
-a pull request is the only available route and an entirely welcome one.
-`CONTRIBUTING.md` says so directly and sends them at `nightly-dev` rather than
-`main`; keep the two in step if this section changes.
+**If you pushed the branch, delete the remote copy after merging.** A merged
+branch left on the remote is indistinguishable from work in flight; two such
+refs sat on the remote for weeks before anyone asked about them, and one turned
+out to be work that had already landed under a different SHA after a rebase.
+Recognising that case takes `git patch-id` or `git range-diff`, because
+`--is-ancestor` reports a rebased-and-merged branch as unmerged.
+
+**Outside contributors are on the same path**, minus push access: they fork,
+then open a PR against `nightly-dev`. `CONTRIBUTING.md` says so directly, since
+this file is published and read by people who cannot push here. Keep the two in
+step if this section changes.
 
 Two exceptions still PR directly to `main`, as documented below: workflow file
 changes (they must exist on the default branch to fire) and a security fix that
@@ -475,12 +508,15 @@ Note that `git worktree remove` refuses a worktree containing submodules
 1. **Always create a worktree** before making any file changes: `git worktree add /tmp/hate_crack-<task> -b <branch> origin/nightly-dev`
 2. **All file edits** happen inside the worktree directory, not the main repo
 3. **Run tests and lint** inside the worktree before merging — the full suite plus
-   the ruff, ty, and bandit gates. This is the only gate the change gets, so it
-   is not optional.
-4. **Merge back locally**: `git checkout nightly-dev && git merge <branch>`, then
-   push `nightly-dev` alone. Never push the work branch; never open a PR for it.
+   the ruff, ty, and bandit gates. Run them even when the change is going to a
+   PR: CI repeats them, but a red PR wastes a review cycle.
+4. **Merge back with a fast-forward**: `git checkout nightly-dev && git merge
+   --ff-only <branch>`, then push `nightly-dev` alone. Opening a PR against
+   `nightly-dev` first is normal and encouraged — see Branching Policy — but the
+   merge itself is always the local fast-forward, never a GitHub button.
 5. **Clean up** when done: `git worktree remove /tmp/hate_crack-<task>` (add
-   `--force` if it has submodules), then `git branch -d <branch>`
+   `--force` if it has submodules), then `git branch -d <branch>`, plus
+   `git push origin --delete <branch>` if you pushed it
 
 ## Architecture
 

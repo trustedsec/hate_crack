@@ -55,10 +55,12 @@ Two exceptions go straight to `main`: a change to a file in
 the default branch, and a security fix that must ship immediately. Say which one
 applies in the PR body.
 
-If you are reading `CLAUDE.md` and wondering about its instruction never to open
-a pull request for a work branch: that is addressed to maintainers with push
-access, whose branches are merged locally. It does not apply to you. Pull
-requests from a fork are the normal and welcome route.
+`CLAUDE.md` describes the same flow from the maintainer side, so it is worth a
+read if you want the reasoning. One difference in mechanics, and it is not
+something you need to do anything about: maintainers merge an approved branch
+with a local fast-forward rather than with GitHub's merge button, because every
+button leaves either a merge commit or rewritten SHAs and this repository keeps
+its history linear. GitHub marks your pull request merged either way.
 
 ## Setting up
 

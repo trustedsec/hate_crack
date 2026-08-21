@@ -9,6 +9,13 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ## [Unreleased]
 
+### Changed
+- **The branching policy now says what the team actually does: a work branch may be pushed and normally gets a pull request against `nightly-dev`.** It previously said, in four places, that feature and fix branches stay local and never get a PR. That had quietly stopped being true — of the six most recent work-branch pull requests, all six targeted `nightly-dev` and five landed as fast-forwards, so the practice was settled and only the document was out of date. Publishing `CLAUDE.md` turned that staleness into a real problem, since an outside contributor reading "never open a PR" has no way to know the instruction was meant for people with push access.
+
+  **The invariant that mattered is unchanged and is now stated separately from the workflow:** however a change is reviewed, it lands as a local fast-forward, never through a GitHub merge button. That is not a stylistic preference — every work-branch PR merged through the UI (#247, #277, #278, #279) left a merge commit behind, and the three that also mis-targeted `main` bypassed batch integration as well. The revised section records those PR numbers as the evidence, so the rule reads as a conclusion rather than an edict.
+
+  Two operational notes were added from things that went wrong this week: a work-branch PR takes `--base nightly-dev` and never `--base main`, and a pushed branch should have its remote copy deleted after merging — two merged branches sat on the remote long enough to be mistaken for work in flight, and one of them had already landed under a different SHA after a rebase, which `git merge-base --is-ancestor` reports as unmerged. Identifying that case needs `git patch-id` or `git range-diff`. `CONTRIBUTING.md` was updated to match, since it had explained the now-deleted rule.
+
 ### Added
 - **`CONTRIBUTING.md`, which the repo has never had.** Publishing `CLAUDE.md` made this urgent rather than merely nice: that file is written for maintainers and says, in four places, never to push a work branch or open a pull request for one. Correct for someone with push access whose branches merge locally — and, to the outside contributor who can now read it, indistinguishable from "this project does not accept pull requests." With no `CONTRIBUTING.md`, no issue template and no PR template, that was the only public statement of process.
 
