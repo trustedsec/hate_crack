@@ -8,6 +8,18 @@
 # -f` -- or an index-corrupting hook -- could stage one anyway. On 2026-07-30 a
 # commit did exactly that and reached the public remote.
 #
+# CLAUDE.md and .claude/ were removed from this list on 2026-08-21 and are now
+# published on purpose. The list narrowed rather than disappeared: what remains
+# is either per-developer state (.claude/settings.local.json) or local planning
+# notes (.claude/plans/, .claude/specs/, docs/plans/, docs/superpowers/).
+# Narrowing is the point -- a guard that blocks things people have decided to
+# publish is a guard people switch off.
+#
+# Note that .claude/ is published but two of its subdirectories are not. Plans
+# and specs are per-task scratch: they are written in the future tense, go stale
+# the moment the work lands, and a reader cannot tell a shipped design from an
+# abandoned one. The tooling beside them is live and is published.
+#
 # This reads the staged changeset from the index rather than trusting
 # .gitignore, because forcing past .gitignore is precisely the failure mode.
 #
@@ -21,11 +33,14 @@ set -euo pipefail
 # Any staged path matching one of these globs is refused. Keep in sync with the
 # corresponding .gitignore entries and with the test suite's copy of this list.
 PATTERNS=(
-	'CLAUDE.md'
-	'*/CLAUDE.md'
-	'.claude'
-	'.claude/*'
-	'*/.claude/*'
+	'.claude/settings.local.json'
+	'*/.claude/settings.local.json'
+	'.claude/plans'
+	'.claude/plans/*'
+	'*/.claude/plans/*'
+	'.claude/specs'
+	'.claude/specs/*'
+	'*/.claude/specs/*'
 	'docs/plans'
 	'docs/plans/*'
 	'*/docs/plans/*'
@@ -70,11 +85,13 @@ fi
 		echo "    $path"
 	done
 	echo
-	echo "These files are local-only development aids. This repository is"
-	echo "PUBLIC, and these paths were purged from its git history on"
-	echo "2026-07-25; they are gitignored and must never be committed again."
-	echo "They can hold internal notes, client context, and workflow detail"
-	echo "that is not ours to publish."
+	echo "These paths are local-only. This repository is PUBLIC, and these"
+	echo "paths are gitignored and must not be committed."
+	echo
+	echo ".claude/plans/, .claude/specs/, docs/plans/ and docs/superpowers/"
+	echo "are local planning notes, not part of the shipped project."
+	echo ".claude/settings.local.json is per-developer permission state,"
+	echo "personal by design."
 	echo
 	echo "To proceed, unstage them:"
 	echo

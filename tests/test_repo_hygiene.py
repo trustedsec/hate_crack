@@ -119,25 +119,55 @@ def test_no_tracked_file_lives_in_an_attack_scratch_directory():
 
 # --- begin guard constants: these must name the forbidden paths ---
 # Unpublished local development aids (see the Publication Boundary section of
-# the project's local dev-notes file): these paths were purged from git
-# history on 2026-07-25 and are gitignored. Shipped files must not cite
-# them — an outside contributor following such a pointer finds nothing.
+# CLAUDE.md): these paths are gitignored, so a shipped file must not cite them —
+# an outside contributor following such a pointer finds nothing.
+#
+# CLAUDE.md and .claude/ were removed from this tuple on 2026-08-21: both are
+# now published, so citing them is not a dead-end pointer any more. That is also
+# why this comment can name CLAUDE.md directly where it used to say "the
+# project's local dev-notes file".
 UNPUBLISHED_PATH_REFERENCES = (
-    "CLAUDE.md",
-    ".claude/",
+    ".claude/settings.local.json",
+    ".claude/plans/",
+    ".claude/specs/",
     "docs/plans/",
     "docs/superpowers/",
+)
+
+# Unpublished *tooling*, referenced by name rather than by path. The skill
+# library lives in docs/superpowers/, which is not published, so a tracked file
+# telling a reader to "use superpowers:brainstorming" sends them after something
+# this repo does not ship — the same dead end as citing the directory, in a shape
+# the path check above cannot see, because the namespace contains no path.
+#
+# Found by review on 2026-08-21: two .claude/plans/ files carried a "REQUIRED
+# SUB-SKILL: Use superpowers:subagent-driven-development" directive and would
+# have been published with it.
+UNPUBLISHED_TOOLING_REFERENCES = ("superpowers:",)
+
+# Deliberately a *separate*, shorter list than the path exemptions below.
+# CLAUDE.md is exempt from the path guard because it defines the boundary and has
+# to name it — but it is exactly the kind of file this tooling guard exists to
+# police, so exempting it from both would leave the main target unguarded. It
+# therefore describes the skill library in prose without spelling the namespace.
+UNPUBLISHED_TOOLING_REFERENCE_EXEMPTIONS = (
+    # Has to name what it changed, same as for the path guard.
+    "CHANGELOG.md",
 )
 
 # Narrow, explicit exemptions. Do not widen these (e.g. to all of tests/) —
 # that would defeat the point of the guard.
 UNPUBLISHED_PATH_REFERENCE_EXEMPTIONS = (
-    # Documents the 2026-07-25 removal of these very paths; a changelog that
-    # cannot name what it removed is useless.
+    # Documents the 2026-07-25 removal of these very paths, and the 2026-08-21
+    # republication of two of them; a changelog that cannot name what it changed
+    # is useless.
     "CHANGELOG.md",
-    # Builds a fixture git repo containing a literal CLAUDE.md to reproduce the
-    # 2026-07-25 history purge and assert the upgrade path survives it.
-    "tests/test_upgrade_real_git.py",
+    # Became tracked on 2026-08-21, and its Publication Boundary section is the
+    # prose definition of this very list. It has to name the paths it forbids —
+    # the same reasoning that exempts .gitignore and the guard script. This is
+    # an exemption from *citing* the paths, not a licence to add content that
+    # belongs in them.
+    "CLAUDE.md",
     # Lists these paths so git ignores them; that's the mechanism that keeps
     # them unpublished, not a dead-end pointer for a reader.
     ".gitignore",
@@ -198,9 +228,17 @@ def _strip_self_exemption_block(text: str) -> str:
     return "".join(lines[:start_idx] + lines[end_idx + 1 :])
 
 
-def test_no_tracked_file_references_unpublished_dev_paths():
+def _tracked_files_referencing(
+    needles: tuple[str, ...], exemptions: tuple[str, ...]
+) -> list[str]:
+    """Tracked files whose text contains any of ``needles``.
+
+    Shared by the path and tooling guards so both apply the same exemption list
+    and the same self-exemption stripping. A second hand-rolled copy of this
+    scan would be free to drift out of step with the first.
+    """
     tracked = _git("ls-files").stdout.splitlines()
-    candidates = [p for p in tracked if p not in UNPUBLISHED_PATH_REFERENCE_EXEMPTIONS]
+    candidates = [p for p in tracked if p not in exemptions]
 
     offenders = []
     for path in candidates:
@@ -216,8 +254,37 @@ def test_no_tracked_file_references_unpublished_dev_paths():
             # _strip_self_exemption_block's docstring for why a missing,
             # duplicated, or reordered marker must fail this test loudly.
             text = _strip_self_exemption_block(text)
-        if any(ref in text for ref in UNPUBLISHED_PATH_REFERENCES):
+        if any(ref in text for ref in needles):
             offenders.append(path)
+    return offenders
+
+
+def test_no_tracked_file_references_unpublished_tooling():
+    """A shipped file must not send the reader after tooling this repo lacks.
+
+    Distinct from the path guard below: the forbidden strings here are skill
+    *namespaces*, which contain no path and so are invisible to a path-substring
+    check. They are spelled only inside the guard-constants block above, per
+    this file's convention -- naming one in this docstring would make the test
+    flag itself, as it did when this guard was first written.
+    """
+    offenders = _tracked_files_referencing(
+        UNPUBLISHED_TOOLING_REFERENCES, UNPUBLISHED_TOOLING_REFERENCE_EXEMPTIONS
+    )
+
+    assert offenders == [], (
+        "tracked files reference unpublished tooling: "
+        + repr(offenders)
+        + ". See UNPUBLISHED_TOOLING_REFERENCES in this file. Either drop the "
+        "reference or describe the step in prose a contributor can follow "
+        "without the skill library."
+    )
+
+
+def test_no_tracked_file_references_unpublished_dev_paths():
+    offenders = _tracked_files_referencing(
+        UNPUBLISHED_PATH_REFERENCES, UNPUBLISHED_PATH_REFERENCE_EXEMPTIONS
+    )
 
     assert offenders == [], (
         "tracked files reference unpublished dev-only paths: "

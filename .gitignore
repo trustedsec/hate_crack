@@ -87,8 +87,19 @@ research/
 all_hashes.enabled
 some_histories
 
-# Local agent tooling and instructions - intentionally not published
-CLAUDE.md
-.claude/
+# Local agent tooling and instructions - intentionally not published.
+#
+# CLAUDE.md and .claude/ used to live here. They are published deliberately as
+# of 2026-08-21: CLAUDE.md is the contributor-facing account of the branching,
+# release and config policies, and .claude/ holds the tooling it refers to.
+# Only the personal and the genuinely local remain unpublished.
+#
+# settings.local.json is per-developer, per-machine permission state. Claude
+# Code's own docs call it "personal/not checked in" and auto-add it to global
+# git excludes; committing it would also gate its rules behind the workspace
+# trust dialog, which is not what a personal file is for.
+.claude/settings.local.json
+.claude/plans/
+.claude/specs/
 docs/plans/
 docs/superpowers/

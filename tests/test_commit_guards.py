@@ -38,14 +38,43 @@ pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git is requ
 # --- begin guard constants: these must name the forbidden paths ---
 # The publication-boundary paths, as the guard must see them. Kept literal here
 # on purpose: a test that spelled them indirectly could not detect the guard
-# silently narrowing. See tests/test_repo_hygiene.py for why tracked files may
-# not otherwise cite these.
+# silently narrowing.
+#
+# CLAUDE.md, .claude/settings.json and .claude/nested/deep/notes.md were removed
+# from this tuple on 2026-08-21, when CLAUDE.md and .claude/ became published.
+# They moved to NON_BOUNDARY_LOOKALIKES below, so this file now asserts the
+# narrowing in both directions: the remaining paths are still refused, and the
+# newly published ones are provably not.
 BOUNDARY_FILES = (
-    "CLAUDE.md",
-    ".claude/settings.json",
-    ".claude/nested/deep/notes.md",
+    ".claude/settings.local.json",
+    ".claude/plans/some-plan.md",
+    ".claude/specs/some-design.md",
     "docs/plans/some-plan.md",
     "docs/superpowers/some-skill/SKILL.md",
+)
+
+# A boundary path used where a test needs one specific file rather than the whole
+# set. Previously CLAUDE.md; it has to be a still-forbidden path now.
+A_BOUNDARY_FILE = "docs/plans/some-plan.md"
+
+# Paths the guard must NOT block. The first group is near misses -- the guard has
+# to be precise or it becomes something people disable. The second is the
+# now-published set: these were refused until 2026-08-21, so asserting they
+# commit cleanly is what stops the old patterns being reinstated by a
+# well-meaning revert.
+NON_BOUNDARY_LOOKALIKES = (
+    "docs/plans.md",
+    "docs/planning/roadmap.md",
+    "docs/superpowers-notes.md",
+    "hate_crack/claude.py",
+    "CLAUDE.md.example",
+    "tests/test_claude_helper.py",
+    # Published deliberately as of 2026-08-21.
+    "CLAUDE.md",
+    ".claude/settings.json",
+    ".claude/audit-docs.sh",
+    ".claude/nested/deep/notes.md",
+    ".claude/skills/some-skill/SKILL.md",
 )
 # --- end guard constants ---
 
@@ -115,7 +144,14 @@ def guarded_repo(tmp_path):
     _write(
         repo,
         ".gitignore",
-        "\n".join(("CLAUDE.md", ".claude/", "docs/plans/", "docs/superpowers/", "")),
+        "\n".join(
+            (
+                ".claude/settings.local.json",
+                "docs/plans/",
+                "docs/superpowers/",
+                "",
+            )
+        ),
     )
     _run_git(repo, "add", "-A")
     _run_git(repo, "commit", "-qm", "initial")
@@ -173,13 +209,13 @@ def test_modifying_an_already_tracked_boundary_path_is_refused(guarded_repo):
     """The 2026-07-25 purge means none are tracked now, but a re-added one must
     not become permanently editable just because it is no longer an addition.
     """
-    _write(guarded_repo, "CLAUDE.md")
-    _run_git(guarded_repo, "add", "-f", "--", "CLAUDE.md")
+    _write(guarded_repo, A_BOUNDARY_FILE)
+    _run_git(guarded_repo, "add", "-f", "--", A_BOUNDARY_FILE)
     # Sneak it into history the way the incident did, bypassing the hook.
     _run_git(guarded_repo, "commit", "-qm", "smuggled in", "--no-verify")
 
-    _write(guarded_repo, "CLAUDE.md", "edited\n")
-    _run_git(guarded_repo, "add", "-f", "--", "CLAUDE.md")
+    _write(guarded_repo, A_BOUNDARY_FILE, "edited\n")
+    _run_git(guarded_repo, "add", "-f", "--", A_BOUNDARY_FILE)
     before = _head(guarded_repo)
 
     result = _commit(guarded_repo, "edit the smuggled file")
@@ -192,12 +228,12 @@ def test_deleting_a_tracked_boundary_path_is_allowed(guarded_repo):
     """Removing an accidentally tracked boundary file must stay possible --
     otherwise the guard blocks its own cleanup.
     """
-    _write(guarded_repo, "CLAUDE.md")
-    _run_git(guarded_repo, "add", "-f", "--", "CLAUDE.md")
+    _write(guarded_repo, A_BOUNDARY_FILE)
+    _run_git(guarded_repo, "add", "-f", "--", A_BOUNDARY_FILE)
     _run_git(guarded_repo, "commit", "-qm", "smuggled in", "--no-verify")
     before = _head(guarded_repo)
 
-    _run_git(guarded_repo, "rm", "-q", "--cached", "--", "CLAUDE.md")
+    _run_git(guarded_repo, "rm", "-q", "--cached", "--", A_BOUNDARY_FILE)
     result = _commit(guarded_repo, "remove the smuggled file")
 
     assert result.returncode == 0, (
@@ -220,19 +256,7 @@ def test_an_ordinary_commit_is_allowed(guarded_repo):
     assert _head(guarded_repo) != before
 
 
-@pytest.mark.parametrize(
-    "relpath",
-    [
-        # Near misses that must NOT be blocked: the guard has to be precise or
-        # it becomes something people disable.
-        "docs/plans.md",
-        "docs/planning/roadmap.md",
-        "docs/superpowers-notes.md",
-        "hate_crack/claude.py",
-        "CLAUDE.md.example",
-        "tests/test_claude_helper.py",
-    ],
-)
+@pytest.mark.parametrize("relpath", NON_BOUNDARY_LOOKALIKES)
 def test_lookalike_paths_are_not_blocked(guarded_repo, relpath):
     _write(guarded_repo, relpath)
     _run_git(guarded_repo, "add", "-A")
@@ -252,8 +276,8 @@ def test_boundary_guard_runs_standalone_in_a_repo_with_no_commits(tmp_path):
     repo = tmp_path / "empty"
     repo.mkdir()
     _run_git(repo, "init", "-q", "-b", "main")
-    _write(repo, "CLAUDE.md")
-    _run_git(repo, "add", "-f", "--", "CLAUDE.md")
+    _write(repo, A_BOUNDARY_FILE)
+    _run_git(repo, "add", "-f", "--", A_BOUNDARY_FILE)
 
     result = subprocess.run(
         [str(BOUNDARY_SCRIPT)],
@@ -264,7 +288,7 @@ def test_boundary_guard_runs_standalone_in_a_repo_with_no_commits(tmp_path):
     )
 
     assert result.returncode != 0, f"unblocked in a fresh repo:\n{result.stderr}"
-    assert "CLAUDE.md" in result.stdout + result.stderr
+    assert A_BOUNDARY_FILE in result.stdout + result.stderr
 
 
 # --------------------------------------------------------------------------
