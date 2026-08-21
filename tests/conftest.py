@@ -157,9 +157,9 @@ def _corrupted_submodule_references():
         for name, value in list(vars(hc_main).items()):
             if not isinstance(value, ModuleType):
                 continue
-            if not value.__name__.startswith("hate_crack."):
+            if not value.__name__.startswith("hate_crack.main."):
                 continue
-            canonical_name = "hate_crack." + value.__name__.rsplit(".", 1)[-1]
+            canonical_name = "hate_crack." + value.__name__[len("hate_crack.main.") :]
             canonical = sys.modules.get(canonical_name)
             if canonical is not None and value is not canonical:
                 reports.append(

@@ -27,6 +27,7 @@ itself does.
 """
 
 import sys
+from types import ModuleType
 from unittest import mock
 
 from hate_crack import llm
@@ -72,6 +73,7 @@ def test_string_target_patch_corrupts_and_is_detected_and_repaired():
         assert hc_main.llm.CloudDestinationRefused is llm.CloudDestinationRefused
     finally:
         hc_main.llm = original_llm
+        sys.modules.pop("hate_crack.main.llm", None)
 
 
 def test_repair_also_clears_the_duplicate_from_sys_modules():
@@ -98,6 +100,7 @@ def test_repair_also_clears_the_duplicate_from_sys_modules():
         assert "hate_crack.main.llm" not in sys.modules
     finally:
         hc_main.llm = llm
+        sys.modules.pop("hate_crack.main.llm", None)
 
 
 def test_recommended_idiom_produces_zero_corruption():
@@ -117,3 +120,50 @@ def test_recommended_idiom_produces_zero_corruption():
 
     reports = _corrupted_submodule_references()
     assert reports == []
+
+
+def test_canonical_name_is_derived_for_an_arbitrarily_nested_module():
+    """A duplicate whose real path has more than one dotted component below
+    ``hate_crack.main`` (e.g. a hypothetical ``hate_crack.progress.spinner``)
+    must resolve to the full nested canonical name, not just its last
+    segment.
+
+    No such nested module exists as a main.py attribute today, so this
+    constructs synthetic module objects to exercise
+    ``_corrupted_submodule_references``'s name derivation in isolation --
+    truncating to the last segment would compute ``hate_crack.spinner``
+    here instead of ``hate_crack.progress.spinner`` and silently miss (or
+    misreport) the duplicate."""
+    from tests.conftest import _corrupted_submodule_references
+
+    hc_main = _current_hc_main()
+
+    canonical = ModuleType("hate_crack.progress.spinner")
+    duplicate = ModuleType("hate_crack.main.progress.spinner")
+    assert canonical is not duplicate
+
+    had_attr = hasattr(hc_main, "spinner")
+    original_attr = getattr(hc_main, "spinner", None)
+    had_canonical_in_sys_modules = "hate_crack.progress.spinner" in sys.modules
+    original_canonical = sys.modules.get("hate_crack.progress.spinner")
+
+    try:
+        sys.modules["hate_crack.progress.spinner"] = canonical
+        hc_main.spinner = duplicate
+
+        reports = _corrupted_submodule_references()
+
+        assert any("hate_crack.progress.spinner" in r for r in reports), (
+            f"expected a report naming the full nested canonical path, got: {reports}"
+        )
+        assert hc_main.spinner is canonical
+    finally:
+        if had_attr:
+            hc_main.spinner = original_attr
+        else:
+            if hasattr(hc_main, "spinner"):
+                delattr(hc_main, "spinner")
+        if had_canonical_in_sys_modules:
+            sys.modules["hate_crack.progress.spinner"] = original_canonical
+        else:
+            sys.modules.pop("hate_crack.progress.spinner", None)
