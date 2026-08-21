@@ -453,8 +453,8 @@ def _case_ops(flags):
     return min(candidates, key=lambda x: (x[0], _CASE_STRATEGY_ORDER[x[2]]))[1]
 
 
-def _derive_letterless_with_line_breaks(pw):
-    """Derive a letterless password whose bytes include a CR or LF.
+def _literal_with_line_breaks(pw):
+    """Derive a literal-fallback password whose bytes include a CR or LF.
 
     The baseword is the password with those bytes removed and the rule inserts
     them back, in increasing index order so each insert accounts for the shift
@@ -477,11 +477,25 @@ def _derive_letterless_with_line_breaks(pw):
     return (base, "".join(ops))
 
 
+def _literal_pair(pw):
+    """The literal fallback for *pw*: the password as its own baseword.
+
+    A ``:`` no-op rule, except when *pw* holds a CR or LF -- a wordlist
+    line has no escape syntax, so a baseword still holding one cannot be
+    written at all. Lifting the break into an escaped insert op keeps the
+    password covered instead of counted as a loss (#295 residual gap).
+    """
+    if any(c in _ARG_ESCAPES for c in pw):
+        return _literal_with_line_breaks(pw)
+    return (pw, ":")
+
+
 def derive(pw):
     """Return ``(baseword, rule)`` such that applying *rule* to *baseword* yields *pw*.
 
-    Falls back to ``(pw, ":")`` — the password as its own literal baseword —
-    whenever the transformation cannot be expressed within hashcat's limits.
+    Falls back to :func:`_literal_pair` — the password as its own literal
+    baseword, with any CR/LF lifted into an escaped insert op — whenever the
+    transformation cannot be expressed within hashcat's limits.
     """
     if pw == "":
         return ("", ":")
@@ -491,9 +505,7 @@ def derive(pw):
         # cannot hold a CR or LF, and unlike a rule argument there is no escape
         # on that side to spell it with. Lift the line breaks out into insert
         # ops, which can be escaped, and let the rest be the baseword.
-        if any(c in _ARG_ESCAPES for c in pw):
-            return _derive_letterless_with_line_breaks(pw)
-        return (pw, ":")
+        return _literal_pair(pw)
     base = "".join(c.lower() for c in letters)
     idxs = [i for i, c in enumerate(pw) if _isalpha(c)]
     first, last = idxs[0], idxs[-1]
@@ -503,7 +515,7 @@ def derive(pw):
     case_ops = _case_ops([c.isupper() for c in letters])
     if case_ops is None:
         # Every case encoding needed an unaddressable position; fall back.
-        return (pw, ":")
+        return _literal_pair(pw)
     ops = list(case_ops)
     # Interior non-letters, inserted at core-relative indices in increasing
     # order so each insert accounts for the shift from the ones before it.
@@ -511,7 +523,7 @@ def derive(pw):
         if not _isalpha(c):
             p = _pos(idx)
             if p is None:
-                return (pw, ":")
+                return _literal_pair(pw)
             ops.append("i" + p + _escape_arg(c))
     # Trailing non-letters append; position-independent, so these merge well
     # across passwords.
@@ -522,7 +534,7 @@ def derive(pw):
         ops.append("^" + _escape_arg(c))
 
     if len(ops) > MAX_RULE_FUNCTIONS:
-        return (pw, ":")
+        return _literal_pair(pw)
 
     return (base, "".join(ops) if ops else ":")
 
@@ -742,8 +754,15 @@ def _derives_to_itself(pw):
     genuine fallback even though it is nothing but letters. Screening on "holds
     a non-letter" instead, as this check first did, silently missed exactly that
     case.
+
+    A CR or LF is ignored here rather than disqualifying: an all-lowercase
+    password with an addressable break derives successfully via an ``i``
+    insert op, and for such a password :func:`derive`'s real answer can come
+    out byte-for-byte identical to :func:`_literal_pair`'s fallback answer
+    (both lift the same break to the same insert). Without this widening that
+    coincidence would be miscounted as a fallback even though it derived.
     """
-    return all("a" <= c <= "z" for c in pw)
+    return all("a" <= c <= "z" for c in pw if c not in _ARG_ESCAPES)
 
 
 class _Scan(NamedTuple):
@@ -846,7 +865,10 @@ def _scan_corpus(
             # can therefore hold. The baseword side has no equivalent: a
             # wordlist line is the word, with no escape syntax to spell a break
             # with, so a baseword still holding one cannot be written at all.
-            # Only a derivation that bailed out to the literal pair lands here.
+            # Only a derivation that could not even lift the break into an
+            # insert op -- a break past addressable position 35, or one that
+            # would push the rule over MAX_RULE_FUNCTIONS -- lands here; see
+            # _literal_pair()/_literal_with_line_breaks().
             #
             # Written anyway it would split its own record across two lines and
             # hashcat would read two wrong words, silently -- the reconstruction
@@ -858,11 +880,15 @@ def _scan_corpus(
                 continue
             total += 1
             leet_restored += restored
-            # A literal fallback: the password came back as its own baseword
-            # under a no-op rule without that being a real derivation. Whether
-            # it holds any letter is what separates the two kinds of fallback —
-            # see the module docstring.
-            if base == pw and rule == ":" and not _derives_to_itself(pw):
+            # A literal fallback: the pair came back as _literal_pair(pw) would
+            # produce it, without that being a real derivation. Comparing the
+            # full pair (rather than just base == pw and rule == ":") catches
+            # the CR/LF fallback pairs too, since those no longer leave base
+            # equal to pw. _derives_to_itself excludes the genuine derivations
+            # that can coincide with that same pair byte-for-byte. Whether the
+            # password holds any letter is what separates the two kinds of
+            # fallback — see the module docstring.
+            if (base, rule) == _literal_pair(pw) and not _derives_to_itself(pw):
                 if any(_isalpha(c) for c in pw):
                     unrepresentable += 1
                 else:
@@ -1110,11 +1136,13 @@ def generate(
         f.write(
             "  (the baseword held a literal CR or LF, which arrives via a\n"
             "   $HEX[...] plaintext. A rule argument can spell such a byte \\xNN\n"
-            "   and hashcat decodes it, so a password normally keeps its break;\n"
-            "   only a derivation that fell back to the password as its own\n"
-            "   baseword lands here, and a wordlist line has no escape syntax to\n"
-            "   spell it with. Skipped rather than written truncated. Normally\n"
-            "   zero.)\n"
+            "   and hashcat decodes it, so a break is normally lifted into an\n"
+            "   insert op and kept out of the baseword entirely (#295). This\n"
+            "   remains only for the break itself hitting one of the two\n"
+            "   hashcat limits: a position past index 35, or more than\n"
+            f"   {MAX_RULE_FUNCTIONS} rule functions needed to insert every break. A\n"
+            "   wordlist line has no escape syntax, so such a baseword is\n"
+            "   skipped rather than written truncated. Normally zero.)\n"
         )
         if leet_restore:
             f.write(f"leet restored:       {leet_restored}\n")
@@ -1209,9 +1237,12 @@ def generate(
     if unwritable_basewords:
         print_fn(
             f"[!] {unwritable_basewords} passwords could not be written: the "
-            "baseword itself held a literal CR or LF (a $HEX[...] plaintext), "
-            "and a wordlist line has no escape syntax to spell one with. "
-            "Coverage excludes them."
+            "baseword itself held a literal CR or LF (a $HEX[...] plaintext) "
+            "that could not be lifted into an insert op -- the break sat past "
+            "addressable position 35, or needed more inserts than the "
+            f"{MAX_RULE_FUNCTIONS}-function rule cap allows -- and a wordlist "
+            "line has no escape syntax to spell one with. Coverage excludes "
+            "them."
         )
     if selfcheck_failures:
         print_fn(
