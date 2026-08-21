@@ -45,6 +45,12 @@ _CASES = [
     "zorp\ntangle",
     "Zorptangle12\n",
     "12\n34",
+    # #295 residual-gap cases: derive() bails out (case-encoding past position
+    # 35, and more interior ops than MAX_RULE_FUNCTIONS, respectively) but the
+    # embedded break is at an addressable position, so it must still come back
+    # lifted into an insert op rather than left in an unwritable baseword.
+    "\n" + "z" * 36 + "Z" + "w",
+    "a" + "1" * 15 + "\n" + "1" * 17 + "b",
 ]
 
 

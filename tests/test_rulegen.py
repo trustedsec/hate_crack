@@ -1017,14 +1017,21 @@ class TestEmbeddedLineBreaks:
     # derive() bails out to the password as its own baseword -- carrying the
     # line break with it, where no rule argument can spell it. Hex-wrapped
     # because a bare newline in a corpus file is just the line terminator.
+    #
+    # This break sits at index 37 -- past the last addressable position (35) --
+    # so it is the genuine residual limit even after #295's bail-out fix:
+    # _literal_pair() itself falls through to the raw literal pair whenever the
+    # break cannot be lifted into an insert op. See TestBailoutLineBreakFix
+    # below for the *addressable*-break cases the fix now covers instead.
     _BAILOUT_PW = "z" * 36 + "Z" + "\n"
     HEX_BAILOUT = "$HEX[" + _BAILOUT_PW.encode("latin-1").hex() + "]"
 
     def test_an_unwritable_baseword_is_counted_not_written(self, tmp_path):
-        """The residual case the escape cannot reach: a password that bails out
-        of derivation becomes its own literal baseword, and if it holds a line
-        break that baseword cannot be written to a wordlist at all. hashcat has
-        no escape on the wordlist side, so there is nothing to emit."""
+        """The residual case #295's bail-out fix cannot reach: the break itself
+        sits past addressable position 35, so even the literal-fallback helper
+        cannot lift it into an insert op, and the resulting baseword cannot be
+        written to a wordlist at all. hashcat has no escape on the wordlist
+        side, so there is nothing to emit."""
         assert usable_plaintext(self.HEX_BAILOUT) == self._BAILOUT_PW
         assert rulegen.derive(self._BAILOUT_PW) == (self._BAILOUT_PW, ":")
         result = self._run(tmp_path, [self.HEX_BAILOUT, "quibbleflange1"])
@@ -1058,6 +1065,111 @@ class TestEmbeddedLineBreaks:
         )
         assert result["unwritable_basewords"] == 0
         assert not any("could not be written" in line for line in said), said
+
+
+class TestBailoutLineBreakFix:
+    """#295's residual gap: several of derive()'s bail-out branches returned the
+    raw password verbatim as its own literal baseword without routing an
+    embedded break through the line-break helper, so a password that had
+    letters, held a break, *and* hit a bail-out was silently dropped as
+    ``unwritable_basewords``. Fixed by having every bail-out call
+    ``_literal_pair(pw)`` instead of returning ``(pw, ":")`` directly.
+    """
+
+    def _run(self, tmp_path, lines):
+        corpus = tmp_path / "corpus.txt"
+        corpus.write_text("\n".join(lines) + "\n", encoding="latin-1")
+        return rulegen.generate(
+            str(corpus), str(tmp_path / "out"), print_fn=lambda *a: None
+        )
+
+    def test_case_ops_bailout_with_addressable_break_is_written(self, tmp_path):
+        """An uppercase letter past position 35 still disqualifies every case
+        encoding, but a break earlier in the string -- at an addressable
+        position -- can now be lifted into an insert op instead of dragging the
+        whole password down as unwritable."""
+        pw = "\n" + "z" * 36 + "Z" + "w"
+        base, rule = rulegen.derive(pw)
+        assert "\n" not in base and "\r" not in base
+        assert rule == "i0\\x0a"
+        assert rulegen.apply_rule(base, rule) == pw
+        assert rulegen.validate_rule(rule)
+
+        hexed = "$HEX[" + pw.encode("latin-1").hex() + "]"
+        result = self._run(tmp_path, [hexed, "quibbleflange1"])
+        assert result["unwritable_basewords"] == 0
+        assert result["selfcheck_failures"] == []
+
+    def test_function_limit_bailout_with_addressable_break_is_written(self, tmp_path):
+        """More interior non-letters than MAX_RULE_FUNCTIONS allows still bails
+        derive() out of a full derivation, but an addressable break among them
+        is lifted into the literal fallback's insert op rather than being left
+        embedded in an unwritable baseword."""
+        pw = "a" + "1" * 15 + "\n" + "1" * 17 + "b"
+        base, rule = rulegen.derive(pw)
+        assert "\n" not in base and "\r" not in base
+        assert rulegen.apply_rule(base, rule) == pw
+        assert rulegen.validate_rule(rule)
+
+        hexed = "$HEX[" + pw.encode("latin-1").hex() + "]"
+        result = self._run(tmp_path, [hexed, "quibbleflange1"])
+        assert result["unwritable_basewords"] == 0
+        assert result["selfcheck_failures"] == []
+
+    def test_coincidence_trap_is_not_miscounted_as_unrepresentable(self, tmp_path):
+        """A genuine derivation can come out byte-for-byte identical to
+        _literal_pair()'s fallback answer for an all-lowercase-plus-break
+        password: both lift the same break to the same insert op. Without
+        widening _derives_to_itself to ignore break bytes, the classification
+        check in _scan_corpus would mistake this real derivation for a
+        fallback and miscount it as unrepresentable."""
+        pw = "zorp\ntangle"
+        assert rulegen.derive(pw) == rulegen._literal_pair(pw)
+        assert rulegen._derives_to_itself(pw)
+
+        hexed = "$HEX[" + pw.encode("latin-1").hex() + "]"
+        result = self._run(tmp_path, [hexed, "quibbleflange1"])
+        assert result["total"] == 2
+        assert result["unrepresentable"] == 0
+        assert result["no_letter_literals"] == 0
+        assert result["unwritable_basewords"] == 0
+        assert result["selfcheck_failures"] == []
+
+    def test_letterless_password_with_break_is_no_letter_not_unrepresentable(
+        self, tmp_path
+    ):
+        """A letterless password with an embedded break is a legitimate
+        no-letter fallback (it never had a letters-only core to derive), not
+        the "has letters but could not be encoded" unrepresentable case."""
+        pw = "12\n34"
+        base, rule = rulegen.derive(pw)
+        assert "\n" not in base
+        assert rulegen.apply_rule(base, rule) == pw
+
+        hexed = "$HEX[" + pw.encode("latin-1").hex() + "]"
+        result = self._run(tmp_path, [hexed, "quibbleflange1"])
+        assert result["no_letter_literals"] == 1
+        assert result["unrepresentable"] == 0
+        assert result["unwritable_basewords"] == 0
+
+    def test_operator_message_names_the_narrowed_limit(self, tmp_path):
+        """The operator-facing warning should name the residual limit
+        precisely -- a break past addressable position 35, or too many breaks
+        for the rule-function cap -- rather than the old blanket "any bail-out"
+        framing."""
+        said = []
+        bailout_pw = "z" * 36 + "Z" + "\n"
+        hexed = "$HEX[" + bailout_pw.encode("latin-1").hex() + "]"
+        corpus = tmp_path / "corpus.txt"
+        corpus.write_text(f"{hexed}\nquibbleflange1\n", encoding="latin-1")
+        rulegen.generate(
+            str(corpus),
+            str(tmp_path / "out"),
+            print_fn=lambda *a: said.append(" ".join(map(str, a))),
+        )
+        message = next(line for line in said if "could not be written" in line)
+        assert "position 35" in message
+        assert "rule cap" in message or "function" in message
 
 
 class TestCorpusLineParsing:
