@@ -871,12 +871,20 @@ class TestEdgeWhitespace:
 
 
 class TestEmbeddedLineBreaks:
-    """A password can contain a literal newline, and hashcat hands it over as
-    ``$HEX[...0a]``. Both output files are line-based, so an append op carrying
-    that byte splits its own rule across two lines: the rule is truncated
-    mid-op and a blank line appears after it. Observed in the wild as
-    ``c$1$2$`` plus the only blank line in a 1.4M-line rules.full.rule, which
-    hashcat then dropped silently."""
+    """A password can hold a literal CR or LF, and hashcat hands it over
+    hex-wrapped as ``$HEX[...0a]``.
+
+    Emitted raw, such a byte splits its own rule across two lines of a
+    line-based rule file: a fragment truncated mid-op, then a blank line.
+    Observed in the wild as ``c$1$2$`` above the only blank line in a
+    1,420,542-line rules.full.rule.
+
+    hashcat decodes ``\\xNN`` in an op argument to a single byte, so the fix is
+    to spell the byte rather than drop the password: `$\\x0a` is a rule hashcat
+    accepts and the password stays covered. Verified against 7.1.2 -- and a raw
+    CR argument is rejected outright there ("No valid rules left"), which is why
+    both bytes are escaped and not just LF.
+    """
 
     HEX_LF = "$HEX[7a6f727074616e676c650a]"  # "zorptangle\n"
     HEX_CR = "$HEX[7a6f727074616e676c650d]"  # "zorptangle\r"
@@ -894,6 +902,28 @@ class TestEmbeddedLineBreaks:
         assert usable_plaintext(self.HEX_LF, keep_whitespace=True) == "zorptangle\n"
         assert usable_plaintext(self.HEX_LF) == "zorptangle\n"
 
+    @pytest.mark.parametrize(
+        "pw, rule",
+        [
+            ("zorptangle\n", "$\\x0a"),
+            ("zorptangle\r", "$\\x0d"),
+            ("\nzorptangle", "^\\x0a"),
+            ("zorp\ntangle", "i4\\x0a"),
+            ("Zorptangle\n", "c$\\x0a"),
+        ],
+    )
+    def test_a_line_break_is_escaped_not_emitted_raw(self, pw, rule):
+        base, produced = rulegen.derive(pw)
+        assert produced == rule
+        assert rulegen.apply_rule(base, produced) == pw
+        # Escaped, the rule is printable text a line-based file can hold.
+        assert "\n" not in produced and "\r" not in produced
+        assert rulegen.validate_rule(produced)
+
+    def test_the_escape_counts_as_one_function_not_four(self):
+        assert rulegen.count_ops("$\\x0a") == 1
+        assert rulegen.count_ops("c$1$2$\\x0a") == 4
+
     @pytest.mark.parametrize("hexed", [HEX_LF, HEX_CR])
     def test_written_files_hold_no_truncated_line(self, tmp_path, hexed):
         self._run(tmp_path, [hexed, "quibbleflange1"])
@@ -902,79 +932,132 @@ class TestEmbeddedLineBreaks:
             raw = (out / name).read_bytes()
             assert raw.endswith(b"\n"), name
             lines = raw.split(b"\n")[:-1]
-            # A split rule leaves an empty line behind; that is the fingerprint.
+            # A split record leaves an empty line behind; that is the fingerprint.
             assert b"" not in lines, f"{name} has a blank line: {lines!r}"
             for line in lines:
                 assert b"\r" not in line, f"{name} line kept a CR: {line!r}"
 
     def test_every_written_rule_is_one_hashcat_accepts(self, tmp_path):
-        self._run(tmp_path, [self.HEX_LF, "quibbleflange1"])
+        self._run(tmp_path, [self.HEX_LF, self.HEX_CR, "quibbleflange1"])
         rules = (
             (tmp_path / "out" / "rules.full.rule")
             .read_text(encoding="latin-1")
             .splitlines()
         )
-        assert rules, "no rules written"
+        assert rules
         for rule in rules:
             assert rulegen.validate_rule(rule), f"hashcat would reject {rule!r}"
 
-    def test_the_unrepresentable_password_is_counted_not_silently_dropped(
-        self, tmp_path
-    ):
+    def test_the_password_is_covered_rather_than_dropped(self, tmp_path):
+        """The point of the escape: nothing is rejected that hashcat accepts."""
         result = self._run(tmp_path, [self.HEX_LF, self.HEX_CR, "quibbleflange1"])
-        assert result["line_breaks"] == 2
-        # It is excluded from the corpus it cannot be represented in, so the
-        # coverage percentages are not computed against a password no written
-        # pair can rebuild.
-        assert result["total"] == 1
+        assert result["total"] == 3
+        assert result["unwritable_basewords"] == 0
         assert result["selfcheck_failures"] == []
+        out = tmp_path / "out"
+        basewords = (out / "basewords.txt").read_text(encoding="latin-1").splitlines()
+        rules = (out / "rules.full.rule").read_text(encoding="latin-1").splitlines()
+        produced = {rulegen.apply_rule(b, r) for b in basewords for r in rules}
+        assert "zorptangle\n" in produced
+        assert "zorptangle\r" in produced
 
-    def test_a_legitimate_trailing_space_still_survives_alongside(self, tmp_path):
-        """The fix must not reach past line breaks into whitespace generally: a
-        trailing space is a valid `$ ` append and the reason this bug was hard
-        to spot, since the two coexisted in the same file."""
+    def test_a_letterless_password_keeps_its_line_break(self, tmp_path):
+        """A letterless password is normally its own baseword, but a wordlist
+        line cannot hold a line break -- there is no escape mechanism on that
+        side. The break moves into an insert op instead."""
+        base, rule = rulegen.derive("12\n34")
+        assert "\n" not in base
+        assert rulegen.apply_rule(base, rule) == "12\n34"
+        assert rulegen.validate_rule(rule)
+
+    def test_a_legitimate_trailing_space_is_not_escaped(self, tmp_path):
+        """The escape must reach line breaks only. A trailing space is a valid
+        `$ ` append that 2.31.0 exists to preserve, and the two coexisted in the
+        same real file."""
+        assert rulegen.derive("zorptangle ") == ("zorptangle", "$ ")
         result = self._run(tmp_path, [self.HEX_LF, "zorptangle "])
-        assert result["line_breaks"] == 1
         rules = (
             (tmp_path / "out" / "rules.full.rule")
             .read_text(encoding="latin-1")
             .splitlines()
         )
-        assert rules == ["$ "]
+        assert sorted(rules) == ["$ ", "$\\x0a"]
         assert result["selfcheck_failures"] == []
 
-    def test_coverage_report_names_the_dropped_lines(self, tmp_path):
-        self._run(tmp_path, [self.HEX_LF, "quibbleflange1"])
-        coverage = (tmp_path / "out" / "coverage.txt").read_text(encoding="latin-1")
-        assert "line breaks" in coverage
+    def test_a_high_byte_is_still_emitted_raw(self):
+        """Scope guard in the other direction. hashcat accepts a raw 0x80-0xFF
+        argument, and a real corpus produced 728 such rules; escaping them too
+        would churn every one of those lines for nothing."""
+        base, rule = rulegen.derive("zorptangle\xe9")
+        assert rule == "$\xe9"
+        assert rulegen.apply_rule(base, rule) == "zorptangle\xe9"
 
-    def test_the_operator_is_told_the_lines_were_skipped(self, tmp_path):
-        """A silent skip reads as full coverage. It is not."""
+    def test_output_unchanged_for_a_corpus_without_line_breaks(self, tmp_path):
+        """Blast radius: the escape must be a no-op for every corpus that has no
+        line break to spell, which is nearly all of them."""
+        lines = [p for p in CORPUS if p]
+        before = {}
+        self._run(tmp_path, lines)
+        out = tmp_path / "out"
+        for name in ("basewords.txt", "rules.full.rule"):
+            before[name] = (out / name).read_bytes()
+        expected_rules = Counter()
+        dictionary = Counter(rulegen.derive(p)[0] for p in lines)
+        dictionary = {k: v for k, v in dictionary.items() if v >= 2}
+        for p in lines:
+            base, rule = rulegen.derive_leet_aware(p, dictionary)
+            assert rulegen.apply_rule(base, rule) == p
+            assert "\\x" not in rule
+            expected_rules[rule] += 1
+        assert before["rules.full.rule"] == "".join(
+            r + "\n" for r, _ in expected_rules.most_common()
+        ).encode("latin-1")
+
+    # An uppercase letter past position 35 disqualifies every case encoding, so
+    # derive() bails out to the password as its own baseword -- carrying the
+    # line break with it, where no rule argument can spell it. Hex-wrapped
+    # because a bare newline in a corpus file is just the line terminator.
+    _BAILOUT_PW = "z" * 36 + "Z" + "\n"
+    HEX_BAILOUT = "$HEX[" + _BAILOUT_PW.encode("latin-1").hex() + "]"
+
+    def test_an_unwritable_baseword_is_counted_not_written(self, tmp_path):
+        """The residual case the escape cannot reach: a password that bails out
+        of derivation becomes its own literal baseword, and if it holds a line
+        break that baseword cannot be written to a wordlist at all. hashcat has
+        no escape on the wordlist side, so there is nothing to emit."""
+        assert usable_plaintext(self.HEX_BAILOUT) == self._BAILOUT_PW
+        assert rulegen.derive(self._BAILOUT_PW) == (self._BAILOUT_PW, ":")
+        result = self._run(tmp_path, [self.HEX_BAILOUT, "quibbleflange1"])
+        assert result["unwritable_basewords"] == 1
+        assert result["total"] == 1
+        out = tmp_path / "out"
+        for name in ("basewords.txt", "rules.full.rule"):
+            raw = (out / name).read_bytes()
+            assert b"" not in raw.split(b"\n")[:-1], name
+            assert b"\r" not in raw
+
+    def test_the_operator_is_told_about_an_unwritable_baseword(self, tmp_path):
         said = []
         corpus = tmp_path / "corpus.txt"
-        corpus.write_text(f"{self.HEX_LF}\nquibbleflange1\n", encoding="latin-1")
+        corpus.write_text(f"{self.HEX_BAILOUT}\nquibbleflange1\n", encoding="latin-1")
         rulegen.generate(
             str(corpus),
             str(tmp_path / "out"),
-            print_fn=lambda *a: said.append(" ".join(a)),
+            print_fn=lambda *a: said.append(" ".join(map(str, a))),
         )
-        assert any("skipped" in line and "$HEX" in line for line in said), said
+        assert any("could not be written" in line for line in said), said
 
     def test_a_clean_corpus_says_nothing_about_line_breaks(self, tmp_path):
         said = []
         corpus = tmp_path / "corpus.txt"
         corpus.write_text("zorptangle\nquibbleflange1\n", encoding="latin-1")
-        rulegen.generate(
+        result = rulegen.generate(
             str(corpus),
             str(tmp_path / "out"),
-            print_fn=lambda *a: said.append(" ".join(a)),
+            print_fn=lambda *a: said.append(" ".join(map(str, a))),
         )
-        assert not any("CR or LF" in line for line in said), said
-
-    def test_no_line_breaks_leaves_the_counter_at_zero(self, tmp_path):
-        result = self._run(tmp_path, ["zorptangle", "quibbleflange1"])
-        assert result["line_breaks"] == 0
-        assert result["total"] == 2
+        assert result["unwritable_basewords"] == 0
+        assert not any("could not be written" in line for line in said), said
 
 
 class TestCorpusLineParsing:

@@ -14,6 +14,11 @@ supports natively:
     i{p}{x}      insert char x at position p
     o{p}{x}      overwrite char at position p with x
 
+An argument that is a CR or an LF is spelled ``\\xNN``, which hashcat decodes to
+the single byte. A rule file is read a line at a time, so the raw byte cannot
+survive it: an LF ends the rule where it falls and a raw CR makes hashcat reject
+the line. No other byte is escaped, because no other byte needs it.
+
 The baseword list and the rule list together reconstruct 100% of the corpus,
 so the rule file is truncatable: it is sorted by how many passwords each rule
 rebuilds, most productive first.
@@ -213,6 +218,43 @@ def _isalpha(c):
     return ("a" <= c <= "z") or ("A" <= c <= "Z")
 
 
+# The two bytes that cannot appear raw in an op argument. A rule file is read a
+# line at a time, so an LF ends the rule wherever it falls -- the rest of it,
+# and the argument it belonged to, become a blank line. A raw CR is worse than
+# useless: hashcat rejects the line outright ("No valid rules left"). Every
+# other byte survives verbatim, NUL and 0x80-0xFF included, all three verified
+# against 7.1.2.
+#
+# hashcat decodes \xNN in an argument to a single byte before applying the rule,
+# which is what makes these two expressible at all rather than a reason to drop
+# the password. Deliberately not applied to any other byte: a raw high byte
+# already works, and one real corpus produced 728 rules holding one.
+_ARG_ESCAPES = {"\n": "\\x0a", "\r": "\\x0d"}
+
+
+def _escape_arg(c):
+    """Return *c* spelled so it survives a line-based rule file."""
+    return _ARG_ESCAPES.get(c, c)
+
+
+def _read_arg(rule, i):
+    """Return ``(character, width)`` for the literal argument at index *i*.
+
+    hashcat decodes escapes across the whole line before parsing ops, which is
+    not quite the same thing as decoding each argument in place. For everything
+    :func:`derive` emits the two agree, because every argument is preceded by
+    its own op character: a raw backslash argument is always followed by the
+    next op (``$\\`` then ``$x`` reads as ``\\$x``), so it can never combine
+    with what follows into an escape that was not written as one.
+    """
+    if rule[i] == "\\" and rule[i + 1 : i + 2] == "x" and len(rule) >= i + 4:
+        try:
+            return chr(int(rule[i + 2 : i + 4], 16)), 4
+        except ValueError:
+            pass
+    return rule[i], 1
+
+
 def count_ops(rule):
     """Return the number of hashcat functions in *rule*.
 
@@ -224,10 +266,14 @@ def count_ops(rule):
         op = rule[i]
         if op in ":luc":
             i += 1
-        elif op in "T$^":
+        elif op == "T":
             i += 2
+        elif op in "$^":
+            # The argument may be an escape, which is one argument spelled in
+            # four characters -- not four ops.
+            i += 1 + _read_arg(rule, i + 1)[1]
         elif op in "io":
-            i += 3
+            i += 2 + _read_arg(rule, i + 2)[1]
         else:
             raise ValueError(f"unknown op {op!r} in rule {rule!r}")
         count += 1
@@ -308,13 +354,20 @@ def validate_rule(rule):
         kinds = RULE_OP_ARGS.get(rule[i])
         if kinds is None:
             return False
-        # The op and all of its arguments must fit inside the line.
-        if i + 1 + len(kinds) > len(rule):
-            return False
-        for offset, kind in enumerate(kinds, start=1):
-            if kind == "p" and rule[i + offset] not in POS:
+        # Arguments are measured rather than counted, because hashcat decodes
+        # \xNN to a single byte: an escape is one argument four characters wide.
+        at = i + 1
+        for kind in kinds:
+            # The op and all of its arguments must fit inside the line.
+            if at >= len(rule):
                 return False
-        i += 1 + len(kinds)
+            decoded, width = _read_arg(rule, at)
+            if kind == "p" and decoded not in POS:
+                return False
+            at += width
+        if at > len(rule):
+            return False
+        i = at
         count += 1
         if count > MAX_RULE_FUNCTIONS:
             return False
@@ -400,6 +453,30 @@ def _case_ops(flags):
     return min(candidates, key=lambda x: (x[0], _CASE_STRATEGY_ORDER[x[2]]))[1]
 
 
+def _derive_letterless_with_line_breaks(pw):
+    """Derive a letterless password whose bytes include a CR or LF.
+
+    The baseword is the password with those bytes removed and the rule inserts
+    them back, in increasing index order so each insert accounts for the shift
+    from the ones before it -- the same accounting :func:`derive` does for
+    interior non-letters. Falls back to the literal pair when a break sits past
+    the last addressable position, which leaves a baseword the caller cannot
+    write; :func:`generate` counts those rather than emitting them.
+    """
+    base = "".join(c for c in pw if c not in _ARG_ESCAPES)
+    ops = []
+    for idx, c in enumerate(pw):
+        if c not in _ARG_ESCAPES:
+            continue
+        p = _pos(idx)
+        if p is None:
+            return (pw, ":")
+        ops.append("i" + p + _escape_arg(c))
+    if len(ops) > MAX_RULE_FUNCTIONS:
+        return (pw, ":")
+    return (base, "".join(ops))
+
+
 def derive(pw):
     """Return ``(baseword, rule)`` such that applying *rule* to *baseword* yields *pw*.
 
@@ -410,6 +487,12 @@ def derive(pw):
         return ("", ":")
     letters = [c for c in pw if _isalpha(c)]
     if not letters:
+        # A letterless password is its own baseword -- but a wordlist line
+        # cannot hold a CR or LF, and unlike a rule argument there is no escape
+        # on that side to spell it with. Lift the line breaks out into insert
+        # ops, which can be escaped, and let the rest be the baseword.
+        if any(c in _ARG_ESCAPES for c in pw):
+            return _derive_letterless_with_line_breaks(pw)
         return (pw, ":")
     base = "".join(c.lower() for c in letters)
     idxs = [i for i, c in enumerate(pw) if _isalpha(c)]
@@ -429,14 +512,14 @@ def derive(pw):
             p = _pos(idx)
             if p is None:
                 return (pw, ":")
-            ops.append("i" + p + c)
+            ops.append("i" + p + _escape_arg(c))
     # Trailing non-letters append; position-independent, so these merge well
     # across passwords.
     for c in suffix:
-        ops.append("$" + c)
+        ops.append("$" + _escape_arg(c))
     # Leading non-letters prepend, reversed so the final order comes out right.
     for c in reversed(prefix):
-        ops.append("^" + c)
+        ops.append("^" + _escape_arg(c))
 
     if len(ops) > MAX_RULE_FUNCTIONS:
         return (pw, ":")
@@ -574,11 +657,11 @@ def _derive_leet_aware(pw, dictionary, min_hits=2):
         p = _pos(idx)
         if p is None:
             return (*derive(pw), False)
-        ops.append(("o" if idx in chosen else "i") + p + c)
+        ops.append(("o" if idx in chosen else "i") + p + _escape_arg(c))
     for c in suffix:
-        ops.append("$" + c)
+        ops.append("$" + _escape_arg(c))
     for c in reversed(prefix):
-        ops.append("^" + c)
+        ops.append("^" + _escape_arg(c))
 
     if len(ops) > MAX_RULE_FUNCTIONS:
         return (*derive(pw), False)
@@ -615,23 +698,25 @@ def apply_rule(word, rule):
                 s = s[:p] + (ch.lower() if ch.isupper() else ch.upper()) + s[p + 1 :]
             i += 2
         elif op == "$":
-            s = s + rule[i + 1]
-            i += 2
+            ch, width = _read_arg(rule, i + 1)
+            s = s + ch
+            i += 1 + width
         elif op == "^":
-            s = rule[i + 1] + s
-            i += 2
+            ch, width = _read_arg(rule, i + 1)
+            s = ch + s
+            i += 1 + width
         elif op == "i":
             p = POS.index(rule[i + 1])
-            ch = rule[i + 2]
+            ch, width = _read_arg(rule, i + 2)
             p = min(p, len(s))
             s = s[:p] + ch + s[p:]
-            i += 3
+            i += 2 + width
         elif op == "o":
             p = POS.index(rule[i + 1])
-            ch = rule[i + 2]
+            ch, width = _read_arg(rule, i + 2)
             if p < len(s):
                 s = s[:p] + ch + s[p + 1 :]
-            i += 3
+            i += 2 + width
         else:
             raise ValueError(f"unknown op {op!r} in rule {rule!r}")
     return s
@@ -671,7 +756,7 @@ class _Scan(NamedTuple):
     no_letter_literals: int
     unrepresentable: int
     hash_shaped: int
-    line_breaks: int
+    unwritable_basewords: int
     selfcheck_failures: list
     leet_restored: int
     pruned_basewords: int
@@ -704,7 +789,7 @@ def _scan_corpus(
     no_letter_literals = 0
     unrepresentable = 0
     hash_shaped = 0
-    line_breaks = 0
+    unwritable_basewords = 0
     leet_restored = 0
     selfcheck_failures = []
     lines_read = 0
@@ -745,32 +830,34 @@ def _scan_corpus(
             pw = usable_plaintext(stripped, keep_whitespace=True)
             if pw == "":
                 continue
-            # A password can hold a literal line break, and hashcat hands those
-            # over hex-wrapped: $HEX[...0a]. The line terminator rstripped above
-            # is gone by now, so anything left here came out of the decode and is
-            # part of the password. Both output files are line-based and written
-            # as `value + "\n"`, so such a password splits its own record across
-            # two lines -- a rule truncated mid-op, then a blank line. hashcat
-            # drops the fragment silently, and the reconstruction self-check
-            # below cannot see it because apply_rule() rebuilds the password
-            # faithfully; the corruption happens at the writer, downstream of
-            # every check. There is no rule encoding to fall back on either: a
-            # `$` argument is a raw byte in a line-based file, so a newline is
-            # unrepresentable however it is spelled. Skip the password rather
-            # than emit a pair that cannot rebuild it, and count it so a corpus
-            # full of them is visible instead of quietly shrinking the output.
-            if "\n" in pw or "\r" in pw:
-                line_breaks += 1
-                continue
             if ascii_only and not _is_printable_ascii(pw):
                 skipped += 1
                 continue
-            total += 1
             if dictionary is None:
                 base, rule = derive(pw)
+                restored = False
             else:
                 base, rule, restored = _derive_leet_aware(pw, dictionary, min_hits)
-                leet_restored += restored
+            # A password can hold a literal CR or LF -- hashcat hands those over
+            # hex-wrapped, as $HEX[...0a], and the line's own terminator was
+            # rstripped above, so anything left here came out of the decode and
+            # is part of the password. derive() spells such a byte \xNN in a rule
+            # argument, which hashcat decodes and which a line-based rule file
+            # can therefore hold. The baseword side has no equivalent: a
+            # wordlist line is the word, with no escape syntax to spell a break
+            # with, so a baseword still holding one cannot be written at all.
+            # Only a derivation that bailed out to the literal pair lands here.
+            #
+            # Written anyway it would split its own record across two lines and
+            # hashcat would read two wrong words, silently -- the reconstruction
+            # self-check below cannot see it, because apply_rule() rebuilds the
+            # password faithfully from a pair the writer then corrupts. So skip
+            # it, and count it, rather than shrink the output quietly.
+            if any(c in _ARG_ESCAPES for c in base):
+                unwritable_basewords += 1
+                continue
+            total += 1
+            leet_restored += restored
             # A literal fallback: the password came back as its own baseword
             # under a no-op rule without that being a real derivation. Whether
             # it holds any letter is what separates the two kinds of fallback —
@@ -796,7 +883,7 @@ def _scan_corpus(
         no_letter_literals=no_letter_literals,
         unrepresentable=unrepresentable,
         hash_shaped=hash_shaped,
-        line_breaks=line_breaks,
+        unwritable_basewords=unwritable_basewords,
         selfcheck_failures=selfcheck_failures,
         leet_restored=leet_restored,
         pruned_basewords=pruned_basewords,
@@ -912,7 +999,7 @@ def generate(
     # sum here rather than counted separately so the identity cannot drift.
     literal_fallbacks = no_letter_literals + unrepresentable
     hash_shaped = scan.hash_shaped
-    line_breaks = scan.line_breaks
+    unwritable_basewords = scan.unwritable_basewords
     selfcheck_failures = scan.selfcheck_failures
     leet_restored = scan.leet_restored
     pruned_basewords = scan.pruned_basewords
@@ -1019,12 +1106,15 @@ def generate(
             "   sample, so anything above zero here is unusual.)\n"
         )
         f.write(f"hash-shaped lines:   {hash_shaped}\n")
-        f.write(f"line breaks:         {line_breaks}\n")
+        f.write(f"unwritable basewords:{unwritable_basewords}\n")
         f.write(
-            "  (the password held a literal CR or LF, which arrives via a\n"
-            "   $HEX[...] plaintext. Both output files are line-based, so such a\n"
-            "   password cannot be written as a baseword-plus-rule pair at all;\n"
-            "   it is skipped rather than truncated. Normally zero.)\n"
+            "  (the baseword held a literal CR or LF, which arrives via a\n"
+            "   $HEX[...] plaintext. A rule argument can spell such a byte \\xNN\n"
+            "   and hashcat decodes it, so a password normally keeps its break;\n"
+            "   only a derivation that fell back to the password as its own\n"
+            "   baseword lands here, and a wordlist line has no escape syntax to\n"
+            "   spell it with. Skipped rather than written truncated. Normally\n"
+            "   zero.)\n"
         )
         if leet_restore:
             f.write(f"leet restored:       {leet_restored}\n")
@@ -1116,11 +1206,11 @@ def generate(
             "plaintexts. This corpus may be an uncracked dump instead of cracked "
             "output, in which case the basewords and rules below are meaningless."
         )
-    if line_breaks:
+    if unwritable_basewords:
         print_fn(
-            f"[!] {line_breaks} passwords held a literal CR or LF (a "
-            "$HEX[...] plaintext) and were skipped: both output files are "
-            "line-based, so no baseword-and-rule pair can rebuild them. "
+            f"[!] {unwritable_basewords} passwords could not be written: the "
+            "baseword itself held a literal CR or LF (a $HEX[...] plaintext), "
+            "and a wordlist line has no escape syntax to spell one with. "
             "Coverage excludes them."
         )
     if selfcheck_failures:
@@ -1144,7 +1234,7 @@ def generate(
         "no_letter_literals": no_letter_literals,
         "unrepresentable": unrepresentable,
         "hash_shaped": hash_shaped,
-        "line_breaks": line_breaks,
+        "unwritable_basewords": unwritable_basewords,
         "leet_restored": leet_restored,
         "selfcheck_failures": selfcheck_failures,
         "milestones": milestones,
