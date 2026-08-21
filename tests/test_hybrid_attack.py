@@ -6,6 +6,7 @@ itself: the mask/mode matrix it builds, ctrl-C teardown, glob expansion, and
 the coverage spec each pass declares.
 """
 
+import re
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
@@ -35,7 +36,7 @@ def env(tmp_path):
 
 
 @contextmanager
-def _patched(main_module, tmp_path):
+def _patched(main_module, tmp_path, increment_runtime=0):
     """Patch the module globals hcatHybrid reads.
 
     ``patch.object`` rather than raw assignment: ``hate_crack.main`` is shared
@@ -44,6 +45,10 @@ def _patched(main_module, tmp_path):
     ``generate_session_id`` is stubbed so the asserted commands carry one fixed
     session name; what it builds from the hash file and attack label is covered
     in test_main_utils.py::TestGenerateSessionId.
+
+    ``increment_runtime`` defaults to 0, which switches the trailing
+    full-charset sweep off, so the fixed-length assertions below see only the
+    ?s?d passes. TestFullCharsetSweep turns it on.
     """
     with (
         patch.object(main_module, "hcatBin", "hashcat"),
@@ -53,22 +58,41 @@ def _patched(main_module, tmp_path):
         patch.object(main_module, "hcatHashCracked", 0),
         patch.object(main_module, "_optimized_kernel_disabled", True),
         patch.object(main_module, "generate_session_id", return_value="test_session"),
+        patch.object(main_module, "hcatHybridIncrementRuntime", increment_runtime),
     ):
         yield
 
 
 def _passes(runner):
-    """The (mode, mask, wordlist) triples handed to hashcat, in order."""
+    """The (mode, mask, wordlist) triples handed to hashcat, in order.
+
+    The mask is located by shape rather than by position: a ?1 pass carries a
+    ``-1`` charset definition and a sweep pass does not, so counting from a
+    fixed flag would only work for one of them. Its neighbour is the wordlist --
+    mask-last for mode 6, mask-first for mode 7.
+    """
     triples = []
     for call in runner.call_args_list:
         cmd = call[0][0]
         mode = cmd[cmd.index("-a") + 1]
-        # ``-1 <charset>`` is followed by the two positionals, mask-last for
-        # mode 6 and mask-first for mode 7.
-        left, right = cmd[cmd.index("-1") + 2 : cmd.index("-1") + 4]
-        mask, wordlist = (right, left) if mode == "6" else (left, right)
+        index = next(
+            i for i, arg in enumerate(cmd) if re.fullmatch(r"(\?[1a])+", str(arg))
+        )
+        mask = cmd[index]
+        wordlist = cmd[index - 1] if mode == "6" else cmd[index + 1]
         triples.append((mode, mask, wordlist))
     return triples
+
+
+def _runtimes(runner):
+    """The --runtime value of each pass, None where the flag is absent."""
+    values = []
+    for call in runner.call_args_list:
+        cmd = call[0][0]
+        values.append(
+            int(cmd[cmd.index("--runtime") + 1]) if "--runtime" in cmd else None
+        )
+    return values
 
 
 class TestMaskMatrix:
@@ -276,9 +300,29 @@ class TestCoverageSpec:
 
     def test_mask_carries_its_custom_charset_definition(self, main_module, env):
         """A bare ?1?1 key would collide with any other -1 spelling."""
-        spec = main_module._hybrid_coverage(env["hashes"], env["wordlist"], "6", "?1?1")
+        spec = main_module._hybrid_coverage(
+            env["hashes"], env["wordlist"], "6", "?1?1", "?s?d"
+        )
 
         assert spec.masks == ("?s?d,?1?1",)
+
+    def test_a_builtin_charset_mask_is_keyed_as_written(self, main_module, env):
+        """?a needs no -1, so there is nothing to prefix and no ambiguity."""
+        spec = main_module._hybrid_coverage(env["hashes"], env["wordlist"], "6", "?a?a")
+
+        assert spec.masks == ("?a?a",)
+
+    def test_the_two_charsets_do_not_share_a_key(self, main_module, env):
+        """?1?1 over ?s?d and ?a?a are different candidate sets."""
+        target = ac.target_id(env["hashes"])
+        assert target is not None
+        keys = set()
+        for mask, charset in (("?1?1", "?s?d"), ("?a?a", "")):
+            spec = main_module._hybrid_coverage(
+                env["hashes"], env["wordlist"], "6", mask, charset
+            )
+            keys.add(ac.entry_key(target, "mask", "fp", spec.masks[0], spec.variant))
+        assert len(keys) == 2
 
     def test_append_and_prepend_do_not_share_a_key(self, main_module, env):
         """Mode 6 and mode 7 enumerate disjoint candidate sets."""
@@ -321,6 +365,179 @@ class TestCoverageSpec:
             covered = store.covered(first.record_keys)
             second = ac.plan_run(spec, ac.set_lookup(covered), store=store)
             assert second.skip
+        finally:
+            store.close()
+
+
+class TestFullCharsetSweep:
+    """The ?a sweep that follows the ?s?d passes, under one time budget."""
+
+    def test_zero_runtime_skips_the_sweep_silently(self, main_module, env, capsys):
+        """Disabled means disabled: no sweep, and no budget-spent nagging about
+        a setting the operator turned off deliberately."""
+        with (
+            _patched(main_module, env["tmp"], increment_runtime=0),
+            patch.object(main_module, "_run_hcat_cmd") as runner,
+        ):
+            main_module.hcatHybrid("1000", env["hashes"], [env["wordlist"]])
+
+        assert not [mask for _, mask, _ in _passes(runner) if "?a" in mask]
+        out = capsys.readouterr().out
+        assert "full-charset sweep" not in out.lower()
+        assert "not run" not in out
+
+    def test_sweep_runs_each_length_in_both_directions(self, main_module, env):
+        with (
+            _patched(main_module, env["tmp"], increment_runtime=3600),
+            patch.object(main_module, "_run_hcat_cmd") as runner,
+        ):
+            main_module.hcatHybrid("1000", env["hashes"], [env["wordlist"]])
+
+        wl = env["wordlist"]
+        sweep = [p for p in _passes(runner) if "?a" in p[1]]
+        assert sweep == [
+            ("6", "?a", wl),
+            ("7", "?a", wl),
+            ("6", "?a?a", wl),
+            ("7", "?a?a", wl),
+            ("6", "?a?a?a", wl),
+            ("7", "?a?a?a", wl),
+            ("6", "?a?a?a?a", wl),
+            ("7", "?a?a?a?a", wl),
+        ]
+
+    def test_sweep_runs_after_the_cheap_fixed_length_passes(self, main_module, env):
+        """?a is a superset of ?s?d, so the cheap subset should crack first."""
+        with (
+            _patched(main_module, env["tmp"], increment_runtime=3600),
+            patch.object(main_module, "_run_hcat_cmd") as runner,
+        ):
+            main_module.hcatHybrid("1000", env["hashes"], [env["wordlist"]])
+
+        masks = [mask for _, mask, _ in _passes(runner)]
+        assert masks.index("?a") > masks.index("?1?1?1?1")
+
+    def test_sweep_carries_no_custom_charset(self, main_module, env):
+        """?a is a hashcat builtin; a -1 definition would be meaningless."""
+        with (
+            _patched(main_module, env["tmp"], increment_runtime=3600),
+            patch.object(main_module, "_run_hcat_cmd") as runner,
+        ):
+            main_module.hcatHybrid("1000", env["hashes"], [env["wordlist"]])
+
+        checked = 0
+        for call in runner.call_args_list:
+            cmd = call[0][0]
+            if not any(re.fullmatch(r"(\?a)+", str(arg)) for arg in cmd):
+                continue
+            checked += 1
+            assert "-1" not in cmd
+        assert checked == 8
+
+    def test_length_major_order_so_a_shared_budget_reaches_every_wordlist(
+        self, main_module, env
+    ):
+        """Length 4 over the first list would otherwise eat the whole hour."""
+        second = env["tmp"] / "wl2.txt"
+        second.write_text("charlie\n")
+
+        with (
+            _patched(main_module, env["tmp"], increment_runtime=3600),
+            patch.object(main_module, "_run_hcat_cmd") as runner,
+        ):
+            main_module.hcatHybrid(
+                "1000", env["hashes"], [env["wordlist"], str(second)]
+            )
+
+        sweep = [p for p in _passes(runner) if "?a" in p[1]]
+        # Every length-1 pass, for both wordlists, precedes any longer mask.
+        first_long = next(i for i, p in enumerate(sweep) if p[1] != "?a")
+        assert {p[2] for p in sweep[:first_long]} == {env["wordlist"], str(second)}
+
+    def test_each_pass_gets_what_remains_of_the_budget(self, main_module, env):
+        """hashcat applies --runtime per invocation, so the passes have to share
+        one deadline or eight of them would spend eight hours."""
+        clock = iter([1000.0] + [1000.0 + 100 * n for n in range(1, 40)])
+
+        with (
+            _patched(main_module, env["tmp"], increment_runtime=500),
+            patch.object(main_module.time, "monotonic", lambda: next(clock)),
+            patch.object(main_module, "_run_hcat_cmd") as runner,
+        ):
+            main_module.hcatHybrid("1000", env["hashes"], [env["wordlist"]])
+
+        sweep_runtimes = [rt for rt in _runtimes(runner) if rt is not None]
+        assert sweep_runtimes == [400, 300, 200, 100]
+        assert sweep_runtimes == sorted(sweep_runtimes, reverse=True)
+
+    def test_budget_exhaustion_stops_the_sweep_and_says_so(
+        self, main_module, env, capsys
+    ):
+        clock = iter([1000.0] + [9999.0] * 40)
+
+        with (
+            _patched(main_module, env["tmp"], increment_runtime=60),
+            patch.object(main_module.time, "monotonic", lambda: next(clock)),
+            patch.object(main_module, "_run_hcat_cmd") as runner,
+        ):
+            main_module.hcatHybrid("1000", env["hashes"], [env["wordlist"]])
+
+        assert not [mask for _, mask, _ in _passes(runner) if "?a" in mask]
+        out = capsys.readouterr().out
+        assert "8 pass(es) not run" in out
+        assert "hcatHybridIncrementRuntime" in out
+
+    def test_fixed_length_passes_are_never_time_capped(self, main_module, env):
+        """Only the sweep is budgeted; the ?s?d passes run to exhaustion."""
+        with (
+            _patched(main_module, env["tmp"], increment_runtime=3600),
+            patch.object(main_module, "_run_hcat_cmd") as runner,
+        ):
+            main_module.hcatHybrid("1000", env["hashes"], [env["wordlist"]])
+
+        for (_, mask, _), runtime in zip(_passes(runner), _runtimes(runner)):
+            if "?1" in mask:
+                assert runtime is None
+            else:
+                assert runtime is not None
+
+    def test_a_truncated_sweep_pass_records_no_coverage(
+        self, main_module, env, tmp_path, monkeypatch
+    ):
+        """hashcat exits 4 when --runtime cuts a mask short, and only exit 1
+        may be recorded -- otherwise the store would claim ground never tried."""
+        store = ac.CoverageStore(tmp_path / "cov.sqlite3")
+        monkeypatch.setattr(ac, "get_store", lambda: store)
+
+        class RuntimeAbortedPopen:
+            def __init__(self, cmd, **kwargs):
+                self.pid = 4242
+                self.returncode = 4
+
+            def wait(self):
+                return 4
+
+            def kill(self):
+                pass
+
+        try:
+            with (
+                _patched(main_module, env["tmp"], increment_runtime=3600),
+                patch("hate_crack.main.subprocess.Popen", RuntimeAbortedPopen),
+            ):
+                main_module.hcatHybrid("1000", env["hashes"], [env["wordlist"]])
+            target = ac.target_id(env["hashes"])
+            spec = main_module._hybrid_coverage(
+                env["hashes"], env["wordlist"], "6", "?a?a?a?a"
+            )
+            key = ac.entry_key(
+                target,
+                "mask",
+                store.wordlist_fingerprint(env["wordlist"]),
+                spec.masks[0],
+                spec.variant,
+            )
+            assert store.covered([key]) == set()
         finally:
             store.close()
 

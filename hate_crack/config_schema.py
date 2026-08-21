@@ -331,6 +331,17 @@ CONFIG_SCHEMA: tuple[ConfigKey, ...] = (
     ConfigKey(
         "HCAT_SMART_MASK_MIN_CLUSTER_SIZE", "hcatSmartMaskMinClusterSize", "int", 3
     ),
+    # Seconds of `--runtime` for each of the Hybrid attack's two full-charset
+    # increment passes (`?a?a?a?a`, incrementing 1-4). Time-bounded rather than
+    # length-bounded because the cost is the wordlist times the mask: over the
+    # default rockyou.txt that sweep is ~1.18e15 candidates, roughly ten hours
+    # for NTLM on hardware doing 32 GH/s and hopeless on a slow hash, while
+    # over a small targeted list it finishes outright. One hour spends a
+    # bounded amount either way. 0 skips the two passes entirely; the cheap
+    # fixed-length `?s?d` passes are unaffected and always run.
+    ConfigKey(
+        "HCAT_HYBRID_INCREMENT_RUNTIME", "hcatHybridIncrementRuntime", "int", 3600
+    ),
     ConfigKey("CHECK_FOR_UPDATES", "check_for_updates", "bool", True),
     ConfigKey(
         "OPTIMIZED_KERNEL_ATTACKS",

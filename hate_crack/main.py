@@ -1098,6 +1098,7 @@ pcfgPrinceLingMaxCandidates = int(
     config_parser.get("pcfgPrinceLingMaxCandidates", 10000000)
 )
 hcatSmartMaskMinClusterSize = int(config_parser.get("hcatSmartMaskMinClusterSize", 3))
+hcatHybridIncrementRuntime = int(config_parser.get("hcatHybridIncrementRuntime", 3600))
 
 try:
     _cfg_optimized = config_parser["optimizedKernelAttacks"]
@@ -4086,26 +4087,134 @@ def hcatNgramX(hcatHashType, hcatHashFile, corpus, group_size=3):
 _HYBRID_CHARSET = "?s?d"
 _HYBRID_MASK_LENGTHS = (1, 2, 3, 4)
 
+# The full-charset sweep that follows those passes. ?a is every printable
+# character, so it re-covers the ?s?d ground and adds letters -- 95**4 rather
+# than 43**4 at the longest length, which is why it runs last and under a time
+# budget (hcatHybridIncrementRuntime).
+#
+# Run as one invocation per length rather than as a single `--increment 1-4`,
+# for two reasons verified against hashcat 7.1.2 and not documented anywhere
+# obvious. The candidates are identical either way -- `--increment` queues each
+# length as its own job (`Guess.Queue.Mod: 2/6`) -- but:
+#
+#   * `--runtime` is applied per queued length, not to the invocation, so one
+#     `--increment` pass with a one-hour cap can spend four hours. Separate
+#     invocations let the deadline below govern the sweep as a whole.
+#   * a length cut short inside an `--increment` run still exits 1, the code
+#     _run_hcat_cmd_uncovered reads as "keyspace exhausted", so coverage would
+#     record ground that was never enumerated. A standalone mask cut short by
+#     `--runtime` exits 4 instead, which is not recorded -- so each length that
+#     genuinely finishes is banked, and one that runs out of budget is not.
+_HYBRID_FULL_CHARSET = "?a"
+# The ?1 slot that -1 defines. Named _SLOT, not _TOKEN: bandit's B105
+# heuristic reads a "token" holding a short string literal as a credential.
+_HYBRID_CHARSET_SLOT = "?1"
 
-def _hybrid_coverage(hash_file, wordlist, mode, mask):
+
+def _run_hybrid_full_charset_sweep(hcatHashType, hcatHashFile, wordlists):
+    """Run the ?a sweep over *wordlists*, bounded by one shared time budget.
+
+    Ordered by mask length across all wordlists rather than per wordlist,
+    because the budget is shared: length 4 over the first wordlist would
+    otherwise consume the whole hour and leave the second wordlist without even
+    its length-1 pass. Every pass gets what remains of the budget, so hashcat
+    stops the sweep rather than the sweep overrunning it.
+    """
+    if hcatHybridIncrementRuntime <= 0:
+        return
+
+    deadline = time.monotonic() + hcatHybridIncrementRuntime
+    print(
+        f"\n[*] Hybrid full-charset sweep ({_HYBRID_FULL_CHARSET}, lengths "
+        f"{_HYBRID_MASK_LENGTHS[0]}-{_HYBRID_MASK_LENGTHS[-1]}), "
+        f"{hcatHybridIncrementRuntime}s budget across all passes."
+    )
+    skipped = 0
+    for length in _HYBRID_MASK_LENGTHS:
+        for wordlist in wordlists:
+            for mode in ("6", "7"):
+                remaining = int(deadline - time.monotonic())
+                if remaining <= 0:
+                    skipped += 1
+                    continue
+                _run_hybrid_pass(
+                    hcatHashType,
+                    hcatHashFile,
+                    wordlist,
+                    mode,
+                    _HYBRID_FULL_CHARSET * length,
+                    runtime=remaining,
+                )
+    if skipped:
+        # Say so rather than ending quietly: a sweep that ran out of budget has
+        # left candidates untried, and the operator is the one who decides
+        # whether to raise hcatHybridIncrementRuntime or move on.
+        print(
+            f"[*] Full-charset sweep budget spent; {skipped} pass(es) not run. "
+            "Raise hcatHybridIncrementRuntime in config.json to go further."
+        )
+
+
+def _hybrid_coverage(hash_file, wordlist, mode, mask, charset=""):
     """Build the coverage spec for one hcatHybrid pass.
 
-    The mask is recorded in hcmask inline form (``?s?d,?1?1``) rather than as
-    the bare ``?1?1`` the command line carries, because ``?1`` names nothing
+    A ``?1`` mask is recorded in hcmask inline form (``?s?d,?1?1``) rather than
+    as the bare ``?1?1`` the command line carries, because ``?1`` names nothing
     without its ``-1`` definition: every pass would otherwise share a key with
     any other attack that spelled ``-1`` differently. The inline form is only
     ever a key -- hashcat is still handed ``-1 ?s?d`` and the bare mask, since
-    comma-separated charsets are valid in an hcmask file but not on argv.
+    comma-separated charsets are valid in an hcmask file but not on argv. The
+    full-charset sweep uses the builtin ``?a`` and needs none of this.
 
     The attack mode goes in the variant. Appending a mask to a word and
     prepending it enumerate disjoint candidate sets, so mode 6 and mode 7 must
     never collapse onto one key.
+
+    The runtime cap deliberately stays out of the key. A pass that completes
+    covered its whole declared keyspace whatever cap it ran under, and one that
+    did not complete is never recorded at all.
     """
     return _coverage.CoverageSpec(
         hash_file=hash_file,
         wordlists=(wordlist,),
-        masks=(f"{_HYBRID_CHARSET},{mask}",),
+        masks=(f"{charset},{mask}" if charset else mask,),
         variant=f"hybrid:a{mode}",
+    )
+
+
+def _run_hybrid_pass(
+    hcatHashType, hcatHashFile, wordlist, mode, mask, charset="", runtime=0
+):
+    """Assemble and run one hybrid pass, appending or prepending *mask*."""
+    positional = [wordlist, mask] if mode == "6" else [mask, wordlist]
+    label = f"Hybrid a{mode} {'full ' if not charset else ''}{len(mask) // 2}"
+    cmd = [
+        hcatBin,
+        "-m",
+        hcatHashType,
+        hcatHashFile,
+        "--session",
+        generate_session_id(hcatHashFile, label),
+        "-o",
+        f"{hcatHashFile}.out",
+        "-a",
+        mode,
+    ]
+    if charset:
+        cmd.extend(["-1", charset])
+    if runtime:
+        cmd.extend(["--runtime", str(runtime)])
+    cmd.extend(positional)
+    if _should_use_optimized_kernel("hcatHybrid"):
+        _insert_optimized_flag(cmd)
+    cmd.extend(shlex.split(hcatTuning))
+    _append_potfile_arg(cmd)
+    _run_hcat_cmd(
+        cmd,
+        attack_name="Hybrid",
+        hash_file=hcatHashFile,
+        reraise_interrupt=True,
+        coverage=_hybrid_coverage(hcatHashFile, wordlist, mode, mask, charset),
     )
 
 
@@ -4152,34 +4261,15 @@ def hcatHybrid(hcatHashType, hcatHashFile, wordlists=None):
         for wordlist in resolved_wordlists:
             for mode in ("6", "7"):
                 for length in _HYBRID_MASK_LENGTHS:
-                    mask = "?1" * length
-                    positional = [wordlist, mask] if mode == "6" else [mask, wordlist]
-                    cmd = [
-                        hcatBin,
-                        "-m",
+                    _run_hybrid_pass(
                         hcatHashType,
                         hcatHashFile,
-                        "--session",
-                        generate_session_id(hcatHashFile, f"Hybrid a{mode} {length}"),
-                        "-o",
-                        f"{hcatHashFile}.out",
-                        "-a",
+                        wordlist,
                         mode,
-                        "-1",
-                        _HYBRID_CHARSET,
-                        *positional,
-                    ]
-                    if _should_use_optimized_kernel("hcatHybrid"):
-                        _insert_optimized_flag(cmd)
-                    cmd.extend(shlex.split(hcatTuning))
-                    _append_potfile_arg(cmd)
-                    _run_hcat_cmd(
-                        cmd,
-                        attack_name="Hybrid",
-                        hash_file=hcatHashFile,
-                        reraise_interrupt=True,
-                        coverage=_hybrid_coverage(hcatHashFile, wordlist, mode, mask),
+                        _HYBRID_CHARSET_SLOT * length,
+                        charset=_HYBRID_CHARSET,
                     )
+        _run_hybrid_full_charset_sweep(hcatHashType, hcatHashFile, resolved_wordlists)
     except KeyboardInterrupt:
         # One ctrl-C abandons the whole attack, not just the current pass.
         pass

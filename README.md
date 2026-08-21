@@ -1108,8 +1108,21 @@ https://hashcat.net/wiki/doku.php?id=hybrid_attack
   - Hybrid Mask + Wordlist - ?s?d ?1?1?1 wordlists/rockyou.txt
   - Hybrid Mask + Wordlist - ?s?d ?1?1?1?1 wordlists/rockyou.txt
 
+  Those passes then repeat over the full `?a` charset (every printable
+  character, so a superset of `?s?d` plus letters), again lengths 1 to 4 in both
+  directions. That sweep is far larger — over rockyou.txt its longest mask alone
+  is ~1.2e15 candidates — so it runs last, ordered by mask length across every
+  wordlist, under a single time budget shared by all of its passes:
+
+  - `hcatHybridIncrementRuntime` in `config.json`, in seconds, default `3600`.
+    Each pass is given whatever is left of the budget as hashcat's `--runtime`,
+    and any pass that no budget remains for is reported rather than skipped
+    quietly. Set it to `0` to switch the sweep off entirely; the fixed-length
+    `?s?d` passes above are never time-capped.
+
   Each pass declares what it covers to the attack-coverage store, so a repeat
-  hybrid against the same hash file offers to skip the passes already run.
+  hybrid against the same hash file offers to skip the passes already run. A
+  sweep pass that runs out of budget is not recorded, so it will be retried.
   Wordlist entries may be glob patterns; they are expanded before hashcat runs.
 
 #### Pathwell Top 100 Mask Brute Force Crack
