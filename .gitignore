@@ -103,3 +103,7 @@ some_histories
 .claude/specs/
 docs/plans/
 docs/superpowers/
+
+#possible client data
+left_*
+found_*
