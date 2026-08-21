@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
-## [Unreleased]
+## [2.33.0] - 2026-08-21
 
 ### Added
 - **`CLAUDE.md` and `.claude/` are now published, and the publication boundary narrowed to match.** Both were gitignored and purged from branch history on 2026-07-25 as local-only development aids. That left the branching, release, tagging and config policies documented nowhere a contributor could read them: an outside contributor could see that `main` receives work only through a batch integration merge, but not why, nor that history must stay linear, nor that a `Closes #NNN` in a work-branch commit closes nothing. `.claude/` ships the tooling `CLAUDE.md` refers to, so it follows.
