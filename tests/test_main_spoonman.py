@@ -617,15 +617,18 @@ class TestSpoonmanExtraWordlists:
         passed = _wordlists(quick)
         assert passed == [passed[0], other]
 
-    @pytest.mark.parametrize("style", ["symlink", "dot_prefix", "parent_traversal"])
+    @pytest.mark.parametrize(
+        "style", ["symlink", "dot_prefix", "parent_traversal", "case_differing"]
+    )
     def test_the_corpus_is_recognized_through_a_symlink_or_a_relative_form(
         self, main_module, tmp_path, monkeypatch, style
     ):
-        """realpath, not a string compare: the two paths arrive separately.
+        """identity, not a string compare: the two paths arrive separately.
 
         One is typed or picked by the operator, the other is joined onto a
         directory listing, so the same file reaching the two sides spelled two
-        ways is ordinary.
+        ways is ordinary -- including, on a case-insensitive filesystem, two
+        spellings differing only in case (#291).
         """
         wordlists = tmp_path / "wordlists"
         wordlists.mkdir()
@@ -639,6 +642,15 @@ class TestSpoonmanExtraWordlists:
         elif style == "dot_prefix":
             monkeypatch.chdir(wordlists)
             spelling = os.path.join(".", "prev_engagement_cracked.txt")
+        elif style == "case_differing":
+            # A real filesystem probe, not sys.platform: skip cleanly on a
+            # case-sensitive filesystem (Linux CI, a case-sensitive macOS
+            # volume) rather than asserting something the filesystem itself
+            # does not do.
+            alt = wordlists / "Prev_Engagement_Cracked.txt"
+            if not (alt.exists() and os.path.samefile(str(corpus), str(alt))):
+                pytest.skip("filesystem is case-sensitive")
+            spelling = str(alt)
         else:
             # A form that really does exist, so the existence check cannot be
             # what makes this pass.
@@ -772,6 +784,125 @@ class TestSpoonmanExtraWordlists:
         generate.assert_not_called()
         assert second.call_args[0][2] == first.call_args[0][2]
         assert _wordlists(second)[0] == _wordlists(first)[0]
+
+
+class TestSpoonmanCorpusGuards:
+    """#291 + #292: identity-based guards, independent of ordering.
+
+    _same_path and _path_contains moved from realpath string comparison to
+    os.stat/os.path.samestat identity, so a corpus offered back under a
+    different capitalization is still recognized on a case-insensitive
+    filesystem (#291), and _path_contains is naturally True for an exact
+    match so it no longer depends on _same_path running first to catch that
+    case (#292). These exercise both functions directly rather than through
+    hcatSpoonman, so each guard's correctness is a plain fact about the
+    function rather than something that happens to hold given the current
+    branch order in _spoonman_wordlists.
+    """
+
+    def test_exact_match_is_true_for_both_guards_independently(
+        self, main_module, tmp_path
+    ):
+        """The #292 crux: neither guard depends on the other running first."""
+        corpus = tmp_path / "found.txt"
+        corpus.write_text("quibblefox\n", encoding="latin-1")
+
+        assert main_module._same_path(str(corpus), str(corpus)) is True
+        assert main_module._path_contains(str(corpus), str(corpus)) is True
+
+    def test_containment_at_depth_and_the_reverse(self, main_module, tmp_path):
+        root = tmp_path / "root"
+        nested = root / "a" / "b"
+        nested.mkdir(parents=True)
+        found = nested / "found.txt"
+        found.write_text("quibblefox\n", encoding="latin-1")
+
+        assert main_module._path_contains(str(root), str(found)) is True
+        assert main_module._path_contains(str(found), str(root)) is False
+
+    def test_sibling_prefix_trap(self, main_module, tmp_path):
+        """The unit-level twin of the integration string-prefix-trap test."""
+        lists = tmp_path / "lists"
+        lists.mkdir()
+        lists2 = tmp_path / "lists2"
+        lists2.mkdir()
+        found = lists2 / "found.txt"
+        found.write_text("quibblefox\n", encoding="latin-1")
+
+        assert main_module._path_contains(str(lists), str(found)) is False
+
+    def test_plain_file_container_contains_only_itself(self, main_module, tmp_path):
+        plain = tmp_path / "plain.txt"
+        plain.write_text("quibblefox\n", encoding="latin-1")
+        other = tmp_path / "other.txt"
+        other.write_text("zarplewidget\n", encoding="latin-1")
+
+        assert main_module._path_contains(str(plain), str(plain)) is True
+        assert main_module._path_contains(str(plain), str(other)) is False
+
+    def test_missing_path_answers_false_never_raises(self, main_module, tmp_path):
+        missing = str(tmp_path / "nope.txt")
+        other_missing = str(tmp_path / "also_nope.txt")
+        existing = tmp_path / "found.txt"
+        existing.write_text("quibblefox\n", encoding="latin-1")
+
+        assert main_module._same_path(missing, str(existing)) is False
+        assert main_module._same_path(str(existing), missing) is False
+        assert main_module._same_path(missing, other_missing) is False
+        assert main_module._path_contains(missing, str(existing)) is False
+        assert main_module._path_contains(str(existing), missing) is False
+        assert main_module._path_contains(missing, other_missing) is False
+
+    def test_relative_target_containment_is_load_bearing(
+        self, main_module, tmp_path, monkeypatch
+    ):
+        """Fails without the abspath fix -- see _path_contains's docstring."""
+        directory = tmp_path / "wordlists"
+        directory.mkdir()
+        found = directory / "found.txt"
+        found.write_text("quibblefox\n", encoding="latin-1")
+        monkeypatch.chdir(directory)
+
+        assert main_module._path_contains(".", "found.txt") is True
+
+    def test_case_differing_path_is_recognized_as_the_corpus(
+        self, main_module, tmp_path
+    ):
+        corpus = tmp_path / "Prev_Engagement_Cracked.txt"
+        corpus.write_text("quibblefox\n", encoding="latin-1")
+        alt_spelling = tmp_path / "prev_engagement_cracked.txt"
+        # A real filesystem probe, not sys.platform: skip cleanly on a
+        # case-sensitive filesystem (Linux CI, a case-sensitive macOS volume).
+        if not (
+            alt_spelling.exists() and os.path.samefile(str(corpus), str(alt_spelling))
+        ):
+            pytest.skip("filesystem is case-sensitive")
+        # The #291 premise, asserted explicitly so this cannot pass vacuously
+        # if samefile's own behavior ever changes: realpath does not fold case.
+        assert os.path.realpath(str(corpus)) != os.path.realpath(str(alt_spelling))
+
+        assert main_module._same_path(str(corpus), str(alt_spelling)) is True
+        assert main_module._path_contains(str(tmp_path), str(alt_spelling)) is True
+
+    def test_spoonman_wordlists_skips_the_corpus_offered_as_an_extra(
+        self, main_module, tmp_path
+    ):
+        """#292's own "option 1", done at the function level.
+
+        Asserts the outcome rather than which branch caught it, so this
+        survives any future refactor of the two guards inside
+        _spoonman_wordlists.
+        """
+        basewords = tmp_path / "basewords.txt"
+        basewords.write_text("quibblefox\n", encoding="latin-1")
+        corpus = tmp_path / "cracked.txt"
+        corpus.write_text("quibblefox\n", encoding="latin-1")
+
+        result = main_module._spoonman_wordlists(
+            str(basewords), [str(corpus)], corpus=str(corpus)
+        )
+
+        assert result == [str(basewords)]
 
 
 class TestSpoonmanBasewordCap:

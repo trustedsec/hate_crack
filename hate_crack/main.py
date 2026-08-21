@@ -6370,39 +6370,67 @@ def _warn_optimized_kernel_length_loss(basewords_path):
 def _same_path(left, right):
     """Do *left* and *right* resolve to the same filesystem object?
 
-    realpath rather than a string comparison: the two arrive from different
-    places (one typed or picked by the operator, one enumerated from a
-    directory listing), so a symlink, a ``./`` prefix, or a trailing slash is
-    ordinary rather than exotic.
+    ``samefile`` (st_dev + st_ino identity) rather than comparing resolved
+    strings: the two arrive from different places -- one typed or picked by
+    the operator, one enumerated from a directory listing -- so a symlink, a
+    ``./`` prefix or a trailing slash is ordinary rather than exotic, and on a
+    case-insensitive filesystem (APFS/HFS+ by default, FAT, some SMB/NFS
+    mounts) two spellings differing only in case name one file. ``realpath``
+    normalizes the first three and not the fourth -- it does not fold case --
+    so the string compare this replaces returned False for a corpus offered
+    back under a different capitalization and hashcat ran it as a plain
+    dictionary (#291). Identity answers all four by asking the filesystem
+    rather than guessing at its rules.
     """
     try:
-        return os.path.realpath(left) == os.path.realpath(right)
+        return os.path.samefile(left, right)
     except OSError:
         return False
 
 
 def _path_contains(container, target):
-    """Does directory *container* hold *target* somewhere beneath it?
+    """Does directory *container* hold *target*, at or beneath it?
 
     _same_path alone is depth-blind, and the extras it screens are enumerated
     with list_wordlist_entries, which deliberately includes directories so
     hashcat walks them. A corpus one level inside an offered directory is
-    therefore the expected shape, not a corner case -- a wordlist collection
-    with the corpus unpacked into its own subdirectory beside the others.
+    therefore the expected shape, not a corner case.
 
-    Both sides go through realpath so a symlinked directory whose target holds
-    the corpus is caught too. The separator is appended before the prefix test
-    because a bare string prefix would also match a sibling whose name merely
-    starts the same way -- ``lists`` would "contain" ``lists2/corpus.txt`` --
-    and it is what makes a non-directory *container* answer False on its own,
-    since nothing resolves to a path beneath a plain file.
+    Walks *target*'s own stat and then each ancestor's, comparing identity
+    with ``os.path.samestat`` rather than a resolved-string prefix:
+
+    * Case-agnostic, because inode identity is (#291).
+    * The sibling-prefix trap ("lists" "containing" "lists2/corpus.txt") is
+      gone by construction -- a different directory is a different object,
+      no separator bookkeeping needed.
+    * True when *container* and *target* are the same object, so this guard
+      no longer depends on _same_path running first for the exact-match case
+      (#292). A plain-file *container* still answers False for anything but
+      itself, since no other path's ancestry passes through a file.
+
+    *target* is made absolute before the walk so ``dirname`` terminates at a
+    real filesystem root rather than at ``""`` -- a bare relative target
+    would otherwise fail its own stat and read as "not contained" (this is
+    not hypothetical: a relative extra reaching this guard is the existing
+    dot_prefix test's exact shape). ``abspath`` is pure string normalization
+    and folds no case, so it cannot reintroduce #291.
     """
     try:
-        container_real = os.path.realpath(container)
-        target_real = os.path.realpath(target)
+        container_stat = os.stat(container)
     except OSError:
         return False
-    return target_real.startswith(container_real.rstrip(os.sep) + os.sep)
+    current = os.path.abspath(target)
+    while True:
+        try:
+            current_stat = os.stat(current)
+        except OSError:
+            return False
+        if os.path.samestat(container_stat, current_stat):
+            return True
+        parent = os.path.dirname(current)
+        if parent == current:
+            return False
+        current = parent
 
 
 def _spoonman_wordlists(basewords_path, extra_wordlists, corpus=None):
@@ -6436,12 +6464,16 @@ def _spoonman_wordlists(basewords_path, extra_wordlists, corpus=None):
         if not os.path.exists(extra):
             print(f"[!] Skipping wordlist (not found): {extra}")
             continue
+        # Order here only picks which message prints below: both guards are
+        # independently sufficient for the exact-match case since #292.
         if corpus is not None and _same_path(extra, corpus):
             print(
                 f"[!] Skipping wordlist (it is the corpus this attack derived "
                 f"from): {extra}"
             )
             continue
+        # Same note as above -- this guard no longer depends on the previous
+        # one having run first; either order still catches an exact match.
         if corpus is not None and _path_contains(extra, corpus):
             print(
                 f"[!] Skipping wordlist (it is a directory containing the corpus "
