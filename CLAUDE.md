@@ -337,13 +337,19 @@ Before merging that PR:
    `python3 tools/next_version.py --channel stable` prints the exact tag
    `auto-tag.yml` will create.
 2. **Collect the issue references out of the `[Unreleased]` entries and put a
-   `Closes #NNN` line in the PR body for each one.** Work branches never get
-   their own PR, so a `Closes` in a work-branch commit message closes nothing —
-   GitHub only acts on closing keywords that reach the default branch, and the
-   batch PR is the single place that happens. An issue fixed weeks ago otherwise
-   stays open until somebody notices. Entries carry their issue inline as
-   `(#NNN)` for exactly this reason; grep the section rather than trusting
-   memory.
+   `Closes #NNN` line in the PR body for each one.** GitHub acts on a closing
+   keyword only when it reaches the **default branch**, which is `main` — so a
+   `Closes` in a work-branch commit closes nothing, and neither does one in a
+   work-branch PR, because those target `nightly-dev`. The batch PR is the
+   single place a closing keyword actually fires. An issue fixed weeks ago
+   otherwise stays open until somebody notices. Entries carry their issue
+   inline as `(#NNN)` for exactly this reason; grep the section rather than
+   trusting memory.
+
+   (This used to be justified by "work branches never get their own PR." That
+   premise is gone — see Branching Policy — but the conclusion is unchanged and
+   the reason is now stated directly: it is about the default branch, not about
+   whether a PR exists.)
 3. Confirm the full suite and all three CI checks pass on the merge.
 
 **Merge it with a local fast-forward, not with GitHub's merge button.** The PR
