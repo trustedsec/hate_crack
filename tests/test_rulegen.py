@@ -5,6 +5,7 @@ from collections import Counter
 import pytest
 
 from hate_crack import rulegen
+from hate_crack.plaintext import usable_plaintext
 
 # A spread of shapes the derivation has to handle: casing patterns, leading and
 # trailing and interior non-letters, letterless input, and passphrases.
@@ -867,6 +868,113 @@ class TestEdgeWhitespace:
             r + "\n" for r, _ in expected_rules.most_common()
         ).encode("latin-1")
         assert result["selfcheck_failures"] == []
+
+
+class TestEmbeddedLineBreaks:
+    """A password can contain a literal newline, and hashcat hands it over as
+    ``$HEX[...0a]``. Both output files are line-based, so an append op carrying
+    that byte splits its own rule across two lines: the rule is truncated
+    mid-op and a blank line appears after it. Observed in the wild as
+    ``c$1$2$`` plus the only blank line in a 1.4M-line rules.full.rule, which
+    hashcat then dropped silently."""
+
+    HEX_LF = "$HEX[7a6f727074616e676c650a]"  # "zorptangle\n"
+    HEX_CR = "$HEX[7a6f727074616e676c650d]"  # "zorptangle\r"
+
+    def _run(self, tmp_path, lines):
+        corpus = tmp_path / "corpus.txt"
+        corpus.write_text("\n".join(lines) + "\n", encoding="latin-1")
+        return rulegen.generate(
+            str(corpus), str(tmp_path / "out"), print_fn=lambda *a: None
+        )
+
+    def test_hex_wrapped_newline_decodes_to_a_line_break(self):
+        """Pin the premise: the strip that guards edge whitespace never sees
+        this, because the newline arrives via the hex decode."""
+        assert usable_plaintext(self.HEX_LF, keep_whitespace=True) == "zorptangle\n"
+        assert usable_plaintext(self.HEX_LF) == "zorptangle\n"
+
+    @pytest.mark.parametrize("hexed", [HEX_LF, HEX_CR])
+    def test_written_files_hold_no_truncated_line(self, tmp_path, hexed):
+        self._run(tmp_path, [hexed, "quibbleflange1"])
+        out = tmp_path / "out"
+        for name in ("basewords.txt", "rules.full.rule"):
+            raw = (out / name).read_bytes()
+            assert raw.endswith(b"\n"), name
+            lines = raw.split(b"\n")[:-1]
+            # A split rule leaves an empty line behind; that is the fingerprint.
+            assert b"" not in lines, f"{name} has a blank line: {lines!r}"
+            for line in lines:
+                assert b"\r" not in line, f"{name} line kept a CR: {line!r}"
+
+    def test_every_written_rule_is_one_hashcat_accepts(self, tmp_path):
+        self._run(tmp_path, [self.HEX_LF, "quibbleflange1"])
+        rules = (
+            (tmp_path / "out" / "rules.full.rule")
+            .read_text(encoding="latin-1")
+            .splitlines()
+        )
+        assert rules, "no rules written"
+        for rule in rules:
+            assert rulegen.validate_rule(rule), f"hashcat would reject {rule!r}"
+
+    def test_the_unrepresentable_password_is_counted_not_silently_dropped(
+        self, tmp_path
+    ):
+        result = self._run(tmp_path, [self.HEX_LF, self.HEX_CR, "quibbleflange1"])
+        assert result["line_breaks"] == 2
+        # It is excluded from the corpus it cannot be represented in, so the
+        # coverage percentages are not computed against a password no written
+        # pair can rebuild.
+        assert result["total"] == 1
+        assert result["selfcheck_failures"] == []
+
+    def test_a_legitimate_trailing_space_still_survives_alongside(self, tmp_path):
+        """The fix must not reach past line breaks into whitespace generally: a
+        trailing space is a valid `$ ` append and the reason this bug was hard
+        to spot, since the two coexisted in the same file."""
+        result = self._run(tmp_path, [self.HEX_LF, "zorptangle "])
+        assert result["line_breaks"] == 1
+        rules = (
+            (tmp_path / "out" / "rules.full.rule")
+            .read_text(encoding="latin-1")
+            .splitlines()
+        )
+        assert rules == ["$ "]
+        assert result["selfcheck_failures"] == []
+
+    def test_coverage_report_names_the_dropped_lines(self, tmp_path):
+        self._run(tmp_path, [self.HEX_LF, "quibbleflange1"])
+        coverage = (tmp_path / "out" / "coverage.txt").read_text(encoding="latin-1")
+        assert "line breaks" in coverage
+
+    def test_the_operator_is_told_the_lines_were_skipped(self, tmp_path):
+        """A silent skip reads as full coverage. It is not."""
+        said = []
+        corpus = tmp_path / "corpus.txt"
+        corpus.write_text(f"{self.HEX_LF}\nquibbleflange1\n", encoding="latin-1")
+        rulegen.generate(
+            str(corpus),
+            str(tmp_path / "out"),
+            print_fn=lambda *a: said.append(" ".join(a)),
+        )
+        assert any("skipped" in line and "$HEX" in line for line in said), said
+
+    def test_a_clean_corpus_says_nothing_about_line_breaks(self, tmp_path):
+        said = []
+        corpus = tmp_path / "corpus.txt"
+        corpus.write_text("zorptangle\nquibbleflange1\n", encoding="latin-1")
+        rulegen.generate(
+            str(corpus),
+            str(tmp_path / "out"),
+            print_fn=lambda *a: said.append(" ".join(a)),
+        )
+        assert not any("CR or LF" in line for line in said), said
+
+    def test_no_line_breaks_leaves_the_counter_at_zero(self, tmp_path):
+        result = self._run(tmp_path, ["zorptangle", "quibbleflange1"])
+        assert result["line_breaks"] == 0
+        assert result["total"] == 2
 
 
 class TestCorpusLineParsing:

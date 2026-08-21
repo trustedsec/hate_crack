@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [Unreleased]
+
+### Fixed
+- **A cracked password containing a literal line break no longer truncates a rule in the Spoonman Attack's output.** hashcat hands such a password over hex-wrapped, and `$HEX[...0a]` decodes to a plaintext ending in `\n`. `derive()` emits one append op per trailing non-letter, so the last op became `$` followed by that newline — and since `rulegen.generate()` writes each record as `value + "\n"` into a line-based file, the rule split across two lines: a fragment truncated mid-op, then a blank line. Found in the wild as `c$1$2$` sitting immediately above the *only* blank line in a 1,420,542-line `rules.full.rule`; hashcat parsed the file, rejected that one line, and said nothing, so the loss surfaced only as one rule of coverage that quietly did not exist.
+
+  Both existing safety nets were blind to it, which is the part worth recording. `validate_rule()` does reject `c$1$2$`, but `generate()` never calls it — the only call site is the LLM path in `main.py`, since the derive path is assumed correct by construction. And the reconstruction self-check passed *honestly*: `apply_rule("password", "c$1$2$\n")` really does rebuild `Password12\n`, so `selfcheck_failures` stayed empty. The corruption happens in the writer, downstream of every check that could have caught it — the same shape as the earlier edge-whitespace bug (2.31.0), one layer further down: there the password was altered before derivation, here a correct derivation is destroyed after it.
+
+  Such a password is skipped rather than truncated, and counted in a new `line_breaks` statistic reported in `coverage.txt` and the returned dict. Skipping is the only available answer: `basewords.txt` is line-based too, so the literal fallback would corrupt that file identically, and a `$` argument is a raw byte in a line-based rule file, so a newline is unrepresentable however it is spelled. Deliberately scoped to CR and LF and nothing else — a trailing *space* is a valid `$ ` append that 2.31.0 exists to preserve, and screening the derive path through `validate_rule()` instead would have been wrong in the other direction, silently discarding the 728 high-byte rules in that same real corpus that hashcat accepts perfectly well. Verified against hashcat 7.1.2: the six-password reproduction corpus previously wrote 6 rules and yielded 5 candidates, and now writes 5 rules and yields 5, with the legitimate `$ ` append still present.
+
 ## [2.32.0] - 2026-08-21
 
 ### Added

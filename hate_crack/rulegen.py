@@ -671,6 +671,7 @@ class _Scan(NamedTuple):
     no_letter_literals: int
     unrepresentable: int
     hash_shaped: int
+    line_breaks: int
     selfcheck_failures: list
     leet_restored: int
     pruned_basewords: int
@@ -703,6 +704,7 @@ def _scan_corpus(
     no_letter_literals = 0
     unrepresentable = 0
     hash_shaped = 0
+    line_breaks = 0
     leet_restored = 0
     selfcheck_failures = []
     lines_read = 0
@@ -743,6 +745,23 @@ def _scan_corpus(
             pw = usable_plaintext(stripped, keep_whitespace=True)
             if pw == "":
                 continue
+            # A password can hold a literal line break, and hashcat hands those
+            # over hex-wrapped: $HEX[...0a]. The line terminator rstripped above
+            # is gone by now, so anything left here came out of the decode and is
+            # part of the password. Both output files are line-based and written
+            # as `value + "\n"`, so such a password splits its own record across
+            # two lines -- a rule truncated mid-op, then a blank line. hashcat
+            # drops the fragment silently, and the reconstruction self-check
+            # below cannot see it because apply_rule() rebuilds the password
+            # faithfully; the corruption happens at the writer, downstream of
+            # every check. There is no rule encoding to fall back on either: a
+            # `$` argument is a raw byte in a line-based file, so a newline is
+            # unrepresentable however it is spelled. Skip the password rather
+            # than emit a pair that cannot rebuild it, and count it so a corpus
+            # full of them is visible instead of quietly shrinking the output.
+            if "\n" in pw or "\r" in pw:
+                line_breaks += 1
+                continue
             if ascii_only and not _is_printable_ascii(pw):
                 skipped += 1
                 continue
@@ -777,6 +796,7 @@ def _scan_corpus(
         no_letter_literals=no_letter_literals,
         unrepresentable=unrepresentable,
         hash_shaped=hash_shaped,
+        line_breaks=line_breaks,
         selfcheck_failures=selfcheck_failures,
         leet_restored=leet_restored,
         pruned_basewords=pruned_basewords,
@@ -892,6 +912,7 @@ def generate(
     # sum here rather than counted separately so the identity cannot drift.
     literal_fallbacks = no_letter_literals + unrepresentable
     hash_shaped = scan.hash_shaped
+    line_breaks = scan.line_breaks
     selfcheck_failures = scan.selfcheck_failures
     leet_restored = scan.leet_restored
     pruned_basewords = scan.pruned_basewords
@@ -998,6 +1019,13 @@ def generate(
             "   sample, so anything above zero here is unusual.)\n"
         )
         f.write(f"hash-shaped lines:   {hash_shaped}\n")
+        f.write(f"line breaks:         {line_breaks}\n")
+        f.write(
+            "  (the password held a literal CR or LF, which arrives via a\n"
+            "   $HEX[...] plaintext. Both output files are line-based, so such a\n"
+            "   password cannot be written as a baseword-plus-rule pair at all;\n"
+            "   it is skipped rather than truncated. Normally zero.)\n"
+        )
         if leet_restore:
             f.write(f"leet restored:       {leet_restored}\n")
             f.write(
@@ -1088,6 +1116,13 @@ def generate(
             "plaintexts. This corpus may be an uncracked dump instead of cracked "
             "output, in which case the basewords and rules below are meaningless."
         )
+    if line_breaks:
+        print_fn(
+            f"[!] {line_breaks} passwords held a literal CR or LF (a "
+            "$HEX[...] plaintext) and were skipped: both output files are "
+            "line-based, so no baseword-and-rule pair can rebuild them. "
+            "Coverage excludes them."
+        )
     if selfcheck_failures:
         print_fn(
             f"[!] {len(selfcheck_failures)} passwords failed the reconstruction "
@@ -1109,6 +1144,7 @@ def generate(
         "no_letter_literals": no_letter_literals,
         "unrepresentable": unrepresentable,
         "hash_shaped": hash_shaped,
+        "line_breaks": line_breaks,
         "leet_restored": leet_restored,
         "selfcheck_failures": selfcheck_failures,
         "milestones": milestones,
