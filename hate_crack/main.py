@@ -1641,12 +1641,19 @@ def _prompt_coverage_filter(plan, attack_name: str, spec=None) -> bool:
     return answer.lower() not in ("n", "no")
 
 
-def _apply_coverage(cmd, spec, attack_name: str):
+def _apply_coverage(cmd, spec, attack_name: str, decision_cache: dict | None = None):
     """Resolve coverage for a pending run.
 
     Returns ``None`` when the whole run is a repeat and should be skipped, or
     ``(cmd, plan, temp_paths)`` otherwise. ``plan`` is ``None`` when coverage
     could not be established, which means neither filter nor record.
+
+    ``decision_cache``, when given, lets a caller that issues several related
+    runs in a row -- one hashcat invocation per rule file selected against
+    the same wordlist, say -- ask the "skip already-covered ground?" question
+    only once. The first call with overlap prompts and stores its answer in
+    the shared dict; every later call sharing that same dict reuses it
+    without prompting again, even though each has its own, different plan.
     """
     store = _coverage_store()
     plan = _coverage.plan_run(spec, store.covered, store=store)
@@ -1656,7 +1663,14 @@ def _apply_coverage(cmd, spec, attack_name: str):
     if not plan.has_overlap:
         return cmd, plan, []
 
-    if not _prompt_coverage_filter(plan, attack_name, spec):
+    if decision_cache is not None and "apply_filtering" in decision_cache:
+        apply_filtering = decision_cache["apply_filtering"]
+    else:
+        apply_filtering = _prompt_coverage_filter(plan, attack_name, spec)
+        if decision_cache is not None:
+            decision_cache["apply_filtering"] = apply_filtering
+
+    if not apply_filtering:
         print("[*] Running everything, as requested.")
         return cmd, plan, []
 
@@ -1793,6 +1807,7 @@ def _run_hcat_cmd(
     hash_file: str | None = None,
     *,
     coverage=None,
+    coverage_decision: dict | None = None,
     stdin=None,
     companion_procs=None,
     reraise_interrupt: bool = False,
@@ -1807,6 +1822,12 @@ def _run_hcat_cmd(
     functions pass it explicitly. Omitting it disables coverage for that
     invocation, which is how dynamic candidate generators opt out.
 
+    ``coverage_decision`` is an optional shared dict a caller passes to
+    several calls in a row -- e.g. one hashcat invocation per rule file
+    selected against the same wordlist -- so the "skip already-covered
+    ground?" prompt fires once for that whole batch rather than once per
+    invocation. See :func:`_apply_coverage`.
+
     Coverage is recorded only on clean completion, so a ctrl-C or a hashcat
     error never leaves the store claiming ground that was not covered.
     """
@@ -1816,7 +1837,7 @@ def _run_hcat_cmd(
     global _hcat_launch_count, _coverage_skip_count
 
     if coverage is not None and _coverage_enabled:
-        applied = _apply_coverage(cmd, coverage, attack_name)
+        applied = _apply_coverage(cmd, coverage, attack_name, coverage_decision)
         if applied is None:
             _coverage_skip_count += 1
             return
@@ -2883,6 +2904,7 @@ def hcatQuickDictionary(
     use_potfile_path=True,
     potfile_path=None,
     attack_name="Quick Dictionary",
+    coverage_decision: dict | None = None,
 ):
     global hcatProcess
     cmd = [
@@ -2918,6 +2940,7 @@ def hcatQuickDictionary(
         coverage=_quick_dictionary_coverage(
             hcatHashFile, hcatChains, wordlists, loopback
         ),
+        coverage_decision=coverage_decision,
     )
 
 

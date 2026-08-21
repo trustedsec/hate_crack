@@ -205,6 +205,10 @@ def quick_crack(ctx: Any) -> None:
     if selected_rules is None:
         return
 
+    # Shared across every chain below so the "skip already-covered ground?"
+    # prompt fires once for the whole selection instead of once per rule
+    # file -- see hate_crack.main._apply_coverage.
+    coverage_decision: dict = {}
     for chain in selected_rules:
         ctx.hcatQuickDictionary(
             ctx.hcatHashType,
@@ -212,6 +216,7 @@ def quick_crack(ctx: Any) -> None:
             chain,
             wordlist_choice,
             attack_name="Quick Crack",
+            coverage_decision=coverage_decision,
         )
 
 
@@ -229,6 +234,10 @@ def loopback_attack(ctx: Any) -> None:
     if selected_rules is None:
         return
 
+    # Shared across every chain below so the "skip already-covered ground?"
+    # prompt fires once for the whole selection instead of once per rule
+    # file -- see hate_crack.main._apply_coverage.
+    coverage_decision: dict = {}
     for chain in selected_rules:
         ctx.hcatQuickDictionary(
             ctx.hcatHashType,
@@ -237,6 +246,7 @@ def loopback_attack(ctx: Any) -> None:
             empty_wordlist,
             loopback=True,
             attack_name="Loopback",
+            coverage_decision=coverage_decision,
         )
 
 
