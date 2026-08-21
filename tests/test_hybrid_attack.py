@@ -260,6 +260,177 @@ class TestWordlistResolution:
 
         assert runner.call_count == 16
 
+    def test_directory_expands_to_the_files_inside(self, main_module, env):
+        """hashcat takes a directory in the dictionary position, but expanding
+        it here is what keeps one coverage key per wordlist file."""
+        collection = env["tmp"] / "collection"
+        collection.mkdir()
+        for name in ("one.txt", "two.txt"):
+            (collection / name).write_text("word\n")
+
+        with (
+            _patched(main_module, env["tmp"]),
+            patch.object(main_module, "_run_hcat_cmd") as runner,
+        ):
+            main_module.hcatHybrid("1000", env["hashes"], [str(collection)])
+
+        used = {wordlist for _, _, wordlist in _passes(runner)}
+        assert used == {
+            str(collection / "one.txt"),
+            str(collection / "two.txt"),
+        }
+        # Every expanded file gets the whole matrix, not one pass apiece.
+        assert runner.call_count == 32
+
+    def test_directory_is_expanded_one_level_like_hashcat(self, main_module, env):
+        """hashcat does not descend into subdirectories, so neither do we."""
+        collection = env["tmp"] / "collection"
+        (collection / "nested").mkdir(parents=True)
+        (collection / "top.txt").write_text("word\n")
+        (collection / "nested" / "deep.txt").write_text("word\n")
+
+        with (
+            _patched(main_module, env["tmp"]),
+            patch.object(main_module, "_run_hcat_cmd") as runner,
+        ):
+            main_module.hcatHybrid("1000", env["hashes"], [str(collection)])
+
+        used = {wordlist for _, _, wordlist in _passes(runner)}
+        assert used == {str(collection / "top.txt")}
+
+    def test_directory_named_by_its_relative_name_resolves(self, main_module, env):
+        """A directory under the wordlists dir is named the way a file is."""
+        collection = env["tmp"] / "collection"
+        collection.mkdir()
+        (collection / "one.txt").write_text("word\n")
+
+        with (
+            _patched(main_module, env["tmp"]),
+            patch.object(main_module, "_run_hcat_cmd") as runner,
+        ):
+            main_module.hcatHybrid("1000", env["hashes"], ["collection"])
+
+        used = {wordlist for _, _, wordlist in _passes(runner)}
+        assert used == {str(collection / "one.txt")}
+
+    def test_a_glob_matching_a_directory_expands_it_too(self, main_module, env):
+        """A directory reached by pattern must not stay a directory: hashcat
+        would read it, but the coverage store cannot fingerprint one, so those
+        passes would be recorded nowhere and never skipped on a repeat."""
+        collections = env["tmp"] / "collections"
+        (collections / "corp").mkdir(parents=True)
+        (collections / "corp" / "one.txt").write_text("word\n")
+        (collections / "loose.txt").write_text("word\n")
+
+        with (
+            _patched(main_module, env["tmp"]),
+            patch.object(main_module, "_run_hcat_cmd") as runner,
+        ):
+            main_module.hcatHybrid("1000", env["hashes"], [str(collections / "*")])
+
+        used = {wordlist for _, _, wordlist in _passes(runner)}
+        assert used == {
+            str(collections / "corp" / "one.txt"),
+            str(collections / "loose.txt"),
+        }
+
+    def test_archives_and_dot_files_in_a_directory_are_skipped(self, main_module, env):
+        """A Weakpass download leaves .7z and .torrent next to the wordlists."""
+        collection = env["tmp"] / "collection"
+        collection.mkdir()
+        (collection / "one.txt").write_text("word\n")
+        for name in ("big.7z", "big.torrent", "cracked.out", ".DS_Store"):
+            (collection / name).write_text("not a wordlist\n")
+
+        with (
+            _patched(main_module, env["tmp"]),
+            patch.object(main_module, "_run_hcat_cmd") as runner,
+        ):
+            main_module.hcatHybrid("1000", env["hashes"], [str(collection)])
+
+        used = {wordlist for _, _, wordlist in _passes(runner)}
+        assert used == {str(collection / "one.txt")}
+
+    def test_expansion_announces_how_many_passes_it_became(
+        self, main_module, env, capsys
+    ):
+        """One selected entry can be hundreds of lists, and the whole matrix
+        runs against each: a different order of magnitude from the count the
+        handler announced before expansion. The total is counted off the pass
+        generator, so it tracks the matrix rather than a hardcoded multiple."""
+        collection = env["tmp"] / "collection"
+        collection.mkdir()
+        for name in ("one.txt", "two.txt", "three.txt"):
+            (collection / name).write_text("word\n")
+
+        with (
+            _patched(main_module, env["tmp"]),
+            patch.object(main_module, "_run_hcat_cmd") as runner,
+        ):
+            main_module.hcatHybrid("1000", env["hashes"], [str(collection)])
+
+        out = capsys.readouterr().out
+        assert f"3 wordlist(s): {runner.call_count} passes." in out
+
+    def test_a_single_file_is_not_announced_as_an_expansion(
+        self, main_module, env, capsys
+    ):
+        """Nothing expanded, so there is nothing to warn about."""
+        with (
+            _patched(main_module, env["tmp"]),
+            patch.object(main_module, "_run_hcat_cmd"),
+        ):
+            main_module.hcatHybrid("1000", env["hashes"], [env["wordlist"]])
+
+        assert "expanded to" not in capsys.readouterr().out
+
+    def test_a_directory_and_a_file_inside_it_run_once(self, main_module, env):
+        """The dedupe has to survive expansion, or the overlap runs twice."""
+        collection = env["tmp"] / "collection"
+        collection.mkdir()
+        inner = collection / "one.txt"
+        inner.write_text("word\n")
+
+        with (
+            _patched(main_module, env["tmp"]),
+            patch.object(main_module, "_run_hcat_cmd") as runner,
+        ):
+            main_module.hcatHybrid("1000", env["hashes"], [str(collection), str(inner)])
+
+        assert runner.call_count == 16
+
+    def test_empty_directory_aborts_and_says_which_one(self, main_module, env, capsys):
+        collection = env["tmp"] / "empty"
+        collection.mkdir()
+
+        with (
+            _patched(main_module, env["tmp"]),
+            patch.object(main_module, "_run_hcat_cmd") as runner,
+        ):
+            main_module.hcatHybrid("1000", env["hashes"], [str(collection)])
+
+        runner.assert_not_called()
+        out = capsys.readouterr().out
+        assert "No wordlists directly inside" in out
+        assert str(collection) in out
+
+    def test_a_directory_of_only_subdirectories_says_why_it_is_unusable(
+        self, main_module, env, capsys
+    ):
+        """ "Empty" would be a lie -- the wordlists are one level too deep."""
+        collection = env["tmp"] / "nested_only"
+        (collection / "inner").mkdir(parents=True)
+        (collection / "inner" / "one.txt").write_text("word\n")
+
+        with (
+            _patched(main_module, env["tmp"]),
+            patch.object(main_module, "_run_hcat_cmd") as runner,
+        ):
+            main_module.hcatHybrid("1000", env["hashes"], [str(collection)])
+
+        runner.assert_not_called()
+        assert "subdirectories are not searched" in capsys.readouterr().out
+
     def test_missing_wordlist_aborts(self, main_module, env, capsys):
         with (
             _patched(main_module, env["tmp"]),

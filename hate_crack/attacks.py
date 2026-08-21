@@ -480,11 +480,12 @@ def hybrid_crack(ctx: Any) -> None:
         print("\nSelect wordlist(s) for hybrid attack.")
         print("You can enter:")
         print("  - A single file path")
+        print("  - A directory, whose wordlists are all used")
         print("  - Multiple paths separated by commas")
         print("  - Press TAB to autocomplete file paths")
 
         selection = ctx.select_file_with_autocomplete(
-            "Enter wordlist file(s) (comma-separated for multiple)",
+            "Enter wordlist file(s) or directory (comma-separated for multiple)",
             allow_multiple=True,
             base_dir=ctx.hcatWordlists,
         )
@@ -507,6 +508,11 @@ def hybrid_crack(ctx: Any) -> None:
                 # but not from this prompt.
                 valid_wordlists.append(resolved)
                 print(f"✓ Pattern: {resolved}")
+            elif os.path.isdir(resolved):
+                # Same reasoning as the glob above: hcatHybrid expands the
+                # directory into the wordlists inside it.
+                valid_wordlists.append(resolved)
+                print(f"✓ Directory: {resolved}")
             elif os.path.isfile(resolved):
                 valid_wordlists.append(resolved)
                 print(f"✓ Found: {resolved}")

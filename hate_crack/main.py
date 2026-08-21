@@ -194,12 +194,14 @@ def list_wordlist_files(directory):
     Spoonman attack's baseword-source menu both use the sibling for that
     reason.
 
-    Its two callers need files specifically, and neither is that case:
+    Its callers need files specifically, and none of them is that case:
     hcatYoloCombination builds an ``-a 1`` command, where hashcat rejects a
-    directory operand; and attacks.wordlist_optimize expands an
-    operator-supplied directory into paths that main.wordlist_optimize opens
-    itself (``os.path.isfile``/``open()``), which needs a real file rather than
-    hashcat's own directory handling.
+    directory operand; attacks.wordlist_optimize expands an operator-supplied
+    directory into paths that main.wordlist_optimize opens itself
+    (``os.path.isfile``/``open()``), which needs a real file rather than
+    hashcat's own directory handling; and hcatHybrid expands a directory into
+    its files so that attack coverage is keyed per wordlist rather than once
+    for the whole directory.
     """
     return [
         entry.name for entry in list_wordlist_entries(directory) if not entry.is_dir
@@ -1165,6 +1167,13 @@ def _resolve_wordlist_path(wordlist, base_dir):
             candidates.append(candidate + ".gz")
     for candidate in candidates:
         if os.path.isfile(candidate):
+            return candidate
+    # Directories are a second pass rather than an extra clause above: hashcat
+    # reads a whole directory in the dictionary position, but a real file
+    # anywhere in the search order still beats a same-named directory earlier
+    # in it.
+    for candidate in candidates:
+        if os.path.isdir(candidate):
             return candidate
     return os.path.abspath(candidates[0])
 
@@ -4221,16 +4230,51 @@ def hcatHybrid(hcatHashType, hcatHashFile, wordlists=None):
             # list with no shell, so an unexpanded glob would reach hashcat
             # verbatim and fail as a missing file.
             matches = sorted(glob.glob(resolved))
-            if matches:
-                resolved_wordlists.extend(matches)
-            else:
+            if not matches:
                 print(f"[!] Wordlist pattern matched nothing: {resolved}")
-        elif os.path.isfile(resolved):
-            resolved_wordlists.append(resolved)
+                continue
         else:
-            print(f"[!] Wordlist not found: {resolved}")
+            matches = [resolved]
+        # A pattern can match directories as readily as files, so both go
+        # through the same expansion below -- a directory that arrived by glob
+        # must not stay a directory, or it would reach hashcat unexpanded and
+        # take the coverage path that has no fingerprint for one.
+        for match in matches:
+            if os.path.isdir(match):
+                # hashcat would read the directory itself, but expanding it
+                # here gives one coverage key per file: a list added to the
+                # directory later is then new ground rather than something the
+                # directory's single key already claims. One level only --
+                # hashcat ignores subdirectories, and so does this. Archives
+                # and dot-files are dropped as well, which hashcat would not
+                # do: a Weakpass download leaves .7z and .torrent files in the
+                # wordlists directory and neither is a wordlist.
+                files = [
+                    os.path.join(match, name) for name in list_wordlist_files(match)
+                ]
+                if files:
+                    resolved_wordlists.extend(files)
+                else:
+                    print(
+                        f"[!] No wordlists directly inside {match} "
+                        "(subdirectories are not searched)"
+                    )
+            elif os.path.isfile(match):
+                resolved_wordlists.append(match)
+            else:
+                print(f"[!] Wordlist not found: {match}")
     # Order-preserving dedupe: the same list named twice is eight wasted passes.
     resolved_wordlists = list(dict.fromkeys(resolved_wordlists))
+    if len(resolved_wordlists) > len(wordlists):
+        # A directory or a glob can turn one entry into hundreds, and the
+        # handler already announced the pre-expansion count. The pass total is
+        # counted off the generator rather than multiplied out here, so it
+        # cannot drift from the matrix actually run.
+        total = sum(1 for _ in _hybrid_passes(resolved_wordlists))
+        print(
+            f"[*] {len(wordlists)} entr(y/ies) expanded to "
+            f"{len(resolved_wordlists)} wordlist(s): {total} passes."
+        )
     if not resolved_wordlists:
         print("[!] No valid wordlists found. Aborting hybrid attack.")
         return

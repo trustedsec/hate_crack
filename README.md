@@ -1127,7 +1127,12 @@ https://hashcat.net/wiki/doku.php?id=hybrid_attack
   Each pass declares what it covers to the attack-coverage store, so a repeat
   hybrid against the same hash file offers to skip the passes already run. A
   pass that runs out of budget is not recorded, so it will be retried.
-  Wordlist entries may be glob patterns; they are expanded before hashcat runs.
+  Wordlist entries may be glob patterns or directories; both are expanded
+  before hashcat runs, a directory into the wordlists directly inside it.
+  Subdirectories are not searched, matching hashcat's own behaviour, and
+  dot-files and `.7z`/`.torrent`/`.out` files are skipped — a Weakpass
+  download leaves archives in the wordlists directory and hashcat would
+  otherwise try to read them.
 
 #### Pathwell Top 100 Mask Brute Force Crack
 Runs a brute force attack using the top 100 masks from KoreLogic:

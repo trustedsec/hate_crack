@@ -322,6 +322,22 @@ class TestHybridCrack:
         ctx.hcatHybrid.assert_called_once()
         assert ctx.hcatHybrid.call_args[0][2] == ["/wl/rock*.txt"]
 
+    def test_directory_selection_is_accepted(self, tmp_path) -> None:
+        """hcatHybrid expands a directory into the files inside it; rejecting
+        it here would make a wordlist collection unusable from this prompt."""
+        collection = tmp_path / "collection"
+        collection.mkdir()
+        (collection / "one.txt").write_text("word\n")
+        ctx = _make_ctx()
+        ctx.select_file_with_autocomplete.return_value = [str(collection)]
+        ctx._resolve_wordlist_path.side_effect = lambda wl, _: wl
+
+        with patch("builtins.input", return_value="n"):
+            hybrid_crack(ctx)
+
+        ctx.hcatHybrid.assert_called_once()
+        assert ctx.hcatHybrid.call_args[0][2] == [str(collection)]
+
 
 class TestSimpleAttacks:
     def test_pathwell_crack(self) -> None:

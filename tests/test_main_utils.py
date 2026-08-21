@@ -438,6 +438,49 @@ class TestResolveWordlistPath:
 
         assert result == str(wordlist)
 
+    def test_directory_in_base_dir_resolves(self, main_module, tmp_path):
+        """hashcat reads a whole directory in the dictionary position, so a
+        directory name has to resolve the same way a filename does."""
+        collection = tmp_path / "collection"
+        collection.mkdir()
+
+        result = main_module._resolve_wordlist_path("collection", str(tmp_path))
+
+        assert result == str(collection)
+
+    def test_directory_found_in_a_later_search_dir_resolves(
+        self, main_module, tmp_path
+    ):
+        """The base dir is only the first place looked; a bare name has always
+        been resolvable against the fallbacks, and a directory is no different.
+        Falling back to the first candidate would name a path that is not
+        there and report the collection as missing."""
+        base = tmp_path / "base"
+        base.mkdir()
+        cwd = tmp_path / "cwd"
+        collection = cwd / "collection"
+        collection.mkdir(parents=True)
+
+        with patch.object(main_module.os, "getcwd", return_value=str(cwd)):
+            result = main_module._resolve_wordlist_path("collection", str(base))
+
+        assert result == str(collection)
+
+    def test_a_file_outranks_a_same_named_directory(self, main_module, tmp_path):
+        """Files are still checked across every base dir before directories."""
+        base = tmp_path / "base"
+        base.mkdir()
+        (base / "words.txt").mkdir()
+        cwd = tmp_path / "cwd"
+        cwd.mkdir()
+        real = cwd / "words.txt"
+        real.write_text("word\n")
+
+        with patch.object(main_module.os, "getcwd", return_value=str(cwd)):
+            result = main_module._resolve_wordlist_path("words.txt", str(base))
+
+        assert result == str(real)
+
     def test_not_found_returns_path_anyway(self, main_module, tmp_path):
         # When file not found, returns abspath of first candidate - does not raise
         result = main_module._resolve_wordlist_path("missing.txt", str(tmp_path))
