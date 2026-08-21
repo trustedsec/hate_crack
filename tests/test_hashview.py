@@ -518,6 +518,84 @@ class TestHashviewAPI:
         with pytest.raises(HTTPError):
             api.download_rules(99999999, os.path.join(str(tmp_path), "x.rule"))
 
+    def test_download_all_rules_downloads_each_listed_rule(self, api, tmp_path):
+        """Every rule from list_rules() is downloaded via download_rules()."""
+        with (
+            patch.object(
+                api,
+                "list_rules",
+                return_value=[
+                    {"id": 4, "name": "best64.rule", "size": 77},
+                    {"id": 9, "name": "d3ad0ne.rule", "size": 500},
+                ],
+            ),
+            patch.object(
+                api,
+                "download_rules",
+                side_effect=lambda rid, out: {
+                    "output_file": os.path.join(str(tmp_path), out),
+                    "size": rid,
+                },
+            ) as mock_download,
+        ):
+            results = api.download_all_rules()
+
+        assert mock_download.call_args_list == [
+            ((4, "best64.rule"),),
+            ((9, "d3ad0ne.rule"),),
+        ]
+        assert results == [
+            {
+                "id": 4,
+                "name": "best64.rule",
+                "output_file": os.path.join(str(tmp_path), "best64.rule"),
+                "size": 4,
+            },
+            {
+                "id": 9,
+                "name": "d3ad0ne.rule",
+                "output_file": os.path.join(str(tmp_path), "d3ad0ne.rule"),
+                "size": 9,
+            },
+        ]
+
+    def test_download_all_rules_collects_per_rule_failures(self, api):
+        """One rule 404ing must not abort the rest of the batch."""
+        from requests.exceptions import HTTPError
+
+        with (
+            patch.object(
+                api,
+                "list_rules",
+                return_value=[
+                    {"id": 4, "name": "best64.rule"},
+                    {"id": 99999999, "name": "stale.rule"},
+                ],
+            ),
+            patch.object(
+                api,
+                "download_rules",
+                side_effect=[
+                    {"output_file": "/tmp/best64.rule", "size": 77},
+                    HTTPError("404"),
+                ],
+            ),
+        ):
+            results = api.download_all_rules()
+
+        assert results[0] == {
+            "id": 4,
+            "name": "best64.rule",
+            "output_file": "/tmp/best64.rule",
+            "size": 77,
+        }
+        assert results[1]["id"] == 99999999
+        assert "404" in results[1]["error"]
+
+    def test_download_all_rules_returns_empty_list_when_no_rules(self, api):
+        with patch.object(api, "list_rules", return_value=[]):
+            assert api.download_all_rules() == []
+
     def test_upload_cracked_hashes_success(self, api, tmp_path):
         """Uploading cracked hashes with valid lines (mocked transport)."""
         cracked_file = tmp_path / "cracked.txt"

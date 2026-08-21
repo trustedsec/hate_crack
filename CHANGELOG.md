@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [Unreleased]
+
+### Added
+- **A "Download All Rules" option in the Hashview interactive menu.** Previously the menu could only download one rule file at a time by ID; the new option lists every rule the Hashview API knows about and downloads each one, reporting per-rule success/failure counts instead of aborting the batch on the first error. Backed by a new `HashviewAPI.download_all_rules()` method.
+
 ## [2.33.1] - 2026-08-21
 
 ### Added

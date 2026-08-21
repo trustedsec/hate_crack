@@ -7541,6 +7541,7 @@ def hashview_api():
             menu_options.append(("upload_wordlist", "Upload Wordlist"))
             menu_options.append(("download_wordlist", "Download Wordlist"))
             menu_options.append(("download_rules", "Download Rule"))
+            menu_options.append(("download_all_rules", "Download All Rules"))
             menu_options.append(
                 (
                     "download_hashes",
@@ -7835,6 +7836,30 @@ def hashview_api():
                     print(f"  File: {download_result['output_file']}")
                 except Exception as e:
                     print(f"\n✗ Error downloading rule: {str(e)}")
+
+            elif option_key == "download_all_rules":
+                # Download every rule file listed by the Hashview API
+                try:
+                    results = api_harness.download_all_rules()
+                except Exception as e:
+                    print(f"\n✗ Error fetching rules: {str(e)}")
+                    continue
+
+                if not results:
+                    print("\nNo rules found.")
+                    continue
+
+                succeeded = [r for r in results if "error" not in r]
+                failed = [r for r in results if "error" in r]
+                for r in succeeded:
+                    print(f"\n✓ Downloaded {r['size']} bytes: {r['output_file']}")
+                for r in failed:
+                    print(f"\n✗ Error downloading rule {r.get('id')}: {r['error']}")
+                print(
+                    f"\n{'=' * 60}\n"
+                    f"Downloaded {len(succeeded)} of {len(results)} rules"
+                    f"{f' ({len(failed)} failed)' if failed else ''}"
+                )
 
             elif option_key == "upload_hashfile_job":
                 # Upload hashfile and create job

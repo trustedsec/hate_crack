@@ -2210,6 +2210,37 @@ class HashviewAPI:
             f.write(content)
         return {"output_file": output_file, "size": os.path.getsize(output_file)}
 
+    def download_all_rules(self):
+        """Download every rule file the Hashview API lists (/v1/rules).
+
+        One rule failing to download (e.g. a 404 on a stale listing) must not
+        abort the rest, so each rule's outcome is collected individually
+        rather than raised.
+        """
+        rules = self.list_rules()
+        results = []
+        for rule in rules:
+            rule_id = rule.get("id")
+            rule_name = rule.get("name")
+            if rule_id is None:
+                results.append(
+                    {"id": rule_id, "name": rule_name, "error": "missing id"}
+                )
+                continue
+            try:
+                download_result = self.download_rules(rule_id, rule_name)
+                results.append(
+                    {
+                        "id": rule_id,
+                        "name": rule_name,
+                        "output_file": download_result["output_file"],
+                        "size": download_result["size"],
+                    }
+                )
+            except Exception as e:
+                results.append({"id": rule_id, "name": rule_name, "error": str(e)})
+        return results
+
     def create_customer(self, name):
         url = f"{self.base_url}/v1/customers/add"
         headers = {"Content-Type": "application/json"}
