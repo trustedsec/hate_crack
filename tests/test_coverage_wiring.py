@@ -188,6 +188,97 @@ def test_no_prompt_when_there_is_no_overlap(main_module, store, env):
         main_module._run_hcat_cmd(cmd, attack_name="Dictionary", coverage=_spec(env))
 
 
+def test_shared_decision_cache_prompts_only_once(main_module, store, env):
+    """Two rule files run back to back against the same wordlist -- as Quick
+    Crack and Loopback do via a shared coverage_decision dict -- must ask
+    the 'skip already-covered ground?' question once, and reuse that answer
+    to filter each run's own overlap without asking again."""
+    cmd = ["hashcat", env["hashes"], env["wordlist"], "-r", env["rules"]]
+    _run(main_module, cmd, _spec(env))  # fully covers "c", "$1", "u"
+
+    partial_a = env["tmp"] / "partial_a.rule"
+    partial_a.write_text("c\n$1\nq\n")  # 2 of 3 already covered
+    partial_b = env["tmp"] / "partial_b.rule"
+    partial_b.write_text("c\nz\n")  # 1 of 2 already covered
+
+    prompts = []
+
+    def counting_input(prompt=""):
+        prompts.append(prompt)
+        return "y"
+
+    seen_rules = []
+
+    def fake_popen(cmd, **kwargs):
+        if "-r" in cmd:
+            seen_rules.append(ac.read_entries(cmd[cmd.index("-r") + 1]))
+        return FakePopen(cmd)
+
+    decision_cache: dict = {}
+    with (
+        patch.object(main_module.subprocess, "Popen", fake_popen),
+        patch.object(main_module, "_coverage_enabled", True),
+        patch.object(main_module, "non_interactive", False),
+        patch("builtins.input", counting_input),
+    ):
+        main_module._run_hcat_cmd(
+            ["hashcat", env["hashes"], env["wordlist"], "-r", str(partial_a)],
+            attack_name="Quick Crack",
+            coverage=_spec(env, rule_files=(str(partial_a),)),
+            coverage_decision=decision_cache,
+        )
+        main_module._run_hcat_cmd(
+            ["hashcat", env["hashes"], env["wordlist"], "-r", str(partial_b)],
+            attack_name="Quick Crack",
+            coverage=_spec(env, rule_files=(str(partial_b),)),
+            coverage_decision=decision_cache,
+        )
+
+    assert len(prompts) == 1, "the second run must reuse the first's answer"
+    assert seen_rules == [["q"], ["z"]], "each run's own overlap must still be filtered"
+
+
+def test_shared_decision_cache_honors_a_declined_prompt(main_module, store, env):
+    """Declining the one shared prompt must make every run in the batch run
+    unfiltered, not just the first."""
+    cmd = ["hashcat", env["hashes"], env["wordlist"], "-r", env["rules"]]
+    _run(main_module, cmd, _spec(env))  # fully covers "c", "$1", "u"
+
+    partial_a = env["tmp"] / "partial_a.rule"
+    partial_a.write_text("c\n$1\nq\n")
+    partial_b = env["tmp"] / "partial_b.rule"
+    partial_b.write_text("c\nz\n")
+
+    launched = []
+
+    def fake_popen(cmd, **kwargs):
+        launched.append(list(cmd))
+        return FakePopen(cmd)
+
+    decision_cache: dict = {}
+    with (
+        patch.object(main_module.subprocess, "Popen", fake_popen),
+        patch.object(main_module, "_coverage_enabled", True),
+        patch.object(main_module, "non_interactive", False),
+        patch("builtins.input", lambda *a: "n"),
+    ):
+        main_module._run_hcat_cmd(
+            ["hashcat", env["hashes"], env["wordlist"], "-r", str(partial_a)],
+            attack_name="Quick Crack",
+            coverage=_spec(env, rule_files=(str(partial_a),)),
+            coverage_decision=decision_cache,
+        )
+        main_module._run_hcat_cmd(
+            ["hashcat", env["hashes"], env["wordlist"], "-r", str(partial_b)],
+            attack_name="Quick Crack",
+            coverage=_spec(env, rule_files=(str(partial_b),)),
+            coverage_decision=decision_cache,
+        )
+
+    assert launched[0][launched[0].index("-r") + 1] == str(partial_a)
+    assert launched[1][launched[1].index("-r") + 1] == str(partial_b)
+
+
 # --- opting out ------------------------------------------------------------
 
 

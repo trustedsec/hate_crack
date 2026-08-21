@@ -115,6 +115,35 @@ class TestLoopbackAttack:
         empty_wordlist_arg = call_args[0][3]
         assert empty_wordlist_arg.endswith("empty.txt")
 
+    def test_multiple_selected_rules_share_one_coverage_decision(
+        self, tmp_path: Path
+    ) -> None:
+        """Selecting several rule files (e.g. "1,2") runs hcatQuickDictionary
+        once per file, but all of them must share the same coverage_decision
+        dict so the "skip already-covered ground?" prompt fires only once
+        for the whole selection -- see hate_crack.main._apply_coverage."""
+        ctx = _make_ctx()
+        ctx.hcatWordlists = str(tmp_path / "wordlists")
+        ctx.rulesDirectory = str(tmp_path / "rules")
+        rules_dir = tmp_path / "rules"
+        rules_dir.mkdir()
+        (rules_dir / "best66.rule").write_text("")
+        (rules_dir / "d3ad0ne.rule").write_text("")
+        ctx.list_rule_files.return_value = ["best66.rule", "d3ad0ne.rule"]
+
+        with patch("builtins.input", return_value="1,2"):
+            loopback_attack(ctx)
+
+        assert ctx.hcatQuickDictionary.call_count == 2
+        decisions = [
+            call.kwargs.get("coverage_decision")
+            for call in ctx.hcatQuickDictionary.call_args_list
+        ]
+        assert decisions[0] is not None
+        assert decisions[0] is decisions[1], (
+            "every call in the batch must share the same decision object"
+        )
+
 
 class TestExtensiveCrack:
     def test_calls_all_attack_methods(self) -> None:
