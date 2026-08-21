@@ -3482,6 +3482,7 @@ def hcatFingerprint(
     any_candidates = False
     for expander_len in _fingerprint_expander_chain(max_expander_len):
         seen_plaintexts: set[str] = set()
+        candidates_this_length = False
         crackedBefore = lineCount(hcatHashFile + ".out")
         while True:
             _extract_cracked_plaintexts(
@@ -3496,6 +3497,7 @@ def hcatFingerprint(
 
             _fingerprint_expand_new(expander_len, hcatHashFile, sorted(new_plaintexts))
             any_candidates = True
+            candidates_this_length = True
 
             _fingerprint_combine(
                 hcatHashType,
@@ -3522,16 +3524,19 @@ def hcatFingerprint(
                         hcatHashType, hcatHashFile, resolved_dict, expanded_path
                     )
 
-            # Secondary attack: run hybrid on the expanded candidates (mode 6/7
-            # variants). Intentionally optional to avoid changing the
-            # "extensive" pipeline ordering.
-            if run_hybrid_on_expanded:
-                hcatHybrid(hcatHashType, hcatHashFile, [expanded_path])
-
             crackedAfter = lineCount(hcatHashFile + ".out")
             if crackedAfter == crackedBefore:
                 break
             crackedBefore = crackedAfter
+
+        # The self-/dictionary-combination passes above already rerun in a
+        # loop, re-expanding and re-combining on every new crack, until a
+        # pass yields no new cracks. Only once that's converged for this
+        # expander length do we spend time on the secondary hybrid attack --
+        # otherwise hybrid would re-run on a still-growing .expanded on every
+        # combination iteration instead of the final, fully-expanded set.
+        if run_hybrid_on_expanded and candidates_this_length:
+            hcatHybrid(hcatHashType, hcatHashFile, [expanded_path])
 
     if not any_candidates:
         print(

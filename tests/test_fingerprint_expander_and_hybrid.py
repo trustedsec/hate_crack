@@ -262,6 +262,54 @@ def test_hcatFingerprint_escalates_through_length_chain_and_calls_hybrid_per_ste
     )
 
 
+def test_hcatFingerprint_reruns_combination_to_convergence_before_hybrid(
+    monkeypatch, tmp_path
+):
+    """Each new crack the combinator itself produces must feed straight back
+    into another expand+combine pass -- hybrid must not interleave with that
+    convergence loop, only start once a combine pass yields nothing new."""
+    import hate_crack.main as hc_main
+
+    importlib.reload(hc_main)
+
+    hashfile = tmp_path / "hashes.txt"
+    out_path = tmp_path / "hashes.txt.out"
+    out_path.write_text("deadbeef:Summer2025!\n")
+
+    _install_fingerprint_test_env(monkeypatch, hc_main, tmp_path, hashfile)
+
+    events = []
+
+    def fake_run_combine(hcatHashType, hcatHashFile, left, right):
+        events.append("combine")
+        # The first two combination passes "crack" a brand-new plaintext,
+        # forcing the inner convergence loop around for another lap; the
+        # third pass finds nothing new, so it should converge there.
+        if events.count("combine") <= 2:
+            with open(hcatHashFile + ".out", "a") as f:
+                f.write(
+                    f"newhash{events.count('combine')}:NewCrack{events.count('combine')}!\n"
+                )
+
+    monkeypatch.setattr(hc_main, "_fingerprint_run_combine", fake_run_combine)
+
+    def fake_hybrid(hash_type, hash_file, wordlists=None):
+        events.append("hybrid")
+
+    monkeypatch.setattr(hc_main, "hcatHybrid", fake_hybrid)
+    monkeypatch.setattr(
+        hc_main.subprocess, "Popen", _SimulatingFakePopen({"popen_args": []})
+    )
+
+    hc_main.hcatFingerprint(
+        "1000", str(hashfile), max_expander_len=7, run_hybrid_on_expanded=True
+    )
+
+    # Three combination passes converge (the third finds nothing new) before
+    # the single, terminal hybrid call for this expander length.
+    assert events == ["combine", "combine", "combine", "hybrid"]
+
+
 def test_hcatFingerprint_skips_hashcat_and_hybrid_when_nothing_cracked(
     monkeypatch, tmp_path
 ):
