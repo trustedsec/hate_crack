@@ -30,7 +30,7 @@ from types import SimpleNamespace
 
 #!/usr/bin/env python3
 
-from typing import Any, NamedTuple, Sequence
+from typing import Any, Iterable, NamedTuple, Sequence
 
 requests: Any = None
 REQUESTS_AVAILABLE = False
@@ -3477,17 +3477,40 @@ def _seed_key(runs: list[tuple[str, str]]) -> tuple[str, ...]:
 # hcatSmartMask itself uses the config-configurable hcatSmartMaskMinClusterSize
 # global instead, which defaults to this same value.
 _SMART_MASK_MIN_CLUSTER_SIZE = 3
-_SMART_MASK_CHARSET_COVERAGE_THRESHOLD = 0.5
 
-# Known generator alphabets, smallest first. Checked in this order so an
-# all-lowercase sample matches "lowercase" rather than the larger
-# "mixed_letters" superset it's also technically a subset of.
+# Known generator alphabets, smallest first, each paired with the number of
+# distinct characters that must be observed before a sample is treated as a
+# partial draw from it. Checked in this order so an all-lowercase sample
+# matches "lowercase" rather than the larger "mixed_letters" superset it is
+# also technically a subset of.
+#
+# The minimum is per-alphabet rather than the single fraction-of-alphabet-size
+# threshold this used to be, because that fraction was unreachable for the
+# cluster sizes this attack actually sees and because the cost of inferring
+# wrongly is not uniform across alphabets. A position can show at most one
+# distinct character per cluster member, so at the default cluster size of 3 a
+# 50% rule needed 13 distinct letters from at most 3 samples -- arithmetically
+# impossible, so letter runs could never be inferred at all.
+#
+# Digits are the cheap case twice over: ?d is one of hashcat's own builtin
+# tokens, so inferring it spends no custom-charset slot, and guessing wrong
+# only ever widens a run by a factor of ten. Generator digit runs are also
+# near-universally full-range -- a three-member cluster showing four distinct
+# digits is a year suffix, not a four-digit alphabet -- so two distinct digits
+# is enough. Letters are the expensive case: 26 or 52 characters per position
+# compounds fast enough to push a template past the keyspace guardrail and get
+# it dropped entirely, so they keep the old fraction's effective minimum.
+#
+# Letters cannot currently reach this function at all: _seed_key groups by the
+# contents of every "L" run, so every member of a group agrees on every letter
+# run and _build_template always classifies those positions as fixed. The two
+# letter rows are insurance against that changing, not live behaviour.
 _SMART_MASK_KNOWN_ALPHABETS = (
-    "0123456789",
-    "!@#$%^&*()",
-    "abcdefghijklmnopqrstuvwxyz",
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
-    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    ("0123456789", 2),
+    ("!@#$%^&*()", 2),
+    ("abcdefghijklmnopqrstuvwxyz", 13),
+    ("ABCDEFGHIJKLMNOPQRSTUVWXYZ", 13),
+    ("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", 26),
 )
 
 
@@ -3495,17 +3518,21 @@ def _infer_charset(observed_chars: set[str]) -> str:
     """Expand observed_chars to a known alphabet when they look like a
     partial sample of it, otherwise use exactly what was observed.
 
-    "Look like a partial sample" means observed_chars is a subset of a
-    known alphabet and covers at least
-    _SMART_MASK_CHARSET_COVERAGE_THRESHOLD of it -- e.g. 9 of the 10 US
-    shift-row symbols already observed infers the tenth too.
+    "Look like a partial sample" means observed_chars is a subset of a known
+    alphabet and has at least that alphabet's minimum number of distinct
+    characters -- see _SMART_MASK_KNOWN_ALPHABETS for why the minimum is
+    per-alphabet.
+
+    Every minimum is at least 2, which is what keeps a position that shows
+    only one character from being widened. Such a position is a run that
+    varies only in *length*, and _assign_mask_tokens turns its one-character
+    charset into a bare literal; expanding it to a full alphabet would trade
+    that literal for a whole alphabet's worth of candidates the cluster gave
+    no evidence for.
     """
-    for alphabet in _SMART_MASK_KNOWN_ALPHABETS:
-        alphabet_set = set(alphabet)
-        if observed_chars <= alphabet_set:
-            coverage = len(observed_chars) / len(alphabet_set)
-            if coverage >= _SMART_MASK_CHARSET_COVERAGE_THRESHOLD:
-                return alphabet
+    for alphabet, min_distinct in _SMART_MASK_KNOWN_ALPHABETS:
+        if observed_chars <= set(alphabet) and len(observed_chars) >= min_distinct:
+            return alphabet
     return "".join(sorted(observed_chars))
 
 
@@ -3747,26 +3774,240 @@ def _build_hcmask_lines(template: "_SmartMaskTemplate") -> list[str]:
     # available (see hcatSmartMask's guard clause); this assert is purely
     # so ty narrows the guarded import's `Unknown | None` type here too.
     assert rosetta_format_hcmask_line is not None
-    custom_charsets, token_by_variable = _assign_mask_tokens(template.variable_charsets)
+    custom_charsets, tokens = _assign_mask_tokens(template.variable_charsets)
+    return [
+        rosetta_format_hcmask_line(
+            custom_charsets,
+            _render_mask(template, tokens, lengths, range(template.total_positions)),
+        )
+        for lengths in template.length_combinations
+    ]
+
+
+def _render_mask(
+    template: "_SmartMaskTemplate",
+    tokens: Sequence[str],
+    lengths: Sequence[int],
+    positions: Iterable[int],
+) -> str:
+    """Render *positions* of *template* as a hashcat mask string.
+
+    Fixed positions contribute their literal text, escaped for mask context;
+    variable positions contribute their token from *tokens*, repeated to the
+    length *lengths* gives them. ``tokens`` and ``lengths`` are both indexed by
+    position within ``template.variable_positions``, not by mask offset.
+
+    Taking a position range rather than always spanning the whole template is
+    what lets the hybrid modes reuse this: there, the leading (or trailing)
+    fixed runs travel in a wordlist instead and only the rest becomes a mask.
+    """
     fixed_by_position = {
         position: content for position, _run_type, content in template.fixed_runs
     }
-    lines = []
-    for lengths in template.length_combinations:
-        mask_parts = []
-        for position in range(template.total_positions):
-            if position in fixed_by_position:
-                mask_parts.append(_escape_mask_literal(fixed_by_position[position]))
-            else:
-                variable_index = template.variable_positions.index(position)
-                token = token_by_variable[variable_index]
-                mask_parts.append(token * lengths[variable_index])
-        mask = "".join(mask_parts)
-        lines.append(rosetta_format_hcmask_line(custom_charsets, mask))
-    return lines
+    parts = []
+    for position in positions:
+        if position in fixed_by_position:
+            parts.append(_escape_mask_literal(fixed_by_position[position]))
+        else:
+            index = template.variable_positions.index(position)
+            parts.append(tokens[index] * lengths[index])
+    return "".join(parts)
+
+
+def _template_hybrid_split(
+    template: "_SmartMaskTemplate",
+) -> tuple[str, range, range] | None:
+    """Split the template's runs into the part a wordlist can carry and the
+    part a mask has to generate, or None if no split exists.
+
+    Returns ``(mode, stem_positions, mask_positions)``. Mode "6" appends the
+    mask to each word and takes the template's *leading* fixed runs as the
+    stem; mode "7" prepends it and takes the *trailing* ones. They enumerate
+    disjoint candidate sets, so which end is fixed decides the mode.
+
+    Splitting at all is the point. As ``-a 3`` lines, two templates that vary
+    the same way but have different literals cannot be combined -- a mask
+    line's literal *is* its identity -- so each one costs its own line, its own
+    autotune, and enumerates only the handful of characters its own cluster
+    varied. Split instead, every literal becomes a line in one wordlist behind
+    a single shared mask, and hashcat treats the mask as a per-word amplifier,
+    which is what stops it warning that the keyspace is too small to fill the
+    device.
+
+    Only *one* end has to be fixed, because a hybrid mask is a full mask: it
+    may hold literal characters as well as tokens. A template varying in the
+    middle still splits -- ``Stem`` + ``?d?d?d@`` -- which is why the
+    ``-a 3`` fallback is much rarer than the shape of the problem suggests.
+    None comes back only when both ends vary (nothing to seed a wordlist with)
+    or, unreachable while _seed_key pins every letter run, when the template
+    has no fixed run at all.
+    """
+    fixed = {position for position, _run_type, _content in template.fixed_runs}
+    if not fixed:
+        return None
+    total = template.total_positions
+    if 0 in fixed:
+        end = 1
+        while end < total and end in fixed:
+            end += 1
+        return "6", range(0, end), range(end, total)
+    if total - 1 in fixed:
+        start = total - 1
+        while start - 1 >= 0 and start - 1 in fixed:
+            start -= 1
+        return "7", range(start, total), range(0, start)
+    return None
+
+
+def _template_attack_mode(template: "_SmartMaskTemplate") -> str:
+    """The hashcat attack mode this template runs as: "6", "7" or "3"."""
+    split = _template_hybrid_split(template)
+    return "3" if split is None else split[0]
+
+
+def _template_stem(template: "_SmartMaskTemplate") -> str:
+    """The wordlist line for a hybrid template: its contiguous fixed text at
+    whichever end :func:`_template_hybrid_split` chose, *unescaped*.
+
+    Unescaped because this is destined for a wordlist, not a mask: hashcat
+    reads a wordlist line as literal bytes, so a '?' in it is already a '?'.
+    Doubling it the way :func:`_escape_mask_literal` does for mask context
+    would make hashcat hunt for a literal '??'.
+    """
+    split = _template_hybrid_split(template)
+    if split is None:
+        raise ValueError("template has no hybrid split")
+    _mode, stem_positions, _mask_positions = split
+    fixed_by_position = {
+        position: content for position, _run_type, content in template.fixed_runs
+    }
+    return "".join(fixed_by_position[position] for position in stem_positions)
+
+
+def _template_hybrid_masks(
+    template: "_SmartMaskTemplate",
+) -> list[tuple[tuple[str, ...], str]]:
+    """One ``(custom_charsets, mask)`` pair per observed length combination,
+    covering everything :func:`_template_stem` left behind.
+
+    Every variable position falls in here by construction -- the stem is drawn
+    only from fixed runs -- so no charset slot is allocated for a position the
+    mask never references. The charsets come back separately because
+    ``?1``-``?8`` name nothing without their definitions, which reach hashcat
+    as ``-1``/``-2``/... arguments rather than as an hcmask field.
+    """
+    split = _template_hybrid_split(template)
+    if split is None:
+        raise ValueError("template has no hybrid split")
+    _mode, _stem_positions, mask_positions = split
+    custom_charsets, tokens = _assign_mask_tokens(template.variable_charsets)
+    return [
+        (
+            tuple(custom_charsets),
+            _render_mask(template, tokens, lengths, mask_positions),
+        )
+        for lengths in template.length_combinations
+    ]
 
 
 _SMART_MASK_KEYSPACE_LIMIT = 50_000_000_000
+
+# hashcat's builtin charsets ordered smallest first, so a containment search
+# returns the tightest token that still covers what was observed.
+_SMART_MASK_BUILTINS_BY_SIZE = tuple(sorted(_SMART_MASK_BUILTIN_TOKENS, key=len))
+
+# ?a -- every printable ASCII character. The widest token worth reaching for:
+# ?b is wider still but adds 161 unprintable bytes that no generator emits.
+#
+# Named `builtin` rather than the more obvious `token` because bandit's B105
+# reads any comparison of a `token`-named binding against a string literal as a
+# hardcoded credential.
+_SMART_MASK_ALL_PRINTABLE = "".join(
+    sorted(
+        next(
+            charset
+            for charset, builtin in _SMART_MASK_BUILTIN_TOKENS.items()
+            if builtin == "?a"
+        )
+    )
+)
+
+
+def _widen_charset_to_builtin(charset: str) -> str:
+    """The smallest hashcat builtin charset containing *charset*, or *charset*
+    unchanged when no builtin does (or when it holds a single character, which
+    :func:`_assign_mask_tokens` renders as a literal and must keep doing).
+
+    Worth doing even when it barely widens the keyspace, because a builtin
+    costs no ``?1``-``?8`` slot: a narrow observed set like two shift-row
+    symbols becomes ``?s`` and gives its slot back.
+    """
+    observed = set(charset)
+    if len(observed) <= 1:
+        return charset
+    for builtin in _SMART_MASK_BUILTINS_BY_SIZE:
+        if observed <= builtin:
+            return "".join(sorted(builtin))
+    return charset
+
+
+def _template_keyspace(template: "_SmartMaskTemplate") -> int | None:
+    """Total candidates *template* would enumerate as ``-a 3`` hcmask lines,
+    or None if it cannot be expressed as valid ones at all."""
+    assert RosettaMaskError is not None
+    assert rosetta_parse_hcmask_line is not None
+    assert rosetta_keyspace is not None
+    try:
+        lines = _build_hcmask_lines(template)
+        return sum(rosetta_keyspace(rosetta_parse_hcmask_line(line)) for line in lines)
+    except (SmartMaskSlotLimit, RosettaMaskError):
+        return None
+
+
+def _widen_template_charsets(
+    template: "_SmartMaskTemplate", keyspace_limit: int
+) -> "_SmartMaskTemplate":
+    """Widen a residual ``-a 3`` template's variable charsets as far as the
+    keyspace guardrail allows.
+
+    Only templates that :func:`_template_attack_mode` could not turn into a
+    hybrid run get this treatment, and the ordering is deliberate: collapsing
+    a template into a wordlist plus one mask already gives hashcat enough work
+    per invocation without inventing candidates, so widening is what is left
+    for the templates that cannot be collapsed. A ``-a 3`` line over a fixed
+    literal and three varying digits is ~10^4 candidates where the device
+    wants ~10^8, and hashcat says so on stderr every time.
+
+    Two rungs, widest first:
+
+    - **``?a`` for every run that varies in content**, which is the only rung
+      that reaches the keyspace the device asks for.
+    - **the tightest builtin containing what was observed**, which barely
+      widens anything but still frees the custom-charset slots.
+
+    Runs that vary only in length keep their single literal character on both
+    rungs (see :func:`_widen_charset_to_builtin`). If neither rung fits under
+    *keyspace_limit* the template is returned untouched, so the guardrail
+    always wins and widening can never turn a template that would have run
+    into one that gets skipped.
+    """
+    rungs = (
+        tuple(
+            charset if len(set(charset)) <= 1 else _SMART_MASK_ALL_PRINTABLE
+            for charset in template.variable_charsets
+        ),
+        tuple(
+            _widen_charset_to_builtin(charset) for charset in template.variable_charsets
+        ),
+    )
+    for charsets in rungs:
+        if charsets == template.variable_charsets:
+            continue
+        candidate = dataclasses.replace(template, variable_charsets=charsets)
+        total = _template_keyspace(candidate)
+        if total is not None and (not keyspace_limit or total <= keyspace_limit):
+            return candidate
+    return template
 
 
 def hcatSmartMask(
@@ -3776,9 +4017,15 @@ def hcatSmartMask(
     keyspace_limit: int | None = None,
 ):
     """Detect literal-skeleton password patterns among already-cracked
-    plaintexts and run a single targeted -a3 mask attack -- one mask line
-    per qualifying template, combined into one .hcmask file -- against the
-    full remaining hash list.
+    plaintexts and run targeted mask attacks for them against the full
+    remaining hash list.
+
+    Templates whose variation sits at one end of the password collapse by mask
+    into hybrid runs -- one ``-a 6``/``-a 7`` invocation per distinct mask,
+    with every template's literal stem a line in that run's wordlist. Whatever
+    is left (variation in the *middle*) stays ``-a 3`` in a single .hcmask
+    file, with its charsets widened since it got no collapse. See
+    :func:`_template_attack_mode` and :func:`_widen_template_charsets`.
     """
     global hcatSmartMaskCount
 
@@ -3815,9 +4062,17 @@ def hcatSmartMask(
         hcatSmartMaskCount = 0
         return
 
-    all_lines = []
+    # Hybrid groups are keyed on everything that has to match for two
+    # templates to share one hashcat invocation: the attack mode, the
+    # custom-charset definitions and the mask itself. Only the literal stem
+    # differs within a group, and that is exactly what a wordlist holds.
+    hybrid_groups: dict[tuple[str, tuple[str, ...], str], list[str]] = {}
+    residual_lines: list[str] = []
     accounts_covered = 0
     for index, template in enumerate(templates, start=1):
+        mode = _template_attack_mode(template)
+        if mode == "3":
+            template = _widen_template_charsets(template, keyspace_limit)
         try:
             lines = _build_hcmask_lines(template)
             # This parse is the validation step, not a redundant sanity check
@@ -3859,10 +4114,15 @@ def hcatSmartMask(
             )
             continue
 
-        all_lines.extend(lines)
         accounts_covered += template.member_count
+        if mode == "3":
+            residual_lines.extend(lines)
+            continue
+        stem = _template_stem(template)
+        for charsets, mask in _template_hybrid_masks(template):
+            hybrid_groups.setdefault((mode, charsets, mask), []).append(stem)
 
-    if not all_lines:
+    if not hybrid_groups and not residual_lines:
         print(
             "[*] Smart Mask: no templates survived validation or the keyspace "
             "guardrail."
@@ -3870,41 +4130,114 @@ def hcatSmartMask(
         hcatSmartMaskCount = 0
         return
 
-    hcmask_path = f"{hcatHashFile}.smartmask.hcmask"
-    # latin-1: fixed-run literals and charsets come from decoded $HEX[...]
-    # plaintexts, where each character already represents one raw byte (see
-    # convert_hex). UTF-8 would re-encode any byte >= 0x80 into a different,
-    # multi-byte sequence, corrupting the exact bytes hashcat needs to try.
-    with open(hcmask_path, "w", encoding="latin-1") as f:
-        f.writelines(f"{line}\n" for line in all_lines)
-
-    cmd = [
-        hcatBin,
-        "-m",
-        hcatHashType,
-        hcatHashFile,
-        "--session",
-        generate_session_id(hcatHashFile, "Smart Mask"),
-        "-o",
-        f"{hcatHashFile}.out",
-        "-a",
-        "3",
-        hcmask_path,
-    ]
-    if _should_use_optimized_kernel("hcatSmartMask"):
-        _insert_optimized_flag(cmd)
-    cmd.extend(shlex.split(hcatTuning))
-    _append_potfile_arg(cmd)
-    label = f"Smart Mask ({len(all_lines)} pattern(s), {accounts_covered} accounts)"
-    try:
-        _run_hcat_cmd(
-            cmd, attack_name=label, hash_file=hcatHashFile, reraise_interrupt=True
+    print(
+        f"[*] Smart Mask: {accounts_covered} account(s) matched; "
+        f"{len(hybrid_groups)} collapsed hybrid run(s)"
+        + (
+            f" plus {len(residual_lines)} pattern(s) that could not be collapsed"
+            if residual_lines
+            else ""
         )
+    )
+
+    # latin-1 throughout: stems, fixed-run literals and charsets all come from
+    # decoded $HEX[...] plaintexts, where each character already represents one
+    # raw byte (see convert_hex). UTF-8 would re-encode any byte >= 0x80 into a
+    # different, multi-byte sequence, corrupting the exact bytes hashcat needs
+    # to try.
+    temp_paths: list[str] = []
+    try:
+        for group_index, ((mode, charsets, mask), stems) in enumerate(
+            hybrid_groups.items(), start=1
+        ):
+            # Two templates can only collide here by sharing a mask *and* a
+            # stem, which would make them the same cluster -- but a duplicate
+            # wordlist line is a wasted pass, so do not rely on that.
+            stems = list(dict.fromkeys(stems))
+            words_path = f"{hcatHashFile}.smartmask.{group_index}.words"
+            with open(words_path, "w", encoding="latin-1") as f:
+                f.writelines(f"{stem}\n" for stem in stems)
+            temp_paths.append(words_path)
+
+            cmd = [
+                hcatBin,
+                "-m",
+                hcatHashType,
+                hcatHashFile,
+                "--session",
+                generate_session_id(hcatHashFile, f"Smart Mask a{mode} {group_index}"),
+                "-o",
+                f"{hcatHashFile}.out",
+                "-a",
+                mode,
+            ]
+            for slot, charset in enumerate(charsets, start=1):
+                cmd.extend([f"-{slot}", charset])
+            # -a 6 appends the mask to each word, -a 7 prepends it; the
+            # positional order is what tells hashcat which.
+            cmd.extend([words_path, mask] if mode == "6" else [mask, words_path])
+            if _should_use_optimized_kernel("hcatSmartMask"):
+                _insert_optimized_flag(cmd)
+            cmd.extend(shlex.split(hcatTuning))
+            _append_potfile_arg(cmd)
+            # Which group this is goes to stdout, not into attack_name. That
+            # label is also the coverage store's `attack` column and the
+            # Pushover title, so it stays the same string for every pass the
+            # way hcatHybrid's does -- a per-group label would fragment the
+            # history table and leave "did I already run Smart Mask against
+            # this target?" unanswerable by name. Counts and the mask only, in
+            # any case: the stems are cracked plaintext.
+            print(
+                f"[*] Smart Mask: -a {mode} over {len(stems)} stem(s), "
+                f"mask {mask} ({group_index}/{len(hybrid_groups)})"
+            )
+            _run_hcat_cmd(
+                cmd,
+                attack_name="Smart Mask",
+                hash_file=hcatHashFile,
+                reraise_interrupt=True,
+            )
+
+        if residual_lines:
+            hcmask_path = f"{hcatHashFile}.smartmask.hcmask"
+            with open(hcmask_path, "w", encoding="latin-1") as f:
+                f.writelines(f"{line}\n" for line in residual_lines)
+            temp_paths.append(hcmask_path)
+
+            cmd = [
+                hcatBin,
+                "-m",
+                hcatHashType,
+                hcatHashFile,
+                "--session",
+                generate_session_id(hcatHashFile, "Smart Mask"),
+                "-o",
+                f"{hcatHashFile}.out",
+                "-a",
+                "3",
+                hcmask_path,
+            ]
+            if _should_use_optimized_kernel("hcatSmartMask"):
+                _insert_optimized_flag(cmd)
+            cmd.extend(shlex.split(hcatTuning))
+            _append_potfile_arg(cmd)
+            print(
+                f"[*] Smart Mask: -a 3 over {len(residual_lines)} pattern(s) "
+                "that could not be collapsed (charsets widened)"
+            )
+            _run_hcat_cmd(
+                cmd,
+                attack_name="Smart Mask",
+                hash_file=hcatHashFile,
+                reraise_interrupt=True,
+            )
     except KeyboardInterrupt:
+        # One ctrl-C abandons the whole attack, not just the current group.
         pass
     finally:
-        if os.path.exists(hcmask_path):
-            os.remove(hcmask_path)
+        for path in temp_paths:
+            with contextlib.suppress(OSError):
+                os.remove(path)
 
     hcatSmartMaskCount = lineCount(hcatHashFile + ".out") - hcatHashCracked
 
@@ -6918,11 +7251,14 @@ def cleanup():
             os.remove(hcatHashFile + ".masks")
         if os.path.exists(hcatHashFile + ".hcmask"):
             os.remove(hcatHashFile + ".hcmask")
-        # Belt-and-braces: hcatSmartMask already removes this itself once its
-        # attack finishes, but a hard kill between writing it and that cleanup
-        # would otherwise leave it behind.
-        if os.path.exists(hcatHashFile + ".smartmask.hcmask"):
-            os.remove(hcatHashFile + ".smartmask.hcmask")
+        # Belt-and-braces: hcatSmartMask already removes these itself once its
+        # attack finishes, but a hard kill between writing one and that cleanup
+        # would otherwise leave it behind. Globbed rather than named because
+        # the collapsed hybrid groups each write their own stem wordlist, and
+        # how many there are depends on the cracked set.
+        for scratch in glob.glob(hcatHashFile + ".smartmask.*"):
+            with contextlib.suppress(OSError):
+                os.remove(scratch)
         if os.path.exists(hcatHashFile + ".working"):
             os.remove(hcatHashFile + ".working")
         if os.path.exists(hcatHashFile + ".expanded"):
