@@ -41,8 +41,9 @@ def test_writes_hcmask_file_and_runs_mask_attack(tmp_path):
 
     with (
         rosetta_mask_globals(),
-        mock.patch(
-            "hate_crack.main.llm.generate_masks",
+        mock.patch.object(
+            hc_main.llm,
+            "generate_masks",
             return_value=["?u?l?l?l?d?d", "?d?d?d?d"],
         ) as gen,
         mock.patch("subprocess.Popen", return_value=_make_proc()) as popen,
@@ -79,8 +80,9 @@ def test_hcmask_file_preserves_high_bytes_in_generated_mask_literals(tmp_path):
 
     with (
         rosetta_mask_globals(),
-        mock.patch(
-            "hate_crack.main.llm.generate_masks",
+        mock.patch.object(
+            hc_main.llm,
+            "generate_masks",
             return_value=["Sömmer?d?d?d"],  # "ö" -> single byte 0xF6 in latin-1
         ),
         mock.patch("subprocess.Popen", return_value=_make_proc()),
@@ -99,8 +101,9 @@ def test_tuning_and_potfile_reach_the_command(tmp_path):
 
     with (
         rosetta_mask_globals(tuning="-w 3", potfile=str(potfile)),
-        mock.patch(
-            "hate_crack.main.llm.generate_masks",
+        mock.patch.object(
+            hc_main.llm,
+            "generate_masks",
             return_value=["?d?d?d?d"],
         ),
         mock.patch("subprocess.Popen", return_value=_make_proc()) as popen,
@@ -118,8 +121,9 @@ def test_invalid_masks_are_filtered_out(tmp_path):
 
     with (
         rosetta_mask_globals(),
-        mock.patch(
-            "hate_crack.main.llm.generate_masks",
+        mock.patch.object(
+            hc_main.llm,
+            "generate_masks",
             return_value=["?d?d?d?d", "?u?l?l?", "?u?x?d"],
         ),
         mock.patch("subprocess.Popen", return_value=_make_proc()),
@@ -136,7 +140,7 @@ def test_no_valid_masks_skips_hashcat_run(tmp_path, capsys):
 
     with (
         rosetta_mask_globals(),
-        mock.patch("hate_crack.main.llm.generate_masks", return_value=["?u?x?"]),
+        mock.patch.object(hc_main.llm, "generate_masks", return_value=["?u?x?"]),
         mock.patch("subprocess.Popen") as popen,
     ):
         hc_main.hcatRosettaMask("0", str(hash_file), "pins")
@@ -152,8 +156,9 @@ def test_llm_timeout_error_prints_message_and_skips_hashcat_run(tmp_path, capsys
 
     with (
         rosetta_mask_globals(),
-        mock.patch(
-            "hate_crack.main.llm.generate_masks",
+        mock.patch.object(
+            hc_main.llm,
+            "generate_masks",
             side_effect=hc_main.llm.LLMTimeoutError(
                 "no response from x within 300 seconds"
             ),
@@ -174,8 +179,9 @@ def test_generic_generation_error_prints_message_and_skips_hashcat_run(
 
     with (
         rosetta_mask_globals(),
-        mock.patch(
-            "hate_crack.main.llm.generate_masks",
+        mock.patch.object(
+            hc_main.llm,
+            "generate_masks",
             side_effect=RuntimeError("connection refused"),
         ),
         mock.patch("subprocess.Popen") as popen,

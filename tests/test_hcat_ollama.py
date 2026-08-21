@@ -62,8 +62,8 @@ def test_pull_ollama_model_is_gone():
 def test_target_mode_passes_dict_through(ollama_env):
     with (
         ollama_globals(ollama_env.tmp_path),
-        mock.patch(
-            "hate_crack.main.llm.generate_candidates", return_value=["Password1"]
+        mock.patch.object(
+            hc_main.llm, "generate_candidates", return_value=["Password1"]
         ) as gen,
         mock.patch("subprocess.Popen", return_value=_make_proc()),
     ):
@@ -82,8 +82,8 @@ def test_target_mode_passes_dict_through(ollama_env):
 def test_wordlist_mode_reads_file_and_passes_sample(ollama_env):
     with (
         ollama_globals(ollama_env.tmp_path),
-        mock.patch(
-            "hate_crack.main.llm.generate_candidates", return_value=["Password1"]
+        mock.patch.object(
+            hc_main.llm, "generate_candidates", return_value=["Password1"]
         ) as gen,
         mock.patch("subprocess.Popen", return_value=_make_proc()),
     ):
@@ -98,8 +98,8 @@ def test_wordlist_mode_strips_hash_prefix(ollama_env):
     dump.write_text(f"{DIGEST_A}:Bravo2024\nnocolonline\n")
     with (
         ollama_globals(ollama_env.tmp_path),
-        mock.patch(
-            "hate_crack.main.llm.generate_candidates", return_value=["x"]
+        mock.patch.object(
+            hc_main.llm, "generate_candidates", return_value=["x"]
         ) as gen,
         mock.patch("subprocess.Popen", return_value=_make_proc()),
     ):
@@ -130,8 +130,8 @@ def test_per_rule_runs_hashcat_with_rule_flag(ollama_env):
         mock.patch.object(hc_main, "hcatPotfilePath", ""),
         mock.patch.object(hc_main, "rulesDirectory", rules_dir),
         mock.patch("hate_crack.main.generate_session_id", return_value="s"),
-        mock.patch(
-            "hate_crack.main.llm.generate_candidates", return_value=["Password1"]
+        mock.patch.object(
+            hc_main.llm, "generate_candidates", return_value=["Password1"]
         ),
         mock.patch("subprocess.Popen", side_effect=track_popen),
     ):
@@ -152,7 +152,7 @@ def test_per_rule_runs_hashcat_with_rule_flag(ollama_env):
 def test_missing_wordlist_prints_error(ollama_env, capsys):
     with (
         ollama_globals(ollama_env.tmp_path),
-        mock.patch("hate_crack.main.llm.generate_candidates") as gen,
+        mock.patch.object(hc_main.llm, "generate_candidates") as gen,
     ):
         hc_main.hcatOllama("0", ollama_env.hash_file, "wordlist", "/no/such.txt")
     captured = capsys.readouterr()
@@ -169,8 +169,9 @@ def test_writes_candidates_and_runs_hashcat(ollama_env):
 
     with (
         ollama_globals(ollama_env.tmp_path),
-        mock.patch(
-            "hate_crack.main.llm.generate_candidates",
+        mock.patch.object(
+            hc_main.llm,
+            "generate_candidates",
             return_value=["Password1", "Summer2024"],
         ),
         mock.patch("subprocess.Popen", side_effect=track_popen),
@@ -194,7 +195,7 @@ def test_writes_candidates_and_runs_hashcat(ollama_env):
 def test_empty_candidates_skips_hashcat(ollama_env, capsys):
     with (
         ollama_globals(ollama_env.tmp_path),
-        mock.patch("hate_crack.main.llm.generate_candidates", return_value=[]),
+        mock.patch.object(hc_main.llm, "generate_candidates", return_value=[]),
         mock.patch("subprocess.Popen") as popen,
     ):
         hc_main.hcatOllama(
@@ -211,8 +212,9 @@ def test_empty_candidates_skips_hashcat(ollama_env, capsys):
 def test_generation_error_reports_and_aborts(ollama_env, capsys):
     with (
         ollama_globals(ollama_env.tmp_path),
-        mock.patch(
-            "hate_crack.main.llm.generate_candidates",
+        mock.patch.object(
+            hc_main.llm,
+            "generate_candidates",
             side_effect=Exception("connection refused"),
         ),
         mock.patch("subprocess.Popen") as popen,
@@ -233,7 +235,7 @@ def test_empty_candidates_on_vllm_backend_names_vllm_not_ollama(ollama_env, caps
         ollama_globals(ollama_env.tmp_path),
         mock.patch.object(hc_main, "llmBackend", "vllm"),
         mock.patch.object(hc_main, "llmApiKey", "sk-real-vllm-key"),
-        mock.patch("hate_crack.main.llm.generate_candidates", return_value=[]),
+        mock.patch.object(hc_main.llm, "generate_candidates", return_value=[]),
         mock.patch("subprocess.Popen") as popen,
     ):
         hc_main.hcatOllama(
@@ -261,8 +263,9 @@ def test_generation_error_on_vllm_backend_does_not_mention_ollama(ollama_env, ca
         ollama_globals(ollama_env.tmp_path),
         mock.patch.object(hc_main, "llmBackend", "vllm"),
         mock.patch.object(hc_main, "llmApiKey", "sk-real-vllm-key"),
-        mock.patch(
-            "hate_crack.main.llm.generate_candidates",
+        mock.patch.object(
+            hc_main.llm,
+            "generate_candidates",
             side_effect=Exception("connection refused"),
         ),
         mock.patch("subprocess.Popen") as popen,
@@ -286,8 +289,9 @@ def test_timeout_error_reports_timeout_guidance(ollama_env, capsys):
     with (
         ollama_globals(ollama_env.tmp_path),
         mock.patch.object(hc_main, "ollamaTimeout", 300.0),
-        mock.patch(
-            "hate_crack.main.llm.generate_candidates",
+        mock.patch.object(
+            hc_main.llm,
+            "generate_candidates",
             side_effect=hc_main.llm.LLMTimeoutError("timed out"),
         ),
         mock.patch("subprocess.Popen") as popen,
@@ -314,8 +318,8 @@ def test_value_error_reports_message_and_aborts(ollama_env, capsys):
     """Covers the defensive `except ValueError` handler in hcatOllama."""
     with (
         ollama_globals(ollama_env.tmp_path),
-        mock.patch(
-            "hate_crack.main.llm.generate_candidates", side_effect=ValueError("boom")
+        mock.patch.object(
+            hc_main.llm, "generate_candidates", side_effect=ValueError("boom")
         ),
         mock.patch("subprocess.Popen") as popen,
     ):
@@ -335,8 +339,8 @@ def test_timeout_config_forwarded_to_generate_candidates(ollama_env):
     with (
         ollama_globals(ollama_env.tmp_path),
         mock.patch.object(hc_main, "ollamaTimeout", 77.0),
-        mock.patch(
-            "hate_crack.main.llm.generate_candidates", return_value=["Password1"]
+        mock.patch.object(
+            hc_main.llm, "generate_candidates", return_value=["Password1"]
         ) as gen,
         mock.patch("subprocess.Popen", return_value=_make_proc()),
     ):
@@ -352,7 +356,7 @@ def test_timeout_config_forwarded_to_generate_candidates(ollama_env):
 def test_unknown_mode_prints_error(ollama_env, capsys):
     with (
         ollama_globals(ollama_env.tmp_path),
-        mock.patch("hate_crack.main.llm.generate_candidates") as gen,
+        mock.patch.object(hc_main.llm, "generate_candidates") as gen,
     ):
         hc_main.hcatOllama("0", ollama_env.hash_file, "bogus", {})
     captured = capsys.readouterr()
@@ -372,8 +376,8 @@ def test_cracked_mode_samples_out_file(ollama_env):
 
     with (
         ollama_globals(ollama_env.tmp_path),
-        mock.patch(
-            "hate_crack.main.llm.generate_candidates", return_value=["Winter2025!"]
+        mock.patch.object(
+            hc_main.llm, "generate_candidates", return_value=["Winter2025!"]
         ) as gen,
         mock.patch("subprocess.Popen", return_value=_make_proc()),
     ):
@@ -395,8 +399,8 @@ def test_cracked_mode_accepts_explicit_path(ollama_env):
 
     with (
         ollama_globals(ollama_env.tmp_path),
-        mock.patch(
-            "hate_crack.main.llm.generate_candidates", return_value=["Falcons2025"]
+        mock.patch.object(
+            hc_main.llm, "generate_candidates", return_value=["Falcons2025"]
         ) as gen,
         mock.patch("subprocess.Popen", return_value=_make_proc()),
     ):
@@ -408,7 +412,7 @@ def test_cracked_mode_accepts_explicit_path(ollama_env):
 def test_cracked_mode_missing_out_file_prints_error(ollama_env, capsys):
     with (
         ollama_globals(ollama_env.tmp_path),
-        mock.patch("hate_crack.main.llm.generate_candidates") as gen,
+        mock.patch.object(hc_main.llm, "generate_candidates") as gen,
         mock.patch("subprocess.Popen") as popen,
     ):
         hc_main.hcatOllama("0", ollama_env.hash_file, "cracked", None)
@@ -425,7 +429,7 @@ def test_cracked_mode_empty_out_file_prints_error(ollama_env, capsys):
 
     with (
         ollama_globals(ollama_env.tmp_path),
-        mock.patch("hate_crack.main.llm.generate_candidates") as gen,
+        mock.patch.object(hc_main.llm, "generate_candidates") as gen,
         mock.patch("subprocess.Popen") as popen,
     ):
         hc_main.hcatOllama("0", ollama_env.hash_file, "cracked", None)
@@ -443,8 +447,8 @@ def test_cracked_mode_writes_candidates_to_separate_file(ollama_env):
 
     with (
         ollama_globals(ollama_env.tmp_path),
-        mock.patch(
-            "hate_crack.main.llm.generate_candidates", return_value=["Winter2025!"]
+        mock.patch.object(
+            hc_main.llm, "generate_candidates", return_value=["Winter2025!"]
         ),
         mock.patch("subprocess.Popen", return_value=_make_proc()),
     ):

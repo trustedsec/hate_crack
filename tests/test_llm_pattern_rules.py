@@ -118,12 +118,13 @@ def _paths(pattern_env):
 def test_basewords_and_generated_rules_both_written(pattern_env):
     with (
         pattern_globals(pattern_env.tmp_path),
-        mock.patch(
-            "hate_crack.main.llm.generate_candidates",
+        mock.patch.object(
+            hc_main.llm,
+            "generate_candidates",
             return_value=["Delta2024!", "gammas", "alpha"],
         ) as gen,
-        mock.patch(
-            "hate_crack.main.llm.generate_rules", return_value=VALID_RULES
+        mock.patch.object(
+            hc_main.llm, "generate_rules", return_value=VALID_RULES
         ) as gen_rules,
         mock.patch("hate_crack.main.hcatQuickDictionary") as quick,
     ):
@@ -149,8 +150,8 @@ def test_operator_is_never_asked_for_a_rule_file(pattern_env):
     """The generated rules are the point of the mode; prompting defeats it."""
     with (
         pattern_globals(pattern_env.tmp_path),
-        mock.patch("hate_crack.main.llm.generate_candidates", return_value=["alpha"]),
-        mock.patch("hate_crack.main.llm.generate_rules", return_value=VALID_RULES),
+        mock.patch.object(hc_main.llm, "generate_candidates", return_value=["alpha"]),
+        mock.patch.object(hc_main.llm, "generate_rules", return_value=VALID_RULES),
         mock.patch("hate_crack.main.hcatQuickDictionary") as quick,
         mock.patch("builtins.input", side_effect=AssertionError("prompted")),
     ):
@@ -161,9 +162,10 @@ def test_operator_is_never_asked_for_a_rule_file(pattern_env):
 def test_invalid_rules_are_dropped_before_hashcat_sees_them(pattern_env):
     with (
         pattern_globals(pattern_env.tmp_path),
-        mock.patch("hate_crack.main.llm.generate_candidates", return_value=["alpha"]),
-        mock.patch(
-            "hate_crack.main.llm.generate_rules",
+        mock.patch.object(hc_main.llm, "generate_candidates", return_value=["alpha"]),
+        mock.patch.object(
+            hc_main.llm,
+            "generate_rules",
             # 'c$2' is valid; the rest use an op hashcat does not have, a
             # truncated argument, a bad position argument, and a comment line.
             return_value=["c$2", "QQQ", "$", "Ta", "# a comment", "c$2"],
@@ -182,9 +184,9 @@ def test_a_thin_rule_yield_is_asked_again(pattern_env):
     batches = [["c$1", "c$2"], ["c$2", "c$3"]]
     with (
         pattern_globals(pattern_env.tmp_path),
-        mock.patch("hate_crack.main.llm.generate_candidates", return_value=["alpha"]),
-        mock.patch(
-            "hate_crack.main.llm.generate_rules", side_effect=batches
+        mock.patch.object(hc_main.llm, "generate_candidates", return_value=["alpha"]),
+        mock.patch.object(
+            hc_main.llm, "generate_rules", side_effect=batches
         ) as gen_rules,
         mock.patch("hate_crack.main.hcatQuickDictionary"),
     ):
@@ -200,9 +202,9 @@ def test_a_full_rule_yield_is_not_asked_again(pattern_env):
     plenty = ["c" + "$1" * (i + 1) for i in range(hc_main.MIN_GENERATED_RULES)]
     with (
         pattern_globals(pattern_env.tmp_path),
-        mock.patch("hate_crack.main.llm.generate_candidates", return_value=["alpha"]),
-        mock.patch(
-            "hate_crack.main.llm.generate_rules", return_value=plenty
+        mock.patch.object(hc_main.llm, "generate_candidates", return_value=["alpha"]),
+        mock.patch.object(
+            hc_main.llm, "generate_rules", return_value=plenty
         ) as gen_rules,
         mock.patch("hate_crack.main.hcatQuickDictionary"),
     ):
@@ -213,9 +215,10 @@ def test_a_full_rule_yield_is_not_asked_again(pattern_env):
 def test_a_retry_that_fails_keeps_the_rules_already_in_hand(pattern_env):
     with (
         pattern_globals(pattern_env.tmp_path),
-        mock.patch("hate_crack.main.llm.generate_candidates", return_value=["alpha"]),
-        mock.patch(
-            "hate_crack.main.llm.generate_rules",
+        mock.patch.object(hc_main.llm, "generate_candidates", return_value=["alpha"]),
+        mock.patch.object(
+            hc_main.llm,
+            "generate_rules",
             side_effect=[["c$1"], llm.LLMTimeoutError("boom")],
         ),
         mock.patch("hate_crack.main.hcatQuickDictionary") as quick,
@@ -231,8 +234,8 @@ def test_no_valid_rules_falls_back_to_running_basewords_bare(pattern_env):
     """The expensive half already succeeded, so the run is not abandoned."""
     with (
         pattern_globals(pattern_env.tmp_path),
-        mock.patch("hate_crack.main.llm.generate_candidates", return_value=["alpha"]),
-        mock.patch("hate_crack.main.llm.generate_rules", return_value=["QQQ", ""]),
+        mock.patch.object(hc_main.llm, "generate_candidates", return_value=["alpha"]),
+        mock.patch.object(hc_main.llm, "generate_rules", return_value=["QQQ", ""]),
         mock.patch("hate_crack.main.hcatQuickDictionary") as quick,
     ):
         hc_main.hcatOllamaPatterns("1000", pattern_env.hash_file, pattern_env.corpus)
@@ -246,9 +249,10 @@ def test_no_valid_rules_falls_back_to_running_basewords_bare(pattern_env):
 def test_rule_request_failure_still_runs_the_basewords(pattern_env):
     with (
         pattern_globals(pattern_env.tmp_path),
-        mock.patch("hate_crack.main.llm.generate_candidates", return_value=["alpha"]),
-        mock.patch(
-            "hate_crack.main.llm.generate_rules",
+        mock.patch.object(hc_main.llm, "generate_candidates", return_value=["alpha"]),
+        mock.patch.object(
+            hc_main.llm,
+            "generate_rules",
             side_effect=llm.LLMTimeoutError("boom"),
         ),
         mock.patch("hate_crack.main.hcatQuickDictionary") as quick,
@@ -265,8 +269,8 @@ def test_rules_path_is_quoted_for_the_shell(pattern_env, tmp_path):
     hash_file.touch()
     with (
         pattern_globals(pattern_env.tmp_path),
-        mock.patch("hate_crack.main.llm.generate_candidates", return_value=["alpha"]),
-        mock.patch("hate_crack.main.llm.generate_rules", return_value=VALID_RULES),
+        mock.patch.object(hc_main.llm, "generate_candidates", return_value=["alpha"]),
+        mock.patch.object(hc_main.llm, "generate_rules", return_value=VALID_RULES),
         mock.patch("hate_crack.main.hcatQuickDictionary") as quick,
     ):
         hc_main.hcatOllamaPatterns("1000", str(hash_file), pattern_env.corpus)
@@ -279,12 +283,13 @@ def test_rules_path_is_quoted_for_the_shell(pattern_env, tmp_path):
 def test_duplicate_patterns_deduped_after_cleaning(pattern_env):
     with (
         pattern_globals(pattern_env.tmp_path),
-        mock.patch(
-            "hate_crack.main.llm.generate_candidates",
+        mock.patch.object(
+            hc_main.llm,
+            "generate_candidates",
             # All three clean to "delta" — the model decorated its own output.
             return_value=["delta", "DELTA", "Delta2024"],
         ),
-        mock.patch("hate_crack.main.llm.generate_rules", return_value=VALID_RULES),
+        mock.patch.object(hc_main.llm, "generate_rules", return_value=VALID_RULES),
         mock.patch("hate_crack.main.hcatQuickDictionary"),
     ):
         hc_main.hcatOllamaPatterns("1000", pattern_env.hash_file, pattern_env.corpus)
@@ -295,8 +300,8 @@ def test_duplicate_patterns_deduped_after_cleaning(pattern_env):
 def test_missing_source_skips_the_model(pattern_env):
     with (
         pattern_globals(pattern_env.tmp_path),
-        mock.patch("hate_crack.main.llm.generate_candidates") as gen,
-        mock.patch("hate_crack.main.llm.generate_rules") as gen_rules,
+        mock.patch.object(hc_main.llm, "generate_candidates") as gen,
+        mock.patch.object(hc_main.llm, "generate_rules") as gen_rules,
         mock.patch("hate_crack.main.hcatQuickDictionary") as quick,
     ):
         hc_main.hcatOllamaPatterns(
@@ -310,10 +315,10 @@ def test_missing_source_skips_the_model(pattern_env):
 def test_all_output_filtered_out_skips_hashcat_and_the_rule_request(pattern_env):
     with (
         pattern_globals(pattern_env.tmp_path),
-        mock.patch(
-            "hate_crack.main.llm.generate_candidates", return_value=["1", "22", "!!"]
+        mock.patch.object(
+            hc_main.llm, "generate_candidates", return_value=["1", "22", "!!"]
         ),
-        mock.patch("hate_crack.main.llm.generate_rules") as gen_rules,
+        mock.patch.object(hc_main.llm, "generate_rules") as gen_rules,
         mock.patch("hate_crack.main.hcatQuickDictionary") as quick,
     ):
         hc_main.hcatOllamaPatterns("1000", pattern_env.hash_file, pattern_env.corpus)
@@ -325,11 +330,12 @@ def test_all_output_filtered_out_skips_hashcat_and_the_rule_request(pattern_env)
 def test_baseword_timeout_skips_hashcat(pattern_env):
     with (
         pattern_globals(pattern_env.tmp_path),
-        mock.patch(
-            "hate_crack.main.llm.generate_candidates",
+        mock.patch.object(
+            hc_main.llm,
+            "generate_candidates",
             side_effect=llm.LLMTimeoutError("boom"),
         ),
-        mock.patch("hate_crack.main.llm.generate_rules") as gen_rules,
+        mock.patch.object(hc_main.llm, "generate_rules") as gen_rules,
         mock.patch("hate_crack.main.hcatQuickDictionary") as quick,
     ):
         hc_main.hcatOllamaPatterns("1000", pattern_env.hash_file, pattern_env.corpus)
@@ -340,8 +346,9 @@ def test_baseword_timeout_skips_hashcat(pattern_env):
 def test_connection_failure_skips_hashcat(pattern_env):
     with (
         pattern_globals(pattern_env.tmp_path),
-        mock.patch(
-            "hate_crack.main.llm.generate_candidates",
+        mock.patch.object(
+            hc_main.llm,
+            "generate_candidates",
             side_effect=RuntimeError("connection refused"),
         ),
         mock.patch("hate_crack.main.hcatQuickDictionary") as quick,
@@ -525,8 +532,8 @@ def test_all_rules_rejected_says_how_many(pattern_env, capsys):
     """
     with (
         pattern_globals(pattern_env.tmp_path),
-        mock.patch("hate_crack.main.llm.generate_candidates", return_value=["alpha"]),
-        mock.patch("hate_crack.main.llm.generate_rules", return_value=["QQQ", ""]),
+        mock.patch.object(hc_main.llm, "generate_candidates", return_value=["alpha"]),
+        mock.patch.object(hc_main.llm, "generate_rules", return_value=["QQQ", ""]),
         mock.patch("hate_crack.main.hcatQuickDictionary"),
     ):
         hc_main.hcatOllamaPatterns("1000", pattern_env.hash_file, pattern_env.corpus)
@@ -541,8 +548,8 @@ def test_no_rules_at_all_omits_the_count(pattern_env, capsys):
     message must not claim a count."""
     with (
         pattern_globals(pattern_env.tmp_path),
-        mock.patch("hate_crack.main.llm.generate_candidates", return_value=["alpha"]),
-        mock.patch("hate_crack.main.llm.generate_rules", return_value=[]),
+        mock.patch.object(hc_main.llm, "generate_candidates", return_value=["alpha"]),
+        mock.patch.object(hc_main.llm, "generate_rules", return_value=[]),
         mock.patch("hate_crack.main.hcatQuickDictionary"),
     ):
         hc_main.hcatOllamaPatterns("1000", pattern_env.hash_file, pattern_env.corpus)
