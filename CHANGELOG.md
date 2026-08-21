@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [Unreleased]
+
+### Fixed
+- **A raw NTDS extract was not gitignored, so a fresh clone would stage a domain-wide hash dump on `git add -A`.** Every file *derived* from one was already covered — `corp.ntds.nt` by `*.nt`, `corp.ntds.nt.out` by `*.out` — but `corp.ntds` and `ntds.dit` themselves matched nothing, and neither did an explicitly-named `users.hashes`. `*.ntds`, `ntds.dit` and `*.hashes` now join the cracked-artifact block.
+
+  This is the same gap the rest of that block exists to close, one step upstream and missed at the time: the artifacts were covered locally by a `*ntds*` line in `.git/info/exclude`, which is local-only and does not clone, so the protection existed on the machine that wrote the rule and nowhere else. Of 86 patterns in one operator's exclude file, 64 were already covered by the tracked `.gitignore` and the raw dump was the only genuinely dangerous remainder — the rest were engagement-specific names, or already-covered spellings, or too broad to ship.
+
+  **The patterns are deliberately narrow.** `*ntds*` and `*hashes*` would each swallow tracked source — `tests/test_upload_cracked_hashes.py` matches the latter — so the extension forms are used instead. That constraint is enforced rather than commented: the three patterns were added to `SECRET_ARTIFACT_PATTERNS` in `tests/test_repo_hygiene.py`, which asserts no tracked file matches any of them, so broadening one to a glob that catches real source fails the suite. Verified by mutation. Six new cases in the gitignore-coverage test check the raw spellings against a pristine clone rather than against a developer checkout, since the developer's own exclude file is exactly what masked this.
+
 ## [2.33.0] - 2026-08-21
 
 ### Added

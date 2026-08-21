@@ -36,6 +36,12 @@ SECRET_ARTIFACT_PATTERNS = (
     "*.lm",
     "*.cracked",
     "*.xlsx",
+    # The raw NTDS extract, upstream of every derived file above. A domain-wide
+    # hash dump, and the one artifact here that was still exposed in a fresh
+    # clone after the rest were fixed.
+    "*.ntds",
+    "ntds.dit",
+    "*.hashes",
 )
 
 # Per-attack scratch directories that hold basewords and candidate lists.
@@ -333,6 +339,14 @@ def pristine_checkout(tmp_path_factory):
         "cracked.xlsx",
         "hashcat.potfile",
         "hashcat.pot",
+        # The raw NTDS extract. The derived spellings just above were covered
+        # while these were not, so a fresh clone staged the source dump.
+        "corp.ntds",
+        "domain.ntds",
+        "hashes.ntds",
+        "some/nested/dir/corp.ntds",
+        "ntds.dit",
+        "users.hashes",
         # The .env that replaced config.json, and its backup spellings.
         ".env",
         ".env.bak",

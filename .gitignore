@@ -41,6 +41,20 @@ hashcat.potfile
 *.lm
 *.cracked
 *.xlsx
+# The *source* dump, which the patterns above missed. Everything derived from an
+# NTDS extract was covered -- `corp.ntds.nt`, `corp.ntds.nt.out` -- but
+# `corp.ntds` and `ntds.dit` themselves were not, and a raw NTDS extract is a
+# domain-wide hash dump: the single highest-value artifact in this workflow.
+# Locally it was covered only by a `*ntds*` line in .git/info/exclude, which
+# does not clone, so every other contributor's checkout staged it on `git add
+# -A` -- the same gap that the block above exists to close, one step upstream.
+# Deliberately `*.ntds` and not `*ntds*`: the broad form would swallow tracked
+# files such as tests/test_upload_cracked_hashes.py.
+*.ntds
+ntds.dit
+# Hash lists written with an explicit extension. Narrow on purpose, for the same
+# reason: `*hashes*` matches a tracked test file.
+*.hashes
 # Per-attack scratch directories (basewords, candidate lists, LLM patterns),
 # removed by cleanup() but left behind by a crash or a hard interrupt.
 *.rosetta/
