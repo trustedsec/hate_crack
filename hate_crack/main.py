@@ -3756,7 +3756,16 @@ def _assign_mask_tokens(charsets: Sequence[str]) -> tuple[list[str], list[str]]:
         tokens.append(token)
     if len(slot_by_charset) > _SMART_MASK_MAX_CHARSET_SLOTS:
         raise SmartMaskSlotLimit(len(slot_by_charset))
-    return list(slot_by_charset), tokens
+    # A charset *definition* needs its '?' doubled just as a mask literal does
+    # -- mp_expand tokenizes the definition too, so a bare '?' in it is a
+    # dangling token. hashcat rejects `-1 '!#?'` outright ("Syntax error in
+    # mask"), and where it goes decides how much that costs: inside an .hcmask
+    # file the bad line is reported and every other line still runs, but on
+    # argv it kills the whole invocation with exit 255 and zero candidates
+    # tried -- which, now that one invocation carries a whole group of stems,
+    # would lose every stem in the group. Escaped here rather than at either
+    # call site so both paths get it.
+    return [_escape_mask_literal(charset) for charset in slot_by_charset], tokens
 
 
 def _build_hcmask_lines(template: "_SmartMaskTemplate") -> list[str]:
@@ -3776,12 +3785,38 @@ def _build_hcmask_lines(template: "_SmartMaskTemplate") -> list[str]:
     assert rosetta_format_hcmask_line is not None
     custom_charsets, tokens = _assign_mask_tokens(template.variable_charsets)
     return [
-        rosetta_format_hcmask_line(
-            custom_charsets,
-            _render_mask(template, tokens, lengths, range(template.total_positions)),
+        _guard_hcmask_comment(
+            rosetta_format_hcmask_line(
+                custom_charsets,
+                _render_mask(
+                    template, tokens, lengths, range(template.total_positions)
+                ),
+            )
         )
         for lengths in template.length_combinations
     ]
+
+
+def _guard_hcmask_comment(line: str) -> str:
+    r"""Escape a '#' at the very start of an .hcmask line.
+
+    hashcat reads such a line as a comment, and the loss is silent: in a
+    multi-line file every other line still runs and the exit status is 0, so
+    the template just never gets tried. Both halves of a line can trigger it --
+    a custom-charset field, since :func:`_infer_charset` returns characters in
+    sorted order and '#' (0x23) sorts ahead of everything but '!' and '"', and
+    a mask whose first fixed literal simply begins with '#'. With no charset
+    field at all, hashcat rejects the file outright ("Invalid mask.") rather
+    than commenting it.
+
+    A leading backslash fixes both: hashcat drops it and takes the '#'
+    literally. It is only ever prepended to a line that already starts with
+    '#', so it cannot collide with the escaped ``\\`` that
+    ``rosetta_format_hcmask_line`` emits for a literal backslash -- such a line
+    starts with '\\', not '#'. Verified against hashcat 7.1.2 for both the
+    charset-field and bare-mask cases.
+    """
+    return "\\" + line if line.startswith("#") else line
 
 
 def _render_mask(
@@ -3990,10 +4025,20 @@ def _widen_template_charsets(
     *keyspace_limit* the template is returned untouched, so the guardrail
     always wins and widening can never turn a template that would have run
     into one that gets skipped.
+
+    Widening only ever *adds* candidates. ``?a`` is printable ASCII only, so a
+    run that observed a byte outside it -- exactly what the latin-1 handling
+    and ``convert_hex`` exist for -- is left for the second rung, whose
+    containment search reaches ``?b``. Substituting ``?a`` there anyway would
+    drop a character the cluster demonstrably contains, turning a widening
+    into a silent narrowing.
     """
+    printable = set(_SMART_MASK_ALL_PRINTABLE)
     rungs = (
         tuple(
-            charset if len(set(charset)) <= 1 else _SMART_MASK_ALL_PRINTABLE
+            _SMART_MASK_ALL_PRINTABLE
+            if len(set(charset)) > 1 and set(charset) <= printable
+            else charset
             for charset in template.variable_charsets
         ),
         tuple(
@@ -4155,9 +4200,12 @@ def hcatSmartMask(
             # wordlist line is a wasted pass, so do not rely on that.
             stems = list(dict.fromkeys(stems))
             words_path = f"{hcatHashFile}.smartmask.{group_index}.words"
+            # Registered for cleanup *before* it is opened: a ctrl-C landing
+            # inside the write would otherwise leave a file the finally block
+            # has never heard of.
+            temp_paths.append(words_path)
             with open(words_path, "w", encoding="latin-1") as f:
                 f.writelines(f"{stem}\n" for stem in stems)
-            temp_paths.append(words_path)
 
             cmd = [
                 hcatBin,
@@ -4175,6 +4223,16 @@ def hcatSmartMask(
                 cmd.extend([f"-{slot}", charset])
             # -a 6 appends the mask to each word, -a 7 prepends it; the
             # positional order is what tells hashcat which.
+            #
+            # The mask has to travel on argv rather than in a file. hashcat
+            # stats the mask argument first and reads an existing file as an
+            # hcmask file, so a cwd file named exactly like the mask would be
+            # substituted for it silently -- but the alternatives are worse: it
+            # rejects --custom-charsetX outright when the mask is a file
+            # ("misleading"), and a comma charset field inside a mask file is
+            # not parsed for -a 6/-a 7 at all (it reports "Custom-charset 1 is
+            # undefined" against a ?w-prefixed mask). hcatHybrid passes its
+            # mask on argv for the same reason. Verified on hashcat 7.1.2.
             cmd.extend([words_path, mask] if mode == "6" else [mask, words_path])
             if _should_use_optimized_kernel("hcatSmartMask"):
                 _insert_optimized_flag(cmd)
@@ -4200,9 +4258,9 @@ def hcatSmartMask(
 
         if residual_lines:
             hcmask_path = f"{hcatHashFile}.smartmask.hcmask"
+            temp_paths.append(hcmask_path)  # before the open, as above
             with open(hcmask_path, "w", encoding="latin-1") as f:
                 f.writelines(f"{line}\n" for line in residual_lines)
-            temp_paths.append(hcmask_path)
 
             cmd = [
                 hcatBin,
@@ -7256,7 +7314,9 @@ def cleanup():
         # would otherwise leave it behind. Globbed rather than named because
         # the collapsed hybrid groups each write their own stem wordlist, and
         # how many there are depends on the cracked set.
-        for scratch in glob.glob(hcatHashFile + ".smartmask.*"):
+        # glob.escape: a hash-file path containing '[', '*' or '?' would
+        # otherwise be read as a pattern and silently match nothing.
+        for scratch in glob.glob(glob.escape(hcatHashFile) + ".smartmask.*"):
             with contextlib.suppress(OSError):
                 os.remove(scratch)
         if os.path.exists(hcatHashFile + ".working"):

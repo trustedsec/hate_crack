@@ -1369,3 +1369,67 @@ def test_hcatSmartMask_reports_a_slot_exhausted_template_instead_of_dropping_it_
     assert "charset slots" in out, out
     assert "9 distinct charsets" in out, out
     assert popen_calls == [], "an inexpressible template must not launch hashcat"
+
+
+def test_assign_mask_tokens_escapes_a_question_mark_in_a_charset_definition():
+    r"""A charset *definition* is tokenized by mp_expand too, so a bare '?' in
+    one is a dangling token: hashcat rejects ``-1 '!#?'`` with "Syntax error in
+    mask".
+
+    Where that lands decides the cost. Inside an .hcmask file hashcat reports
+    the bad line and still runs every other line; on argv it exits 255 having
+    tried nothing -- and one argv invocation now carries a whole group of
+    stems, so an unescaped '?' would lose all of them.
+    """
+    from hate_crack import main as hc_main
+
+    charsets, tokens = hc_main._assign_mask_tokens(("!#?",))
+    assert charsets == ["!#??"]
+    assert tokens == ["?1"]
+
+
+def test_widening_never_drops_an_observed_non_ascii_byte():
+    """?a is printable ASCII only, so a run that observed a high byte -- the
+    case latin-1 handling and convert_hex exist for -- must not be widened to
+    it. Doing so would drop a character the cluster demonstrably contains,
+    making a "widening" a silent narrowing."""
+    from hate_crack import main as hc_main
+
+    # 0xa9 in a symbol run at both ends, so the template stays -a 3 residual.
+    template = _only_template(hc_main, ["\xa9Mid!", "!Mid\xa9", "#Mid#"])
+    assert hc_main._template_attack_mode(template) == "3"
+
+    widened = hc_main._widen_template_charsets(
+        template, hc_main._SMART_MASK_KEYSPACE_LIMIT
+    )
+    for observed, chosen in zip(template.variable_charsets, widened.variable_charsets):
+        assert set(observed) <= set(chosen), (observed, chosen)
+
+
+def test_build_hcmask_lines_escapes_a_leading_hash():
+    r"""hashcat reads an .hcmask line starting with '#' as a comment, and the
+    loss is silent -- every other line in the file still runs and the exit
+    status is 0, so the template simply never gets tried.
+
+    Reachable two ways: a mask whose first fixed literal begins with '#', and a
+    custom-charset field, since _infer_charset returns sorted characters and
+    '#' sorts ahead of everything but '!' and '"'.
+    """
+    from hate_crack import main as hc_main
+
+    template = _only_template(hc_main, ["#ab1", "#ab22", "#ab333"])
+    assert hc_main._build_hcmask_lines(template) == [
+        "\\#ab?d",
+        "\\#ab?d?d",
+        "\\#ab?d?d?d",
+    ]
+
+
+def test_guard_hcmask_comment_leaves_other_lines_alone():
+    """The escape is only ever prepended to a line that starts with '#', so it
+    cannot collide with the '\\\\' that rosetta emits for a literal backslash."""
+    from hate_crack import main as hc_main
+
+    assert hc_main._guard_hcmask_comment("abc?d") == "abc?d"
+    assert hc_main._guard_hcmask_comment("\\\\abc?d") == "\\\\abc?d"
+    assert hc_main._guard_hcmask_comment("#abc?d") == "\\#abc?d"
