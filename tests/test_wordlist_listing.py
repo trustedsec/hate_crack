@@ -188,6 +188,7 @@ def _quick_crack_ctx(hc_module, wordlist_dir, tmp_path):
         list_rule_files=hc_module.list_rule_files,
         hcatQuickDictionary=lambda *a, **k: calls.append((a, k)),
         _prime_coverage_decision=lambda *a, **k: {},
+        _expand_wordlist_dirs=hc_module._expand_wordlist_dirs,
     ), calls
 
 
@@ -212,14 +213,24 @@ def test_quick_crack_marks_directories_in_the_grid(
     assert ".DS_Store" not in out
 
 
-def test_quick_crack_passes_a_selected_directory_through_as_a_directory(
+def test_quick_crack_expands_a_selected_directory_into_its_wordlists(
     hc_module, wordlist_dir, tmp_path, monkeypatch
 ):
-    """hashcat consumes every file in a directory, so selecting one must hand
-    the directory itself to hcatQuickDictionary, not a file inside it."""
+    """Selecting a directory must attack every wordlist in it -- never just one
+    file, and never fewer than hashcat itself would read.
+
+    This used to assert the directory was passed through *as* a directory.
+    hashcat does accept one there and reads exactly these files, so the
+    candidate set is identical either way; what the directory cannot do is
+    carry a content fingerprint, and attack coverage keyed on a fingerprint
+    that cannot be computed records nothing and filters nothing. So the
+    expansion happens here instead. See main._expand_wordlist_dirs and
+    tests/test_coverage_wordlist_scope.py.
+    """
     from hate_crack import attacks
 
     ctx, calls = _quick_crack_ctx(hc_module, wordlist_dir, tmp_path)
+    (wordlist_dir / "hibp" / "part2.txt").write_text("b\n")
     entries = hc_module.list_wordlist_entries(str(wordlist_dir))
     choice = str(1 + [e.name for e in entries].index("hibp"))
 
@@ -232,9 +243,10 @@ def test_quick_crack_passes_a_selected_directory_through_as_a_directory(
 
     assert calls, "hcatQuickDictionary was never called"
     passed = calls[0][0][3]
-    assert passed == str(wordlist_dir / "hibp"), (
-        f"expected the directory itself, got {passed!r}"
-    )
+    assert passed == [
+        str(wordlist_dir / "hibp" / "part1.txt"),
+        str(wordlist_dir / "hibp" / "part2.txt"),
+    ], f"expected every wordlist in the directory, got {passed!r}"
 
 
 @pytest.mark.parametrize(

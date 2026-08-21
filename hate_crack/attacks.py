@@ -205,20 +205,28 @@ def quick_crack(ctx: Any) -> None:
     if selected_rules is None:
         return
 
+    # A directory selection becomes the wordlists inside it here, once, so the
+    # up-front prompt and every chain's run agree on what is being attacked.
+    # hashcat reads exactly these files when handed the directory itself, so
+    # the candidates are unchanged -- but a directory has no fingerprint, and
+    # coverage keyed on one that cannot be computed records nothing. See
+    # hate_crack.main._expand_wordlist_dirs.
+    wordlists = ctx._expand_wordlist_dirs(wordlist_choice)
+
     # Primed once, up front, against the combined coverage across every
     # selected rule file -- so the "skip already-covered ground?" prompt (if
     # any) reflects the whole batch and fires before any hashcat invocation,
     # not just the first chain's own numbers. See
     # hate_crack.main._prime_coverage_decision / _apply_coverage.
     coverage_decision = ctx._prime_coverage_decision(
-        ctx.hcatHashFile, selected_rules, wordlist_choice, "Quick Crack"
+        ctx.hcatHashFile, selected_rules, wordlists, "Quick Crack"
     )
     for chain in selected_rules:
         ctx.hcatQuickDictionary(
             ctx.hcatHashType,
             ctx.hcatHashFile,
             chain,
-            wordlist_choice,
+            wordlists,
             attack_name="Quick Crack",
             coverage_decision=coverage_decision,
         )

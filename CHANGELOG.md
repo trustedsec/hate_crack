@@ -9,6 +9,17 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ## [Unreleased]
 
+### Fixed
+- **Attack coverage bucketed every Quick Crack together, so a brand-new wordlist with previously-used rules was flagged as already covered.** Two defects compounded, both reachable from the default answer at Quick Crack's wordlist prompt.
+
+  `_prime_coverage_decision` ignored the wordlists it was handed and asked the store only whether anything named "Quick Crack" had ever run against this hash file. Since a rule counts as covered only for the wordlist it ran against, selecting a fresh corpus produced "Quick Crack has run against this hash file before" with nothing recorded that could possibly be skipped. The question is now scoped to the wordlists, answered by a new `CoverageStore.has_prior_run()` against a new `run_wordlists` table — still without reading a single rule file, which is the property that prompt exists to preserve. Fingerprinting costs nothing extra overall, because `plan_run` computes the same memoized fingerprints moments later for the first chain.
+
+  The reason it never went away is that Quick Crack's default *is* a directory, and a directory has no content fingerprint — so every plan went inert, nothing was recorded and nothing was ever filterable, while the run was still logged and kept feeding the prompt. Quick Crack now expands a selected directory into the wordlists inside it, one level deep, the same fix `hcatHybrid` got for the same reason. hashcat reads exactly those files when handed the directory itself (verified against 7.1.2, which ignores subdirectories), so the candidate set is unchanged; it just becomes something coverage can key on. Dot-files and archives are dropped, which hashcat would not do — a Weakpass download leaves `.7z` and `.torrent` files in the wordlists directory and neither is a wordlist.
+
+  The expansion aborts the attack when it comes back empty — an empty wordlists directory, or one holding only subdirectories or only archives — instead of launching. Without a dictionary operand hashcat does not error: `-a 0` reads candidates from *stdin*, so the run would inherit the menu's terminal, consume the operator's keystrokes, and then report Exhausted on ctrl-D, which is exit 1, which is what records coverage. `hcatHybrid` already guarded its own expansion this way.
+
+  An existing engagement's store needs no migration and loses nothing: the new table arrives empty on the next connect, and an empty answer is "no prior run", which suppresses the spurious prompt rather than causing a wrong skip. `coverage forget` clears the new table too.
+
 ### Added
 - **A "Download All Rules" option in the Hashview interactive menu.** Previously the menu could only download one rule file at a time by ID; the new option lists every rule the Hashview API knows about and downloads each one, reporting per-rule success/failure counts instead of aborting the batch on the first error. Backed by a new `HashviewAPI.download_all_rules()` method.
 

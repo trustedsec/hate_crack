@@ -698,6 +698,16 @@ covered ground never requires restarting the tool.
 Attacks that are never filtered are still recorded as having run, which is what
 lets you answer "did I already run PRINCE against this target?".
 
+An attack that selects several rule files at once (Quick Crack, Loopback) asks
+the skip question **once for the whole batch, up front**, before any hashcat
+invocation. That question is deliberately cheap — it does not read or hash any
+of the selected rule files, since a YOLO batch can run to millions of lines and
+you should not wait through that to answer a yes/no. It asks the store only
+whether this attack has already run against this hash file **with one of these
+wordlists**; the per-entry diff still happens lazily, one rule file at a time,
+and decides what actually gets skipped. So a fresh corpus is never flagged, even
+when the rules on it have all run against a different one.
+
 Three deliberate limits:
 
 - **Coverage is recorded only when hashcat exhausts the keyspace** (exit 1). A
@@ -1043,6 +1053,17 @@ The YOLO, Middle, and Thorough Combinator attacks were previously at keys 10-12.
 -------------------------------------------------------------------
 #### Quick Crack
 Runs a dictionary attack against wordlists in your `hcatOptimizedWordlists` directory (falls back to `hcatWordlists` if not configured) and optionally applies rules. Multiple rules can be selected by comma-separated list, and chains can be created with the '+' symbol. Pressing Enter at the wordlist prompt uses the configured optimized wordlists directory as the default.
+
+Selecting a directory — including that default — expands to the wordlists
+directly inside it before hashcat runs. Subdirectories are not searched,
+matching hashcat's own behaviour for a directory in the dictionary position, and
+dot-files and `.7z`/`.torrent`/`.out` files are skipped, which hashcat would
+otherwise try to read. The candidates are the same either way; the expansion is
+what lets attack coverage track each wordlist separately, since a directory has
+no content fingerprint to key on. If the expansion finds nothing — an empty
+directory, or one holding only subdirectories or archives — the attack aborts
+rather than launching hashcat with no wordlist, which would put it in stdin
+mode and leave it reading the terminal.
 
 ```
 Which rule(s) would you like to run?

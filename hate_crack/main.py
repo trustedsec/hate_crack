@@ -1887,6 +1887,7 @@ def _run_hcat_cmd(
             target=plan.target,
             kind=plan.kind,
             attack=attack_name,
+            wordlist_fps=plan.wordlist_fps,
         )
     elif completed and _coverage_enabled and attack_name and hash_file:
         # Attacks that carry no spec are never filtered, but the issue asks for
@@ -2916,6 +2917,59 @@ def hcatDictionary(hcatHashType, hcatHashFile):
     hcatDictionaryCount = lineCount(hcatHashFile + ".out") - hcatBruteCount
 
 
+def _expand_wordlist_dirs(wordlists):
+    """Expand any directory in *wordlists* into the files directly inside it.
+
+    hashcat accepts a directory in the dictionary position of a straight
+    (``-a 0``) run and reads the files directly inside it -- verified against
+    7.1.2, which ignores subdirectories. Passing it the directory and passing it
+    the expansion therefore run the identical candidate set, but the expansion
+    gives the coverage store one fingerprintable wordlist per file instead of a
+    directory it cannot fingerprint at all. That mattered more than it sounds:
+    an unfingerprintable wordlist makes the whole plan inert, so those passes
+    were recorded nowhere and never recognised on a repeat, while the run was
+    still logged -- which kept the up-front batch prompt firing forever with
+    nothing it could ever skip. hcatHybrid expands for the same reason.
+
+    One level only, matching hashcat. Dot-files and archives are dropped, which
+    hashcat would not do -- a Weakpass download leaves ``.7z`` and ``.torrent``
+    files in the wordlists directory and neither is a wordlist. Anything that is
+    not a directory passes through untouched, including a path that does not
+    exist: hashcat's own error names the file, and dropping it here would
+    silently shrink the attack instead of reporting it.
+    """
+    if isinstance(wordlists, (str, os.PathLike)):
+        selection = [os.fspath(wordlists)]
+    else:
+        selection = [os.fspath(path) for path in wordlists]
+
+    expanded: list[str] = []
+    for path in selection:
+        if not os.path.isdir(path):
+            expanded.append(path)
+            continue
+        files = [os.path.join(path, name) for name in list_wordlist_files(path)]
+        if files:
+            expanded.extend(files)
+        else:
+            print(
+                f"[!] No wordlists directly inside {path} "
+                "(subdirectories are not searched)"
+            )
+    # Order-preserving dedupe: the same list named twice is wasted passes, and
+    # a directory named alongside one of its own files would produce it twice.
+    expanded = list(dict.fromkeys(expanded))
+    if expanded and expanded != selection:
+        # Compared, not counted: a directory holding exactly one wordlist, and
+        # one whose archives were dropped, both leave the count unchanged while
+        # attacking something different from what was asked for. The operator
+        # should be told either way.
+        print(
+            f"[*] {len(selection)} entr(y/ies) expanded to {len(expanded)} wordlist(s)."
+        )
+    return expanded
+
+
 # Quick Dictionary Attack (Optional Chained Rules)
 def hcatQuickDictionary(
     hcatHashType,
@@ -2929,6 +2983,20 @@ def hcatQuickDictionary(
     coverage_decision: dict | None = None,
 ):
     global hcatProcess
+    # Done here rather than only in the handler so every caller gets it --
+    # including the scripted entry points, which never see the menu picker.
+    # Idempotent, so a handler that expanded already loses nothing by it.
+    wordlists = _expand_wordlist_dirs(wordlists)
+    if not wordlists:
+        # Launching without a dictionary operand does not fail: hashcat reads
+        # candidates from *stdin* in straight mode, so the run would inherit
+        # this terminal and silently consume the operator's keystrokes -- then
+        # report Exhausted on ctrl-D, and exit 1 is what records coverage, so a
+        # run that enumerated nothing would claim every rule line. Reachable
+        # from an ordinary empty or archives-only wordlists directory.
+        # hcatHybrid guards the same expansion the same way.
+        print("[!] No valid wordlists found. Aborting attack.")
+        return
     cmd = [
         hcatBin,
         "-m",
@@ -2939,10 +3007,7 @@ def hcatQuickDictionary(
         "-o",
         f"{hcatHashFile}.out",
     ]
-    if isinstance(wordlists, list):
-        cmd.extend(wordlists)
-    else:
-        cmd.append(wordlists)
+    cmd.extend(wordlists)
     if loopback:
         cmd.append("--loopback")
     if hcatChains:
@@ -3030,17 +3095,27 @@ def _prime_coverage_decision(
     which for a large batch (YOLO across dozens of files, some
     multi-million lines) is exactly the slow, silent-feeling step an
     operator should not have to wait through just to be asked a yes/no
-    question. So this checks only whether ``attack_name`` has ever run
-    against this hash file before -- one cheap store lookup, no file
-    reading -- and, if so, asks plainly. The real per-file diffing still
-    happens lazily, once per chain, inside ``_apply_coverage`` exactly as
-    it always has; this only decides up front whether that filtering is
+    question. So this asks the store only whether ``attack_name`` has run
+    against this hash file *with one of these wordlists* before -- no rule
+    file is read -- and, if so, asks plainly. The real per-file diffing
+    still happens lazily, once per chain, inside ``_apply_coverage`` exactly
+    as it always has; this only decides up front whether that filtering is
     wanted.
+
+    **The wordlists are part of the question, not decoration.** They used to
+    be ignored, leaving the store asked only whether anything by this attack
+    name had ever touched this hash file -- so selecting a brand-new corpus
+    produced the "has run before" prompt with nothing recorded that could
+    possibly be skipped, because a rule counts as covered only for the
+    wordlist it ran against. Fingerprinting the wordlists costs nothing extra
+    overall: ``plan_run`` computes the same fingerprints moments later for the
+    first chain, and they are memoized.
 
     Returns an empty dict when there is nothing to ask about: coverage is
     disabled, the batch is empty, it is a record-only (loopback) run that
-    can never overlap, or ``attack_name`` has never run against this hash
-    file before -- so a fresh engagement never sees the prompt.
+    can never overlap, or this attack has never run against this hash file
+    with any of these wordlists -- so a fresh engagement, or a fresh corpus,
+    never sees the prompt.
     """
     if not _coverage_enabled or not chains or loopback:
         return {}
@@ -3049,11 +3124,27 @@ def _prime_coverage_decision(
     if target is None:
         return {}
 
-    has_run_before = any(
-        attack == attack_name and runs
-        for attack, _entries, runs in _coverage_store().summary(target)["by_attack"]
-    )
-    if not has_run_before:
+    store = _coverage_store()
+    selection = _expand_wordlist_dirs(wordlists)
+    fingerprints = [
+        fingerprint
+        for fingerprint in (store.wordlist_fingerprint(path) for path in selection)
+        if fingerprint is not None
+    ]
+    if wordlists and not fingerprints:
+        # Wordlists were named but none can be fingerprinted -- they vanished,
+        # or a directory expanded to nothing. Either way plan_run will go inert
+        # for every chain and no filtering is possible, so asking whether to
+        # filter would be noise; this is the shape that used to prompt on every
+        # single run.
+        #
+        # Guarded on the *argument*, not on `selection`: an empty expansion
+        # would short-circuit `selection and ...` and fall through to
+        # has_prior_run's attack-name-only branch, which is the coarse question
+        # this function exists to stop asking.
+        return {}
+
+    if not store.has_prior_run(target, attack_name, fingerprints):
         return {}
 
     return {"apply_filtering": _prompt_skip_covered_batch(attack_name, len(chains))}

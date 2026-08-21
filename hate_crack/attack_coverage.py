@@ -84,6 +84,15 @@ _COVERED_IN_JSON = (
     "SELECT key FROM covered WHERE key IN (SELECT value FROM json_each(?))"
 )
 
+# "Has this attack run against this target with any of these wordlists?", as
+# one static statement. See CoverageStore.has_prior_run.
+_PRIOR_RUN_WITH_WORDLIST = (
+    "SELECT 1 FROM runs "
+    "JOIN run_wordlists ON run_wordlists.run_id = runs.id "
+    "WHERE runs.target = ? AND runs.attack = ? "
+    "AND run_wordlists.wordlist IN (SELECT value FROM json_each(?)) LIMIT 1"
+)
+
 # Schema notes, all measured at the realistic scale of ~191k keys (the
 # d3ad0ne+T0XlC pair over five wordlists, which is one Dictionary attack):
 #
@@ -123,6 +132,31 @@ CREATE TABLE IF NOT EXISTS covered (
 -- keys. It is the only secondary index here: each one is write amplification
 -- on a bulk insert of ~191k rows.
 CREATE INDEX IF NOT EXISTS covered_run ON covered (run_id);
+
+-- Which wordlists a run declared, by fingerprint. "Declared", not "enumerated":
+-- a wordlist-kind plan links every wordlist in the spec, including one that
+-- filtering then dropped from the command. That is deliberate -- a dropped
+-- wordlist was dropped for being covered already, so it has a row regardless --
+-- but it means a row here is not proof that this particular invocation read
+-- that file. Nothing keys coverage off these rows; only has_prior_run reads
+-- them, and only to decide whether to ask a question.
+--
+-- This exists so that "has
+-- this attack run against this target with this corpus before?" can be
+-- answered without reading a single rule file -- the question the up-front
+-- batch prompt asks, where diffing a YOLO-sized batch of rule files first is
+-- exactly the slow silent wait it was written to avoid. It cannot be answered
+-- from `covered`, whose keys hash the fingerprint in beyond recovery.
+--
+-- CREATE TABLE IF NOT EXISTS is the whole migration story for an engagement
+-- whose store predates this table: it appears on the next connect, empty, and
+-- an empty answer is "no prior run", which is the safe direction.
+CREATE TABLE IF NOT EXISTS run_wordlists (
+    run_id   INTEGER NOT NULL REFERENCES runs (id),
+    wordlist TEXT NOT NULL,
+    PRIMARY KEY (run_id, wordlist)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS run_wordlists_fp ON run_wordlists (wordlist);
 
 CREATE TABLE IF NOT EXISTS wordlist_fingerprints (
     path     TEXT PRIMARY KEY,
@@ -281,6 +315,49 @@ class CoverageStore:
             return None
         return cursor.lastrowid
 
+    def has_prior_run(
+        self, target: str, attack: str, wordlist_fps: Sequence[str]
+    ) -> bool:
+        """Has ``attack`` already run against ``target`` using any of these
+        wordlists?
+
+        "Any", not "all": one overlapping corpus is enough for per-entry
+        filtering to have something to skip, which is what the caller is really
+        asking about.
+
+        With no fingerprints -- a mask-only attack, or a caller that cannot
+        establish them -- this falls back to the coarser question of whether the
+        attack has run against the target at all, because that is the only one
+        the store can answer. Callers that *do* have wordlists must pass them:
+        the coarse answer is what made a brand-new corpus look like a repeat.
+
+        The fingerprints go over as one JSON parameter, the same static-SQL
+        shape :meth:`covered` uses and for the same reason -- an ``IN (?,?,?)``
+        clause would have to be built by interpolation and chunked under
+        SQLite's 999-parameter limit, and a Weakpass directory really can hold
+        hundreds of lists. Unlike :meth:`covered` this one has no JSON1
+        fallback: a SQLite built without it answers "no prior run", which costs
+        an operator one absent prompt rather than a wrong skip, because the
+        per-entry diff in ``plan_run`` still asks about any genuine overlap.
+        """
+        conn = self._connect()
+        if conn is None:
+            return False
+        try:
+            if not wordlist_fps:
+                row = conn.execute(
+                    "SELECT 1 FROM runs WHERE target = ? AND attack = ? LIMIT 1",
+                    (target, attack),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    _PRIOR_RUN_WITH_WORDLIST,
+                    (target, attack, json.dumps(list(wordlist_fps))),
+                ).fetchone()
+        except sqlite3.Error:
+            return False
+        return row is not None
+
     def record(
         self,
         keys: Iterable[str],
@@ -288,19 +365,37 @@ class CoverageStore:
         kind: str = "",
         attack: str = "",
         detail: str = "",
+        wordlist_fps: Sequence[str] = (),
     ) -> int:
         """Log a run and link its coverage. Returns newly-inserted key count.
 
         ``INSERT OR IGNORE`` means a repeat adds no keys and leaves the original
         run's link in place, so a key records when it was *first* covered and
         the store does not grow on repeats.
+
+        ``wordlist_fps`` are linked to the run so :meth:`has_prior_run` can
+        scope its answer to a corpus. They are recorded even when ``keys`` is
+        empty, because a run that added no new keys still establishes that this
+        attack has seen this corpus.
         """
         keys = list(keys)
         conn = self._connect()
         if conn is None:
             return 0
         run_id = self.log_run(target, attack=attack, kind=kind, detail=detail)
-        if run_id is None or not keys:
+        if run_id is None:
+            return 0
+        if wordlist_fps:
+            try:
+                conn.executemany(
+                    "INSERT OR IGNORE INTO run_wordlists (run_id, wordlist) "
+                    "VALUES (?, ?)",
+                    [(run_id, fingerprint) for fingerprint in wordlist_fps],
+                )
+                conn.commit()
+            except sqlite3.Error:
+                pass
+        if not keys:
             return 0
         try:
             cursor = conn.executemany(
@@ -324,6 +419,11 @@ class CoverageStore:
         try:
             cursor = conn.execute(
                 "DELETE FROM covered WHERE run_id IN "
+                "(SELECT id FROM runs WHERE target = ?)",
+                (target,),
+            )
+            conn.execute(
+                "DELETE FROM run_wordlists WHERE run_id IN "
                 "(SELECT id FROM runs WHERE target = ?)",
                 (target,),
             )
@@ -698,6 +798,10 @@ class RunPlan:
     source_path: str | None = None
     record_keys: list[str] = field(default_factory=list)
     target: str = ""
+    # Fingerprints of the wordlists this run enumerates, for the store to link
+    # to the run row. Carried separately from the keys because a "wordlist"-kind
+    # plan keys *on* them, so they cannot be recovered from the keying slots.
+    wordlist_fps: tuple[str, ...] = ()
 
     @property
     def has_overlap(self) -> bool:
@@ -784,6 +888,7 @@ def plan_run(
                 lookup=lookup,
                 source_path=None,
                 filterable=False,
+                run_wordlist_fps=wordlist_fps,
             )
         entries = read_entries(spec.rule_files[0])
         if not entries:
@@ -797,6 +902,7 @@ def plan_run(
             lookup=lookup,
             source_path=spec.rule_files[0],
             filterable=True,
+            run_wordlist_fps=wordlist_fps,
         )
 
     if spec.mask_files or spec.masks:
@@ -820,6 +926,7 @@ def plan_run(
             lookup=lookup,
             source_path=single_file,
             filterable=single_file is not None,
+            run_wordlist_fps=wordlist_fps,
         )
 
     if spec.wordlists:
@@ -834,6 +941,7 @@ def plan_run(
             source_path=None,
             filterable=True,
             display=list(spec.wordlists),
+            run_wordlist_fps=wordlist_fps,
         )
 
     return _INERT
@@ -850,6 +958,7 @@ def _plan_entries(
     source_path: str | None,
     filterable: bool,
     display: list[str] | None = None,
+    run_wordlist_fps: Sequence[str] = (),
 ) -> RunPlan:
     # A mask run has no wordlist, but still needs one slot to key against.
     slots = wordlist_fps or [""]
@@ -884,6 +993,7 @@ def _plan_entries(
             total_count=len(entries),
             source_path=source_path,
             target=target,
+            wordlist_fps=tuple(run_wordlist_fps),
         )
 
     return RunPlan(
@@ -895,4 +1005,5 @@ def _plan_entries(
         source_path=source_path,
         record_keys=record_keys,
         target=target,
+        wordlist_fps=tuple(run_wordlist_fps),
     )
