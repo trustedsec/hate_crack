@@ -3,6 +3,7 @@ import glob
 import json
 import os
 import re
+from pathlib import Path
 
 import pytest
 
@@ -72,23 +73,40 @@ def test_root_example_has_expected_keys():
     assert set(root_config.keys()) == EXPECTED_KEYS
 
 
-def test_packaged_example_matches_root_content():
-    """The invariant that matters is content parity, not symlink-ness.
+def test_packaged_example_matches_root_byte_for_byte():
+    """The two examples are real, separate files and must stay identical.
 
-    In the source tree hate_crack/config.json.example is a symlink to the
-    root copy (same inode) — comparing it to itself here is a no-op, and
-    test_root_example_has_expected_keys is the substantive check for that
-    environment. In any tree where the packaged copy is a distinct file
-    (built wheel/sdist, git-archive tarball, docker COPY of hate_crack/
-    alone) this comparison is the one that would actually catch drift.
+    They were a symlink from #151 until the packaged copy became a regular
+    file again, and this comparison used to short-circuit when both paths
+    resolved to one inode. It no longer can, which is the point: the drift it
+    guards against is exactly what #150 was -- ten keys missing from the
+    packaged copy, four dead keys still shipped, hcatPath disagreeing -- and a
+    reader of one file has no way to notice the other went stale.
+
+    Bytes rather than parsed JSON, because "identical copies" is the invariant
+    and byte equality is the one an editor can act on: a diff of the two paths
+    is either empty or it is not.
     """
-    if os.path.realpath(PACKAGED_EXAMPLE) == os.path.realpath(ROOT_EXAMPLE):
-        return
-    with open(ROOT_EXAMPLE) as f:
-        root_config = json.load(f)
-    with open(PACKAGED_EXAMPLE) as f:
-        packaged_config = json.load(f)
-    assert packaged_config == root_config
+    root = Path(ROOT_EXAMPLE).read_bytes()
+    packaged = Path(PACKAGED_EXAMPLE).read_bytes()
+    assert packaged == root, (
+        "config.json.example copies have drifted. Edit hate_crack/"
+        "config.json.example and copy it to the repo root (or vice versa) so "
+        "the two are byte-identical."
+    )
+
+
+def test_packaged_example_is_a_real_file_not_a_symlink():
+    """A symlink here does not survive every clone.
+
+    git only creates one where the checkout supports it: on Windows without
+    developer mode or core.symlinks, the working tree gets a text file holding
+    the target path instead, so the packaged example parses as JSON garbage for
+    exactly the users least able to diagnose it. The byte-parity test above is
+    what keeps the copies honest instead.
+    """
+    assert not Path(PACKAGED_EXAMPLE).is_symlink()
+    assert Path(PACKAGED_EXAMPLE).is_file()
 
 
 def test_optimized_kernel_attacks_matches_code_default(hc_module):
