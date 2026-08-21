@@ -2,6 +2,7 @@ import importlib.util
 import os
 import sys
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
@@ -132,6 +133,57 @@ def _isolate_hashview_cache(monkeypatch, tmp_path):
         hashview_cache,
         "_cache_path",
         lambda: tmp_path / ".hate_crack" / hashview_cache.CACHE_FILENAME,
+    )
+
+
+def _corrupted_submodule_references():
+    """Report and repair duplicated ``hate_crack.main.<mod>`` module objects.
+
+    hate_crack/main.py sets __path__, so hate_crack.main looks like a package.
+    A string-target patch -- mock.patch("hate_crack.main.llm.X") -- is
+    resolved with pkgutil.resolve_name, which therefore imports
+    hate_crack.main.llm: a second, independent execution of llm.py. The import
+    machinery rebinds main.llm to that duplicate, and mock's teardown restores
+    the attribute on the duplicate, so the corruption outlives the with block
+    for the rest of the session (#276).
+
+    Each finding is repaired as well as reported: the failure belongs to the
+    test that caused it, not to the unrelated tests that would otherwise fail
+    after it.
+    """
+    hc_main = sys.modules.get("hate_crack.main")
+    reports = []
+    if hc_main is not None:
+        for name, value in list(vars(hc_main).items()):
+            if not isinstance(value, ModuleType):
+                continue
+            if not value.__name__.startswith("hate_crack."):
+                continue
+            canonical_name = "hate_crack." + value.__name__.rsplit(".", 1)[-1]
+            canonical = sys.modules.get(canonical_name)
+            if canonical is not None and value is not canonical:
+                reports.append(
+                    f"hate_crack.main.{name} is {value.__name__} instead of "
+                    f"{canonical_name} (a duplicate module object)"
+                )
+                setattr(hc_main, name, canonical)
+    for key in [k for k in sys.modules if k.startswith("hate_crack.main.")]:
+        reports.append(f"sys.modules holds a duplicate submodule {key!r}")
+        del sys.modules[key]
+    return reports
+
+
+@pytest.fixture(autouse=True)
+def _guard_submodule_identity():
+    """Fail the test that duplicates one of main.py's sibling modules (#276)."""
+    yield
+    corrupted = _corrupted_submodule_references()
+    assert not corrupted, (
+        "This test corrupted hate_crack.main's module references:\n  "
+        + "\n  ".join(corrupted)
+        + '\n\nUse mock.patch.object(hc_main.<mod>, "<attr>") instead of a '
+        "string target through main -- see tests/test_no_cloud_destination_main.py. "
+        "References have been repaired, so later tests are unaffected."
     )
 
 

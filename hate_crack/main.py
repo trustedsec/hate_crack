@@ -48,6 +48,17 @@ if _root_dir not in sys.path:
     sys.path.insert(0, _root_dir)
 
 # Allow submodule imports (hate_crack.*) even when this file is imported as a module.
+#
+# This is also the root cause of #276: making main.py look like a package to the
+# import system means a string-target mock.patch("hate_crack.main.llm.X", ...) gets
+# resolved by pkgutil.resolve_name actually *importing* hate_crack.main.llm as a
+# second, independent module, permanently rebinding this module's `llm` attribute for
+# the rest of the pytest session. See tests/conftest.py's `_guard_submodule_identity`
+# for the mitigation. Removing this shim outright is not done here: it plausibly backs
+# the installed/E2E load path (tests/test_e2e_local_install.py,
+# tests/test_docker_script_install.py, tests/test_help_before_build.py all load this
+# file by path via importlib.util.spec_from_file_location), and that's a separate,
+# unverified question left open rather than acted on in the same change as the guard.
 _pkg_dir = os.path.dirname(os.path.realpath(__file__))
 if os.path.isdir(_pkg_dir):
     __path__ = [_pkg_dir]
