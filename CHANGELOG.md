@@ -10,7 +10,7 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 ## [Unreleased]
 
 ### Fixed
-- **Attack coverage bucketed every Quick Crack together, so a brand-new wordlist with previously-used rules was flagged as already covered.** Two defects compounded, both reachable from the default answer at Quick Crack's wordlist prompt.
+- **Attack coverage bucketed every Quick Crack together, so a brand-new wordlist with previously-used rules was flagged as already covered (#302).** Two defects compounded, both reachable from the default answer at Quick Crack's wordlist prompt.
 
   `_prime_coverage_decision` ignored the wordlists it was handed and asked the store only whether anything named "Quick Crack" had ever run against this hash file. Since a rule counts as covered only for the wordlist it ran against, selecting a fresh corpus produced "Quick Crack has run against this hash file before" with nothing recorded that could possibly be skipped. The question is now scoped to the wordlists, answered by a new `CoverageStore.has_prior_run()` against a new `run_wordlists` table — still without reading a single rule file, which is the property that prompt exists to preserve. Fingerprinting costs nothing extra overall, because `plan_run` computes the same memoized fingerprints moments later for the first chain.
 
