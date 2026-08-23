@@ -98,11 +98,20 @@ for compatibility with callers written before the split.
 The limits themselves, for completeness:
 
 * Positions are encoded in a 36-character alphabet, so ``T``/``i``/``o`` cannot
-  address past index 35.
+  address past index 35 **counting from the left**. That is a limit on the op,
+  not on the rule language: ``r`` reverses the word, so a position in the last
+  36 characters is addressable from the other end. The line-break helper uses
+  this (:func:`_literal_with_line_breaks`), which is why a break past index 35
+  is no longer an unwritable baseword *on its own* -- the frames are chosen per
+  password, not per break, so it still takes one frame holding every break in
+  the password. Case encoding does not use the trick at all, because a
+  reversal would have to compose with every other op in a real derivation
+  rather than standing alone as the whole rule -- so an uppercase letter past
+  index 35 still bails :func:`derive` out to the literal fallback.
 * hashcat rejects any rule with more than ``MAX_RULE_FUNCTIONS`` functions.
   It does so *silently* when other valid rules are present in the same file,
   which is why the op count is enforced here rather than discovered later as
-  missing coverage.
+  missing coverage. This one is not escapable: one break costs one insert.
 """
 
 import itertools
@@ -268,7 +277,7 @@ def count_ops(rule):
     i = 0
     while i < len(rule):
         op = rule[i]
-        if op in ":luc":
+        if op in ":lucr":
             i += 1
         elif op == "T":
             i += 2
@@ -457,28 +466,65 @@ def _case_ops(flags):
     return min(candidates, key=lambda x: (x[0], _CASE_STRATEGY_ORDER[x[2]]))[1]
 
 
+def _break_insert_ops(pw, reverse=False):
+    """Insert ops that put *pw*'s CR/LF bytes back into its break-free baseword.
+
+    Returns None when any break is unaddressable in the chosen frame.
+
+    Inserts are emitted in increasing order of their target index, so each one
+    lands correctly: every earlier break has already filled the slots before it,
+    which is the same accounting :func:`derive` does for interior non-letters.
+
+    With *reverse*, indices are counted from the other end -- the frame a
+    ``r``-wrapped rule operates in, where the break at index ``idx`` of *pw* sits
+    at ``len(pw) - 1 - idx``. Walking *pw* backwards therefore visits the
+    reversed indices in increasing order, preserving that same accounting.
+    """
+    positions = range(len(pw) - 1, -1, -1) if reverse else range(len(pw))
+    ops = []
+    for idx in positions:
+        c = pw[idx]
+        if c not in _ARG_ESCAPES:
+            continue
+        p = _pos(len(pw) - 1 - idx if reverse else idx)
+        if p is None:
+            return None
+        ops.append("i" + p + _escape_arg(c))
+    return ops
+
+
 def _literal_with_line_breaks(pw):
     """Derive a literal-fallback password whose bytes include a CR or LF.
 
     The baseword is the password with those bytes removed and the rule inserts
-    them back, in increasing index order so each insert accounts for the shift
-    from the ones before it -- the same accounting :func:`derive` does for
-    interior non-letters. Falls back to the literal pair when a break sits past
-    the last addressable position, which leaves a baseword the caller cannot
-    write; :func:`generate` counts those rather than emitting them.
+    them back. Positions are encoded in a 36-character alphabet, so ``i`` cannot
+    address past index 35 counting from the left -- but ``r`` reverses the word,
+    and a break in the *last* 36 characters is addressable once reversed. So a
+    break the forward frame cannot reach is inserted in the reversed frame and
+    the word reversed back, which costs two extra functions and is therefore
+    tried second: for a password the forward frame handles, this changes nothing.
+
+    A frame is chosen for the *password*, not per break: one frame has to hold
+    every break, so what is left unreachable is a password with one break
+    outside the first 36 characters **and** another outside the last 36. That
+    needs only 37 characters to arrange (breaks at index 0 and 36), not the 72
+    a single break would need -- so the residual is about how far apart the
+    outermost two breaks are, not about length alone. The other limit is
+    ``MAX_RULE_FUNCTIONS``: each break costs one insert, the reversal costs two
+    more, and hashcat takes at most 31 functions in a rule. Verified at the
+    boundary against v7.1.2 -- 29 inserts plus two ``r`` ops is 31 functions and
+    runs; 30 would be 32 and is declined here rather than dropped silently
+    there. :func:`generate` counts either case as an unwritable baseword rather
+    than emitting one.
     """
     base = "".join(c for c in pw if c not in _ARG_ESCAPES)
-    ops = []
-    for idx, c in enumerate(pw):
-        if c not in _ARG_ESCAPES:
-            continue
-        p = _pos(idx)
-        if p is None:
-            return (pw, ":")
-        ops.append("i" + p + _escape_arg(c))
-    if len(ops) > MAX_RULE_FUNCTIONS:
-        return (pw, ":")
-    return (base, "".join(ops))
+    forward = _break_insert_ops(pw)
+    if forward is not None and len(forward) <= MAX_RULE_FUNCTIONS:
+        return (base, "".join(forward))
+    reversed_ops = _break_insert_ops(pw, reverse=True)
+    if reversed_ops is not None and len(reversed_ops) + 2 <= MAX_RULE_FUNCTIONS:
+        return (base, "r" + "".join(reversed_ops) + "r")
+    return (pw, ":")
 
 
 def _literal_pair(pw):
@@ -707,6 +753,9 @@ def apply_rule(word, rule):
         elif op == "c":
             s = (s[:1].upper() + s[1:].lower()) if s else s
             i += 1
+        elif op == "r":
+            s = s[::-1]
+            i += 1
         elif op == "T":
             p = POS.index(rule[i + 1])
             if p < len(s):
@@ -870,8 +919,10 @@ def _scan_corpus(
             # wordlist line is the word, with no escape syntax to spell a break
             # with, so a baseword still holding one cannot be written at all.
             # Only a derivation that could not even lift the break into an
-            # insert op -- a break past addressable position 35, or one that
-            # would push the rule over MAX_RULE_FUNCTIONS -- lands here; see
+            # insert op lands here, which after the reversed-frame fallback
+            # means one break outside the first 36 characters and another
+            # outside the last 36 -- no single frame holds both -- or more
+            # breaks than MAX_RULE_FUNCTIONS leaves room for; see
             # _literal_pair()/_literal_with_line_breaks().
             #
             # Written anyway it would split its own record across two lines and
@@ -1143,10 +1194,12 @@ def generate(
             "  (the baseword held a literal CR or LF, which arrives via a\n"
             "   $HEX[...] plaintext. A rule argument can spell such a byte \\xNN\n"
             "   and hashcat decodes it, so a break is normally lifted into an\n"
-            "   insert op and kept out of the baseword entirely (#295). This\n"
-            "   remains only for the break itself hitting one of the two\n"
-            "   hashcat limits: a position past index 35, or more than\n"
-            f"   {MAX_RULE_FUNCTIONS} rule functions needed to insert every break. A\n"
+            "   insert op and kept out of the baseword entirely (#295), from\n"
+            "   either end of the word -- the rule reverses it when the break\n"
+            "   sits past index 35 counting from the left. This remains only\n"
+            "   for breaks no single frame can address: one outside the first\n"
+            "   36 characters AND another outside the last 36, or more breaks\n"
+            f"   than the {MAX_RULE_FUNCTIONS}-function rule cap leaves room to insert. A\n"
             "   wordlist line has no escape syntax, so such a baseword is\n"
             "   skipped rather than written truncated. Normally zero.)\n"
         )
@@ -1244,8 +1297,9 @@ def generate(
         print_fn(
             f"[!] {unwritable_basewords} passwords could not be written: the "
             "baseword itself held a literal CR or LF (a $HEX[...] plaintext) "
-            "that could not be lifted into an insert op -- the break sat past "
-            "addressable position 35, or needed more inserts than the "
+            "that could not be lifted into an insert op from either end -- one "
+            "break outside the first 36 characters and another outside the "
+            "last 36, so no single frame addresses both, or more inserts than the "
             f"{MAX_RULE_FUNCTIONS}-function rule cap allows -- and a wordlist "
             "line has no escape syntax to spell one with. Coverage excludes "
             "them."

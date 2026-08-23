@@ -51,6 +51,19 @@ _CASES = [
     # lifted into an insert op rather than left in an unwritable baseword.
     "\n" + "z" * 36 + "Z" + "w",
     "a" + "1" * 15 + "\n" + "1" * 17 + "b",
+    # #295 positional gap, closed by reversing the word: a break past
+    # addressable position 35 counting from the left is addressable counting
+    # from the right, so the rule is `r i{p}\xNN r`. hashcat is the only
+    # authority on whether inserting into a reversed word and reversing back
+    # lands the byte where we think it does.
+    "z" * 36 + "Z" + "\n",
+    "z" * 40 + "\n" + "w",
+    "z" * 38 + "\n" + "z" * 3 + "\r" + "z",
+    # The function-cap boundary for the reversed form: 29 inserts plus the two
+    # `r` ops is exactly MAX_RULE_FUNCTIONS. Asked of the binary because "the
+    # two reverses count against the cap" is otherwise only our own assumption,
+    # and one function over, hashcat drops the rule without saying so.
+    "z" * 40 + "\n" * 29,
 ]
 
 

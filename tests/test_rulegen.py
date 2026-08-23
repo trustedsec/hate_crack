@@ -1013,25 +1013,27 @@ class TestEmbeddedLineBreaks:
             r + "\n" for r, _ in expected_rules.most_common()
         ).encode("latin-1")
 
-    # An uppercase letter past position 35 disqualifies every case encoding, so
-    # derive() bails out to the password as its own baseword -- carrying the
-    # line break with it, where no rule argument can spell it. Hex-wrapped
-    # because a bare newline in a corpus file is just the line terminator.
+    # A password with breaks at *both* ends, far enough apart that no single
+    # frame addresses them all: index 50 is past the forward limit of 35, and
+    # index 5 is past the reversed limit (56 - 1 - 5 = 50). Hex-wrapped because
+    # a bare newline in a corpus file is just the line terminator.
     #
-    # This break sits at index 37 -- past the last addressable position (35) --
-    # so it is the genuine residual limit even after #295's bail-out fix:
-    # _literal_pair() itself falls through to the raw literal pair whenever the
-    # break cannot be lifted into an insert op. See TestBailoutLineBreakFix
-    # below for the *addressable*-break cases the fix now covers instead.
-    _BAILOUT_PW = "z" * 36 + "Z" + "\n"
+    # This used to be "z" * 36 + "Z" + "\n", whose break is the final character
+    # at index 37. That is past the forward limit, but reversed it sits at index
+    # 0, so it is now written as `r i0\x0a r` rather than counted -- see
+    # TestTailBreakInserts. What is left unreachable is this two-ended shape and
+    # a break count over MAX_RULE_FUNCTIONS. Note this fixture is 56 characters,
+    # not 72+: the residual is about how far apart the outermost two breaks are,
+    # and 37 characters is enough to arrange it (breaks at index 0 and 36).
+    _BAILOUT_PW = "z" * 5 + "\n" + "z" * 44 + "\n" + "z" * 5
     HEX_BAILOUT = "$HEX[" + _BAILOUT_PW.encode("latin-1").hex() + "]"
 
     def test_an_unwritable_baseword_is_counted_not_written(self, tmp_path):
-        """The residual case #295's bail-out fix cannot reach: the break itself
-        sits past addressable position 35, so even the literal-fallback helper
-        cannot lift it into an insert op, and the resulting baseword cannot be
-        written to a wordlist at all. hashcat has no escape on the wordlist
-        side, so there is nothing to emit."""
+        """The residual case neither frame can reach: one break is past the
+        forward addressable position and the other is past the reversed one, so
+        no `i` op can place both and the baseword keeps a break it cannot be
+        written with. hashcat has no escape on the wordlist side, so there is
+        nothing to emit."""
         assert usable_plaintext(self.HEX_BAILOUT) == self._BAILOUT_PW
         assert rulegen.derive(self._BAILOUT_PW) == (self._BAILOUT_PW, ":")
         result = self._run(tmp_path, [self.HEX_BAILOUT, "quibbleflange1"])
@@ -1162,11 +1164,21 @@ class TestBailoutLineBreakFix:
 
     def test_operator_message_names_the_narrowed_limit(self, tmp_path):
         """The operator-facing warning should name the residual limit
-        precisely -- a break past addressable position 35, or too many breaks
-        for the rule-function cap -- rather than the old blanket "any bail-out"
-        framing."""
+        precisely -- breaks at both ends that no single frame can address, or
+        too many breaks for the rule-function cap -- rather than the old blanket
+        "any bail-out" framing.
+
+        It used to be enough to say "past addressable position 35", but once the
+        reversed frame reaches those, that phrasing names a limit that no longer
+        exists on its own. What has to reach the operator is that *both* ends
+        are involved: a count above zero on a corpus of ordinary-length
+        passwords would otherwise read as a broken counter.
+        """
         said = []
-        bailout_pw = "z" * 36 + "Z" + "\n"
+        # Breaks at both ends of a long password: unreachable in either frame.
+        # See TestEmbeddedLineBreaks._BAILOUT_PW for why the old trailing-break
+        # example no longer qualifies.
+        bailout_pw = "z" * 5 + "\n" + "z" * 44 + "\n" + "z" * 5
         hexed = "$HEX[" + bailout_pw.encode("latin-1").hex() + "]"
         corpus = tmp_path / "corpus.txt"
         corpus.write_text(f"{hexed}\nquibbleflange1\n", encoding="latin-1")
@@ -1176,8 +1188,13 @@ class TestBailoutLineBreakFix:
             print_fn=lambda *a: said.append(" ".join(map(str, a))),
         )
         message = next(line for line in said if "could not be written" in line)
-        assert "position 35" in message
+        assert "first 36" in message and "last 36" in message, (
+            f"the warning must say both ends are involved: {message!r}"
+        )
         assert "rule cap" in message or "function" in message
+        assert "past addressable position 35" not in message, (
+            "that names a limit the reversed frame now reaches on its own"
+        )
 
 
 class TestCorpusLineParsing:
@@ -2230,3 +2247,172 @@ class TestGenerateLeetRestore:
         assert result["pruned"] is True
         assert result["basewords_count"] <= 5
         assert result["selfcheck_failures"] == []
+
+
+class TestTailBreakInserts:
+    """#295's *positional* residual gap, closed by reversing the word.
+
+    The gap was documented as unavoidable: "a break past addressable position
+    35 ... is a genuine limit of hashcat's rule language, not a missing
+    feature." Half of that is not true. Positions are encoded in a
+    36-character alphabet, so ``i`` cannot address past index 35 counting from
+    the *left* -- but ``r`` reverses the word, and after reversing, a break in
+    the last 36 characters is addressable. Insert it there and reverse back.
+
+    Verified against hashcat v7.1.2 rather than reasoned about: for a 40-char
+    baseword, ``r i2X r`` puts X at index 38, byte-identical to what Python's
+    slicing produces. See tests/test_rule_oracle.py, which asks the binary
+    directly for the escaped-break form.
+
+    What remains genuinely unreachable is the other half of the old claim,
+    plus one case it did not name: breaks needing more inserts than
+    ``MAX_RULE_FUNCTIONS`` allows, and a password with one break outside the
+    first 36 characters *and* another outside the last 36, since a frame is
+    chosen per password rather than per break. Note that second case needs only
+    37 characters (breaks at index 0 and 36) -- 72 is what a *single*
+    unreachable break would take, and is the wrong bound here.
+    """
+
+    def _run(self, tmp_path, lines):
+        corpus = tmp_path / "corpus.txt"
+        corpus.write_text("\n".join(lines) + "\n", encoding="latin-1")
+        return rulegen.generate(
+            str(corpus), str(tmp_path / "out"), print_fn=lambda *a: None
+        )
+
+    # The password every earlier revision of these tests used as *the* example
+    # of an unwritable baseword: an uppercase letter at 36 bails derive() out
+    # of every case encoding, and the break is the final character at index 37,
+    # one past the last addressable position. Reversed, that break is at index
+    # 0 -- the cheapest position there is.
+    TRAILING = "z" * 36 + "Z" + "\n"
+
+    def test_a_trailing_break_past_position_35_is_now_written(self, tmp_path):
+        base, rule = rulegen.derive(self.TRAILING)
+        assert "\n" not in base and "\r" not in base, (
+            "the baseword must be writable to a wordlist line"
+        )
+        assert rulegen.apply_rule(base, rule) == self.TRAILING
+        assert rulegen.validate_rule(rule)
+        assert rule.startswith("r") and rule.endswith("r")
+
+    def test_an_interior_break_in_the_final_36_characters_is_written(self):
+        # Break at index 40 of 42: unaddressable forward, index 1 reversed.
+        pw = "z" * 40 + "\n" + "w"
+        base, rule = rulegen.derive(pw)
+        assert "\n" not in base
+        assert rulegen.apply_rule(base, rule) == pw
+        assert rulegen.validate_rule(rule)
+        assert rulegen.count_ops(rule) == 3, "one insert, wrapped in two reverses"
+
+    def test_several_breaks_in_the_tail_share_one_reversal(self):
+        pw = "z" * 38 + "\n" + "z" * 3 + "\r" + "z"
+        base, rule = rulegen.derive(pw)
+        assert "\n" not in base and "\r" not in base
+        assert rulegen.apply_rule(base, rule) == pw
+        assert rulegen.validate_rule(rule)
+        assert rulegen.count_ops(rule) == 4, "two inserts, one pair of reverses"
+        assert rule.count("r") == 2, "the word is reversed once, not once per break"
+
+    def test_the_forward_form_is_still_preferred_when_addressable(self):
+        """The reversed form costs two extra functions, so it must only be
+        reached when the cheap form genuinely cannot address the break.
+
+        Asserted against the helper directly, and against a password that
+        really does reach it. Going through derive() with a short password
+        proves nothing here: derive()'s main path produces the same pair by
+        coincidence for an all-lowercase-plus-break password, so the assertion
+        passes without the fallback being involved at all.
+        """
+        assert rulegen._literal_with_line_breaks("zorp\ntangle") == (
+            "zorptangle",
+            "i4\\x0a",
+        )
+        # A bail-out password reaching the helper through derive(), pinning the
+        # end-to-end form. This one does NOT discriminate the preference on its
+        # own -- the reversed frame cannot reach index 0 of a 39-character
+        # password, so a reversed-first variant would fall through to the
+        # forward path and produce this same pair. The assertion above is what
+        # pins the ordering; keep both.
+        pw = "\n" + "z" * 36 + "Z" + "w"
+        assert rulegen.derive(pw) == ("z" * 36 + "Zw", "i0\\x0a")
+
+    def test_breaks_at_both_ends_of_a_long_password_stay_unwritable(self, tmp_path):
+        """Neither frame addresses both: forward cannot reach index 50,
+        reversed cannot reach the one at index 5. This is a real limit."""
+        pw = "z" * 5 + "\n" + "z" * 44 + "\n" + "z" * 5
+        base, rule = rulegen.derive(pw)
+        assert (base, rule) == (pw, ":")
+        hexed = "$HEX[" + pw.encode("latin-1").hex() + "]"
+        result = self._run(tmp_path, [hexed, "quibbleflange1"])
+        assert result["unwritable_basewords"] == 1
+
+    def test_more_breaks_than_the_function_cap_stay_unwritable(self, tmp_path):
+        """The other half of the original claim, which does hold: one insert
+        per break, and hashcat takes at most MAX_RULE_FUNCTIONS of them."""
+        pw = "\n" * (rulegen.MAX_RULE_FUNCTIONS + 1)
+        base, rule = rulegen.derive(pw)
+        assert (base, rule) == (pw, ":")
+        hexed = "$HEX[" + pw.encode("latin-1").hex() + "]"
+        result = self._run(tmp_path, [hexed, "quibbleflange1"])
+        assert result["unwritable_basewords"] == 1
+
+    def test_the_reversal_pair_counts_against_the_function_cap(self):
+        """The two ``r`` ops are functions too, so the reversed form fits 29
+        inserts, not 31.
+
+        Without this the ``+ 2`` in the op-count check is untested: 32 breaks
+        exceed the cap with or without it. Crossing the boundary is not benign
+        -- hashcat drops a 32-function rule *silently* when valid rules share
+        the file, and the reconstruction self-check cannot see it because
+        apply_rule deliberately does not model the cap. hashcat v7.1.2 confirms
+        the 31-function form runs; see tests/test_rule_oracle.py.
+        """
+        fits = "z" * 40 + "\n" * 29
+        base, rule = rulegen._literal_with_line_breaks(fits)
+        assert (base, rule) != (fits, ":"), "29 inserts plus two reverses is 31"
+        assert rulegen.count_ops(rule) == rulegen.MAX_RULE_FUNCTIONS
+        assert rulegen.validate_rule(rule)
+        assert rulegen.apply_rule(base, rule) == fits
+
+        over = "z" * 40 + "\n" * 30
+        assert rulegen._literal_with_line_breaks(over) == (over, ":"), (
+            "30 inserts plus two reverses is 32, one past the cap"
+        )
+
+    def test_a_37_character_password_can_already_be_unreachable(self):
+        """The residual is about the spread of the outermost breaks, not length.
+
+        Breaks at index 0 and 36: the first is outside the last 36 characters,
+        the second outside the first 36, so neither frame holds both. Pinned
+        because the code and the operator-facing text both claimed this needed
+        a password longer than 72 characters, which is what a *single* break
+        would need.
+        """
+        pw = "\n" + "z" * 35 + "\n"
+        assert len(pw) == 37
+        assert rulegen._literal_with_line_breaks(pw) == (pw, ":")
+
+    def test_generate_writes_the_tail_break_password_cleanly(self, tmp_path):
+        hexed = "$HEX[" + self.TRAILING.encode("latin-1").hex() + "]"
+        result = self._run(tmp_path, [hexed, "quibbleflange1"])
+        assert result["unwritable_basewords"] == 0
+        assert result["total"] == 2
+        assert result["selfcheck_failures"] == []
+        out = tmp_path / "out"
+        for name in ("basewords.txt", "rules.full.rule"):
+            raw = (out / name).read_bytes()
+            assert b"" not in raw.split(b"\n")[:-1], f"{name} has a blank line"
+            assert b"\r" not in raw
+
+    def test_count_ops_and_apply_rule_understand_a_reversal(self):
+        """`r` was previously unknown to both -- validate_rule already allowed
+        it, but the module never emitted one, so the reference implementation
+        and the op counter would have raised on its own output.
+
+        Spelled without separating spaces, which is the form the module emits:
+        count_ops knows only the ops derive() produces and, unlike
+        validate_rule, does not treat a space as a separator."""
+        assert rulegen.count_ops("ri0\\x0ar") == 3
+        assert rulegen.apply_rule("abc", "r") == "cba"
+        assert rulegen.apply_rule("abc", "ri0Xr") == "abcX"
