@@ -7601,8 +7601,43 @@ def cleanup():
 HASHVIEW_LIST_DEFAULT_HASH_TYPE = 1000
 
 
+def _prompt_hashfile_id(hashfile_map, exhaustive):
+    """Prompt for a hashfile ID. Returns the ID, or None if the operator cancelled.
+
+    ``exhaustive`` says whether ``hashfile_map`` is the customer's *complete*
+    set of hashfiles. Only then may an ID outside it be refused. A per-type
+    sweep enumerates one hash type, so an ID read off the Hashview web UI is
+    routinely absent from a non-empty map -- refusing it would leave no way to
+    proceed on exactly the servers that need the sweep.
+    """
+    while True:
+        try:
+            raw = input("\nEnter hashfile ID (or Q to cancel): ").strip()
+        except (KeyboardInterrupt, EOFError):
+            print()
+            return None
+        if raw.lower() == "q":
+            return None
+        try:
+            hashfile_id = int(raw)
+        except ValueError:
+            print("\n✗ Error: Invalid ID entered. Please enter a numeric ID.")
+            continue
+        if exhaustive and hashfile_map and hashfile_id not in hashfile_map:
+            print("\n✗ Error: Hashfile ID not in the list. Please try again.")
+            continue
+        return hashfile_id
+
+
 def _list_hashfiles_for_customer(api_harness, customer_id, debug=False):
-    """Return a customer's hashfiles for display, by the cheapest route available.
+    """Return ``(hashfiles, exhaustive)`` for a customer, by the cheapest route.
+
+    ``exhaustive`` is True only when the listing covers every hashfile the
+    customer has, which only the customer-scoped route guarantees. A per-type
+    sweep covers the types it was asked for and nothing else -- even the
+    all-types answer sweeps 26 curated modes, not every mode hashcat knows --
+    so its result must not be treated as the complete set. See
+    :func:`_prompt_hashfile_id`, which is where that distinction is load-bearing.
 
     ``GET /v1/customers/<id>/hashfiles`` filters server-side and covers every
     hash type in one request, so when it exists there is nothing to ask and
@@ -7619,16 +7654,16 @@ def _list_hashfiles_for_customer(api_harness, customer_id, debug=False):
     missing exactly the files being looked for. So the sweep is now a choice:
     one type by default, all of them only on request.
 
-    Returns ``[]`` for every failure -- an absent route, a broken server, a
-    cancelled prompt. The caller falls back to asking for the hashfile ID
-    directly, which always works.
+    Returns an empty list for every failure -- an absent route, a broken
+    server, a cancelled prompt. The caller falls back to asking for the
+    hashfile ID directly, which always works.
     """
     try:
-        return api_harness.list_customer_hashfiles(customer_id)
+        return api_harness.list_customer_hashfiles(customer_id), True
     except Exception as e:
         if _http_status(e) != 404:
             print(f"\n! Could not list hashfiles for customer {customer_id}: {e}")
-            return []
+            return [], False
         if debug:
             print(
                 "[DEBUG] customer-scoped listing route absent (404); "
@@ -7649,9 +7684,9 @@ def _list_hashfiles_for_customer(api_harness, customer_id, debug=False):
             choice = _auto_input(prompt, default).strip()
         except (KeyboardInterrupt, EOFError):
             print()
-            return []
+            return [], False
         if choice.lower() == "s":
-            return []
+            return [], False
         if choice.lower() == "a":
             hash_types = tuple(api_harness.COMMON_HASH_TYPES)
             print(
@@ -7673,10 +7708,10 @@ def _list_hashfiles_for_customer(api_harness, customer_id, debug=False):
         )
     except KeyboardInterrupt:
         print("\n  Listing cancelled.")
-        return []
+        return [], False
     except Exception as e:
         print(f"\n! Hashfile listing failed: {e}")
-        return []
+        return [], False
 
     timed_out = list(getattr(api_harness, "last_listing_timeouts", None) or [])
     if timed_out:
@@ -7687,7 +7722,7 @@ def _list_hashfiles_for_customer(api_harness, customer_id, debug=False):
             "  Any hashfiles of those types are missing below. Look the "
             "hashfile ID up in\n  the Hashview web UI and enter it directly."
         )
-    return hashfiles
+    return hashfiles, False
 
 
 def hashview_api():
@@ -8313,8 +8348,10 @@ def hashview_api():
                         # the web UI). See _list_hashfiles_for_customer.
                         hashfile_map = {}
                         print("\nRetrieving customer hashfiles...")
-                        customer_hashfiles = _list_hashfiles_for_customer(
-                            api_harness, customer_id, debug=debug_mode
+                        customer_hashfiles, listing_exhaustive = (
+                            _list_hashfiles_for_customer(
+                                api_harness, customer_id, debug=debug_mode
+                            )
                         )
 
                         if customer_hashfiles:
@@ -8351,29 +8388,13 @@ def hashview_api():
                                 "it below."
                             )
 
-                        while True:
-                            hashfile_id_input = input(
-                                "\nEnter hashfile ID (or Q to cancel): "
-                            ).strip()
-                            if hashfile_id_input.lower() == "q":
-                                cancel_download = True
-                                break
-                            try:
-                                hashfile_id = int(hashfile_id_input)
-                            except ValueError:
-                                print(
-                                    "\n✗ Error: Invalid ID entered. Please enter a numeric ID."
-                                )
-                                continue
-                            # Only restrict to the listed set when we actually
-                            # have a listing; otherwise accept any ID the user
-                            # read from the web UI.
-                            if hashfile_map and hashfile_id not in hashfile_map:
-                                print(
-                                    "\n✗ Error: Hashfile ID not in the list. Please try again."
-                                )
-                                continue
-                            break
+                        chosen_id = _prompt_hashfile_id(
+                            hashfile_map, listing_exhaustive
+                        )
+                        if chosen_id is None:
+                            cancel_download = True
+                        else:
+                            hashfile_id = chosen_id
                         break
 
                     # User cancelled at the hash-type prompt: back to the menu.

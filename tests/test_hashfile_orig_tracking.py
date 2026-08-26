@@ -93,7 +93,10 @@ class TestHashviewSwitchSetsOrig:
         monkeypatch.setattr(main_module, "hashview_url", "http://x", raising=False)
 
         harness = MagicMock()
-        harness.get_all_customer_hashfiles.return_value = [
+        # The customer-scoped route is what the menu reaches for first, so the
+        # stub has to sit there: a MagicMock's default return iterates empty,
+        # which would drive this through the branch where nothing was listed.
+        harness.list_customer_hashfiles.return_value = [
             {"id": 42, "hash_type": "1000", "name": "hf"}
         ]
         harness.download_left_hashes.return_value = {
