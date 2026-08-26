@@ -61,6 +61,7 @@ from hate_crack.api import (  # noqa: E402
     weakpass_wordlist_menu,
 )
 from hate_crack.api import HashviewAPI  # noqa: E402
+from hate_crack.api import HASHVIEW_LISTING_TIMEOUT, _http_status  # noqa: E402
 from hate_crack.api import (  # noqa: E402
     download_all_weakpass_torrents,
     download_hashmob_wordlists,
@@ -7594,6 +7595,101 @@ def cleanup():
         cleanup()
 
 
+# The hashcat mode to enumerate by default when a Hashview server is old
+# enough to lack the customer-scoped listing route. NTLM is where domain dumps
+# land, so it is the type an operator is looking for in nearly every case.
+HASHVIEW_LIST_DEFAULT_HASH_TYPE = 1000
+
+
+def _list_hashfiles_for_customer(api_harness, customer_id, debug=False):
+    """Return a customer's hashfiles for display, by the cheapest route available.
+
+    ``GET /v1/customers/<id>/hashfiles`` filters server-side and covers every
+    hash type in one request, so when it exists there is nothing to ask and
+    nothing to tune. Servers predating it (Hashview main, and anything before
+    2026-07-21) 404 it, and the only fallback is the type-scoped listing route,
+    which returns every hashfile of one type server-wide.
+
+    That fallback is expensive: the server computes total/cracked counts per
+    hashfile, so a single type costs O(hashes of that type) across all
+    customers. Measured against a populated instance, listing NTLM took 9
+    minutes to produce 13 KB of JSON. Sweeping all 26 common types
+    unconditionally therefore spent the listing timeout on every populated type
+    and, because the busiest type is the one that times out, returned a list
+    missing exactly the files being looked for. So the sweep is now a choice:
+    one type by default, all of them only on request.
+
+    Returns ``[]`` for every failure -- an absent route, a broken server, a
+    cancelled prompt. The caller falls back to asking for the hashfile ID
+    directly, which always works.
+    """
+    try:
+        return api_harness.list_customer_hashfiles(customer_id)
+    except Exception as e:
+        if _http_status(e) != 404:
+            print(f"\n! Could not list hashfiles for customer {customer_id}: {e}")
+            return []
+        if debug:
+            print(
+                "[DEBUG] customer-scoped listing route absent (404); "
+                "falling back to the per-type sweep"
+            )
+
+    print(
+        "\nThis Hashview server has no customer-scoped hashfile listing, so "
+        "hashfiles\nhave to be enumerated one hash type at a time."
+    )
+    prompt = (
+        f"Hash type to list [{HASHVIEW_LIST_DEFAULT_HASH_TYPE}], "
+        "A for all common types, S to skip: "
+    )
+    default = str(HASHVIEW_LIST_DEFAULT_HASH_TYPE)
+    while True:
+        try:
+            choice = _auto_input(prompt, default).strip()
+        except (KeyboardInterrupt, EOFError):
+            print()
+            return []
+        if choice.lower() == "s":
+            return []
+        if choice.lower() == "a":
+            hash_types = tuple(api_harness.COMMON_HASH_TYPES)
+            print(
+                f"\nSweeping {len(hash_types)} hash types. This is slow -- each "
+                "type is a\nseparate server-side scan and can take minutes on a "
+                "populated instance."
+            )
+            break
+        try:
+            hash_types = (int(choice),)
+        except ValueError:
+            print("  Enter a numeric hashcat mode, A for all types, or S to skip.")
+            continue
+        break
+
+    try:
+        hashfiles = api_harness.get_all_customer_hashfiles(
+            customer_id, hash_types=hash_types
+        )
+    except KeyboardInterrupt:
+        print("\n  Listing cancelled.")
+        return []
+    except Exception as e:
+        print(f"\n! Hashfile listing failed: {e}")
+        return []
+
+    timed_out = list(getattr(api_harness, "last_listing_timeouts", None) or [])
+    if timed_out:
+        types = ", ".join(str(t) for t in timed_out)
+        print(
+            f"\n! This listing is incomplete: hash type(s) {types} timed out "
+            f"after {HASHVIEW_LISTING_TIMEOUT}s.\n"
+            "  Any hashfiles of those types are missing below. Look the "
+            "hashfile ID up in\n  the Hashview web UI and enter it directly."
+        )
+    return hashfiles
+
+
 def hashview_api():
     """Download/Upload data to Hashview API"""
     global hcatHashFile, hcatHashType, hcatHashFileOrig
@@ -8211,19 +8307,15 @@ def hashview_api():
 
                         # Try to list the customer's hashfiles for convenience.
                         # Servers with the customer-scoped route answer in one
-                        # request; older ones fall back to a per-type sweep, and
-                        # ones with neither leave the list empty, so the hashfile
-                        # ID has to be entered directly (look it up in the web UI).
+                        # request; older ones ask which hash type to enumerate,
+                        # and ones with neither leave the list empty, so the
+                        # hashfile ID has to be entered directly (look it up in
+                        # the web UI). See _list_hashfiles_for_customer.
                         hashfile_map = {}
-                        try:
-                            print("\nRetrieving customer hashfiles...")
-                            customer_hashfiles = api_harness.get_all_customer_hashfiles(
-                                customer_id
-                            )
-                        except Exception as e:
-                            customer_hashfiles = []
-                            if debug_mode:
-                                print(f"[DEBUG] hashfile listing unavailable: {e}")
+                        print("\nRetrieving customer hashfiles...")
+                        customer_hashfiles = _list_hashfiles_for_customer(
+                            api_harness, customer_id, debug=debug_mode
+                        )
 
                         if customer_hashfiles:
                             print("\n" + "=" * 120)

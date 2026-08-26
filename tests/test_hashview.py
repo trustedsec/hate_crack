@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from hate_crack.api import (
     HashviewAPI,
     HASHVIEW_DEFAULT_TIMEOUT,
+    HASHVIEW_LISTING_TIMEOUT,
     HASHVIEW_UPLOAD_TIMEOUT,
     _digest_for_type,
     _md4,
@@ -276,6 +277,92 @@ class TestHashviewAPI:
         api.get_hashfiles_by_type = Mock(side_effect=_by_type)
         result = api.get_all_customer_hashfiles(1, hash_types=[1000, 5600])
         assert [hf["id"] for hf in result] == [9]
+
+    def test_get_all_customer_hashfiles_records_timed_out_types(self, api, capsys):
+        """A timed-out type is reported, not silently read as "no files".
+
+        The type-scoped listing costs O(hashes of that type) server-side, so on a
+        real server the busiest type -- normally NTLM -- is the one that times
+        out. Treating that as an empty answer hands back a list that is missing
+        precisely the files the operator came for, with nothing on screen to say
+        so.
+        """
+
+        def _by_type(ht):
+            if int(ht) == 1000:
+                raise requests.exceptions.Timeout("timed out")
+            return [{"id": 9, "customer_id": 1, "name": "x", "hash_type": int(ht)}]
+
+        api.get_hashfiles_by_type = Mock(side_effect=_by_type)
+
+        result = api.get_all_customer_hashfiles(1, hash_types=[1000, 5600])
+
+        assert [hf["id"] for hf in result] == [9]
+        assert api.last_listing_timeouts == [1000]
+        # Loud on stdout, not gated behind debug: the caller cannot tell an
+        # incomplete listing from a complete one otherwise.
+        assert "1000" in capsys.readouterr().out
+
+    def test_get_all_customer_hashfiles_aborts_after_repeated_timeouts(self, api):
+        """Two timeouts end the sweep; a server that slow won't answer the rest.
+
+        Without this the 26-type sweep spends 26 x the listing timeout before
+        returning, and the wait buys nothing.
+        """
+        api.get_hashfiles_by_type = Mock(
+            side_effect=requests.exceptions.Timeout("timed out")
+        )
+
+        result = api.get_all_customer_hashfiles(
+            1, hash_types=[1000, 5600, 3000, 0, 100]
+        )
+
+        assert result == []
+        assert api.get_hashfiles_by_type.call_count == 2
+        assert api.last_listing_timeouts == [1000, 5600]
+
+    def test_last_listing_timeouts_resets_between_calls(self, api):
+        """Each listing call reports its own timeouts, not the previous call's."""
+        api.get_hashfiles_by_type = Mock(
+            side_effect=requests.exceptions.Timeout("timed out")
+        )
+        api.get_all_customer_hashfiles(1, hash_types=[1000])
+        assert api.last_listing_timeouts == [1000]
+
+        api.get_hashfiles_by_type = Mock(return_value=[])
+        api.get_all_customer_hashfiles(1, hash_types=[5600])
+        assert api.last_listing_timeouts == []
+
+    def test_get_hashfiles_by_type_passes_listing_timeout(self, api):
+        """Enumeration uses the listing budget, which is its own knob.
+
+        Also carries #241's guarantee for this route: a ``session.*`` call
+        without a timeout hangs forever.
+        """
+        mock_response = Mock()
+        mock_response.json.return_value = []
+        mock_response.raise_for_status = Mock()
+        api.session.get.return_value = mock_response
+
+        api.get_hashfiles_by_type("1000")
+
+        _, kwargs = api.session.get.call_args
+        assert kwargs.get("timeout") == HASHVIEW_LISTING_TIMEOUT
+        # Not larger than the default: a listing this route cannot answer in
+        # 30s it cannot answer at all, so a bigger budget only delays the
+        # failure. See the constant's comment.
+        assert HASHVIEW_LISTING_TIMEOUT <= HASHVIEW_DEFAULT_TIMEOUT
+
+    def test_list_customer_hashfiles_passes_listing_timeout(self, api):
+        mock_response = Mock()
+        mock_response.json.return_value = {"hashfiles": []}
+        mock_response.raise_for_status = Mock()
+        api.session.get.return_value = mock_response
+
+        api.list_customer_hashfiles(1)
+
+        _, kwargs = api.session.get.call_args
+        assert kwargs.get("timeout") == HASHVIEW_LISTING_TIMEOUT
 
     def test_get_all_customer_hashfiles_prefers_customer_scoped_route(self, api):
         """The one-request route answers it; the 26-type sweep never runs."""
@@ -1630,18 +1717,6 @@ class TestHashviewAPI:
         real_api = HashviewAPI(hashview_url, hashview_api_key)
         wordlists = real_api.list_wordlists()
         assert isinstance(wordlists, list)
-
-    def test_get_hashfiles_by_type_passes_default_timeout(self, api):
-        """Every self.session.* call must pass a timeout -- see #241."""
-        mock_response = Mock()
-        mock_response.json.return_value = []
-        mock_response.raise_for_status = Mock()
-        api.session.get.return_value = mock_response
-
-        api.get_hashfiles_by_type("1000")
-
-        _, kwargs = api.session.get.call_args
-        assert kwargs.get("timeout") == HASHVIEW_DEFAULT_TIMEOUT
 
     def test_list_wordlists_passes_default_timeout(self, api):
         mock_response = Mock()

@@ -34,7 +34,36 @@ HASHVIEW_DEFAULT_TIMEOUT = 30
 # a large payload can legitimately take the server longer than 30s to process
 # before it sends the first response byte.
 HASHVIEW_UPLOAD_TIMEOUT = 300
+# Hashfile enumeration gets its own knob because it fails for its own reason.
+# Both listing routes compute total/cracked counts per hashfile server-side, so
+# their cost scales with the number of *hashes* involved, not the number of
+# files: 73 small NetNTLMv2 captures list in 0.6s while 54 NTDS dumps holding
+# 7.85M hashes took 549s on a measured production instance.
+#
+# Deliberately NOT larger than the default. No timeout short enough to be
+# usable rescues a listing that needs nine minutes, so raising this only makes
+# the failure slower to arrive. The fix for a server in that state is
+# server-side (one GROUP BY instead of two COUNTs per hashfile); the client's
+# job is to fail fast, say so, and let the operator enter the hashfile ID from
+# the web UI. Separate from HASHVIEW_DEFAULT_TIMEOUT so an operator whose
+# server is merely slow rather than pathological can raise it in one place.
+HASHVIEW_LISTING_TIMEOUT = 30
+# A sweep abandons after this many timed-out types. A server slow enough to
+# blow the listing budget twice will not answer the remaining types either, and
+# the alternative is 26 x HASHVIEW_LISTING_TIMEOUT of dead waiting.
+HASHVIEW_LISTING_TIMEOUT_BUDGET = 2
 HASHVIEW_CRACKED_BATCH_SIZE = 10_000
+
+
+def _http_status(exc):
+    """Return the HTTP status carried by ``exc``, or None.
+
+    None means "no response at all" -- a timeout, a DNS failure, a refused
+    connection. Distinguishing that from a real status matters: a 404 says a
+    route is absent and the caller should fall back, while a timeout says
+    nothing about the route and must not be read as an answer.
+    """
+    return getattr(getattr(exc, "response", None), "status_code", None)
 
 
 class _RateLimiter:
@@ -1323,6 +1352,10 @@ class HashviewAPI:
         self.session = requests.Session()
         self.session.cookies.set("uuid", api_key)
         self.session.verify = False
+        # Hash types whose listing request timed out during the most recent
+        # get_all_customer_hashfiles() call. Reset per call; callers read it to
+        # tell an incomplete listing from an empty one.
+        self.last_listing_timeouts = []
         import urllib3
 
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -1362,7 +1395,7 @@ class HashviewAPI:
         """
         url = f"{self.base_url}/v1/hashfiles/hash_type/{hash_type}"
         resp = self.session.get(
-            url, headers=self._auth_headers(), timeout=HASHVIEW_DEFAULT_TIMEOUT
+            url, headers=self._auth_headers(), timeout=HASHVIEW_LISTING_TIMEOUT
         )
         resp.raise_for_status()
         try:
@@ -1525,7 +1558,7 @@ class HashviewAPI:
         """
         url = f"{self.base_url}/v1/customers/{customer_id}/hashfiles"
         resp = self.session.get(
-            url, headers=self._auth_headers(), timeout=HASHVIEW_DEFAULT_TIMEOUT
+            url, headers=self._auth_headers(), timeout=HASHVIEW_LISTING_TIMEOUT
         )
         resp.raise_for_status()
         try:
@@ -1553,11 +1586,12 @@ class HashviewAPI:
         Passing ``hash_types`` explicitly forces the sweep, since it asks for
         specific types rather than everything.
         """
+        self.last_listing_timeouts = []
         if hash_types is None:
             try:
                 direct = self.list_customer_hashfiles(customer_id)
             except Exception as e:
-                status = getattr(getattr(e, "response", None), "status_code", None)
+                status = _http_status(e)
                 if status != 404:
                     raise
                 if self.debug:
@@ -1578,8 +1612,28 @@ class HashviewAPI:
         for ht in hash_types:
             try:
                 files = self.get_hashfiles_by_type(ht)
+            except requests.exceptions.Timeout:
+                # NOT an empty answer. This route's cost scales with the number
+                # of hashes of the type, so the type that times out is the
+                # busiest one -- usually NTLM, i.e. exactly the files the
+                # operator wants. Silently continuing hands back a listing
+                # missing them with nothing on screen to say so.
+                self.last_listing_timeouts.append(ht)
+                print(
+                    f"  ! Listing hash type {ht} timed out after "
+                    f"{HASHVIEW_LISTING_TIMEOUT}s; its hashfiles are missing "
+                    f"from this list."
+                )
+                if len(self.last_listing_timeouts) >= HASHVIEW_LISTING_TIMEOUT_BUDGET:
+                    print(
+                        "  ! Giving up on the remaining hash types: this "
+                        "Hashview server is too slow to enumerate. Look the "
+                        "hashfile ID up in the web UI instead."
+                    )
+                    break
+                continue
             except Exception as e:
-                status = getattr(getattr(e, "response", None), "status_code", None)
+                status = _http_status(e)
                 if status == 404:
                     # The /v1/hashfiles/hash_type route doesn't exist on this
                     # server (e.g. Hashview main, or builds before 2026-06-08),
