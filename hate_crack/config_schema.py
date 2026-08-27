@@ -272,7 +272,7 @@ CONFIG_SCHEMA: tuple[ConfigKey, ...] = (
     # Ollama's tooling already reads, so an operator who exports OLLAMA_HOST
     # for the ollama CLI gets the same target here without a second setting.
     ConfigKey("OLLAMA_HOST", "ollamaHost", "str", "localhost:11434", home="env"),
-    ConfigKey("OLLAMA_MODEL", "ollamaModel", "str", "qwen2.5:32b", home="env"),
+    ConfigKey("OLLAMA_MODEL", "ollamaModel", "str", "qwen3:4b-instruct", home="env"),
     # The "nothing leaves this host" toggle for every LLM backend (Ollama,
     # vLLM, generic OpenAI-compatible). Two checks, both gated by this one
     # key: refuse an Ollama cloud model (which the local daemon proxies to

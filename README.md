@@ -574,12 +574,12 @@ HASHVIEW_API_KEY=your-api-key-here
 The LLM Attack (option 12) uses Ollama to generate password candidates. Configure the model, context window, and request timeout in `.env`:
 
 ```
-OLLAMA_MODEL=qwen2.5:32b
+OLLAMA_MODEL=qwen3:4b-instruct
 OLLAMA_NUM_CTX=8192
 OLLAMA_TIMEOUT=300
 ```
 
-- **`OLLAMA_MODEL`** — The Ollama model used for candidate generation (default: `qwen2.5:32b`). The LLM attack uses structured (JSON) output, so choose a model with good tool/JSON support.
+- **`OLLAMA_MODEL`** — The Ollama model used for candidate generation (default: `qwen3:4b-instruct`). The LLM attack uses structured (JSON) output, so choose a model with good tool/JSON support.
 - **`OLLAMA_NUM_CTX`** — Context window size for the model (default: `8192`). This was `2048` before corpus statistics were introduced, which was too small to hold the prompt it was being given: 500 sampled plaintexts run roughly 2,000–3,500 tokens before the system prompt and response, so Ollama silently truncated part of the sample the sampler had carefully spread across the file.
 - **`OLLAMA_TIMEOUT`** — Seconds to wait for a generation response before giving up (default: `300`). Raise this if a large model is still loading into VRAM on the first request, which can otherwise exceed the timeout; hate_crack prints the elapsed timeout and this setting's name when it fires.
 - **`OLLAMA_MAX_SAMPLE_LINES`** — The threshold below which the LLM modes also paste the literal plaintexts into the prompt (default: `500`). Values ≤ 0 are treated as 500.
@@ -590,7 +590,7 @@ OLLAMA_TIMEOUT=300
 - **`OLLAMA_NO_CLOUD`** — When `true`, refuse to send anything off this host, for any of the three LLM backends (Ollama, vLLM, or a generic OpenAI-compatible server). Two checks are gated by this one setting: Ollama proxies a `-cloud`-tagged model (`gpt-oss:120b-cloud`, `deepseek-v3.1:671b-cloud`) to ollama.com through the same local endpoint a local model uses, so nothing about the request looks different — that's refused by model name. The configured backend URL is also checked: a destination that isn't loopback, private, or link-local (and isn't `localhost` or a `.local`/`.internal`/`.lan`/`.localdomain` name) is refused by destination, and a hostname this check cannot resolve is refused too, fail-closed, rather than let an unverifiable destination through. hate_crack's prompts carry recovered plaintexts, corpus statistics, and the client's name, industry, and location, so either check firing means the request is refused before it is built. Defaults to `false`, so a deliberately-configured cloud model or remote server keeps working; turn it on for engagements where client data must not leave the host.
 - **`OLLAMA_AUTO_RESEARCH`** — When `true` (default), **Target info** mode asks the local model to suggest the industry, location, and parent company / acquisition history as soon as you have typed the company name, and offers them as editable prompt defaults. Set to `false` to always get blank prompts (useful with a slow model, since research costs one extra round-trip before the attack starts).
 - **`OLLAMA_HOST`** — Where Ollama is listening. Accepts a bare `host:port` (`theplague.lan:11434`) or a full URL with a scheme (`https://ollama.example.com`); either way the base URL is normalized before use. Defaults to `localhost:11434`. Set it in `.env`, or export it as a real environment variable to override that for a single run — it is the same variable name Ollama's own CLI reads.
-- Ensure Ollama is running and the model is pulled (`ollama pull qwen2.5:32b`) before using the LLM Attack — hate_crack no longer auto-pulls missing models.
+- Ensure Ollama is running and the model is pulled (`ollama pull qwen3:4b-instruct`) before using the LLM Attack — hate_crack no longer auto-pulls missing models.
 
 The attack offers three generation modes:
 
@@ -1214,7 +1214,7 @@ Uses hashcat's loopback mode to feed cracked passwords from the current session 
 Uses a local Ollama instance to generate password candidates for a capture-the-flag scenario. Prompts for the fake company name, industry, location, and parent company / acquisition history, then sends these details to the configured LLM model to produce likely password candidates using industry terms and company name permutations. The generated candidates are fed into a hashcat wordlist+rules attack.
 
 * Requires a running Ollama instance (default: `http://localhost:11434`, override with `OLLAMA_HOST` in `.env` or the environment) with the model already pulled — hate_crack does not auto-pull
-* Candidate generation uses structured (JSON) output via Atomic Agents, so pick a model with good schema adherence (default: `qwen2.5:32b`)
+* Candidate generation uses structured (JSON) output via Atomic Agents, so pick a model with good schema adherence (default: `qwen3:4b-instruct`)
 * Configurable model, context window, request timeout, and sample size via `.env` (see Ollama Configuration below)
 * Prompts for target company name, industry, location, and parent company / acquisition history. The industry, location, and parent company prompts are pre-filled with the local model's guesses about the named organization (editable, and clearly labelled as guesses rather than verified OSINT); disable with `ollamaAutoResearch: false`
 * Alternatively derives basewords from a sample **wordlist**, or from the **cracked passwords** of the current session (`<hashfile>.out`) so the model mirrors the target organization's own password conventions and produces new candidates in that style (only offered once something has been cracked)
