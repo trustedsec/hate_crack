@@ -569,15 +569,18 @@ HASHVIEW_URL=https://hashview.example.com
 HASHVIEW_API_KEY=your-api-key-here
 ```
 
-#### Ollama Configuration
+#### LLM Configuration
 
-The LLM Attack (option 12) uses Ollama to generate password candidates. Configure the model, context window, and request timeout in `.env`:
+The LLM Attack (option 12) and the Rosetta Mask Attack (option 23) generate their candidates with a local model. Configure the model, context window, and request timeout in `.env`:
 
 ```
+LLM_BACKEND=ollama
 OLLAMA_MODEL=qwen3:4b-instruct
 OLLAMA_NUM_CTX=8192
 OLLAMA_TIMEOUT=300
 ```
+
+**The `OLLAMA_*` keys below apply to every backend, not just Ollama.** They keep that prefix because `OLLAMA_HOST` is the same variable Ollama's own CLI reads, and renaming them would break every existing `.env` for no functional gain — a vLLM or OpenAI-compatible server wants the same host, model, timeout, context, and sampling knobs under the same names. `LLM_BACKEND` only selects how the request is shaped.
 
 - **`OLLAMA_MODEL`** — The Ollama model used for candidate generation (default: `qwen3:4b-instruct`). The LLM attack uses structured (JSON) output, so choose a model with good tool/JSON support.
 - **`OLLAMA_NUM_CTX`** — Context window size for the model (default: `8192`). This was `2048` before corpus statistics were introduced, which was too small to hold the prompt it was being given: 500 sampled plaintexts run roughly 2,000–3,500 tokens before the system prompt and response, so Ollama silently truncated part of the sample the sampler had carefully spread across the file.
@@ -589,7 +592,9 @@ OLLAMA_TIMEOUT=300
   This replaces the previous behaviour of pasting an evenly-spaced sample of up to `ollamaMaxSampleLines` passwords. A sample of a large dump conveyed no frequency information at all: the model could not distinguish a baseword used by 8% of the organization from one used by a single person, which is precisely the signal that makes a guess worth running.
 - **`OLLAMA_NO_CLOUD`** — When `true`, refuse to send anything off this host, for any of the three LLM backends (Ollama, vLLM, or a generic OpenAI-compatible server). Two checks are gated by this one setting: Ollama proxies a `-cloud`-tagged model (`gpt-oss:120b-cloud`, `deepseek-v3.1:671b-cloud`) to ollama.com through the same local endpoint a local model uses, so nothing about the request looks different — that's refused by model name. The configured backend URL is also checked: a destination that isn't loopback, private, or link-local (and isn't `localhost` or a `.local`/`.internal`/`.lan`/`.localdomain` name) is refused by destination, and a hostname this check cannot resolve is refused too, fail-closed, rather than let an unverifiable destination through. hate_crack's prompts carry recovered plaintexts, corpus statistics, and the client's name, industry, and location, so either check firing means the request is refused before it is built. Defaults to `false`, so a deliberately-configured cloud model or remote server keeps working; turn it on for engagements where client data must not leave the host.
 - **`OLLAMA_AUTO_RESEARCH`** — When `true` (default), **Target info** mode asks the local model to suggest the industry, location, and parent company / acquisition history as soon as you have typed the company name, and offers them as editable prompt defaults. Set to `false` to always get blank prompts (useful with a slow model, since research costs one extra round-trip before the attack starts).
-- **`OLLAMA_HOST`** — Where Ollama is listening. Accepts a bare `host:port` (`theplague.lan:11434`) or a full URL with a scheme (`https://ollama.example.com`); either way the base URL is normalized before use. Defaults to `localhost:11434`. Set it in `.env`, or export it as a real environment variable to override that for a single run — it is the same variable name Ollama's own CLI reads.
+- **`OLLAMA_HOST`** — Where the configured backend is listening. Accepts a bare `host:port` (`theplague.lan:11434`) or a full URL with a scheme (`https://ollama.example.com`); either way the base URL is normalized before use. Defaults to `localhost:11434`, which is Ollama's port — a vLLM or OpenAI-compatible server needs this set to its own (vLLM commonly listens on `:8000`). Set it in `.env`, or export it as a real environment variable to override that for a single run — it is the same variable name Ollama's own CLI reads.
+- **`LLM_BACKEND`** — Which OpenAI-compatible server to talk to: `ollama` (default), `vllm`, or `openai` for a generic one. Every backend speaks the same `/v1` chat-completions API, so this selects only the two request-shaping details they differ on: `ollama` gets `options.num_ctx`, and `vllm` gets `chat_template_kwargs={"thinking": false}` — without which a vLLM server running a reasoning parser routes the whole structured response into `message.reasoning`, leaves `message.content` empty, and breaks JSON parsing. `openai` sends neither, since `num_ctx` has no equivalent there. It does **not** change where the host, model, timeout, context, or sampling settings come from — those are the `OLLAMA_*` keys above for all three.
+- **`LLM_API_KEY`** — The credential sent to the configured backend. Defaults to the literal `ollama`, the placeholder Ollama's own server ignores, so an existing install's requests are unchanged; an empty value falls back to that same placeholder because the OpenAI SDK refuses `api_key=""`. Set it to the real value if the server enforces one — a vLLM server started with `--api-key` returns 401 otherwise.
 - Ensure Ollama is running and the model is pulled (`ollama pull qwen3:4b-instruct`) before using the LLM Attack — hate_crack no longer auto-pulls missing models.
 
 The attack offers three generation modes:
@@ -1211,11 +1216,11 @@ Uses hashcat's loopback mode to feed cracked passwords from the current session 
 * Automatically downloads Hashmob rules if no rules are available locally
 
 #### LLM Attack
-Uses a local Ollama instance to generate password candidates for a capture-the-flag scenario. Prompts for the fake company name, industry, location, and parent company / acquisition history, then sends these details to the configured LLM model to produce likely password candidates using industry terms and company name permutations. The generated candidates are fed into a hashcat wordlist+rules attack.
+Uses a local LLM — Ollama by default, or a vLLM / OpenAI-compatible server via `LLM_BACKEND` — to generate password candidates for a capture-the-flag scenario. Prompts for the fake company name, industry, location, and parent company / acquisition history, then sends these details to the configured LLM model to produce likely password candidates using industry terms and company name permutations. The generated candidates are fed into a hashcat wordlist+rules attack.
 
-* Requires a running Ollama instance (default: `http://localhost:11434`, override with `OLLAMA_HOST` in `.env` or the environment) with the model already pulled — hate_crack does not auto-pull
+* Requires a running server at `OLLAMA_HOST` (default: `http://localhost:11434`, Ollama's port; override in `.env` or the environment) already serving the model — hate_crack does not auto-pull
 * Candidate generation uses structured (JSON) output via Atomic Agents, so pick a model with good schema adherence (default: `qwen3:4b-instruct`)
-* Configurable model, context window, request timeout, and sample size via `.env` (see Ollama Configuration below)
+* Configurable backend, model, context window, request timeout, and sample size via `.env` (see [LLM Configuration](#llm-configuration))
 * Prompts for target company name, industry, location, and parent company / acquisition history. The industry, location, and parent company prompts are pre-filled with the local model's guesses about the named organization (editable, and clearly labelled as guesses rather than verified OSINT); disable with `ollamaAutoResearch: false`
 * Alternatively derives basewords from a sample **wordlist**, or from the **cracked passwords** of the current session (`<hashfile>.out`) so the model mirrors the target organization's own password conventions and produces new candidates in that style (only offered once something has been cracked)
 * A live spinner with an elapsed-seconds counter runs during generation, and requests are bounded by `ollamaTimeout` so a model stuck loading into VRAM reports a timeout instead of hanging

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [Unreleased]
+
+### Documentation
+- **Documented `LLM_BACKEND` and `LLM_API_KEY` in the README, and stopped framing the `OLLAMA_*` keys as Ollama-only.** Both new keys were absent from the README entirely, and the surrounding text still read as though the LLM attacks only talk to Ollama — so an operator pointing hate_crack at vLLM had no documented way to find the selector or the credential. The `.env.example` section header (generated from `config_writer._GROUPS`, not hand-edited) called the block "Ollama-backed AI research" while the keys under it govern all three backends; it now says so and notes that vLLM commonly listens on `:8000`, since `OLLAMA_HOST`'s default is Ollama's port. The README's "Ollama Configuration" heading is now "LLM Configuration", and the one cross-reference to it was updated with it. CLAUDE.md's `.env` key count was also stale (14, actually 16).
+
 ## [2.34.0] - 2026-08-27
 
 ### Changed

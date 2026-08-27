@@ -48,7 +48,12 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("NOTIFY_PUSHOVER_TOKEN", "NOTIFY_PUSHOVER_USER"),
     ),
     (
-        "Ollama-backed AI research",
+        "LLM host, model and sampling for the AI-backed attacks. These apply\n"
+        "# to every backend (ollama/vllm/openai), not just Ollama -- the\n"
+        "# OLLAMA_* names are kept because OLLAMA_HOST is also what Ollama's\n"
+        "# own tooling reads. Point OLLAMA_HOST at whichever server\n"
+        "# LLM_BACKEND names below (vLLM commonly listens on :8000), and set\n"
+        "# OLLAMA_MODEL to the name that server serves.",
         (
             "OLLAMA_HOST",
             "OLLAMA_MODEL",

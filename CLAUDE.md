@@ -632,13 +632,16 @@ Configuration is **split across two files, and every key has exactly one home**
 (#217, 2026-07-30). There is no cross-file precedence: a key found in the wrong
 file is ignored, with a warning naming the key and its real home.
 
-- **`.env`** owns the 14 **third-party integration** keys — Hashview (url + api
-  key), Hashmob (api key), Pushover (token + user), Ollama (seven keys:
+- **`.env`** owns the 16 **third-party integration** keys — Hashview (url + api
+  key), Hashmob (api key), Pushover (token + user), LLM (nine keys: the seven
   `OLLAMA_HOST`, `_MODEL`, `_NO_CLOUD`, `_NUM_CTX`, `_TIMEOUT`, `_MAX_SAMPLE_LINES`,
-  `_AUTO_RESEARCH`), Pipal (path + count). Mode `0600`, gitignored, never
-  committed. `.env.example` is tracked, generated from the schema, and ships
-  every credential key empty.
-- **`config.json`** owns the other 40 settings — wordlists, masks, rules,
+  `_AUTO_RESEARCH`, plus `LLM_BACKEND` and `LLM_API_KEY`), Pipal (path + count).
+  Mode `0600`, gitignored, never committed. `.env.example` is tracked, generated
+  from the schema, and ships every credential key empty. **The `OLLAMA_*` keys
+  serve all three backends** (`ollama`/`vllm`/`openai`) — `LLM_BACKEND` selects
+  only the request shape, and the prefix is kept deliberately; see the comment
+  at `config_schema.py:296` before renaming them.
+- **`config.json`** owns the other 41 settings — wordlists, masks, rules,
   tuning, potfile, hashcat path and binary, pcfg/omen/prince limits, notify
   toggles, and five preferences promoted from CLI flags. It is **first-class
   forever**; it was never deprecated and there is no removal timeline.
