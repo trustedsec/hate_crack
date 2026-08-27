@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
-## [Unreleased]
+## [2.34.0] - 2026-08-27
 
 ### Changed
 - **The default Ollama model is now `qwen3:4b-instruct`** (was `qwen2.5:32b`). The 32B default needed roughly 20 GB of VRAM to run at a usable speed, which put the LLM Attack out of reach on most machines that otherwise run hate_crack fine. `OLLAMA_MODEL` in `.env` still overrides it, so an existing configuration is unaffected — only a fresh install sees the new default.
