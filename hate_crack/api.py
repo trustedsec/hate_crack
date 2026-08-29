@@ -34,6 +34,13 @@ HASHVIEW_DEFAULT_TIMEOUT = 30
 # a large payload can legitimately take the server longer than 30s to process
 # before it sends the first response byte.
 HASHVIEW_UPLOAD_TIMEOUT = 300
+# Same reasoning as HASHVIEW_UPLOAD_TIMEOUT but for the read direction: a
+# wordlist download is a streamed GET, and requests' scalar timeout caps the
+# gap between chunks, not just connect time. A large wordlist (Hashview's
+# "dynamic" combined list in particular) can legitimately have gaps between
+# chunks longer than 30s under server load, which previously aborted the
+# download outright rather than just running slower.
+HASHVIEW_DOWNLOAD_TIMEOUT = 300
 # Hashfile enumeration gets its own knob because it fails for its own reason.
 # Both listing routes compute total/cracked counts per hashfile server-side, so
 # their cost scales with the number of *hashes* involved, not the number of
@@ -2178,7 +2185,7 @@ class HashviewAPI:
             url,
             headers=self._auth_headers(),
             stream=True,
-            timeout=HASHVIEW_DEFAULT_TIMEOUT,
+            timeout=HASHVIEW_DOWNLOAD_TIMEOUT,
         )
         resp.raise_for_status()
 
