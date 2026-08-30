@@ -1263,6 +1263,89 @@ def _validate_cracked_pair(hash_type, hash_value, plaintext):
     return (True, "")
 
 
+def _reverse_historical_double_encoding(raw: bytes) -> Optional[bytes]:
+    """Reverse the corruption the pre-07c2f15 ``_wire_field_bytes`` bug left
+    behind, if *raw* fits its shape.
+
+    That bug took an NTLM/UTF-16LE-mode plaintext that was already valid
+    UTF-8, decoded it as latin-1 (misreading each UTF-8 byte as its own code
+    point), then re-encoded the result as UTF-8 -- doubling every non-ASCII
+    character (e.g. ``café`` became ``cafÃ©``) before it reached Hashview.
+    Fixing the code stopped new corruption but left every plaintext uploaded
+    before the fix corrupted in Hashview (and, via the found/potfile merge,
+    in local potfiles) forever, since neither ever re-verifies a stored
+    plaintext against its hash.
+
+    The corruption is exactly one round trip in reverse: decode the
+    corrupted bytes as UTF-8 to recover the mis-read code points, then encode
+    those as latin-1 to get back the original UTF-8 bytes. Returns ``None``
+    when *raw* doesn't fit that shape (not valid UTF-8, or the round trip is
+    a no-op because there was nothing non-ASCII to double) -- the caller must
+    still re-validate whatever this returns against the hash before trusting
+    it, since a plaintext that happens to be built entirely from Latin-1-range
+    characters can pass this reshaping without actually being corrupted.
+    """
+    try:
+        mojibake = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    try:
+        recovered = mojibake.encode("latin-1")
+    except UnicodeEncodeError:
+        return None
+    if recovered == raw:
+        return None
+    try:
+        recovered.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    return recovered
+
+
+def _repair_potfile(potfile_path, repairs, removals):
+    """Rewrite a hashcat potfile in place: fix a repairable hash's plaintext
+    and drop an unrecoverable one entirely.
+
+    Hashcat never re-verifies a potfile entry against its hash on a later
+    run -- it just replays whatever plaintext is on file as "already
+    cracked". Leaving a corrupted entry in place means every future attack
+    against that hash keeps reporting the same bad password forever, so this
+    patches the potfile itself rather than only what gets uploaded this run.
+
+    *repairs* maps a lowercased hash to the corrected plaintext bytes;
+    *removals* is a set of lowercased hashes to drop. Returns
+    ``(repaired_count, removed_count)``. A no-op (missing/absent potfile, or
+    nothing to do) returns ``(0, 0)`` without touching the file.
+    """
+    if not potfile_path or not os.path.isfile(potfile_path):
+        return 0, 0
+    if not repairs and not removals:
+        return 0, 0
+    repaired = 0
+    removed = 0
+    out_lines = []
+    with open(potfile_path, "rb") as f:
+        for line in f:
+            core = line.rstrip(b"\r\n")
+            if b":" not in core:
+                out_lines.append(line)
+                continue
+            hash_part, _, _ = core.partition(b":")
+            key = hash_part.strip().lower().decode("ascii", "ignore")
+            if key in removals:
+                removed += 1
+                continue
+            if key in repairs:
+                out_lines.append(hash_part + b":" + repairs[key] + b"\n")
+                repaired += 1
+                continue
+            out_lines.append(line)
+    if repaired or removed:
+        with open(potfile_path, "wb") as f:
+            f.writelines(out_lines)
+    return repaired, removed
+
+
 # Hashcat modes whose password bytes are UTF-16LE (zero-extended) rather than
 # raw bytes. These need the latin-1->UTF-8 re-encoding when decoding $HEX.
 _UTF16LE_MODES = {"1000", "1731"}
@@ -1981,12 +2064,18 @@ class HashviewAPI:
             "combined_file": combined_file,
         }
 
-    def upload_cracked_hashes(self, file_path, hash_type="1000", *, validate=True):
+    def upload_cracked_hashes(
+        self, file_path, hash_type="1000", *, validate=True, potfile_path=None
+    ):
         valid_lines = []
         skipped = []
         skipped_cached = 0
         new_keys = []
+        repaired_count = 0
+        potfile_repairs = {}
+        potfile_removals = set()
         cache = load_cache()
+        can_repair = validate and str(hash_type) in _UTF16LE_MODES
         # Bytes, not a lossy text read: a plaintext with a non-UTF-8 byte must
         # reach Hashview intact (as $HEX[...]) rather than as a different
         # password -- see _read_found_pairs.
@@ -2003,7 +2092,9 @@ class HashviewAPI:
                 try:
                     hash_value = hash_raw.strip().decode("utf-8")
                 except UnicodeDecodeError:
-                    skipped.append((lineno, "<undecodable>", "hash field is not UTF-8"))
+                    skipped.append(
+                        (lineno, "<undecodable>", "hash field is not UTF-8", raw_line)
+                    )
                     continue
 
                 key = cache_key(hash_value, hash_type, scope="cracked")
@@ -2017,8 +2108,33 @@ class HashviewAPI:
                         hash_type, hash_value, plaintext
                     )
                     if not ok:
-                        skipped.append((lineno, hash_value, reason))
-                        continue
+                        recovered_bytes = (
+                            _reverse_historical_double_encoding(
+                                _decode_plaintext(plaintext)
+                            )
+                            if can_repair
+                            else None
+                        )
+                        recovered_plaintext = (
+                            encode_hex_wrapper(recovered_bytes)
+                            if recovered_bytes is not None
+                            else None
+                        )
+                        rec_ok = (
+                            _validate_cracked_pair(
+                                hash_type, hash_value, recovered_plaintext
+                            )[0]
+                            if recovered_plaintext is not None
+                            else False
+                        )
+                        if rec_ok:
+                            repaired_count += 1
+                            potfile_repairs[hash_value.lower()] = recovered_bytes
+                            plaintext = recovered_plaintext
+                        else:
+                            skipped.append((lineno, hash_value, reason, raw_line))
+                            potfile_removals.add(hash_value.lower())
+                            continue
                 valid_lines.append(
                     hash_value.encode("ascii", "ignore")
                     + b":"
@@ -2029,12 +2145,36 @@ class HashviewAPI:
         if skipped_cached:
             print(f"↷ Skipped {skipped_cached} hash(es) already uploaded previously")
 
+        if repaired_count:
+            print(
+                f"✓ Repaired {repaired_count} plaintext(s) corrupted by the historical "
+                "double-encoding bug (fixed in 07c2f15) before upload"
+            )
+
+        if potfile_repairs or potfile_removals:
+            n_repaired, n_removed = _repair_potfile(
+                potfile_path, potfile_repairs, potfile_removals
+            )
+            if n_repaired:
+                print(f"✓ Fixed {n_repaired} corrupted plaintext(s) in the potfile")
+            if n_removed:
+                print(
+                    f"✓ Removed {n_removed} unrecoverable entr{'y' if n_removed == 1 else 'ies'} "
+                    "from the potfile (hashcat would otherwise keep replaying them)"
+                )
+
+        rejected_path = None
         if skipped:
+            rejected_path = f"{file_path}.rejected"
+            with open(rejected_path, "wb") as rf:
+                for _, _, _, raw_line in skipped:
+                    rf.write(raw_line + b"\n")
             print(
                 f"⚠ Skipped {len(skipped)} line(s) that do not match hash mode "
-                f"{hash_type} (would be rejected by Hashview):"
+                f"{hash_type} (would be rejected by Hashview) -- "
+                f"preserved in {rejected_path}:"
             )
-            for lineno, hash_value, reason in skipped[:10]:
+            for lineno, hash_value, reason, _ in skipped[:10]:
                 print(f"    line {lineno}: {hash_value} — {reason}")
             if len(skipped) > 10:
                 print(f"    ... and {len(skipped) - 10} more")
@@ -2050,6 +2190,8 @@ class HashviewAPI:
                     "uploaded": 0,
                     "skipped": len(skipped),
                     "skipped_cached": skipped_cached,
+                    "repaired": repaired_count,
+                    "rejected_file": rejected_path,
                 }
             raise Exception(
                 f"No valid hashes to upload for hash mode {hash_type} "
@@ -2158,6 +2300,8 @@ class HashviewAPI:
         aggregated.setdefault("uploaded", len(valid_lines) - len(rejected_by_server))
         aggregated["skipped"] = len(skipped) + len(rejected_by_server)
         aggregated["skipped_cached"] = skipped_cached
+        aggregated["repaired"] = repaired_count
+        aggregated["rejected_file"] = rejected_path
         return aggregated
 
     def download_wordlist(

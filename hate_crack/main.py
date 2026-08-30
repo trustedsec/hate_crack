@@ -7876,7 +7876,9 @@ def hashview_api():
                 # Upload
                 print(f"\nUploading to Hashview (hash type: {hash_type})...")
                 try:
-                    result = api_harness.upload_cracked_hashes(cracked_file, hash_type)
+                    result = api_harness.upload_cracked_hashes(
+                        cracked_file, hash_type, potfile_path=hcatPotfilePath
+                    )
                     print(
                         f"\n✓ Success: {result.get('msg', 'Cracked hashes uploaded')}"
                     )
@@ -9698,7 +9700,7 @@ def main():
                 print(f"✗ Error: File not found: {args.file}")
                 sys.exit(1)
             result = api_harness.upload_cracked_hashes(
-                cracked_file, hash_type=args.hash_type
+                cracked_file, hash_type=args.hash_type, potfile_path=hcatPotfilePath
             )
             print(f"\n✓ Success: {result.get('msg', 'Cracked hashes uploaded')}")
             if "count" in result:

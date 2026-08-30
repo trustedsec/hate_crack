@@ -11,7 +11,7 @@ class DummyHashviewAPI:
         self.debug = debug
         self.calls = []
 
-    def upload_cracked_hashes(self, file_path, hash_type="1000"):
+    def upload_cracked_hashes(self, file_path, hash_type="1000", potfile_path=None):
         self.calls.append(("upload_cracked_hashes", file_path, hash_type))
         return {"msg": "Cracked hashes uploaded", "count": 2, "skipped_cached": 3}
 

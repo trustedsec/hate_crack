@@ -1294,7 +1294,14 @@ class TestHashviewAPI:
 
         result = api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
 
-        assert result == {"uploaded": 0, "skipped": 1, "skipped_cached": 1}
+        rejected_file = result.pop("rejected_file", None)
+        assert rejected_file is not None
+        assert result == {
+            "uploaded": 0,
+            "skipped": 1,
+            "skipped_cached": 1,
+            "repaired": 0,
+        }
 
     def test_upload_cracked_hashes_all_cached_skips_network_call(
         self, api, tmp_path, monkeypatch
@@ -1310,7 +1317,13 @@ class TestHashviewAPI:
 
         result = api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
 
-        assert result == {"uploaded": 0, "skipped": 0, "skipped_cached": 1}
+        assert result == {
+            "uploaded": 0,
+            "skipped": 0,
+            "skipped_cached": 1,
+            "repaired": 0,
+            "rejected_file": None,
+        }
         api.session.post.assert_not_called()
 
     def test_upload_cracked_hashes_failed_post_does_not_populate_cache(
