@@ -130,9 +130,13 @@ def test_upload_repairs_historical_double_encoded_ntlm_plaintext(tmp_path):
             str(cracked_file), hash_type="1000", validate=True
         )
 
-        assert result["skipped"] == 0, f"repaired line should not count as skipped, got {result}"
+        assert result["skipped"] == 0, (
+            f"repaired line should not count as skipped, got {result}"
+        )
         assert result["uploaded"] == 1
-        assert result.get("repaired") == 1, f"expected repaired count of 1, got {result}"
+        assert result.get("repaired") == 1, (
+            f"expected repaired count of 1, got {result}"
+        )
 
         posted_body = api.session.post.call_args.kwargs["data"]
         assert real_plain.encode("utf-8") in posted_body, (
@@ -182,7 +186,9 @@ def test_upload_quarantines_unrecoverable_invalid_plaintext(tmp_path):
         assert result.get("repaired", 0) == 0
 
         rejected_path = cracked_file.with_name(cracked_file.name + ".rejected")
-        assert rejected_path.is_file(), "skipped lines must be preserved in a dedicated file"
+        assert rejected_path.is_file(), (
+            "skipped lines must be preserved in a dedicated file"
+        )
         rejected_contents = rejected_path.read_text()
         assert genuinely_wrong_hash in rejected_contents
         assert genuinely_wrong_plain in rejected_contents
