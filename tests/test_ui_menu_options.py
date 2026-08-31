@@ -116,6 +116,27 @@ def test_spoonman_routes_through_both_duplicate_menu_mappings(monkeypatch):
     assert main_options["22"]() == sentinel
 
 
+def test_mask_tools_routes_through_both_duplicate_menu_mappings():
+    """hate_crack.py carries a menu mapping separate from main.py's, and both
+    must carry option 83 pointing at the same handler.
+
+    Compared by qualified name, not by object identity: the suite purges
+    hate_crack.main from sys.modules between tests, so CLI_MODULE._main can be
+    a different module object than the live one and an `is` check passes alone
+    while failing in a full run. The failure this guards -- 83 added to one
+    mapping only, or pointed at a different handler -- is caught either way.
+    """
+    cli_options = CLI_MODULE.get_main_menu_options()
+    main_options = CLI_MODULE._main.get_main_menu_options()
+    assert "83" in cli_options, "hate_crack.py mapping is missing option 83"
+    assert "83" in main_options, "main.py mapping is missing option 83"
+    assert (
+        cli_options["83"].__qualname__
+        == main_options["83"].__qualname__
+        == "mask_tools_submenu"
+    )
+
+
 def test_main_menu_items_include_notifications_entry():
     items = dict(CLI_MODULE.get_main_menu_items())
     assert "82" in items
