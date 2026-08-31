@@ -3009,6 +3009,220 @@ def download_hashmob_mask(file_name, out_path):
         return False
 
 
+def list_hashmob_archives():
+    """Fetch the yearly full-found corpora listing from Hashmob API v2.
+
+    ``GET /api/v2/archive`` returns a dict keyed by year string
+    (``"current"``, ``"2021"``...``"2025"``), each value a list of
+    ``{"name": ..., "url": ...}`` entries. Prints a year heading followed by
+    a globally-numbered entry per archive, then returns the flattened list
+    of ``{"year": ..., "name": ..., "url": ...}`` dicts so a caller can
+    resolve a printed index back to a URL.
+    """
+    url = "https://hashmob.net/api/v2/archive"
+    api_key = get_hashmob_api_key()
+    headers = {"api-key": api_key} if api_key else {}
+
+    def _attempt():
+        _hashmob_limiter.wait()
+        resp = requests.get(url, headers=headers, timeout=30)
+        if resp.status_code == 429:
+            raise _Hashmob429(_parse_retry_after(resp))
+        resp.raise_for_status()
+        return resp.json()
+
+    try:
+        data = _with_hashmob_backoff(_attempt)
+    except Exception as e:
+        print(f"Error fetching Hashmob archive listing: {e}")
+        return []
+
+    if not data:
+        return []
+
+    flattened = []
+    idx = 0
+    for year, entries in data.items():
+        print(f"\n{year}:")
+        for entry in entries or []:
+            idx += 1
+            name = entry.get("name", "")
+            print(f"{idx}. {name}")
+            flattened.append({"year": year, "name": name, "url": entry.get("url")})
+    return flattened
+
+
+def download_hashmob_archive(entry_or_file_name, out_path=None):
+    """Download a yearly full-found corpus archive from Hashmob.
+
+    ``entry_or_file_name`` may be a listing entry (dict with ``name``/``url``
+    keys, as returned by :func:`list_hashmob_archives`) or a bare file name,
+    in which case the download URL is constructed directly. These archives
+    run 2.4-9.8 GB compressed (~31 GB extracted) per the live listing, so an
+    explicit confirmation prompt is required before starting; the prompt is
+    skipped -- and the download declined, not started silently -- in a
+    non-interactive context, matching the ``_safe_input`` pattern used
+    elsewhere in this module (e.g. ``list_and_download_hashmob_masks``).
+    """
+    if isinstance(entry_or_file_name, dict):
+        url = entry_or_file_name.get("url")
+        file_name = entry_or_file_name.get("name") or (
+            url.rsplit("/", 1)[-1] if url else ""
+        )
+        if not url:
+            url = f"https://hashmob.net/api/v2/archive/{file_name}"
+        size_hint = entry_or_file_name.get("file_size")
+    else:
+        file_name = entry_or_file_name
+        url = f"https://hashmob.net/api/v2/archive/{file_name}"
+        size_hint = None
+
+    def _safe_input(prompt):
+        try:
+            if not sys.stdin or not sys.stdin.isatty():
+                return "q"
+        except Exception:
+            return "q"
+        try:
+            return input(prompt)
+        except EOFError:
+            return "q"
+
+    size_str = _format_size(size_hint) if size_hint else "unknown size"
+    confirm = _safe_input(
+        f"[!] '{file_name}' is a large archive ({size_str}) and may take a "
+        "long time to download. Proceed? [y/N]: "
+    )
+    if confirm.strip().lower() not in ("y", "yes"):
+        print("Archive download cancelled.")
+        return False
+
+    if not out_path:
+        out_path = sanitize_filename(file_name)
+    dest_dir = get_hcat_wordlists_dir()
+    archive_path = (
+        os.path.join(dest_dir, out_path) if not os.path.isabs(out_path) else out_path
+    )
+    os.makedirs(os.path.dirname(os.path.abspath(archive_path)), exist_ok=True)
+
+    api_key = get_hashmob_api_key()
+    headers = {"api-key": api_key} if api_key else {}
+
+    def _attempt():
+        _hashmob_limiter.wait()
+        with requests.get(
+            url, headers=headers, stream=True, timeout=60, allow_redirects=True
+        ) as r:
+            if r.status_code == 429:
+                raise _Hashmob429(_parse_retry_after(r))
+            r.raise_for_status()
+            return _stream_response_to_file(r, archive_path, label=file_name)
+
+    try:
+        ok = _with_hashmob_backoff(_attempt)
+    except Exception as e:
+        print(f"Error downloading Hashmob archive: {e}")
+        return False
+
+    if ok and archive_path.endswith(".7z"):
+        extract_with_7z(archive_path)
+    return ok
+
+
+def list_hashmob_combined_left():
+    """Fetch the combined-left listing from Hashmob API v2 and print it.
+
+    ``GET /api/v2/downloads/combined_left`` returns
+    ``{"combined_left_files": [{"mode": ..., "hash_count": ..., "algorithm":
+    ..., "time": ..., "updated_at": ...}]}`` -- one entry per hashcat mode.
+    Returns the parsed ``combined_left_files`` list.
+    """
+    url = "https://hashmob.net/api/v2/downloads/combined_left"
+    api_key = get_hashmob_api_key()
+    headers = {"api-key": api_key} if api_key else {}
+
+    def _attempt():
+        _hashmob_limiter.wait()
+        resp = requests.get(url, headers=headers, timeout=30)
+        if resp.status_code == 429:
+            raise _Hashmob429(_parse_retry_after(resp))
+        resp.raise_for_status()
+        return resp.json()
+
+    try:
+        data = _with_hashmob_backoff(_attempt)
+    except Exception as e:
+        print(f"Error fetching Hashmob combined-left listing: {e}")
+        return []
+
+    if not data:
+        return []
+
+    files = data.get("combined_left_files", [])
+    for entry in files:
+        mode = entry.get("mode")
+        algorithm = entry.get("algorithm", "")
+        updated_at = entry.get("updated_at", "")
+        try:
+            hash_count_str = f"{int(entry.get('hash_count', 0)):,}"
+        except (TypeError, ValueError):
+            hash_count_str = str(entry.get("hash_count", 0))
+        print(f"{mode}: {algorithm} ({hash_count_str} hashes, updated {updated_at})")
+    return files
+
+
+_HASHMOB_COMBINED_LEFT_VARIANT_PATHS = {
+    "all": "combined_left",
+    "official": "official_combined_left",
+    "premium": "combined_left_premium",
+}
+
+
+def download_hashmob_combined_left(mode, out_path=None, *, variant="all"):
+    """Download a combined-left (uncracked-hash) list for a hashcat mode.
+
+    ``variant`` selects which of the three combined-left downloads to use:
+    ``"all"`` (default, ``/downloads/combined_left/{mode}``), ``"official"``
+    (``/downloads/official_combined_left/{mode}``), or ``"premium"``
+    (``/downloads/combined_left_premium/{mode}``). Raises ``ValueError`` for
+    any other value. Defaults ``out_path`` to a file inside
+    ``get_hcat_wordlists_dir()`` when not given -- these left-hash lists
+    resemble wordlists in downstream use.
+    """
+    try:
+        path_segment = _HASHMOB_COMBINED_LEFT_VARIANT_PATHS[variant]
+    except KeyError:
+        raise ValueError(f"Unknown combined-left variant: {variant!r}") from None
+
+    url = f"https://hashmob.net/api/v2/downloads/{path_segment}/{mode}"
+    if not out_path:
+        out_path = sanitize_filename(f"combined_left_{variant}_{mode}.txt")
+    dest_dir = get_hcat_wordlists_dir()
+    dest_path = (
+        os.path.join(dest_dir, out_path) if not os.path.isabs(out_path) else out_path
+    )
+    os.makedirs(os.path.dirname(os.path.abspath(dest_path)), exist_ok=True)
+
+    api_key = get_hashmob_api_key()
+    headers = {"api-key": api_key} if api_key else {}
+
+    def _attempt():
+        _hashmob_limiter.wait()
+        with requests.get(
+            url, headers=headers, stream=True, timeout=60, allow_redirects=True
+        ) as r:
+            if r.status_code == 429:
+                raise _Hashmob429(_parse_retry_after(r))
+            r.raise_for_status()
+            return _stream_response_to_file(r, dest_path, label=str(mode))
+
+    try:
+        return _with_hashmob_backoff(_attempt)
+    except Exception as e:
+        print(f"Error downloading Hashmob combined-left list: {e}")
+        return False
+
+
 def list_official_wordlists():
     """List files in the official wordlists directory via the Hashmob API."""
     url = "https://hashmob.net/api/v2/downloads/research/official/"

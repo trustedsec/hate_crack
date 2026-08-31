@@ -6,9 +6,13 @@ from typing import Any
 
 from hate_crack import notify as _notify
 from hate_crack.api import (
+    download_hashmob_archive,
+    download_hashmob_combined_left,
     download_hashmob_masks,
     download_hashmob_rules,
     download_hashmob_wordlists,
+    list_hashmob_archives,
+    list_hashmob_combined_left,
     weakpass_wordlist_menu,
 )
 from hate_crack.formatting import print_multicolumn_list
@@ -2125,6 +2129,63 @@ def wordlist_optimize(ctx: Any) -> None:
         print("[!] Optimization failed.")
 
 
+def hashmob_archives_handler(ctx: Any) -> None:
+    """List Hashmob's yearly full-found archive corpora, prompt for a
+    selection, and download it. ``download_hashmob_archive`` itself prints
+    the size and asks for confirmation before starting."""
+    entries = list_hashmob_archives()
+    if not entries:
+        return
+    sel = input(
+        "\nEnter the number of the archive to download, or 'q' to cancel: "
+    ).strip()
+    if not sel or sel.lower() == "q":
+        return
+    try:
+        idx = int(sel)
+    except ValueError:
+        print("[!] Invalid selection.")
+        return
+    if not (1 <= idx <= len(entries)):
+        print("[!] Invalid selection.")
+        return
+    download_hashmob_archive(entries[idx - 1])
+
+
+def hashmob_combined_left_handler(ctx: Any) -> None:
+    """List Hashmob's per-mode combined-left hash lists, prompt for a mode,
+    and download it."""
+    files = list_hashmob_combined_left()
+    if not files:
+        return
+    sel = input("\nEnter the hashcat mode to download, or 'q' to cancel: ").strip()
+    if not sel or sel.lower() == "q":
+        return
+    try:
+        mode = int(sel)
+    except ValueError:
+        print("[!] Invalid mode.")
+        return
+    download_hashmob_combined_left(mode)
+
+
+def hashmob_downloads_submenu(ctx: Any) -> None:
+    """Display the Hashmob Downloads submenu (archives / combined-left)."""
+    items = [
+        ("1", "Archives (yearly full-found corpora)"),
+        ("2", "Combined left lists (per-mode uncracked hashes)"),
+        ("99", "Back"),
+    ]
+    while True:
+        choice = interactive_menu(items, title="\nHashmob Downloads:")
+        if choice is None or choice == "99":
+            break
+        elif choice == "1":
+            hashmob_archives_handler(ctx)
+        elif choice == "2":
+            hashmob_combined_left_handler(ctx)
+
+
 def wordlist_tools_submenu(ctx: Any) -> None:
     """Display the Wordlist Tools submenu and dispatch to the selected handler."""
     items = [
@@ -2138,6 +2199,7 @@ def wordlist_tools_submenu(ctx: Any) -> None:
         ("8", "Optimize Wordlists"),
         ("9", "Download wordlists from Hashmob.net"),
         ("10", "Download wordlists from Weakpass"),
+        ("11", "Hashmob Downloads (archives / combined-left)"),
         ("99", "Back to Main Menu"),
     ]
     while True:
@@ -2164,3 +2226,5 @@ def wordlist_tools_submenu(ctx: Any) -> None:
             download_hashmob_wordlists(print_fn=print)
         elif choice == "10":
             weakpass_wordlist_menu()
+        elif choice == "11":
+            hashmob_downloads_submenu(ctx)

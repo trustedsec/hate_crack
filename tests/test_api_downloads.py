@@ -10,6 +10,8 @@ from hate_crack import hashcat_paths
 from hate_crack.api import (
     check_7z,
     check_transmission_daemon,
+    download_hashmob_archive,
+    download_hashmob_combined_left,
     download_hashmob_mask,
     download_hashmob_mask_list,
     download_hashmob_rule,
@@ -22,6 +24,8 @@ from hate_crack.api import (
     get_hcat_potfile_args,
     get_hcat_potfile_path,
     list_and_download_hashmob_rules,
+    list_hashmob_archives,
+    list_hashmob_combined_left,
     run_torrent_session,
     sanitize_filename,
     TransmissionSession,
@@ -996,6 +1000,334 @@ class TestDownloadHashmobMask:
         ):
             result = download_hashmob_mask("test.hcmask", str(out))
         assert result is False
+
+
+class TestListHashmobArchives:
+    def _mock_response(self, data, status_code=200):
+        mock_response = MagicMock()
+        mock_response.status_code = status_code
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = data
+        return mock_response
+
+    def test_flattens_year_keyed_dict(self, capsys):
+        data = {
+            "current": [
+                {
+                    "name": "current.7z",
+                    "url": "https://hashmob.net/api/v2/archive/current.7z",
+                }
+            ],
+            "2021": [
+                {
+                    "name": "2021_a.7z",
+                    "url": "https://hashmob.net/api/v2/archive/2021_a.7z",
+                },
+                {
+                    "name": "2021_b.7z",
+                    "url": "https://hashmob.net/api/v2/archive/2021_b.7z",
+                },
+            ],
+        }
+        with (
+            patch(
+                "hate_crack.api.requests.get", return_value=self._mock_response(data)
+            ),
+            patch("hate_crack.api.get_hashmob_api_key", return_value=None),
+            patch("hate_crack.api._hashmob_limiter.wait"),
+        ):
+            result = list_hashmob_archives()
+        assert len(result) == 3
+        assert {entry["year"] for entry in result} == {"current", "2021"}
+        assert [entry["name"] for entry in result] == [
+            "current.7z",
+            "2021_a.7z",
+            "2021_b.7z",
+        ]
+        assert [entry["url"] for entry in result] == [
+            "https://hashmob.net/api/v2/archive/current.7z",
+            "https://hashmob.net/api/v2/archive/2021_a.7z",
+            "https://hashmob.net/api/v2/archive/2021_b.7z",
+        ]
+        out = capsys.readouterr().out
+        assert "current:" in out
+        assert "2021:" in out
+
+    def test_calls_limiter_and_sends_api_key(self):
+        data = {
+            "2022": [{"name": "a.7z", "url": "https://hashmob.net/api/v2/archive/a.7z"}]
+        }
+        with (
+            patch(
+                "hate_crack.api.requests.get", return_value=self._mock_response(data)
+            ) as mock_get,
+            patch("hate_crack.api.get_hashmob_api_key", return_value="secret-key"),
+            patch("hate_crack.api._hashmob_limiter.wait") as mock_wait,
+        ):
+            list_hashmob_archives()
+        mock_wait.assert_called_once()
+        assert mock_get.call_args.kwargs["headers"] == {"api-key": "secret-key"}
+
+    def test_429_triggers_backoff_and_retries(self):
+        mock_429 = self._mock_response({}, status_code=429)
+        mock_429.headers = {}
+        mock_ok = self._mock_response({"2022": []})
+        with (
+            patch(
+                "hate_crack.api.requests.get", side_effect=[mock_429, mock_ok]
+            ) as mock_get,
+            patch("hate_crack.api.time.sleep") as mock_sleep,
+            patch("hate_crack.api.get_hashmob_api_key", return_value=None),
+            patch("hate_crack.api._hashmob_limiter.wait"),
+        ):
+            result = list_hashmob_archives()
+        assert result == []
+        assert mock_get.call_count == 2
+        mock_sleep.assert_called_once()
+
+    def test_empty_response_returns_empty_list(self):
+        with (
+            patch("hate_crack.api.requests.get", return_value=self._mock_response({})),
+            patch("hate_crack.api.get_hashmob_api_key", return_value=None),
+            patch("hate_crack.api._hashmob_limiter.wait"),
+        ):
+            result = list_hashmob_archives()
+        assert result == []
+
+
+class TestDownloadHashmobArchive:
+    def _make_mock_response(self, status_code=200, content=b"archive data"):
+        mock_response = MagicMock()
+        mock_response.__enter__ = lambda s: mock_response
+        mock_response.__exit__ = MagicMock(return_value=False)
+        mock_response.status_code = status_code
+        mock_response.headers = {"Content-Type": "application/octet-stream"}
+        mock_response.iter_content.return_value = [content]
+        mock_response.raise_for_status = MagicMock()
+        return mock_response
+
+    def _patch_stdin_tty(self):
+        mock_stdin = MagicMock()
+        mock_stdin.isatty.return_value = True
+        return patch("hate_crack.api.sys.stdin", mock_stdin)
+
+    def _patch_stdin_no_tty(self):
+        mock_stdin = MagicMock()
+        mock_stdin.isatty.return_value = False
+        return patch("hate_crack.api.sys.stdin", mock_stdin)
+
+    def test_resolves_url_from_listing_entry(self, tmp_path):
+        entry = {
+            "year": "2021",
+            "name": "2021_a.7z",
+            "url": "https://hashmob.net/api/v2/archive/2021_a.7z",
+        }
+        mock_response = self._make_mock_response()
+        with (
+            patch(
+                "hate_crack.api.requests.get", return_value=mock_response
+            ) as mock_get,
+            patch("hate_crack.api.time.sleep"),
+            patch("hate_crack.api.get_hashmob_api_key", return_value=None),
+            patch("hate_crack.api._hashmob_limiter.wait"),
+            patch("hate_crack.api.get_hcat_wordlists_dir", return_value=str(tmp_path)),
+            patch("builtins.input", return_value="y"),
+            self._patch_stdin_tty(),
+        ):
+            result = download_hashmob_archive(entry)
+        assert result is True
+        assert (
+            mock_get.call_args.args[0] == "https://hashmob.net/api/v2/archive/2021_a.7z"
+        )
+        assert (tmp_path / "2021_a.7z").exists()
+
+    def test_constructs_url_from_bare_file_name(self, tmp_path):
+        mock_response = self._make_mock_response()
+        with (
+            patch(
+                "hate_crack.api.requests.get", return_value=mock_response
+            ) as mock_get,
+            patch("hate_crack.api.time.sleep"),
+            patch("hate_crack.api.get_hashmob_api_key", return_value=None),
+            patch("hate_crack.api._hashmob_limiter.wait"),
+            patch("hate_crack.api.get_hcat_wordlists_dir", return_value=str(tmp_path)),
+            patch("builtins.input", return_value="y"),
+            self._patch_stdin_tty(),
+        ):
+            result = download_hashmob_archive("full.7z")
+        assert result is True
+        assert (
+            mock_get.call_args.args[0] == "https://hashmob.net/api/v2/archive/full.7z"
+        )
+
+    def test_declined_confirmation_aborts_download(self, tmp_path):
+        entry = {"name": "big.7z", "url": "https://hashmob.net/api/v2/archive/big.7z"}
+        with (
+            patch("hate_crack.api.requests.get") as mock_get,
+            patch("hate_crack.api.get_hcat_wordlists_dir", return_value=str(tmp_path)),
+            patch("builtins.input", return_value="n"),
+            self._patch_stdin_tty(),
+        ):
+            result = download_hashmob_archive(entry)
+        assert result is False
+        mock_get.assert_not_called()
+
+    def test_non_interactive_context_declines_without_prompting(self, tmp_path):
+        entry = {"name": "big.7z", "url": "https://hashmob.net/api/v2/archive/big.7z"}
+        with (
+            patch("hate_crack.api.requests.get") as mock_get,
+            patch("hate_crack.api.get_hcat_wordlists_dir", return_value=str(tmp_path)),
+            self._patch_stdin_no_tty(),
+        ):
+            result = download_hashmob_archive(entry)
+        assert result is False
+        mock_get.assert_not_called()
+
+    def test_calls_limiter_before_request(self, tmp_path):
+        mock_response = self._make_mock_response()
+        with (
+            patch("hate_crack.api.requests.get", return_value=mock_response),
+            patch("hate_crack.api.time.sleep"),
+            patch("hate_crack.api.get_hashmob_api_key", return_value=None),
+            patch("hate_crack.api._hashmob_limiter.wait") as mock_wait,
+            patch("hate_crack.api.get_hcat_wordlists_dir", return_value=str(tmp_path)),
+            patch("builtins.input", return_value="y"),
+            self._patch_stdin_tty(),
+        ):
+            download_hashmob_archive("full.7z")
+        mock_wait.assert_called_once()
+
+
+class TestListHashmobCombinedLeft:
+    def _mock_response(self, data, status_code=200):
+        mock_response = MagicMock()
+        mock_response.status_code = status_code
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = data
+        return mock_response
+
+    def test_parses_combined_left_files(self, capsys):
+        data = {
+            "combined_left_files": [
+                {
+                    "mode": 0,
+                    "hash_count": 1234567,
+                    "algorithm": "MD5",
+                    "time": "1h",
+                    "updated_at": "2026-08-01",
+                },
+                {
+                    "mode": 1000,
+                    "hash_count": 89,
+                    "algorithm": "NTLM",
+                    "time": "1h",
+                    "updated_at": "2026-08-15",
+                },
+            ]
+        }
+        with (
+            patch(
+                "hate_crack.api.requests.get", return_value=self._mock_response(data)
+            ),
+            patch("hate_crack.api.get_hashmob_api_key", return_value=None),
+            patch("hate_crack.api._hashmob_limiter.wait"),
+        ):
+            result = list_hashmob_combined_left()
+        assert result == data["combined_left_files"]
+        out = capsys.readouterr().out
+        assert "0: MD5 (1,234,567 hashes, updated 2026-08-01)" in out
+        assert "1000: NTLM (89 hashes, updated 2026-08-15)" in out
+
+    def test_missing_key_returns_empty_list(self):
+        with (
+            patch("hate_crack.api.requests.get", return_value=self._mock_response({})),
+            patch("hate_crack.api.get_hashmob_api_key", return_value=None),
+            patch("hate_crack.api._hashmob_limiter.wait"),
+        ):
+            result = list_hashmob_combined_left()
+        assert result == []
+
+
+class TestDownloadHashmobCombinedLeft:
+    def _make_mock_response(self, status_code=200, content=b"left data"):
+        mock_response = MagicMock()
+        mock_response.__enter__ = lambda s: mock_response
+        mock_response.__exit__ = MagicMock(return_value=False)
+        mock_response.status_code = status_code
+        mock_response.headers = {"Content-Type": "application/octet-stream"}
+        mock_response.iter_content.return_value = [content]
+        mock_response.raise_for_status = MagicMock()
+        return mock_response
+
+    def test_default_variant_builds_all_url(self, tmp_path):
+        mock_response = self._make_mock_response()
+        with (
+            patch(
+                "hate_crack.api.requests.get", return_value=mock_response
+            ) as mock_get,
+            patch("hate_crack.api.time.sleep"),
+            patch("hate_crack.api.get_hashmob_api_key", return_value=None),
+            patch("hate_crack.api._hashmob_limiter.wait"),
+            patch("hate_crack.api.get_hcat_wordlists_dir", return_value=str(tmp_path)),
+        ):
+            result = download_hashmob_combined_left(1000)
+        assert result is True
+        assert (
+            mock_get.call_args.args[0]
+            == "https://hashmob.net/api/v2/downloads/combined_left/1000"
+        )
+
+    def test_official_variant_builds_official_url(self, tmp_path):
+        mock_response = self._make_mock_response()
+        with (
+            patch(
+                "hate_crack.api.requests.get", return_value=mock_response
+            ) as mock_get,
+            patch("hate_crack.api.time.sleep"),
+            patch("hate_crack.api.get_hashmob_api_key", return_value=None),
+            patch("hate_crack.api._hashmob_limiter.wait"),
+            patch("hate_crack.api.get_hcat_wordlists_dir", return_value=str(tmp_path)),
+        ):
+            download_hashmob_combined_left(0, variant="official")
+        assert (
+            mock_get.call_args.args[0]
+            == "https://hashmob.net/api/v2/downloads/official_combined_left/0"
+        )
+
+    def test_premium_variant_builds_premium_url(self, tmp_path):
+        mock_response = self._make_mock_response()
+        with (
+            patch(
+                "hate_crack.api.requests.get", return_value=mock_response
+            ) as mock_get,
+            patch("hate_crack.api.time.sleep"),
+            patch("hate_crack.api.get_hashmob_api_key", return_value=None),
+            patch("hate_crack.api._hashmob_limiter.wait"),
+            patch("hate_crack.api.get_hcat_wordlists_dir", return_value=str(tmp_path)),
+        ):
+            download_hashmob_combined_left(100, variant="premium")
+        assert (
+            mock_get.call_args.args[0]
+            == "https://hashmob.net/api/v2/downloads/combined_left_premium/100"
+        )
+
+    def test_invalid_variant_raises_value_error(self, tmp_path):
+        with patch("hate_crack.api.get_hcat_wordlists_dir", return_value=str(tmp_path)):
+            with pytest.raises(ValueError):
+                download_hashmob_combined_left(0, variant="bogus")
+
+    def test_defaults_to_wordlists_dir(self, tmp_path):
+        mock_response = self._make_mock_response()
+        with (
+            patch("hate_crack.api.requests.get", return_value=mock_response),
+            patch("hate_crack.api.time.sleep"),
+            patch("hate_crack.api.get_hashmob_api_key", return_value=None),
+            patch("hate_crack.api._hashmob_limiter.wait"),
+            patch("hate_crack.api.get_hcat_wordlists_dir", return_value=str(tmp_path)),
+        ):
+            download_hashmob_combined_left(1000)
+        found = list(tmp_path.glob("combined_left_all_1000*"))
+        assert found
 
 
 class TestDownloadOfficialWordlist:
