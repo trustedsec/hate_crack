@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
-## [Unreleased]
+## [2.35.0] - 2026-08-31
 
 ### Added
 - **Hashmob's yearly archive corpora and per-mode combined-left lists are now reachable from a new "Hashmob Downloads" submenu (item `11` under Wordlist Tools).** `GET /api/v2/archive` returns a dict keyed by year (`"current"`, `"2021"`...`"2025"`), each a list of `{"name", "url"}` entries for the yearly full-found corpora — **2.4-9.8 GB compressed (~31 GB extracted)** per the live listing. New `list_hashmob_archives()` flattens that into a globally-numbered, year-grouped listing and returns it so a caller can resolve a printed index back to a URL. New `download_hashmob_archive(entry_or_file_name, out_path=None)` resolves the URL from a listing entry's `url` field (or constructs `https://hashmob.net/api/v2/archive/{file_name}` from a bare name), follows the same auth/limiter/backoff pattern as the other Hashmob downloads, and — because these are tens-of-GB files — prints the size and requires an explicit `y`/`N` confirmation before starting; a non-tty context (matching the `_safe_input` pattern already used by `list_and_download_hashmob_masks` and friends) declines the download rather than either blocking or starting it silently. A `.7z` result is handed to `extract_with_7z`, same as `download_official_wordlist`.
