@@ -1680,6 +1680,51 @@ class TestHashviewAPI:
         captured = capsys.readouterr()
         assert "regenerates dynamic wordlists on demand" not in captured.out
 
+    def test_download_wordlist_dynamic_auto_names_with_date(self, api, tmp_path):
+        """A dynamic download with no explicit output_file gets an auto name.
+
+        The dynamic route serves a random per-request scratch filename
+        (secrets.token_hex(8).gz on the server side), so content-disposition
+        can't be used to name the file -- build one from the wordlist's own
+        name plus today's date instead, so repeated downloads sort
+        chronologically and don't collide.
+        """
+        import datetime
+
+        list_response = Mock()
+        list_response.raise_for_status = Mock()
+        list_response.json.return_value = {
+            "wordlists": [{"id": 3, "name": "NTLM Ciphertexts", "type": "dynamic"}]
+        }
+
+        download_response = Mock()
+        download_response.content = b"gzipdata"
+        download_response.raise_for_status = Mock()
+        download_response.headers = {
+            "content-length": "0",
+            # A real dynamic response carries a random scratch filename here;
+            # it must be ignored in favor of the name-plus-date scheme.
+            "content-disposition": 'attachment; filename="a1b2c3d4e5f6a7b8.gz"',
+        }
+        download_response.iter_content = lambda chunk_size=8192: iter(
+            [download_response.content]
+        )
+
+        def fake_get(url, **kwargs):
+            if url.endswith("/v1/wordlists"):
+                return list_response
+            return download_response
+
+        api.session.get.side_effect = fake_get
+
+        with patch("hate_crack.api.get_hcat_wordlists_dir", return_value=str(tmp_path)):
+            result = api.download_wordlist(3)
+
+        today = datetime.date.today().isoformat()
+        expected_path = str(tmp_path / f"NTLM_Ciphertexts-{today}.txt.gz")
+        assert result["output_file"] == expected_path
+        assert os.path.exists(expected_path)
+
     def test_download_wordlist_type_lookup_failure_falls_back(self, api, tmp_path):
         """If listing wordlists to resolve the type fails, the download still proceeds.
 

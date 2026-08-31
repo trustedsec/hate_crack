@@ -7984,20 +7984,17 @@ def hashview_api():
                     if "wordlist_map" in locals()
                     else None
                 )
-                api_filename = "dynamic-all.txt.gz" if wordlist_id == 1 else api_name
                 prompt_suffix = (
-                    f" (API filename: {api_filename})"
-                    if api_filename
-                    else " (API filename)"
+                    f" (API filename: {api_name})" if api_name else " (API filename)"
                 )
                 output_file = (
                     input(
-                        f"Enter output file name{prompt_suffix} or press Enter to use API filename: "
+                        f"Enter output file name{prompt_suffix} or press Enter to "
+                        "auto-generate one (a dynamic wordlist gets its name plus "
+                        "today's date, e.g. Usernames-2026-08-31.txt.gz): "
                     ).strip()
                     or None
                 )
-                if output_file is None and wordlist_id == 1:
-                    output_file = "dynamic-all.txt.gz"
                 try:
                     download_result = api_harness.download_wordlist(
                         wordlist_id, output_file

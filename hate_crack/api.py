@@ -2342,10 +2342,12 @@ class HashviewAPI:
         # never block the download itself, so fall back to the legacy id==1
         # heuristic on any error.
         is_dynamic = int(wordlist_id) == 1
+        wordlist_name = None
         try:
             for wl in self.list_wordlists():
                 if int(wl.get("id", -1)) == int(wordlist_id):
                     is_dynamic = str(wl.get("type", "")).lower() == "dynamic"
+                    wordlist_name = wl.get("name")
                     break
         except Exception:
             pass
@@ -2371,8 +2373,18 @@ class HashviewAPI:
         resp.raise_for_status()
 
         if output_file is None:
-            if int(wordlist_id) == 1:
-                output_file = "dynamic-all.txt.gz"
+            if is_dynamic:
+                # The dynamic route serves a random secrets.token_hex(8) scratch
+                # filename (a fresh one per request, since the file is
+                # regenerated each time), so content-disposition is useless for
+                # naming a dynamic download -- build one from the wordlist's own
+                # name plus today's date instead, so repeated downloads of the
+                # same dynamic list are distinguishable and sort chronologically.
+                import datetime
+
+                slug = sanitize_filename(wordlist_name or "dynamic-all") or "dynamic"
+                today = datetime.date.today().isoformat()
+                output_file = f"{slug}-{today}.txt.gz"
             else:
                 content_disp = resp.headers.get("content-disposition", "")
                 match = re.search(
