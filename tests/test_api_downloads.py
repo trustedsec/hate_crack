@@ -749,6 +749,53 @@ class TestDownloadOfficialWordlist:
         assert mock_sleep.call_count == 1
         assert out.exists()
 
+    def test_meta_refresh_redirect_uses_verbatim_url(self, tmp_path):
+        real_url = "https://real-server.example.com/actual_official_file.7z"
+        html_content = (
+            "<html><head>"
+            f'<meta http-equiv="refresh" content="0;url={real_url}">'
+            "</head></html>"
+        ).encode()
+        mock_resp = _make_mock_response(
+            status_code=200,
+            content=html_content,
+            content_type="text/plain",
+        )
+        out = tmp_path / "official.7z"
+        with (
+            patch("hate_crack.api.requests.get", return_value=mock_resp),
+            patch("hate_crack.api.time.sleep"),
+            patch("hate_crack.api.get_hashmob_api_key", return_value=None),
+            patch("hate_crack.api._hashmob_limiter.wait"),
+            patch("hate_crack.api._streamed_download", return_value=True) as mock_sd,
+        ):
+            download_official_wordlist("official.7z", str(out))
+
+        mock_sd.assert_called_once()
+        called_url = mock_sd.call_args.args[0]
+        assert called_url == real_url
+
+    def test_html_without_meta_refresh_returns_false_and_does_not_write_file(
+        self, tmp_path
+    ):
+        html_content = b"<html><body>Quota exceeded</body></html>"
+        mock_resp = _make_mock_response(
+            status_code=200,
+            content=html_content,
+            content_type="text/plain",
+        )
+        out = tmp_path / "official.7z"
+        with (
+            patch("hate_crack.api.requests.get", return_value=mock_resp),
+            patch("hate_crack.api.time.sleep"),
+            patch("hate_crack.api.get_hashmob_api_key", return_value=None),
+            patch("hate_crack.api._hashmob_limiter.wait"),
+        ):
+            result = download_official_wordlist("official.7z", str(out))
+
+        assert result is False
+        assert not out.exists()
+
 
 class TestParallelRuleDownloads:
     def _make_rules(self, names):

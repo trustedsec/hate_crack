@@ -3193,6 +3193,8 @@ def list_and_download_hashmob_rules(rules_dir=None):
 
 def download_official_wordlist(file_name, out_path=None):
     """Download a file from the official wordlists directory with a progress bar."""
+    import re
+
     url = f"https://hashmob.net/api/v2/downloads/research/official/{file_name}"
     if not out_path:
         out_path = sanitize_filename(file_name)
@@ -3213,6 +3215,22 @@ def download_official_wordlist(file_name, out_path=None):
             if r.status_code == 429:
                 raise _Hashmob429()
             r.raise_for_status()
+            content_type = r.headers.get("Content-Type", "")
+            if "text/plain" in content_type:
+                html = r.content.decode(errors="replace")
+                match = re.search(
+                    r"<meta[^>]+http-equiv=['\"]refresh['\"][^>]+content=['\"]0;url=([^'\"]+)['\"]",
+                    html,
+                    re.IGNORECASE,
+                )
+                if match:
+                    real_url = match.group(1)
+                    print(f"Found meta refresh redirect to: {real_url}")
+                    return _streamed_download(real_url, archive_path, label=file_name)
+                print(
+                    "Error: Received HTML instead of file. Possible permission or quota issue."
+                )
+                return False
             return _stream_response_to_file(r, archive_path, label=file_name)
 
     try:
