@@ -2970,8 +2970,10 @@ def list_official_wordlists():
 def list_and_download_official_wordlists():
     """List files in the official wordlists directory via the Hashmob API, prompt for selection, and download."""
     url = "https://hashmob.net/api/v2/downloads/research/official/"
+    api_key = get_hashmob_api_key()
+    headers = {"api-key": api_key} if api_key else {}
     try:
-        resp = requests.get(url, timeout=30)
+        resp = requests.get(url, headers=headers, timeout=30)
         resp.raise_for_status()
         data = resp.json()
         if not isinstance(data, list):
@@ -3029,8 +3031,7 @@ def list_and_download_official_wordlists():
                     if _already_downloaded_wordlist(file_name):
                         print(f"[i] Skipping {file_name} (already present)")
                         continue
-                    out_path = entry.get("file_name", file_name)
-                    download_official_wordlist(file_name, out_path)
+                    download_official_wordlist(file_name)
             except KeyboardInterrupt:
                 print("\nKeyboard interrupt: Returning to download menu...")
                 return
@@ -3071,8 +3072,7 @@ def list_and_download_official_wordlists():
                 if _already_downloaded_wordlist(file_name):
                     print(f"[i] Skipping {file_name} (already present)")
                     continue
-                out_path = entry.get("file_name", file_name)
-                download_official_wordlist(file_name, out_path)
+                download_official_wordlist(file_name)
         except Exception as e:
             print(f"Error: {e}")
     except Exception as e:
@@ -3191,16 +3191,36 @@ def list_and_download_hashmob_rules(rules_dir=None):
     print(f"[i] Rule downloads complete: {succeeded} succeeded, {failed} failed.")
 
 
-def download_official_wordlist(file_name, out_path):
+def download_official_wordlist(file_name, out_path=None):
     """Download a file from the official wordlists directory with a progress bar."""
     url = f"https://hashmob.net/api/v2/downloads/research/official/{file_name}"
-    out_path = sanitize_filename(file_name)
+    if not out_path:
+        out_path = sanitize_filename(file_name)
     dest_dir = get_hcat_wordlists_dir()
     archive_path = (
         os.path.join(dest_dir, out_path) if not os.path.isabs(out_path) else out_path
     )
     os.makedirs(os.path.dirname(archive_path), exist_ok=True)
-    ok = _streamed_download(url, archive_path, label=file_name)
+
+    api_key = get_hashmob_api_key()
+    headers = {"api-key": api_key} if api_key else {}
+
+    def _attempt():
+        _hashmob_limiter.wait()
+        with requests.get(
+            url, headers=headers, stream=True, timeout=60, allow_redirects=True
+        ) as r:
+            if r.status_code == 429:
+                raise _Hashmob429()
+            r.raise_for_status()
+            return _stream_response_to_file(r, archive_path, label=file_name)
+
+    try:
+        ok = _with_hashmob_backoff(_attempt)
+    except Exception as e:
+        print(f"Error downloading official wordlist: {e}")
+        return False
+
     if ok and archive_path.endswith(".7z"):
         extract_with_7z(archive_path)
     return ok

@@ -11,6 +11,7 @@ from hate_crack.api import (
     check_7z,
     check_transmission_daemon,
     download_hashmob_wordlist,
+    download_official_wordlist,
     extract_with_7z,
     get_hashmob_api_key,
     get_hcat_potfile_args,
@@ -659,6 +660,96 @@ class TestDownloadHashmobWordlist:
         assert result is False
 
 
+class TestDownloadOfficialWordlist:
+    def _make_mock_response(self, status_code=200, content=b"official wordlist data"):
+        mock_response = MagicMock()
+        mock_response.__enter__ = lambda s: mock_response
+        mock_response.__exit__ = MagicMock(return_value=False)
+        mock_response.status_code = status_code
+        mock_response.headers = {"Content-Type": "application/octet-stream"}
+        mock_response.iter_content.return_value = [content]
+        mock_response.raise_for_status = MagicMock()
+        return mock_response
+
+    def test_writes_to_caller_supplied_out_path(self, tmp_path):
+        mock_response = self._make_mock_response()
+        out = tmp_path / "custom_name.txt"
+        with (
+            patch("hate_crack.api.requests.get", return_value=mock_response),
+            patch("hate_crack.api.time.sleep"),
+            patch("hate_crack.api.get_hashmob_api_key", return_value=None),
+        ):
+            result = download_official_wordlist("official.txt", str(out))
+        assert result is True
+        assert out.exists()
+        assert out.read_bytes() == b"official wordlist data"
+
+    def test_falls_back_to_sanitized_name_under_wordlists_dir_when_out_path_omitted(
+        self, tmp_path
+    ):
+        mock_response = self._make_mock_response()
+        with (
+            patch("hate_crack.api.requests.get", return_value=mock_response),
+            patch("hate_crack.api.time.sleep"),
+            patch("hate_crack.api.get_hashmob_api_key", return_value=None),
+            patch("hate_crack.api.get_hcat_wordlists_dir", return_value=str(tmp_path)),
+        ):
+            result = download_official_wordlist("official file.txt")
+        assert result is True
+        expected = tmp_path / sanitize_filename("official file.txt")
+        assert expected.exists()
+
+    def test_sends_api_key_header_and_waits_on_limiter(self, tmp_path):
+        mock_response = self._make_mock_response()
+        out = tmp_path / "official.txt"
+        with (
+            patch(
+                "hate_crack.api.requests.get", return_value=mock_response
+            ) as mock_get,
+            patch("hate_crack.api.time.sleep"),
+            patch(
+                "hate_crack.api.get_hashmob_api_key",
+                return_value="placeholder-key",
+            ),
+            patch("hate_crack.api._hashmob_limiter.wait") as mock_wait,
+        ):
+            result = download_official_wordlist("official.txt", str(out))
+        assert result is True
+        mock_wait.assert_called_once()
+        assert mock_get.call_args.kwargs["headers"] == {"api-key": "placeholder-key"}
+
+    def test_no_api_key_omits_header(self, tmp_path):
+        mock_response = self._make_mock_response()
+        out = tmp_path / "official.txt"
+        with (
+            patch(
+                "hate_crack.api.requests.get", return_value=mock_response
+            ) as mock_get,
+            patch("hate_crack.api.time.sleep"),
+            patch("hate_crack.api.get_hashmob_api_key", return_value=None),
+        ):
+            download_official_wordlist("official.txt", str(out))
+        assert mock_get.call_args.kwargs["headers"] == {}
+
+    def test_retries_through_backoff_on_429(self, tmp_path):
+        mock_429 = self._make_mock_response(status_code=429)
+        mock_ok = self._make_mock_response(status_code=200)
+        out = tmp_path / "official.txt"
+        with (
+            patch(
+                "hate_crack.api.requests.get", side_effect=[mock_429, mock_ok]
+            ) as mock_get,
+            patch("hate_crack.api.time.sleep") as mock_sleep,
+            patch("hate_crack.api.get_hashmob_api_key", return_value=None),
+            patch("hate_crack.api._hashmob_limiter.wait"),
+        ):
+            result = download_official_wordlist("official.txt", str(out))
+        assert result is True
+        assert mock_get.call_count == 2
+        assert mock_sleep.call_count == 1
+        assert out.exists()
+
+
 class TestParallelRuleDownloads:
     def _make_rules(self, names):
         return [{"file_name": n} for n in names]
@@ -880,7 +971,7 @@ class TestListAndDownloadOfficialWordlistsSkipExisting:
         mock_stdin.isatty.return_value = True
 
         with (
-            patch("hate_crack.api.requests.get", return_value=mock_resp),
+            patch("hate_crack.api.requests.get", return_value=mock_resp) as mock_get,
             patch(
                 "hate_crack.api.get_hcat_wordlists_dir", return_value=str(wordlists_dir)
             ),
@@ -893,8 +984,38 @@ class TestListAndDownloadOfficialWordlistsSkipExisting:
         assert mock_dl.call_count == 1
         called_filename = mock_dl.call_args.args[0]
         assert called_filename == "new.txt"
+        assert mock_get.call_args.kwargs["headers"] == {}
         captured = capsys.readouterr()
         assert "Skipping existing.txt" in captured.out
+
+    def test_sends_api_key_header_on_listing_request(self, tmp_path, capsys):
+        wordlists_dir = tmp_path / "wordlists"
+        wordlists_dir.mkdir()
+
+        api_data = [{"file_name": "new.txt"}]
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json.return_value = api_data
+
+        mock_stdin = MagicMock()
+        mock_stdin.isatty.return_value = True
+
+        with (
+            patch("hate_crack.api.requests.get", return_value=mock_resp) as mock_get,
+            patch(
+                "hate_crack.api.get_hcat_wordlists_dir", return_value=str(wordlists_dir)
+            ),
+            patch("hate_crack.api.download_official_wordlist"),
+            patch("hate_crack.api.sys.stdin", mock_stdin),
+            patch("builtins.input", return_value="a"),
+            patch(
+                "hate_crack.api.get_hashmob_api_key",
+                return_value="placeholder-key",
+            ),
+        ):
+            list_and_download_official_wordlists()
+
+        assert mock_get.call_args.kwargs["headers"] == {"api-key": "placeholder-key"}
 
 
 class TestGetWeakpassInertiaVersion:
