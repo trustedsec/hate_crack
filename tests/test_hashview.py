@@ -1598,6 +1598,113 @@ class TestHashviewAPI:
         assert "Cookie" in auth_headers or "uuid" in str(auth_headers)
         assert HASHVIEW_API_KEY in str(auth_headers)
 
+    def test_download_wordlist_dynamic_uses_dynamic_timeout_and_notice(
+        self, api, tmp_path, capsys
+    ):
+        """A dynamic-type wordlist gets the longer timeout and an up-front notice.
+
+        Hashview regenerates a dynamic wordlist from the DB on every download
+        request before sending a single byte, so the download needs its own,
+        much larger timeout than the static/metadata default -- and the
+        operator needs to be told why the CLI is about to sit silent.
+        """
+        from hate_crack.api import HASHVIEW_DYNAMIC_DOWNLOAD_TIMEOUT
+
+        list_response = Mock()
+        list_response.raise_for_status = Mock()
+        list_response.json.return_value = {
+            "wordlists": [{"id": 7, "name": "Usernames", "type": "dynamic"}]
+        }
+
+        download_response = Mock()
+        download_response.content = b"gzipdata"
+        download_response.raise_for_status = Mock()
+        download_response.headers = {"content-length": "0"}
+        download_response.iter_content = lambda chunk_size=8192: iter(
+            [download_response.content]
+        )
+
+        def fake_get(url, **kwargs):
+            if url.endswith("/v1/wordlists"):
+                return list_response
+            return download_response
+
+        api.session.get.side_effect = fake_get
+
+        output_file = tmp_path / "wordlist_7.gz"
+        api.download_wordlist(7, output_file=str(output_file))
+
+        download_call = [
+            c for c in api.session.get.call_args_list if "wordlists/7" in str(c)
+        ][0]
+        assert download_call.kwargs.get("timeout") == HASHVIEW_DYNAMIC_DOWNLOAD_TIMEOUT
+
+        captured = capsys.readouterr()
+        assert "regenerates dynamic wordlists on demand" in captured.out
+
+    def test_download_wordlist_static_uses_default_timeout_no_notice(
+        self, api, tmp_path, capsys
+    ):
+        """A static wordlist keeps the shorter timeout and prints no wait notice."""
+        from hate_crack.api import HASHVIEW_DOWNLOAD_TIMEOUT
+
+        list_response = Mock()
+        list_response.raise_for_status = Mock()
+        list_response.json.return_value = {
+            "wordlists": [{"id": 42, "name": "rockyou.txt", "type": "static"}]
+        }
+
+        download_response = Mock()
+        download_response.content = b"data"
+        download_response.raise_for_status = Mock()
+        download_response.headers = {"content-length": "0"}
+        download_response.iter_content = lambda chunk_size=8192: iter(
+            [download_response.content]
+        )
+
+        def fake_get(url, **kwargs):
+            if url.endswith("/v1/wordlists"):
+                return list_response
+            return download_response
+
+        api.session.get.side_effect = fake_get
+
+        output_file = tmp_path / "wordlist_42.gz"
+        api.download_wordlist(42, output_file=str(output_file))
+
+        download_call = [
+            c for c in api.session.get.call_args_list if "wordlists/42" in str(c)
+        ][0]
+        assert download_call.kwargs.get("timeout") == HASHVIEW_DOWNLOAD_TIMEOUT
+
+        captured = capsys.readouterr()
+        assert "regenerates dynamic wordlists on demand" not in captured.out
+
+    def test_download_wordlist_type_lookup_failure_falls_back(self, api, tmp_path):
+        """If listing wordlists to resolve the type fails, the download still proceeds.
+
+        A failed metadata lookup must never turn into a hard failure on the
+        download path -- it falls back to the legacy id==1 heuristic.
+        """
+        download_response = Mock()
+        download_response.content = b"gzipdata"
+        download_response.raise_for_status = Mock()
+        download_response.headers = {"content-length": "0"}
+        download_response.iter_content = lambda chunk_size=8192: iter(
+            [download_response.content]
+        )
+
+        def fake_get(url, **kwargs):
+            if url.endswith("/v1/wordlists"):
+                raise requests.RequestException("listing endpoint unreachable")
+            return download_response
+
+        api.session.get.side_effect = fake_get
+
+        output_file = tmp_path / "wordlist_1.gz"
+        result = api.download_wordlist(1, output_file=str(output_file))
+        assert os.path.exists(result["output_file"])
+
     def test_download_wordlist_live(self, tmp_path):
         """Live Hashview: a wordlist uploaded by this test downloads back intact.
 

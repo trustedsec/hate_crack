@@ -41,6 +41,15 @@ HASHVIEW_UPLOAD_TIMEOUT = 300
 # chunks longer than 30s under server load, which previously aborted the
 # download outright rather than just running slower.
 HASHVIEW_DOWNLOAD_TIMEOUT = 300
+# A *dynamic* Hashview wordlist (Usernames, Customers, NTLM ciphertexts, the
+# per-length "Recovered Passwords" buckets) is not stored at rest: the server
+# regenerates it from the database and gzip -9s it before sending a single
+# response byte (on-demand dynamic wordlists). requests' scalar timeout caps
+# time-to-first-byte, so this has to cover server-side build time, not
+# transfer time -- it scales with the size of the recovered-password corpus,
+# not with the wire. HASHVIEW_DOWNLOAD_TIMEOUT stays 300s for static lists,
+# which stream straight off disk and never hit this path.
+HASHVIEW_DYNAMIC_DOWNLOAD_TIMEOUT = 1800
 # Hashfile enumeration gets its own knob because it fails for its own reason.
 # Both listing routes compute total/cracked counts per hashfile server-side, so
 # their cost scales with the number of *hashes* involved, not the number of
@@ -2324,12 +2333,40 @@ class HashviewAPI:
                         f"Warning: failed to update dynamic wordlist {wordlist_id}: {exc}"
                     )
 
+        # A dynamic wordlist is regenerated from the DB on every download
+        # request, so it needs far more time-to-first-byte headroom than a
+        # static list streamed straight off disk. Resolve the real type via
+        # the metadata listing rather than assuming only id 1 is dynamic --
+        # Hashview also has dynamic Usernames/Customers/NTLM-ciphertext rows
+        # and per-length Recovered Passwords buckets. A failed lookup must
+        # never block the download itself, so fall back to the legacy id==1
+        # heuristic on any error.
+        is_dynamic = int(wordlist_id) == 1
+        try:
+            for wl in self.list_wordlists():
+                if int(wl.get("id", -1)) == int(wordlist_id):
+                    is_dynamic = str(wl.get("type", "")).lower() == "dynamic"
+                    break
+        except Exception:
+            pass
+
+        if is_dynamic:
+            print(
+                "Hashview regenerates dynamic wordlists on demand -- it builds "
+                "and compresses the list before sending any data, so this can "
+                "sit silent for several minutes on a large corpus. Waiting up "
+                "to 30 minutes..."
+            )
+            download_timeout = HASHVIEW_DYNAMIC_DOWNLOAD_TIMEOUT
+        else:
+            download_timeout = HASHVIEW_DOWNLOAD_TIMEOUT
+
         url = f"{self.base_url}/v1/wordlists/{wordlist_id}"
         resp = self.session.get(
             url,
             headers=self._auth_headers(),
             stream=True,
-            timeout=HASHVIEW_DOWNLOAD_TIMEOUT,
+            timeout=download_timeout,
         )
         resp.raise_for_status()
 
