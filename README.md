@@ -1454,6 +1454,7 @@ Access a submenu for downloading large-scale password corpora and specialized wo
 **Archives** - Downloads yearly full-found password corpora (multi-GB archives containing all cracked passwords from a given year)
 * Requires confirmation before downloading -- these archives are large (the listing may show "(unknown size)" since Hashmob's API doesn't currently report a file size per archive)
 * Lists all available archives across every year as one globally-numbered list to browse and pick from by index, rather than a per-year picker
+* Accepts `a` (or `all`) at the selection prompt to download every listed archive, one at a time. A single confirmation naming the archive count and the summed size covers the whole batch; an archive already on disk at its listed size is skipped, one whose size does not match is re-downloaded, and a failure is counted rather than aborting the rest
 * Stores archives in the configured wordlist directory for extraction and use
 
 **Combined Left Lists** - Downloads per-hashcat-mode combined lists of uncracked ("left") hashes from Hashmob.net

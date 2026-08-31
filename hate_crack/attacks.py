@@ -6,6 +6,7 @@ from typing import Any
 
 from hate_crack import notify as _notify
 from hate_crack.api import (
+    download_all_hashmob_archives,
     download_hashmob_archive,
     download_hashmob_combined_left,
     download_hashmob_masks,
@@ -2149,9 +2150,12 @@ def hashmob_archives_handler(ctx: Any) -> None:
     if not entries:
         return
     sel = input(
-        "\nEnter the number of the archive to download, or 'q' to cancel: "
+        "\nEnter the number of the archive to download, 'a' for all, or 'q' to cancel: "
     ).strip()
     if not sel or sel.lower() == "q":
+        return
+    if sel.lower() in ("a", "all"):
+        download_all_hashmob_archives(entries)
         return
     try:
         idx = int(sel)

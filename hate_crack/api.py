@@ -3137,7 +3137,7 @@ def list_hashmob_archives():
     return flattened
 
 
-def download_hashmob_archive(entry_or_file_name, out_path=None):
+def download_hashmob_archive(entry_or_file_name, out_path=None, *, confirm=True):
     """Download a yearly full-found corpus archive from Hashmob.
 
     ``entry_or_file_name`` may be a listing entry (dict with ``name``/``url``
@@ -3148,6 +3148,11 @@ def download_hashmob_archive(entry_or_file_name, out_path=None):
     skipped -- and the download declined, not started silently -- in a
     non-interactive context, matching the ``_safe_input`` pattern used
     elsewhere in this module (e.g. ``list_and_download_hashmob_masks``).
+
+    ``confirm=False`` skips that prompt, and is for a caller that has already
+    obtained an explicit confirmation covering this download --
+    :func:`download_all_hashmob_archives` asks once for the whole batch
+    rather than once per archive. It is not a way to download silently.
     """
     if isinstance(entry_or_file_name, dict):
         url = entry_or_file_name.get("url")
@@ -3181,14 +3186,15 @@ def download_hashmob_archive(entry_or_file_name, out_path=None):
         except EOFError:
             return "q"
 
-    size_str = _format_size(size_hint) if size_hint else "unknown size"
-    confirm = _safe_input(
-        f"[!] '{file_name}' is a large archive ({size_str}) and may take a "
-        "long time to download. Proceed? [y/N]: "
-    )
-    if confirm.strip().lower() not in ("y", "yes"):
-        print("Archive download cancelled.")
-        return False
+    if confirm:
+        size_str = _format_size(size_hint) if size_hint else "unknown size"
+        answer = _safe_input(
+            f"[!] '{file_name}' is a large archive ({size_str}) and may take a "
+            "long time to download. Proceed? [y/N]: "
+        )
+        if answer.strip().lower() not in ("y", "yes"):
+            print("Archive download cancelled.")
+            return False
 
     if not out_path:
         out_path = sanitize_filename(file_name)
@@ -3220,6 +3226,103 @@ def download_hashmob_archive(entry_or_file_name, out_path=None):
     if ok and archive_path.endswith(".7z"):
         extract_with_7z(archive_path)
     return ok
+
+
+def download_all_hashmob_archives(entries, out_dir=None):
+    """Download every archive in ``entries`` (as returned by
+    :func:`list_hashmob_archives`), one at a time.
+
+    The whole set runs to tens of gigabytes, so a single aggregate
+    confirmation naming the count and the summed size is taken up front and
+    the per-archive prompt is suppressed -- being asked a dozen times is how
+    an operator stops reading the question. A non-interactive context
+    declines, same as the single-archive path.
+
+    Downloads are sequential, not parallel: these are multi-gigabyte files
+    and running them concurrently only splits the same bandwidth while
+    multiplying the disk footprint of a partial batch. A failure is counted
+    and the batch continues. Returns
+    ``{"succeeded": int, "failed": int, "skipped": int}``.
+
+    An archive already on disk at its listed size is skipped. One whose size
+    does not match is re-downloaded, since a truncated file from an
+    interrupted run is the likelier explanation; one with no listed size is
+    skipped, because nothing local can distinguish the two cases.
+    """
+    counts = {"succeeded": 0, "failed": 0, "skipped": 0}
+    entries = [e for e in (entries or []) if isinstance(e, dict)]
+    if not entries:
+        return counts
+
+    dest_dir = out_dir or get_hcat_wordlists_dir()
+    total_size = sum(
+        int(e["file_size"])
+        for e in entries
+        if str(e.get("file_size", "")).strip().isdigit()
+    )
+    total_str = _format_size(total_size) if total_size else "unknown total size"
+
+    def _safe_input(prompt):
+        try:
+            if not sys.stdin or not sys.stdin.isatty():
+                return "q"
+        except Exception:
+            return "q"
+        try:
+            return input(prompt)
+        except EOFError:
+            return "q"
+
+    answer = _safe_input(
+        f"[!] This downloads {len(entries)} archive(s), {total_str} total, and "
+        "may take hours. Proceed? [y/N]: "
+    )
+    if answer.strip().lower() not in ("y", "yes"):
+        print("Archive download cancelled.")
+        return counts
+
+    for entry in entries:
+        file_name = entry.get("name") or entry.get("file_name") or ""
+        if not file_name:
+            print("[!] Archive entry has no name, skipping.")
+            counts["skipped"] += 1
+            continue
+        out_path = os.path.join(dest_dir, sanitize_filename(file_name))
+        listed_size = (
+            int(entry["file_size"])
+            if str(entry.get("file_size", "")).strip().isdigit()
+            else None
+        )
+        if os.path.exists(out_path):
+            local_size = os.path.getsize(out_path)
+            if listed_size is None:
+                print(
+                    f"[i] Skipping '{file_name}': already present and its size "
+                    "cannot be verified against the listing."
+                )
+                counts["skipped"] += 1
+                continue
+            if local_size == listed_size:
+                print(f"[i] Skipping '{file_name}': already downloaded in full.")
+                counts["skipped"] += 1
+                continue
+            print(
+                f"[i] Re-downloading '{file_name}': on disk at "
+                f"{_format_size(local_size)}, listing says "
+                f"{_format_size(listed_size)}."
+            )
+        try:
+            ok = download_hashmob_archive(entry, out_path=out_path, confirm=False)
+        except Exception as e:
+            print(f"Error downloading Hashmob archive '{file_name}': {e}")
+            ok = False
+        counts["succeeded" if ok else "failed"] += 1
+
+    print(
+        f"\n[*] Archives: {counts['succeeded']} downloaded, "
+        f"{counts['failed']} failed, {counts['skipped']} skipped."
+    )
+    return counts
 
 
 def list_hashmob_combined_left():
