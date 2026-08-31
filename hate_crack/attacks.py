@@ -6,6 +6,7 @@ from typing import Any
 
 from hate_crack import notify as _notify
 from hate_crack.api import (
+    download_hashmob_masks,
     download_hashmob_rules,
     download_hashmob_wordlists,
     weakpass_wordlist_menu,
@@ -1859,6 +1860,7 @@ def rule_tools_submenu(ctx: Any) -> None:
         ("3", "Clean and optimize rule file (both)"),
         ("4", "Download rules from Hashmob.net"),
         ("5", "Analyze Hashcat rules (opcode statistics)"),
+        ("6", "Download masks from Hashmob.net"),
         ("99", "Back to Main Menu"),
     ]
     while True:
@@ -1875,6 +1877,8 @@ def rule_tools_submenu(ctx: Any) -> None:
             download_hashmob_rules(print_fn=print, rules_dir=ctx.rulesDirectory)
         elif choice == "5":
             ctx.analyze_rules()
+        elif choice == "6":
+            download_hashmob_masks(print_fn=print, masks_dir=None)
 
 
 def wordlist_filter_length(ctx: Any) -> None:

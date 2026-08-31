@@ -242,6 +242,15 @@ class TestRuleToolsSubmenu:
             rule_tools_submenu(ctx)
         ctx.analyze_rules.assert_called_once_with()
 
+    def test_dispatches_to_hashmob_masks_download(self):
+        ctx = _make_ctx()
+        with (
+            patch("hate_crack.attacks.download_hashmob_masks") as mock_fn,
+            patch("hate_crack.menu.interactive_menu", side_effect=["6", "99"]),
+        ):
+            rule_tools_submenu(ctx)
+        mock_fn.assert_called_once_with(print_fn=print, masks_dir=None)
+
     def test_exits_on_99(self):
         ctx = _make_ctx()
         with patch("hate_crack.menu.interactive_menu", return_value="99"):

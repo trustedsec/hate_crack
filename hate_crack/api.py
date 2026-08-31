@@ -2943,6 +2943,72 @@ def download_hashmob_rule(file_name, out_path, resource_type=None):
         return False
 
 
+def download_hashmob_mask_list():
+    """Fetch available masks from Hashmob API v2 and print them.
+
+    The live response contains duplicate ``file_name`` entries; dedupe by
+    ``file_name``, keeping the first occurrence.
+    """
+    url = "https://hashmob.net/api/v2/resource"
+    api_key = get_hashmob_api_key()
+    headers = {"api-key": api_key} if api_key else {}
+    try:
+        resp = requests.get(url, headers=headers, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        masks = []
+        seen_names = set()
+        for r in data:
+            if r.get("type") != "masks":
+                continue
+            file_name = r.get("file_name")
+            if file_name in seen_names:
+                continue
+            seen_names.add(file_name)
+            masks.append(r)
+        entries = []
+        for idx, mask in enumerate(masks):
+            name = mask.get("name", mask.get("file_name", ""))
+            detail = _listing_detail_suffix(
+                mask.get("file_size"), mask.get("line_count")
+            )
+            entries.append(f"{idx + 1}. {name}{detail}")
+        max_entry_len = max((len(e) for e in entries), default=30)
+        print_multicolumn_list(
+            "Available Hashmob Masks",
+            entries,
+            min_col_width=max_entry_len,
+            max_col_width=max_entry_len,
+        )
+        return masks
+    except Exception as e:
+        print(f"Error fetching Hashmob masks: {e}")
+        return []
+
+
+def download_hashmob_mask(file_name, out_path):
+    """Download a mask file from Hashmob by file name."""
+    url = f"https://hashmob.net/api/v2/downloads/research/masks/{file_name}"
+    api_key = get_hashmob_api_key()
+    headers = {"api-key": api_key} if api_key else {}
+
+    def _attempt():
+        _hashmob_limiter.wait()
+        with requests.get(
+            url, headers=headers, stream=True, timeout=60, allow_redirects=True
+        ) as r:
+            if r.status_code == 429:
+                raise _Hashmob429(_parse_retry_after(r))
+            r.raise_for_status()
+            return _stream_response_to_file(r, out_path, label=file_name)
+
+    try:
+        return _with_hashmob_backoff(_attempt)
+    except Exception as e:
+        print(f"Error downloading mask: {e}")
+        return False
+
+
 def list_official_wordlists():
     """List files in the official wordlists directory via the Hashmob API."""
     url = "https://hashmob.net/api/v2/downloads/research/official/"
@@ -3097,6 +3163,119 @@ def _downloaded_rule_names(rules_dir):
         }
     except (FileNotFoundError, NotADirectoryError, PermissionError):
         return set()
+
+
+def _downloaded_mask_names(masks_dir):
+    """Names of mask files already present, for the download dedup check.
+
+    Files only: a directory whose name matches a wanted mask would otherwise
+    mark it as already downloaded and skip it.
+    """
+    try:
+        return {
+            name
+            for name in os.listdir(masks_dir)
+            if os.path.isfile(os.path.join(masks_dir, name))
+        }
+    except (FileNotFoundError, NotADirectoryError, PermissionError):
+        return set()
+
+
+def list_and_download_hashmob_masks(masks_dir=None):
+    """List masks via the Hashmob API, prompt for selection, and download."""
+    masks = download_hashmob_mask_list()
+    if not masks:
+        return
+    print("a. Download ALL files")
+
+    def _safe_input(prompt):
+        try:
+            if not sys.stdin or not sys.stdin.isatty():
+                return "q"
+        except Exception:
+            return "q"
+        try:
+            return input(prompt)
+        except EOFError:
+            return "q"
+
+    sel = _safe_input(
+        "Enter the number(s) to download (e.g. 1,3,5-7), or 'a' for all, or 'q' to quit: "
+    )
+    if sel.lower() == "q":
+        return
+    if not masks_dir:
+        masks_dir = os.path.join(_get_hate_path(), "masks")
+
+    def parse_indices(selection, max_index):
+        indices = set()
+        for part in selection.split(","):
+            part = part.strip()
+            if not part:
+                continue
+            if "-" in part:
+                try:
+                    start, end = map(int, part.split("-", 1))
+                    if start > end:
+                        start, end = end, start
+                    indices.update(range(start, end + 1))
+                except Exception:
+                    continue
+            else:
+                try:
+                    indices.add(int(part))
+                except Exception:
+                    continue
+        return sorted(i for i in indices if 1 <= i <= max_index)
+
+    # Track already-downloaded masks to avoid duplicates
+    downloaded_masks = _downloaded_mask_names(masks_dir)
+
+    def already_downloaded(file_name):
+        sanitized = sanitize_filename(file_name)
+        return sanitized in downloaded_masks
+
+    if sel.lower() == "a":
+        entries = masks
+    else:
+        indices = parse_indices(sel, len(masks))
+        if not indices:
+            print("No valid selection.")
+            return
+        entries = [masks[idx - 1] for idx in indices]
+
+    jobs = []
+    for entry in entries:
+        file_name = entry.get("file_name")
+        if not file_name:
+            print("No file_name found for an entry, skipping.")
+            continue
+        if already_downloaded(file_name):
+            print(f"[i] Skipping already downloaded mask: {file_name}")
+            continue
+        os.makedirs(masks_dir, exist_ok=True)
+        out_path = os.path.join(masks_dir, sanitize_filename(file_name))
+        jobs.append((file_name, out_path))
+
+    if not jobs:
+        return
+
+    succeeded = 0
+    failed = 0
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {
+            executor.submit(download_hashmob_mask, fn, op): fn for fn, op in jobs
+        }
+        for future in concurrent.futures.as_completed(futures):
+            file_name = futures[future]
+            try:
+                future.result()
+                succeeded += 1
+            except Exception as exc:
+                print(f"[!] Failed to download {file_name}: {exc}")
+                failed += 1
+
+    print(f"[i] Mask downloads complete: {succeeded} succeeded, {failed} failed.")
 
 
 def list_and_download_hashmob_rules(rules_dir=None):
@@ -3297,6 +3476,12 @@ def download_hashmob_rules(print_fn=print, rules_dir=None) -> None:
     """Download Hashmob rules."""
     list_and_download_hashmob_rules(rules_dir=rules_dir)
     print_fn("Hashmob rules download complete.")
+
+
+def download_hashmob_masks(print_fn=print, masks_dir=None) -> None:
+    """Download Hashmob masks."""
+    list_and_download_hashmob_masks(masks_dir=masks_dir)
+    print_fn("Hashmob masks download complete.")
 
 
 def download_weakpass_torrent(download_torrent, filename: str, print_fn=print) -> None:

@@ -109,6 +109,7 @@ class TestSyncCallablesToMain:
             "weakpass_wordlist_menu",
             "download_hashmob_wordlists",
             "download_hashmob_rules",
+            "download_hashmob_masks",
             "hashview_api",
             "export_excel",
             "show_results",

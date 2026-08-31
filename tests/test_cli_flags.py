@@ -23,6 +23,7 @@ def _run_main(monkeypatch, argv):
         (["--weakpass"], "weakpass_wordlist_menu"),
         (["--hashmob"], "download_hashmob_wordlists"),
         (["--rules"], "download_hashmob_rules"),
+        (["--hashmob-masks"], "download_hashmob_masks"),
         (["--cleanup"], "cleanup_wordlist_artifacts"),
     ],
 )

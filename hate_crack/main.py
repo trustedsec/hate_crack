@@ -64,6 +64,7 @@ from hate_crack.api import HashviewAPI  # noqa: E402
 from hate_crack.api import HASHVIEW_LISTING_TIMEOUT, _http_status  # noqa: E402
 from hate_crack.api import (  # noqa: E402
     download_all_weakpass_torrents,
+    download_hashmob_masks,
     download_hashmob_wordlists,
     download_hashmob_rules,
     download_weakpass_torrent,
@@ -9330,6 +9331,11 @@ def main():
             "--rules", action="store_true", help="Download rules from Hashmob.net"
         )
         parser.add_argument(
+            "--hashmob-masks",
+            action="store_true",
+            help="Download masks from Hashmob.net",
+        )
+        parser.add_argument(
             "--cleanup",
             action="store_true",
             help="Cleanup .out files, torrents, and extract or remove .7z archives",
@@ -9814,6 +9820,9 @@ def main():
         sys.exit(0)
     if args.rules:
         download_hashmob_rules(print_fn=print, rules_dir=rulesDirectory)
+        sys.exit(0)
+    if args.hashmob_masks:
+        download_hashmob_masks(print_fn=print, masks_dir=None)
         sys.exit(0)
 
     if args.hashfile and args.hashtype:

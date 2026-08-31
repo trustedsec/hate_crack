@@ -10,6 +10,8 @@ from hate_crack import hashcat_paths
 from hate_crack.api import (
     check_7z,
     check_transmission_daemon,
+    download_hashmob_mask,
+    download_hashmob_mask_list,
     download_hashmob_rule,
     download_hashmob_rule_list,
     download_hashmob_wordlist,
@@ -844,6 +846,156 @@ class TestDownloadHashmobRule:
             called_url
             == "https://www.hashmob.net/api/v2/downloads/research/rules/unknown.rule"
         )
+
+
+class TestDownloadHashmobMaskList:
+    def _mock_resource_response(self, data):
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = data
+        return mock_response
+
+    def test_filters_masks_type_only(self, capsys):
+        data = [
+            {"type": "wordlist", "file_name": "rockyou.txt"},
+            {"type": "masks", "file_name": "rockyou-1-60.hcmask"},
+            {"type": "rule", "file_name": "best64.rule"},
+            {"type": "masks", "file_name": "hashcat-default.hcmask"},
+        ]
+        with patch(
+            "hate_crack.api.requests.get",
+            return_value=self._mock_resource_response(data),
+        ):
+            result = download_hashmob_mask_list()
+        assert len(result) == 2
+        assert all(r["type"] == "masks" for r in result)
+
+    def test_dedupes_by_file_name_keeping_first_occurrence(self, capsys):
+        data = [
+            {"type": "masks", "file_name": "hashcat-default.hcmask", "name": "first"},
+            {"type": "masks", "file_name": "hashcat-default.hcmask", "name": "second"},
+            {"type": "masks", "file_name": "rockyou-1-60.hcmask", "name": "unique"},
+        ]
+        with patch(
+            "hate_crack.api.requests.get",
+            return_value=self._mock_resource_response(data),
+        ):
+            result = download_hashmob_mask_list()
+        names = [r["file_name"] for r in result]
+        assert names == ["hashcat-default.hcmask", "rockyou-1-60.hcmask"]
+        assert result[0]["name"] == "first"
+
+    def test_entry_includes_human_size_and_line_count(self, capsys):
+        data = [
+            {
+                "type": "masks",
+                "name": "rockyou-1-60",
+                "file_name": "rockyou-1-60.hcmask",
+                "file_size": 1024,
+                "line_count": 12,
+            }
+        ]
+        with patch(
+            "hate_crack.api.requests.get",
+            return_value=self._mock_resource_response(data),
+        ):
+            download_hashmob_mask_list()
+        out = capsys.readouterr().out
+        assert "12 lines" in out
+        assert "KB" in out or "B" in out
+
+
+class TestDownloadHashmobMask:
+    def _make_mock_response(self, status_code=200, content=b"mask data"):
+        mock_response = MagicMock()
+        mock_response.__enter__ = lambda s: mock_response
+        mock_response.__exit__ = MagicMock(return_value=False)
+        mock_response.status_code = status_code
+        mock_response.headers = {"Content-Type": "application/octet-stream"}
+        mock_response.iter_content.return_value = [content]
+        mock_response.raise_for_status = MagicMock()
+        return mock_response
+
+    def test_successful_download(self, tmp_path):
+        mock_response = self._make_mock_response()
+        out = tmp_path / "test.hcmask"
+        with (
+            patch(
+                "hate_crack.api.requests.get", return_value=mock_response
+            ) as mock_get,
+            patch("hate_crack.api.time.sleep"),
+            patch("hate_crack.api.get_hashmob_api_key", return_value=None),
+            patch("hate_crack.api._hashmob_limiter.wait"),
+        ):
+            result = download_hashmob_mask("test.hcmask", str(out))
+        assert result is True
+        assert out.exists()
+        assert out.read_bytes() == b"mask data"
+        called_url = mock_get.call_args.args[0]
+        assert (
+            called_url
+            == "https://hashmob.net/api/v2/downloads/research/masks/test.hcmask"
+        )
+
+    def test_sends_api_key_header_when_configured(self, tmp_path):
+        mock_response = self._make_mock_response()
+        out = tmp_path / "test.hcmask"
+        with (
+            patch(
+                "hate_crack.api.requests.get", return_value=mock_response
+            ) as mock_get,
+            patch("hate_crack.api.time.sleep"),
+            patch("hate_crack.api.get_hashmob_api_key", return_value="secret-key"),
+            patch("hate_crack.api._hashmob_limiter.wait"),
+        ):
+            download_hashmob_mask("test.hcmask", str(out))
+        assert mock_get.call_args.kwargs["headers"] == {"api-key": "secret-key"}
+
+    def test_calls_limiter_before_request(self, tmp_path):
+        mock_response = self._make_mock_response()
+        out = tmp_path / "test.hcmask"
+        with (
+            patch("hate_crack.api.requests.get", return_value=mock_response),
+            patch("hate_crack.api.time.sleep"),
+            patch("hate_crack.api.get_hashmob_api_key", return_value=None),
+            patch("hate_crack.api._hashmob_limiter.wait") as mock_wait,
+        ):
+            download_hashmob_mask("test.hcmask", str(out))
+        mock_wait.assert_called_once()
+
+    def test_429_triggers_backoff_and_retries(self, tmp_path):
+        mock_429 = self._make_mock_response(status_code=429)
+        mock_ok = self._make_mock_response(status_code=200)
+        out = tmp_path / "test.hcmask"
+        with (
+            patch(
+                "hate_crack.api.requests.get", side_effect=[mock_429, mock_ok]
+            ) as mock_get,
+            patch("hate_crack.api.time.sleep") as mock_sleep,
+            patch("hate_crack.api.get_hashmob_api_key", return_value=None),
+            patch("hate_crack.api._hashmob_limiter.wait"),
+        ):
+            result = download_hashmob_mask("test.hcmask", str(out))
+        assert result is True
+        assert mock_get.call_count == 2
+        mock_sleep.assert_called_once()
+
+    def test_404_returns_false(self, tmp_path):
+        import requests as req
+
+        mock_response = self._make_mock_response(status_code=404)
+        mock_response.raise_for_status.side_effect = req.exceptions.HTTPError(
+            response=MagicMock(status_code=404)
+        )
+        out = tmp_path / "test.hcmask"
+        with (
+            patch("hate_crack.api.requests.get", return_value=mock_response),
+            patch("hate_crack.api.time.sleep"),
+            patch("hate_crack.api.get_hashmob_api_key", return_value=None),
+            patch("hate_crack.api._hashmob_limiter.wait"),
+        ):
+            result = download_hashmob_mask("test.hcmask", str(out))
+        assert result is False
 
 
 class TestDownloadOfficialWordlist:
