@@ -1040,6 +1040,7 @@ All tests use mocked API calls, so they can run without connectivity to a Hashvi
   (80) Wordlist Tools
   (81) Rule File Tools
   (82) Notifications
+  (83) Mask Tools
 
   (93) Regenerate .out from POT file
   (94) Hashview API
@@ -1397,7 +1398,6 @@ Preprocesses hashcat rule files using `cleanup-rules.bin` and `rules_optimize.bi
 * **Clean and optimize** (3) - runs both operations in sequence via a temporary file, then writes the final result.
 * **Download rules from Hashmob.net** (4) - fetches rule files into the configured `rulesDirectory`.
 * **Analyze Hashcat rules** (5) - opcode frequency analysis of a rule file, powered by HashcatRosetta.
-* **Download masks from Hashmob.net** (6) - fetches mask files into the hate_crack masks directory.
 
 The three preprocessing operations read from an input file and write to a separate output file (original is never modified).
 
@@ -1417,7 +1417,14 @@ Powered by HashcatRosetta (https://github.com/bandrel/HashcatRosetta), this feat
 * Helps understand what transformations a rule set performs
 * Useful for rule debugging and optimization
 
-#### Download Masks from Hashmob.net (Rule File Tools option 6)
+#### Mask Tools (option 83)
+Downloads mask files from Hashmob.net. This is a minimal submenu today — masks
+have no local file-tooling counterpart to the rule/wordlist cleanup and
+optimization utilities, only a download capability.
+
+* **Download masks from Hashmob.net** (1) - fetches mask files into the hate_crack masks directory.
+
+#### Download Masks from Hashmob.net (Mask Tools option 1)
 Downloads mask files from Hashmob.net's mask repository into the hate_crack masks directory for use with mask-based attacks.
 
 * Downloads mask sets in parallel using a thread pool (up to 4 concurrent downloads)

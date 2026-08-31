@@ -99,8 +99,8 @@ def test_no_hashfile_menu_treats_cancel_as_reprompt(monkeypatch, capsys):
     """
     monkeypatch.setattr(hc_main, "hashview_api_key", "dummy")
     monkeypatch.setattr(hc_main, "ascii_art", lambda: None)
-    # "" -> interactive_menu returns None (cancel), then "4" exits.
-    answers = iter(["", "4"])
+    # "" -> interactive_menu returns None (cancel), then "5" exits.
+    answers = iter(["", "5"])
     monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
     code = _run_main(monkeypatch, [])
     assert code == 0
@@ -112,7 +112,7 @@ def test_no_hashfile_menu_still_warns_on_unrecognized_answer(monkeypatch, capsys
     """A genuinely unrecognized answer must still warn."""
     monkeypatch.setattr(hc_main, "hashview_api_key", "dummy")
     monkeypatch.setattr(hc_main, "ascii_art", lambda: None)
-    answers = iter(["7", "4"])
+    answers = iter(["7", "5"])
     monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
     code = _run_main(monkeypatch, [])
     assert code == 0
@@ -129,11 +129,29 @@ def test_no_hashfile_menu_honours_wordlist_tools_choice(monkeypatch):
     monkeypatch.setattr(
         hc_main, "wordlist_tools_submenu", lambda: tools_called.append(True)
     )
-    answers = iter(["2", "4"])
+    answers = iter(["2", "5"])
     monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
     code = _run_main(monkeypatch, [])
     assert code == 0
     assert tools_called == [True]
+    assert hashview_called == []
+
+
+def test_no_hashfile_menu_honours_mask_tools_choice(monkeypatch):
+    """Mask Tools is item 4 in the reduced menu, and Exit still works at 5."""
+    monkeypatch.setattr(hc_main, "hashview_api_key", "dummy")
+    monkeypatch.setattr(hc_main, "ascii_art", lambda: None)
+    hashview_called = []
+    mask_tools_called = []
+    monkeypatch.setattr(hc_main, "hashview_api", lambda: hashview_called.append(True))
+    monkeypatch.setattr(
+        hc_main, "mask_tools_submenu", lambda: mask_tools_called.append(True)
+    )
+    answers = iter(["4", "5"])
+    monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
+    code = _run_main(monkeypatch, [])
+    assert code == 0
+    assert mask_tools_called == [True]
     assert hashview_called == []
 
 
@@ -169,21 +187,21 @@ def test_weakpass_default_rank(monkeypatch):
 # ---------------------------------------------------------------------------
 def test_potfile_path_flag(monkeypatch):
     monkeypatch.setattr(hc_main, "ascii_art", lambda: None)
-    monkeypatch.setattr("builtins.input", lambda _prompt="": "4")
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "5")
     _run_main(monkeypatch, ["--potfile-path", "/tmp/test.pot"])
     assert hc_main.hcatPotfilePath == "/tmp/test.pot"
 
 
 def test_no_potfile_path_flag(monkeypatch):
     monkeypatch.setattr(hc_main, "ascii_art", lambda: None)
-    monkeypatch.setattr("builtins.input", lambda _prompt="": "4")
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "5")
     _run_main(monkeypatch, ["--no-potfile-path"])
     assert hc_main.hcatPotfilePath == ""
 
 
 def test_potfile_path_empty_string_reverts_to_default(monkeypatch):
     monkeypatch.setattr(hc_main, "ascii_art", lambda: None)
-    monkeypatch.setattr("builtins.input", lambda _prompt="": "4")
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "5")
     _run_main(monkeypatch, ["--potfile-path", ""])
     assert hc_main.hcatPotfilePath == ""
 
@@ -193,7 +211,7 @@ def test_potfile_path_empty_string_reverts_to_default(monkeypatch):
 # ---------------------------------------------------------------------------
 def test_debug_flag(monkeypatch):
     monkeypatch.setattr(hc_main, "ascii_art", lambda: None)
-    monkeypatch.setattr("builtins.input", lambda _prompt="": "4")
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "5")
     _run_main(monkeypatch, ["--debug"])
     assert hc_main.debug_mode is True
 
@@ -220,7 +238,7 @@ def test_positional_hashfile_only_enters_menu(monkeypatch, tmp_path):
     hashfile = tmp_path / "hashes.txt"
     hashfile.write_text("aabbccdd\n")
     monkeypatch.setattr(hc_main, "ascii_art", lambda: None)
-    monkeypatch.setattr("builtins.input", lambda _prompt="": "4")
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "5")
     code = _run_main(monkeypatch, [str(hashfile)])
     assert code == 0
 
@@ -228,7 +246,7 @@ def test_positional_hashfile_only_enters_menu(monkeypatch, tmp_path):
 def test_no_args_enters_menu(monkeypatch):
     """No arguments falls through to the interactive menu."""
     monkeypatch.setattr(hc_main, "ascii_art", lambda: None)
-    monkeypatch.setattr("builtins.input", lambda _prompt="": "4")
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "5")
     code = _run_main(monkeypatch, [])
     assert code == 0
 
@@ -440,7 +458,7 @@ def test_argparse_missing_required_args(monkeypatch, argv):
 def test_potfile_path_and_no_potfile_path_conflict(monkeypatch):
     """Both --potfile-path and --no-potfile-path should still parse (not mutually exclusive in argparse)."""
     monkeypatch.setattr(hc_main, "ascii_art", lambda: None)
-    monkeypatch.setattr("builtins.input", lambda _prompt="": "4")
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "5")
     # --potfile-path wins because it's checked second in the dispatch logic
     code = _run_main(
         monkeypatch, ["--potfile-path", "/tmp/test.pot", "--no-potfile-path"]

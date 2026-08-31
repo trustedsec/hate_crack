@@ -8769,8 +8769,12 @@ def rule_tools_submenu():
     return _attacks.rule_tools_submenu(_attack_ctx())
 
 
+def mask_tools_submenu():
+    return _attacks.mask_tools_submenu(_attack_ctx())
+
+
 def coverage_submenu():
-    """Submenu for the per-target coverage store (main-menu option 83).
+    """Submenu for the per-target coverage store (main-menu option 85).
 
     The inline ``interactive_menu`` import mirrors ``notifications_submenu``
     below: re-importing per call lets tests patch the real menu function.
@@ -9189,6 +9193,7 @@ def get_main_menu_items():
         ("80", "Wordlist Tools"),
         ("81", "Rule File Tools"),
         ("82", "Notifications"),
+        ("83", "Mask Tools"),
         ("85", "Attack Coverage"),
         ("93", "Regenerate .out from POT file"),
     ]
@@ -9237,6 +9242,7 @@ def get_main_menu_options():
         "80": wordlist_tools_submenu,
         "81": rule_tools_submenu,
         "82": notifications_submenu,
+        "83": mask_tools_submenu,
         "85": coverage_submenu,
         "93": restore_potfile_output,
         "95": pipal,
@@ -9844,7 +9850,8 @@ def main():
             ("1", "Hashview API"),
             ("2", "Wordlist Tools"),
             ("3", "Rule File Tools"),
-            ("4", "Exit"),
+            ("4", "Mask Tools"),
+            ("5", "Exit"),
         ]
         # The flag states the intent, so go straight to Hashview. Prompting
         # first and then overriding the answer meant even "Exit" opened
@@ -9880,6 +9887,8 @@ def main():
             elif choice == "3":
                 rule_tools_submenu()
             elif choice == "4":
+                mask_tools_submenu()
+            elif choice == "5":
                 sys.exit(0)
             else:
                 # --weakpass/--hashmob/--rules all exit before this loop,

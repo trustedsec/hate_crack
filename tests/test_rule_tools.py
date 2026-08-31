@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 
 from hate_crack.attacks import (
+    mask_tools_submenu,
     rule_cleanup_and_optimize_handler,
     rule_cleanup_handler,
     rule_optimize_handler,
@@ -242,15 +243,6 @@ class TestRuleToolsSubmenu:
             rule_tools_submenu(ctx)
         ctx.analyze_rules.assert_called_once_with()
 
-    def test_dispatches_to_hashmob_masks_download(self):
-        ctx = _make_ctx()
-        with (
-            patch("hate_crack.attacks.download_hashmob_masks") as mock_fn,
-            patch("hate_crack.menu.interactive_menu", side_effect=["6", "99"]),
-        ):
-            rule_tools_submenu(ctx)
-        mock_fn.assert_called_once_with(print_fn=print, masks_dir=None)
-
     def test_exits_on_99(self):
         ctx = _make_ctx()
         with patch("hate_crack.menu.interactive_menu", return_value="99"):
@@ -271,4 +263,37 @@ class TestRuleToolsSubmenu:
             ),
         ):
             rule_tools_submenu(ctx)
+        assert mock_fn.call_count == 2
+
+
+class TestMaskToolsSubmenu:
+    def test_dispatches_to_hashmob_masks_download(self):
+        ctx = _make_ctx()
+        with (
+            patch("hate_crack.attacks.download_hashmob_masks") as mock_fn,
+            patch("hate_crack.menu.interactive_menu", side_effect=["1", "99"]),
+        ):
+            mask_tools_submenu(ctx)
+        mock_fn.assert_called_once_with(print_fn=print, masks_dir=None)
+
+    def test_exits_on_99(self):
+        ctx = _make_ctx()
+        with patch("hate_crack.menu.interactive_menu", return_value="99"):
+            mask_tools_submenu(ctx)
+
+    def test_exits_on_none(self):
+        ctx = _make_ctx()
+        with patch("hate_crack.menu.interactive_menu", return_value=None):
+            mask_tools_submenu(ctx)
+
+    def test_loops_until_exit(self):
+        ctx = _make_ctx()
+        with (
+            patch("hate_crack.attacks.download_hashmob_masks") as mock_fn,
+            patch(
+                "hate_crack.menu.interactive_menu",
+                side_effect=["1", "1", "99"],
+            ),
+        ):
+            mask_tools_submenu(ctx)
         assert mock_fn.call_count == 2

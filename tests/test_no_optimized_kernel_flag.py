@@ -22,7 +22,7 @@ def _run_main(monkeypatch, argv):
     monkeypatch.setattr(hc_main, "_optimized_kernel_disabled", False)
     monkeypatch.setattr(hc_main, "hcatTuning", "-w 4 -O")
     monkeypatch.setattr(hc_main, "ascii_art", lambda: None)
-    monkeypatch.setattr("builtins.input", lambda _prompt="": "4")
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "5")
     with pytest.raises(SystemExit) as exc:
         hc_main.main()
     return exc.value.code

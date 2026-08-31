@@ -1864,7 +1864,6 @@ def rule_tools_submenu(ctx: Any) -> None:
         ("3", "Clean and optimize rule file (both)"),
         ("4", "Download rules from Hashmob.net"),
         ("5", "Analyze Hashcat rules (opcode statistics)"),
-        ("6", "Download masks from Hashmob.net"),
         ("99", "Back to Main Menu"),
     ]
     while True:
@@ -1881,7 +1880,20 @@ def rule_tools_submenu(ctx: Any) -> None:
             download_hashmob_rules(print_fn=print, rules_dir=ctx.rulesDirectory)
         elif choice == "5":
             ctx.analyze_rules()
-        elif choice == "6":
+
+
+def mask_tools_submenu(ctx: Any) -> None:
+    from hate_crack.menu import interactive_menu
+
+    items = [
+        ("1", "Download masks from Hashmob.net"),
+        ("99", "Back to Main Menu"),
+    ]
+    while True:
+        choice = interactive_menu(items, title="\nMask Tools:")
+        if choice is None or choice == "99":
+            break
+        elif choice == "1":
             download_hashmob_masks(print_fn=print, masks_dir=None)
 
 

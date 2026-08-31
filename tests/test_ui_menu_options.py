@@ -39,6 +39,7 @@ MENU_OPTION_TEST_CASES = [
     ("80", CLI_MODULE._attacks, "wordlist_tools_submenu", "wordlist-tools"),
     ("81", CLI_MODULE._attacks, "rule_tools_submenu", "rule-tools"),
     ("82", CLI_MODULE, "notifications_submenu", "notifications-submenu"),
+    ("83", CLI_MODULE._attacks, "mask_tools_submenu", "mask-tools"),
     ("93", CLI_MODULE._attacks, "restore_potfile_output", "restore-potfile"),
     ("95", CLI_MODULE, "pipal", "pipal"),
     ("96", CLI_MODULE, "export_excel", "export-excel"),
@@ -83,10 +84,13 @@ def test_main_menu_option_94_hashview_visible_with_hashview_api_key(monkeypatch)
     assert options["94"]() == sentinel
 
 
-def test_main_menu_no_longer_exposes_options_83_84():
-    """Options 83 and 84 moved into the Notifications submenu (option 82)."""
+def test_main_menu_option_83_is_mask_tools_84_still_unused():
+    """83 was retired alongside 84 when notification toggles moved into the
+    Notifications submenu (option 82), then reclaimed for Mask Tools -- it
+    now sits alongside Wordlist Tools (80) and Rule File Tools (81). 84
+    remains unused."""
     options = CLI_MODULE.get_main_menu_options()
-    assert "83" not in options
+    assert "83" in options
     assert "84" not in options
     assert "82" in options
 
@@ -116,13 +120,15 @@ def test_main_menu_items_include_notifications_entry():
     items = dict(CLI_MODULE.get_main_menu_items())
     assert "82" in items
     assert "Notifications" in items["82"]
-    assert "83" not in items
+    assert "83" in items
+    assert "Mask Tools" in items["83"]
     assert "84" not in items
 
 
 def test_main_menu_exposes_attack_coverage_at_85():
-    """85, not 83: options 83 and 84 are retired notification toggles, and
-    reusing one would hand an operator's muscle memory a different feature."""
+    """85, not 84: 84 is a retired notification toggle, and reusing it would
+    hand an operator's muscle memory a different feature. 83 is legitimately
+    in use again, for Mask Tools."""
     items = dict(CLI_MODULE.get_main_menu_items())
     options = CLI_MODULE.get_main_menu_options()
     assert "85" in items

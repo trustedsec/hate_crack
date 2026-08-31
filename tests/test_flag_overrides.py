@@ -485,7 +485,7 @@ def test_generic_key_names_are_namespaced_in_the_schema():
 def _run_main(monkeypatch, argv):
     monkeypatch.setattr(sys, "argv", ["hate_crack.py"] + argv)
     monkeypatch.setattr(hc_main, "ascii_art", lambda: None)
-    monkeypatch.setattr("builtins.input", lambda _prompt="": "4")
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "5")
     with pytest.raises(SystemExit) as exc:
         hc_main.main()
     return exc.value.code
