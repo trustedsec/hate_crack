@@ -8,6 +8,7 @@ import shutil
 import tempfile
 import threading
 import time
+import urllib.parse
 from queue import Queue
 from typing import Callable, Optional, Tuple
 
@@ -119,6 +120,23 @@ def _parse_retry_after(resp) -> float | None:
         return float(raw)
     except (TypeError, ValueError):
         return None
+
+
+_HASHMOB_HOSTS = {"hashmob.net", "www.hashmob.net"}
+
+
+def _is_hashmob_host(url: str) -> bool:
+    """True if url's host is hashmob.net or www.hashmob.net (case-insensitive).
+
+    Guards against sending the ``api-key`` header to a server-supplied URL
+    that doesn't actually point at Hashmob -- e.g. a listing response field
+    that a compromised or misbehaving server could set to any host.
+    """
+    try:
+        hostname = urllib.parse.urlparse(url).hostname
+    except (ValueError, AttributeError):
+        return False
+    return bool(hostname) and hostname.lower() in _HASHMOB_HOSTS
 
 
 def _stream_response_to_file(
@@ -235,7 +253,15 @@ def _with_hashmob_backoff(
 
     fn() should raise _Hashmob429 to signal a rate-limit response.
     Non-429 exceptions are re-raised immediately.
-    Returns True on success, False after max_attempts consecutive 429s.
+
+    Used two ways by callers in this module: download functions pass a
+    ``fn`` that returns ``bool`` (``True``/``False`` on success/failure of
+    the download itself). Listing functions instead pass a ``fn`` that
+    returns the parsed JSON payload (a ``dict`` or ``list``) on success.
+    Either way, this returns whatever ``fn()`` returned on success, and
+    ``False`` after ``max_attempts`` consecutive 429s -- listing callers
+    treat that falsy ``False`` the same as an empty payload and return
+    ``[]``.
     """
     penalty = base_delay
     for attempt in range(max_attempts):
@@ -246,7 +272,7 @@ def _with_hashmob_backoff(
                 break
             delay = penalty
             if e.retry_after is not None:
-                delay = min(e.retry_after, max_delay)
+                delay = max(0.0, min(e.retry_after, max_delay))
             print(f"[!] Rate limit hit (429). Backing off for {delay} seconds...")
             time.sleep(delay)
             penalty = min(penalty + step, max_delay)
@@ -2785,10 +2811,26 @@ def download_hashmob_wordlist_list():
     url = "https://hashmob.net/api/v2/resource"
     api_key = get_hashmob_api_key()
     headers = {"api-key": api_key} if api_key else {}
-    try:
+
+    def _attempt():
+        _hashmob_limiter.wait()
         resp = requests.get(url, headers=headers, timeout=30)
+        if resp.status_code == 429:
+            raise _Hashmob429(_parse_retry_after(resp))
         resp.raise_for_status()
-        data = resp.json()
+        return resp.json()
+
+    try:
+        data = _with_hashmob_backoff(_attempt)
+    except Exception as e:
+        print(f"Error fetching Hashmob wordlists: {e}")
+        return []
+
+    if not isinstance(data, list):
+        print(f"Error fetching Hashmob wordlists: unexpected response: {data}")
+        return []
+
+    try:
         wordlists = [r for r in data if r.get("type") == "wordlist"]
         entries = []
         for idx, wl in enumerate(wordlists):
@@ -2859,10 +2901,26 @@ def download_hashmob_rule_list():
     url = "https://hashmob.net/api/v2/resource"
     api_key = get_hashmob_api_key()
     headers = {"api-key": api_key} if api_key else {}
-    try:
+
+    def _attempt():
+        _hashmob_limiter.wait()
         resp = requests.get(url, headers=headers, timeout=30)
+        if resp.status_code == 429:
+            raise _Hashmob429(_parse_retry_after(resp))
         resp.raise_for_status()
-        data = resp.json()
+        return resp.json()
+
+    try:
+        data = _with_hashmob_backoff(_attempt)
+    except Exception as e:
+        print(f"Error fetching Hashmob rules: {e}")
+        return []
+
+    if not isinstance(data, list):
+        print(f"Error fetching Hashmob rules: unexpected response: {data}")
+        return []
+
+    try:
         rules = [r for r in data if r.get("type") in ("rule", "official_rule")]
         entries = []
         for idx, rule in enumerate(rules):
@@ -2918,7 +2976,7 @@ def download_hashmob_rule(file_name, out_path, resource_type=None):
         ) as r:
             if r.status_code == 429:
                 raise _Hashmob429(_parse_retry_after(r))
-            if r.status_code == 404 and alt_url:
+            if r.status_code == 404:
                 print(
                     f"[i] Hashmob rule not found at primary URL, trying fallback: {alt_url}"
                 )
@@ -2952,10 +3010,26 @@ def download_hashmob_mask_list():
     url = "https://hashmob.net/api/v2/resource"
     api_key = get_hashmob_api_key()
     headers = {"api-key": api_key} if api_key else {}
-    try:
+
+    def _attempt():
+        _hashmob_limiter.wait()
         resp = requests.get(url, headers=headers, timeout=30)
+        if resp.status_code == 429:
+            raise _Hashmob429(_parse_retry_after(resp))
         resp.raise_for_status()
-        data = resp.json()
+        return resp.json()
+
+    try:
+        data = _with_hashmob_backoff(_attempt)
+    except Exception as e:
+        print(f"Error fetching Hashmob masks: {e}")
+        return []
+
+    if not isinstance(data, list):
+        print(f"Error fetching Hashmob masks: unexpected response: {data}")
+        return []
+
+    try:
         masks = []
         seen_names = set()
         for r in data:
@@ -3015,9 +3089,12 @@ def list_hashmob_archives():
     ``GET /api/v2/archive`` returns a dict keyed by year string
     (``"current"``, ``"2021"``...``"2025"``), each value a list of
     ``{"name": ..., "url": ...}`` entries. Prints a year heading followed by
-    a globally-numbered entry per archive, then returns the flattened list
-    of ``{"year": ..., "name": ..., "url": ...}`` dicts so a caller can
-    resolve a printed index back to a URL.
+    a globally-numbered entry per archive, then returns the flattened list of
+    dicts (each entry's original fields plus ``"year"`` and ``"name"``) so a
+    caller can resolve a printed index back to a URL. On a missing/invalid
+    API key, Hashmob responds with ``{"message": "Unauthorized."}`` instead
+    of the expected year-keyed dict; that shape (and any other non-dict
+    payload) is rejected before iterating and results in an empty list.
     """
     url = "https://hashmob.net/api/v2/archive"
     api_key = get_hashmob_api_key()
@@ -3040,15 +3117,23 @@ def list_hashmob_archives():
     if not data:
         return []
 
+    if not isinstance(data, dict) or not all(
+        isinstance(v, list) for v in data.values()
+    ):
+        print(f"Error fetching Hashmob archives: unexpected response: {data}")
+        return []
+
     flattened = []
     idx = 0
     for year, entries in data.items():
         print(f"\n{year}:")
-        for entry in entries or []:
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
             idx += 1
             name = entry.get("name", "")
             print(f"{idx}. {name}")
-            flattened.append({"year": year, "name": name, "url": entry.get("url")})
+            flattened.append({**entry, "year": year, "name": name})
     return flattened
 
 
@@ -3066,10 +3151,18 @@ def download_hashmob_archive(entry_or_file_name, out_path=None):
     """
     if isinstance(entry_or_file_name, dict):
         url = entry_or_file_name.get("url")
-        file_name = entry_or_file_name.get("name") or (
-            url.rsplit("/", 1)[-1] if url else ""
+        file_name = entry_or_file_name.get("name") or entry_or_file_name.get(
+            "file_name"
         )
-        if not url:
+        if not file_name and url:
+            file_name = url.rsplit("/", 1)[-1]
+        file_name = file_name or ""
+        if not url or not _is_hashmob_host(url):
+            if url:
+                print(
+                    f"[!] Ignoring archive URL with untrusted host: {url!r}; "
+                    "falling back to the hashmob.net API URL."
+                )
             url = f"https://hashmob.net/api/v2/archive/{file_name}"
         size_hint = entry_or_file_name.get("file_size")
     else:
@@ -3158,8 +3251,18 @@ def list_hashmob_combined_left():
     if not data:
         return []
 
-    files = data.get("combined_left_files", [])
+    if not isinstance(data, dict) or not isinstance(
+        data.get("combined_left_files"), list
+    ):
+        print(
+            f"Error fetching Hashmob combined-left listing: unexpected response: {data}"
+        )
+        return []
+
+    files = data["combined_left_files"]
     for entry in files:
+        if not isinstance(entry, dict):
+            continue
         mode = entry.get("mode")
         algorithm = entry.get("algorithm", "")
         updated_at = entry.get("updated_at", "")
@@ -3256,14 +3359,27 @@ def list_and_download_official_wordlists():
     url = "https://hashmob.net/api/v2/downloads/research/official/"
     api_key = get_hashmob_api_key()
     headers = {"api-key": api_key} if api_key else {}
-    try:
+
+    def _attempt():
+        _hashmob_limiter.wait()
         resp = requests.get(url, headers=headers, timeout=30)
+        if resp.status_code == 429:
+            raise _Hashmob429(_parse_retry_after(resp))
         resp.raise_for_status()
-        data = resp.json()
-        if not isinstance(data, list):
-            print("Unexpected response format. Raw output:")
-            print(data)
-            return
+        return resp.json()
+
+    try:
+        data = _with_hashmob_backoff(_attempt)
+    except Exception as e:
+        print(f"Error listing official wordlists: {e}")
+        return
+
+    if not isinstance(data, list):
+        print("Unexpected response format. Raw output:")
+        print(data)
+        return
+
+    try:
         entries = []
         for idx, entry in enumerate(data):
             name = entry.get("name", entry.get("file_name", str(entry)))
@@ -3592,8 +3708,6 @@ def list_and_download_hashmob_rules(rules_dir=None):
 
 def download_official_wordlist(file_name, out_path=None):
     """Download a file from the official wordlists directory with a progress bar."""
-    import re
-
     url = f"https://hashmob.net/api/v2/downloads/research/official/{file_name}"
     if not out_path:
         out_path = sanitize_filename(file_name)

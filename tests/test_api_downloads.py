@@ -674,6 +674,49 @@ class TestDownloadHashmobWordlistListSizeAndLineCount:
         assert "lines" not in out
         assert "B" in out  # the size string is still present
 
+    def test_calls_limiter_before_request(self):
+        with (
+            patch(
+                "hate_crack.api.requests.get",
+                return_value=self._mock_resource_response([]),
+            ),
+            patch("hate_crack.api._hashmob_limiter.wait") as mock_wait,
+        ):
+            download_hashmob_wordlist_list()
+        mock_wait.assert_called_once()
+
+    def test_429_triggers_backoff_and_retries(self):
+        mock_429 = self._mock_resource_response([])
+        mock_429.status_code = 429
+        mock_429.headers = {}
+        mock_ok = self._mock_resource_response([])
+        mock_ok.status_code = 200
+        with (
+            patch(
+                "hate_crack.api.requests.get", side_effect=[mock_429, mock_ok]
+            ) as mock_get,
+            patch("hate_crack.api.time.sleep") as mock_sleep,
+            patch("hate_crack.api._hashmob_limiter.wait"),
+        ):
+            result = download_hashmob_wordlist_list()
+        assert result == []
+        assert mock_get.call_count == 2
+        mock_sleep.assert_called_once()
+
+    def test_unauthorized_payload_returns_empty_list_without_raising(self, capsys):
+        data = {"message": "Unauthorized."}
+        with (
+            patch(
+                "hate_crack.api.requests.get",
+                return_value=self._mock_resource_response(data),
+            ),
+            patch("hate_crack.api._hashmob_limiter.wait"),
+        ):
+            result = download_hashmob_wordlist_list()
+        assert result == []
+        out = capsys.readouterr().out
+        assert "Error fetching Hashmob wordlists" in out
+
 
 class TestDownloadHashmobRuleListSizeAndLineCount:
     def _mock_resource_response(self, data):
@@ -710,6 +753,49 @@ class TestDownloadHashmobRuleListSizeAndLineCount:
             download_hashmob_rule_list()
         out = capsys.readouterr().out
         assert "lines" not in out
+
+    def test_calls_limiter_before_request(self):
+        with (
+            patch(
+                "hate_crack.api.requests.get",
+                return_value=self._mock_resource_response([]),
+            ),
+            patch("hate_crack.api._hashmob_limiter.wait") as mock_wait,
+        ):
+            download_hashmob_rule_list()
+        mock_wait.assert_called_once()
+
+    def test_429_triggers_backoff_and_retries(self):
+        mock_429 = self._mock_resource_response([])
+        mock_429.status_code = 429
+        mock_429.headers = {}
+        mock_ok = self._mock_resource_response([])
+        mock_ok.status_code = 200
+        with (
+            patch(
+                "hate_crack.api.requests.get", side_effect=[mock_429, mock_ok]
+            ) as mock_get,
+            patch("hate_crack.api.time.sleep") as mock_sleep,
+            patch("hate_crack.api._hashmob_limiter.wait"),
+        ):
+            result = download_hashmob_rule_list()
+        assert result == []
+        assert mock_get.call_count == 2
+        mock_sleep.assert_called_once()
+
+    def test_unauthorized_payload_returns_empty_list_without_raising(self, capsys):
+        data = {"message": "Unauthorized."}
+        with (
+            patch(
+                "hate_crack.api.requests.get",
+                return_value=self._mock_resource_response(data),
+            ),
+            patch("hate_crack.api._hashmob_limiter.wait"),
+        ):
+            result = download_hashmob_rule_list()
+        assert result == []
+        out = capsys.readouterr().out
+        assert "Error fetching Hashmob rules" in out
 
 
 class TestDownloadHashmobWordlist:
@@ -908,6 +994,49 @@ class TestDownloadHashmobMaskList:
         assert "12 lines" in out
         assert "KB" in out or "B" in out
 
+    def test_calls_limiter_before_request(self):
+        with (
+            patch(
+                "hate_crack.api.requests.get",
+                return_value=self._mock_resource_response([]),
+            ),
+            patch("hate_crack.api._hashmob_limiter.wait") as mock_wait,
+        ):
+            download_hashmob_mask_list()
+        mock_wait.assert_called_once()
+
+    def test_429_triggers_backoff_and_retries(self):
+        mock_429 = self._mock_resource_response([])
+        mock_429.status_code = 429
+        mock_429.headers = {}
+        mock_ok = self._mock_resource_response([])
+        mock_ok.status_code = 200
+        with (
+            patch(
+                "hate_crack.api.requests.get", side_effect=[mock_429, mock_ok]
+            ) as mock_get,
+            patch("hate_crack.api.time.sleep") as mock_sleep,
+            patch("hate_crack.api._hashmob_limiter.wait"),
+        ):
+            result = download_hashmob_mask_list()
+        assert result == []
+        assert mock_get.call_count == 2
+        mock_sleep.assert_called_once()
+
+    def test_unauthorized_payload_returns_empty_list_without_raising(self, capsys):
+        data = {"message": "Unauthorized."}
+        with (
+            patch(
+                "hate_crack.api.requests.get",
+                return_value=self._mock_resource_response(data),
+            ),
+            patch("hate_crack.api._hashmob_limiter.wait"),
+        ):
+            result = download_hashmob_mask_list()
+        assert result == []
+        out = capsys.readouterr().out
+        assert "Error fetching Hashmob masks" in out
+
 
 class TestDownloadHashmobMask:
     def _make_mock_response(self, status_code=200, content=b"mask data"):
@@ -1094,6 +1223,40 @@ class TestListHashmobArchives:
             result = list_hashmob_archives()
         assert result == []
 
+    def test_unauthorized_payload_returns_empty_list_without_raising(self, capsys):
+        data = {"message": "Unauthorized."}
+        with (
+            patch(
+                "hate_crack.api.requests.get", return_value=self._mock_response(data)
+            ),
+            patch("hate_crack.api.get_hashmob_api_key", return_value=None),
+            patch("hate_crack.api._hashmob_limiter.wait"),
+        ):
+            result = list_hashmob_archives()
+        assert result == []
+        out = capsys.readouterr().out
+        assert "Error fetching Hashmob archives" in out
+
+    def test_preserves_extra_entry_fields(self):
+        data = {
+            "2022": [
+                {
+                    "name": "a.7z",
+                    "url": "https://hashmob.net/api/v2/archive/a.7z",
+                    "file_size": 12345,
+                }
+            ]
+        }
+        with (
+            patch(
+                "hate_crack.api.requests.get", return_value=self._mock_response(data)
+            ),
+            patch("hate_crack.api.get_hashmob_api_key", return_value=None),
+            patch("hate_crack.api._hashmob_limiter.wait"),
+        ):
+            result = list_hashmob_archives()
+        assert result[0]["file_size"] == 12345
+
 
 class TestDownloadHashmobArchive:
     def _make_mock_response(self, status_code=200, content=b"archive data"):
@@ -1197,6 +1360,53 @@ class TestDownloadHashmobArchive:
             download_hashmob_archive("full.7z")
         mock_wait.assert_called_once()
 
+    def test_untrusted_url_falls_back_to_hashmob_host(self, tmp_path):
+        entry = {
+            "name": "evil.7z",
+            "url": "https://evil.example.com/steal/evil.7z",
+        }
+        mock_response = self._make_mock_response()
+        with (
+            patch(
+                "hate_crack.api.requests.get", return_value=mock_response
+            ) as mock_get,
+            patch("hate_crack.api.time.sleep"),
+            patch("hate_crack.api.get_hashmob_api_key", return_value="secret-key"),
+            patch("hate_crack.api._hashmob_limiter.wait"),
+            patch("hate_crack.api.get_hcat_wordlists_dir", return_value=str(tmp_path)),
+            patch("builtins.input", return_value="y"),
+            self._patch_stdin_tty(),
+        ):
+            result = download_hashmob_archive(entry)
+        assert result is True
+        # The api-key header must never reach the untrusted host: the request
+        # actually made must target the constructed hashmob.net fallback URL.
+        called_url = mock_get.call_args.args[0]
+        assert called_url == "https://hashmob.net/api/v2/archive/evil.7z"
+        assert mock_get.call_args.kwargs["headers"] == {"api-key": "secret-key"}
+        assert mock_get.call_count == 1
+
+    def test_trusted_www_host_is_kept(self, tmp_path):
+        entry = {
+            "name": "a.7z",
+            "url": "https://www.hashmob.net/api/v2/archive/a.7z",
+        }
+        mock_response = self._make_mock_response()
+        with (
+            patch(
+                "hate_crack.api.requests.get", return_value=mock_response
+            ) as mock_get,
+            patch("hate_crack.api.time.sleep"),
+            patch("hate_crack.api.get_hashmob_api_key", return_value=None),
+            patch("hate_crack.api._hashmob_limiter.wait"),
+            patch("hate_crack.api.get_hcat_wordlists_dir", return_value=str(tmp_path)),
+            patch("builtins.input", return_value="y"),
+            self._patch_stdin_tty(),
+        ):
+            download_hashmob_archive(entry)
+        called_url = mock_get.call_args.args[0]
+        assert called_url == "https://www.hashmob.net/api/v2/archive/a.7z"
+
 
 class TestListHashmobCombinedLeft:
     def _mock_response(self, data, status_code=200):
@@ -1246,6 +1456,34 @@ class TestListHashmobCombinedLeft:
         ):
             result = list_hashmob_combined_left()
         assert result == []
+
+    def test_unauthorized_payload_returns_empty_list_without_raising(self, capsys):
+        data = {"message": "Unauthorized."}
+        with (
+            patch(
+                "hate_crack.api.requests.get", return_value=self._mock_response(data)
+            ),
+            patch("hate_crack.api.get_hashmob_api_key", return_value=None),
+            patch("hate_crack.api._hashmob_limiter.wait"),
+        ):
+            result = list_hashmob_combined_left()
+        assert result == []
+        out = capsys.readouterr().out
+        assert "Error fetching Hashmob combined-left listing" in out
+
+    def test_combined_left_files_not_a_list_returns_empty_list(self, capsys):
+        data = {"combined_left_files": "not-a-list"}
+        with (
+            patch(
+                "hate_crack.api.requests.get", return_value=self._mock_response(data)
+            ),
+            patch("hate_crack.api.get_hashmob_api_key", return_value=None),
+            patch("hate_crack.api._hashmob_limiter.wait"),
+        ):
+            result = list_hashmob_combined_left()
+        assert result == []
+        out = capsys.readouterr().out
+        assert "Error fetching Hashmob combined-left listing" in out
 
 
 class TestDownloadHashmobCombinedLeft:
@@ -1695,6 +1933,19 @@ class TestHashmobBackoff:
         assert result is True
         assert mock_sleep.call_args_list == [call(5.0), call(60)]
 
+    def test_negative_retry_after_is_clamped_to_zero(self):
+        """A malformed Retry-After: -1 must not reach time.sleep(-1), which
+        raises ValueError and would escape the backoff helper as a generic
+        error instead of being treated as an invalid Retry-After."""
+        fn = MagicMock(side_effect=[_Hashmob429(retry_after=-1.0), True])
+        with (
+            patch("hate_crack.api.time.sleep") as mock_sleep,
+            patch("hate_crack.api._hashmob_limiter.wait"),
+        ):
+            result = _with_hashmob_backoff(fn)
+        assert result is True
+        mock_sleep.assert_called_once_with(0.0)
+
 
 class TestHashmobWordlistRedirectBugFix:
     def test_meta_refresh_redirect_uses_verbatim_url(self, tmp_path):
@@ -1785,6 +2036,62 @@ class TestListAndDownloadOfficialWordlistsSkipExisting:
             list_and_download_official_wordlists()
 
         assert mock_get.call_args.kwargs["headers"] == {"api-key": "placeholder-key"}
+
+    def test_calls_limiter_before_listing_request(self, tmp_path):
+        wordlists_dir = tmp_path / "wordlists"
+        wordlists_dir.mkdir()
+        api_data = [{"file_name": "new.txt"}]
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json.return_value = api_data
+        mock_stdin = MagicMock()
+        mock_stdin.isatty.return_value = True
+        with (
+            patch("hate_crack.api.requests.get", return_value=mock_resp),
+            patch(
+                "hate_crack.api.get_hcat_wordlists_dir", return_value=str(wordlists_dir)
+            ),
+            patch("hate_crack.api.download_official_wordlist"),
+            patch("hate_crack.api.sys.stdin", mock_stdin),
+            patch("builtins.input", return_value="q"),
+            patch("hate_crack.api._hashmob_limiter.wait") as mock_wait,
+        ):
+            list_and_download_official_wordlists()
+        mock_wait.assert_called_once()
+
+    def test_429_triggers_backoff_and_retries_on_listing(self, tmp_path, capsys):
+        wordlists_dir = tmp_path / "wordlists"
+        wordlists_dir.mkdir()
+        api_data = [{"file_name": "new.txt"}]
+
+        mock_429 = MagicMock()
+        mock_429.status_code = 429
+        mock_429.headers = {}
+
+        mock_ok = MagicMock()
+        mock_ok.status_code = 200
+        mock_ok.raise_for_status = MagicMock()
+        mock_ok.json.return_value = api_data
+
+        mock_stdin = MagicMock()
+        mock_stdin.isatty.return_value = True
+        with (
+            patch(
+                "hate_crack.api.requests.get", side_effect=[mock_429, mock_ok]
+            ) as mock_get,
+            patch("hate_crack.api.time.sleep") as mock_sleep,
+            patch(
+                "hate_crack.api.get_hcat_wordlists_dir", return_value=str(wordlists_dir)
+            ),
+            patch("hate_crack.api.download_official_wordlist"),
+            patch("hate_crack.api.sys.stdin", mock_stdin),
+            patch("builtins.input", return_value="q"),
+            patch("hate_crack.api._hashmob_limiter.wait"),
+        ):
+            list_and_download_official_wordlists()
+        assert mock_get.call_count == 2
+        mock_sleep.assert_called_once()
 
 
 class TestGetWeakpassInertiaVersion:

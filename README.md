@@ -1445,8 +1445,8 @@ Interactive menu for downloading and managing wordlists from Weakpass.com via Bi
 Access a submenu for downloading large-scale password corpora and specialized wordlists from Hashmob.net.
 
 **Archives** - Downloads yearly full-found password corpora (multi-GB archives containing all cracked passwords from a given year)
-* Requires confirmation before downloading due to large file sizes (several gigabytes each)
-* Supports year selection and interactive browsing of available archives
+* Requires confirmation before downloading -- these archives are large (the listing may show "(unknown size)" since Hashmob's API doesn't currently report a file size per archive)
+* Lists all available archives across every year as one globally-numbered list to browse and pick from by index, rather than a per-year picker
 * Stores archives in the configured wordlist directory for extraction and use
 
 **Combined Left Lists** - Downloads per-hashcat-mode combined lists of uncracked ("left") hashes from Hashmob.net
