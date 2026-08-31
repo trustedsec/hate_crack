@@ -2,7 +2,7 @@ import json
 import os
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 import hate_crack.api as _api_mod
 from hate_crack import api
 from hate_crack import hashcat_paths
@@ -11,7 +11,9 @@ from hate_crack.api import (
     check_7z,
     check_transmission_daemon,
     download_hashmob_rule,
+    download_hashmob_rule_list,
     download_hashmob_wordlist,
+    download_hashmob_wordlist_list,
     download_official_wordlist,
     extract_with_7z,
     get_hashmob_api_key,
@@ -620,6 +622,90 @@ class TestExtractWith7z:
         assert archive.exists()
 
 
+class TestDownloadHashmobWordlistListSizeAndLineCount:
+    def _mock_resource_response(self, data):
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = data
+        return mock_response
+
+    def test_entry_includes_human_size_and_line_count(self, capsys):
+        data = [
+            {
+                "type": "wordlist",
+                "name": "rockyou",
+                "information": "classic",
+                "file_size": 139921507,
+                "line_count": 14344391,
+            }
+        ]
+        with patch(
+            "hate_crack.api.requests.get",
+            return_value=self._mock_resource_response(data),
+        ):
+            result = download_hashmob_wordlist_list()
+        out = capsys.readouterr().out
+        assert result == data
+        assert "MB" in out
+        assert "14,344,391 lines" in out
+
+    def test_omits_line_count_clause_when_missing_or_zero(self, capsys):
+        data = [
+            {"type": "wordlist", "name": "no_line_count", "file_size": 512},
+            {
+                "type": "wordlist",
+                "name": "zero_line_count",
+                "file_size": 1024,
+                "line_count": 0,
+            },
+        ]
+        with patch(
+            "hate_crack.api.requests.get",
+            return_value=self._mock_resource_response(data),
+        ):
+            download_hashmob_wordlist_list()
+        out = capsys.readouterr().out
+        assert "lines" not in out
+        assert "B" in out  # the size string is still present
+
+
+class TestDownloadHashmobRuleListSizeAndLineCount:
+    def _mock_resource_response(self, data):
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = data
+        return mock_response
+
+    def test_entry_includes_human_size_and_line_count(self, capsys):
+        data = [
+            {
+                "type": "rule",
+                "name": "best64",
+                "file_size": 1288,
+                "line_count": 77,
+            }
+        ]
+        with patch(
+            "hate_crack.api.requests.get",
+            return_value=self._mock_resource_response(data),
+        ):
+            result = download_hashmob_rule_list()
+        out = capsys.readouterr().out
+        assert result == data
+        assert "77 lines" in out
+        assert "KB" in out or "B" in out
+
+    def test_omits_line_count_clause_when_missing(self, capsys):
+        data = [{"type": "official_rule", "name": "no_meta.rule"}]
+        with patch(
+            "hate_crack.api.requests.get",
+            return_value=self._mock_resource_response(data),
+        ):
+            download_hashmob_rule_list()
+        out = capsys.readouterr().out
+        assert "lines" not in out
+
+
 class TestDownloadHashmobWordlist:
     def _make_mock_response(self, status_code=200, content=b"wordlist data"):
         mock_response = MagicMock()
@@ -1072,6 +1158,58 @@ class TestHashmobBackoff:
         fn = MagicMock(side_effect=ValueError("not a 429"))
         with pytest.raises(ValueError, match="not a 429"):
             _with_hashmob_backoff(fn)
+
+    def test_respects_retry_after_over_default_ladder_step(self):
+        """A 429 carrying Retry-After: 5 should sleep ~5s, not the default
+        30s ladder step."""
+        fn = MagicMock(side_effect=[_Hashmob429(retry_after=5.0), True])
+        with (
+            patch("hate_crack.api.time.sleep") as mock_sleep,
+            patch("hate_crack.api._hashmob_limiter.wait"),
+        ):
+            result = _with_hashmob_backoff(fn)
+        assert result is True
+        mock_sleep.assert_called_once_with(5.0)
+
+    def test_retry_after_still_capped_by_max_delay(self):
+        fn = MagicMock(side_effect=[_Hashmob429(retry_after=9999.0), True])
+        with (
+            patch("hate_crack.api.time.sleep") as mock_sleep,
+            patch("hate_crack.api._hashmob_limiter.wait"),
+        ):
+            result = _with_hashmob_backoff(
+                fn, max_attempts=6, base_delay=30, step=30, max_delay=300
+            )
+        assert result is True
+        mock_sleep.assert_called_once_with(300)
+
+    def test_missing_retry_after_falls_back_to_ladder(self):
+        """A 429 with no Retry-After keeps the existing fixed-ladder delay."""
+        fn = MagicMock(side_effect=[_Hashmob429(), True])
+        with (
+            patch("hate_crack.api.time.sleep") as mock_sleep,
+            patch("hate_crack.api._hashmob_limiter.wait"),
+        ):
+            result = _with_hashmob_backoff(
+                fn, max_attempts=6, base_delay=30, step=30, max_delay=300
+            )
+        assert result is True
+        mock_sleep.assert_called_once_with(30)
+
+    def test_retry_after_advances_ladder_for_subsequent_attempts(self):
+        """A later 429 with no Retry-After must still see the ladder having
+        advanced, even though the first attempt slept for retry_after instead
+        of the ladder's own penalty."""
+        fn = MagicMock(side_effect=[_Hashmob429(retry_after=5.0), _Hashmob429(), True])
+        with (
+            patch("hate_crack.api.time.sleep") as mock_sleep,
+            patch("hate_crack.api._hashmob_limiter.wait"),
+        ):
+            result = _with_hashmob_backoff(
+                fn, max_attempts=6, base_delay=30, step=30, max_delay=300
+            )
+        assert result is True
+        assert mock_sleep.call_args_list == [call(5.0), call(60)]
 
 
 class TestHashmobWordlistRedirectBugFix:

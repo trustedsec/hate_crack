@@ -105,6 +105,21 @@ _hashmob_limiter = _RateLimiter(rate=1, period=2.0)
 class _Hashmob429(Exception):
     """Raised inside a _with_hashmob_backoff callback to trigger a backoff retry."""
 
+    def __init__(self, retry_after: float | None = None) -> None:
+        super().__init__()
+        self.retry_after = retry_after
+
+
+def _parse_retry_after(resp) -> float | None:
+    """Parse a Retry-After header (seconds) from a 429 response, if present."""
+    raw = resp.headers.get("Retry-After")
+    if raw is None:
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
 
 def _stream_response_to_file(
     r,
@@ -226,11 +241,14 @@ def _with_hashmob_backoff(
     for attempt in range(max_attempts):
         try:
             return fn()
-        except _Hashmob429:
+        except _Hashmob429 as e:
             if attempt == max_attempts - 1:
                 break
-            print(f"[!] Rate limit hit (429). Backing off for {penalty} seconds...")
-            time.sleep(penalty)
+            delay = penalty
+            if e.retry_after is not None:
+                delay = min(e.retry_after, max_delay)
+            print(f"[!] Rate limit hit (429). Backing off for {delay} seconds...")
+            time.sleep(delay)
             penalty = min(penalty + step, max_delay)
             step *= 2
     print(f"[!] Hashmob rate limit: gave up after {max_attempts} attempts.")
@@ -2728,6 +2746,40 @@ def get_hashmob_api_key():
     return _load_merged_config().get("hashmob_api_key") or None
 
 
+def _format_size(num_bytes) -> str:
+    """Format a byte count as a human-readable string (powers of 1024, one
+    decimal place), e.g. 12.3 MB, 1.4 GB. Returns "" for a missing/invalid
+    value."""
+    try:
+        size = float(num_bytes)
+    except (TypeError, ValueError):
+        return ""
+    if size < 0:
+        return ""
+    for unit in ("B", "KB", "MB", "GB", "TB", "PB"):
+        if size < 1024.0:
+            return f"{size:.1f} {unit}"
+        size /= 1024.0
+    return f"{size:.1f} EB"
+
+
+def _listing_detail_suffix(file_size, line_count) -> str:
+    """Build the "(12.3 MB, 1,234,567 lines)" suffix for a listing entry.
+
+    Either piece is omitted when missing/zero/unformattable.
+    """
+    bits = []
+    size_str = _format_size(file_size) if file_size else ""
+    if size_str:
+        bits.append(size_str)
+    if line_count:
+        try:
+            bits.append(f"{int(line_count):,} lines")
+        except (TypeError, ValueError):
+            pass
+    return f" ({', '.join(bits)})" if bits else ""
+
+
 def download_hashmob_wordlist_list():
     """Fetch available wordlists from Hashmob API v2 and print them."""
     url = "https://hashmob.net/api/v2/resource"
@@ -2742,10 +2794,11 @@ def download_hashmob_wordlist_list():
         for idx, wl in enumerate(wordlists):
             name = wl.get("name", wl.get("file_name", ""))
             info = wl.get("information", "")
+            detail = _listing_detail_suffix(wl.get("file_size"), wl.get("line_count"))
             if info:
-                entry = f"{idx + 1}. {name} - {info}"
+                entry = f"{idx + 1}. {name}{detail} - {info}"
             else:
-                entry = f"{idx + 1}. {name}"
+                entry = f"{idx + 1}. {name}{detail}"
             entries.append(entry)
         max_entry_len = max((len(e) for e in entries), default=30)
         print_multicolumn_list(
@@ -2774,7 +2827,7 @@ def download_hashmob_wordlist(file_name, out_path):
             url, headers=headers, stream=True, timeout=60, allow_redirects=True
         ) as r:
             if r.status_code == 429:
-                raise _Hashmob429()
+                raise _Hashmob429(_parse_retry_after(r))
             r.raise_for_status()
             content_type = r.headers.get("Content-Type", "")
             if "text/plain" in content_type:
@@ -2813,7 +2866,11 @@ def download_hashmob_rule_list():
         rules = [r for r in data if r.get("type") in ("rule", "official_rule")]
         entries = []
         for idx, rule in enumerate(rules):
-            entries.append(f"{idx + 1}. {rule.get('name', rule.get('file_name', ''))}")
+            name = rule.get("name", rule.get("file_name", ""))
+            detail = _listing_detail_suffix(
+                rule.get("file_size"), rule.get("line_count")
+            )
+            entries.append(f"{idx + 1}. {name}{detail}")
         max_entry_len = max((len(e) for e in entries), default=30)
         print_multicolumn_list(
             "Available Hashmob Rules",
@@ -2860,7 +2917,7 @@ def download_hashmob_rule(file_name, out_path, resource_type=None):
             primary_url, headers=headers, stream=True, timeout=60, allow_redirects=True
         ) as r:
             if r.status_code == 429:
-                raise _Hashmob429()
+                raise _Hashmob429(_parse_retry_after(r))
             if r.status_code == 404 and alt_url:
                 print(
                     f"[i] Hashmob rule not found at primary URL, trying fallback: {alt_url}"
@@ -2873,7 +2930,7 @@ def download_hashmob_rule(file_name, out_path, resource_type=None):
                     allow_redirects=True,
                 ) as r2:
                     if r2.status_code == 429:
-                        raise _Hashmob429()
+                        raise _Hashmob429(_parse_retry_after(r2))
                     r2.raise_for_status()
                     return _stream_response_to_file(r2, out_path, label=file_name)
             r.raise_for_status()
@@ -3162,7 +3219,7 @@ def download_official_wordlist(file_name, out_path=None):
             url, headers=headers, stream=True, timeout=60, allow_redirects=True
         ) as r:
             if r.status_code == 429:
-                raise _Hashmob429()
+                raise _Hashmob429(_parse_retry_after(r))
             r.raise_for_status()
             content_type = r.headers.get("Content-Type", "")
             if "text/plain" in content_type:
