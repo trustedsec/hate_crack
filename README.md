@@ -487,6 +487,7 @@ Common options:
 - `--hashview --help`: Show Hashview command-line options.
 - `--weakpass`: Download wordlists from Weakpass.
 - `--hashmob`: Download wordlists from Hashmob.net.
+- `--hashmob-masks`: Download masks from Hashmob.net.
 - `--download-torrent <FILENAME>`: Download a specific Weakpass torrent file.
 - `--download-all-torrents`: Download all available Weakpass torrents from cache.
 - `--wordlists-dir <PATH>` / `--optimized-wordlists-dir <PATH>`: Override wordlist directories.
@@ -1384,6 +1385,7 @@ A submenu of wordlist preprocessing utilities using hashcat-utils binaries. All 
 | 8 | Optimize Wordlists | Dedupe and split the selected wordlists into per-length files under an output directory |
 | 9 | Download from Hashmob.net | Browse and download wordlists from Hashmob.net into the configured wordlist directory |
 | 10 | Download from Weakpass | Browse and download Weakpass wordlist torrents, with automatic extraction |
+| 11 | Hashmob Downloads | Access a submenu for downloading Hashmob archives (yearly full-found corpora) and combined-left lists (per-mode uncracked hashes) |
 
 All binaries are in `hate_crack/hashcat-utils/bin/`.
 
@@ -1395,6 +1397,7 @@ Preprocesses hashcat rule files using `cleanup-rules.bin` and `rules_optimize.bi
 * **Clean and optimize** (3) - runs both operations in sequence via a temporary file, then writes the final result.
 * **Download rules from Hashmob.net** (4) - fetches rule files into the configured `rulesDirectory`.
 * **Analyze Hashcat rules** (5) - opcode frequency analysis of a rule file, powered by HashcatRosetta.
+* **Download masks from Hashmob.net** (6) - fetches mask files into the hate_crack masks directory.
 
 The three preprocessing operations read from an input file and write to a separate output file (original is never modified).
 
@@ -1414,6 +1417,15 @@ Powered by HashcatRosetta (https://github.com/bandrel/HashcatRosetta), this feat
 * Helps understand what transformations a rule set performs
 * Useful for rule debugging and optimization
 
+#### Download Masks from Hashmob.net (Rule File Tools option 6)
+Downloads mask files from Hashmob.net's mask repository into the hate_crack masks directory for use with mask-based attacks.
+
+* Downloads mask sets in parallel using a thread pool (up to 4 concurrent downloads)
+* Skips masks already downloaded locally
+* Reports download summary with success/failure counts
+* Stores masks in the configured masks directory used by the Ad-hoc Mask Attack
+* Supports interactive listing, range selection, and browsing of available mask files
+
 #### Download Wordlists from Hashmob.net (Wordlist Tools option 9)
 Downloads wordlists from Hashmob.net's collection of cracked passwords and commonly used wordlists.
 
@@ -1428,6 +1440,19 @@ Interactive menu for downloading and managing wordlists from Weakpass.com via Bi
 * Download specific wordlists or entire collections
 * Automatic extraction of compressed archives
 * Progress tracking for torrent downloads
+
+#### Hashmob Downloads (Wordlist Tools option 11)
+Access a submenu for downloading large-scale password corpora and specialized wordlists from Hashmob.net.
+
+**Archives** - Downloads yearly full-found password corpora (multi-GB archives containing all cracked passwords from a given year)
+* Requires confirmation before downloading due to large file sizes (several gigabytes each)
+* Supports year selection and interactive browsing of available archives
+* Stores archives in the configured wordlist directory for extraction and use
+
+**Combined Left Lists** - Downloads per-hashcat-mode combined lists of uncracked ("left") hashes from Hashmob.net
+* Each list is a set of hashes, not plaintexts, still awaiting a crack for that hashcat mode
+* Useful for spotting overlap between your own hash list and hashes the community hasn't cracked yet
+* Supports mode selection from the listed hash counts per algorithm
 
 -------------------------------------------------------------------
 ### Version History
