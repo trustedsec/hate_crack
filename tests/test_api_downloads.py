@@ -10,6 +10,7 @@ from hate_crack import hashcat_paths
 from hate_crack.api import (
     check_7z,
     check_transmission_daemon,
+    download_hashmob_rule,
     download_hashmob_wordlist,
     download_official_wordlist,
     extract_with_7z,
@@ -660,6 +661,105 @@ class TestDownloadHashmobWordlist:
         assert result is False
 
 
+class TestDownloadHashmobRule:
+    def _make_mock_response(self, status_code=200, content=b"rule data"):
+        mock_response = MagicMock()
+        mock_response.__enter__ = lambda s: mock_response
+        mock_response.__exit__ = MagicMock(return_value=False)
+        mock_response.status_code = status_code
+        mock_response.headers = {"Content-Type": "application/octet-stream"}
+        mock_response.iter_content.return_value = [content]
+        mock_response.raise_for_status = MagicMock()
+        return mock_response
+
+    def test_rule_type_uses_www_hashmob_rules_url(self, tmp_path):
+        mock_response = self._make_mock_response()
+        out = tmp_path / "best64.rule"
+        with (
+            patch(
+                "hate_crack.api.requests.get", return_value=mock_response
+            ) as mock_get,
+            patch("hate_crack.api.time.sleep"),
+            patch("hate_crack.api.get_hashmob_api_key", return_value=None),
+            patch("hate_crack.api._hashmob_limiter.wait"),
+        ):
+            result = download_hashmob_rule(
+                "best64.rule", str(out), resource_type="rule"
+            )
+        assert result is True
+        called_url = mock_get.call_args.args[0]
+        assert (
+            called_url
+            == "https://www.hashmob.net/api/v2/downloads/research/rules/best64.rule"
+        )
+
+    def test_official_rule_type_uses_official_hashmob_rules_url(self, tmp_path):
+        mock_response = self._make_mock_response()
+        out = tmp_path / "HashMob.10k.rule"
+        with (
+            patch(
+                "hate_crack.api.requests.get", return_value=mock_response
+            ) as mock_get,
+            patch("hate_crack.api.time.sleep"),
+            patch("hate_crack.api.get_hashmob_api_key", return_value=None),
+            patch("hate_crack.api._hashmob_limiter.wait"),
+        ):
+            result = download_hashmob_rule(
+                "HashMob.10k.rule", str(out), resource_type="official_rule"
+            )
+        assert result is True
+        called_url = mock_get.call_args.args[0]
+        assert (
+            called_url
+            == "https://hashmob.net/api/v2/downloads/research/official/hashmob_rules/HashMob.10k.rule"
+        )
+
+    def test_404_on_primary_falls_back_to_official_alternate_url(self, tmp_path):
+        mock_404 = self._make_mock_response(status_code=404)
+        mock_ok = self._make_mock_response(status_code=200)
+        out = tmp_path / "some.rule"
+        with (
+            patch(
+                "hate_crack.api.requests.get", side_effect=[mock_404, mock_ok]
+            ) as mock_get,
+            patch("hate_crack.api.time.sleep"),
+            patch("hate_crack.api.get_hashmob_api_key", return_value=None),
+            patch("hate_crack.api._hashmob_limiter.wait"),
+        ):
+            result = download_hashmob_rule("some.rule", str(out), resource_type="rule")
+        assert result is True
+        assert mock_get.call_count == 2
+        first_url = mock_get.call_args_list[0].args[0]
+        second_url = mock_get.call_args_list[1].args[0]
+        assert (
+            first_url
+            == "https://www.hashmob.net/api/v2/downloads/research/rules/some.rule"
+        )
+        assert (
+            second_url
+            == "https://hashmob.net/api/v2/downloads/research/official/hashmob_rules/some.rule"
+        )
+
+    def test_missing_resource_type_falls_back_to_public_prefix(self, tmp_path):
+        mock_response = self._make_mock_response()
+        out = tmp_path / "unknown.rule"
+        with (
+            patch(
+                "hate_crack.api.requests.get", return_value=mock_response
+            ) as mock_get,
+            patch("hate_crack.api.time.sleep"),
+            patch("hate_crack.api.get_hashmob_api_key", return_value=None),
+            patch("hate_crack.api._hashmob_limiter.wait"),
+        ):
+            result = download_hashmob_rule("unknown.rule", str(out))
+        assert result is True
+        called_url = mock_get.call_args.args[0]
+        assert (
+            called_url
+            == "https://www.hashmob.net/api/v2/downloads/research/rules/unknown.rule"
+        )
+
+
 class TestDownloadOfficialWordlist:
     def _make_mock_response(self, status_code=200, content=b"official wordlist data"):
         mock_response = MagicMock()
@@ -826,7 +926,7 @@ class TestParallelRuleDownloads:
         rules_dir = str(tmp_path / "rules")
         os.makedirs(rules_dir)
 
-        def side_effect(file_name, out_path):
+        def side_effect(file_name, out_path, resource_type=None):
             if file_name == "bad.rule":
                 raise RuntimeError("download error")
 

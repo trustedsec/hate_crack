@@ -32,6 +32,29 @@ class TestListAndDownloadHashmobRulesAllFiles:
         downloaded = {call.args[0] for call in mock_dl.call_args_list}
         assert downloaded == {"a.rule", "b.rule", "c.rule", "d.rule", "e.rule"}
 
+    def test_resource_type_is_threaded_through_to_download_hashmob_rule(self, tmp_path):
+        rules = [
+            {"file_name": "official.rule", "type": "official_rule"},
+            {"file_name": "public.rule", "type": "rule"},
+        ]
+        rules_dir = str(tmp_path / "rules")
+        os.makedirs(rules_dir)
+
+        with (
+            patch("hate_crack.api.download_hashmob_rule_list", return_value=rules),
+            patch("hate_crack.api.download_hashmob_rule") as mock_dl,
+            _patch_stdin_tty(),
+            patch("builtins.input", return_value="a"),
+        ):
+            list_and_download_hashmob_rules(rules_dir=rules_dir)
+
+        assert mock_dl.call_count == 2
+        types_by_file = {call.args[0]: call.args[2] for call in mock_dl.call_args_list}
+        assert types_by_file == {
+            "official.rule": "official_rule",
+            "public.rule": "rule",
+        }
+
     def test_output_path_is_inside_rules_dir(self, tmp_path):
         rules = _make_rules(["sample.rule"])
         rules_dir = str(tmp_path / "rules")
@@ -39,7 +62,7 @@ class TestListAndDownloadHashmobRulesAllFiles:
 
         captured_paths = []
 
-        def capture(file_name, out_path):
+        def capture(file_name, out_path, resource_type=None):
             captured_paths.append(out_path)
 
         with (
@@ -141,7 +164,7 @@ class TestListAndDownloadHashmobRulesFailures:
         rules_dir = str(tmp_path / "rules")
         os.makedirs(rules_dir)
 
-        def side_effect(file_name, out_path):
+        def side_effect(file_name, out_path, resource_type=None):
             if file_name == "bad.rule":
                 raise RuntimeError("network error")
 
@@ -165,7 +188,7 @@ class TestListAndDownloadHashmobRulesFailures:
         os.makedirs(rules_dir)
         completed = []
 
-        def side_effect(file_name, out_path):
+        def side_effect(file_name, out_path, resource_type=None):
             if file_name == "bad.rule":
                 raise RuntimeError("fail")
             completed.append(file_name)
