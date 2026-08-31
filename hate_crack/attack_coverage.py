@@ -254,7 +254,12 @@ class CoverageStore:
         payload = json.dumps(list(keys))
         try:
             rows = conn.execute(_COVERED_IN_JSON, (payload,)).fetchall()
-        except sqlite3.Error:
+        except (sqlite3.Error, OverflowError):
+            # OverflowError: CPython's sqlite3 module cannot bind a single
+            # parameter longer than INT_MAX bytes, which a big rule file run
+            # against many large wordlists can reach -- it is raised at the
+            # C binding layer before SQLite itself is involved, so it is not
+            # a sqlite3.Error subclass.
             return self._covered_via_temp_table(conn, keys)
         return {row[0] for row in rows}
 

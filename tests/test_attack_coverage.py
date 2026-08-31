@@ -217,6 +217,42 @@ def test_covered_falls_back_when_json1_is_missing(store, monkeypatch):
     assert store.covered(keys + ["absent"]) == set(keys)
 
 
+def test_covered_falls_back_when_the_json_payload_exceeds_sqlite_bind_limit(
+    store, monkeypatch
+):
+    """A rule file x wordlist-count key set can serialize past 2 GiB.
+
+    CPython's sqlite3 module raises OverflowError -- not sqlite3.Error -- when
+    a single bound parameter exceeds INT_MAX bytes, which a huge rule file run
+    against many large wordlists can reach (see the real crash this regresses:
+    an uncaught OverflowError out of _apply_coverage). The fallback path this
+    should take already exists and is already covered above for a missing
+    JSON1 extension; it must also fire for this exception type.
+    """
+    keys = [f"k{i}" for i in range(1200)]
+    store.record(keys, target="t")
+    real_conn = store._connect()
+
+    class _OverflowingConnection:
+        """Proxies to the real connection, except for the covered-lookup query.
+
+        sqlite3.Connection is a C type -- its bound methods are read-only, so
+        the only way to make one call raise is to stand in for the connection
+        itself.
+        """
+
+        def execute(self, sql, *args, **kwargs):
+            if sql is ac._COVERED_IN_JSON:
+                raise OverflowError("string longer than INT_MAX bytes")
+            return real_conn.execute(sql, *args, **kwargs)
+
+        def __getattr__(self, name):
+            return getattr(real_conn, name)
+
+    monkeypatch.setattr(store, "_conn", _OverflowingConnection())
+    assert store.covered(keys + ["absent"]) == set(keys)
+
+
 # --- history ---------------------------------------------------------------
 
 
