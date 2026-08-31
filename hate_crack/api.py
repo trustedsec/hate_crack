@@ -923,13 +923,10 @@ def fetch_torrent_metadata(torrent_url, save_dir=None, wordlist_id=None):
 
     torrent_dir = os.path.join(tempfile.gettempdir(), "hate_crack")
     os.makedirs(torrent_dir, exist_ok=True)
-    # Optionally include hashmob_api_key in headers if present
+    # Do not send Hashmob API key to weakpass.com
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
-    hashmob_api_key = get_hashmob_api_key()
-    if hashmob_api_key:
-        headers["api-key"] = hashmob_api_key
 
     # Resolve a filename even if a URL is provided.
     if not torrent_url.startswith("http"):

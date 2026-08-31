@@ -533,9 +533,8 @@ class TestGetHashmobApiKey:
 
 
 class TestFetchTorrentMetadataApiKey:
-    def test_api_key_header_comes_from_the_env_file(self, tmp_path, monkeypatch):
-        """fetch_torrent_metadata() had its own copy of the same config.json
-        walk; it must now see a `.env`-only value too."""
+    def test_api_key_not_sent_to_weakpass(self, tmp_path, monkeypatch):
+        """fetch_torrent_metadata() must not send the Hashmob API key to weakpass.com."""
         env_file = tmp_path / ".env"
         write_env(str(env_file), {"hashmob_api_key": "placeholder-current"})
         monkeypatch.setattr(api, "_resolve_env_path", lambda: str(env_file))
@@ -552,7 +551,7 @@ class TestFetchTorrentMetadataApiKey:
         with pytest.raises(RuntimeError):
             api.fetch_torrent_metadata("http://example.invalid/a.torrent")
 
-        assert seen["headers"]["api-key"] == "placeholder-current"
+        assert "api-key" not in seen["headers"]
 
 
 class TestExtractWith7z:

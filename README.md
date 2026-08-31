@@ -121,7 +121,6 @@ Core logic is now split into modules under `hate_crack/`:
 - `hate_crack/cli.py`: argparse helpers and config overrides.
 - `hate_crack/api.py`: Hashview, Weakpass, and Hashmob integrations (downloads/menus/helpers).
 - `hate_crack/attacks.py`: menu attack handlers.
-- `hate_crack/hashmob_wordlist.py`: Hashmob wordlist utilities (thin wrapper; calls into api.py).
 - `hate_crack/corpus_stats.py`: whole-corpus password statistics used to describe a corpus to the LLM.
 - `hate_crack/plaintext.py`: recovers the password from a corpus line (hash-prefix stripping, `$HEX[...]` decoding); shared by the LLM modes, corpus_stats, and rulegen.
 - `hate_crack/llm.py`: structured (JSON) LLM candidate generation via Atomic Agents.
