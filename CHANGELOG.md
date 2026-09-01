@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
-## [Unreleased]
+## [2.36.0] - 2026-09-01
 
 ### Added
 - **The Hashmob archive picker now takes `a` (or `all`) to download every listed archive.** Picking them off one index at a time meant answering the large-download confirmation once per archive, and the yearly corpora are 2.4-9.8 GB apiece — a dozen identical prompts is how an operator stops reading the question. New `download_all_hashmob_archives(entries, out_dir=None)` takes **one** aggregate confirmation naming the archive count and the summed `file_size` (or "unknown total size" when the listing omits it), then downloads each entry through `download_hashmob_archive` with a new keyword-only `confirm=False` that suppresses the per-archive prompt. A non-tty context declines, same as the single-archive path.
