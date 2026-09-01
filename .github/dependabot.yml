@@ -36,8 +36,28 @@ updates:
     # version is ever resolved. If pip-audit flags instructor, fix it by
     # addressing the atomic-agents pin (upstream fix, or pinning around it)
     # — not by relaxing this ignore entry.
+    #
+    # openai 3.x is unreachable for the same reason, one level down:
+    # instructor requires openai>=2.0.0,<3.0.0 — at 1.14.5 (the version
+    # atomic-agents pins) and still at its own latest, 1.16.0. So a bump to
+    # openai 3.x is unsatisfiable and `uv lock` fails outright rather than
+    # resolving to something the suite could be run against. Dependabot has
+    # proposed it four times (most recently #309, closed 2026-09-01).
+    #
+    # Only the MAJOR is ignored here, not the whole dependency: openai 2.x
+    # patch and minor bumps resolve fine and should keep flowing, unlike the
+    # instructor entry above where even a patch is unsatisfiable.
+    #
+    # REMOVE THIS when BOTH upstream conditions clear — checking only the
+    # first is what makes this look fixed before it is:
+    #   1. atomic-agents relaxes instructor==1.14.5 (see the check above), and
+    #   2. the resulting instructor allows openai>=3:
+    #        curl -s https://pypi.org/pypi/instructor/json \
+    #          | python3 -c "import json,sys;print([r for r in json.load(sys.stdin)['info']['requires_dist'] if 'openai' in r])"
     ignore:
       - dependency-name: "instructor"
+      - dependency-name: "openai"
+        update-types: ["version-update:semver-major"]
     # "chore" deliberately does NOT match the feat|fix|perf patterns in
     # .github/workflows/auto-tag.yml, so dependency PRs never auto-cut a tag.
     commit-message:
