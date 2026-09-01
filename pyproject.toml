@@ -19,7 +19,7 @@ dependencies = [
     # relying on atomic-agents pulling them in transitively.
     "instructor>=1.14.5",
     "openai>=2.53.0",
-    "pydantic>=2.13.4",
+    "pydantic>=2.13.5",
     "python-dotenv>=1.2.3",
 ]
 
