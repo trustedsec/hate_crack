@@ -1221,16 +1221,23 @@ _RAW_HEX_HASH_MODES = frozenset(
     }
 )
 
-_HEX_CIPHERTEXT_RE = re.compile(r"^(?:0[xX])?[0-9a-fA-F]+$")
+_HEX_CIPHERTEXT_RE = re.compile(rb"^(?:0[xX])?[0-9a-fA-F]+$")
 
 # Hashview file_format codes whose ciphertext the client may normalise. pwdump
 # (0) is excluded because the server's pwdump branch lowercases the NT field
 # itself and hardcodes hash_type 1000; NetNTLM/kerberos/shadow (1/2/3) are
 # excluded because their lines are not a bare hex digest.
+#
+# For those four the exclusion is belt-and-braces rather than load-bearing: a
+# line in any of them carries colons or a `$`-prefixed tag, so the hex-shape
+# check below would decline to fold it anyway. Removing an entry from this set
+# therefore breaks no test. It stays because format 4 genuinely does need its
+# own branch, and because stating which formats the client may touch is worth
+# more than the one line it costs.
 _NORMALIZABLE_FILE_FORMATS = frozenset({"4", "5"})
 
 
-def _normalize_hashfile_hash(hash_field: str, hash_type) -> str:
+def _normalize_hashfile_hash(hash_field: bytes, hash_type) -> bytes:
     """Lowercase *hash_field* when it is a raw hex digest of a known hex mode.
 
     Anything else -- a non-hex ciphertext, or an unrecognised mode -- is
@@ -1244,8 +1251,13 @@ def _normalize_hashfile_hash(hash_field: str, hash_type) -> str:
     return hash_field.lower()
 
 
-def _normalize_hashfile_line(line: str, hash_type, file_format) -> str:
+def _normalize_hashfile_line(line: bytes, hash_type, file_format) -> bytes:
     """Apply :func:`_normalize_hashfile_hash` to the ciphertext of *line*.
+
+    Works on bytes rather than text on purpose: a hashfile line is not
+    guaranteed to be valid UTF-8 (an AD username can carry arbitrary bytes),
+    and lowercasing ASCII hex needs no decoding. Decoding here would either
+    lose those bytes or produce lone surrogates that blow up further down.
 
     For ``user:hash`` (format 4) only the part after the first colon is
     touched: the username is stored verbatim by Hashview and feeds its
@@ -1258,7 +1270,7 @@ def _normalize_hashfile_line(line: str, hash_type, file_format) -> str:
     if fmt not in _NORMALIZABLE_FILE_FORMATS:
         return line
     if fmt == "4":
-        username, sep, hash_field = line.partition(":")
+        username, sep, hash_field = line.partition(b":")
         if not sep:
             return line
         return username + sep + _normalize_hashfile_hash(hash_field, hash_type)
@@ -1944,18 +1956,26 @@ class HashviewAPI:
                 line = raw_line.rstrip(b"\r\n")
                 if not line:
                     continue
-                # surrogateescape, not "ignore": a username carrying non-UTF-8
-                # bytes must survive the round trip back to the wire intact.
-                hash_value = _normalize_hashfile_line(
-                    line.decode("utf-8", errors="surrogateescape"),
-                    hash_type,
-                    file_format,
-                )
+                # Normalize on bytes first, then derive the cache key from the
+                # normalized line, so the same hash in either case is one entry
+                # in the skip list.
+                #
+                # latin-1 to decode the key, not utf-8: it maps every byte to a
+                # distinct code point, so two usernames differing only in a
+                # non-UTF-8 byte stay distinct keys and cannot silently skip
+                # each other, and the result always re-encodes cleanly inside
+                # cache_key. utf-8 with errors="ignore" conflated them; with
+                # errors="surrogateescape" it produces lone surrogates that
+                # cache_key's strict encode rejects outright. ASCII lines --
+                # which is nearly all of them -- decode identically either way,
+                # so existing cache entries are unaffected.
+                line = _normalize_hashfile_line(line, hash_type, file_format)
+                hash_value = line.decode("latin-1")
                 key = cache_key(hash_value, hash_type, scope=f"hashfile:{customer_id}")
                 if key in cache:
                     skipped_cached += 1
                     continue
-                kept_lines.append(hash_value.encode("utf-8", errors="surrogateescape"))
+                kept_lines.append(line)
                 new_keys.append(key)
 
         if skipped_cached:

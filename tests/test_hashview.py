@@ -1483,6 +1483,38 @@ class TestHashviewAPI:
 
         assert body == bcrypt_hash.encode()
 
+    def test_upload_hashfile_leaves_non_hex_ciphertext_untouched_for_listed_mode(
+        self, api, tmp_path, monkeypatch
+    ):
+        """The hex gate, not just the mode gate, has to hold: a mode on the
+        raw-hex list can still be handed a ciphertext that is not a bare
+        digest, such as MySQL's native ``*``-prefixed form under mode 300."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        mysql_native = "*FCF7C1B8749CF99D88E5F34271D636178FB5D130"
+        hashfile = tmp_path / "hashes.txt"
+        hashfile.write_text(f"{mysql_native}\n")
+
+        body = self._upload_and_get_body(api, hashfile, hash_type="300")
+
+        assert body == mysql_native.encode()
+
+    def test_upload_hashfile_does_not_conflate_non_utf8_usernames(
+        self, api, tmp_path, monkeypatch
+    ):
+        """Two usernames differing only in a non-UTF-8 byte are two different
+        accounts. Deriving the skip-list key from a lossy decode collapsed them
+        onto one key, so the second was silently dropped as already uploaded."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        first = tmp_path / "first.txt"
+        first.write_bytes(b"caf\xe9.user:" + NTLM_A.encode() + b"\n")
+        second = tmp_path / "second.txt"
+        second.write_bytes(b"caf\xff.user:" + NTLM_A.encode() + b"\n")
+
+        self._upload_and_get_body(api, first, hash_type="1000", file_format=4)
+        body = self._upload_and_get_body(api, second, hash_type="1000", file_format=4)
+
+        assert body == b"caf\xff.user:" + NTLM_A.encode()
+
     def test_upload_hashfile_leaves_hex_untouched_for_unlisted_mode(
         self, api, tmp_path, monkeypatch
     ):
@@ -1500,7 +1532,11 @@ class TestHashviewAPI:
         self, api, tmp_path, monkeypatch
     ):
         """Hashview's pwdump branch lowercases the NT field itself and hardcodes
-        hash_type 1000, so the client must not second-guess the other fields."""
+        hash_type 1000, so the client must not second-guess the other fields.
+
+        Note this holds for two independent reasons -- format 0 is not in
+        ``_NORMALIZABLE_FILE_FORMATS``, and a pwdump line is not a bare hex
+        digest -- so it does not pin the format gate on its own."""
         monkeypatch.setenv("HOME", str(tmp_path))
         line = f"MixedCase.User:500:{'a' * 32}:{NTLM_A.upper()}:::"
         hashfile = tmp_path / "hashes.txt"
@@ -1541,6 +1577,19 @@ class TestHashviewAPI:
         )
 
         assert body == f"{prefix}{NTLM_A.lower()}".encode()
+
+    def test_upload_hashfile_preserves_non_utf8_username_bytes(
+        self, api, tmp_path, monkeypatch
+    ):
+        """A username carrying non-UTF-8 bytes must reach the wire intact and
+        must not crash the upload -- Hashview stores it as ``$HEX[...]``."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        hashfile = tmp_path / "hashes.txt"
+        hashfile.write_bytes(b"caf\xe9.user:" + NTLM_A.upper().encode() + b"\n")
+
+        body = self._upload_and_get_body(api, hashfile, hash_type="1000", file_format=4)
+
+        assert body == b"caf\xe9.user:" + NTLM_A.lower().encode()
 
     def test_upload_hashfile_normalizes_for_integer_hash_type(
         self, api, tmp_path, monkeypatch
