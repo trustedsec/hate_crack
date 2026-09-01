@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [Unreleased]
+
+### Fixed
+- **Hashfile uploads to Hashview now lowercase a raw hex ciphertext before sending it, so uppercase hashes are no longer silently dropped on the server.** Hashview keys every hash lookup on `md5(ciphertext)` computed in Python (`utils.py:import_hash_only`), which makes the comparison case-sensitive regardless of the column's collation. It intends to fold hex modes to lowercase on import, but the guard reads `hash_type in ('300', '1731', '1000')` while the upload route declares `<int:hash_type>` — so on the API path the comparison is `int` against `str`, never matches, and the ciphertext is stored in whatever case it arrived in. (The web UI is unaffected: WTForms hands over a `str`.)
+
+  The consequences were both silent. An uppercase hash misses the import-time dedup, so a copy already cracked on the server is not recognised and `instacracked` comes back `0`; then the agent cracks it and reports the ciphertext back **lowercased** — hashcat re-encodes hex digests rather than echoing the input casing — so the result lookup misses the uppercase row, the plaintext is discarded, and the hash stays `cracked=0`. Neither failure raises anything client-side.
+
+  `upload_hashfile` now normalises each line through `_normalize_hashfile_line()` before both the wire body and the skip-list cache key. It folds only ciphertexts that are wholly hex (optionally `0x`-prefixed, as MSSQL 2012 writes them) under one of nine raw-hex modes — 0, 100, 300, 900, 1000, 1400, 1700, 1731, 3000 — so case-significant formats such as bcrypt's `$2B$` variant, base64 digests and the `$DCC2$` marker are left alone. **For `user:hash` (format 4) only the field after the first colon is touched**: Hashview stores the username verbatim and feeds it to the "(DYNAMIC) All Usernames" wordlist, so folding its case would pollute that list. pwdump (format 0) is skipped entirely because Hashview's pwdump branch lowercases the NT field itself, and NetNTLM/kerberos/shadow (1/2/3) because their lines are not a bare digest.
+
+  Two knock-on details: the cache key is now computed from the normalised line, so the same hash uploaded in either case is correctly recognised as one hash rather than two; and the line is decoded with `surrogateescape` instead of `errors="ignore"`, so a username carrying non-UTF-8 bytes survives the round trip to the wire intact instead of being silently truncated.
+
+  This is a client-side workaround for a server-side defect, and it stays correct once the server is fixed. Hashes uploaded uppercase **before** this change are still stranded on the server and need re-uploading.
+
 ## [2.36.0] - 2026-09-01
 
 ### Added

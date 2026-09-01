@@ -1195,6 +1195,75 @@ _HASH_HEX_LEN = {
     "3000": 16,  # LM (half)
 }
 
+# Modes whose entire ciphertext is a raw hex digest (optionally 0x-prefixed, as
+# MSSQL 2012 writes it) and which hashcat therefore re-emits lowercased.
+#
+# Hashview keys every hash lookup on md5(ciphertext) computed in Python, so the
+# comparison is case-sensitive no matter what collation the column carries. It
+# means to fold these modes to lowercase on import, but its guard reads
+# ``hash_type in ('300', '1731', '1000')`` while the upload route declares
+# ``<int:hash_type>`` -- so on the API path the guard is never true and the
+# ciphertext is stored in whatever case it arrived in. An uppercase hash then
+# misses on dedup (no instacrack) and misses again when the agent returns the
+# crack lowercased, which silently drops the result. Folding client-side
+# sidesteps that, and stays correct once the server is fixed.
+_RAW_HEX_HASH_MODES = frozenset(
+    {
+        "0",  # MD5
+        "100",  # SHA1
+        "300",  # MySQL4.1/MySQL5
+        "900",  # MD4
+        "1000",  # NTLM
+        "1400",  # SHA2-256
+        "1700",  # SHA2-512
+        "1731",  # MSSQL 2012/2014
+        "3000",  # LM
+    }
+)
+
+_HEX_CIPHERTEXT_RE = re.compile(r"^(?:0[xX])?[0-9a-fA-F]+$")
+
+# Hashview file_format codes whose ciphertext the client may normalise. pwdump
+# (0) is excluded because the server's pwdump branch lowercases the NT field
+# itself and hardcodes hash_type 1000; NetNTLM/kerberos/shadow (1/2/3) are
+# excluded because their lines are not a bare hex digest.
+_NORMALIZABLE_FILE_FORMATS = frozenset({"4", "5"})
+
+
+def _normalize_hashfile_hash(hash_field: str, hash_type) -> str:
+    """Lowercase *hash_field* when it is a raw hex digest of a known hex mode.
+
+    Anything else -- a non-hex ciphertext, or an unrecognised mode -- is
+    returned untouched, because case is significant in formats such as
+    bcrypt's ``$2B$`` variant, base64 digests and the ``$DCC2$`` marker.
+    """
+    if str(hash_type) not in _RAW_HEX_HASH_MODES:
+        return hash_field
+    if not _HEX_CIPHERTEXT_RE.match(hash_field):
+        return hash_field
+    return hash_field.lower()
+
+
+def _normalize_hashfile_line(line: str, hash_type, file_format) -> str:
+    """Apply :func:`_normalize_hashfile_hash` to the ciphertext of *line*.
+
+    For ``user:hash`` (format 4) only the part after the first colon is
+    touched: the username is stored verbatim by Hashview and feeds its
+    "(DYNAMIC) All Usernames" wordlist, so folding its case would pollute
+    that list.
+    """
+    # Compare as str, never as the caller's type: mixing int and str is the
+    # exact mistake on the server that makes this workaround necessary.
+    fmt = str(file_format)
+    if fmt not in _NORMALIZABLE_FILE_FORMATS:
+        return line
+    if fmt == "4":
+        username, sep, hash_field = line.partition(":")
+        if not sep:
+            return line
+        return username + sep + _normalize_hashfile_hash(hash_field, hash_type)
+    return _normalize_hashfile_hash(line, hash_type)
+
 
 def _decode_plaintext(plaintext: str) -> bytes:
     """Decode a hashcat plaintext, expanding $HEX[...] to raw bytes."""
@@ -1875,12 +1944,18 @@ class HashviewAPI:
                 line = raw_line.rstrip(b"\r\n")
                 if not line:
                     continue
-                hash_value = line.decode("utf-8", errors="ignore")
+                # surrogateescape, not "ignore": a username carrying non-UTF-8
+                # bytes must survive the round trip back to the wire intact.
+                hash_value = _normalize_hashfile_line(
+                    line.decode("utf-8", errors="surrogateescape"),
+                    hash_type,
+                    file_format,
+                )
                 key = cache_key(hash_value, hash_type, scope=f"hashfile:{customer_id}")
                 if key in cache:
                     skipped_cached += 1
                     continue
-                kept_lines.append(line)
+                kept_lines.append(hash_value.encode("utf-8", errors="surrogateescape"))
                 new_keys.append(key)
 
         if skipped_cached:

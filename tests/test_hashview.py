@@ -1431,6 +1431,130 @@ class TestHashviewAPI:
 
         assert cache_key(NTLM_A, "1000", scope="hashfile:1") not in load_cache()
 
+    def _upload_and_get_body(self, api, hashfile, **kwargs):
+        """Run upload_hashfile against a mocked session and return the POST body."""
+        mock_response = Mock()
+        mock_response.json.return_value = {"hashfile_id": 456}
+        mock_response.raise_for_status = Mock()
+        api.session.post.return_value = mock_response
+        api.upload_hashfile(str(hashfile), customer_id=1, **kwargs)
+        return api.session.post.call_args.kwargs["data"]
+
+    def test_upload_hashfile_lowercases_hex_ciphertext(
+        self, api, tmp_path, monkeypatch
+    ):
+        """Hashview keys every hash lookup on md5(ciphertext), and hashcat emits
+        hex hashes lowercased. An uppercase NTLM hash stored verbatim therefore
+        never matches the crack that comes back for it."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        hashfile = tmp_path / "hashes.txt"
+        hashfile.write_text(f"{NTLM_A.upper()}\n")
+
+        body = self._upload_and_get_body(api, hashfile, hash_type="1000")
+
+        assert body == NTLM_A.lower().encode()
+
+    def test_upload_hashfile_preserves_username_case_in_user_hash_format(
+        self, api, tmp_path, monkeypatch
+    ):
+        """Usernames are stored verbatim and feed the "(DYNAMIC) All Usernames"
+        wordlist, so only the ciphertext may be case-folded."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        hashfile = tmp_path / "hashes.txt"
+        hashfile.write_text(f"CORP\\MixedCase.User:{NTLM_A.upper()}\n")
+
+        body = self._upload_and_get_body(api, hashfile, hash_type="1000", file_format=4)
+
+        assert body == f"CORP\\MixedCase.User:{NTLM_A.lower()}".encode()
+
+    def test_upload_hashfile_leaves_non_hex_ciphertext_untouched(
+        self, api, tmp_path, monkeypatch
+    ):
+        """Case is significant in non-hex ciphertexts (bcrypt's $2B$ variant,
+        base64 digests, the $DCC2$ marker), so they must never be folded."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        bcrypt_hash = (
+            "$2B$05$SyntheticExampleSaltAAAAAAOsyntheticExampleDigestAAAAAAAAAAA"
+        )
+        hashfile = tmp_path / "hashes.txt"
+        hashfile.write_text(f"{bcrypt_hash}\n")
+
+        body = self._upload_and_get_body(api, hashfile, hash_type="3200")
+
+        assert body == bcrypt_hash.encode()
+
+    def test_upload_hashfile_leaves_hex_untouched_for_unlisted_mode(
+        self, api, tmp_path, monkeypatch
+    ):
+        """Only modes whose whole ciphertext is a raw hex digest are folded; a
+        hex-looking value under any other mode is left alone."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        hashfile = tmp_path / "hashes.txt"
+        hashfile.write_text(f"{NTLM_A.upper()}\n")
+
+        body = self._upload_and_get_body(api, hashfile, hash_type="99999")
+
+        assert body == NTLM_A.upper().encode()
+
+    def test_upload_hashfile_leaves_pwdump_lines_untouched(
+        self, api, tmp_path, monkeypatch
+    ):
+        """Hashview's pwdump branch lowercases the NT field itself and hardcodes
+        hash_type 1000, so the client must not second-guess the other fields."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        line = f"MixedCase.User:500:{'a' * 32}:{NTLM_A.upper()}:::"
+        hashfile = tmp_path / "hashes.txt"
+        hashfile.write_text(f"{line}\n")
+
+        body = self._upload_and_get_body(api, hashfile, hash_type="1000", file_format=0)
+
+        assert body == line.encode()
+
+    def test_upload_hashfile_cache_key_ignores_ciphertext_case(
+        self, api, tmp_path, monkeypatch
+    ):
+        """The same hash uploaded in either case is one hash on the server, so
+        the skip-list must not treat the two spellings as different."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        from hate_crack.hashview_cache import cache_key, load_cache
+
+        hashfile = tmp_path / "hashes.txt"
+        hashfile.write_text(f"{NTLM_A.upper()}\n")
+
+        self._upload_and_get_body(api, hashfile, hash_type="1000")
+
+        assert cache_key(NTLM_A.lower(), "1000", scope="hashfile:1") in load_cache()
+
+    @pytest.mark.parametrize("file_format", [5, "5", 4, "4"])
+    def test_upload_hashfile_normalizes_for_string_file_format(
+        self, api, tmp_path, monkeypatch, file_format
+    ):
+        """The bug being worked around here is an int-versus-str comparison on
+        the server, so this client's own format gate must not repeat it."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        prefix = "MixedCase.User:" if str(file_format) == "4" else ""
+        hashfile = tmp_path / "hashes.txt"
+        hashfile.write_text(f"{prefix}{NTLM_A.upper()}\n")
+
+        body = self._upload_and_get_body(
+            api, hashfile, hash_type="1000", file_format=file_format
+        )
+
+        assert body == f"{prefix}{NTLM_A.lower()}".encode()
+
+    def test_upload_hashfile_normalizes_for_integer_hash_type(
+        self, api, tmp_path, monkeypatch
+    ):
+        """hash_type reaches upload_hashfile as an int from both the CLI
+        (``type=int``) and the interactive menu (``int(input(...))``)."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        hashfile = tmp_path / "hashes.txt"
+        hashfile.write_text(f"{NTLM_A.upper()}\n")
+
+        body = self._upload_and_get_body(api, hashfile, hash_type=1000)
+
+        assert body == NTLM_A.lower().encode()
+
     def test_hashfile_upload_does_not_poison_cracked_results_cache(
         self, api, tmp_path, monkeypatch
     ):
