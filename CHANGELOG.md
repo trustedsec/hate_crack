@@ -14,6 +14,11 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
   Downloads are sequential, not parallel: at these sizes concurrency only splits the same bandwidth while multiplying the disk footprint of a partial batch. A failed or raising download is counted and the batch continues, and the function returns `{"succeeded", "failed", "skipped"}`. **An archive already on disk at its listed size is skipped; one whose size does not match is re-downloaded**, since a truncated file from an interrupted run is the likelier explanation — and one with no listed size is skipped, because nothing local can tell those two cases apart. The single-archive path is unchanged, including its own confirmation.
 
+### Changed
+- **Dependency bumps: `atomic-agents` >=2.10.1, `python-dotenv` >=1.2.3, `ruff` ==0.16.4, `ty` ==0.0.74.** Landed as one commit rather than four Dependabot merges: all four branches edit `pyproject.toml` from the same base, so once one lands the rest are no longer fast-forwardable, and the `ruff`/`ty` pins sit on adjacent lines and conflict outright. One relock and one gate run covers them together. (`uv.lock` is gitignored here, so none of the PRs carried one.) Neither toolchain bump changed a gate's verdict: `ruff format` reformats nothing at 0.16.4, and `ty` 0.0.74 still reports 56 warning-level diagnostics and no errors.
+
+  **The proposed `openai` >=3.3.1 bump was not taken, and cannot be.** `instructor` still caps `openai>=2.0.0,<3.0.0` at its own latest (1.16.0), so `uv lock` fails outright with an unsatisfiable-requirements error rather than resolving to something untested. This is the fourth time Dependabot has proposed it; the bump becomes possible only when `instructor` widens that cap upstream.
+
 ## [2.35.0] - 2026-08-31
 
 ### Added
