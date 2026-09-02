@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
-## [Unreleased]
+## [2.36.1] - 2026-09-02
 
 ### Fixed
 - **CrackTailer now seeks to EOF synchronously in `start()` instead of on the background thread.** A race in the notification system caused a line written to the `.out` file between `start()` returning and the thread's first execution to be silently dropped, never triggering a notification. Surfaced by Dependabot PR #317's CI failure on a starved runner; the test `test_no_username_falls_back_to_attack_name` randomly won/lost the race depending on scheduling. The race is unrelated to the `atomic-agents` version bump; seeking synchronously in the caller's thread eliminates it entirely. (#317)
