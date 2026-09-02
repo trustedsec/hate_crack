@@ -4,8 +4,12 @@ Design rationale:
 
 - Polling (not inotify/fsevents) keeps the implementation portable across
   macOS/Linux without adding a dependency.
-- We seek to EOF on start: the hashfile may already contain cracks from a
-  previous run, and re-notifying those would be both wrong and spammy.
+- We seek to EOF synchronously in ``start()`` (not on the background thread):
+  the hashfile may already contain cracks from a previous run, and
+  re-notifying those would be both wrong and spammy. Seeking on the thread
+  would create a race window where lines written between ``start()`` returning
+  and the thread's first execution are treated as pre-existing and silently
+  dropped.
 - Burst cap: if a single poll tick yields more cracks than the user's
   configured threshold, we collapse them into one aggregated notification
   instead of N pings.  Cracks tend to arrive in rule-file bursts, so this
@@ -115,6 +119,16 @@ class CrackTailer(threading.Thread):
         # File position to read from; set on first successful open.
         self._file_pos: int | None = None
 
+    def start(self) -> None:
+        """Start the tailer thread, seeking to EOF synchronously first.
+
+        The seek must happen before the thread starts running, not on the thread,
+        to avoid a race where lines written between start() returning and the
+        thread's first execution are treated as pre-existing and dropped.
+        """
+        self._seek_to_eof()
+        super().start()
+
     def stop(self) -> None:
         """Signal the thread to exit and join with a bounded timeout.
 
@@ -128,7 +142,8 @@ class CrackTailer(threading.Thread):
 
     def run(self) -> None:  # pragma: no cover - thread entry, exercised via tests
         try:
-            self._seek_to_eof()
+            if self._file_pos is None:
+                self._seek_to_eof()
             # First tick of ``wait()`` blocks for the full interval; this is
             # deliberate so we don't hammer the filesystem immediately after
             # starting if hashcat hasn't written anything yet.

@@ -1,5 +1,6 @@
 """Unit tests for the CrackTailer polling thread and username extractor."""
 
+import threading
 import time
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -139,6 +140,47 @@ class TestCrackTailerStart:
                 f.write("5f4dcc3b5:plain\n")
             assert _wait_until(lambda: notify.call_count >= 1)
             assert notify.call_args.args[0] == "Brute Force"
+        finally:
+            tailer.stop()
+
+    def test_start_seeks_to_eof_synchronously(self, tmp_path: Path) -> None:
+        out = tmp_path / "hashes.out"
+        out.write_text("alice:hash:plain\n")
+        tailer, _, _ = _make_tailer(out)
+        gate = threading.Event()
+        tailer.run = gate.wait  # thread parks; seeking must not be its job
+        tailer.start()
+        try:
+            assert tailer._file_pos == out.stat().st_size
+        finally:
+            gate.set()
+            tailer.stop()
+
+    def test_line_written_immediately_after_start_is_not_swallowed(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        # Regression for #317: a starved CI runner can delay when the
+        # background thread actually gets to run _seek_to_eof(). If the seek
+        # happens on the thread (in run()) rather than synchronously in
+        # start(), a line written right after start() can race the seek and
+        # get silently treated as pre-existing. Simulate that starvation
+        # directly instead of relying on real scheduling luck.
+        orig = CrackTailer._seek_to_eof
+
+        def slow_seek(self):
+            time.sleep(0.3)
+            return orig(self)
+
+        monkeypatch.setattr(CrackTailer, "_seek_to_eof", slow_seek)
+
+        out = tmp_path / "hashes.out"
+        out.write_text("")
+        tailer, notify, _ = _make_tailer(out)
+        tailer.start()
+        try:
+            with open(out, "a") as f:
+                f.write("5f4dcc3b5:plain\n")
+            assert _wait_until(lambda: notify.call_count >= 1, timeout=2.0)
         finally:
             tailer.stop()
 
