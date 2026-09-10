@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [Unreleased]
+
+### Fixed
+- **`--update`/`--nightly` no longer refuses to run because of untracked files the operator never created.** The pre-upgrade dirty check ran `git status --porcelain --ignore-submodules=dirty`, which reports untracked files as well as tracked edits, and aborted on any output. That guard exists to protect the `git checkout -B` below it, and the checkout only aborts on *tracked* modifications — untracked files survive it untouched — so gating on them protected nothing while blocking auto-upgrade permanently. Running hate_crack from a checkout reliably creates them: `.DS_Store` appears after a single Finder visit on macOS, and `hashcat/rules/` is the shipped `rules_directory` default that the rule and mask downloads write into. Neither was covered by `.gitignore`; `.DS_Store` is ignored on a developer machine only through a personal global excludesfile, which does not clone, which is why this reproduced on operator installs and nowhere else. The check now passes `--untracked-files=no`. The one untracked file that can genuinely lose data — one sitting at a path an incoming commit adds — is still caught, by `checkout -B` itself, whose error names the file and is already surfaced.
+- **The auto-upgrade refusal now lists the changed files instead of only saying there are some.** "Commit or stash them, then re-run" was unactionable when "them" was never named, which mattered most on exactly the machines hitting the bug above. The listing is capped at 20 entries so a large diff cannot bury the instructions under it.
+- `.DS_Store` and `hashcat/` added to `.gitignore`, so neither can be staged by a `git add -A` in a checkout.
+
 ## [2.36.1] - 2026-09-02
 
 ### Fixed

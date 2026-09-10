@@ -87,6 +87,17 @@ hashcat_debug*.log
 # matches either pattern.
 wordlists/
 optimized_wordlists/
+# Downloaded rule and mask files, same relative-default reasoning: the shipped
+# rules_directory is "./hashcat/rules", so on a checkout that kept the default
+# the Hashview/Hashmob rule and mask downloads land in the repo. No tracked
+# file lives under a directory named hashcat -- the bundled utilities are
+# hashcat-utils, which this does not match.
+hashcat/
+# macOS Finder metadata. One visit to the folder creates it, and it is ignored
+# on a developer machine only via a personal global excludesfile, which does
+# not clone -- so it showed up untracked on an operator install and nowhere
+# else.
+.DS_Store
 hate_crack/__init__.pyc
 hate_crack/_version.py
 __pycache__/

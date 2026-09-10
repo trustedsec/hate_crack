@@ -328,3 +328,118 @@ def test_inherited_git_repo_vars_do_not_leak_into_throwaway_repos(tmp_path):
     _git("add", "f.txt", cwd=repo)
     _git("commit", "-qm", "initial", cwd=repo)
     assert _git("rev-parse", "--short", "HEAD", cwd=repo).stdout.strip()
+
+
+def test_run_upgrade_ignores_untracked_operator_artifacts(
+    hc_module_real_git, rewritten_remote_and_clone, capsys
+):
+    """Untracked files in the checkout must not block auto-upgrade.
+
+    The dirty guard exists to protect tracked edits from `checkout -B`, which
+    aborts rather than discarding them. Untracked files are not at risk: the
+    checkout leaves them in place. Gating on them anyway is what bricked
+    `--update` in the field, because running hate_crack from a checkout
+    reliably creates them -- `.DS_Store` from one Finder visit on macOS, and
+    `hashcat/rules/` from the shipped `rules_directory` default of
+    `./hashcat/rules` that the rule and mask downloads write into. Neither is
+    an edit the operator made, and the error named no file, so there was
+    nothing to act on.
+    """
+    _remote, clone = rewritten_remote_and_clone
+    (clone / ".DS_Store").write_bytes(b"\x00\x00\x00\x01Bud1")
+    (clone / "hashcat" / "rules").mkdir(parents=True)
+    (clone / "hashcat" / "rules" / "best64.rule").write_text(":\n")
+
+    real_run = subprocess.run
+    shell_calls = []
+
+    def passthrough(cmd, *args, **kwargs):
+        if kwargs.get("shell"):
+            shell_calls.append(cmd)
+
+            class Ok:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+
+            return Ok()
+        return real_run(cmd, *args, **kwargs)
+
+    with (
+        patch.object(hc_module_real_git, "_repo_root", str(clone)),
+        patch("subprocess.run", side_effect=passthrough),
+        pytest.raises(SystemExit) as exc,
+    ):
+        hc_module_real_git._run_upgrade()
+
+    out = capsys.readouterr().out
+    assert exc.value.code == 0, out
+    assert "uncommitted changes" not in out
+    # The upgrade actually happened.
+    assert (clone / "app.py").read_text() == "print('v2')\n"
+    assert shell_calls and "make install" in shell_calls[0]
+    # And the operator's untracked files are still there, untouched.
+    assert (clone / ".DS_Store").exists()
+    assert (clone / "hashcat" / "rules" / "best64.rule").read_text() == ":\n"
+
+
+def test_run_upgrade_reports_an_untracked_file_the_checkout_would_overwrite(
+    hc_module_real_git, tmp_path, capsys
+):
+    """The one untracked case that does block, handled by the checkout itself.
+
+    `checkout -B` refuses when an incoming commit adds a file at a path an
+    untracked file already occupies -- the only way an untracked file can lose
+    data. Relaxing the dirty guard hands that case to the checkout's own error
+    path, so it must still exit non-zero and tell the operator which file.
+    """
+    remote = _init(tmp_path / "remote")
+    (remote / "app.py").write_text("print('v1')\n")
+    _git("add", "-A", cwd=remote)
+    _git("commit", "-qm", "release 1.0", cwd=remote)
+    _git("tag", "v1.0", cwd=remote)
+
+    clone = tmp_path / "clone"
+    _git("clone", "-q", str(remote), str(clone), cwd=tmp_path)
+
+    # Upstream adds a new tracked file...
+    (remote / "collides.txt").write_text("from upstream\n")
+    _git("add", "-A", cwd=remote)
+    _git("commit", "-qm", "release 1.1", cwd=remote)
+    _git("tag", "v1.1", cwd=remote)
+
+    # ...at a path the operator's checkout already has as an untracked file.
+    (clone / "collides.txt").write_text("operator's own\n")
+
+    with (
+        patch.object(hc_module_real_git, "_repo_root", str(clone)),
+        pytest.raises(SystemExit) as exc,
+    ):
+        hc_module_real_git._run_upgrade()
+
+    out = capsys.readouterr().out
+    assert exc.value.code == 1, out
+    assert "collides.txt" in out
+    # Nothing was clobbered.
+    assert (clone / "collides.txt").read_text() == "operator's own\n"
+
+
+def test_run_upgrade_names_the_uncommitted_files_it_refuses_over(
+    hc_module_real_git, rewritten_remote_and_clone, capsys
+):
+    """The message must name the files, not just say "commit or stash them".
+
+    The operator sees this on a machine they may not have edited deliberately,
+    so the message has to say which file to look at.
+    """
+    _remote, clone = rewritten_remote_and_clone
+    (clone / "app.py").write_text("print('my local edit')\n")
+
+    with (
+        patch.object(hc_module_real_git, "_repo_root", str(clone)),
+        pytest.raises(SystemExit) as exc,
+    ):
+        hc_module_real_git._run_upgrade()
+
+    assert exc.value.code == 1
+    assert "app.py" in capsys.readouterr().out

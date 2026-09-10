@@ -2290,15 +2290,41 @@ def _run_upgrade(branch="main"):
     # after the very install this tool tells people to run. `dirty` still
     # reports a submodule pinned to a different commit than recorded, which
     # `checkout -B` on the superproject cannot fix anyway.
+    #
+    # --untracked-files=no: the guard protects tracked edits, which the
+    # checkout below aborts on rather than discarding. Untracked files are not
+    # at risk -- the checkout leaves them exactly where they are -- so blocking
+    # on them guards nothing while bricking the upgrade permanently, because
+    # running hate_crack from a checkout reliably creates them. `.DS_Store`
+    # appears after one Finder visit on macOS, and `hashcat/rules/` is the
+    # shipped `rules_directory` default that the rule and mask downloads write
+    # into. The one untracked file that can lose data is one sitting at a path
+    # an incoming commit adds; `checkout -B` refuses in that case and names the
+    # file, and the failure handler below surfaces that.
     status = subprocess.run(
-        ["git", "status", "--porcelain", "--ignore-submodules=dirty"],
+        [
+            "git",
+            "status",
+            "--porcelain",
+            "--untracked-files=no",
+            "--ignore-submodules=dirty",
+        ],
         cwd=repo_root,
         capture_output=True,
         text=True,
     )
     if status.stdout.strip():
+        # Name them: the operator may be looking at a machine they never
+        # deliberately edited, and "commit or stash them" is unactionable
+        # without knowing what "them" is. Capped so a large diff cannot bury
+        # the instruction that follows it.
+        changed = status.stdout.strip().splitlines()
+        listing = "\n".join(f"    {line}" for line in changed[:20])
+        if len(changed) > 20:
+            listing += f"\n    ... and {len(changed) - 20} more"
         print(
             f"\n  Cannot auto-upgrade: uncommitted changes on '{current_branch or 'HEAD'}'."
+            f"\n{listing}"
             "\n  Commit or stash them, then re-run."
             f"\n  Or upgrade manually: git checkout -B {branch} origin/{branch} && make install\n"
         )
