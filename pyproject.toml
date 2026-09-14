@@ -150,7 +150,7 @@ dev = [
     "pytest-timeout>=2.4.0",
     "pexpect>=4.9.0",
     # Drives version bumps in the release workflows; see [tool.commitizen].
-    "commitizen==4.17.0",
+    "commitizen==4.18.0",
     # Used by tests/test_release_versioning.py to parse the workflow YAML.
     "pyyaml==6.0.3",
 ]
