@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [Unreleased]
+
+### Fixed
+- **The attack-coverage prompt no longer fires when nothing it could skip has ever been covered.** `_prime_coverage_decision` asked the store whether this attack had run against this hash file with any of these wordlists, but not whether it had run against the *dimension* about to be diffed. Coverage keys are keyed by kind, so a rule-less dictionary pass records `kind="wordlist"` keys that can never cover a `kind="rule"` key — yet one such pass made every later Quick Crack with rules announce "has run against this hash file before" and offer to skip rule lines of which exactly zero were covered. Answering either way changed nothing; the prompt was pure noise, and worse, it trains the operator to dismiss a prompt that elsewhere does real work. `has_prior_run` now takes a `kind`, and the priming call passes the dimension each selected chain will actually filter. The mirror case — a rule-less batch after only rules have run — is closed by the same change.
+- **The batch prompt no longer names "the 1 selected rule file" for a run that selected no rules.** Choosing "0) To run without any rules" sends a batch of one empty chain, which filters whole wordlists; the prompt now asks about wordlists in that case.
+
 ## [2.36.2] - 2026-09-10
 
 ### Fixed

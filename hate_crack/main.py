@@ -3085,14 +3085,21 @@ def _quick_dictionary_coverage(hash_file, chains, wordlists, loopback):
     )
 
 
-def _prompt_skip_covered_batch(attack_name: str, num_chains: int) -> bool:
+def _prompt_skip_covered_batch(
+    attack_name: str, num_chains: int, kind: str = "rule"
+) -> bool:
     """Ask, without pre-computing any counts, whether to skip already-tried
-    rule lines across a whole batch of selected rule files, or run every one
+    ground across a whole batch of selected rule files, or run every one
     of them in full.
 
     Only reached when ``attack_name`` has run against this hash file before
     (see ``_prime_coverage_decision``); a fresh engagement never sees this.
     Default is yes, matching ``_prompt_coverage_filter``.
+
+    ``kind`` is the dimension actually being diffed, and the wording follows
+    it: answering "0) To run without any rules" sends a batch of one empty
+    chain, which filters whole wordlists, so naming "the 1 selected rule file"
+    there points at a file the operator never selected.
     """
     plural = "" if num_chains == 1 else "s"
     print(
@@ -3100,11 +3107,18 @@ def _prompt_skip_covered_batch(attack_name: str, num_chains: int) -> bool:
     )
     if non_interactive:
         return True
-    try:
-        answer = input(
+    if kind == "rule":
+        question = (
             f"[?] Skip rule lines already tried in the {num_chains} selected "
             f"rule file{plural}, or run everything? [Y/n]: "
-        ).strip()
+        )
+    else:
+        question = (
+            "[?] Skip wordlists already tried against this hash file, "
+            "or run everything? [Y/n]: "
+        )
+    try:
+        answer = input(question).strip()
     except EOFError:
         print("[*] No input available; taking the default and filtering.")
         return True
@@ -3172,10 +3186,25 @@ def _prime_coverage_decision(
         # this function exists to stop asking.
         return {}
 
-    if not store.has_prior_run(target, attack_name, fingerprints):
+    # Scoped to the dimension each chain will actually diff. A chain carrying
+    # `-r` filters rule lines; the empty chain ("0) To run without any rules")
+    # filters whole wordlists, and plan_run keys the two separately -- so a
+    # prior run of the other dimension can never have covered anything the
+    # pending one would skip. Asking unscoped is what made one rule-less Quick
+    # Crack prompt on every later rules run with nothing to skip.
+    kinds = {"rule" if "-r" in shlex.split(chain) else "wordlist" for chain in chains}
+    asked = [kind for kind in ("rule", "wordlist") if kind in kinds]
+    if not any(
+        store.has_prior_run(target, attack_name, fingerprints, kind=kind)
+        for kind in asked
+    ):
         return {}
 
-    return {"apply_filtering": _prompt_skip_covered_batch(attack_name, len(chains))}
+    return {
+        "apply_filtering": _prompt_skip_covered_batch(
+            attack_name, len(chains), kind=asked[0]
+        )
+    }
 
 
 def _valid_hcmask(mask: object) -> bool:

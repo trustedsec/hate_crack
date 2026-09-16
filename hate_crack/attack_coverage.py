@@ -93,6 +93,15 @@ _PRIOR_RUN_WITH_WORDLIST = (
     "AND run_wordlists.wordlist IN (SELECT value FROM json_each(?)) LIMIT 1"
 )
 
+# The same question narrowed to one coverage dimension. Separate constants
+# rather than a conditional fragment so both stay static SQL.
+_PRIOR_RUN_WITH_WORDLIST_AND_KIND = (
+    "SELECT 1 FROM runs "
+    "JOIN run_wordlists ON run_wordlists.run_id = runs.id "
+    "WHERE runs.target = ? AND runs.attack = ? AND runs.kind = ? "
+    "AND run_wordlists.wordlist IN (SELECT value FROM json_each(?)) LIMIT 1"
+)
+
 # Schema notes, all measured at the realistic scale of ~191k keys (the
 # d3ad0ne+T0XlC pair over five wordlists, which is one Dictionary attack):
 #
@@ -321,7 +330,11 @@ class CoverageStore:
         return cursor.lastrowid
 
     def has_prior_run(
-        self, target: str, attack: str, wordlist_fps: Sequence[str]
+        self,
+        target: str,
+        attack: str,
+        wordlist_fps: Sequence[str],
+        kind: str = "",
     ) -> bool:
         """Has ``attack`` already run against ``target`` using any of these
         wordlists?
@@ -329,6 +342,16 @@ class CoverageStore:
         "Any", not "all": one overlapping corpus is enough for per-entry
         filtering to have something to skip, which is what the caller is really
         asking about.
+
+        ``kind`` narrows the question to one coverage dimension, and a caller
+        that is about to diff a dimension must pass it. Keys are keyed *by*
+        kind (see :func:`entry_key`), so a ``"wordlist"``-kind run -- a
+        rule-less dictionary pass -- can never cover a single ``"rule"``-kind
+        key. Answering the unscoped question let one rule-less Quick Crack make
+        every later rules run announce "has run against this hash file before"
+        and offer to skip rule lines of which none were covered: a prompt whose
+        only possible answer was a no-op. Left empty, the older cross-dimension
+        answer is unchanged.
 
         With no fingerprints -- a mask-only attack, or a caller that cannot
         establish them -- this falls back to the coarser question of whether the
@@ -350,9 +373,21 @@ class CoverageStore:
             return False
         try:
             if not wordlist_fps:
+                if kind:
+                    row = conn.execute(
+                        "SELECT 1 FROM runs WHERE target = ? AND attack = ? "
+                        "AND kind = ? LIMIT 1",
+                        (target, attack, kind),
+                    ).fetchone()
+                else:
+                    row = conn.execute(
+                        "SELECT 1 FROM runs WHERE target = ? AND attack = ? LIMIT 1",
+                        (target, attack),
+                    ).fetchone()
+            elif kind:
                 row = conn.execute(
-                    "SELECT 1 FROM runs WHERE target = ? AND attack = ? LIMIT 1",
-                    (target, attack),
+                    _PRIOR_RUN_WITH_WORDLIST_AND_KIND,
+                    (target, attack, kind, json.dumps(list(wordlist_fps))),
                 ).fetchone()
             else:
                 row = conn.execute(

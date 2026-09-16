@@ -295,6 +295,38 @@ def test_has_prior_run_is_scoped_to_the_wordlists(store, env):
     assert store.has_prior_run("other-target", "Quick Crack", [fp_a]) is False
 
 
+def test_has_prior_run_is_scoped_to_the_dimension_being_filtered(store, env):
+    """A rule-less dictionary run records ``kind="wordlist"`` keys, which can
+    never match the ``kind="rule"`` keys a rules run diffs. Answering "yes, it
+    has run before" for a rule run on the strength of a wordlist-only run
+    produces a prompt whose only possible answer is a no-op."""
+    target = ac.target_id(env["hashes"])
+    fp_a = store.wordlist_fingerprint(os.path.join(env["lists"], "a.txt"))
+
+    store.record(
+        ["k1"],
+        target=target,
+        kind="wordlist",
+        attack="Quick Crack",
+        wordlist_fps=[fp_a],
+    )
+
+    assert store.has_prior_run(target, "Quick Crack", [fp_a], kind="wordlist") is True
+    assert store.has_prior_run(target, "Quick Crack", [fp_a], kind="rule") is False
+    assert store.has_prior_run(target, "Quick Crack", [fp_a]) is True, (
+        "an unscoped caller keeps the old, coarser answer"
+    )
+
+
+def test_has_prior_run_scopes_by_dimension_without_wordlists(store, env):
+    """The mask-only fallback branch needs the same scoping."""
+    target = ac.target_id(env["hashes"])
+    store.log_run(target, attack="Top Mask", kind="mask")
+
+    assert store.has_prior_run(target, "Top Mask", [], kind="mask") is True
+    assert store.has_prior_run(target, "Top Mask", [], kind="rule") is False
+
+
 def test_has_prior_run_matches_any_one_of_several_wordlists(store, env):
     """One overlapping corpus is enough for filtering to have something to do,
     so the question is "any", not "all"."""
@@ -337,7 +369,8 @@ def test_has_prior_run_survives_a_pre_existing_store(tmp_path, env):
 # --- the up-front batch prompt -------------------------------------------
 
 
-def _prior_quick_crack(main_module, env, wordlists):
+def _prior_quick_crack(main_module, env, wordlists, chain=None):
+    chain = f"-r {env['rules']}" if chain is None else chain
     with (
         patch.object(main_module.subprocess, "Popen", lambda cmd, **kw: FakePopen(cmd)),
         patch.object(main_module, "_coverage_enabled", True),
@@ -347,10 +380,78 @@ def _prior_quick_crack(main_module, env, wordlists):
         main_module.hcatQuickDictionary(
             "1000",
             env["hashes"],
-            f"-r {env['rules']}",
+            chain,
             wordlists,
             attack_name="Quick Crack",
         )
+
+
+def test_prime_does_not_prompt_for_rules_after_a_rule_less_run(main_module, store, env):
+    """The reported bug. Quick Crack ran the same wordlist with *no* rules, so
+    the store holds one ``kind="wordlist"`` key and not a single rule key --
+    yet selecting that wordlist again with a fresh rule file announced "has run
+    against this hash file before" and offered to skip rule lines of which
+    exactly zero are covered."""
+    expanded = main_module._expand_wordlist_dirs(env["lists"])
+    _prior_quick_crack(main_module, env, env["lists"], chain="")
+
+    def refuse(*a, **kw):
+        raise AssertionError("prompted about rules when no rule has ever run")
+
+    with (
+        patch.object(main_module, "_coverage_enabled", True),
+        patch("builtins.input", refuse),
+    ):
+        decision = main_module._prime_coverage_decision(
+            env["hashes"], [f"-r {env['rules']}"], expanded, "Quick Crack"
+        )
+
+    assert decision == {}
+
+
+def test_prime_does_not_prompt_for_a_wordlist_run_after_only_rule_runs(
+    main_module, store, env
+):
+    """The mirror image: rules have run, but the pending batch has none, so it
+    diffs the wordlist dimension -- where nothing is covered."""
+    expanded = main_module._expand_wordlist_dirs(env["lists"])
+    _prior_quick_crack(main_module, env, env["lists"])
+
+    def refuse(*a, **kw):
+        raise AssertionError("prompted about wordlists when only rules have run")
+
+    with (
+        patch.object(main_module, "_coverage_enabled", True),
+        patch("builtins.input", refuse),
+    ):
+        decision = main_module._prime_coverage_decision(
+            env["hashes"], [""], expanded, "Quick Crack"
+        )
+
+    assert decision == {}
+
+
+def test_prime_prompts_about_wordlists_not_rule_files_for_a_rule_less_batch(
+    main_module, store, env, capsys
+):
+    """ "0) To run without any rules" sends a batch of one empty chain. The
+    prompt used to call that "the 1 selected rule file", which names a file the
+    operator never selected."""
+    expanded = main_module._expand_wordlist_dirs(env["lists"])
+    _prior_quick_crack(main_module, env, env["lists"], chain="")
+
+    asked = []
+    with (
+        patch.object(main_module, "_coverage_enabled", True),
+        patch("builtins.input", lambda prompt="": (asked.append(prompt), "y")[1]),
+    ):
+        decision = main_module._prime_coverage_decision(
+            env["hashes"], [""], expanded, "Quick Crack"
+        )
+
+    assert decision.get("apply_filtering") is True
+    assert "rule file" not in asked[0], asked[0]
+    assert "wordlist" in asked[0], asked[0]
 
 
 def test_prime_does_not_prompt_for_a_wordlist_never_used_before(
