@@ -94,14 +94,28 @@ revisions of this file said "audits are now manual only," which is wrong.
 `.claude/settings.json` still wires a Claude Code `PostToolUse` hook on `Bash`
 to `.claude/hooks/doc-audit-trigger.sh`. That hook greps every Bash tool result
 for `[Documentation Audit] ... documentation was not updated` and, on a match,
-returns `additionalContext` instructing Claude to invoke the
+returns `hookSpecificOutput.additionalContext` instructing Claude to invoke the
 `readme-documentarian` agent. `audit-docs.sh:50` still emits that exact string,
-so running the command above on a code-only commit *will* fire it — verified
-end-to-end on 2026-08-21 against commit `89121e07`. Removing the prek hook
-disabled the scheduling, not the wiring.
+so running the command above on a code-only commit *will* fire it. Removing the
+prek hook disabled the scheduling, not the wiring.
 
-The hook is keyed to a **string in stdout**, not to the script, so rewording
-that `WARNING:` line silently breaks the trigger and nothing fails loudly.
+**That last sentence was false from 2026-08-21 until 2026-09-16**, and the way
+it was false is the thing to carry forward. The hook returned a *top-level*
+`additionalContext`, which Claude Code drops as an unrecognized key for a
+`PostToolUse` hook — silently, with a zero exit. The "verified end-to-end"
+claim this paragraph used to carry had verified the first three links (warning
+printed, grep matched, hook emitted JSON) and stopped one short of the only one
+that mattered. **A hook that emits well-formed JSON has proved nothing; the
+schema is where these fail, and the failure is always silent.**
+
+Two consequences, both load-bearing:
+
+- The hook is keyed to a **string in stdout**, not to the script, so rewording
+  that `WARNING:` line silently breaks the trigger and nothing fails loudly.
+- `additionalContext` belongs **inside `hookSpecificOutput`, alongside a
+  `hookEventName`**. `tests/test_doc_audit_hook.py` pins that envelope and
+  asserts the top-level key is absent, so the broken shape cannot return
+  quietly; `tests/test_doc_audit_parity.py` covers the detection half.
 
 **The detection heuristic was fixed on 2026-08-21** — it used to count *any*
 changed `.md` as "documentation updated", and since this repo touches
