@@ -327,6 +327,160 @@ class TestRunHcatCmd:
         assert main_module._debug_mode_level == 5
         assert "Some unrelated hashcat error." in capsys.readouterr().err
 
+    _BRAIN_CMD = [
+        "hashcat",
+        "-m",
+        "3200",
+        "-z",
+        "--brain-host",
+        "127.0.0.1",
+        "--brain-port",
+        "6863",
+        "--brain-password",
+        "pw",
+        "--brain-client-features",
+        "3",
+        "--brain-session",
+        "0xdeadbeef",
+    ]
+
+    def test_brain_rejection_disables_brain_and_retries_without_it(
+        self, main_module, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(main_module, "_brain_enabled", True)
+        hash_file = str(tmp_path / "hashes.txt")
+
+        fail_proc = _make_mock_proc()
+        fail_proc.returncode = 255
+        ok_proc = _make_mock_proc()
+        ok_proc.returncode = 0
+        popen_calls = []
+
+        def fake_popen(cmd, **kwargs):
+            popen_calls.append((list(cmd), kwargs))
+            if len(popen_calls) == 1:
+                kwargs["stderr"].write(
+                    b"Brain server 127.0.0.1:6863 is not reachable: "
+                    b"Connection refused\n"
+                )
+                return fail_proc
+            return ok_proc
+
+        with (
+            patch("hate_crack.main.subprocess.Popen", side_effect=fake_popen),
+            patch("hate_crack.main._notify") as mock_notify,
+        ):
+            mock_notify.is_suppressed.return_value = False
+            mock_notify.get_settings.return_value = MagicMock(enabled=False)
+            mock_notify.start_tailer.return_value = None
+            main_module._run_hcat_cmd(
+                list(self._BRAIN_CMD),
+                attack_name="Dictionary",
+                hash_file=hash_file,
+            )
+
+        assert len(popen_calls) == 2
+        first_cmd, second_cmd = popen_calls[0][0], popen_calls[1][0]
+        assert "-z" in first_cmd
+        assert "-z" not in second_cmd
+        assert not any(str(a).startswith("--brain-") for a in second_cmd)
+        assert main_module._brain_enabled is False
+
+    def test_brain_rejection_retries_at_most_once(
+        self, main_module, tmp_path, monkeypatch
+    ):
+        # Even a pathological build that somehow keeps emitting the brain
+        # failure message must not be retried a second time: the fallback
+        # command carries no brain flags, so nothing should trigger the
+        # brain branch again, but this pins that explicitly rather than
+        # relying on that as the only guard.
+        monkeypatch.setattr(main_module, "_brain_enabled", True)
+        hash_file = str(tmp_path / "hashes.txt")
+
+        fail_proc = _make_mock_proc()
+        fail_proc.returncode = 255
+        popen_calls = []
+
+        def fake_popen(cmd, **kwargs):
+            popen_calls.append(list(cmd))
+            if kwargs.get("stderr") is not None:
+                kwargs["stderr"].write(
+                    b"Brain server 127.0.0.1:6863 rejected the password\n"
+                )
+            return fail_proc
+
+        with (
+            patch("hate_crack.main.subprocess.Popen", side_effect=fake_popen),
+            patch("hate_crack.main._notify") as mock_notify,
+        ):
+            mock_notify.is_suppressed.return_value = False
+            mock_notify.get_settings.return_value = MagicMock(enabled=False)
+            mock_notify.start_tailer.return_value = None
+            main_module._run_hcat_cmd(
+                list(self._BRAIN_CMD),
+                attack_name="Dictionary",
+                hash_file=hash_file,
+            )
+
+        # First call has brain flags and captures stderr; the retry has none,
+        # so it is never given a stderr pipe and cannot trigger a third call.
+        assert len(popen_calls) == 2
+        assert main_module._brain_enabled is False
+
+    def test_brain_failure_is_not_disabled_on_a_plain_interrupt(
+        self, main_module, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(main_module, "_brain_enabled", True)
+        hash_file = str(tmp_path / "hashes.txt")
+        proc = _make_mock_proc(wait_side_effect=KeyboardInterrupt())
+
+        with (
+            patch("hate_crack.main.subprocess.Popen", return_value=proc),
+            patch("hate_crack.main._notify") as mock_notify,
+        ):
+            mock_notify.is_suppressed.return_value = False
+            mock_notify.get_settings.return_value = MagicMock(enabled=False)
+            mock_notify.start_tailer.return_value = None
+            main_module._run_hcat_cmd(
+                list(self._BRAIN_CMD),
+                attack_name="Dictionary",
+                hash_file=hash_file,
+            )
+
+        assert main_module._brain_enabled is True
+
+    def test_unrelated_255_is_not_treated_as_a_brain_failure(
+        self, main_module, tmp_path, monkeypatch, capsys
+    ):
+        monkeypatch.setattr(main_module, "_brain_enabled", True)
+        hash_file = str(tmp_path / "hashes.txt")
+
+        fail_proc = _make_mock_proc()
+        fail_proc.returncode = 255
+        popen_calls = []
+
+        def fake_popen(cmd, **kwargs):
+            popen_calls.append(list(cmd))
+            kwargs["stderr"].write(b"Some unrelated fatal hashcat error.\n")
+            return fail_proc
+
+        with (
+            patch("hate_crack.main.subprocess.Popen", side_effect=fake_popen),
+            patch("hate_crack.main._notify") as mock_notify,
+        ):
+            mock_notify.is_suppressed.return_value = False
+            mock_notify.get_settings.return_value = MagicMock(enabled=False)
+            mock_notify.start_tailer.return_value = None
+            main_module._run_hcat_cmd(
+                list(self._BRAIN_CMD),
+                attack_name="Dictionary",
+                hash_file=hash_file,
+            )
+
+        assert len(popen_calls) == 1
+        assert main_module._brain_enabled is True
+        assert "Some unrelated fatal hashcat error." in capsys.readouterr().err
+
     def test_tailer_is_stopped_in_finally(self, main_module, tmp_path):
         hash_file = str(tmp_path / "hashes.txt")
         proc = _make_mock_proc(wait_side_effect=KeyboardInterrupt())

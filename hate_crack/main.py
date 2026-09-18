@@ -1444,6 +1444,24 @@ hcatUsernamePrefix: bool = False
 _debug_mode_level = 5
 _DEBUG_MODE_UNSUPPORTED_MSG = b"Invalid --debug-mode value specified."
 
+# A brain server that is up but unreachable, or that rejects our password or
+# link version, makes hashcat exit fatally (255) having tried zero
+# candidates -- there is no partial credit, unlike most hashcat failures.
+# _run_hcat_cmd_uncovered detects this specific failure shape, disables
+# brain for the rest of the process, and retries the same invocation once
+# without the brain flags so the attack still runs. Matched on these two
+# substrings together, not on exit 255 alone: 255 covers many unrelated
+# hashcat failures, and stripping brain for something brain did not cause
+# would be worse than leaving a real failure alone. Verified against
+# hashcat v7.1.2: "Brain server <host>:<port> is not reachable: <reason>",
+# "... rejected the password", and "... rejected our link version".
+_BRAIN_FAILURE_PREFIX = b"Brain server"
+_BRAIN_FAILURE_MARKERS = (
+    b"is not reachable",
+    b"rejected the password",
+    b"rejected our link version",
+)
+
 # Set from ``flags.rule_debug_mode_enabled`` in main(); --no-rule-debug-mode
 # (or ``rule_debug_mode_enabled: false`` in config.json) stops
 # _add_debug_mode_for_rules from adding --debug-mode/--debug-file at all.
@@ -1972,6 +1990,44 @@ def _maybe_add_brain(cmd, hash_file, stdin):
     )
 
 
+def _is_brain_failure(stderr: bytes) -> bool:
+    """Whether captured stderr shows hashcat's own brain-client rejection.
+
+    Matched on the message, not on exit 255 alone -- 255 covers many
+    unrelated hashcat failures, and disabling brain for something brain did
+    not cause would strip an optimization from every later attack in the
+    session for no reason.
+    """
+    return _BRAIN_FAILURE_PREFIX in stderr and any(
+        marker in stderr for marker in _BRAIN_FAILURE_MARKERS
+    )
+
+
+def _strip_brain_flags(cmd):
+    """``cmd`` with every brain client flag removed.
+
+    Generic rather than assuming the exact shape ``brain.client_flags``
+    emits: an operator's own ``--brain-*`` flags in ``hcatTuning`` are left
+    alone by ``_maybe_add_brain`` and would still be present here, and the
+    retry has to run without brain flags regardless of where they came
+    from.
+    """
+    result = []
+    skip_next = False
+    for arg in cmd:
+        if skip_next:
+            skip_next = False
+            continue
+        text = str(arg)
+        if text == "-z":
+            continue
+        if text.startswith("--brain-"):
+            skip_next = True
+            continue
+        result.append(arg)
+    return result
+
+
 def _run_hcat_cmd(
     cmd,
     attack_name: str = "",
@@ -2059,6 +2115,7 @@ def _run_hcat_cmd_uncovered(
     companion_procs=None,
     reraise_interrupt: bool = False,
     out_path: str | None = None,
+    _brain_retry: bool = False,
 ) -> bool:
     """Execute a hashcat subprocess and bracket it with notify hooks.
 
@@ -2086,8 +2143,13 @@ def _run_hcat_cmd_uncovered(
     Notifications are fire-and-forget: suppression (see
     ``notify.suppressed_notifications``) and disabled-globally state are
     both handled inside the notify module, so callers need not branch.
+
+    ``_brain_retry`` is a private recursion guard: it is only ever passed
+    ``True`` by this function's own fallback re-entry below, to guarantee a
+    brain failure retries at most once regardless of what the retry itself
+    does.
     """
-    global hcatProcess, _debug_mode_level
+    global hcatProcess, _debug_mode_level, _brain_enabled
 
     companions = list(companion_procs) if companion_procs else []
 
@@ -2101,12 +2163,14 @@ def _run_hcat_cmd_uncovered(
     if attack_name and resolved_out and not _notify.is_suppressed():
         tailer = _notify.start_tailer(resolved_out, attack_name)
 
-    # ``--debug-mode`` is only ever added by ``_add_debug_mode_for_rules``, so
-    # only those invocations pay for the stderr capture needed to detect a
-    # hashcat build that rejects the requested mode. stdout is left alone
-    # (inherited) so the live progress output is unaffected.
+    # ``--debug-mode`` is only ever added by ``_add_debug_mode_for_rules``, and
+    # brain flags only by ``_maybe_add_brain`` (or an operator's own
+    # ``--brain-*`` in ``hcatTuning``), so only those invocations pay for the
+    # stderr capture needed to detect hashcat rejecting either one. stdout is
+    # left alone (inherited) so the live progress output is unaffected.
     has_debug_mode = "--debug-mode" in cmd
-    stderr_capture = tempfile.TemporaryFile() if has_debug_mode else None
+    has_brain = "-z" in cmd
+    stderr_capture = tempfile.TemporaryFile() if (has_debug_mode or has_brain) else None
 
     popen_kwargs = {"stdin": stdin} if stdin is not None else {}
     if stderr_capture is not None:
@@ -2166,7 +2230,41 @@ def _run_hcat_cmd_uncovered(
                     companion_procs=companion_procs,
                     reraise_interrupt=reraise_interrupt,
                     out_path=out_path,
+                    _brain_retry=_brain_retry,
                 )
+        elif (
+            not interrupted
+            and hcatProcess.returncode
+            and not _brain_retry
+            and _is_brain_failure(captured_stderr)
+        ):
+            # A brain server that is up but rejects us -- wrong host,
+            # password, or link version -- makes hashcat exit fatally
+            # having tried zero candidates. There is no recovering that one
+            # invocation, and every later attack in the session would fail
+            # identically, so brain goes off for the rest of the process
+            # rather than being retried per attack. Never on a plain
+            # KeyboardInterrupt (``interrupted`` guards that), and at most
+            # once per invocation (``_brain_retry`` guards that).
+            print(
+                "[!] hashcat rejected the brain connection; disabling brain "
+                "for the rest of this run and retrying without it."
+            )
+            _brain_enabled = False
+            fallback_cmd = _strip_brain_flags(cmd)
+            # Re-enter the inner runner, not the coverage wrapper: coverage
+            # has already been applied to this cmd, and applying it twice
+            # would filter an already-filtered rule file.
+            return _run_hcat_cmd_uncovered(
+                fallback_cmd,
+                attack_name,
+                hash_file,
+                stdin=stdin,
+                companion_procs=companion_procs,
+                reraise_interrupt=reraise_interrupt,
+                out_path=out_path,
+                _brain_retry=True,
+            )
         elif captured_stderr:
             sys.stderr.write(captured_stderr.decode(errors="replace"))
             sys.stderr.flush()
