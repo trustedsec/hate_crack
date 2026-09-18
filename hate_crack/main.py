@@ -1893,7 +1893,7 @@ def _maybe_add_brain(cmd, hash_file, stdin):
         host=server.host,
         port=server.port,
         password=server.password,
-        features=int(config_parser.get("brain_client_features", 3) or 3),
+        features=config_parser.get("brain_client_features", 3),
         session=session,
     )
 

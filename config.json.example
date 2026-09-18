@@ -47,5 +47,12 @@
   "update_channel": "main",
   "restore_potfile_on_start": false,
   "rule_debug_mode_enabled": true,
-  "coverage_enabled": true
+  "coverage_enabled": true,
+  "brain_enabled": true,
+  "brain_host": "",
+  "brain_port": 6863,
+  "brain_client_features": 3,
+  "brain_server_timer": 300,
+  "brain_modes_force": [],
+  "brain_modes_exclude": []
 }

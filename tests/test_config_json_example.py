@@ -64,6 +64,13 @@ EXPECTED_KEYS = {
     "restore_potfile_on_start",
     "rule_debug_mode_enabled",
     "coverage_enabled",
+    "brain_enabled",
+    "brain_host",
+    "brain_port",
+    "brain_client_features",
+    "brain_server_timer",
+    "brain_modes_force",
+    "brain_modes_exclude",
 }
 
 

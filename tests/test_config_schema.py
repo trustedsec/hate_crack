@@ -40,10 +40,12 @@ def _load_example() -> dict:
     return loads_strict(EXAMPLE_PATH.read_text())
 
 
-# The sixteen third-party integration keys: the exact home="env" set. Pinned
-# literally so a key cannot quietly change home -- moving one is a
-# user-visible change of which file it must be written in, and it should not
-# be possible to make it by editing one word of the schema.
+# The seventeen home="env" keys -- the sixteen third-party integration
+# credentials/settings plus the brain shared secret (BRAIN_PASSWORD), which is
+# env-homed because it is a secret even though brain itself is bundled, not
+# third-party. Pinned literally so a key cannot quietly change home -- moving
+# one is a user-visible change of which file it must be written in, and it
+# should not be possible to make it by editing one word of the schema.
 EXPECTED_ENV_HOMED = frozenset(
     {
         "HASHVIEW_URL",
@@ -62,6 +64,7 @@ EXPECTED_ENV_HOMED = frozenset(
         "LLM_API_KEY",
         "PIPAL_PATH",
         "PIPAL_COUNT",
+        "BRAIN_PASSWORD",
     }
 )
 
@@ -100,10 +103,10 @@ def test_env_homed_key_set_is_pinned():
     assert {entry.env for entry in ENV_KEYS} == EXPECTED_ENV_HOMED
 
 
-def test_key_counts_are_sixteen_and_forty_one():
-    assert len(ENV_KEYS) == 16
-    assert len(JSON_KEYS) == 41
-    assert len(CONFIG_SCHEMA) == 57
+def test_key_counts_are_seventeen_and_forty_eight():
+    assert len(ENV_KEYS) == 17
+    assert len(JSON_KEYS) == 48
+    assert len(CONFIG_SCHEMA) == 65
 
 
 def test_every_key_has_exactly_one_home():
@@ -156,21 +159,21 @@ def test_type_counts_match_config_json_example_value_types():
         schema_type_counts[entry.type] = schema_type_counts.get(entry.type, 0) + 1
 
     # bool, int, float map straight across.
-    assert schema_type_counts.get("bool", 0) == json_type_counts.get("bool", 0) == 8
-    assert schema_type_counts.get("int", 0) == json_type_counts.get("int", 0) == 9
+    assert schema_type_counts.get("bool", 0) == json_type_counts.get("bool", 0) == 9
+    assert schema_type_counts.get("int", 0) == json_type_counts.get("int", 0) == 12
     assert schema_type_counts.get("float", 0) == json_type_counts.get("float", 0) == 1
     # list splits into csv_list/charset; the two must sum to the JSON list count.
     list_derived = schema_type_counts.get("csv_list", 0) + schema_type_counts.get(
         "charset", 0
     )
-    assert list_derived == json_type_counts.get("list", 0) == 8
-    assert schema_type_counts.get("csv_list", 0) == 6
+    assert list_derived == json_type_counts.get("list", 0) == 10
+    assert schema_type_counts.get("csv_list", 0) == 8
     assert schema_type_counts.get("charset", 0) == 2
     # str splits into str/path; the two must sum to the JSON str count.
     str_and_path = schema_type_counts.get("str", 0) + schema_type_counts.get("path", 0)
-    assert str_and_path == json_type_counts.get("str_or_path", 0) == 15
+    assert str_and_path == json_type_counts.get("str_or_path", 0) == 16
     assert schema_type_counts.get("path", 0) == 3
-    assert schema_type_counts.get("str", 0) == 12
+    assert schema_type_counts.get("str", 0) == 13
 
 
 def test_defaults_match_config_json_example():
@@ -471,6 +474,7 @@ def test_secret_env_keys_contains_expected_members():
             "HASHMOB_API_KEY",
             "NOTIFY_PUSHOVER_TOKEN",
             "NOTIFY_PUSHOVER_USER",
+            "BRAIN_PASSWORD",
         }
     )
 

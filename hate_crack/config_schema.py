@@ -49,6 +49,7 @@ SECRET_ENV_KEYS: frozenset[str] = frozenset(
         "HASHMOB_API_KEY",
         "NOTIFY_PUSHOVER_TOKEN",
         "NOTIFY_PUSHOVER_USER",
+        "BRAIN_PASSWORD",
     }
 )
 
@@ -388,6 +389,21 @@ CONFIG_SCHEMA: tuple[ConfigKey, ...] = (
     ConfigKey("RESTORE_POTFILE_ON_START", "restore_potfile_on_start", "bool", False),
     ConfigKey("RULE_DEBUG_MODE_ENABLED", "rule_debug_mode_enabled", "bool", True),
     ConfigKey("COVERAGE_ENABLED", "coverage_enabled", "bool", True),
+    ConfigKey("BRAIN_ENABLED", "brain_enabled", "bool", True),
+    # Empty means "manage a local server on loopback". A value means connect
+    # only -- hate_crack never spawns a server it did not configure itself.
+    ConfigKey("BRAIN_HOST", "brain_host", "str", ""),
+    ConfigKey("BRAIN_PORT", "brain_port", "int", 6863),
+    # 1 hashed passwords, 2 attack positions, 3 both. 3 is what de-duplicates
+    # across differing attacks; 2 is the low-memory escape hatch.
+    ConfigKey("BRAIN_CLIENT_FEATURES", "brain_client_features", "int", 3),
+    ConfigKey("BRAIN_SERVER_TIMER", "brain_server_timer", "int", 300),
+    ConfigKey("BRAIN_MODES_FORCE", "brain_modes_force", "csv_list", []),
+    ConfigKey("BRAIN_MODES_EXCLUDE", "brain_modes_exclude", "csv_list", []),
+    # home="env": a shared secret, so it belongs in the 0600 file rather than
+    # in config.json. hashcat only accepts it on the command line, which means
+    # it is visible in `ps` for the life of a run -- see the design doc.
+    ConfigKey("BRAIN_PASSWORD", "brain_password", "str", "", home="env"),
 )
 
 BY_ENV: dict[str, ConfigKey] = {entry.env: entry for entry in CONFIG_SCHEMA}

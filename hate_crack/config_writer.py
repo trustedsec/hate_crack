@@ -77,6 +77,12 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "pipal (an external tool hate_crack does not ship)",
         ("PIPAL_PATH", "PIPAL_COUNT"),
     ),
+    (
+        "hashcat brain shared secret. hashcat only accepts it on the command\n"
+        "# line, so it is visible in `ps` for the life of a run -- see the\n"
+        "# design doc. All other brain settings live in config.json.",
+        ("BRAIN_PASSWORD",),
+    ),
 )
 
 _grouped_names = {name for _comment, names in _GROUPS for name in names}
