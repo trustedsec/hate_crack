@@ -86,6 +86,7 @@ from hate_crack import corpus_stats as _corpus_stats  # noqa: E402
 from hate_crack import plaintext as _plaintext  # noqa: E402
 from hate_crack import rulegen as _rulegen  # noqa: E402
 from hate_crack import attack_coverage as _coverage  # noqa: E402
+from hate_crack import brain as _brain  # noqa: E402
 from hate_crack.menu import interactive_menu  # noqa: E402
 from hate_crack.username_detect import detect_username_hash_format  # noqa: E402
 
@@ -1448,6 +1449,13 @@ _rule_debug_mode_enabled = True
 # consulting or writing the per-target coverage store at all.
 _coverage_enabled = True
 
+# Set from ``flags.brain_enabled`` in main(); --no-brain (or
+# ``brain_enabled: false`` in config.json) stops _run_hcat_cmd from consulting
+# a brain server at all. Brain only ever engages on a hash mode hashcat itself
+# reports as slow -- see hate_crack.brain.
+_brain_enabled = True
+_brain_notice_printed = False
+
 # Per-invocation tallies, so a scripted run can tell "the attack ran" from "the
 # attack was skipped because coverage had already seen all of it". Both are
 # reset by reset_run_counters() at the start of a non-interactive command.
@@ -1825,6 +1833,71 @@ def _run_coverage_command(args) -> int:
     return 2
 
 
+def _maybe_add_brain(cmd, hash_file, stdin):
+    """Append hashcat brain client flags when this run qualifies.
+
+    Returns ``cmd`` unchanged in every case it does not, which is most of
+    them. Brain forces ``-S`` and costs the server roughly 12 bytes of RAM per
+    candidate, so it is added only on a slow mode, where the hash and not the
+    lookup is the bottleneck.
+
+    The four negative guards are each a real failure, not defensiveness:
+    a piped generator's candidates do not survive brain's -S handling
+    untested, ``--potfile-disable`` makes hashcat reject the invocation
+    outright, an operator's own ``--brain-*`` in ``hcatTuning`` is a
+    deliberate choice to leave alone, and a non-numeric hash type means we do
+    not know what we are cracking.
+    """
+    global _brain_notice_printed
+
+    if not _brain_enabled or stdin is not None or not hash_file:
+        return cmd
+    if "--potfile-disable" in cmd:
+        return cmd
+    if any(str(arg).startswith("--brain-") or arg == "-z" for arg in cmd):
+        return cmd
+
+    try:
+        mode = int(hcatHashType)
+    except (TypeError, ValueError):
+        return cmd
+
+    if not _brain.is_slow(mode, config_parser, hcat_bin=hcatBin):
+        return cmd
+
+    session = _brain.session_id(hash_file)
+    if session is None:
+        return cmd
+
+    server = _brain.ensure_server(config_parser, hcat_bin=hcatBin)
+    if server is None:
+        if not _brain_notice_printed:
+            print(
+                "[!] Hash mode {0} is slow, but no brain server could be "
+                "reached; running without candidate de-duplication.".format(mode)
+            )
+            _brain_notice_printed = True
+        return cmd
+
+    if not _brain_notice_printed:
+        print(
+            "[*] Brain enabled for slow mode {0} (session {1}, server {2}:{3}). "
+            "The server holds roughly 12 bytes per candidate in RAM; set "
+            "brain_client_features to 2 in config.json if that is too much.".format(
+                mode, session, server.host, server.port
+            )
+        )
+        _brain_notice_printed = True
+
+    return list(cmd) + _brain.client_flags(
+        host=server.host,
+        port=server.port,
+        password=server.password,
+        features=int(config_parser.get("brain_client_features", 3) or 3),
+        session=session,
+    )
+
+
 def _run_hcat_cmd(
     cmd,
     attack_name: str = "",
@@ -1866,6 +1939,8 @@ def _run_hcat_cmd(
             _coverage_skip_count += 1
             return
         cmd, plan, temp_paths = applied
+
+    cmd = _maybe_add_brain(cmd, hash_file, stdin)
 
     _hcat_launch_count += 1
     try:
