@@ -43,6 +43,7 @@ def _run_hashcat(args: list[str]) -> tuple[int, str]:
             capture_output=True,
             text=True,
             timeout=_QUERY_TIMEOUT,
+            errors="replace",
             check=False,
         )
     except (OSError, subprocess.SubprocessError):
@@ -101,10 +102,12 @@ def slow_modes(
     # hashcat prints a banner line before the JSON; start at the first brace.
     brace = out.find("{")
     parsed = _parse_slow_modes(out[brace:]) if brace >= 0 and rc == 0 else None
-    _MEMO[version] = parsed
-    if parsed is None:
+    # Don't cache empty results; treat them as unknown for future queries.
+    if parsed is None or len(parsed) == 0:
+        _MEMO[version] = None
         return None
 
+    _MEMO[version] = parsed
     try:
         directory.mkdir(parents=True, exist_ok=True)
         cache_path.write_text(json.dumps({"version": version, "modes": sorted(parsed)}))

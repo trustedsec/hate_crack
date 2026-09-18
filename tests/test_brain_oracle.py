@@ -67,3 +67,20 @@ def test_slow_modes_requeries_after_hashcat_upgrade(tmp_path, monkeypatch):
     assert brain.slow_modes("/usr/bin/hashcat", cache_dir=tmp_path) == frozenset(
         {3200, 8900}
     )
+
+
+def test_slow_modes_returns_none_when_hashcat_not_found(tmp_path):
+    """Mock-free test: real subprocess failure when binary doesn't exist."""
+    assert brain.slow_modes("/nonexistent/hashcat", cache_dir=tmp_path) is None
+
+
+def test_slow_modes_returns_none_for_empty_result_and_does_not_cache(
+    tmp_path, monkeypatch
+):
+    """Empty slow-mode lists are treated as unknown, not cached."""
+    # Valid JSON with no slow modes
+    runner = _fake_runner(info=json.dumps({"0": {"slow_hash": False}}))
+    monkeypatch.setattr(brain, "_run_hashcat", runner)
+    assert brain.slow_modes("/usr/bin/hashcat", cache_dir=tmp_path) is None
+    # Verify cache file was not written
+    assert not (tmp_path / brain.CACHE_FILENAME).is_file()
