@@ -563,6 +563,17 @@ class TestRunHcatCmd:
         stripped = main_module._strip_brain_flags(cmd)
         assert stripped == ["hashcat", "-m", "3200", "-O"]
 
+    def test_is_brain_failure_matches_an_unenumerated_message_shape(self, main_module):
+        # The three markers this used to require were only the shapes
+        # verified by hand. Any other brain-client failure -- e.g. a
+        # non-hashcat process squatting the port and failing the handshake
+        # with a message we have never seen -- must still be recognized,
+        # since a false negative here means every slow-mode attack for the
+        # rest of the session fails at zero candidates with no recovery.
+        assert main_module._is_brain_failure(
+            b"Brain server 127.0.0.1:6863 handshake failed unexpectedly\n"
+        )
+
     def test_tailer_is_stopped_in_finally(self, main_module, tmp_path):
         hash_file = str(tmp_path / "hashes.txt")
         proc = _make_mock_proc(wait_side_effect=KeyboardInterrupt())

@@ -1449,18 +1449,12 @@ _DEBUG_MODE_UNSUPPORTED_MSG = b"Invalid --debug-mode value specified."
 # candidates -- there is no partial credit, unlike most hashcat failures.
 # _run_hcat_cmd_uncovered detects this specific failure shape, disables
 # brain for the rest of the process, and retries the same invocation once
-# without the brain flags so the attack still runs. Matched on these two
-# substrings together, not on exit 255 alone: 255 covers many unrelated
-# hashcat failures, and stripping brain for something brain did not cause
-# would be worse than leaving a real failure alone. Verified against
-# hashcat v7.1.2: "Brain server <host>:<port> is not reachable: <reason>",
-# "... rejected the password", and "... rejected our link version".
+# without the brain flags so the attack still runs. Matched on this prefix
+# alone -- see _is_brain_failure for why the match is deliberately loose.
+# Verified against hashcat v7.1.2: "Brain server <host>:<port> is not
+# reachable: <reason>", "... rejected the password", and "... rejected our
+# link version".
 _BRAIN_FAILURE_PREFIX = b"Brain server"
-_BRAIN_FAILURE_MARKERS = (
-    b"is not reachable",
-    b"rejected the password",
-    b"rejected our link version",
-)
 
 # Set from ``flags.rule_debug_mode_enabled`` in main(); --no-rule-debug-mode
 # (or ``rule_debug_mode_enabled: false`` in config.json) stops
@@ -2012,14 +2006,26 @@ def _maybe_add_brain(cmd, hash_file, stdin):
 def _is_brain_failure(stderr: bytes) -> bool:
     """Whether captured stderr shows hashcat's own brain-client rejection.
 
-    Matched on the message, not on exit 255 alone -- 255 covers many
-    unrelated hashcat failures, and disabling brain for something brain did
-    not cause would strip an optimization from every later attack in the
-    session for no reason.
+    Matched on the ``"Brain server"`` prefix alone, not on it plus one of a
+    fixed set of message markers. The three markers this used to require
+    ("is not reachable", "rejected the password", "rejected our link
+    version") were only the shapes verified by hand against hashcat v7.1.2.
+    Any other brain-client failure -- a non-hashcat process squatting the
+    brain port and failing the handshake with a message we have not seen, or
+    a server that accepts the connection and then drops it -- fell through
+    with no recovery at all.
+
+    The looser match is deliberate and will look wrong at a glance, so the
+    reasoning is worth keeping here: stderr is only captured in the first
+    place when brain flags are actually on the command (see
+    ``_is_brain_flag``), so a false positive costs one wasted re-run of an
+    attack that had already failed, plus brain being off for the rest of
+    the session. A false negative costs the thing this whole recovery path
+    exists to prevent -- every slow-mode attack in the session failing at
+    zero candidates for the rest of the run. That asymmetry favours the
+    looser match even though it is not exact.
     """
-    return _BRAIN_FAILURE_PREFIX in stderr and any(
-        marker in stderr for marker in _BRAIN_FAILURE_MARKERS
-    )
+    return _BRAIN_FAILURE_PREFIX in stderr
 
 
 _BRAIN_VALUELESS_FLAGS = frozenset({"-z", "--brain-client", "--brain-server"})
