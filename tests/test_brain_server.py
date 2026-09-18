@@ -172,6 +172,31 @@ def test_stale_memoized_server_is_reprobed_and_dropped(monkeypatch):
     assert brain._SERVER is None
 
 
+def test_stale_spawned_server_is_killed_not_merely_forgotten(monkeypatch):
+    # A bare `_SERVER = None` / `_PROC = None` on the stale path would drop
+    # the Popen handle instead of killing it. If the probe failed for a
+    # reason other than the process actually being dead (a saturated listen
+    # backlog, a stopped process, a transient timeout), that orphan --
+    # started with start_new_session=True -- survives terminal signals too
+    # and sits on the port for the rest of the session.
+    proc = _FakeProc()
+    monkeypatch.setattr(
+        brain, "_SERVER", brain.BrainServer("127.0.0.1", 6863, "pw", True)
+    )
+    monkeypatch.setattr(brain, "_PROC", proc)
+    monkeypatch.setattr(brain, "_port_is_open", lambda host, port: False)
+    monkeypatch.setattr(brain, "_spawn_server", lambda *a, **k: None)
+
+    server = brain.ensure_server(
+        {"brain_host": "", "brain_port": 6863, "brain_password": ""}
+    )
+
+    assert server is None
+    assert proc.killed is True
+    assert brain._SERVER is None
+    assert brain._PROC is None
+
+
 def test_spawn_race_reprobe_adopts_with_a_configured_password(monkeypatch):
     # Two hate_crack processes racing to spawn: the loser's Popen either
     # fails to bind or exits, but the winner may already be listening by

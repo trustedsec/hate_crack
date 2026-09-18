@@ -353,11 +353,17 @@ def ensure_server(config: dict, *, hcat_bin: str = "hashcat") -> BrainServer | N
     if _SERVER is not None:
         if _port_is_open(_SERVER.host, _SERVER.port):
             return _SERVER
-        # Stale: whatever we were using is no longer there. Forget it and
-        # fall through to establish a fresh one, exactly as if this were the
-        # first call of the session.
-        _SERVER = None
-        _PROC = None
+        # Stale: whatever we were using is no longer there. shutdown() both
+        # clears the globals and kills the process we hold a handle to --
+        # a bare `_SERVER = None` would drop that handle instead. If the
+        # probe failed for a reason other than the process actually being
+        # dead (a saturated listen backlog, a stopped process, a transient
+        # timeout), the discarded Popen becomes unkillable: atexit's
+        # shutdown() then has nothing left to act on, and -- now that
+        # _spawn_server uses start_new_session=True -- the orphan survives
+        # terminal signals too, sitting on the port for every later run.
+        # shutdown() is a no-op when the process is genuinely already dead.
+        shutdown()
 
     host = str(config.get("brain_host") or "").strip()
     port = int(config.get("brain_port") or 6863)
