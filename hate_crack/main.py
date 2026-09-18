@@ -349,6 +349,7 @@ class FlagOverrides(NamedTuple):
     potfile_path: str
     rule_debug_mode_enabled: bool
     coverage_enabled: bool
+    brain_enabled: bool
 
 
 def _flag_or_config(flag_value, config_value):
@@ -462,6 +463,12 @@ def resolve_flag_overrides(
             _flag_or_config(
                 getattr(args, "coverage", None),
                 config.get("coverage_enabled", True),
+            )
+        ),
+        brain_enabled=bool(
+            _flag_or_config(
+                getattr(args, "brain", None),
+                config.get("brain_enabled", True),
             )
         ),
     )
@@ -9608,6 +9615,18 @@ def main():
                 "run; --no-coverage neither consults nor updates the store."
             ),
         )
+        parser.add_argument(
+            "--brain",
+            dest="brain",
+            action=argparse.BooleanOptionalAction,
+            default=None,
+            help=(
+                "Use hashcat's brain to skip candidates already tried against "
+                "this hash file. Engages only on hash modes hashcat reports as "
+                "slow; fast modes are never affected. Overrides "
+                "`brain_enabled` in config.json for this run."
+            ),
+        )
         hashview_parser = None
         if not include_subcommands:
             return parser, hashview_parser
@@ -9783,10 +9802,11 @@ def main():
         hcat_bin=hcatBin,
     )
 
-    global debug_mode, _rule_debug_mode_enabled, _coverage_enabled
+    global debug_mode, _rule_debug_mode_enabled, _coverage_enabled, _brain_enabled
     debug_mode = flags.debug
     _rule_debug_mode_enabled = flags.rule_debug_mode_enabled
     _coverage_enabled = flags.coverage_enabled
+    _brain_enabled = flags.brain_enabled
     if flags.optimized_kernel_disabled:
         disable_optimized_kernel()
         print("[*] Optimized kernels (-O) disabled for this run")
