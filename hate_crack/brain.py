@@ -120,12 +120,24 @@ def slow_modes(
 
 def _mode_set(raw) -> set[int]:
     """Coerce a csv_list config value to a set of mode numbers, ignoring junk."""
+    # Reject strings: they iterate character-by-character and produce silent misreads.
+    # A bare string like "3200" would walk each character, returning {0, 2, 3}
+    # instead of {3200}. Reject it entirely rather than silently misreading.
+    if isinstance(raw, str):
+        return set()
     modes = set()
-    for item in raw or ():
-        try:
-            modes.add(int(str(item).strip()))
-        except (TypeError, ValueError):
-            continue
+    try:
+        # Protect the iteration itself, not just each item. A scalar config value
+        # like 3200 instead of [3200] raises TypeError: 'int' object is not iterable.
+        for item in raw or ():
+            try:
+                modes.add(int(str(item).strip()))
+            except (TypeError, ValueError):
+                continue
+    except TypeError:
+        # raw is not iterable and not a string (those are handled above).
+        # Return an empty set and let the attack proceed without this override.
+        return set()
     return modes
 
 
@@ -136,6 +148,12 @@ def is_slow(mode: int, config: dict, *, hcat_bin: str) -> bool:
     outright: it is the operator saying "not on this rig", and a rig fast
     enough to make brain the bottleneck is something no oracle can know.
     """
+    # Coerce mode to int defensively. A string mode would silently fail
+    # the membership tests and disable brain unintentionally.
+    try:
+        mode = int(mode)
+    except (TypeError, ValueError):
+        return False
     if mode in _mode_set(config.get("brain_modes_exclude")):
         return False
     if mode in _mode_set(config.get("brain_modes_force")):
