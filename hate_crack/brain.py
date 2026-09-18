@@ -22,6 +22,8 @@ import os
 import subprocess  # nosec B404 - hashcat is an expected local binary
 from pathlib import Path
 
+from hate_crack import attack_coverage as _coverage
+
 CACHE_FILENAME = "slow_modes.json"
 
 # Process-local memo so repeated attacks in one session skip even the file read.
@@ -162,3 +164,42 @@ def is_slow(mode: int, config: dict, *, hcat_bin: str) -> bool:
     if known is None:
         return False
     return mode in known
+
+
+_VALID_FEATURES = (1, 2, 3)
+
+
+def session_id(hash_file: str) -> str | None:
+    """A stable brain session for this target, or None if it cannot be read.
+
+    hashcat computes its own session from the hash list and would reach an
+    equivalent answer, so this is not about correctness. Deriving it from
+    ``attack_coverage.target_id`` means the brain session is the same
+    identifier the coverage store already reports, and it is what makes
+    ``--brain-session-whitelist`` usable on a shared server.
+    """
+    target = _coverage.target_id(hash_file)
+    if not target:
+        return None
+    return "0x" + target[:8]
+
+
+def client_flags(
+    *, host: str, port: int, password: str, features: int, session: str
+) -> list[str]:
+    """The `-z` client flag block for one hashcat invocation."""
+    if features not in _VALID_FEATURES:
+        features = 3
+    return [
+        "-z",
+        "--brain-host",
+        str(host),
+        "--brain-port",
+        str(port),
+        "--brain-password",
+        str(password),
+        "--brain-client-features",
+        str(features),
+        "--brain-session",
+        str(session),
+    ]
