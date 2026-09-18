@@ -1851,8 +1851,31 @@ def _run_coverage_command(args) -> int:
 _BRAIN_REFUSED_ATTACK_MODES = frozenset({6, 7})
 
 
-def _cmd_attack_mode(cmd) -> int | None:
-    """The ``-a`` operand's value, or ``None`` when the command has none.
+class _NoAttackModeOperand:
+    """Sentinel: the command has no ``-a`` at all.
+
+    Distinct from ``None``, which means ``-a`` is present but its value
+    could not be parsed. The two must not collapse to the same value:
+    "no -a" means hashcat defaults to straight mode (brain-safe), while
+    "-a present but unreadable" means the attack mode is unknown and the
+    conservative answer is to refuse brain, not to assume it is safe.
+    """
+
+    def __repr__(self) -> str:
+        return "<no -a operand>"
+
+
+_NO_ATTACK_MODE = _NoAttackModeOperand()
+
+
+def _cmd_attack_mode(cmd) -> int | _NoAttackModeOperand | None:
+    """The ``-a`` operand's value.
+
+    Returns ``_NO_ATTACK_MODE`` when the command has no ``-a`` at all (hashcat
+    then defaults to straight mode), or ``None`` when ``-a`` is present but
+    its value cannot be parsed as an integer -- including a trailing bare
+    ``-a`` with nothing after it. Callers must not treat those two cases
+    alike: see ``_maybe_add_brain``.
 
     Parsed out of the command rather than assumed by position: attack
     functions build ``cmd`` differently from one call site to the next, so
@@ -1860,12 +1883,14 @@ def _cmd_attack_mode(cmd) -> int | None:
     """
     cmd = list(cmd)
     for index, arg in enumerate(cmd):
-        if str(arg) == "-a" and index + 1 < len(cmd):
+        if str(arg) == "-a":
+            if index + 1 >= len(cmd):
+                return None
             try:
                 return int(str(cmd[index + 1]))
             except (TypeError, ValueError):
                 return None
-    return None
+    return _NO_ATTACK_MODE
 
 
 def _maybe_add_brain(cmd, hash_file, stdin):
@@ -1895,7 +1920,13 @@ def _maybe_add_brain(cmd, hash_file, stdin):
         return cmd
     if any(str(arg).startswith("--brain-") or arg == "-z" for arg in cmd):
         return cmd
-    if _cmd_attack_mode(cmd) in _BRAIN_REFUSED_ATTACK_MODES:
+    attack_mode = _cmd_attack_mode(cmd)
+    if attack_mode is None:
+        # -a present but unparseable (including a trailing bare -a): the
+        # attack mode is unknown, so stay conservative and skip brain rather
+        # than assume it is one hashcat would accept.
+        return cmd
+    if attack_mode in _BRAIN_REFUSED_ATTACK_MODES:
         return cmd
 
     try:

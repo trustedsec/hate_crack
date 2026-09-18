@@ -124,6 +124,31 @@ def test_brain_engages_when_no_attack_mode_operand_is_present(wired, monkeypatch
     assert "-z" in cmd
 
 
+def test_brain_refused_for_an_unparseable_attack_mode(wired, monkeypatch):
+    # An `-a` value that cannot be parsed as an integer means we do not know
+    # what attack mode hashcat will actually run -- possibly one of the
+    # hybrid modes brain refuses outright. The guard exists to be
+    # conservative about commands it does not understand, so this must
+    # refuse brain rather than fall through to "no -a means straight mode."
+    main, hash_file = wired
+    monkeypatch.setattr(main, "hcatHashType", "3200")
+    cmd = main._maybe_add_brain(
+        ["hashcat", "-m", "3200", "-a", "not-a-number"], hash_file, None
+    )
+    assert "-z" not in cmd
+    assert cmd == ["hashcat", "-m", "3200", "-a", "not-a-number"]
+
+
+def test_brain_refused_for_a_trailing_bare_attack_mode_flag(wired, monkeypatch):
+    # `-a` with nothing after it is malformed the same way an unparseable
+    # value is -- unknown attack mode, so stay conservative.
+    main, hash_file = wired
+    monkeypatch.setattr(main, "hcatHashType", "3200")
+    cmd = main._maybe_add_brain(["hashcat", "-m", "3200", "-a"], hash_file, None)
+    assert "-z" not in cmd
+    assert cmd == ["hashcat", "-m", "3200", "-a"]
+
+
 def test_notices_delatch_on_each_state_transition(wired, monkeypatch, capsys):
     # A single shared latch would let whichever notice fired first
     # permanently suppress the other for the rest of the process. With
