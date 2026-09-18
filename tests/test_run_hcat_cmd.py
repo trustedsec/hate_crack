@@ -390,10 +390,15 @@ class TestRunHcatCmd:
         self, main_module, tmp_path, monkeypatch
     ):
         # Even a pathological build that somehow keeps emitting the brain
-        # failure message must not be retried a second time: the fallback
-        # command carries no brain flags, so nothing should trigger the
-        # brain branch again, but this pins that explicitly rather than
-        # relying on that as the only guard.
+        # failure message must not be retried a second time. The fallback
+        # command carries no brain flags, so under normal conditions
+        # nothing would trigger the brain branch again regardless of the
+        # ``_brain_retry`` guard -- which would make that guard untested.
+        # To actually exercise it, this command also carries --debug-mode,
+        # which _strip_brain_flags never touches, so stderr is captured on
+        # every invocation (retried or not) and the fake can keep emitting
+        # the brain message. That way ``_brain_retry`` -- not "the retry
+        # never got a stderr pipe" -- is what stops a third invocation.
         monkeypatch.setattr(main_module, "_brain_enabled", True)
         hash_file = str(tmp_path / "hashes.txt")
 
@@ -403,10 +408,17 @@ class TestRunHcatCmd:
 
         def fake_popen(cmd, **kwargs):
             popen_calls.append(list(cmd))
-            if kwargs.get("stderr") is not None:
-                kwargs["stderr"].write(
-                    b"Brain server 127.0.0.1:6863 rejected the password\n"
+            # Bounded defensively: if the guard under test is broken, this
+            # would otherwise recurse forever (the debug-mode flags are
+            # never stripped, so every retry re-triggers the same "failure").
+            if len(popen_calls) > 4:
+                raise RuntimeError(
+                    "popen called too many times; the _brain_retry guard "
+                    "did not stop the recursion"
                 )
+            kwargs["stderr"].write(
+                b"Brain server 127.0.0.1:6863 rejected the password\n"
+            )
             return fail_proc
 
         with (
@@ -417,25 +429,43 @@ class TestRunHcatCmd:
             mock_notify.get_settings.return_value = MagicMock(enabled=False)
             mock_notify.start_tailer.return_value = None
             main_module._run_hcat_cmd(
-                list(self._BRAIN_CMD),
+                list(self._BRAIN_CMD) + ["--debug-mode", "4", "--debug-file", "x.log"],
                 attack_name="Dictionary",
                 hash_file=hash_file,
             )
 
-        # First call has brain flags and captures stderr; the retry has none,
-        # so it is never given a stderr pipe and cannot trigger a third call.
+        # Both calls captured stderr and both saw the brain message; only
+        # the _brain_retry guard stops a third.
         assert len(popen_calls) == 2
         assert main_module._brain_enabled is False
 
     def test_brain_failure_is_not_disabled_on_a_plain_interrupt(
         self, main_module, tmp_path, monkeypatch
     ):
+        # The stderr block must actually contain the brain message for this
+        # test to exercise the "not interrupted" guard -- otherwise the
+        # content check (_is_brain_failure on an empty buffer) is what ends
+        # it, and the guard under test is never reached. So the fake writes
+        # the brain message to the captured stderr pipe before the
+        # KeyboardInterrupt is raised.
         monkeypatch.setattr(main_module, "_brain_enabled", True)
         hash_file = str(tmp_path / "hashes.txt")
-        proc = _make_mock_proc(wait_side_effect=KeyboardInterrupt())
+        proc = _make_mock_proc()
+        proc.returncode = 255
+
+        def fake_popen(cmd, **kwargs):
+            kwargs["stderr"].write(
+                b"Brain server 127.0.0.1:6863 is not reachable: Connection refused\n"
+            )
+
+            def raise_interrupt():
+                raise KeyboardInterrupt()
+
+            proc.wait.side_effect = raise_interrupt
+            return proc
 
         with (
-            patch("hate_crack.main.subprocess.Popen", return_value=proc),
+            patch("hate_crack.main.subprocess.Popen", side_effect=fake_popen),
             patch("hate_crack.main._notify") as mock_notify,
         ):
             mock_notify.is_suppressed.return_value = False
