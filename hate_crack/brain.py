@@ -216,10 +216,26 @@ def client_flags(
     # so a membership check alone lets them through and str() would then emit
     # "True" or "3.0" -- an invalid --brain-client-features value that kills
     # the attack outright rather than degrading it.
-    try:
-        features = int(features)
-    except (TypeError, ValueError):
+    #
+    # A bare int(features) does not go far enough: int(True) == 1, a *valid*
+    # feature number, so `brain_client_features: true` in config.json would
+    # silently mean "hashed passwords only" instead of falling back to the
+    # documented default. bool is never a legitimate feature-number value,
+    # so it is rejected outright here. A non-integral float (2.5) is the
+    # softer case -- int() would truncate it to another *valid* number
+    # (2) with no signal that the config value was not really a feature
+    # number at all, so it falls back to the default too rather than
+    # guessing which int was meant. An integral float (3.0) loses nothing in
+    # that conversion and is accepted.
+    if isinstance(features, bool):
         features = 3
+    else:
+        try:
+            numeric = float(features)
+        except (TypeError, ValueError):
+            features = 3
+        else:
+            features = int(numeric) if numeric.is_integer() else 3
     if features not in _VALID_FEATURES:
         features = 3
     return [
