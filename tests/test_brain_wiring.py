@@ -19,6 +19,11 @@ def wired(hc_module, monkeypatch, tmp_path):
     )
     monkeypatch.setattr(brain, "is_slow", lambda mode, cfg, **kw: mode == 3200)
     monkeypatch.setattr(main, "_brain_enabled", True)
+    # main is session-shared, so these two latches must be reset per test or
+    # they leak into every later test in the session -- the same class of
+    # leak already fixed for `_brain_enabled` in tests/test_brain_cli.py.
+    monkeypatch.setattr(main, "_brain_notice_ok_printed", False)
+    monkeypatch.setattr(main, "_brain_notice_fail_printed", False)
     return main, str(hash_file)
 
 
