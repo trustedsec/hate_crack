@@ -93,8 +93,10 @@ def slow_modes(
         cached = json.loads(cache_path.read_text())
         if cached.get("version") == version:
             result = frozenset(int(m) for m in cached["modes"])
-            _MEMO[version] = result
-            return result
+            if result:  # Only use non-empty results; empty is unknown
+                _MEMO[version] = result
+                return result
+            # Empty result from cache: fall through to fresh query
     except (OSError, ValueError, KeyError, TypeError):
         pass
 

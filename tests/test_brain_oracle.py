@@ -84,3 +84,23 @@ def test_slow_modes_returns_none_for_empty_result_and_does_not_cache(
     assert brain.slow_modes("/usr/bin/hashcat", cache_dir=tmp_path) is None
     # Verify cache file was not written
     assert not (tmp_path / brain.CACHE_FILENAME).is_file()
+
+
+def test_slow_modes_ignores_empty_cache_and_requeries(tmp_path, monkeypatch):
+    """Empty modes list in cache is treated as unknown; fresh query happens."""
+    # Pre-seed cache with empty modes for current version
+    (tmp_path / brain.CACHE_FILENAME).write_text(
+        json.dumps({"version": "v7.1.2", "modes": []})
+    )
+
+    # Mock hashcat to return one slow mode
+    runner = _fake_runner(info=json.dumps({"3200": {"slow_hash": True}}))
+    monkeypatch.setattr(brain, "_run_hashcat", runner)
+
+    # Should query despite cache having empty modes
+    result = brain.slow_modes("/usr/bin/hashcat", cache_dir=tmp_path)
+    assert result == frozenset({3200})
+
+    # Verify it actually queried (called --hash-info)
+    info_calls = [c for c in runner.calls if "--hash-info" in c]
+    assert len(info_calls) == 1
