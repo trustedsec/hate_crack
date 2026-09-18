@@ -789,11 +789,14 @@ own verdict — exclude always wins.
 **Brain is not the same thing as attack coverage, and the two are
 complementary rather than redundant.** Coverage (above) de-duplicates at the
 level of whole rules, mask lines and wordlists — it decides what to launch in
-the first place. Brain de-duplicates at the level of individual candidate
-passwords, inside a single hashcat process, catching overlap coverage cannot
-see: the same candidate reachable through two different rules, or a hash file
-attacked from two different starting wordlists that happen to produce some of
-the same guesses. Both can be enabled at once with no conflict.
+the first place, before hashcat ever runs. Brain de-duplicates at the level of
+individual candidate passwords, and it does so through a persistent server
+that outlives any one hashcat invocation, so it catches overlap coverage
+cannot see: a candidate reachable through two different rules or two
+different wordlists within the same run, and — as the round trip in
+`tests/e2e/test_brain_e2e.py` demonstrates — the same candidates re-sent in a
+second, separate hashcat run against the same target. Both can be enabled at
+once with no conflict.
 
 Seven keys in `config.json` control it, all under the `brain_*` prefix:
 `brain_enabled` (master switch, default on), `brain_host` (empty means
