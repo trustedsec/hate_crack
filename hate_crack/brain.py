@@ -265,6 +265,12 @@ def _spawn_server(hcat_bin: str, port: int, password: str, timer: int):
     ``ensure_server`` only gates whether we *spawn* -- it has no say over what
     the spawned process listens on. This is what actually keeps the auto
     server off the network.
+
+    ``start_new_session=True`` keeps the server out of hate_crack's own
+    foreground process group. A terminal Ctrl-C delivers SIGINT to the whole
+    group; hate_crack catches its own ``KeyboardInterrupt`` and carries on,
+    but without this the server would receive the same signal and die with
+    no such handling, taking brain down for the rest of the session.
     """
     directory = brain_dir()
     try:
@@ -285,6 +291,7 @@ def _spawn_server(hcat_bin: str, port: int, password: str, timer: int):
             cwd=str(directory),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            start_new_session=True,
         )
     except (OSError, ValueError):
         return None
@@ -326,10 +333,22 @@ def ensure_server(config: dict, *, hcat_bin: str = "hashcat") -> BrainServer | N
     A configured non-loopback host is somebody else's server: we connect or we
     do without. Spawning there would be hate_crack starting a process on a box
     the operator pointed at for a reason.
+
+    The memo is revalidated on every call, not just trusted: a brain server
+    that dies mid-session (crash, an operator killing it directly, the box
+    running out of RAM) must not leave every later attack in the session
+    silently pointed at a corpse. The cost is one extra loopback connect per
+    invocation, which is cheap next to spawning a whole hashcat process.
     """
     global _SERVER, _PROC
     if _SERVER is not None:
-        return _SERVER
+        if _port_is_open(_SERVER.host, _SERVER.port):
+            return _SERVER
+        # Stale: whatever we were using is no longer there. Forget it and
+        # fall through to establish a fresh one, exactly as if this were the
+        # first call of the session.
+        _SERVER = None
+        _PROC = None
 
     host = str(config.get("brain_host") or "").strip()
     port = int(config.get("brain_port") or 6863)
@@ -342,37 +361,49 @@ def ensure_server(config: dict, *, hcat_bin: str = "hashcat") -> BrainServer | N
         return _SERVER
 
     resolved_host = host or "127.0.0.1"
+    # An *explicit* loopback address (the operator typed "127.0.0.1" or
+    # similar) is a deliberate pointer at a server they expect is already
+    # running, the same as a non-loopback host above. An *empty* host means
+    # "hate_crack manages this" -- we did not start whatever is listening,
+    # so a configured password (which may be left over from pointing at an
+    # unrelated remote brain) cannot be trusted to match it. Never guess:
+    # an already-open port under auto-manage is either an orphan of a prior
+    # auto-spawn (its ephemeral password died with that process) or someone
+    # else's server, and authenticating blind would just fail every attack.
+    explicit_host = host != ""
     if _port_is_open(resolved_host, port):
-        if not password:
-            # An open loopback port with no configured password cannot be a
-            # server we can use: our own auto-spawned servers run on an
-            # ephemeral password that dies with the process that generated
-            # it, so this is either an orphan of a killed prior run (atexit
-            # does not fire on SIGKILL/SIGTERM/os._exit) or something else's
-            # server. Either way, authenticating with "" would fail silently
-            # on every attack with no clue why. Run without brain instead.
-            return None
-        # Something is already listening -- an operator's own server, or a
-        # second hate_crack. Either way it holds the password we cannot see,
-        # so the configured one has to be right.
-        _SERVER = BrainServer(
-            host=resolved_host, port=port, password=password, spawned=False
-        )
-        return _SERVER
+        if explicit_host and password:
+            _SERVER = BrainServer(
+                host=resolved_host, port=port, password=password, spawned=False
+            )
+            return _SERVER
+        return None
 
     if not password:
         # Ephemeral, so the value visible in `ps` dies with the session.
-        password = secrets.token_urlsafe(18)
+        spawn_password = secrets.token_urlsafe(18)
+    else:
+        spawn_password = password
 
     proc = _spawn_server(
-        hcat_bin, port, password, int(config.get("brain_server_timer") or 300)
+        hcat_bin, port, spawn_password, int(config.get("brain_server_timer") or 300)
     )
     if proc is None:
+        # Possibly lost a spawn race: another process may have bound the
+        # port between our check above and the Popen call. Re-probe once
+        # before giving up. Only adopt it when a password was actually
+        # configured -- the ephemeral one we generated above was ours alone
+        # and cannot be assumed to match whatever the race winner used.
+        if password and _port_is_open(resolved_host, port):
+            _SERVER = BrainServer(
+                host=resolved_host, port=port, password=password, spawned=False
+            )
+            return _SERVER
         return None
 
     _PROC = proc
     _SERVER = BrainServer(
-        host=resolved_host, port=port, password=password, spawned=True
+        host=resolved_host, port=port, password=spawn_password, spawned=True
     )
     atexit.register(shutdown)
     return _SERVER

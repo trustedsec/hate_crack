@@ -1461,7 +1461,15 @@ _coverage_enabled = True
 # a brain server at all. Brain only ever engages on a hash mode hashcat itself
 # reports as slow -- see hate_crack.brain.
 _brain_enabled = True
-_brain_notice_printed = False
+# Two independent latches, not one: ensure_server() now revalidates on every
+# call, so brain can transition between reachable and unreachable within a
+# single session. A single shared latch would let whichever notice fired
+# first permanently suppress the other. Each one prints at most once per
+# state, and success clears the failure latch (and vice versa) so the next
+# transition is reported too -- an operator has to be told when brain stops
+# working, not just the first time it does.
+_brain_notice_ok_printed = False
+_brain_notice_fail_printed = False
 
 # Per-invocation tallies, so a scripted run can tell "the attack ran" from "the
 # attack was skipped because coverage had already seen all of it". Both are
@@ -1879,7 +1887,7 @@ def _maybe_add_brain(cmd, hash_file, stdin):
     255) -- adding the flags there would not degrade the run, it would fail
     it.
     """
-    global _brain_notice_printed
+    global _brain_notice_ok_printed, _brain_notice_fail_printed
 
     if not _brain_enabled or stdin is not None or not hash_file:
         return cmd
@@ -1904,15 +1912,16 @@ def _maybe_add_brain(cmd, hash_file, stdin):
 
     server = _brain.ensure_server(config_parser, hcat_bin=hcatBin)
     if server is None:
-        if not _brain_notice_printed:
+        if not _brain_notice_fail_printed:
             print(
                 "[!] Hash mode {0} is slow, but no brain server could be "
                 "reached; running without candidate de-duplication.".format(mode)
             )
-            _brain_notice_printed = True
+            _brain_notice_fail_printed = True
+            _brain_notice_ok_printed = False
         return cmd
 
-    if not _brain_notice_printed:
+    if not _brain_notice_ok_printed:
         print(
             "[*] Brain enabled for slow mode {0} (session {1}, server {2}:{3}). "
             "The server holds roughly 12 bytes per candidate in RAM; set "
@@ -1920,7 +1929,8 @@ def _maybe_add_brain(cmd, hash_file, stdin):
                 mode, session, server.host, server.port
             )
         )
-        _brain_notice_printed = True
+        _brain_notice_ok_printed = True
+        _brain_notice_fail_printed = False
 
     return list(cmd) + _brain.client_flags(
         host=server.host,

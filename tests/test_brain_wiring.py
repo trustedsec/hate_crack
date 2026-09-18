@@ -117,3 +117,45 @@ def test_brain_engages_when_no_attack_mode_operand_is_present(wired, monkeypatch
     monkeypatch.setattr(main, "hcatHashType", "3200")
     cmd = main._maybe_add_brain(["hashcat", "-m", "3200"], hash_file, None)
     assert "-z" in cmd
+
+
+def test_notices_delatch_on_each_state_transition(wired, monkeypatch, capsys):
+    # A single shared latch would let whichever notice fired first
+    # permanently suppress the other for the rest of the process. With
+    # ensure_server revalidating on every call, brain can flip between
+    # reachable and unreachable within one session, and the operator must
+    # be told on every such transition, not just the first one ever.
+    main, hash_file = wired
+    monkeypatch.setattr(main, "hcatHashType", "3200")
+    monkeypatch.setattr(main, "_brain_notice_ok_printed", False)
+    monkeypatch.setattr(main, "_brain_notice_fail_printed", False)
+
+    monkeypatch.setattr(
+        brain,
+        "ensure_server",
+        lambda cfg, **kw: brain.BrainServer("127.0.0.1", 6863, "pw", True),
+    )
+    main._maybe_add_brain(["hashcat", "-m", "3200"], hash_file, None)
+    assert "Brain enabled" in capsys.readouterr().out
+
+    # Still reachable: no repeat notice.
+    main._maybe_add_brain(["hashcat", "-m", "3200"], hash_file, None)
+    assert capsys.readouterr().out == ""
+
+    # Server drops.
+    monkeypatch.setattr(brain, "ensure_server", lambda cfg, **kw: None)
+    main._maybe_add_brain(["hashcat", "-m", "3200"], hash_file, None)
+    assert "no brain server could be" in capsys.readouterr().out
+
+    # Still down: no repeat notice.
+    main._maybe_add_brain(["hashcat", "-m", "3200"], hash_file, None)
+    assert capsys.readouterr().out == ""
+
+    # Recovers: the operator must be told again.
+    monkeypatch.setattr(
+        brain,
+        "ensure_server",
+        lambda cfg, **kw: brain.BrainServer("127.0.0.1", 6863, "pw", True),
+    )
+    main._maybe_add_brain(["hashcat", "-m", "3200"], hash_file, None)
+    assert "Brain enabled" in capsys.readouterr().out
