@@ -14,16 +14,23 @@ hand-maintained mode list that would drift as hashcat adds modes.
 Every failure returns "no brain" rather than raising. A missing optimization
 costs time; an attack that refuses to start costs the operator their session.
 
-The local server (``ensure_server``/``shutdown`` below) is spawned only for a
-loopback host: hate_crack manages its own process on 127.0.0.1, and for any
-configured remote host it only ever connects, never spawns. The server writes
-its ``.ldmp``/``.admp`` dumps into its own working directory (verified against
-hashcat v7.1.2 source, ``src/brain.c``, which passes the literal path ``"."``
-to the dump writers) -- confirmed empirically on 2026-09-18 by running a real
-server with ``cwd`` set to a scratch directory and a real ``--brain-client``
-attack against it: the resulting ``brain.<attack>.admp`` landed in that
-directory, not in the client's cwd or any hashcat profile directory. That is
-why ``_spawn_server`` below passes ``cwd=str(brain_dir())``.
+The local server (``ensure_server``/``shutdown`` below) is spawned only when
+the configured host is loopback, and for any configured remote host it only
+ever connects, never spawns. Those are the spawn-decision rules; they say
+nothing about what a spawned process exposes on the network, which is a
+separate control. Without an explicit bind flag hashcat's brain server binds
+``INADDR_ANY`` -- every interface -- regardless of how hate_crack decided to
+start it. So ``_spawn_server`` always passes ``--brain-host 127.0.0.1``
+itself: the spawned server binds loopback only, never reachable off the
+machine, which is what "hate_crack manages its own process on 127.0.0.1"
+actually requires. The server writes its ``.ldmp``/``.admp`` dumps into its
+own working directory (verified against hashcat v7.1.2 source, ``src/brain.c``,
+which passes the literal path ``"."`` to the dump writers) -- confirmed
+empirically on 2026-09-18 by running a real server with ``cwd`` set to a
+scratch directory and a real ``--brain-client`` attack against it: the
+resulting ``brain.<attack>.admp`` landed in that directory, not in the
+client's cwd or any hashcat profile directory. That is why ``_spawn_server``
+below passes ``cwd=str(brain_dir())``.
 """
 
 from __future__ import annotations
@@ -222,7 +229,12 @@ def client_flags(
 
 
 _LOOPBACK = frozenset({"", "localhost", "127.0.0.1", "::1"})
-_SPAWN_SETTLE_SECONDS = 2.0
+# Bounded poll for the spawned process to actually bind the port, replacing a
+# flat sleep: a flat sleep proves only that the process hasn't exited yet, not
+# that it's listening, and on a loaded machine that gap reports success for a
+# server the next connection can't reach.
+_SPAWN_TIMEOUT_SECONDS = 5.0
+_SPAWN_POLL_INTERVAL_SECONDS = 0.1
 
 
 @dataclass(frozen=True)
@@ -246,7 +258,14 @@ def _port_is_open(host: str, port: int) -> bool:
 
 
 def _spawn_server(hcat_bin: str, port: int, password: str, timer: int):
-    """Start `hashcat --brain-server`, or return None if it will not start."""
+    """Start `hashcat --brain-server`, or return None if it will not start.
+
+    ``--brain-host 127.0.0.1`` is not optional here: without it hashcat binds
+    every interface (``INADDR_ANY``), and the ``_LOOPBACK`` check in
+    ``ensure_server`` only gates whether we *spawn* -- it has no say over what
+    the spawned process listens on. This is what actually keeps the auto
+    server off the network.
+    """
     directory = brain_dir()
     try:
         directory.mkdir(parents=True, exist_ok=True)
@@ -254,6 +273,8 @@ def _spawn_server(hcat_bin: str, port: int, password: str, timer: int):
             [
                 hcat_bin,
                 "--brain-server",
+                "--brain-host",
+                "127.0.0.1",
                 "--brain-port",
                 str(port),
                 "--brain-password",
@@ -267,10 +288,36 @@ def _spawn_server(hcat_bin: str, port: int, password: str, timer: int):
         )
     except (OSError, ValueError):
         return None
-    time.sleep(_SPAWN_SETTLE_SECONDS)
-    if proc.poll() is not None:
+
+    attempts = max(1, int(_SPAWN_TIMEOUT_SECONDS / _SPAWN_POLL_INTERVAL_SECONDS))
+    try:
+        for _ in range(attempts):
+            if proc.poll() is not None:
+                # Exited already: nothing to wait for.
+                return None
+            if _port_is_open("127.0.0.1", port):
+                return proc
+            time.sleep(_SPAWN_POLL_INTERVAL_SECONDS)
+    except KeyboardInterrupt:
+        # A Ctrl-C mid-spawn must not orphan the child: nothing else holds a
+        # reference to it (we haven't set _PROC yet), so shutdown() could
+        # never reach it once this exception propagated past ensure_server.
+        _kill_quietly(proc)
         return None
-    return proc
+
+    # Never came up within the window -- give up rather than hand back a
+    # process nothing is actually listening on.
+    _kill_quietly(proc)
+    return None
+
+
+def _kill_quietly(proc) -> None:
+    try:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        pass
 
 
 def ensure_server(config: dict, *, hcat_bin: str = "hashcat") -> BrainServer | None:
@@ -296,6 +343,15 @@ def ensure_server(config: dict, *, hcat_bin: str = "hashcat") -> BrainServer | N
 
     resolved_host = host or "127.0.0.1"
     if _port_is_open(resolved_host, port):
+        if not password:
+            # An open loopback port with no configured password cannot be a
+            # server we can use: our own auto-spawned servers run on an
+            # ephemeral password that dies with the process that generated
+            # it, so this is either an orphan of a killed prior run (atexit
+            # does not fire on SIGKILL/SIGTERM/os._exit) or something else's
+            # server. Either way, authenticating with "" would fail silently
+            # on every attack with no clue why. Run without brain instead.
+            return None
         # Something is already listening -- an operator's own server, or a
         # second hate_crack. Either way it holds the password we cannot see,
         # so the configured one has to be right.
@@ -329,9 +385,4 @@ def shutdown() -> None:
     _SERVER = None
     if proc is None:
         return
-    try:
-        if proc.poll() is None:
-            proc.kill()
-            proc.wait(timeout=5)
-    except (OSError, subprocess.SubprocessError):
-        pass
+    _kill_quietly(proc)
