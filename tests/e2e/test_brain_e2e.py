@@ -13,6 +13,12 @@ import time
 
 import pytest
 
+from hate_crack.brain import (
+    _SPAWN_POLL_INTERVAL_SECONDS,
+    _SPAWN_TIMEOUT_SECONDS,
+    _port_is_open,
+)
+
 pytestmark = pytest.mark.skipif(
     os.environ.get("HATE_CRACK_RUN_E2E") != "1" or not shutil.which("hashcat"),
     reason="needs HATE_CRACK_RUN_E2E=1 and a hashcat binary",
@@ -65,6 +71,8 @@ def test_second_identical_run_is_rejected_by_brain(tmp_path):
         [
             "hashcat",
             "--brain-server",
+            "--brain-host",
+            "127.0.0.1",
             "--brain-port",
             str(PORT),
             "--brain-password",
@@ -75,7 +83,21 @@ def test_second_identical_run_is_rejected_by_brain(tmp_path):
         stderr=subprocess.DEVNULL,
     )
     try:
-        time.sleep(3)
+        # Same bounded poll the production spawn path (brain._spawn_server)
+        # uses, rather than a flat sleep that only proves the process
+        # hasn't exited -- not that it's actually listening yet.
+        deadline_ticks = max(
+            1, int(_SPAWN_TIMEOUT_SECONDS / _SPAWN_POLL_INTERVAL_SECONDS)
+        )
+        for _ in range(deadline_ticks):
+            if _port_is_open("127.0.0.1", PORT):
+                break
+            if server.poll() is not None:
+                pytest.fail("brain server exited before it started listening")
+            time.sleep(_SPAWN_POLL_INTERVAL_SECONDS)
+        else:
+            pytest.fail("brain server never opened its port")
+
         first = _run(hash_file, wordlist, potfile)
         second = _run(hash_file, wordlist, potfile)
     finally:
