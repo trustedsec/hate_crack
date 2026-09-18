@@ -211,6 +211,15 @@ def client_flags(
     *, host: str, port: int, password: str, features: int, session: str
 ) -> list[str]:
     """The `-z` client flag block for one hashcat invocation."""
+    # Coerce before the membership test, not after: `True in (1, 2, 3)` and
+    # `3.0 in (1, 2, 3)` are both True (bool is an int subclass, and 3.0 == 3),
+    # so a membership check alone lets them through and str() would then emit
+    # "True" or "3.0" -- an invalid --brain-client-features value that kills
+    # the attack outright rather than degrading it.
+    try:
+        features = int(features)
+    except (TypeError, ValueError):
+        features = 3
     if features not in _VALID_FEATURES:
         features = 3
     return [

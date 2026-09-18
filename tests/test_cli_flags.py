@@ -483,6 +483,7 @@ _PROMOTED_FLAG_HELP_KEYS = {
     "--debug": "debug",
     "--potfile-path": "hcatPotfilePath",
     "--restore-potfile": "restore_potfile_on_start",
+    "--brain": "brain_enabled",
 }
 
 

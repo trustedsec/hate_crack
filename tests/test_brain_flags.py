@@ -46,3 +46,21 @@ def test_client_features_outside_one_to_three_falls_back_to_three():
         host="127.0.0.1", port=6863, password="x", features=9, session="0xdeadbeef"
     )
     assert flags[flags.index("--brain-client-features") + 1] == "3"
+
+
+def test_client_features_bool_true_does_not_survive_as_literal_true():
+    # True == 1 and is `in (1, 2, 3)`, so the membership guard alone lets it
+    # through; str(True) is "True", which hashcat would reject outright.
+    flags = brain.client_flags(
+        host="127.0.0.1", port=6863, password="x", features=True, session="0xdeadbeef"
+    )
+    assert flags[flags.index("--brain-client-features") + 1] == "1"
+
+
+def test_client_features_float_does_not_survive_as_literal_float():
+    # 3.0 == 3 and is `in (1, 2, 3)`, so str(3.0) -> "3.0" would reach
+    # hashcat as an invalid argument instead of "3".
+    flags = brain.client_flags(
+        host="127.0.0.1", port=6863, password="x", features=3.0, session="0xdeadbeef"
+    )
+    assert flags[flags.index("--brain-client-features") + 1] == "3"

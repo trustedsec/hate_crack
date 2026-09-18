@@ -87,6 +87,15 @@ def _run_main(monkeypatch, argv):
     ],
 )
 def test_brain_flag_through_the_real_parser(monkeypatch, argv, config_value, expected):
-    monkeypatch.setitem(hc_main.config_parser, "brain_enabled", config_value)
-    assert _run_main(monkeypatch, argv) == 0
-    assert hc_main._brain_enabled is expected
+    # main() assigns hc_main._brain_enabled directly ("global _brain_enabled;
+    # _brain_enabled = ..."), not through monkeypatch, so monkeypatch's own
+    # teardown cannot undo it -- it only restores attributes *it* set. Save
+    # and restore the module global by hand or this leaks into every test
+    # that runs after this one in the session.
+    original = hc_main._brain_enabled
+    try:
+        monkeypatch.setitem(hc_main.config_parser, "brain_enabled", config_value)
+        assert _run_main(monkeypatch, argv) == 0
+        assert hc_main._brain_enabled is expected
+    finally:
+        hc_main._brain_enabled = original
