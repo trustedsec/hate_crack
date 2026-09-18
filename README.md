@@ -515,7 +515,7 @@ Menu options:
 - **(1) Upload Cracked Hashes** - Upload cracked results from current session to Hashview
 - **(2) Upload Wordlist** - Upload a wordlist file to Hashview
 - **(3) Download Wordlist** - Download a wordlist from Hashview
-- **Download Rule** - Download a rule file from Hashview (decompressed to plaintext, ready for `hashcat -r`)
+- **Download Rule** - Download a rule file from Hashview (decompressed to plaintext, ready for `hashcat -r`). Enter `a` (or `all`) at the rule ID prompt to download every listed rule instead of one
 - **Download All Rules** - Download every rule file listed by Hashview in one pass; per-rule failures are reported without aborting the rest
 - **(4) Download Left Hashes** - Download remaining uncracked hashes (prompts to switch for cracking)
 - **(5) Download Found Hashes** - Download already-cracked hashes with cleartext passwords (for reference/analysis)

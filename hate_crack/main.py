@@ -7781,6 +7781,29 @@ def _list_hashfiles_for_customer(api_harness, customer_id, debug=False):
     return hashfiles, False
 
 
+def _print_rule_download_summary(results):
+    """Print per-rule outcomes and a total for a bulk Hashview rule download.
+
+    ``results`` is the list returned by ``HashviewAPI.download_all_rules()``:
+    one dict per rule, carrying ``error`` when that rule failed.
+    """
+    if not results:
+        print("\nNo rules found.")
+        return
+
+    succeeded = [r for r in results if "error" not in r]
+    failed = [r for r in results if "error" in r]
+    for r in succeeded:
+        print(f"\n✓ Downloaded {r['size']} bytes: {r['output_file']}")
+    for r in failed:
+        print(f"\n✗ Error downloading rule {r.get('id')}: {r['error']}")
+    print(
+        f"\n{'=' * 60}\n"
+        f"Downloaded {len(succeeded)} of {len(results)} rules"
+        f"{f' ({len(failed)} failed)' if failed else ''}"
+    )
+
+
 def hashview_api():
     """Download/Upload data to Hashview API"""
     global hcatHashFile, hcatHashType, hcatHashFileOrig
@@ -8091,8 +8114,18 @@ def hashview_api():
                     print(f"\n✗ Error fetching rules: {str(e)}")
                     continue
 
+                rules_choice = input("\nEnter rule ID (or 'a' for all): ").strip()
+                if rules_choice.lower() in ("a", "all"):
+                    try:
+                        results = api_harness.download_all_rules()
+                    except Exception as e:
+                        print(f"\n✗ Error fetching rules: {str(e)}")
+                        continue
+                    _print_rule_download_summary(results)
+                    continue
+
                 try:
-                    rules_id = int(input("\nEnter rule ID: "))
+                    rules_id = int(rules_choice)
                 except ValueError:
                     print("\n✗ Error: Invalid ID entered. Please enter a numeric ID.")
                     continue
@@ -8122,21 +8155,7 @@ def hashview_api():
                     print(f"\n✗ Error fetching rules: {str(e)}")
                     continue
 
-                if not results:
-                    print("\nNo rules found.")
-                    continue
-
-                succeeded = [r for r in results if "error" not in r]
-                failed = [r for r in results if "error" in r]
-                for r in succeeded:
-                    print(f"\n✓ Downloaded {r['size']} bytes: {r['output_file']}")
-                for r in failed:
-                    print(f"\n✗ Error downloading rule {r.get('id')}: {r['error']}")
-                print(
-                    f"\n{'=' * 60}\n"
-                    f"Downloaded {len(succeeded)} of {len(results)} rules"
-                    f"{f' ({len(failed)} failed)' if failed else ''}"
-                )
+                _print_rule_download_summary(results)
 
             elif option_key == "upload_hashfile_job":
                 # Upload hashfile and create job

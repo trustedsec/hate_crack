@@ -9,6 +9,9 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ## [Unreleased]
 
+### Added
+- **The Hashview "Download Rule" prompt now accepts `a` (or `all`) to download every listed rule.** The rule listing is printed directly above the prompt, so an operator who has just decided they want all of them had to back out to the menu and pick "Download All Rules" instead. The shortcut is case-insensitive, skips the output-filename prompt, and reuses the same per-rule reporting as the menu option -- both paths now share one summary helper, so their output cannot drift.
+
 ### Fixed
 - **The attack-coverage prompt no longer fires when nothing it could skip has ever been covered.** `_prime_coverage_decision` asked the store whether this attack had run against this hash file with any of these wordlists, but not whether it had run against the *dimension* about to be diffed. Coverage keys are keyed by kind, so a rule-less dictionary pass records `kind="wordlist"` keys that can never cover a `kind="rule"` key — yet one such pass made every later Quick Crack with rules announce "has run against this hash file before" and offer to skip rule lines of which exactly zero were covered. Answering either way changed nothing; the prompt was pure noise, and worse, it trains the operator to dismiss a prompt that elsewhere does real work. `has_prior_run` now takes a `kind`, and the priming call passes the dimension each selected chain will actually filter. The mirror case — a rule-less batch after only rules have run — is closed by the same change.
 - **The batch prompt no longer names "the 1 selected rule file" for a run that selected no rules.** Choosing "0) To run without any rules" sends a batch of one empty chain, which filters whole wordlists; the prompt now asks about wordlists in that case.
