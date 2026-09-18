@@ -13,13 +13,29 @@ hand-maintained mode list that would drift as hashcat adds modes.
 
 Every failure returns "no brain" rather than raising. A missing optimization
 costs time; an attack that refuses to start costs the operator their session.
+
+The local server (``ensure_server``/``shutdown`` below) is spawned only for a
+loopback host: hate_crack manages its own process on 127.0.0.1, and for any
+configured remote host it only ever connects, never spawns. The server writes
+its ``.ldmp``/``.admp`` dumps into its own working directory (verified against
+hashcat v7.1.2 source, ``src/brain.c``, which passes the literal path ``"."``
+to the dump writers) -- confirmed empirically on 2026-09-18 by running a real
+server with ``cwd`` set to a scratch directory and a real ``--brain-client``
+attack against it: the resulting ``brain.<attack>.admp`` landed in that
+directory, not in the client's cwd or any hashcat profile directory. That is
+why ``_spawn_server`` below passes ``cwd=str(brain_dir())``.
 """
 
 from __future__ import annotations
 
+import atexit
 import json
 import os
+import secrets
+import socket
 import subprocess  # nosec B404 - hashcat is an expected local binary
+import time
+from dataclasses import dataclass
 from pathlib import Path
 
 from hate_crack import attack_coverage as _coverage
@@ -203,3 +219,119 @@ def client_flags(
         "--brain-session",
         str(session),
     ]
+
+
+_LOOPBACK = frozenset({"", "localhost", "127.0.0.1", "::1"})
+_SPAWN_SETTLE_SECONDS = 2.0
+
+
+@dataclass(frozen=True)
+class BrainServer:
+    host: str
+    port: int
+    password: str
+    spawned: bool
+
+
+_SERVER: BrainServer | None = None
+_PROC = None
+
+
+def _port_is_open(host: str, port: int) -> bool:
+    try:
+        with socket.create_connection((host or "127.0.0.1", port), timeout=1.0):
+            return True
+    except OSError:
+        return False
+
+
+def _spawn_server(hcat_bin: str, port: int, password: str, timer: int):
+    """Start `hashcat --brain-server`, or return None if it will not start."""
+    directory = brain_dir()
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        proc = subprocess.Popen(  # nosec B603 - fixed argv, no shell
+            [
+                hcat_bin,
+                "--brain-server",
+                "--brain-port",
+                str(port),
+                "--brain-password",
+                password,
+                "--brain-server-timer",
+                str(max(60, int(timer))),
+            ],
+            cwd=str(directory),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except (OSError, ValueError):
+        return None
+    time.sleep(_SPAWN_SETTLE_SECONDS)
+    if proc.poll() is not None:
+        return None
+    return proc
+
+
+def ensure_server(config: dict, *, hcat_bin: str = "hashcat") -> BrainServer | None:
+    """Reach a brain server, spawning a local one only when we own the host.
+
+    A configured non-loopback host is somebody else's server: we connect or we
+    do without. Spawning there would be hate_crack starting a process on a box
+    the operator pointed at for a reason.
+    """
+    global _SERVER, _PROC
+    if _SERVER is not None:
+        return _SERVER
+
+    host = str(config.get("brain_host") or "").strip()
+    port = int(config.get("brain_port") or 6863)
+    password = str(config.get("brain_password") or "")
+
+    if host not in _LOOPBACK:
+        if not _port_is_open(host, port):
+            return None
+        _SERVER = BrainServer(host=host, port=port, password=password, spawned=False)
+        return _SERVER
+
+    resolved_host = host or "127.0.0.1"
+    if _port_is_open(resolved_host, port):
+        # Something is already listening -- an operator's own server, or a
+        # second hate_crack. Either way it holds the password we cannot see,
+        # so the configured one has to be right.
+        _SERVER = BrainServer(
+            host=resolved_host, port=port, password=password, spawned=False
+        )
+        return _SERVER
+
+    if not password:
+        # Ephemeral, so the value visible in `ps` dies with the session.
+        password = secrets.token_urlsafe(18)
+
+    proc = _spawn_server(
+        hcat_bin, port, password, int(config.get("brain_server_timer") or 300)
+    )
+    if proc is None:
+        return None
+
+    _PROC = proc
+    _SERVER = BrainServer(
+        host=resolved_host, port=port, password=password, spawned=True
+    )
+    atexit.register(shutdown)
+    return _SERVER
+
+
+def shutdown() -> None:
+    """Stop a server this process started. Safe to call repeatedly."""
+    global _SERVER, _PROC
+    proc, _PROC = _PROC, None
+    _SERVER = None
+    if proc is None:
+        return
+    try:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        pass
