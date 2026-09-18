@@ -850,6 +850,24 @@ remembered, at the cost of losing the de-duplication that dump represented.
 If brain looks like it's skipping work it shouldn't be (a stale dump from a
 previous, differently-scoped run), this is the fix.
 
+**Deleting `~/.hate_crack/brain/` does not clear an orphaned server.** The
+auto-spawned server runs in its own session (`start_new_session=True`) so it
+survives a closed terminal or a SIGHUP — only an explicit kill, or the
+process that spawned it exiting cleanly and running its `atexit` handler,
+stops it. An orphan keeps holding the loopback port. With the default empty
+`BRAIN_PASSWORD`, you'll notice it as `"[!] ... no brain server could be
+reached; running without candidate de-duplication"` on every slow-mode
+attack: the orphan's password was ephemeral and died with the process that
+generated it, so hate_crack refuses to adopt the port it's sitting on rather
+than guess a password that can't be verified. Find and stop it with:
+
+```bash
+pgrep -f 'hashcat --brain-server'
+kill <pid>
+```
+
+after which the next attack spawns a fresh server as usual.
+
 ### Notifications (menu option 82)
 
 hate_crack can send Pushover push notifications when attacks complete and,
