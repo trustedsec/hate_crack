@@ -1911,6 +1911,25 @@ def _cmd_attack_mode(cmd) -> int | _NoAttackModeOperand | None:
     return _NO_ATTACK_MODE
 
 
+def _is_brain_flag(arg) -> bool:
+    """Whether ``arg`` is a hashcat brain-client (or brain-server) flag token.
+
+    The single predicate for "is this cmd token brain-ish", shared by
+    ``_maybe_add_brain`` (to detect an operator's own brain flags already
+    present in ``hcatTuning``, so we do not double them up) and
+    ``_run_hcat_cmd_uncovered`` (to decide whether to capture stderr for
+    brain-failure detection, and by ``_strip_brain_flags`` to decide what to
+    remove on the fallback retry). Keeping it in one place is what stops the
+    two halves from drifting apart on the definition again: they used to
+    disagree -- the ``_maybe_add_brain`` guard recognized any ``--brain-*``
+    token, but the stderr-capture decision recognized only ``-z``, so an
+    operator who wrote hashcat's long form ``--brain-client`` instead of
+    ``-z`` got no stderr capture and therefore no recovery at all.
+    """
+    text = str(arg)
+    return text == "-z" or text.startswith("--brain-")
+
+
 def _maybe_add_brain(cmd, hash_file, stdin):
     """Append hashcat brain client flags when this run qualifies.
 
@@ -1936,7 +1955,7 @@ def _maybe_add_brain(cmd, hash_file, stdin):
         return cmd
     if "--potfile-disable" in cmd:
         return cmd
-    if any(str(arg).startswith("--brain-") or arg == "-z" for arg in cmd):
+    if any(_is_brain_flag(arg) for arg in cmd):
         return cmd
     attack_mode = _cmd_attack_mode(cmd)
     if attack_mode is None:
@@ -2165,11 +2184,14 @@ def _run_hcat_cmd_uncovered(
 
     # ``--debug-mode`` is only ever added by ``_add_debug_mode_for_rules``, and
     # brain flags only by ``_maybe_add_brain`` (or an operator's own
-    # ``--brain-*`` in ``hcatTuning``), so only those invocations pay for the
-    # stderr capture needed to detect hashcat rejecting either one. stdout is
-    # left alone (inherited) so the live progress output is unaffected.
+    # ``--brain-*``/``-z`` in ``hcatTuning``), so only those invocations pay
+    # for the stderr capture needed to detect hashcat rejecting either one.
+    # stdout is left alone (inherited) so the live progress output is
+    # unaffected. ``_is_brain_flag`` is the same predicate ``_maybe_add_brain``
+    # uses to spot an operator's own brain flags, so this cannot drift from
+    # what counts as "brain-ish" the way it once did (see its docstring).
     has_debug_mode = "--debug-mode" in cmd
-    has_brain = "-z" in cmd
+    has_brain = any(_is_brain_flag(arg) for arg in cmd)
     stderr_capture = tempfile.TemporaryFile() if (has_debug_mode or has_brain) else None
 
     popen_kwargs = {"stdin": stdin} if stdin is not None else {}

@@ -481,6 +481,70 @@ class TestRunHcatCmd:
         assert main_module._brain_enabled is True
         assert "Some unrelated fatal hashcat error." in capsys.readouterr().err
 
+    def test_brain_rejection_recovers_with_the_long_form_client_flag(
+        self, main_module, tmp_path, monkeypatch
+    ):
+        # _maybe_add_brain's own guard treats any "--brain-*" token as
+        # brain-ish (so an operator's own long-form flags in hcatTuning are
+        # respected), but the stderr-capture decision used to be keyed on
+        # "-z" alone. An operator who wrote hashcat's long form
+        # "--brain-client" instead of "-z" got no stderr capture and thus no
+        # recovery at all. This pins that both halves now agree.
+        monkeypatch.setattr(main_module, "_brain_enabled", True)
+        hash_file = str(tmp_path / "hashes.txt")
+
+        long_form_cmd = [
+            "hashcat",
+            "-m",
+            "3200",
+            "--brain-client",
+            "--brain-host",
+            "127.0.0.1",
+            "--brain-port",
+            "6863",
+            "--brain-password",
+            "pw",
+            "--brain-client-features",
+            "3",
+            "--brain-session",
+            "0xdeadbeef",
+        ]
+
+        fail_proc = _make_mock_proc()
+        fail_proc.returncode = 255
+        ok_proc = _make_mock_proc()
+        ok_proc.returncode = 0
+        popen_calls = []
+
+        def fake_popen(cmd, **kwargs):
+            popen_calls.append((list(cmd), kwargs))
+            if len(popen_calls) == 1:
+                kwargs["stderr"].write(
+                    b"Brain server 127.0.0.1:6863 is not reachable: "
+                    b"Connection refused\n"
+                )
+                return fail_proc
+            return ok_proc
+
+        with (
+            patch("hate_crack.main.subprocess.Popen", side_effect=fake_popen),
+            patch("hate_crack.main._notify") as mock_notify,
+        ):
+            mock_notify.is_suppressed.return_value = False
+            mock_notify.get_settings.return_value = MagicMock(enabled=False)
+            mock_notify.start_tailer.return_value = None
+            main_module._run_hcat_cmd(
+                list(long_form_cmd),
+                attack_name="Dictionary",
+                hash_file=hash_file,
+            )
+
+        assert len(popen_calls) == 2
+        first_cmd, second_cmd = popen_calls[0][0], popen_calls[1][0]
+        assert "--brain-client" in first_cmd
+        assert not any(str(a).startswith("--brain-") for a in second_cmd)
+        assert main_module._brain_enabled is False
+
     def test_tailer_is_stopped_in_finally(self, main_module, tmp_path):
         hash_file = str(tmp_path / "hashes.txt")
         proc = _make_mock_proc(wait_side_effect=KeyboardInterrupt())
