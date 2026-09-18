@@ -804,10 +804,18 @@ hate_crack manages a local server on loopback; a value means connect to that
 host only — hate_crack never spawns a server it wasn't told to manage),
 `brain_port` (default `6863`), `brain_client_features` (`1` hashed passwords,
 `2` attack positions, `3` both — `3` de-duplicates the most but costs the
-server roughly 12 bytes of RAM per candidate seen), `brain_server_timer` (how
-long an idle auto-spawned server stays up), and `brain_modes_force` /
+server roughly 12 bytes of RAM per candidate seen), `brain_server_timer`
+(hashcat's own setting for how often the server writes its `.ldmp`/`.admp`
+dump to disk, minimum 60 seconds, default `300`), and `brain_modes_force` /
 `brain_modes_exclude` (comma-separated hash-mode numbers that override
 hashcat's own slow/fast verdict, exclude taking priority).
+
+**The auto-spawned server has no idle timeout at all.** `brain_server_timer`
+does not control how long it stays up — nothing does; it runs for the life of
+the process that spawned it (or until `shutdown()`/`atexit` stops it) and is
+reused across every attack in the session. At the default of `300`, that
+means a dump write to `~/.hate_crack/brain/` every five minutes for as long
+as hate_crack is running.
 
 An eighth key, `BRAIN_PASSWORD`, lives in `.env` instead of `config.json`
 because it is a shared secret, not because brain is a third-party
@@ -829,6 +837,18 @@ hardware.
 Pass `--no-brain` to disable brain for a single run regardless of
 `brain_enabled`, or set `brain_enabled` to `false` in `config.json` to turn it
 off everywhere.
+
+**Brain keeps state in `~/.hate_crack/brain/`** — a small `slow_modes.json`
+cache of hashcat's own slow/fast verdict per hashcat version, plus, for the
+auto-spawned server, its `.ldmp`/`.admp` dump files. Those dumps are
+candidate-derived material: they let a fresh server resume knowing what has
+already been tried against a target, which on an engagement means
+client-derived data accumulating in the operator's home directory for as
+long as brain has ever run there. As with the coverage store above, deleting
+the directory resets brain — a previously-rejected candidate stops being
+remembered, at the cost of losing the de-duplication that dump represented.
+If brain looks like it's skipping work it shouldn't be (a stale dump from a
+previous, differently-scoped run), this is the fix.
 
 ### Notifications (menu option 82)
 
