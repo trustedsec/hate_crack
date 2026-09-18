@@ -772,6 +772,61 @@ hate_crack --exit-code-on-skip hashes.txt dict
 Exit 3 means *nothing* ran. A pass that was partially filtered — some entries
 skipped, some tried — still exits `0`, because the attack did do work.
 
+### hashcat brain support (`brain_enabled`)
+
+hashcat itself ships a "brain" — a small server that a running hashcat
+instance streams candidate passwords to, so a second run against the same
+target can skip candidates the first one already tried. hate_crack engages it
+automatically, with no menu step required: whenever it is about to launch an
+attack against a hash mode hashcat reports as slow (bcrypt, scrypt, and other
+KDF-backed modes, where the hash itself is the bottleneck rather than
+candidate generation), it starts or reuses a local brain server and adds the
+`--brain-*` flags to the hashcat invocation for you. A fast mode is left
+alone, unless its mode number is listed in `brain_modes_force`, and a mode
+listed in `brain_modes_exclude` never engages brain regardless of hashcat's
+own verdict — exclude always wins.
+
+**Brain is not the same thing as attack coverage, and the two are
+complementary rather than redundant.** Coverage (above) de-duplicates at the
+level of whole rules, mask lines and wordlists — it decides what to launch in
+the first place. Brain de-duplicates at the level of individual candidate
+passwords, inside a single hashcat process, catching overlap coverage cannot
+see: the same candidate reachable through two different rules, or a hash file
+attacked from two different starting wordlists that happen to produce some of
+the same guesses. Both can be enabled at once with no conflict.
+
+Seven keys in `config.json` control it, all under the `brain_*` prefix:
+`brain_enabled` (master switch, default on), `brain_host` (empty means
+hate_crack manages a local server on loopback; a value means connect to that
+host only — hate_crack never spawns a server it wasn't told to manage),
+`brain_port` (default `6863`), `brain_client_features` (`1` hashed passwords,
+`2` attack positions, `3` both — `3` de-duplicates the most but costs the
+server roughly 12 bytes of RAM per candidate seen), `brain_server_timer` (how
+long an idle auto-spawned server stays up), and `brain_modes_force` /
+`brain_modes_exclude` (comma-separated hash-mode numbers that override
+hashcat's own slow/fast verdict, exclude taking priority).
+
+An eighth key, `BRAIN_PASSWORD`, lives in `.env` instead of `config.json`
+because it is a shared secret, not because brain is a third-party
+integration — it is used only when connecting to a remote brain server you
+already run; the auto-spawned local server generates its own random password
+per session and needs no configuration.
+
+**The brain password is visible to `ps` for the life of the hashcat run,**
+because hashcat only accepts it as a command-line argument — there is no
+environment-variable form. For the local auto-spawned server this is a small
+window: the password is random and scoped to that one session, so another
+local user can see it only while an attack is actually running, and it is
+useless once the session ends. A shared remote brain server's password has no
+such mitigation — it is the same value on every invocation, visible to any
+other local user on the machine for as long as any hate_crack run against
+that server is in progress. Treat it accordingly on shared or multi-tenant
+hardware.
+
+Pass `--no-brain` to disable brain for a single run regardless of
+`brain_enabled`, or set `brain_enabled` to `false` in `config.json` to turn it
+off everywhere.
+
 ### Notifications (menu option 82)
 
 hate_crack can send Pushover push notifications when attacks complete and,

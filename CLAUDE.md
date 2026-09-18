@@ -557,6 +557,7 @@ small single-purpose ones:
 | `config_schema.py` | 434 | `CONFIG_SCHEMA` source of truth (see Config System) |
 | `corpus_stats.py` | 322 | Pipal-adjacent corpus stats |
 | `attack_coverage.py` | ~470 | per-target rule/mask/wordlist coverage store — see below |
+| `brain.py` | 388 | hashcat brain oracle, slow/fast policy, session identity, client flags, local server lifecycle — see below |
 | `plaintext.py`, `noninteractive.py`, `username_detect.py`, `menu.py`, `formatting.py`, `progress.py`, `cli.py`, `hashview_cache.py` | 60–165 each | small, single-purpose helpers |
 | `notify/` | 871 total | Pushover notifications — see below |
 
@@ -574,7 +575,12 @@ completion** (hashcat exit 0 or 1, not interrupted). Chained `-r a -r b` runs ar
 tracked as one all-or-nothing unit because hashcat applies the *cartesian
 product* of the two files. Attacks opt in by passing `coverage=` to
 `_run_hcat_cmd`; dynamic generators (PRINCE, PCFG, OMEN, Markov, LLM) pass
-nothing and are never filtered.
+nothing and are never filtered. **`brain.py` is a separate, complementary
+mechanism, not a duplicate of this one**: coverage de-duplicates whole rules,
+masks and wordlists before a hashcat invocation is built, while brain
+de-duplicates individual candidate passwords inside hashcat itself via a
+running brain server — the two catch different overlap and neither subsumes
+the other.
 
 **LLM / Rosetta.** `llm.py` backs menu 12 (LLM Attack, handler
 `attacks.ollama_attack`) and menu 23 (Rosetta, `attacks.rosetta_attack`). It
@@ -646,19 +652,29 @@ Configuration is **split across two files, and every key has exactly one home**
 (#217, 2026-07-30). There is no cross-file precedence: a key found in the wrong
 file is ignored, with a warning naming the key and its real home.
 
-- **`.env`** owns the 16 **third-party integration** keys — Hashview (url + api
-  key), Hashmob (api key), Pushover (token + user), LLM (nine keys: the seven
-  `OLLAMA_HOST`, `_MODEL`, `_NO_CLOUD`, `_NUM_CTX`, `_TIMEOUT`, `_MAX_SAMPLE_LINES`,
+- **`.env`** owns 17 keys, home `"env"`. Sixteen of them are genuine
+  **third-party integration** credentials — Hashview (url + api key), Hashmob
+  (api key), Pushover (token + user), LLM (nine keys: the seven `OLLAMA_HOST`,
+  `_MODEL`, `_NO_CLOUD`, `_NUM_CTX`, `_TIMEOUT`, `_MAX_SAMPLE_LINES`,
   `_AUTO_RESEARCH`, plus `LLM_BACKEND` and `LLM_API_KEY`), Pipal (path + count).
   Mode `0600`, gitignored, never committed. `.env.example` is tracked, generated
   from the schema, and ships every credential key empty. **The `OLLAMA_*` keys
   serve all three backends** (`ollama`/`vllm`/`openai`) — `LLM_BACKEND` selects
   only the request shape, and the prefix is kept deliberately; see the comment
-  at `config_schema.py:296` before renaming them.
-- **`config.json`** owns the other 41 settings — wordlists, masks, rules,
+  at `config_schema.py:296` before renaming them. **The seventeenth, `BRAIN_PASSWORD`,
+  is the one exception to "env means third-party"**: hashcat brain is bundled
+  tooling like the submodules below, not a third-party integration, so by the
+  rule stated in the next bullet it should live in `config.json`. It is
+  env-homed anyway, solely because it is a secret — the shared password a
+  remote brain server expects — and `.env` is the one file that is `0600` and
+  gitignored. Home is chosen per key by "is this a secret", not by "is this
+  bundled vs. third-party"; those two questions usually agree, and
+  `BRAIN_PASSWORD` is the key where they don't.
+- **`config.json`** owns the other 48 settings — wordlists, masks, rules,
   tuning, potfile, hashcat path and binary, pcfg/omen/prince limits, notify
-  toggles, and five preferences promoted from CLI flags. It is **first-class
-  forever**; it was never deprecated and there is no removal timeline.
+  toggles, the seven other `brain_*` keys, and five preferences promoted from
+  CLI flags. It is **first-class forever**; it was never deprecated and there
+  is no removal timeline.
 - Bundled submodules — `hashcat-utils`, `HashcatRosetta` (bandrel fork),
   `omen`, `princeprocessor`, `pcfg_cracker` (`.gitmodules`, all `ignore =
   dirty`) — and hashcat itself are **not** third-party integrations here — they

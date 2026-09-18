@@ -9622,8 +9622,9 @@ def main():
             default=None,
             help=(
                 "Use hashcat's brain to skip candidates already tried against "
-                "this hash file. Engages only on hash modes hashcat reports as "
-                "slow; fast modes are never affected. Overrides "
+                "this hash file. Engages on any hash mode hashcat reports as "
+                "slow, plus any mode listed in `brain_modes_force` regardless "
+                "of that verdict; `brain_modes_exclude` always wins. Overrides "
                 "`brain_enabled` in config.json for this run."
             ),
         )
