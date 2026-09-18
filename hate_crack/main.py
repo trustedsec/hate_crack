@@ -2022,6 +2022,9 @@ def _is_brain_failure(stderr: bytes) -> bool:
     )
 
 
+_BRAIN_VALUELESS_FLAGS = frozenset({"-z", "--brain-client", "--brain-server"})
+
+
 def _strip_brain_flags(cmd):
     """``cmd`` with every brain client flag removed.
 
@@ -2030,6 +2033,14 @@ def _strip_brain_flags(cmd):
     alone by ``_maybe_add_brain`` and would still be present here, and the
     retry has to run without brain flags regardless of where they came
     from.
+
+    ``hcatTuning`` is fed through ``shlex.split``, so the operator controls
+    the token shape, and two shapes need care beyond "brain flag consumes
+    the next token": ``--brain-host=127.0.0.1`` carries its value in the
+    same token (no separate value token to skip), and ``--brain-client``
+    (hashcat's long form of ``-z``) takes no value at all. Treating either
+    like the separated ``--brain-host 127.0.0.1`` form would silently drop
+    the next, unrelated argument from the retried command.
     """
     result = []
     skip_next = False
@@ -2038,12 +2049,15 @@ def _strip_brain_flags(cmd):
             skip_next = False
             continue
         text = str(arg)
-        if text == "-z":
+        if not _is_brain_flag(text):
+            result.append(arg)
             continue
-        if text.startswith("--brain-"):
+        # This token is itself a brain flag -- drop it. It consumes the
+        # following token too only in the separated value form: not when
+        # the value is inline (``=``), and not when the flag takes no value
+        # at all.
+        if "=" not in text and text not in _BRAIN_VALUELESS_FLAGS:
             skip_next = True
-            continue
-        result.append(arg)
     return result
 
 

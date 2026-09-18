@@ -545,6 +545,24 @@ class TestRunHcatCmd:
         assert not any(str(a).startswith("--brain-") for a in second_cmd)
         assert main_module._brain_enabled is False
 
+    def test_strip_brain_flags_handles_the_equals_form(self, main_module):
+        # hcatTuning is fed through shlex.split, so an operator controls the
+        # token shape. "--brain-host=127.0.0.1" carries its value in the
+        # same token -- there is no separate value token to skip -- so the
+        # naive "skip the next token for every --brain-* flag" rule silently
+        # drops the unrelated argument that follows it.
+        cmd = ["hashcat", "-m", "3200", "--brain-host=127.0.0.1", "-O"]
+        stripped = main_module._strip_brain_flags(cmd)
+        assert stripped == ["hashcat", "-m", "3200", "-O"]
+
+    def test_strip_brain_flags_handles_a_valueless_flag(self, main_module):
+        # "--brain-client" (hashcat's long form of "-z") takes no value at
+        # all, so the next token belongs to the rest of the command, not to
+        # this flag.
+        cmd = ["hashcat", "-m", "3200", "--brain-client", "-O"]
+        stripped = main_module._strip_brain_flags(cmd)
+        assert stripped == ["hashcat", "-m", "3200", "-O"]
+
     def test_tailer_is_stopped_in_finally(self, main_module, tmp_path):
         hash_file = str(tmp_path / "hashes.txt")
         proc = _make_mock_proc(wait_side_effect=KeyboardInterrupt())
