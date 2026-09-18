@@ -44,29 +44,33 @@ def test_no_spawn_when_something_already_answers_an_explicit_loopback_host(monke
     assert server.password == "given"
 
 
-def test_empty_host_never_adopts_an_already_open_port_even_with_a_password(
+def test_empty_host_adopts_an_already_open_port_when_a_password_is_configured(
     monkeypatch,
 ):
     # brain_host == "" means "hate_crack manages this," not "connect to
-    # whatever is already there." An operator can have BRAIN_PASSWORD set
-    # for an unrelated remote brain and still run with an empty brain_host;
-    # the already-open port could be another hate_crack's ephemeral-password
-    # auto-spawn, and trying a password we cannot verify would just fail
-    # authentication on every attack. Never guess: give up on brain instead.
+    # whatever is already there" -- but a *configured* password is the same
+    # signal either way this port came to be open: most plausibly another
+    # hate_crack process reading the same config file, whether we observe
+    # that before attempting to spawn (here) or after losing a spawn race
+    # (test_spawn_race_reprobe_adopts_with_a_configured_password below).
+    # Nothing about *when* the probe happens changes whether the password is
+    # trustworthy, so both sites adopt on the same condition: a password is
+    # configured. Only an *empty* configured password -- unverifiable either
+    # way -- refuses (see test_open_loopback_port_without_configured_password_yields_no_brain).
     monkeypatch.setattr(brain, "_port_is_open", lambda host, port: True)
     monkeypatch.setattr(
         brain, "_spawn_server", lambda *a, **k: pytest.fail("must not spawn")
     )
-    assert (
-        brain.ensure_server(
-            {
-                "brain_host": "",
-                "brain_port": 6863,
-                "brain_password": "leftover-remote-password",
-            }
-        )
-        is None
+    server = brain.ensure_server(
+        {
+            "brain_host": "",
+            "brain_port": 6863,
+            "brain_password": "shared",
+        }
     )
+    assert server is not None
+    assert server.spawned is False
+    assert server.password == "shared"
 
 
 def test_spawns_when_the_port_is_closed(monkeypatch):

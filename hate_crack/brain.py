@@ -376,18 +376,22 @@ def ensure_server(config: dict, *, hcat_bin: str = "hashcat") -> BrainServer | N
         return _SERVER
 
     resolved_host = host or "127.0.0.1"
-    # An *explicit* loopback address (the operator typed "127.0.0.1" or
-    # similar) is a deliberate pointer at a server they expect is already
-    # running, the same as a non-loopback host above. An *empty* host means
-    # "hate_crack manages this" -- we did not start whatever is listening,
-    # so a configured password (which may be left over from pointing at an
-    # unrelated remote brain) cannot be trusted to match it. Never guess:
-    # an already-open port under auto-manage is either an orphan of a prior
-    # auto-spawn (its ephemeral password died with that process) or someone
-    # else's server, and authenticating blind would just fail every attack.
-    explicit_host = host != ""
+    # Whether the port is already open when checked here (before spawning)
+    # or only after losing the spawn race below, the question is the same:
+    # is the configured password trustworthy for whatever is listening? An
+    # *empty* configured password is never trustworthy -- an orphan of a
+    # prior auto-spawn used an ephemeral password that died with that
+    # process, so there is nothing to verify against. A *non-empty*
+    # configured password is the operator's own signal, and the most
+    # plausible source of an already-open port under auto-manage is another
+    # hate_crack process reading that same config file -- true regardless of
+    # which side of the spawn attempt the probe happens to land on. So both
+    # sites adopt on the same condition: a password is configured. (This
+    # also covers an *explicit* loopback host, e.g. "127.0.0.1" typed by the
+    # operator, since that always carries a password when the operator wants
+    # one -- see the non-loopback-equivalent case above.)
     if _port_is_open(resolved_host, port):
-        if explicit_host and password:
+        if password:
             _SERVER = BrainServer(
                 host=resolved_host, port=port, password=password, spawned=False
             )
@@ -406,9 +410,10 @@ def ensure_server(config: dict, *, hcat_bin: str = "hashcat") -> BrainServer | N
     if proc is None:
         # Possibly lost a spawn race: another process may have bound the
         # port between our check above and the Popen call. Re-probe once
-        # before giving up. Only adopt it when a password was actually
-        # configured -- the ephemeral one we generated above was ours alone
-        # and cannot be assumed to match whatever the race winner used.
+        # before giving up, using the same adoption rule as the pre-spawn
+        # probe above (see its comment) -- only a *configured* password
+        # counts; the ephemeral one generated above was ours alone and
+        # cannot be assumed to match whatever the race winner used.
         if password and _port_is_open(resolved_host, port):
             _SERVER = BrainServer(
                 host=resolved_host, port=port, password=password, spawned=False
