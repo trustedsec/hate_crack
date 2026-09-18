@@ -1840,6 +1840,26 @@ def _run_coverage_command(args) -> int:
     return 2
 
 
+_BRAIN_REFUSED_ATTACK_MODES = frozenset({6, 7})
+
+
+def _cmd_attack_mode(cmd) -> int | None:
+    """The ``-a`` operand's value, or ``None`` when the command has none.
+
+    Parsed out of the command rather than assumed by position: attack
+    functions build ``cmd`` differently from one call site to the next, so
+    ``-a`` is not reliably at a fixed index.
+    """
+    cmd = list(cmd)
+    for index, arg in enumerate(cmd):
+        if str(arg) == "-a" and index + 1 < len(cmd):
+            try:
+                return int(str(cmd[index + 1]))
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
 def _maybe_add_brain(cmd, hash_file, stdin):
     """Append hashcat brain client flags when this run qualifies.
 
@@ -1848,12 +1868,16 @@ def _maybe_add_brain(cmd, hash_file, stdin):
     candidate, so it is added only on a slow mode, where the hash and not the
     lookup is the bottleneck.
 
-    The four negative guards are each a real failure, not defensiveness:
-    a piped generator's candidates do not survive brain's -S handling
-    untested, ``--potfile-disable`` makes hashcat reject the invocation
-    outright, an operator's own ``--brain-*`` in ``hcatTuning`` is a
-    deliberate choice to leave alone, and a non-numeric hash type means we do
-    not know what we are cracking.
+    Each early return here guards a real failure, not defensiveness: a piped
+    generator's candidates do not survive brain's -S handling untested,
+    ``--potfile-disable`` makes hashcat reject the invocation outright, an
+    operator's own ``--brain-*`` in ``hcatTuning`` is a deliberate choice to
+    leave alone, a non-numeric hash type means we do not know what we are
+    cracking, and hashcat itself refuses ``--brain-client`` outright for
+    Hybrid attack modes (``-a 6``/``-a 7``; verified on hashcat v7.1.2 --
+    "Invalid attack mode (-a) value specified in brain-client mode.", exit
+    255) -- adding the flags there would not degrade the run, it would fail
+    it.
     """
     global _brain_notice_printed
 
@@ -1862,6 +1886,8 @@ def _maybe_add_brain(cmd, hash_file, stdin):
     if "--potfile-disable" in cmd:
         return cmd
     if any(str(arg).startswith("--brain-") or arg == "-z" for arg in cmd):
+        return cmd
+    if _cmd_attack_mode(cmd) in _BRAIN_REFUSED_ATTACK_MODES:
         return cmd
 
     try:

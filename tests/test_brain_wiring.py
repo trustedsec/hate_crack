@@ -80,3 +80,40 @@ def test_non_numeric_hash_type_degrades_to_no_brain(wired, monkeypatch):
     main, hash_file = wired
     monkeypatch.setattr(main, "hcatHashType", None)
     assert "-z" not in main._maybe_add_brain(["hashcat"], hash_file, None)
+
+
+@pytest.mark.parametrize("a_value", ["0", "1", "3"])
+def test_brain_engages_for_attack_modes_hashcat_accepts(wired, monkeypatch, a_value):
+    # hashcat v7.1.2, verified empirically: -a 0, 1 and 3 accept --brain-client.
+    main, hash_file = wired
+    monkeypatch.setattr(main, "hcatHashType", "3200")
+    cmd = main._maybe_add_brain(
+        ["hashcat", "-m", "3200", "-a", a_value], hash_file, None
+    )
+    assert "-z" in cmd
+
+
+@pytest.mark.parametrize("a_value", ["6", "7"])
+def test_brain_refused_for_hybrid_attack_modes(wired, monkeypatch, a_value):
+    # hashcat v7.1.2, verified empirically: -a 6 and -a 7 (hybrid) refuse
+    # --brain-client outright ("Invalid attack mode (-a) value specified in
+    # brain-client mode.", exit 255). Hybrid, Smart Mask hybrid groups,
+    # Fingerprint and extensive_crack's hybrid phases all use these modes
+    # against slow hashes, so this guard is what keeps them from failing
+    # outright when brain_enabled is the default true.
+    main, hash_file = wired
+    monkeypatch.setattr(main, "hcatHashType", "3200")
+    cmd = main._maybe_add_brain(
+        ["hashcat", "-m", "3200", "-a", a_value], hash_file, None
+    )
+    assert "-z" not in cmd
+    assert cmd == ["hashcat", "-m", "3200", "-a", a_value]
+
+
+def test_brain_engages_when_no_attack_mode_operand_is_present(wired, monkeypatch):
+    # No `-a` in the command at all: hashcat defaults to straight mode (0),
+    # which accepts brain-client, so this must not be treated as a refusal.
+    main, hash_file = wired
+    monkeypatch.setattr(main, "hcatHashType", "3200")
+    cmd = main._maybe_add_brain(["hashcat", "-m", "3200"], hash_file, None)
+    assert "-z" in cmd
