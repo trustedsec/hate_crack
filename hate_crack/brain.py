@@ -116,3 +116,31 @@ def slow_modes(
     except OSError:
         pass
     return parsed
+
+
+def _mode_set(raw) -> set[int]:
+    """Coerce a csv_list config value to a set of mode numbers, ignoring junk."""
+    modes = set()
+    for item in raw or ():
+        try:
+            modes.add(int(str(item).strip()))
+        except (TypeError, ValueError):
+            continue
+    return modes
+
+
+def is_slow(mode: int, config: dict, *, hcat_bin: str) -> bool:
+    """Whether brain should apply to this hash mode.
+
+    Order is exclude, then force, then hashcat's own verdict. Exclude wins
+    outright: it is the operator saying "not on this rig", and a rig fast
+    enough to make brain the bottleneck is something no oracle can know.
+    """
+    if mode in _mode_set(config.get("brain_modes_exclude")):
+        return False
+    if mode in _mode_set(config.get("brain_modes_force")):
+        return True
+    known = slow_modes(hcat_bin)
+    if known is None:
+        return False
+    return mode in known
