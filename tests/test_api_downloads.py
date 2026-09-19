@@ -30,7 +30,9 @@ from hate_crack.api import (
     sanitize_filename,
     TransmissionSession,
     _Hashmob429,
+    _parse_hashmob_found_name,
     _pick_free_port,
+    _replace_older_hashmob_found,
     _streamed_download,
     _with_hashmob_backoff,
     list_and_download_official_wordlists,
@@ -2329,3 +2331,273 @@ class TestStreamedDownloadChunkSize:
                 show_progress=False,
             )
         r.iter_content.assert_called_once_with(chunk_size=8192)
+
+
+class TestParseHashmobFoundName:
+    def test_plain_found_has_empty_tier(self):
+        assert _parse_hashmob_found_name("hashmob.net_2026-09-13.found") == (
+            "2026-09-13",
+            "",
+        )
+
+    def test_tier_is_parsed(self):
+        assert _parse_hashmob_found_name("hashmob.net_2026-09-13.tiny.found") == (
+            "2026-09-13",
+            "tiny",
+        )
+
+    def test_archive_suffix_is_stripped(self):
+        assert _parse_hashmob_found_name(
+            "hashmob.net_2026-09-13.official.found.7z"
+        ) == ("2026-09-13", "official")
+
+    def test_large_and_larger_stay_distinct(self):
+        assert _parse_hashmob_found_name("hashmob.net_2026-09-13.large.found")[1] == (
+            "large"
+        )
+        assert _parse_hashmob_found_name("hashmob.net_2026-09-13.larger.found")[1] == (
+            "larger"
+        )
+
+    def test_year_only_current_archive_is_not_dated(self):
+        assert _parse_hashmob_found_name("hashmob.net_2026.found") is None
+
+    def test_yearly_all_archive_is_not_matched(self):
+        assert _parse_hashmob_found_name("hashmob.net_2021.all.7z") is None
+
+    def test_unrelated_name_is_none(self):
+        assert _parse_hashmob_found_name("rockyou.txt") is None
+
+
+class TestReplaceOlderHashmobFound:
+    @staticmethod
+    def _write(directory, name, size=10):
+        path = directory / name
+        path.write_bytes(b"x" * size)
+        return path
+
+    @staticmethod
+    def _tty_stdin():
+        mock_stdin = MagicMock()
+        mock_stdin.isatty.return_value = True
+        return mock_stdin
+
+    def test_removes_older_same_tier_after_confirmation(self, tmp_path, capsys):
+        older = self._write(tmp_path, "hashmob.net_2026-04-26.tiny.found")
+        newer = self._write(tmp_path, "hashmob.net_2026-09-13.tiny.found")
+        with (
+            patch("hate_crack.api.sys.stdin", self._tty_stdin()),
+            patch("builtins.input", return_value="y"),
+        ):
+            removed = _replace_older_hashmob_found(
+                "hashmob.net_2026-09-13.tiny.found.7z", str(tmp_path)
+            )
+        assert removed == 1
+        assert not older.exists()
+        assert newer.exists()
+        assert "Removed" in capsys.readouterr().out
+
+    def test_declining_leaves_the_old_file(self, tmp_path):
+        older = self._write(tmp_path, "hashmob.net_2026-04-26.tiny.found")
+        with (
+            patch("hate_crack.api.sys.stdin", self._tty_stdin()),
+            patch("builtins.input", return_value="n"),
+        ):
+            removed = _replace_older_hashmob_found(
+                "hashmob.net_2026-09-13.tiny.found", str(tmp_path)
+            )
+        assert removed == 0
+        assert older.exists()
+
+    def test_other_tiers_are_untouched(self, tmp_path):
+        tiny = self._write(tmp_path, "hashmob.net_2026-04-26.tiny.found")
+        huge = self._write(tmp_path, "hashmob.net_2026-04-26.huge.found")
+        with (
+            patch("hate_crack.api.sys.stdin", self._tty_stdin()),
+            patch("builtins.input", return_value="y"),
+        ):
+            removed = _replace_older_hashmob_found(
+                "hashmob.net_2026-09-13.tiny.found", str(tmp_path)
+            )
+        assert removed == 1
+        assert not tiny.exists()
+        assert huge.exists()
+
+    def test_newer_same_tier_is_untouched(self, tmp_path):
+        newer = self._write(tmp_path, "hashmob.net_2026-12-01.tiny.found")
+        with (
+            patch("hate_crack.api.sys.stdin", self._tty_stdin()),
+            patch("builtins.input", return_value="y"),
+        ):
+            removed = _replace_older_hashmob_found(
+                "hashmob.net_2026-09-13.tiny.found", str(tmp_path)
+            )
+        assert removed == 0
+        assert newer.exists()
+
+    def test_plain_found_tier_is_isolated_from_tiered_files(self, tmp_path):
+        plain = self._write(tmp_path, "hashmob.net_2026-04-26.found")
+        tiny = self._write(tmp_path, "hashmob.net_2026-04-26.tiny.found")
+        with (
+            patch("hate_crack.api.sys.stdin", self._tty_stdin()),
+            patch("builtins.input", return_value="y"),
+        ):
+            removed = _replace_older_hashmob_found(
+                "hashmob.net_2026-09-13.found", str(tmp_path)
+            )
+        assert removed == 1
+        assert not plain.exists()
+        assert tiny.exists()
+
+    def test_stale_archive_and_extracted_copy_are_both_removed(self, tmp_path):
+        old_7z = self._write(tmp_path, "hashmob.net_2026-04-26.tiny.found.7z")
+        old_extracted = self._write(tmp_path, "hashmob.net_2026-04-26.tiny.found")
+        with (
+            patch("hate_crack.api.sys.stdin", self._tty_stdin()),
+            patch("builtins.input", return_value="y") as mock_input,
+        ):
+            removed = _replace_older_hashmob_found(
+                "hashmob.net_2026-09-13.tiny.found", str(tmp_path)
+            )
+        assert removed == 2
+        assert not old_7z.exists()
+        assert not old_extracted.exists()
+        assert mock_input.call_count == 2
+
+    def test_non_interactive_context_declines(self, tmp_path):
+        older = self._write(tmp_path, "hashmob.net_2026-04-26.tiny.found")
+        mock_stdin = MagicMock()
+        mock_stdin.isatty.return_value = False
+        with (
+            patch("hate_crack.api.sys.stdin", mock_stdin),
+            patch("builtins.input") as mock_input,
+        ):
+            removed = _replace_older_hashmob_found(
+                "hashmob.net_2026-09-13.tiny.found", str(tmp_path)
+            )
+        assert removed == 0
+        assert older.exists()
+        mock_input.assert_not_called()
+
+    def test_undated_new_name_is_a_noop(self, tmp_path):
+        older = self._write(tmp_path, "hashmob.net_2026-04-26.tiny.found")
+        with patch("builtins.input") as mock_input:
+            removed = _replace_older_hashmob_found("rockyou.txt", str(tmp_path))
+        assert removed == 0
+        assert older.exists()
+        mock_input.assert_not_called()
+
+    def test_missing_directory_is_a_noop(self, tmp_path):
+        removed = _replace_older_hashmob_found(
+            "hashmob.net_2026-09-13.tiny.found", str(tmp_path / "does-not-exist")
+        )
+        assert removed == 0
+
+
+class TestOfficialWordlistAdditiveReplacement:
+    @staticmethod
+    def _listing_response(api_data):
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json.return_value = api_data
+        return mock_resp
+
+    @staticmethod
+    def _tty_stdin():
+        mock_stdin = MagicMock()
+        mock_stdin.isatty.return_value = True
+        return mock_stdin
+
+    def test_cleanup_runs_after_a_successful_download(self, tmp_path):
+        wordlists_dir = tmp_path / "wordlists"
+        wordlists_dir.mkdir()
+        api_data = [{"file_name": "hashmob.net_2026-09-13.tiny.found.7z"}]
+        with (
+            patch(
+                "hate_crack.api.requests.get",
+                return_value=self._listing_response(api_data),
+            ),
+            patch(
+                "hate_crack.api.get_hcat_wordlists_dir", return_value=str(wordlists_dir)
+            ),
+            patch(
+                "hate_crack.api.download_official_wordlist", return_value=True
+            ) as mock_dl,
+            patch("hate_crack.api._replace_older_hashmob_found") as mock_replace,
+            patch("hate_crack.api.sys.stdin", self._tty_stdin()),
+            patch("builtins.input", return_value="a"),
+        ):
+            list_and_download_official_wordlists()
+        mock_dl.assert_called_once_with("hashmob.net_2026-09-13.tiny.found.7z")
+        mock_replace.assert_called_once_with(
+            "hashmob.net_2026-09-13.tiny.found.7z", str(wordlists_dir)
+        )
+
+    def test_cleanup_runs_when_the_new_version_is_already_present(self, tmp_path):
+        wordlists_dir = tmp_path / "wordlists"
+        wordlists_dir.mkdir()
+        (wordlists_dir / "hashmob.net_2026-09-13.tiny.found").write_bytes(b"present")
+        api_data = [{"file_name": "hashmob.net_2026-09-13.tiny.found.7z"}]
+        with (
+            patch(
+                "hate_crack.api.requests.get",
+                return_value=self._listing_response(api_data),
+            ),
+            patch(
+                "hate_crack.api.get_hcat_wordlists_dir", return_value=str(wordlists_dir)
+            ),
+            patch("hate_crack.api.download_official_wordlist") as mock_dl,
+            patch("hate_crack.api._replace_older_hashmob_found") as mock_replace,
+            patch("hate_crack.api.sys.stdin", self._tty_stdin()),
+            patch("builtins.input", return_value="a"),
+        ):
+            list_and_download_official_wordlists()
+        mock_dl.assert_not_called()
+        mock_replace.assert_called_once_with(
+            "hashmob.net_2026-09-13.tiny.found.7z", str(wordlists_dir)
+        )
+
+    def test_no_cleanup_when_the_download_fails(self, tmp_path):
+        wordlists_dir = tmp_path / "wordlists"
+        wordlists_dir.mkdir()
+        api_data = [{"file_name": "hashmob.net_2026-09-13.tiny.found.7z"}]
+        with (
+            patch(
+                "hate_crack.api.requests.get",
+                return_value=self._listing_response(api_data),
+            ),
+            patch(
+                "hate_crack.api.get_hcat_wordlists_dir", return_value=str(wordlists_dir)
+            ),
+            patch("hate_crack.api.download_official_wordlist", return_value=False),
+            patch("hate_crack.api._replace_older_hashmob_found") as mock_replace,
+            patch("hate_crack.api.sys.stdin", self._tty_stdin()),
+            patch("builtins.input", return_value="a"),
+        ):
+            list_and_download_official_wordlists()
+        mock_replace.assert_not_called()
+
+    def test_cleanup_runs_in_the_numeric_selection_branch(self, tmp_path):
+        wordlists_dir = tmp_path / "wordlists"
+        wordlists_dir.mkdir()
+        api_data = [
+            {"file_name": "rockyou.7z"},
+            {"file_name": "hashmob.net_2026-09-13.tiny.found.7z"},
+        ]
+        with (
+            patch(
+                "hate_crack.api.requests.get",
+                return_value=self._listing_response(api_data),
+            ),
+            patch(
+                "hate_crack.api.get_hcat_wordlists_dir", return_value=str(wordlists_dir)
+            ),
+            patch("hate_crack.api.download_official_wordlist", return_value=True),
+            patch("hate_crack.api._replace_older_hashmob_found") as mock_replace,
+            patch("hate_crack.api.sys.stdin", self._tty_stdin()),
+            patch("builtins.input", return_value="2"),
+        ):
+            list_and_download_official_wordlists()
+        mock_replace.assert_called_once_with(
+            "hashmob.net_2026-09-13.tiny.found.7z", str(wordlists_dir)
+        )

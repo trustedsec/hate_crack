@@ -3552,6 +3552,92 @@ def list_official_wordlists():
         return []
 
 
+def _parse_hashmob_found_name(name):
+    """Split a dated Hashmob found-corpus name into ``(date, tier)``.
+
+    Hashmob publishes its cumulative found corpora as
+    ``hashmob.net_<YYYY-MM-DD>[.<tier>].found`` (the archive variant adds
+    ``.7z``), where the tier is one of ``micro``/``tiny``/``mini``/``small``/
+    ``medium``/``large``/``larger``/``huge``/``user``/``official`` or absent
+    for the plain combined list. Each dated release is additive over the
+    previous one, so an older same-tier file is redundant once a newer one is
+    on disk -- that is what :func:`_replace_older_hashmob_found` acts on.
+
+    Returns ``None`` for anything that is not a dated found corpus: the
+    year-only current archive (``hashmob.net_2026.found``), the yearly
+    ``hashmob.net_<year>.all.7z`` bundles, and unrelated files. The tier is
+    matched as a whole token, so ``large`` never matches ``larger``.
+    """
+    match = re.fullmatch(
+        r"hashmob\.net_(\d{4}-\d{2}-\d{2})(?:\.([a-z]+))?\.found(?:\.7z)?", name
+    )
+    if not match:
+        return None
+    return match.group(1), match.group(2) or ""
+
+
+def _replace_older_hashmob_found(new_name, dest_dir):
+    """Offer to delete older same-tier Hashmob found corpora in ``dest_dir``.
+
+    Called once the newest file for ``new_name`` is on disk (freshly
+    downloaded and extracted, or already present), so the older files it
+    supersedes are redundant. Every candidate is confirmed individually --
+    silently removing a multi-gigabyte corpus on a mistyped pattern is not a
+    failure worth risking -- and a non-interactive context declines, matching
+    the ``_safe_input`` pattern used elsewhere in this module. Returns the
+    number of files removed.
+    """
+    parsed_new = _parse_hashmob_found_name(new_name)
+    if parsed_new is None:
+        return 0
+    new_date, new_tier = parsed_new
+
+    def _safe_input(prompt):
+        try:
+            if not sys.stdin or not sys.stdin.isatty():
+                return "q"
+        except Exception:
+            return "q"
+        try:
+            return input(prompt)
+        except EOFError:
+            return "q"
+
+    try:
+        candidates = sorted(os.listdir(dest_dir))
+    except (FileNotFoundError, NotADirectoryError, PermissionError):
+        return 0
+
+    removed = 0
+    for name in candidates:
+        path = os.path.join(dest_dir, name)
+        if not os.path.isfile(path):
+            continue
+        parsed = _parse_hashmob_found_name(name)
+        if parsed is None:
+            continue
+        date, tier = parsed
+        if tier != new_tier or date >= new_date:
+            continue
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            continue
+        label = f"{tier} " if tier else ""
+        answer = _safe_input(
+            f"[?] Replace older {label}list '{name}' ({_format_size(size)})? [y/N]: "
+        )
+        if answer.strip().lower() not in ("y", "yes"):
+            continue
+        try:
+            os.remove(path)
+            removed += 1
+            print(f"[i] Removed '{name}'.")
+        except OSError as e:
+            print(f"[!] Could not remove '{name}': {e}")
+    return removed
+
+
 def list_and_download_official_wordlists():
     """List files in the official wordlists directory via the Hashmob API, prompt for selection, and download."""
     url = "https://hashmob.net/api/v2/downloads/research/official/"
@@ -3619,6 +3705,20 @@ def list_and_download_official_wordlists():
                 check_path = os.path.join(dest_dir, sanitized)
             return os.path.isfile(check_path) and os.path.getsize(check_path) > 0
 
+        def _download_and_replace(file_name):
+            """Fetch one wordlist, then offer to drop the older same-tier copies.
+
+            The cleanup runs only once the newest file is actually on disk --
+            freshly downloaded and extracted, or already present -- so a
+            failed download never removes the copy it was meant to supersede.
+            """
+            if _already_downloaded_wordlist(file_name):
+                print(f"[i] Skipping {file_name} (already present)")
+                _replace_older_hashmob_found(file_name, dest_dir)
+                return
+            if download_official_wordlist(file_name):
+                _replace_older_hashmob_found(file_name, dest_dir)
+
         if sel.lower() == "a":
             try:
                 for entry in data:
@@ -3626,10 +3726,7 @@ def list_and_download_official_wordlists():
                     if not file_name:
                         print("No file_name found for an entry, skipping.")
                         continue
-                    if _already_downloaded_wordlist(file_name):
-                        print(f"[i] Skipping {file_name} (already present)")
-                        continue
-                    download_official_wordlist(file_name)
+                    _download_and_replace(file_name)
             except KeyboardInterrupt:
                 print("\nKeyboard interrupt: Returning to download menu...")
                 return
@@ -3667,10 +3764,7 @@ def list_and_download_official_wordlists():
                 if not file_name:
                     print("No file_name found for selection, skipping.")
                     continue
-                if _already_downloaded_wordlist(file_name):
-                    print(f"[i] Skipping {file_name} (already present)")
-                    continue
-                download_official_wordlist(file_name)
+                _download_and_replace(file_name)
         except Exception as e:
             print(f"Error: {e}")
     except Exception as e:
