@@ -1,16 +1,26 @@
-"""Self-tests for the `_guard_submodule_identity` conftest fixture (#276).
+"""Self-tests for the `_guard_submodule_identity` conftest fixture (#276, #298).
 
-hate_crack/main.py sets __path__ so it looks like a package to the import
-system. A string-target patch -- mock.patch("hate_crack.main.llm.X") -- is
-therefore resolved by pkgutil.resolve_name by *importing*
-hate_crack.main.llm: a second, independent execution of llm.py. The import
-machinery rebinds hate_crack.main's `llm` attribute to that duplicate, and it
-stays rebound for the rest of the pytest session, even after the `with`
-block that did the patching exits.
+hate_crack/main.py used to set __path__ so it looked like a package to the
+import system. That made a string-target patch --
+mock.patch("hate_crack.main.llm.X") -- get resolved by pkgutil.resolve_name by
+*importing* hate_crack.main.llm: a second, independent execution of llm.py.
+The import machinery rebound hate_crack.main's `llm` attribute to that
+duplicate, and it stayed rebound for the rest of the pytest session, even
+after the `with` block that did the patching exited.
+
+#298 removed the `__path__` shim, which fixes the corruption at its root:
+"hate_crack.main.llm" is no longer a name the import system can resolve as a
+distinct module, so pkgutil.resolve_name falls through to attribute lookup on
+the real `hate_crack.main.llm` reference instead of importing a duplicate.
+`test_string_target_patch_no_longer_corrupts_module_identity` below pins that
+directly. The remaining tests in this file keep `_guard_submodule_identity`
+exercised as a belt-and-braces net -- see its docstring in conftest.py -- for
+any future regression that reintroduces a way to fool `pkgutil.resolve_name`,
+even though the specific `__path__` mechanism is gone.
 
 These tests are kept out of the files that were cleaned up (converted to
 mock.patch.object) so the proof that the guard actually works doesn't live
-next to code that no longer exercises the bug it guards against.
+next to code that no longer exercises the bug it used to guard against.
 
 These tests deliberately do NOT bind ``hate_crack.main`` at import time
 (e.g. ``from hate_crack import main as hc_main`` at module scope). Some
@@ -37,70 +47,37 @@ def _current_hc_main():
     return sys.modules["hate_crack.main"]
 
 
-def test_string_target_patch_corrupts_and_is_detected_and_repaired():
-    """Provoke the bad pattern, confirm corruption, then confirm the check
-    function both detects and repairs it -- proving the guard is live, not
-    decorative."""
+def test_string_target_patch_no_longer_corrupts_module_identity():
+    """Pins the #298 fix at its root: with the `__path__` shim removed,
+    mock.patch("hate_crack.main.llm.X") no longer causes pkgutil.resolve_name
+    to import a duplicate llm module. Before #298, this exact `with` block
+    left hate_crack.main.llm permanently rebound to a second, independent
+    module object for the rest of the pytest session (see the module
+    docstring and the old version of this test in history). Now it must
+    resolve straight to the real attribute and leave no trace behind."""
     from tests.conftest import _corrupted_submodule_references
 
     hc_main = _current_hc_main()
     original_llm = hc_main.llm
     assert original_llm is llm
 
-    try:
-        with mock.patch("hate_crack.main.llm.CloudDestinationRefused"):
-            # Inside the `with` block, hate_crack.main.llm has already been
-            # rebound to a freshly-imported duplicate module.
-            assert hc_main.llm is not llm
-
-        # The corruption outlives the `with` block: mock's teardown only
-        # restores the attribute on the duplicate, not the rebinding itself.
-        assert hc_main.llm is not llm, (
-            "expected the string-target patch to leave hate_crack.main.llm "
-            "corrupted after teardown -- if this fails, the reproduction "
-            "no longer demonstrates the bug this guard exists for"
-        )
-        assert hc_main.llm.CloudDestinationRefused is not llm.CloudDestinationRefused
-
-        # Call the check function directly (not through the autouse fixture)
-        # to confirm it both detects and repairs the corruption.
-        reports = _corrupted_submodule_references()
-        assert reports, "expected the corruption to be detected and reported"
-        assert any("hate_crack.main.llm" in r for r in reports)
-
-        # The module reference is back to identity with the canonical module.
+    with mock.patch("hate_crack.main.llm.CloudDestinationRefused"):
+        # No duplicate: the patch resolves to the real, shared llm module.
         assert hc_main.llm is llm
-        assert hc_main.llm.CloudDestinationRefused is llm.CloudDestinationRefused
-    finally:
-        hc_main.llm = original_llm
-        sys.modules.pop("hate_crack.main.llm", None)
 
+    # Still the same module object after teardown, and nothing was left
+    # registered under the bogus "hate_crack.main.llm" name.
+    assert hc_main.llm is llm
+    assert hc_main.llm.CloudDestinationRefused is llm.CloudDestinationRefused
+    assert "hate_crack.main.llm" not in sys.modules
 
-def test_repair_also_clears_the_duplicate_from_sys_modules():
-    """The repair must clear sys.modules, not just rebind the attribute --
-    otherwise a later import of "hate_crack.main.llm" would hand back the
-    stale duplicate instead of re-resolving to the real module."""
-    from tests.conftest import _corrupted_submodule_references
-
-    hc_main = _current_hc_main()
-
-    try:
-        with mock.patch("hate_crack.main.llm.CloudDestinationRefused"):
-            pass
-
-        assert "hate_crack.main.llm" in sys.modules, (
-            "expected the string-target patch to have registered a duplicate "
-            "submodule in sys.modules -- if this fails, the reproduction no "
-            "longer demonstrates the bug this guard exists for"
-        )
-
-        reports = _corrupted_submodule_references()
-        assert reports
-
-        assert "hate_crack.main.llm" not in sys.modules
-    finally:
-        hc_main.llm = llm
-        sys.modules.pop("hate_crack.main.llm", None)
+    # The guard function itself confirms there is nothing to detect or repair.
+    reports = _corrupted_submodule_references()
+    assert reports == [], (
+        "expected no corruption once the __path__ shim is gone -- if this "
+        "fails, the fix regressed and hate_crack.main.llm.X is being "
+        "resolved as an importable submodule again"
+    )
 
 
 def test_recommended_idiom_produces_zero_corruption():

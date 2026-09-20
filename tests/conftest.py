@@ -139,17 +139,22 @@ def _isolate_hashview_cache(monkeypatch, tmp_path):
 def _corrupted_submodule_references():
     """Report and repair duplicated ``hate_crack.main.<mod>`` module objects.
 
-    hate_crack/main.py sets __path__, so hate_crack.main looks like a package.
-    A string-target patch -- mock.patch("hate_crack.main.llm.X") -- is
-    resolved with pkgutil.resolve_name, which therefore imports
+    Before #298, hate_crack/main.py set __path__, so hate_crack.main looked
+    like a package. A string-target patch -- mock.patch("hate_crack.main.llm.X")
+    -- was resolved with pkgutil.resolve_name, which therefore imported
     hate_crack.main.llm: a second, independent execution of llm.py. The import
-    machinery rebinds main.llm to that duplicate, and mock's teardown restores
-    the attribute on the duplicate, so the corruption outlives the with block
-    for the rest of the session (#276).
+    machinery rebound main.llm to that duplicate, and mock's teardown restored
+    the attribute on the duplicate, so the corruption outlived the with block
+    for the rest of the session (#276). #298 removed the __path__ shim, which
+    fixes that specific corruption at its root -- "hate_crack.main.llm" is no
+    longer a name the import system will resolve as a distinct module.
 
-    Each finding is repaired as well as reported: the failure belongs to the
-    test that caused it, not to the unrelated tests that would otherwise fail
-    after it.
+    This function stays as a belt-and-braces net: it still detects and repairs
+    a duplicated ``hate_crack.main.<mod>`` module object however it might
+    arise (e.g. a future change reintroducing something pkgutil.resolve_name
+    can misresolve), not just via the mechanism #298 removed. Each finding is
+    repaired as well as reported: the failure belongs to the test that caused
+    it, not to the unrelated tests that would otherwise fail after it.
     """
     hc_main = sys.modules.get("hate_crack.main")
     reports = []

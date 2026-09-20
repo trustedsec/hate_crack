@@ -21,19 +21,19 @@ os.environ["HATE_CRACK_SKIP_INIT"] = "1"
 from hate_crack import main as hc_main  # noqa: E402
 
 # Exception/model instances below are built from hc_main.llm's *own* current
-# reference, not a freshly re-imported top-level `hate_crack.llm` -- some
-# existing tests elsewhere in this suite patch a string target like
-# "hate_crack.main.llm.generate_masks". On Python 3.13, mock.patch resolves
-# that via pkgutil.resolve_name, which -- because main.py sets its own
-# __path__ so it can be treated as a package when loaded standalone (see
-# main.py's "Allow submodule imports" comment) -- actually imports a *second*,
-# non-identical copy of llm.py under the bogus name "hate_crack.main.llm" and
-# leaves it permanently attached as hc_main.llm afterwards. That is a
-# pre-existing test-isolation hazard, not something this file's tests should
-# have to fix, so they sidestep it: constructing exceptions via hc_main.llm.X
-# guarantees the `except llm.X` clause inside main.py (which also reads its
-# own module-global `llm` at call time) is checking against the exact same
-# class, whichever copy that happens to be.
+# reference, not a freshly re-imported top-level `hate_crack.llm`. Before
+# #298, some existing tests elsewhere in this suite patched a string target
+# like "hate_crack.main.llm.generate_masks", and on Python 3.13 mock.patch
+# resolved that via pkgutil.resolve_name, which -- because main.py used to
+# set its own __path__ so it could be treated as a package when loaded
+# standalone -- actually imported a *second*, non-identical copy of llm.py
+# under the bogus name "hate_crack.main.llm" and left it permanently attached
+# as hc_main.llm afterwards. #298 removed that __path__ shim, so this
+# specific hazard no longer reproduces, but constructing exceptions via
+# hc_main.llm.X is left in place as the cheap, still-correct way to guarantee
+# the `except llm.X` clause inside main.py (which also reads its own
+# module-global `llm` at call time) is checking against the exact same class,
+# whichever copy that happens to be.
 
 # A well-known public IP literal -- offsite under is_offsite_url without any
 # DNS resolution, so these tests never need an injected resolver. (Not an
