@@ -567,7 +567,17 @@ Set Hashview credentials in `.env` (they are integration settings, so they do no
 ```
 HASHVIEW_URL=https://hashview.example.com
 HASHVIEW_API_KEY=your-api-key-here
+HASHVIEW_VERIFY_TLS=true
 ```
+
+`HASHVIEW_VERIFY_TLS` defaults to `true`: hate_crack verifies the Hashview
+server's TLS certificate, and connecting to a Hashview with a self-signed or
+internal-CA certificate will fail until that certificate is trusted (add it
+to your system trust store, or use a certificate issued by a CA your system
+already trusts). If that isn't possible, set `HASHVIEW_VERIFY_TLS=false` --
+hate_crack will print a one-line warning naming the host on every process
+start when verification is off, since disabling it removes protection
+against a spoofed server or an on-path attacker intercepting the connection.
 
 #### LLM Configuration
 

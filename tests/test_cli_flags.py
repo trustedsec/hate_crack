@@ -255,7 +255,7 @@ def test_no_args_enters_menu(monkeypatch):
 # 6. Hashview subcommand: download-hashes
 # ---------------------------------------------------------------------------
 class DummyHashviewAPI:
-    def __init__(self, base_url, api_key, debug=False):
+    def __init__(self, base_url, api_key, debug=False, verify_tls=True):
         self.calls = []
 
     def download_left_hashes(self, customer_id, hashfile_id, potfile_path=None):
@@ -287,7 +287,7 @@ def test_hashview_download_hashes(monkeypatch, capsys):
 # 7. Hashview upload-hashfile-job with --limit-recovered and --no-notify-email
 # ---------------------------------------------------------------------------
 class DummyHashviewAPIFull:
-    def __init__(self, base_url, api_key, debug=False):
+    def __init__(self, base_url, api_key, debug=False, verify_tls=True):
         self.calls = []
 
     def upload_hashfile(
@@ -340,7 +340,7 @@ def test_hashview_upload_hashfile_job_no_notify_email_by_default(
     captured_kwargs: dict = {}
 
     class TrackingAPI:
-        def __init__(self, base_url, api_key, debug=False):
+        def __init__(self, base_url, api_key, debug=False, verify_tls=True):
             pass
 
         def upload_hashfile(
@@ -390,7 +390,7 @@ def test_hashview_upload_hashfile_job_error_response_exits_nonzero(
     and output must show ✗ Error with a hint to check the Hashview UI."""
 
     class ErrorJobAPI:
-        def __init__(self, base_url, api_key, debug=False):
+        def __init__(self, base_url, api_key, debug=False, verify_tls=True):
             pass
 
         def upload_hashfile(

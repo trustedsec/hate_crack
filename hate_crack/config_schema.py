@@ -267,6 +267,11 @@ CONFIG_SCHEMA: tuple[ConfigKey, ...] = (
         "HASHVIEW_URL", "hashview_url", "str", "http://localhost:8443", home="env"
     ),
     ConfigKey("HASHVIEW_API_KEY", "hashview_api_key", "str", "", home="env"),
+    # Default True: verify the Hashview server's TLS certificate. Set to
+    # false only for a Hashview with a self-signed or internal-CA cert that
+    # cannot be added to the trust store -- doing so disables protection
+    # against a spoofed server or interception on that connection.
+    ConfigKey("HASHVIEW_VERIFY_TLS", "hashview_verify_tls", "bool", True, home="env"),
     ConfigKey("HASHMOB_API_KEY", "hashmob_api_key", "str", "", home="env"),
     # Bare host:port or a full URL; main.py normalizes either into a base URL.
     # The default matches Ollama's own, and the name matches the variable

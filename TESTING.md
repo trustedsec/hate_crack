@@ -88,7 +88,7 @@ WEAKPASS_TEST_REAL=1 uv run pytest tests/test_cli_weakpass.py -v
 
 #### Live Hashview Upload
 
-Requires valid `HASHVIEW_URL` and `HASHVIEW_API_KEY` in `.env` (or exported as environment variables, which override it).
+Requires valid `HASHVIEW_URL` and `HASHVIEW_API_KEY` in `.env` (or exported as environment variables, which override it). If that Hashview uses a self-signed or internal-CA certificate, also set `HASHVIEW_VERIFY_TLS=false` -- it defaults to `true`.
 
 ```bash
 HATE_CRACK_RUN_LIVE_TESTS=1 uv run pytest tests/test_upload_cracked_hashes.py -v

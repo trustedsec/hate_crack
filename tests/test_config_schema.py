@@ -40,16 +40,20 @@ def _load_example() -> dict:
     return loads_strict(EXAMPLE_PATH.read_text())
 
 
-# The seventeen home="env" keys -- the sixteen third-party integration
-# credentials/settings plus the brain shared secret (BRAIN_PASSWORD), which is
-# env-homed because it is a secret even though brain itself is bundled, not
-# third-party. Pinned literally so a key cannot quietly change home -- moving
-# one is a user-visible change of which file it must be written in, and it
-# should not be possible to make it by editing one word of the schema.
+# The eighteen home="env" keys -- the sixteen third-party integration
+# credentials/settings, HASHVIEW_VERIFY_TLS (a TLS toggle for the Hashview
+# integration, not a credential, but grouped with it because it is set
+# per-Hashview-deployment rather than globally), plus the brain shared secret
+# (BRAIN_PASSWORD), which is env-homed because it is a secret even though
+# brain itself is bundled, not third-party. Pinned literally so a key cannot
+# quietly change home -- moving one is a user-visible change of which file it
+# must be written in, and it should not be possible to make it by editing one
+# word of the schema.
 EXPECTED_ENV_HOMED = frozenset(
     {
         "HASHVIEW_URL",
         "HASHVIEW_API_KEY",
+        "HASHVIEW_VERIFY_TLS",
         "HASHMOB_API_KEY",
         "NOTIFY_PUSHOVER_TOKEN",
         "NOTIFY_PUSHOVER_USER",
@@ -103,10 +107,10 @@ def test_env_homed_key_set_is_pinned():
     assert {entry.env for entry in ENV_KEYS} == EXPECTED_ENV_HOMED
 
 
-def test_key_counts_are_seventeen_and_forty_eight():
-    assert len(ENV_KEYS) == 17
+def test_key_counts_are_eighteen_and_forty_eight():
+    assert len(ENV_KEYS) == 18
     assert len(JSON_KEYS) == 48
-    assert len(CONFIG_SCHEMA) == 65
+    assert len(CONFIG_SCHEMA) == 66
 
 
 def test_every_key_has_exactly_one_home():

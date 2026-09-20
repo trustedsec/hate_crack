@@ -5,7 +5,7 @@ import hate_crack.main as hc_main
 
 
 class DummyHashviewAPI:
-    def __init__(self, base_url, api_key, debug=False):
+    def __init__(self, base_url, api_key, debug=False, verify_tls=True):
         self.base_url = base_url
         self.api_key = api_key
         self.debug = debug

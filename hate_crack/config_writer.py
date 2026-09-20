@@ -36,7 +36,7 @@ from hate_crack.config_schema import (
 _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
         "Hashview (API key is a secret)",
-        ("HASHVIEW_URL", "HASHVIEW_API_KEY"),
+        ("HASHVIEW_URL", "HASHVIEW_API_KEY", "HASHVIEW_VERIFY_TLS"),
     ),
     (
         "Hashmob (API key is a secret)",

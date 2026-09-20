@@ -864,6 +864,7 @@ _finish_stale_migration(_env_path, _legacy_json_path)
 # loader's coercion.
 hashview_url = config_parser["hashview_url"]
 hashview_api_key = config_parser["hashview_api_key"]
+hashview_verify_tls = config_parser["hashview_verify_tls"]
 
 logger = logging.getLogger("hate_crack")
 if not logger.handlers:
@@ -8115,7 +8116,12 @@ def hashview_api():
     print(f"\nConnecting to Hashview at: {hashview_url}")
 
     try:
-        api_harness = HashviewAPI(hashview_url, hashview_api_key, debug=debug_mode)
+        api_harness = HashviewAPI(
+            hashview_url,
+            hashview_api_key,
+            debug=debug_mode,
+            verify_tls=hashview_verify_tls,
+        )
 
         while True:
             print("\n" + "=" * 60)
@@ -10078,7 +10084,12 @@ def main():
             print("Please set HASHVIEW_API_KEY in the .env file")
             sys.exit(1)
 
-        api_harness = HashviewAPI(hashview_url, hashview_api_key, debug=debug_mode)
+        api_harness = HashviewAPI(
+            hashview_url,
+            hashview_api_key,
+            debug=debug_mode,
+            verify_tls=hashview_verify_tls,
+        )
 
         if args.hashview_command == "upload-cracked":
             cracked_file = resolve_path(args.file)

@@ -13,6 +13,7 @@ from queue import Queue
 from typing import Callable, Optional, Tuple
 
 import requests  # type: ignore[import-untyped]
+import urllib3
 
 from hate_crack.cli import orig_cwd
 from hate_crack.config_loader import (
@@ -1522,6 +1523,27 @@ def _wire_field_bytes(hash_type, plaintext: str) -> bytes:
     return plaintext.encode("utf-8", "surrogateescape")
 
 
+# Hosts HashviewAPI has already warned about running with TLS verification
+# disabled. Keyed by base_url so the warning fires once per host per process
+# rather than once per HashviewAPI instance -- callers construct a fresh
+# instance per menu action, and repeating the warning on every one of those
+# would bury it.
+_TLS_WARNING_EMITTED: set = set()
+
+
+def _warn_tls_verification_disabled(host: str) -> None:
+    if host in _TLS_WARNING_EMITTED:
+        return
+    _TLS_WARNING_EMITTED.add(host)
+    print(
+        f"[!] TLS certificate verification is disabled for Hashview host "
+        f"{host} (HASHVIEW_VERIFY_TLS=false) -- connections to it are not "
+        f"protected against interception or a spoofed server. Set "
+        f"HASHVIEW_VERIFY_TLS=true (or remove the override) in .env to "
+        f"re-enable verification."
+    )
+
+
 # Hashview Integration - Real API implementation matching hate_crack.py
 class HashviewAPI:
     def _auth_headers(self):
@@ -1566,20 +1588,20 @@ class HashviewAPI:
         else:
             return []
 
-    def __init__(self, base_url, api_key, debug=False):
+    def __init__(self, base_url, api_key, debug=False, verify_tls: bool = True):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.debug = debug
         self.session = requests.Session()
         self.session.cookies.set("uuid", api_key)
-        self.session.verify = False
+        self.session.verify = verify_tls
         # Hash types whose listing request timed out during the most recent
         # get_all_customer_hashfiles() call. Reset per call; callers read it to
         # tell an incomplete listing from an empty one.
         self.last_listing_timeouts = []
-        import urllib3
-
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        if not verify_tls:
+            _warn_tls_verification_disabled(self.base_url)
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
     def get_customer_hashfile_types(self):
         """
@@ -2691,6 +2713,7 @@ def download_hashes_from_hashview(
     print_fn: Callable[..., None] = print,
     potfile_path: Optional[str] = None,
     hash_type: Optional[str] = None,
+    verify_tls: bool = True,
 ) -> Tuple[str, str]:
     """Interactive Hashview download flow used by CLI.
 
@@ -2706,7 +2729,9 @@ def download_hashes_from_hashview(
     except Exception:
         # If stdin status can't be determined, continue normally.
         pass
-    api_harness = HashviewAPI(hashview_url, hashview_api_key, debug=debug_mode)
+    api_harness = HashviewAPI(
+        hashview_url, hashview_api_key, debug=debug_mode, verify_tls=verify_tls
+    )
     customers_result = api_harness.list_customers()
     customers = (
         customers_result.get("customers", [])
