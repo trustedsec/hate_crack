@@ -829,6 +829,7 @@ class _Scan(NamedTuple):
     unrepresentable: int
     hash_shaped: int
     unwritable_basewords: int
+    empty_basewords: int
     selfcheck_failures: list
     leet_restored: int
     pruned_basewords: int
@@ -862,6 +863,7 @@ def _scan_corpus(
     unrepresentable = 0
     hash_shaped = 0
     unwritable_basewords = 0
+    empty_basewords = 0
     leet_restored = 0
     selfcheck_failures = []
     lines_read = 0
@@ -933,6 +935,17 @@ def _scan_corpus(
             if any(c in _ARG_ESCAPES for c in base):
                 unwritable_basewords += 1
                 continue
+            # A password made up entirely of CR/LF bytes has nothing left once
+            # those are stripped: the baseword derives to "". A wordlist line
+            # cannot represent an empty word without becoming a blank line, so
+            # -- like the break-holding case just above -- this is skipped and
+            # counted under its own statistic rather than written (#304). This
+            # is unrelated to the guard above: `base` here contains no break
+            # byte (that was already lifted into the rule), it is simply
+            # empty, which `any()` over an empty string never catches.
+            if base == "":
+                empty_basewords += 1
+                continue
             total += 1
             leet_restored += restored
             # A literal fallback: the pair came back as _literal_pair(pw) would
@@ -965,6 +978,7 @@ def _scan_corpus(
         unrepresentable=unrepresentable,
         hash_shaped=hash_shaped,
         unwritable_basewords=unwritable_basewords,
+        empty_basewords=empty_basewords,
         selfcheck_failures=selfcheck_failures,
         leet_restored=leet_restored,
         pruned_basewords=pruned_basewords,
@@ -1081,6 +1095,7 @@ def generate(
     literal_fallbacks = no_letter_literals + unrepresentable
     hash_shaped = scan.hash_shaped
     unwritable_basewords = scan.unwritable_basewords
+    empty_basewords = scan.empty_basewords
     selfcheck_failures = scan.selfcheck_failures
     leet_restored = scan.leet_restored
     pruned_basewords = scan.pruned_basewords
@@ -1203,6 +1218,16 @@ def generate(
             "   wordlist line has no escape syntax, so such a baseword is\n"
             "   skipped rather than written truncated. Normally zero.)\n"
         )
+        f.write(f"empty basewords:     {empty_basewords}\n")
+        f.write(
+            "  (a password made up entirely of CR/LF bytes has nothing left\n"
+            "   once those are lifted into the rule -- the baseword derives\n"
+            "   to the empty string. A wordlist line cannot represent an\n"
+            "   empty word without becoming a blank line, so this is skipped rather\n"
+            "   than written (#304). Distinct from unwritable basewords\n"
+            "   above: this baseword holds no break byte at all, it is\n"
+            "   simply empty. Normally zero.)\n"
+        )
         if leet_restore:
             f.write(f"leet restored:       {leet_restored}\n")
             f.write(
@@ -1304,6 +1329,16 @@ def generate(
             "line has no escape syntax to spell one with. Coverage excludes "
             "them."
         )
+    if empty_basewords:
+        print_fn(
+            f"[!] {empty_basewords} passwords derived to an empty baseword: "
+            "the password was made up entirely of CR/LF bytes (a $HEX[...] "
+            "plaintext), which _literal_with_line_breaks lifts entirely into "
+            "the rule, leaving nothing for the baseword. A wordlist line "
+            "cannot represent an empty word without becoming a blank line, "
+            "so these were skipped rather than written. Coverage excludes "
+            "them."
+        )
     if selfcheck_failures:
         print_fn(
             f"[!] {len(selfcheck_failures)} passwords failed the reconstruction "
@@ -1326,6 +1361,7 @@ def generate(
         "unrepresentable": unrepresentable,
         "hash_shaped": hash_shaped,
         "unwritable_basewords": unwritable_basewords,
+        "empty_basewords": empty_basewords,
         "leet_restored": leet_restored,
         "selfcheck_failures": selfcheck_failures,
         "milestones": milestones,

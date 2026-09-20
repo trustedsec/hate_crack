@@ -1068,6 +1068,55 @@ class TestEmbeddedLineBreaks:
         assert result["unwritable_basewords"] == 0
         assert not any("could not be written" in line for line in said), said
 
+    # A password made up entirely of CR/LF bytes: _literal_with_line_breaks
+    # strips every byte before the baseword is formed, so there is nothing
+    # left of it -- the baseword derives to "". Reachable only for pure-break
+    # passwords of 1-31 bytes; the existing `_ARG_ESCAPES in base` guard does
+    # not catch this because an empty string contains no characters (#304).
+    HEX_PURE_BREAK = "$HEX[0a]"  # "\n"
+
+    def test_a_pure_break_password_derives_to_an_empty_baseword(self):
+        assert usable_plaintext(self.HEX_PURE_BREAK, keep_whitespace=True) == "\n"
+        assert rulegen.derive("\n") == ("", "i0\\x0a")
+        assert rulegen.apply_rule("", "i0\\x0a") == "\n"
+
+    def test_an_empty_baseword_is_counted_not_written(self, tmp_path):
+        """The blank basewords.txt line #304 reports: an empty baseword must
+        be skipped and counted under its own statistic, not written."""
+        result = self._run(tmp_path, [self.HEX_PURE_BREAK, "quibbleflange1"])
+        assert result["empty_basewords"] == 1
+        assert result["unwritable_basewords"] == 0
+        assert result["total"] == 1
+        out = tmp_path / "out"
+        for name in ("basewords.txt", "rules.full.rule"):
+            raw = (out / name).read_bytes()
+            assert b"" not in raw.split(b"\n")[:-1], f"{name} has a blank line"
+
+    def test_the_operator_is_told_about_an_empty_baseword(self, tmp_path):
+        said = []
+        corpus = tmp_path / "corpus.txt"
+        corpus.write_text(
+            f"{self.HEX_PURE_BREAK}\nquibbleflange1\n", encoding="latin-1"
+        )
+        rulegen.generate(
+            str(corpus),
+            str(tmp_path / "out"),
+            print_fn=lambda *a: said.append(" ".join(map(str, a))),
+        )
+        assert any("empty baseword" in line for line in said), said
+
+    def test_a_clean_corpus_says_nothing_about_empty_basewords(self, tmp_path):
+        said = []
+        corpus = tmp_path / "corpus.txt"
+        corpus.write_text("zorptangle\nquibbleflange1\n", encoding="latin-1")
+        result = rulegen.generate(
+            str(corpus),
+            str(tmp_path / "out"),
+            print_fn=lambda *a: said.append(" ".join(map(str, a))),
+        )
+        assert result["empty_basewords"] == 0
+        assert not any("empty baseword" in line for line in said), said
+
 
 class TestBailoutLineBreakFix:
     """#295's residual gap: several of derive()'s bail-out branches returned the

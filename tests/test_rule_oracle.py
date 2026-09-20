@@ -122,6 +122,21 @@ def test_a_raw_line_break_argument_really_is_broken(tmp_path):
 
 
 @_requires_hashcat
+def test_a_blank_wordlist_line_still_yields_a_candidate(tmp_path):
+    """#304: a pure-CR/LF password derives to an empty baseword, i.e. a blank
+    line in basewords.txt. That line is the defect -- but pin what hashcat
+    actually does with it, rather than assume: a blank line is not skipped,
+    it yields a zero-length candidate, and with the derived rule the original
+    password really is produced. So the fix is to stop writing the blank line
+    (it is still wrong to emit), not to worry about silently losing coverage
+    for the password it would have produced."""
+    baseword, rule = rulegen.derive("\n")
+    assert (baseword, rule) == ("", "i0\\x0a")
+    out = _candidates(tmp_path, baseword, rule, name="emptybase")
+    assert out == b"\n\n"
+
+
+@_requires_hashcat
 def test_the_escape_is_what_hashcat_decodes_it_to(tmp_path):
     """Pin the mechanism rather than just the outcome: hashcat turns \\xNN into
     one byte, which is the only reason a line break is expressible."""
