@@ -1039,10 +1039,14 @@ def _entry_text(blob: bytes) -> str:
 
 # int64 rather than int32: the entry dictionary is append-only and never
 # garbage collected, so ids grow monotonically for the life of the store.
-# Packed in little-endian byte order so the store is not portable across
-# architectures of differing endianness. A blob packed in big-endian would
-# decode to wrong ids with no length error; that is a silent failure in the
-# covered-when-untried direction. Testing rejects a reversed blob.
+# Byte order is pinned little-endian, with a conditional byteswap() on a
+# big-endian host, so every host writes the same on-disk format and a store
+# file is portable between architectures. What this does not buy: a manifest
+# written by a build without the byteswap, on a big-endian host, would decode
+# to wrong ids on a little-endian reader with no length error - a silent
+# failure in the covered-when-untried direction - and that is undetectable
+# from the blob alone, so nothing guards against it. The wire format itself
+# is pinned by test_pack_ids_wire_format_is_little_endian.
 
 
 def _pack_ids(ids: Sequence[int]) -> bytes:
