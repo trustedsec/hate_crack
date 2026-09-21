@@ -173,6 +173,27 @@ CREATE TABLE IF NOT EXISTS wordlist_fingerprints (
     mtime_ns INTEGER NOT NULL,
     sha256   TEXT NOT NULL
 ) WITHOUT ROWID;
+
+-- Dictionary tables. Each interns one dimension of what used to be hashed
+-- into entry_key's opaque digest, so the target-independent parts survive
+-- the engagement boundary and can be computed once ever.
+--
+-- `entry` is BLOB, not TEXT, and this is load-bearing. read_entries decodes
+-- with surrogateescape because rule files here are not all UTF-8 (rulegen.py
+-- writes latin-1). Python's sqlite3 binds str as strict UTF-8, so a lone
+-- surrogate raises UnicodeEncodeError on a TEXT column. Storing the
+-- surrogatepass bytes keeps the round trip lossless and keeps two rules
+-- differing only in undecodable bytes distinct -- the property whose loss
+-- once collapsed 154 distinct Spoonman rules into shared keys.
+CREATE TABLE IF NOT EXISTS entries (
+    id    INTEGER PRIMARY KEY,
+    kind  TEXT NOT NULL,
+    entry BLOB NOT NULL,
+    UNIQUE (kind, entry)
+);
+CREATE TABLE IF NOT EXISTS targets   (id INTEGER PRIMARY KEY, sha256 TEXT NOT NULL UNIQUE);
+CREATE TABLE IF NOT EXISTS wordlists (id INTEGER PRIMARY KEY, sha256 TEXT NOT NULL UNIQUE);
+CREATE TABLE IF NOT EXISTS variants  (id INTEGER PRIMARY KEY, variant TEXT NOT NULL UNIQUE);
 """
 
 
@@ -302,6 +323,117 @@ class CoverageStore:
 
     def covered_lookup(self) -> Callable[[Sequence[str]], set[str]]:
         return self.covered
+
+    # -- dictionaries ------------------------------------------------------
+
+    def _intern_one(self, table: str, column: str, value) -> int | None:
+        """Intern one value into a dictionary table, returning its id.
+
+        INSERT OR IGNORE then SELECT, so two hate_crack processes racing on
+        the same value converge on one id rather than producing a duplicate
+        or a miss. Returns None on any failure, which the caller must treat
+        as "identity not established" and answer with an inert plan.
+        """
+        conn = self._connect()
+        if conn is None:
+            return None
+        try:
+            conn.execute(
+                f"INSERT OR IGNORE INTO {table} ({column}) VALUES (?)", (value,)
+            )
+            row = conn.execute(
+                f"SELECT id FROM {table} WHERE {column} = ?", (value,)
+            ).fetchone()
+            conn.commit()
+        except sqlite3.Error:
+            return None
+        return row[0] if row else None
+
+    def intern_target(self, sha: str) -> int | None:
+        return self._intern_one("targets", "sha256", sha)
+
+    def intern_wordlist(self, fingerprint: str) -> int | None:
+        return self._intern_one("wordlists", "sha256", fingerprint)
+
+    def intern_variant(self, variant: str) -> int | None:
+        return self._intern_one("variants", "variant", variant)
+
+    def intern_entries(self, kind: str, entries: Sequence[str]) -> list[int] | None:
+        """Intern many entries at once, preserving input order.
+
+        Mask entries are canonicalized first, matching entry_key's existing
+        behaviour exactly, so old and new agree on mask identity and the
+        migration changes nothing about which masks are considered the same.
+        """
+        if not entries:
+            return []
+        conn = self._connect()
+        if conn is None:
+            return None
+        entries_to_store = [
+            canonical_mask_entry(e) if kind == "mask" else e for e in entries
+        ]
+        try:
+            with conn:
+                conn.executemany(
+                    "INSERT OR IGNORE INTO entries (kind, entry) VALUES (?, ?)",
+                    [(kind, _entry_blob(e)) for e in entries_to_store],
+                )
+            with conn:
+                conn.execute(
+                    "CREATE TEMP TABLE IF NOT EXISTS intern_probe (entry BLOB PRIMARY KEY) WITHOUT ROWID"
+                )
+                conn.execute("DELETE FROM intern_probe")
+                conn.executemany(
+                    "INSERT OR IGNORE INTO intern_probe (entry) VALUES (?)",
+                    [(_entry_blob(e),) for e in entries_to_store],
+                )
+            rows = conn.execute(
+                "SELECT entries.entry, entries.id FROM entries "
+                "JOIN intern_probe ON entries.entry = intern_probe.entry "
+                "WHERE entries.kind = ?",
+                (kind,),
+            ).fetchall()
+        except sqlite3.Error:
+            return None
+        blobs = [_entry_blob(e) for e in entries_to_store]
+        by_blob = {bytes(row[0]): row[1] for row in rows}
+        resolved = [by_blob.get(blob) for blob in blobs]
+        if any(value is None for value in resolved):
+            return self._intern_entries_one_by_one(kind, blobs)
+        return resolved
+
+    def _intern_entries_one_by_one(self, kind: str, blobs) -> list[int] | None:
+        """Fallback when the bulk select cannot match, e.g. no JSON1."""
+        conn = self._connect()
+        if conn is None:
+            return None
+        out: list[int] = []
+        try:
+            for blob in blobs:
+                row = conn.execute(
+                    "SELECT id FROM entries WHERE kind = ? AND entry = ?",
+                    (kind, blob),
+                ).fetchone()
+                if row is None:
+                    return None
+                out.append(row[0])
+        except sqlite3.Error:
+            return None
+        return out
+
+    def entry_text(self, entry_id: int) -> str | None:
+        """Decode one interned entry back to its original text."""
+        conn = self._connect()
+        if conn is None:
+            return None
+        try:
+            row = conn.execute(
+                "SELECT entry FROM entries WHERE id = ?", (entry_id,)
+            ).fetchone()
+        except sqlite3.Error:
+            return None
+        return _entry_text(row[0]) if row else None
 
     def log_run(
         self,
@@ -787,6 +919,21 @@ def entry_key(
         entry = canonical_mask_entry(entry)
     payload = f"{target}\x00{kind}\x00{wordlist_fp}\x00{variant}\x00{entry}"
     return hashlib.sha256(payload.encode("utf-8", errors="surrogatepass")).hexdigest()
+
+
+def _entry_blob(entry: str) -> bytes:
+    """Encode entry text for the BLOB dictionary column.
+
+    surrogatepass, matching entry_key, because the encode must be injective:
+    errors="replace" maps every undecodable byte to U+FFFD, so rules
+    differing only in those bytes would share a row and running one would
+    mark the other covered.
+    """
+    return entry.encode("utf-8", errors="surrogatepass")
+
+
+def _entry_text(blob: bytes) -> str:
+    return bytes(blob).decode("utf-8", errors="surrogatepass")
 
 
 # --- planning --------------------------------------------------------------
