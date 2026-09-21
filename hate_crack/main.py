@@ -1707,7 +1707,7 @@ def _apply_coverage(cmd, spec, attack_name: str, decision_cache: dict | None = N
     without prompting again, even though each has its own, different plan.
     """
     store = _coverage_store()
-    plan = _coverage.plan_run(spec, store.covered, store=store)
+    plan = _coverage.plan_run(spec, store=store)
     if plan.is_inert:
         return cmd, None, []
 
@@ -2122,13 +2122,7 @@ def _run_hcat_cmd(
                 os.unlink(path)
 
     if plan is not None and completed:
-        _coverage_store().record(
-            plan.record_keys,
-            target=plan.target,
-            kind=plan.kind,
-            attack=attack_name,
-            wordlist_fps=plan.wordlist_fps,
-        )
+        _coverage_store().record_plan(plan, attack=attack_name)
     elif completed and _coverage_enabled and attack_name and hash_file:
         # Attacks that carry no spec are never filtered, but the issue asks for
         # them to be logged as having run -- this is what lets an operator ask

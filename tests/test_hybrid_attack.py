@@ -540,18 +540,12 @@ class TestCoverageSpec:
             spec = main_module._hybrid_coverage(
                 env["hashes"], env["wordlist"], "6", "?1?1"
             )
-            first = ac.plan_run(spec, ac.set_lookup(set()), store=store)
+            first = ac.plan_run(spec, store=store)
             assert not first.is_inert
             assert not first.skip
 
-            store.record(
-                first.record_keys,
-                target=first.target,
-                kind=first.kind,
-                attack="Hybrid",
-            )
-            covered = store.covered(first.record_keys)
-            second = ac.plan_run(spec, ac.set_lookup(covered), store=store)
+            store.record_plan(first, attack="Hybrid")
+            second = ac.plan_run(spec, store=store)
             assert second.skip
         finally:
             store.close()

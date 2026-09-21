@@ -108,21 +108,21 @@ def _spec(env, **kw):
 def test_clean_run_records_coverage(main_module, store, env):
     cmd = ["hashcat", env["hashes"], env["wordlist"], "-r", env["rules"]]
     assert _run(main_module, cmd, _spec(env))
-    plan = ac.plan_run(_spec(env), store.covered, store=store)
+    plan = ac.plan_run(_spec(env), store=store)
     assert plan.skip is True, "a completed run should leave the attack fully covered"
 
 
 def test_interrupted_run_records_nothing(main_module, store, env):
     cmd = ["hashcat", env["hashes"], env["wordlist"], "-r", env["rules"]]
     _run(main_module, cmd, _spec(env), raise_interrupt=True)
-    plan = ac.plan_run(_spec(env), store.covered, store=store)
+    plan = ac.plan_run(_spec(env), store=store)
     assert plan.covered_count == 0, "ctrl-C must not claim ground that was not covered"
 
 
 def test_hashcat_error_records_nothing(main_module, store, env):
     cmd = ["hashcat", env["hashes"], env["wordlist"], "-r", env["rules"]]
     _run(main_module, cmd, _spec(env), returncode=255)
-    plan = ac.plan_run(_spec(env), store.covered, store=store)
+    plan = ac.plan_run(_spec(env), store=store)
     assert plan.covered_count == 0
 
 
@@ -524,7 +524,7 @@ def test_no_coverage_flag_neither_reads_nor_writes(main_module, store, env):
         main_module._run_hcat_cmd(cmd, attack_name="Dictionary", coverage=_spec(env))
 
     assert len(launched) == 2, "--no-coverage must not skip the second run"
-    plan = ac.plan_run(_spec(env), store.covered, store=store)
+    plan = ac.plan_run(_spec(env), store=store)
     assert plan.covered_count == 0, "--no-coverage must not write to the store"
 
 
@@ -743,14 +743,14 @@ def test_exit_zero_does_not_record_coverage(main_module, store, env):
     as potfile entries"). Recording that would skip untried candidates later."""
     cmd = ["hashcat", env["hashes"], env["wordlist"], "-r", env["rules"]]
     _run(main_module, cmd, _spec(env), returncode=0)
-    plan = ac.plan_run(_spec(env), store.covered, store=store)
+    plan = ac.plan_run(_spec(env), store=store)
     assert plan.covered_count == 0
 
 
 def test_only_exhausted_records_coverage(main_module, store, env):
     cmd = ["hashcat", env["hashes"], env["wordlist"], "-r", env["rules"]]
     _run(main_module, cmd, _spec(env), returncode=1)
-    plan = ac.plan_run(_spec(env), store.covered, store=store)
+    plan = ac.plan_run(_spec(env), store=store)
     assert plan.skip is True
 
 
@@ -938,5 +938,5 @@ def test_an_interrupted_loopback_run_records_nothing(main_module, store, env):
         main_module.hcatQuickDictionary(
             "1000", env["hashes"], f"-r {env['rules']}", env["wordlist"], loopback=True
         )
-    plan = ac.plan_run(_spec(env), store.covered, store=store)
+    plan = ac.plan_run(_spec(env), store=store)
     assert plan.covered_count == 0

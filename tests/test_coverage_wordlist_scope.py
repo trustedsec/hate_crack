@@ -275,7 +275,7 @@ def test_a_directory_wordlist_run_is_recorded_not_inert(main_module, store, env)
         wordlists=tuple(main_module._expand_wordlist_dirs(env["lists"])),
         rule_files=(env["rules"],),
     )
-    plan = ac.plan_run(spec, store.covered, store=store)
+    plan = ac.plan_run(spec, store=store)
     assert plan.skip is True, "the same directory and rules is a full repeat"
 
 

@@ -811,6 +811,26 @@ class CoverageStore:
             return 0
         return cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
 
+    def record_plan(self, plan: "RunPlan", attack: str = "", detail: str = "") -> int:
+        """Log a run for `plan` and link its interned coverage."""
+        conn = self._connect()
+        if conn is None or plan.target_id is None:
+            return 0
+        run_id = self.log_run(plan.target, attack=attack, kind=plan.kind, detail=detail)
+        if run_id is None:
+            return 0
+        if plan.wordlist_fps:
+            try:
+                with conn:
+                    conn.executemany(
+                        "INSERT OR IGNORE INTO run_wordlists (run_id, wordlist) "
+                        "VALUES (?, ?)",
+                        [(run_id, fp) for fp in plan.wordlist_fps],
+                    )
+            except sqlite3.Error:
+                pass
+        return self.record_ids(plan.target_id, plan.record_rows, run_id)
+
     def forget_target(self, target: str) -> int:
         """Drop all coverage and history for one target, so it can be re-attacked.
 
@@ -1280,8 +1300,13 @@ class RunPlan:
     total_count: int = 0
     filtered_entries: list[str] | None = None
     source_path: str | None = None
-    record_keys: list[str] = field(default_factory=list)
+    # Interned (wl_id, variant_id, entry_id) triples this run covers, for
+    # the store to link to the run row. Replaces the old record_keys list of
+    # sha256 hex strings.
+    record_rows: list[tuple[int, int, int]] = field(default_factory=list)
     target: str = ""
+    # Interned id of `target`, so the caller can record without re-interning.
+    target_id: int | None = None
     # Fingerprints of the wordlists this run enumerates, for the store to link
     # to the run row. Carried separately from the keys because a "wordlist"-kind
     # plan keys *on* them, so they cannot be recovered from the keying slots.
@@ -1299,12 +1324,12 @@ class RunPlan:
 _INERT = RunPlan()
 
 
-def set_lookup(covered: set) -> Callable[[Sequence[str]], set[str]]:
-    """Adapt a plain set to the lookup callable ``plan_run`` expects."""
-    return lambda keys: {key for key in keys if key in covered}
+def set_lookup(covered: set) -> Callable:
+    """Adapt a plain set of probe triples to the lookup callable."""
+    return lambda _target_id, probes: {p for p in probes if p in covered}
 
 
-def _NOTHING_COVERED(keys: Sequence[str]) -> set[str]:  # noqa: N802
+def _NOTHING_COVERED(_target_id, probes) -> set:  # noqa: N802
     """Lookup used by record-only runs: report no overlap, so nothing filters."""
     return set()
 
@@ -1328,7 +1353,7 @@ def _chain_entry(rule_files: tuple[str, ...]) -> str | None:
 
 def plan_run(
     spec: CoverageSpec,
-    lookup: Callable[[Sequence[str]], set[str]],
+    lookup: Callable | None = None,
     store: CoverageStore | None = None,
 ) -> RunPlan:
     """Decide what of ``spec`` still needs running, given what is covered.
@@ -1343,46 +1368,66 @@ def plan_run(
 
     store = store if store is not None else get_store()
 
+    target_id_of = store.intern_target(target)
+    variant_id = store.intern_variant(spec.variant)
+    if target_id_of is None or variant_id is None:
+        return _INERT
+
+    if lookup is None:
+        lookup = store.covered_ids
     if spec.record_only:
         # Answering "nothing is covered" makes _plan_entries treat every entry
         # as novel: no overlap to report, so no prompt and no filtering, while
-        # record_keys still covers the whole declared set.
+        # record_rows still covers the whole declared set.
         lookup = _NOTHING_COVERED
 
     wordlist_fps: list[str] = []
+    wl_ids: list[int] = []
     for path in spec.wordlists:
         fingerprint = store.wordlist_fingerprint(path)
         if fingerprint is None:
             # A glob that matched nothing, or a list that vanished. Either way
             # we cannot say what this run covers.
             return _INERT
+        wl_id = store.intern_wordlist(fingerprint)
+        if wl_id is None:
+            return _INERT
         wordlist_fps.append(fingerprint)
+        wl_ids.append(wl_id)
 
     if spec.rule_files:
         if len(spec.rule_files) > 1:
             entry = _chain_entry(spec.rule_files)
             if entry is None:
                 return _INERT
+            ids = store.intern_entries("rule", [entry])
+            if ids is None:
+                return _INERT
             return _plan_entries(
                 kind="rule",
                 entries=[entry],
-                wordlist_fps=wordlist_fps,
+                entry_ids=ids,
+                wl_ids=wl_ids,
+                variant_id=variant_id,
                 target=target,
-                variant=spec.variant,
+                target_id=target_id_of,
                 lookup=lookup,
                 source_path=None,
                 filterable=False,
                 run_wordlist_fps=wordlist_fps,
             )
-        entries = read_entries(spec.rule_files[0])
-        if not entries:
+        loaded = store.file_entry_ids(spec.rule_files[0], "rule")
+        if loaded is None:
             return _INERT
+        entries, ids = loaded
         return _plan_entries(
             kind="rule",
             entries=entries,
-            wordlist_fps=wordlist_fps,
+            entry_ids=ids,
+            wl_ids=wl_ids,
+            variant_id=variant_id,
             target=target,
-            variant=spec.variant,
+            target_id=target_id_of,
             lookup=lookup,
             source_path=spec.rule_files[0],
             filterable=True,
@@ -1392,11 +1437,17 @@ def plan_run(
     if spec.mask_files or spec.masks:
         mask_entries: list[str] = []
         for path in spec.mask_files:
-            mask_entries.extend(read_entries(path))
+            loaded = store.file_entry_ids(path, "mask")
+            if loaded is None:
+                return _INERT
+            mask_entries.extend(loaded[0])
         mask_entries.extend(spec.masks)
         # Preserve order while dropping duplicates across the combined sources.
         mask_entries = list(dict.fromkeys(mask_entries))
         if not mask_entries:
+            return _INERT
+        ids = store.intern_entries("mask", mask_entries)
+        if ids is None:
             return _INERT
         single_file = (
             spec.mask_files[0] if len(spec.mask_files) == 1 and not spec.masks else None
@@ -1404,9 +1455,11 @@ def plan_run(
         return _plan_entries(
             kind="mask",
             entries=mask_entries,
-            wordlist_fps=wordlist_fps,
+            entry_ids=ids,
+            wl_ids=wl_ids,
+            variant_id=variant_id,
             target=target,
-            variant=spec.variant,
+            target_id=target_id_of,
             lookup=lookup,
             source_path=single_file,
             filterable=single_file is not None,
@@ -1414,13 +1467,24 @@ def plan_run(
         )
 
     if spec.wordlists:
-        # A rule-less dictionary attack: the wordlist itself is the unit.
+        # A rule-less dictionary attack: the wordlist itself is the unit. This
+        # is the one shape where the entries being diffed ARE wordlist
+        # fingerprints, so they intern as kind "wordlist" and wl_id collapses
+        # to the single empty slot.
+        ids = store.intern_entries("wordlist", wordlist_fps)
+        if ids is None:
+            return _INERT
+        empty_wl = store.intern_wordlist("")
+        if empty_wl is None:
+            return _INERT
         return _plan_entries(
             kind="wordlist",
             entries=wordlist_fps,
-            wordlist_fps=[""],
+            entry_ids=ids,
+            wl_ids=[empty_wl],
+            variant_id=variant_id,
             target=target,
-            variant=spec.variant,
+            target_id=target_id_of,
             lookup=lookup,
             source_path=None,
             filterable=True,
@@ -1435,59 +1499,55 @@ def _plan_entries(
     *,
     kind: str,
     entries: list[str],
-    wordlist_fps: list[str],
+    entry_ids: list[int],
+    wl_ids: list[int],
+    variant_id: int,
     target: str,
-    variant: str,
-    lookup: Callable[[Sequence[str]], set[str]],
+    target_id: int,
+    lookup: Callable[[int, Sequence[tuple[int, int, int]]], set],
     source_path: str | None,
     filterable: bool,
     display: list[str] | None = None,
     run_wordlist_fps: Sequence[str] = (),
 ) -> RunPlan:
     # A mask run has no wordlist, but still needs one slot to key against.
-    slots = wordlist_fps or [""]
+    slots = wl_ids or [0]
 
-    keys_by_entry = [
-        [entry_key(target, kind, fp, entry, variant) for fp in slots]
-        for entry in entries
+    probes_by_entry = [
+        [(wl, variant_id, entry_id) for wl in slots] for entry_id in entry_ids
     ]
-    all_keys = [key for keys in keys_by_entry for key in keys]
-    already = lookup(all_keys)
+    all_probes = [p for probes in probes_by_entry for p in probes]
+    already = lookup(target_id, all_probes)
 
     novel: list[str] = []
     novel_display: list[str] = []
-    record_keys: list[str] = []
+    record_rows: list[tuple[int, int, int]] = []
 
-    for index, keys in enumerate(keys_by_entry):
+    for index, probes in enumerate(probes_by_entry):
         # Only fully-covered entries are dropped. An entry already tried
         # against one wordlist but not another must still run.
-        if all(key in already for key in keys):
+        if all(probe in already for probe in probes):
             continue
         novel.append(entries[index])
         novel_display.append(display[index] if display else entries[index])
-        record_keys.extend(keys)
+        record_rows.extend(probes)
 
     covered_count = len(entries) - len(novel)
 
-    if not novel:
-        return RunPlan(
-            kind=kind,
-            skip=True,
-            covered_count=covered_count,
-            total_count=len(entries),
-            source_path=source_path,
-            target=target,
-            wordlist_fps=tuple(run_wordlist_fps),
-        )
-
-    return RunPlan(
+    common = dict(
         kind=kind,
-        skip=False,
         covered_count=covered_count,
         total_count=len(entries),
-        filtered_entries=novel_display if (filterable and covered_count) else None,
         source_path=source_path,
-        record_keys=record_keys,
         target=target,
+        target_id=target_id,
         wordlist_fps=tuple(run_wordlist_fps),
+    )
+    if not novel:
+        return RunPlan(skip=True, **common)
+    return RunPlan(
+        skip=False,
+        filtered_entries=novel_display if (filterable and covered_count) else None,
+        record_rows=record_rows,
+        **common,
     )
