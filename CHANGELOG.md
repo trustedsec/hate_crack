@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
-## [Unreleased]
+## [2.37.0] - 2026-09-21
 
 ### Added
 - **The Hashview "Download Rule" prompt now accepts `a` (or `all`) to download every listed rule.** The rule listing is printed directly above the prompt, so an operator who has just decided they want all of them had to back out to the menu and pick "Download All Rules" instead. The shortcut is case-insensitive, skips the output-filename prompt, and reuses the same per-rule reporting as the menu option -- both paths now share one summary helper, so their output cannot drift.
