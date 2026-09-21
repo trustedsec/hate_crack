@@ -1829,8 +1829,12 @@ def _run_coverage_precompute(args) -> int:
     and mask files ahead of time, so the first attack of an engagement does
     not pay the interning cost. Defaults mirror the tool's own directory
     resolution (``rulesDirectory`` for rules, ``hate_path/masks`` for masks,
-    since there is no ``masks_directory`` config key) and a missing directory
-    contributes zero paths rather than raising, per Invariant 1.
+    since there is no ``masks_directory`` config key). A missing directory
+    contributes zero paths silently (the default masks directory often won't
+    exist, and that's benign); a directory that exists but can't be listed
+    (e.g. permission denied) is an operator-actionable misconfiguration, so
+    it prints a warning and is skipped rather than crashing -- either way,
+    per Invariant 1, this never raises.
     """
     rules_dirs = args.rules_dir if args.rules_dir else [rulesDirectory]
     masks_dirs = (
@@ -1843,7 +1847,12 @@ def _run_coverage_precompute(args) -> int:
     ]:
         if not directory or not os.path.isdir(directory):
             continue
-        for entry in sorted(os.listdir(directory)):
+        try:
+            entries = sorted(os.listdir(directory))
+        except OSError as exc:
+            print(f"[!] Skipping {directory}: {exc}")
+            continue
+        for entry in entries:
             full = os.path.join(directory, entry)
             if os.path.isfile(full):
                 paths.append((full, kind))

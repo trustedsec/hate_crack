@@ -1,5 +1,6 @@
 """The coverage CLI subcommand and the scripted skip exit code (#273)."""
 
+import os
 import types
 from unittest.mock import patch
 
@@ -227,6 +228,67 @@ def test_coverage_precompute_cli_does_not_require_hashfile(
         main_module.main()
     assert excinfo.value.code == 0
     assert "Built 1 manifest(s), 0 failed." in capsys.readouterr().out
+
+
+def test_run_coverage_precompute_skips_unreadable_directory(
+    main_module, store, tmp_path, capsys
+):
+    """An unreadable (as opposed to absent) directory is a visible skip, not a crash.
+
+    os.path.isdir() is True for a directory with no read permission, so the
+    crash lives one line later, in os.listdir(). Restore permissions in a
+    finally so tmp_path's own cleanup doesn't choke on an unreadable dir.
+    """
+    unreadable = tmp_path / "unreadable"
+    unreadable.mkdir()
+    readable = tmp_path / "readable"
+    readable.mkdir()
+    (readable / "a.rule").write_text("$1\n", encoding="utf-8")
+
+    os.chmod(unreadable, 0o000)
+    try:
+        code = main_module._run_coverage_precompute(
+            _args(
+                rules_dir=[str(unreadable), str(readable)],
+                masks_dir=[str(tmp_path / "gone")],
+            )
+        )
+    finally:
+        os.chmod(unreadable, 0o755)
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Built 1 manifest(s), 0 failed." in out
+    assert f"[!] Skipping {unreadable}" in out
+
+
+def test_run_coverage_precompute_uses_the_tools_own_default_directories(
+    main_module, store, tmp_path, monkeypatch, capsys
+):
+    """rules_dir=None/masks_dir=None must resolve via the tool's own defaults.
+
+    Pins rulesDirectory reuse and hate_path/masks specifically -- without
+    this, a future change to either default's resolution could pass every
+    other precompute test (which all pass explicit directories) while
+    silently breaking the CLI's undecorated default invocation.
+    """
+    default_rules = tmp_path / "default-rules"
+    default_rules.mkdir()
+    (default_rules / "a.rule").write_text("$1\n", encoding="utf-8")
+    (default_rules / "b.rule").write_text("c\n", encoding="utf-8")
+
+    default_masks_parent = tmp_path / "default-hate-path"
+    default_masks_parent.mkdir()
+    default_masks = default_masks_parent / "masks"
+    default_masks.mkdir()
+    (default_masks / "a.hcmask").write_text("?d?d\n", encoding="utf-8")
+
+    monkeypatch.setattr(main_module, "rulesDirectory", str(default_rules))
+    monkeypatch.setattr(main_module, "hate_path", str(default_masks_parent))
+
+    code = main_module._run_coverage_precompute(_args(rules_dir=None, masks_dir=None))
+    assert code == 0
+    assert "Built 3 manifest(s), 0 failed." in capsys.readouterr().out
 
 
 # --- the scripted skip exit code -------------------------------------------
