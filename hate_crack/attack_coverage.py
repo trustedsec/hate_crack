@@ -256,6 +256,24 @@ CREATE TABLE IF NOT EXISTS covered_v2 (
 -- emptiness -- emptiness is also the normal post-conversion steady state.
 CREATE TABLE IF NOT EXISTS schema_meta (k TEXT PRIMARY KEY, v TEXT NOT NULL) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS legacy_targets (target TEXT PRIMARY KEY) WITHOUT ROWID;
+
+-- Which (target, scope, kind, wordlist, variant) combinations have had their
+-- pre-interning coverage carried across, so the old table is consulted once
+-- per combination rather than on every run.
+--
+-- `scope` is not a path: two plan shapes have no single file. It is the
+-- manifest content hash where one exists, the opaque _chain_entry string for
+-- a chained -r a -r b run, and the literal "wordlist" for a wordlist-kind
+-- run. `kind` is in the key because one path can serve as both a rule file
+-- and a mask file.
+CREATE TABLE IF NOT EXISTS converted (
+    target  TEXT NOT NULL,
+    scope   TEXT NOT NULL,
+    kind    TEXT NOT NULL,
+    wl      TEXT NOT NULL,
+    variant TEXT NOT NULL,
+    PRIMARY KEY (target, scope, kind, wl, variant)
+) WITHOUT ROWID;
 """
 
 
@@ -534,6 +552,62 @@ class CoverageStore:
         except sqlite3.Error:
             return set()
         return {p for p, key in wanted.items() if key in hits}
+
+    def convert_scope(
+        self,
+        target: str,
+        scope: str,
+        kind: str,
+        wl: str,
+        variant: str,
+        rows: Sequence[tuple[int, int, int]],
+        run_id: int,
+        target_id: int,
+    ) -> bool:
+        """Carry one combination's legacy coverage into covered_v2.
+
+        Rows first, marker last, both in one transaction. The order is
+        load-bearing: a crash between them in the reverse order would leave
+        the combination flagged converted with its coverage never carried
+        over, and the old table would never be consulted for it again.
+        Returns True only when both landed.
+        """
+        conn = self._connect()
+        if conn is None:
+            return False
+        try:
+            with conn:
+                if rows:
+                    conn.executemany(
+                        "INSERT OR IGNORE INTO covered_v2 "
+                        "(target_id, wl_id, variant_id, entry_id, run_id) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        [(target_id, w, v, e, run_id) for (w, v, e) in rows],
+                    )
+                conn.execute(
+                    "INSERT OR IGNORE INTO converted "
+                    "(target, scope, kind, wl, variant) VALUES (?, ?, ?, ?, ?)",
+                    (target, scope, kind, wl, variant),
+                )
+        except sqlite3.Error:
+            return False
+        return True
+
+    def is_converted(
+        self, target: str, scope: str, kind: str, wl: str, variant: str
+    ) -> bool:
+        conn = self._connect()
+        if conn is None:
+            return False
+        try:
+            row = conn.execute(
+                "SELECT 1 FROM converted WHERE target = ? AND scope = ? "
+                "AND kind = ? AND wl = ? AND variant = ?",
+                (target, scope, kind, wl, variant),
+            ).fetchone()
+        except sqlite3.Error:
+            return False
+        return row is not None
 
     # -- dictionaries ------------------------------------------------------
 
@@ -1456,6 +1530,57 @@ def _chain_entry(rule_files: tuple[str, ...]) -> str | None:
     return "chain:" + ":".join(parts)
 
 
+def _convert_legacy_if_needed(
+    store: "CoverageStore",
+    target: str,
+    target_id_of: int,
+    kind: str,
+    scope: str,
+    entries: list[str],
+    entry_ids: list[int],
+    wordlist_fps: Sequence[str],
+    wl_ids: Sequence[int],
+    variant: str,
+    variant_id: int,
+) -> None:
+    """For a legacy target, carry this (scope, kind, wordlist, variant)
+    combination's pre-interning coverage into covered_v2, once per wordlist.
+
+    Self-limiting: is_converted() short-circuits every call after the first
+    for a given combination, so the old table is queried at most once per
+    combination rather than on every plan. Runs BEFORE _plan_entries, so
+    _plan_entries's own lookup (plain covered_ids, no legacy= kwarg) already
+    sees the converted rows in covered_v2 -- the legacy dual-read is used
+    only inside this conversion step, never in the hot filtering path.
+
+    A run failure anywhere degrades silently: convert_scope, is_converted,
+    covered_ids and log_run all already return their own safe defaults on
+    failure, so a store that cannot write here simply never converts and the
+    dual-read keeps consulting the old table on every future plan for this
+    combination -- slower, never wrong.
+    """
+    if not store.is_legacy_target(target):
+        return
+    slots = list(zip(wordlist_fps, wl_ids)) or [("", wl_ids[0] if wl_ids else 0)]
+    for fp, wl_id in slots:
+        if store.is_converted(target, scope, kind, fp, variant):
+            continue
+        legacy = LegacyProbe(
+            target=target,
+            keys={
+                (wl_id, variant_id, eid): entry_key(target, kind, fp, entry, variant)
+                for entry, eid in zip(entries, entry_ids)
+            },
+        )
+        probes = [(wl_id, variant_id, eid) for eid in entry_ids]
+        hits = store.covered_ids(target_id_of, probes, legacy=legacy)
+        run_id = store.log_run(target, kind=kind, detail="legacy-conversion")
+        if run_id is not None:
+            store.convert_scope(
+                target, scope, kind, fp, variant, list(hits), run_id, target_id_of
+            )
+
+
 def plan_run(
     spec: CoverageSpec,
     lookup: Callable | None = None,
@@ -1508,6 +1633,19 @@ def plan_run(
             ids = store.intern_entries("rule", [entry])
             if ids is None:
                 return _INERT
+            _convert_legacy_if_needed(
+                store,
+                target,
+                target_id_of,
+                "rule",
+                entry,
+                [entry],
+                ids,
+                wordlist_fps,
+                wl_ids,
+                spec.variant,
+                variant_id,
+            )
             return _plan_entries(
                 kind="rule",
                 entries=[entry],
@@ -1525,6 +1663,24 @@ def plan_run(
         if loaded is None:
             return _INERT
         entries, ids = loaded
+        try:
+            scope = _sha256_file(spec.rule_files[0])
+        except OSError:
+            scope = None
+        if scope is not None:
+            _convert_legacy_if_needed(
+                store,
+                target,
+                target_id_of,
+                "rule",
+                scope,
+                entries,
+                ids,
+                wordlist_fps,
+                wl_ids,
+                spec.variant,
+                variant_id,
+            )
         return _plan_entries(
             kind="rule",
             entries=entries,
@@ -1557,6 +1713,25 @@ def plan_run(
         single_file = (
             spec.mask_files[0] if len(spec.mask_files) == 1 and not spec.masks else None
         )
+        if single_file is not None:
+            try:
+                scope = _sha256_file(single_file)
+            except OSError:
+                scope = None
+            if scope is not None:
+                _convert_legacy_if_needed(
+                    store,
+                    target,
+                    target_id_of,
+                    "mask",
+                    scope,
+                    mask_entries,
+                    ids,
+                    wordlist_fps,
+                    wl_ids,
+                    spec.variant,
+                    variant_id,
+                )
         return _plan_entries(
             kind="mask",
             entries=mask_entries,
@@ -1582,6 +1757,23 @@ def plan_run(
         empty_wl = store.intern_wordlist("")
         if empty_wl is None:
             return _INERT
+        # The legacy key for this shape used the empty string as the keying
+        # slot and the wordlist fingerprint as the entry -- see
+        # _convert_legacy_if_needed's docstring for why the real fingerprints
+        # must not be passed as wordlist_fps here.
+        _convert_legacy_if_needed(
+            store,
+            target,
+            target_id_of,
+            "wordlist",
+            "wordlist",
+            wordlist_fps,
+            ids,
+            [""],
+            [empty_wl],
+            spec.variant,
+            variant_id,
+        )
         return _plan_entries(
             kind="wordlist",
             entries=wordlist_fps,
