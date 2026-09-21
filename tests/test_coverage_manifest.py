@@ -268,46 +268,27 @@ def test_manifest_rejects_wrong_id_count_blob(store, tmp_path):
     assert len(ids_second) == 2
 
 
-def test_manifest_byte_order_pinned(store, tmp_path):
-    """Manifest blob uses pinned little-endian byte order.
+def test_pack_ids_wire_format_is_little_endian():
+    """_pack_ids/_unpack_ids pin a fixed on-disk wire format.
 
-    If a blob were packed in big-endian on a different system, it would
-    unpack to wrong ids with no length error -- a silent failure in the
-    covered-when-untried direction. Verify that a reversed blob either
-    reads correctly or is rejected, not silently misread.
+    What this guarantees: every host that writes a manifest packs ids the
+    same way (little-endian int64), byteswapping first on a big-endian
+    host. That is what makes a `file_manifests` store portable between
+    machines of different endianness -- a store built on one host and
+    copied to another decodes correctly there too.
+
+    What this does NOT guarantee, and cannot: byte order is not recoverable
+    from a length-valid blob. A manifest written by a pre-fix build (no
+    byteswap) on a big-endian host would silently decode to wrong ids on a
+    little-endian reader -- same id count, so the len(ids) == len(entries)
+    guard in file_entry_ids passes and the wrong ids flow through as a
+    cache hit. No test run on a single architecture can exercise that
+    failure directly, and no guard in the code can detect it from the blob
+    alone; the only thing testable here is that the packing logic itself
+    produces and round-trips the pinned little-endian format.
     """
-    import hashlib
+    assert ac._pack_ids([1]) == bytes.fromhex("0100000000000000")
+    assert ac._pack_ids([1, 2]) == bytes.fromhex("01000000000000000200000000000000")
 
-    path = _rule(tmp_path, "a.rule", "$1\nc\n")
-    entries_first, ids_first = store.file_entry_ids(path, "rule")
-
-    # Compute the file's digest.
-    with open(path, "rb") as f:
-        digest = hashlib.sha256(f.read()).hexdigest()
-
-    # Create a blob as if it were packed in the opposite byte order.
-    # We'll swap the bytes of the packed array.
-    correct_blob = ac._pack_ids(ids_first)
-    # Reverse each 8-byte chunk to simulate opposite endianness.
-    reversed_blob = b"".join(
-        correct_blob[i : i + 8][::-1] for i in range(0, len(correct_blob), 8)
-    )
-
-    # Insert the reversed blob into the manifest.
-    conn = store._connect()
-    assert conn is not None
-    conn.execute(
-        "INSERT OR REPLACE INTO file_manifests "
-        "(content_sha256, kind, entry_ids) VALUES (?, ?, ?)",
-        (digest, "rule", reversed_blob),
-    )
-    conn.commit()
-
-    # file_entry_ids must either read it correctly or reject it (len check).
-    # Either way, it must not return wrong ids.
-    entries_second, ids_second = store.file_entry_ids(path, "rule")
-
-    # The safest expectation: the len(ids) == len(entries) guard rejects it.
-    # (Assuming the byte-reversed ids don't happen to be the same length.)
-    # But the key property: entries_second must be correct (from file).
-    assert entries_second == entries_first
+    for ids in ([], [1], [1, 2], [0, -1, 2**62], list(range(50))):
+        assert ac._unpack_ids(ac._pack_ids(ids)) == ids

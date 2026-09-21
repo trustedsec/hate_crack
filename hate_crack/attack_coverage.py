@@ -213,7 +213,7 @@ CREATE TABLE IF NOT EXISTS variants  (id INTEGER PRIMARY KEY, variant TEXT NOT N
 --
 -- A manifest hit skips intern_entries -- the per-line hashing, the Rosetta
 -- mask parse, and every dictionary round trip. The file is still read once
--- to verify it hasn't changed (cheap: 0.2s for large files) and entries are
+-- to verify it hasn't changed (cheap for large files) and entries are
 -- parsed from it. Two bonuses fall out: a moved or copied file reuses its
 -- manifest, and one path used as both rule and mask cannot collide.
 CREATE TABLE IF NOT EXISTS file_manifests (
