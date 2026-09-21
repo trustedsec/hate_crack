@@ -39,6 +39,7 @@ run history the issue asks for. ``sqlite3`` is in the standard library, so none
 of this costs a dependency.
 """
 
+import array
 import hashlib
 import json
 import os
@@ -196,6 +197,31 @@ CREATE TABLE IF NOT EXISTS entries (
 CREATE TABLE IF NOT EXISTS targets   (id INTEGER PRIMARY KEY, sha256 TEXT NOT NULL UNIQUE);
 CREATE TABLE IF NOT EXISTS wordlists (id INTEGER PRIMARY KEY, sha256 TEXT NOT NULL UNIQUE);
 CREATE TABLE IF NOT EXISTS variants  (id INTEGER PRIMARY KEY, variant TEXT NOT NULL UNIQUE);
+
+-- Parsed-and-interned entry ids per rule or mask file, as a packed int64
+-- array.
+--
+-- Content-addressed, NOT keyed on (path, size, mtime). A stat memo is safe
+-- for wordlist_fingerprints but not here. Today the rule file is re-read on
+-- every plan, so a stale cache is impossible; caching the parse introduces a
+-- staleness window that did not exist, and it fails in the worst direction.
+-- A file edited without changing size or mtime -- cp -p, rsync -t, a tar
+-- extraction, a same-nanosecond rewrite -- would yield a manifest missing
+-- the new lines, and those lines would be dropped from the filtered file
+-- handed to hashcat and never run. rulegen.py writes rule files here, so
+-- this is a real class of file, not a hypothetical.
+--
+-- Cost is one sequential read per plan, which is cheaper than read_entries
+-- (no line splitting or dedup) and far cheaper than what a hit skips: the
+-- parse, the per-line hashing, the Rosetta mask parse, and every dictionary
+-- round trip. Two bonuses fall out: a moved or copied file reuses its
+-- manifest, and one path used as both rule and mask cannot collide.
+CREATE TABLE IF NOT EXISTS file_manifests (
+    content_sha256 TEXT NOT NULL,
+    kind           TEXT NOT NULL,
+    entry_ids      BLOB NOT NULL,
+    PRIMARY KEY (content_sha256, kind)
+) WITHOUT ROWID;
 """
 
 
@@ -417,6 +443,72 @@ class CoverageStore:
         except sqlite3.Error:
             return None
         return _entry_text(row[0]) if row else None
+
+    # -- file manifests ----------------------------------------------------
+
+    def file_entry_ids(
+        self, path: str, kind: str
+    ) -> tuple[list[str], list[int]] | None:
+        """Entries and their interned ids for one rule or mask file.
+
+        Returns (entries, entry_ids) in file order, or None when identity
+        cannot be established. The entries are the literal file content, read
+        fresh on every call (it is cheap, and filters must output the exact
+        lines the author wrote). A manifest hit skips intern_entries -- the
+        per-line hashing, the Rosetta mask parse, and every dictionary round
+        trip. A manifest miss reads the entries, interns them, and caches the
+        ids for future calls.
+
+        The entries are returned alongside the ids so that filtering can write
+        them directly without any dictionary lookups. The dictionary holds
+        canonical forms for mask entries (with NUL separators), so reading
+        entries back out would corrupt the output file.
+        """
+        entries = read_entries(path)
+        if not entries:
+            return None
+
+        try:
+            digest = _sha256_file(path)
+        except OSError:
+            return None
+
+        conn = self._connect()
+        if conn is None:
+            return None
+
+        try:
+            row = conn.execute(
+                "SELECT entry_ids FROM file_manifests "
+                "WHERE content_sha256 = ? AND kind = ?",
+                (digest, kind),
+            ).fetchone()
+        except sqlite3.Error:
+            row = None
+
+        if row is not None:
+            ids = _unpack_ids(row[0])
+            if ids is not None and len(ids) == len(entries):
+                # Cache hit: return file entries with cached ids.
+                # Intern_entries is skipped; this is the expensive part.
+                return entries, ids
+
+        ids = self.intern_entries(kind, entries)
+        if ids is None:
+            return None
+
+        try:
+            with conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO file_manifests "
+                    "(content_sha256, kind, entry_ids) VALUES (?, ?, ?)",
+                    (digest, kind, _pack_ids(ids)),
+                )
+        except sqlite3.Error:
+            # A manifest we could not persist is a cache miss next time, not
+            # a correctness problem. The ids in hand are still valid.
+            pass
+        return entries, ids
 
     def log_run(
         self,
@@ -917,6 +1009,24 @@ def _entry_blob(entry: str) -> bytes:
 
 def _entry_text(blob: bytes) -> str:
     return bytes(blob).decode("utf-8", errors="surrogatepass")
+
+
+# int64 rather than int32: the entry dictionary is append-only and never
+# garbage collected, so ids grow monotonically for the life of the store.
+_ID_TYPECODE = "q"
+
+
+def _pack_ids(ids: Sequence[int]) -> bytes:
+    return array.array(_ID_TYPECODE, ids).tobytes()
+
+
+def _unpack_ids(blob: bytes) -> list[int] | None:
+    buf = array.array(_ID_TYPECODE)
+    try:
+        buf.frombytes(bytes(blob))
+    except (ValueError, TypeError):
+        return None
+    return list(buf)
 
 
 # --- planning --------------------------------------------------------------
