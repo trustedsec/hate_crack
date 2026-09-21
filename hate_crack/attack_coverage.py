@@ -246,6 +246,16 @@ CREATE TABLE IF NOT EXISTS covered_v2 (
     run_id     INTEGER NOT NULL REFERENCES runs (id),
     PRIMARY KEY (target_id, wl_id, variant_id, entry_id)
 ) WITHOUT ROWID;
+
+-- Migration bookkeeping for the transition from `covered` to `covered_v2`.
+-- schema_meta is a one-row version marker guarding the one-time sweep below;
+-- legacy_targets names every target whose coverage may still live only in
+-- the old hex-keyed `covered` table, so covered_ids knows which targets need
+-- a dual-read. A target is dropped from legacy_targets once its old rows are
+-- converted (a later task), which is why the sweep guard cannot key off
+-- emptiness -- emptiness is also the normal post-conversion steady state.
+CREATE TABLE IF NOT EXISTS schema_meta (k TEXT PRIMARY KEY, v TEXT NOT NULL) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS legacy_targets (target TEXT PRIMARY KEY) WITHOUT ROWID;
 """
 
 
@@ -322,11 +332,67 @@ class CoverageStore:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA synchronous=NORMAL")
             conn.executescript(_SCHEMA)
+            self._sweep_legacy(conn)
             conn.commit()
         except (sqlite3.Error, OSError):
             return None
         self._conn = conn
         return conn
+
+    _SCHEMA_VERSION = "2"
+
+    def _sweep_legacy(self, conn: sqlite3.Connection) -> None:
+        """One-time: mark every pre-interning target as needing dual-read.
+
+        Guarded on a schema_meta row, NOT on whether legacy_targets is empty.
+        An empty legacy_targets is also the normal steady state once
+        `coverage compact` has finished, and keying on emptiness would
+        re-sweep forever and resurrect targets that were deliberately
+        converted and dropped.
+
+        Unconditional otherwise: it always runs
+        `INSERT ... SELECT DISTINCT target FROM runs` rather than first
+        checking whether an old `covered` table existed. `_SCHEMA` always
+        creates `covered` via `CREATE TABLE IF NOT EXISTS`, so by the time
+        this runs the table is present regardless of whether the store was
+        fresh or pre-existing -- a presence check cannot tell the two apart.
+        What actually makes this a no-op for a fresh store is that a fresh
+        store's `runs` table is empty, so the SELECT DISTINCT yields nothing
+        to insert.
+        """
+        try:
+            row = conn.execute(
+                "SELECT v FROM schema_meta WHERE k = 'version'"
+            ).fetchone()
+            if row is not None:
+                try:
+                    already_swept = int(row[0]) >= int(self._SCHEMA_VERSION)
+                except ValueError:
+                    already_swept = False
+                if already_swept:
+                    return
+            conn.execute(
+                "INSERT OR IGNORE INTO legacy_targets (target) "
+                "SELECT DISTINCT target FROM runs"
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO schema_meta (k, v) VALUES ('version', ?)",
+                (self._SCHEMA_VERSION,),
+            )
+        except sqlite3.Error:
+            pass
+
+    def is_legacy_target(self, target: str) -> bool:
+        conn = self._connect()
+        if conn is None:
+            return False
+        try:
+            row = conn.execute(
+                "SELECT 1 FROM legacy_targets WHERE target = ?", (target,)
+            ).fetchone()
+        except sqlite3.Error:
+            return False
+        return row is not None
 
     def close(self) -> None:
         if self._conn is not None:
@@ -406,7 +472,10 @@ class CoverageStore:
         return self.covered
 
     def covered_ids(
-        self, target_id: int, probes: Sequence[tuple[int, int, int]]
+        self,
+        target_id: int,
+        probes: Sequence[tuple[int, int, int]],
+        legacy: "LegacyProbe | None" = None,
     ) -> set[tuple[int, int, int]]:
         """Which (wl_id, variant_id, entry_id) triples are already covered.
 
@@ -414,6 +483,10 @@ class CoverageStore:
         path used json_each to dodge SQLite's 999-parameter limit; a temp
         table does the same for composite keys, which json_each cannot
         express, and it lets the planner use covered_v2's primary key.
+
+        ``legacy``, when given, carries the pre-interning hex keys for the
+        same probes. It is only consulted for a target the sweep marked as
+        legacy -- an ordinary target never touches the old `covered` table.
         """
         if not probes:
             return set()
@@ -441,7 +514,26 @@ class CoverageStore:
             ).fetchall()
         except (sqlite3.Error, OverflowError):
             return set()
-        return {(row[0], row[1], row[2]) for row in rows}
+        found = {(row[0], row[1], row[2]) for row in rows}
+        if legacy is not None and self.is_legacy_target(legacy.target):
+            found |= self._covered_legacy(legacy, probes)
+        return found
+
+    def _covered_legacy(
+        self, legacy: "LegacyProbe", probes: Sequence[tuple[int, int, int]]
+    ) -> set[tuple[int, int, int]]:
+        """Which probes the pre-interning `covered` table already holds."""
+        conn = self._connect()
+        if conn is None:
+            return set()
+        wanted = {p: legacy.keys[p] for p in probes if p in legacy.keys}
+        if not wanted:
+            return set()
+        try:
+            hits = self.covered(list(wanted.values()))
+        except sqlite3.Error:
+            return set()
+        return {p for p, key in wanted.items() if key in hits}
 
     # -- dictionaries ------------------------------------------------------
 
@@ -1281,6 +1373,19 @@ class CoverageSpec:
     # and rules be recognised as a repeat. Filtering it would be unsound,
     # because the extra candidates differ every time.
     record_only: bool = False
+
+
+@dataclass(frozen=True)
+class LegacyProbe:
+    """Old-schema hex keys for the same probes, used only for legacy targets.
+
+    `keys` maps each (wl_id, variant_id, entry_id) triple to the sha256 key
+    the pre-interning schema would have recorded for it, so a lookup can
+    union both tables during the transition.
+    """
+
+    target: str
+    keys: dict[tuple[int, int, int], str]
 
 
 @dataclass(frozen=True)
