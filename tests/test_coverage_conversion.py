@@ -218,6 +218,125 @@ def test_wordlist_kind_legacy_key_formula_matches_old_code(tmp_path, monkeypatch
     s.close()
 
 
+def test_wordlist_kind_conversion_is_scoped_per_wordlist(tmp_path, monkeypatch):
+    """Regression for the collapsed-scope bug: converting one wordlist-kind
+    plan must not abandon conversion for a different wordlist run later
+    against the same target.
+
+    Before the fix, the wordlist-kind branch used the literal "wordlist" as
+    scope for every plan regardless of which wordlists it named, so the
+    first wordlist-kind plan_run for a target wrote one marker and every
+    later plan_run -- even for a completely different wordlist -- short-
+    circuited at is_converted without ever consulting the legacy table for
+    the wordlist it actually needed. Scoping on each wordlist's own
+    fingerprint fixes this; this test seeds real legacy coverage for two
+    distinct wordlists and runs a separate plan_run for each, asserting both
+    are recognized as covered.
+    """
+    db = tmp_path / "cov.sqlite3"
+
+    hashes = _f(tmp_path, "hashes.txt", "aad3b435b51404ee\n")
+    words1 = _f(tmp_path, "w1.txt", "a\n")
+    words2 = _f(tmp_path, "w2.txt", "bbbbbbbb\n")
+
+    target = ac._sha256_file(hashes)
+
+    probe = ac.CoverageStore(tmp_path / "probe.sqlite3")
+    wl_fp1 = probe.wordlist_fingerprint(words1)
+    wl_fp2 = probe.wordlist_fingerprint(words2)
+    probe.close()
+
+    old_key1 = ac.entry_key(target, "wordlist", "", wl_fp1, "")
+    old_key2 = ac.entry_key(target, "wordlist", "", wl_fp2, "")
+    _old_store(db, target, [old_key1, old_key2])
+
+    s = ac.CoverageStore(db)
+    monkeypatch.setattr(ac, "get_store", lambda: s)
+
+    plan1 = ac.plan_run(
+        ac.CoverageSpec(hash_file=hashes, wordlists=(words1,)),
+        store=s,
+    )
+    assert plan1.kind == "wordlist"
+    assert plan1.skip is True
+
+    plan2 = ac.plan_run(
+        ac.CoverageSpec(hash_file=hashes, wordlists=(words2,)),
+        store=s,
+    )
+    assert plan2.kind == "wordlist"
+    assert plan2.skip is True, (
+        "converting w1's plan must not collapse the scope for w2's plan"
+    )
+    s.close()
+
+
+def test_rule_kind_conversion_is_recognized_end_to_end(tmp_path, monkeypatch):
+    """Unlike test_plan_run_converts_a_legacy_rule_target (which only checks
+    the marker got written), this seeds real old-format rule keys and
+    confirms the first plan_run actually recognizes them as covered -- so a
+    subtly wrong rule-kind key formula would fail this test even though the
+    marker-only test would still pass.
+    """
+    db = tmp_path / "cov.sqlite3"
+
+    hashes = _f(tmp_path, "hashes.txt", "aad3b435b51404ee\n")
+    rules_path = _f(tmp_path, "r.rule", "$1\nc\n")
+    words_path = _f(tmp_path, "w.txt", "a\n")
+
+    target = ac._sha256_file(hashes)
+
+    probe = ac.CoverageStore(tmp_path / "probe.sqlite3")
+    wl_fp = probe.wordlist_fingerprint(words_path)
+    probe.close()
+
+    old_key1 = ac.entry_key(target, "rule", wl_fp, "$1", "")
+    old_key2 = ac.entry_key(target, "rule", wl_fp, "c", "")
+    _old_store(db, target, [old_key1, old_key2])
+
+    s = ac.CoverageStore(db)
+    monkeypatch.setattr(ac, "get_store", lambda: s)
+
+    plan = ac.plan_run(
+        ac.CoverageSpec(
+            hash_file=hashes, wordlists=(words_path,), rule_files=(rules_path,)
+        ),
+        store=s,
+    )
+    assert plan.kind == "rule"
+    assert plan.skip is True
+    s.close()
+
+
+def test_mask_kind_conversion_is_recognized_end_to_end(tmp_path, monkeypatch):
+    """Mask-kind equivalent of the rule-kind end-to-end test above, using a
+    wordlist-less mask plan -- this also exercises the `slots` fallback in
+    _convert_legacy_if_needed for a plan with no wordlists at all (empty
+    wordlist_fps/wl_ids), matching how the pre-interning code keyed a mask
+    run with no wordlist on the empty-string slot.
+    """
+    db = tmp_path / "cov.sqlite3"
+
+    hashes = _f(tmp_path, "hashes.txt", "aad3b435b51404ee\n")
+    mask_path = _f(tmp_path, "m.hcmask", "?d?d?d?d\n")
+
+    target = ac._sha256_file(hashes)
+
+    old_key = ac.entry_key(target, "mask", "", "?d?d?d?d", "")
+    _old_store(db, target, [old_key])
+
+    s = ac.CoverageStore(db)
+    monkeypatch.setattr(ac, "get_store", lambda: s)
+
+    plan = ac.plan_run(
+        ac.CoverageSpec(hash_file=hashes, mask_files=(mask_path,)),
+        store=s,
+    )
+    assert plan.kind == "mask"
+    assert plan.skip is True
+    s.close()
+
+
 def test_multi_file_mask_plan_skips_conversion_entirely(tmp_path, monkeypatch):
     db = tmp_path / "cov.sqlite3"
     hashes = _f(tmp_path, "hashes.txt", "aad3b435b51404ee\n")

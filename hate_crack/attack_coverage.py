@@ -1757,23 +1757,37 @@ def plan_run(
         empty_wl = store.intern_wordlist("")
         if empty_wl is None:
             return _INERT
-        # The legacy key for this shape used the empty string as the keying
-        # slot and the wordlist fingerprint as the entry -- see
-        # _convert_legacy_if_needed's docstring for why the real fingerprints
-        # must not be passed as wordlist_fps here.
-        _convert_legacy_if_needed(
-            store,
-            target,
-            target_id_of,
-            "wordlist",
-            "wordlist",
-            wordlist_fps,
-            ids,
-            [""],
-            [empty_wl],
-            spec.variant,
-            variant_id,
-        )
+        # Scope is per-wordlist, not per-plan: the literal "wordlist" scope
+        # this used to share across every wordlist-kind plan for a target
+        # collapsed all of them onto one marker, so the first plan_run for
+        # any wordlist silently short-circuited conversion for every other
+        # wordlist that target would ever run -- a common shape (a
+        # rule-less dictionary attack repeated against several wordlists)
+        # abandoned legacy coverage it should have recognized. Each
+        # wordlist's own fingerprint is a natural content-addressed scope
+        # (a replaced corpus invalidates its own marker, matching how the
+        # file-backed branches already behave), so convert one wordlist at
+        # a time.
+        #
+        # The key-formula arguments -- wordlist_fps=[""], wl_ids=[empty_wl]
+        # -- do NOT change with the loop. They are what keeps the internal
+        # legacy-key formula exactly entry_key(target, "wordlist", "",
+        # fingerprint, variant), byte-identical to the old code; only the
+        # scope argument becomes per-wordlist.
+        for fp, eid in zip(wordlist_fps, ids):
+            _convert_legacy_if_needed(
+                store,
+                target,
+                target_id_of,
+                "wordlist",
+                fp,
+                [fp],
+                [eid],
+                [""],
+                [empty_wl],
+                spec.variant,
+                variant_id,
+            )
         return _plan_entries(
             kind="wordlist",
             entries=wordlist_fps,
