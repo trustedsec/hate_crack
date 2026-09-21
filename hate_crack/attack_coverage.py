@@ -45,6 +45,7 @@ import json
 import os
 import sqlite3
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -968,10 +969,27 @@ _default_store: CoverageStore | None = None
 
 
 def get_store() -> CoverageStore:
-    """The process-wide store. Created lazily so importing costs no I/O."""
+    """The process-wide store. Created lazily so importing costs no I/O.
+
+    Never raises. A malformed HATE_CRACK_COVERAGE_DIR degrades to a throwaway
+    temporary directory rather than either aborting the attack or silently
+    falling back to the operator's real store. Coverage is then ineffective
+    for this session, which is the safe direction -- everything runs and
+    nothing is falsely marked covered -- and the warning makes it visible
+    rather than silent.
+    """
     global _default_store
     if _default_store is None:
-        _default_store = CoverageStore()
+        try:
+            _default_store = CoverageStore()
+        except ValueError as exc:
+            fallback = Path(tempfile.mkdtemp(prefix="hate_crack-coverage-"))
+            print(
+                f"WARNING: {exc} Coverage will not persist this session; "
+                f"using {fallback}. Attacks run unfiltered.",
+                file=sys.stderr,
+            )
+            _default_store = CoverageStore(fallback / DB_FILENAME)
     return _default_store
 
 

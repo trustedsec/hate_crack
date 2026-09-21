@@ -54,3 +54,48 @@ def test_coverage_dir_raises_on_whitespace_override(monkeypatch):
     monkeypatch.setenv("HATE_CRACK_COVERAGE_DIR", "   \t  ")
     with pytest.raises(ValueError, match="empty"):
         ac._coverage_dir()
+
+
+def test_get_store_never_raises_on_empty_override(monkeypatch, capsys):
+    """Test that get_store() with empty HATE_CRACK_COVERAGE_DIR falls back.
+
+    Does not raise, does not use the operator's real store, and prints a
+    warning to stderr naming the variable.
+    """
+    # Reset the process-wide store first
+    ac.reset_store()
+    # Set empty override and get store
+    monkeypatch.setenv("HATE_CRACK_COVERAGE_DIR", "")
+    store = ac.get_store()  # Must not raise
+    # Verify it's not the real store
+    resolved = Path(store.path).resolve()
+    forbidden = (Path.home() / ".hate_crack" / "coverage").resolve()
+    assert resolved != forbidden and forbidden not in resolved.parents, (
+        f"Fallback store resolved to {resolved}, inside the operator's real store"
+    )
+    # Verify warning was printed
+    captured = capsys.readouterr()
+    assert "HATE_CRACK_COVERAGE_DIR" in captured.err, (
+        "Warning must name the problematic variable"
+    )
+    assert (
+        "temporary directory" in captured.err
+        or "Coverage will not persist" in captured.err
+    )
+
+
+def test_get_store_fallback_is_usable(monkeypatch):
+    """Test that the fallback store actually works and persists coverage."""
+    # Reset the process-wide store first
+    ac.reset_store()
+    # Set empty override
+    monkeypatch.setenv("HATE_CRACK_COVERAGE_DIR", "")
+    store = ac.get_store()
+    # Intern a target
+    target_id = store.intern_target("a" * 64)
+    assert target_id is not None
+    # Intern entries and verify we get IDs back
+    ids = store.intern_entries("rule", ["$1", "c"])
+    assert ids is not None
+    assert len(ids) == 2
+    assert all(isinstance(id_val, int) for id_val in ids)
