@@ -71,14 +71,22 @@ def test_dual_read_unions_old_and_new(tmp_path):
     var = s.intern_variant("")
     (eid,) = s.intern_entries("rule", ["$1"])
     (eid2,) = s.intern_entries("rule", ["c"])
+    (eid3,) = s.intern_entries("rule", ["u"])
     run_id = s.log_run(target, kind="rule")
     s.record_ids(tid, [(wl, var, eid2)], run_id)
-    probes = [(wl, var, eid), (wl, var, eid2)]
+    probes = [(wl, var, eid), (wl, var, eid2), (wl, var, eid3)]
     legacy = ac.LegacyProbe(
         target=target,
-        keys={(wl, var, eid): old_key, (wl, var, eid2): "z" * 64},
+        keys={
+            (wl, var, eid): old_key,
+            (wl, var, eid2): "z" * 64,
+            (wl, var, eid3): "y" * 64,  # absent from the old covered table too
+        },
     )
-    assert s.covered_ids(tid, probes, legacy=legacy) == set(probes)
+    assert s.covered_ids(tid, probes, legacy=legacy) == {
+        (wl, var, eid),
+        (wl, var, eid2),
+    }
     s.close()
 
 
@@ -89,4 +97,28 @@ def test_a_non_legacy_target_never_queries_the_old_table(tmp_path, monkeypatch):
         s, "_covered_legacy", lambda *a, **k: pytest.fail("old table queried")
     )
     assert s.covered_ids(tid, [(1, 0, 1)]) == set()
+    s.close()
+
+
+def test_corrupted_version_degrades_to_needing_a_sweep(tmp_path):
+    db = tmp_path / "cov.sqlite3"
+    target = "t" * 64
+    _old_store(db, target, ["k" * 64])
+    # Pre-create the migration tables directly (as _SCHEMA would) and plant a
+    # non-numeric version value, simulating a corrupted schema_meta row from
+    # before this store was ever opened by the new code.
+    conn = sqlite3.connect(str(db))
+    conn.executescript(ac._SCHEMA)
+    conn.execute("DELETE FROM legacy_targets")
+    conn.execute(
+        "INSERT OR REPLACE INTO schema_meta (k, v) VALUES ('version', 'garbage')"
+    )
+    conn.commit()
+    conn.close()
+
+    s = ac.CoverageStore(db)
+    # A non-numeric version must be treated as "needs a sweep", not as
+    # "already swept" (which would silently strand the target on the old
+    # table forever) and must not raise (which would take down the store).
+    assert s.is_legacy_target(target) is True
     s.close()

@@ -367,7 +367,7 @@ class CoverageStore:
             if row is not None:
                 try:
                     already_swept = int(row[0]) >= int(self._SCHEMA_VERSION)
-                except ValueError:
+                except (TypeError, ValueError):
                     already_swept = False
                 if already_swept:
                     return
