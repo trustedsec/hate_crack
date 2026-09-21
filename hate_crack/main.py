@@ -1822,19 +1822,19 @@ def _coverage_forget(hash_file: str) -> str:
     )
 
 
-def _run_coverage_precompute(args) -> int:
-    """`hate_crack coverage precompute [--rules-dir DIR ...] [--masks-dir DIR ...]`.
+def _coverage_directory_paths(args) -> list[tuple[str, str]]:
+    """Resolve `--rules-dir`/`--masks-dir` into (path, kind) pairs.
 
-    Not per-target: warms the manifest cache for whole directories of rule
-    and mask files ahead of time, so the first attack of an engagement does
-    not pay the interning cost. Defaults mirror the tool's own directory
-    resolution (``rulesDirectory`` for rules, ``hate_path/masks`` for masks,
-    since there is no ``masks_directory`` config key). A missing directory
-    contributes zero paths silently (the default masks directory often won't
-    exist, and that's benign); a directory that exists but can't be listed
-    (e.g. permission denied) is an operator-actionable misconfiguration, so
-    it prints a warning and is skipped rather than crashing -- either way,
-    per Invariant 1, this never raises.
+    Shared by `precompute` and `compact` so their directory defaults and
+    unreadable-directory handling cannot drift apart. Defaults mirror the
+    tool's own directory resolution (``rulesDirectory`` for rules,
+    ``hate_path/masks`` for masks, since there is no ``masks_directory``
+    config key). A missing directory contributes zero paths silently (the
+    default masks directory often won't exist, and that's benign); a
+    directory that exists but can't be listed (e.g. permission denied) is an
+    operator-actionable misconfiguration, so it prints a warning and is
+    skipped rather than crashing -- either way, per Invariant 1, this never
+    raises.
     """
     rules_dirs = args.rules_dir if args.rules_dir else [rulesDirectory]
     masks_dirs = (
@@ -1856,21 +1856,78 @@ def _run_coverage_precompute(args) -> int:
             full = os.path.join(directory, entry)
             if os.path.isfile(full):
                 paths.append((full, kind))
+    return paths
 
-    built, failed = _coverage_store().precompute(paths)
+
+def _run_coverage_precompute(args) -> int:
+    """`hate_crack coverage precompute [--rules-dir DIR ...] [--masks-dir DIR ...]`.
+
+    Not per-target: warms the manifest cache for whole directories of rule
+    and mask files ahead of time, so the first attack of an engagement does
+    not pay the interning cost.
+    """
+    built, failed = _coverage_store().precompute(_coverage_directory_paths(args))
     print(f"Built {built} manifest(s), {failed} failed.")
     return 0 if failed == 0 else 1
 
 
+def _run_coverage_compact(args) -> int:
+    """`hate_crack coverage compact [--rules-dir DIR ...] [--masks-dir DIR ...] [--yes]`.
+
+    The single most destructive coverage command: on success it can
+    ``DROP TABLE`` the pre-interning ``covered`` table and ``VACUUM`` the
+    whole store. It converts every legacy target it can using the given
+    rule/mask directories (same resolution as `precompute`) crossed with
+    every wordlist and variant `compact()` itself already knows how to
+    enumerate, then only drops the old table when nothing was left
+    unconvertible anywhere. See `CoverageStore.compact` for the details;
+    this wrapper is just the CLI prompt, directory resolution, and the
+    printed report -- it makes no decisions of its own about what is safe to
+    drop.
+    """
+    if not args.yes:
+        print(
+            "[!] This can permanently DROP the legacy coverage table and "
+            "VACUUM the store. Coverage that cannot be reconstructed from "
+            "the rule/mask directories given here will be left in place, "
+            "but anything that CAN be converted will be migrated "
+            "irreversibly."
+        )
+        answer = input("[?] Continue? [y/N]: ").strip()
+        if answer.lower() not in ("y", "yes"):
+            print("Left unchanged.")
+            return 0
+
+    paths = _coverage_directory_paths(args)
+    result = _coverage_store().compact(paths)
+    print(f"Converted: {result['converted']}")
+    print(f"Unconvertible: {result['unconvertible']}")
+    print(f"Dropped old table: {result['dropped_old_table']}")
+    if result["unconvertible"] and not result["dropped_old_table"]:
+        print(
+            "[!] Some legacy coverage could not be reconstructed from the "
+            "given directories, so the old table was left in place. Point "
+            "--rules-dir/--masks-dir at every directory that has ever been "
+            "used against these targets and re-run to convert the rest."
+        )
+    return 0
+
+
 def _run_coverage_command(args) -> int:
-    """`hate_crack coverage status|history|forget --hashfile X`, or `precompute --rules-dir/--masks-dir`."""
+    """`hate_crack coverage status|history|forget --hashfile X`, or
+    `precompute|compact --rules-dir/--masks-dir`."""
     command = getattr(args, "coverage_command", None)
     if not command:
-        print("Error: coverage needs one of: status, history, forget, precompute")
+        print(
+            "Error: coverage needs one of: status, history, forget, precompute, compact"
+        )
         return 2
 
     if command == "precompute":
         return _run_coverage_precompute(args)
+
+    if command == "compact":
+        return _run_coverage_compact(args)
 
     hash_file = resolve_path(args.hashfile)
     if not hash_file or not os.path.isfile(hash_file):
@@ -9916,6 +9973,28 @@ def main():
             action="append",
             default=None,
             help="Directory of mask files to warm (repeatable)",
+        )
+
+        compact_sub = coverage_subparsers.add_parser(
+            "compact",
+            help="Convert legacy coverage and reclaim space (can DROP a table)",
+        )
+        compact_sub.add_argument(
+            "--rules-dir",
+            action="append",
+            default=None,
+            help="Directory of rule files to reconstruct legacy coverage from (repeatable)",
+        )
+        compact_sub.add_argument(
+            "--masks-dir",
+            action="append",
+            default=None,
+            help="Directory of mask files to reconstruct legacy coverage from (repeatable)",
+        )
+        compact_sub.add_argument(
+            "--yes",
+            action="store_true",
+            help="Skip the confirmation prompt (this command can drop a table)",
         )
 
         hashview_parser = subparsers.add_parser(

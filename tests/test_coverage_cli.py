@@ -291,6 +291,82 @@ def test_run_coverage_precompute_uses_the_tools_own_default_directories(
     assert "Built 3 manifest(s), 0 failed." in capsys.readouterr().out
 
 
+# --- coverage compact --------------------------------------------------------
+
+
+def test_compact_requires_confirmation(main_module, store, capsys):
+    with patch("builtins.input", lambda *a: "n"):
+        code = main_module._run_coverage_compact(
+            _args(rules_dir=None, masks_dir=None, yes=False)
+        )
+    assert code == 0
+    assert "Left unchanged" in capsys.readouterr().out
+
+
+def test_compact_yes_skips_the_prompt_and_runs(main_module, store, capsys):
+    def explode(*a, **kw):
+        raise AssertionError("--yes must not prompt")
+
+    with patch("builtins.input", explode):
+        code = main_module._run_coverage_compact(
+            _args(rules_dir=None, masks_dir=None, yes=True)
+        )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Converted: 0" in out
+    assert "Unconvertible: 0" in out
+    assert "Dropped old table:" in out
+
+
+def test_compact_cli_does_not_require_hashfile(main_module, store, monkeypatch, capsys):
+    """`coverage compact` has no --hashfile and must not crash on args.hashfile,
+    same regression as precompute's equivalent test.
+    """
+    monkeypatch.setattr(
+        main_module.sys,
+        "argv",
+        ["hate_crack", "coverage", "compact", "--yes"],
+    )
+
+    def explode(*a, **kw):
+        raise AssertionError("--yes must not prompt")
+
+    with patch("builtins.input", explode):
+        with pytest.raises(SystemExit) as excinfo:
+            main_module.main()
+    assert excinfo.value.code == 0
+    assert "Dropped old table:" in capsys.readouterr().out
+
+
+def test_compact_reports_unconvertible_coverage(main_module, store, capsys):
+    target = "t" * 64
+    old_key = ac.entry_key(target, "rule", "w" * 64, "unbacked", "")
+    conn = store._connect()
+    conn.executescript(
+        "CREATE TABLE IF NOT EXISTS runs (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "target TEXT NOT NULL, kind TEXT NOT NULL DEFAULT '', "
+        "attack TEXT NOT NULL DEFAULT '', detail TEXT NOT NULL DEFAULT '', "
+        "ran_at TEXT NOT NULL);"
+    )
+    conn.execute(
+        "INSERT INTO runs (target, kind, ran_at) VALUES (?, ?, ?)",
+        (target, "rule", "2026-01-01T00:00:00+00:00"),
+    )
+    conn.execute("INSERT OR IGNORE INTO legacy_targets (target) VALUES (?)", (target,))
+    conn.execute("INSERT INTO covered VALUES (?, 1)", (old_key,))
+    conn.commit()
+
+    with patch("builtins.input", lambda *a: "y"):
+        code = main_module._run_coverage_compact(
+            _args(rules_dir=None, masks_dir=None, yes=False)
+        )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Unconvertible: 1" in out
+    assert "Dropped old table: False" in out
+    assert "could not be reconstructed" in out
+
+
 # --- the scripted skip exit code -------------------------------------------
 
 

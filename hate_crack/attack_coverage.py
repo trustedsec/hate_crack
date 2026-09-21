@@ -1051,6 +1051,295 @@ class CoverageStore:
             return 0
         return removed
 
+    # -- compaction ----------------------------------------------------------
+
+    def compact(self, sources: Iterable[tuple[str, str]]) -> dict:
+        """Eagerly convert every legacy target's coverage, then reclaim space.
+
+        Sweeps every (target, source, wordlist, variant) combination it can
+        enumerate -- ``sources`` (rule/mask files) crossed with every
+        wordlist fingerprint already seen for that target (``run_wordlists``)
+        and every recorded variant -- plus a separate wordlist-kind sweep
+        over ``run_wordlists`` directly, since that shape has no source file
+        (a rule-less dictionary attack's old key is
+        ``entry_key(target, "wordlist", "", fingerprint, variant)``).
+
+        A target is removed from ``legacy_targets`` once every one of its old
+        ``covered`` keys has been reconstructed and accounted for -- this is
+        the only place anything empties ``legacy_targets``, since
+        ``_sweep_legacy`` only ever adds to it and ``convert_scope`` never
+        touches it. That makes this method the only path by which the
+        eventual drop becomes reachable at all.
+
+        Only drops the old ``covered`` table (and its ``covered_run`` index,
+        and VACUUMs) when the sweep leaves nothing unconvertible anywhere,
+        ``legacy_targets`` ends up empty, AND the table still exists to be
+        dropped. That last condition is what makes a second call against an
+        already-compacted store report ``dropped_old_table: False`` instead
+        of "dropping" an already-gone table on every call forever -- without
+        it, an idempotency check could never distinguish "just did the real
+        work" from "there was never anything to do this time".
+
+        Never drops while anything remains; reports what was left behind
+        rather than dropping silently. Every failure to read degrades to
+        counting the target's coverage as unconvertible -- conservative,
+        never a false claim of success.
+        """
+        conn = self._connect()
+        empty = {"converted": 0, "unconvertible": 0, "dropped_old_table": False}
+        if conn is None:
+            return empty
+
+        try:
+            legacy = [
+                row[0]
+                for row in conn.execute("SELECT target FROM legacy_targets").fetchall()
+            ]
+        except sqlite3.Error:
+            return empty
+
+        sources = list(sources)
+        converted_total = 0
+        unconvertible_total = 0
+
+        for target in legacy:
+            target_id_of = self.intern_target(target)
+            try:
+                old_keys = {
+                    row[0]
+                    for row in conn.execute(
+                        "SELECT key FROM covered WHERE run_id IN "
+                        "(SELECT id FROM runs WHERE target = ?)",
+                        (target,),
+                    ).fetchall()
+                }
+                run_wl_fps = [
+                    row[0]
+                    for row in conn.execute(
+                        "SELECT DISTINCT wordlist FROM run_wordlists WHERE run_id IN "
+                        "(SELECT id FROM runs WHERE target = ?)",
+                        (target,),
+                    ).fetchall()
+                ]
+                variant_rows = [
+                    row[0]
+                    for row in conn.execute("SELECT variant FROM variants").fetchall()
+                ]
+            except sqlite3.Error:
+                # Cannot even read this target's old coverage; be
+                # conservative rather than guess it is fine.
+                unconvertible_total += 1
+                continue
+            if target_id_of is None:
+                unconvertible_total += len(old_keys)
+                continue
+            if "" not in variant_rows:
+                variant_rows.append("")
+
+            claimed: set[str] = set()
+
+            # File-backed sources crossed with every wordlist and variant
+            # seen for this target.
+            for path, kind in sources:
+                loaded = self.file_entry_ids(path, kind)
+                if loaded is None:
+                    continue
+                entries, entry_ids = loaded
+                try:
+                    scope = _sha256_file(path)
+                except OSError:
+                    continue
+                for variant in variant_rows:
+                    variant_id = self.intern_variant(variant)
+                    if variant_id is None:
+                        continue
+                    # "" is always tried alongside every wordlist fingerprint
+                    # actually seen for this target -- not only as a fallback
+                    # for an empty list. A mask (or, in principle, a rule)
+                    # scope can legitimately have no wordlist of its own (a
+                    # pure `-a 3` mask attack) even when this same target has
+                    # *other* runs that did record real wordlist
+                    # fingerprints in run_wordlists; omitting "" whenever any
+                    # fingerprint exists would silently miss that
+                    # no-wordlist legacy key. See plan_run's mask branch,
+                    # where wordlist_fps is empty for a pure mask attack and
+                    # _convert_legacy_if_needed's slots fallback becomes
+                    # exactly [("", ...)].
+                    for fp in dict.fromkeys([*run_wl_fps, ""]):
+                        wl_id = self.intern_wordlist(fp)
+                        if wl_id is None:
+                            continue
+                        reconstructed = {
+                            entry_key(target, kind, fp, entry, variant): (
+                                wl_id,
+                                variant_id,
+                                eid,
+                            )
+                            for entry, eid in zip(entries, entry_ids)
+                        }
+                        claimed |= reconstructed.keys()
+                        if self.is_converted(target, scope, kind, fp, variant):
+                            continue
+                        hit_keys = reconstructed.keys() & old_keys
+                        if not hit_keys:
+                            # Nothing here to carry over, but still mark this
+                            # combination converted so future compacts skip
+                            # the same empty query.
+                            run_id = self.log_run(
+                                target, kind=kind, detail="legacy-conversion"
+                            )
+                            if run_id is not None and self.convert_scope(
+                                target,
+                                scope,
+                                kind,
+                                fp,
+                                variant,
+                                [],
+                                run_id,
+                                target_id_of,
+                            ):
+                                converted_total += 1
+                            continue
+                        probes_by_key = {
+                            k: v for k, v in reconstructed.items() if k in hit_keys
+                        }
+                        legacy_probe = LegacyProbe(
+                            target=target,
+                            keys={v: k for k, v in probes_by_key.items()},
+                        )
+                        probes = list(legacy_probe.keys.keys())
+                        hits = self.covered_ids(
+                            target_id_of, probes, legacy=legacy_probe
+                        )
+                        run_id = self.log_run(
+                            target, kind=kind, detail="legacy-conversion"
+                        )
+                        if run_id is not None and self.convert_scope(
+                            target,
+                            scope,
+                            kind,
+                            fp,
+                            variant,
+                            list(hits),
+                            run_id,
+                            target_id_of,
+                        ):
+                            converted_total += 1
+
+            # Wordlist-kind reconstruction: no file, driven by run_wordlists
+            # directly. Legacy key formula matches the wordlist-kind branch
+            # of plan_run/_convert_legacy_if_needed exactly:
+            # entry_key(target, "wordlist", "", fingerprint, variant), with
+            # scope being the wordlist's own fingerprint (not a shared
+            # literal "wordlist" scope -- see _convert_legacy_if_needed's
+            # call site in plan_run for why that used to collapse every
+            # wordlist-kind plan for a target onto one marker).
+            for variant in variant_rows:
+                variant_id = self.intern_variant(variant)
+                if variant_id is None:
+                    continue
+                for fp in run_wl_fps:
+                    empty_wl = self.intern_wordlist("")
+                    if empty_wl is None:
+                        continue
+                    key = entry_key(target, "wordlist", "", fp, variant)
+                    claimed.add(key)
+                    if self.is_converted(target, fp, "wordlist", "", variant):
+                        continue
+                    if key not in old_keys:
+                        run_id = self.log_run(
+                            target, kind="wordlist", detail="legacy-conversion"
+                        )
+                        if run_id is not None and self.convert_scope(
+                            target,
+                            fp,
+                            "wordlist",
+                            "",
+                            variant,
+                            [],
+                            run_id,
+                            target_id_of,
+                        ):
+                            converted_total += 1
+                        continue
+                    ids = self.intern_entries("wordlist", [fp])
+                    if not ids:
+                        continue
+                    probe = (empty_wl, variant_id, ids[0])
+                    legacy_probe = LegacyProbe(target=target, keys={probe: key})
+                    hits = self.covered_ids(target_id_of, [probe], legacy=legacy_probe)
+                    run_id = self.log_run(
+                        target, kind="wordlist", detail="legacy-conversion"
+                    )
+                    if run_id is not None and self.convert_scope(
+                        target,
+                        fp,
+                        "wordlist",
+                        "",
+                        variant,
+                        list(hits),
+                        run_id,
+                        target_id_of,
+                    ):
+                        converted_total += 1
+
+            unclaimed = old_keys - claimed
+            unconvertible_total += len(unclaimed)
+            if not unclaimed:
+                try:
+                    with conn:
+                        conn.execute(
+                            "DELETE FROM legacy_targets WHERE target = ?", (target,)
+                        )
+                except sqlite3.Error:
+                    pass
+
+        try:
+            remaining_legacy = conn.execute(
+                "SELECT COUNT(*) FROM legacy_targets"
+            ).fetchone()[0]
+        except sqlite3.Error:
+            remaining_legacy = 1  # cannot confirm empty, so do not drop
+
+        dropped = False
+        if unconvertible_total == 0 and remaining_legacy == 0:
+            try:
+                table_exists = (
+                    conn.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+                        "AND name = 'covered'"
+                    ).fetchone()
+                    is not None
+                )
+            except sqlite3.Error:
+                table_exists = False
+            if table_exists:
+                try:
+                    with conn:
+                        conn.execute("DROP TABLE IF EXISTS covered")
+                        conn.execute("DROP INDEX IF EXISTS covered_run")
+                    # The drop itself is the meaningful, destructive part;
+                    # VACUUM is a disk-reclaiming follow-on. Mark dropped
+                    # True as soon as the drop's own transaction commits, so
+                    # a VACUUM failure (which cannot run inside a
+                    # transaction, hence separately below) is never reported
+                    # as "nothing happened" when the table is, in fact,
+                    # already gone.
+                    dropped = True
+                except sqlite3.Error:
+                    dropped = False
+                if dropped:
+                    try:
+                        conn.execute("VACUUM")
+                    except sqlite3.Error:
+                        pass
+
+        return {
+            "converted": converted_total,
+            "unconvertible": unconvertible_total,
+            "dropped_old_table": dropped,
+        }
+
     # -- history -----------------------------------------------------------
 
     def summary(self, target: str) -> dict:
