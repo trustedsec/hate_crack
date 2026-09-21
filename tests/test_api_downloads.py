@@ -2370,122 +2370,159 @@ class TestParseHashmobFoundName:
 
 
 class TestReplaceOlderHashmobFound:
+    """Replacement is automatic, gated on the new file being complete and larger.
+
+    The gate is the whole safety story now that nothing is confirmed: an
+    older corpus is only ever removed once its replacement is on disk and
+    strictly bigger, so a truncated download or a mis-parsed name leaves
+    every existing file alone.
+    """
+
     @staticmethod
     def _write(directory, name, size=10):
         path = directory / name
         path.write_bytes(b"x" * size)
         return path
 
-    @staticmethod
-    def _tty_stdin():
-        mock_stdin = MagicMock()
-        mock_stdin.isatty.return_value = True
-        return mock_stdin
-
-    def test_removes_older_same_tier_after_confirmation(self, tmp_path, capsys):
-        older = self._write(tmp_path, "hashmob.net_2026-04-26.tiny.found")
-        newer = self._write(tmp_path, "hashmob.net_2026-09-13.tiny.found")
-        with (
-            patch("hate_crack.api.sys.stdin", self._tty_stdin()),
-            patch("builtins.input", return_value="y"),
-        ):
+    def test_removes_older_same_tier_without_prompting(self, tmp_path, capsys):
+        older = self._write(tmp_path, "hashmob.net_2026-04-26.tiny.found", size=10)
+        newer = self._write(tmp_path, "hashmob.net_2026-09-13.tiny.found", size=20)
+        with patch("builtins.input") as mock_input:
             removed = _replace_older_hashmob_found(
-                "hashmob.net_2026-09-13.tiny.found.7z", str(tmp_path)
+                "hashmob.net_2026-09-13.tiny.found", str(tmp_path)
             )
         assert removed == 1
         assert not older.exists()
         assert newer.exists()
         assert "Removed" in capsys.readouterr().out
+        mock_input.assert_not_called()
 
-    def test_declining_leaves_the_old_file(self, tmp_path):
-        older = self._write(tmp_path, "hashmob.net_2026-04-26.tiny.found")
-        with (
-            patch("hate_crack.api.sys.stdin", self._tty_stdin()),
-            patch("builtins.input", return_value="n"),
-        ):
-            removed = _replace_older_hashmob_found(
-                "hashmob.net_2026-09-13.tiny.found", str(tmp_path)
-            )
+    def test_smaller_new_file_leaves_the_old_one(self, tmp_path, capsys):
+        older = self._write(tmp_path, "hashmob.net_2026-04-26.tiny.found", size=50)
+        self._write(tmp_path, "hashmob.net_2026-09-13.tiny.found", size=20)
+        removed = _replace_older_hashmob_found(
+            "hashmob.net_2026-09-13.tiny.found", str(tmp_path)
+        )
+        assert removed == 0
+        assert older.exists()
+        assert "not larger" in capsys.readouterr().out
+
+    def test_equal_size_new_file_leaves_the_old_one(self, tmp_path):
+        older = self._write(tmp_path, "hashmob.net_2026-04-26.tiny.found", size=20)
+        self._write(tmp_path, "hashmob.net_2026-09-13.tiny.found", size=20)
+        removed = _replace_older_hashmob_found(
+            "hashmob.net_2026-09-13.tiny.found", str(tmp_path)
+        )
         assert removed == 0
         assert older.exists()
 
+    def test_missing_new_file_is_a_noop(self, tmp_path):
+        older = self._write(tmp_path, "hashmob.net_2026-04-26.tiny.found")
+        removed = _replace_older_hashmob_found(
+            "hashmob.net_2026-09-13.tiny.found", str(tmp_path)
+        )
+        assert removed == 0
+        assert older.exists()
+
+    def test_empty_new_file_is_a_noop(self, tmp_path):
+        older = self._write(tmp_path, "hashmob.net_2026-04-26.tiny.found", size=10)
+        self._write(tmp_path, "hashmob.net_2026-09-13.tiny.found", size=0)
+        removed = _replace_older_hashmob_found(
+            "hashmob.net_2026-09-13.tiny.found", str(tmp_path)
+        )
+        assert removed == 0
+        assert older.exists()
+
+    def test_archive_name_resolves_to_the_extracted_file(self, tmp_path):
+        older = self._write(tmp_path, "hashmob.net_2026-04-26.tiny.found", size=10)
+        self._write(tmp_path, "hashmob.net_2026-09-13.tiny.found", size=20)
+        removed = _replace_older_hashmob_found(
+            "hashmob.net_2026-09-13.tiny.found.7z", str(tmp_path)
+        )
+        assert removed == 1
+        assert not older.exists()
+
+    def test_unextracted_archive_is_measured_when_that_is_all_there_is(self, tmp_path):
+        older = self._write(tmp_path, "hashmob.net_2026-04-26.tiny.found", size=10)
+        self._write(tmp_path, "hashmob.net_2026-09-13.tiny.found.7z", size=20)
+        removed = _replace_older_hashmob_found(
+            "hashmob.net_2026-09-13.tiny.found.7z", str(tmp_path)
+        )
+        assert removed == 1
+        assert not older.exists()
+
     def test_other_tiers_are_untouched(self, tmp_path):
-        tiny = self._write(tmp_path, "hashmob.net_2026-04-26.tiny.found")
-        huge = self._write(tmp_path, "hashmob.net_2026-04-26.huge.found")
-        with (
-            patch("hate_crack.api.sys.stdin", self._tty_stdin()),
-            patch("builtins.input", return_value="y"),
-        ):
-            removed = _replace_older_hashmob_found(
-                "hashmob.net_2026-09-13.tiny.found", str(tmp_path)
-            )
+        tiny = self._write(tmp_path, "hashmob.net_2026-04-26.tiny.found", size=10)
+        huge = self._write(tmp_path, "hashmob.net_2026-04-26.huge.found", size=10)
+        self._write(tmp_path, "hashmob.net_2026-09-13.tiny.found", size=20)
+        removed = _replace_older_hashmob_found(
+            "hashmob.net_2026-09-13.tiny.found", str(tmp_path)
+        )
         assert removed == 1
         assert not tiny.exists()
         assert huge.exists()
 
     def test_newer_same_tier_is_untouched(self, tmp_path):
-        newer = self._write(tmp_path, "hashmob.net_2026-12-01.tiny.found")
-        with (
-            patch("hate_crack.api.sys.stdin", self._tty_stdin()),
-            patch("builtins.input", return_value="y"),
-        ):
-            removed = _replace_older_hashmob_found(
-                "hashmob.net_2026-09-13.tiny.found", str(tmp_path)
-            )
+        newer = self._write(tmp_path, "hashmob.net_2026-12-01.tiny.found", size=10)
+        self._write(tmp_path, "hashmob.net_2026-09-13.tiny.found", size=20)
+        removed = _replace_older_hashmob_found(
+            "hashmob.net_2026-09-13.tiny.found", str(tmp_path)
+        )
         assert removed == 0
         assert newer.exists()
 
     def test_plain_found_tier_is_isolated_from_tiered_files(self, tmp_path):
-        plain = self._write(tmp_path, "hashmob.net_2026-04-26.found")
-        tiny = self._write(tmp_path, "hashmob.net_2026-04-26.tiny.found")
-        with (
-            patch("hate_crack.api.sys.stdin", self._tty_stdin()),
-            patch("builtins.input", return_value="y"),
-        ):
-            removed = _replace_older_hashmob_found(
-                "hashmob.net_2026-09-13.found", str(tmp_path)
-            )
+        plain = self._write(tmp_path, "hashmob.net_2026-04-26.found", size=10)
+        tiny = self._write(tmp_path, "hashmob.net_2026-04-26.tiny.found", size=10)
+        self._write(tmp_path, "hashmob.net_2026-09-13.found", size=20)
+        removed = _replace_older_hashmob_found(
+            "hashmob.net_2026-09-13.found", str(tmp_path)
+        )
         assert removed == 1
         assert not plain.exists()
         assert tiny.exists()
 
     def test_stale_archive_and_extracted_copy_are_both_removed(self, tmp_path):
-        old_7z = self._write(tmp_path, "hashmob.net_2026-04-26.tiny.found.7z")
-        old_extracted = self._write(tmp_path, "hashmob.net_2026-04-26.tiny.found")
-        with (
-            patch("hate_crack.api.sys.stdin", self._tty_stdin()),
-            patch("builtins.input", return_value="y") as mock_input,
-        ):
-            removed = _replace_older_hashmob_found(
-                "hashmob.net_2026-09-13.tiny.found", str(tmp_path)
-            )
+        old_7z = self._write(tmp_path, "hashmob.net_2026-04-26.tiny.found.7z", size=5)
+        old_extracted = self._write(
+            tmp_path, "hashmob.net_2026-04-26.tiny.found", size=10
+        )
+        self._write(tmp_path, "hashmob.net_2026-09-13.tiny.found", size=20)
+        removed = _replace_older_hashmob_found(
+            "hashmob.net_2026-09-13.tiny.found", str(tmp_path)
+        )
         assert removed == 2
         assert not old_7z.exists()
         assert not old_extracted.exists()
-        assert mock_input.call_count == 2
 
-    def test_non_interactive_context_declines(self, tmp_path):
-        older = self._write(tmp_path, "hashmob.net_2026-04-26.tiny.found")
+    def test_a_single_oversized_old_file_does_not_block_the_others(self, tmp_path):
+        small = self._write(tmp_path, "hashmob.net_2026-04-26.tiny.found", size=10)
+        oversized = self._write(tmp_path, "hashmob.net_2026-05-26.tiny.found", size=100)
+        self._write(tmp_path, "hashmob.net_2026-09-13.tiny.found", size=20)
+        removed = _replace_older_hashmob_found(
+            "hashmob.net_2026-09-13.tiny.found", str(tmp_path)
+        )
+        assert removed == 1
+        assert not small.exists()
+        assert oversized.exists()
+
+    def test_non_interactive_context_still_removes(self, tmp_path):
+        older = self._write(tmp_path, "hashmob.net_2026-04-26.tiny.found", size=10)
+        self._write(tmp_path, "hashmob.net_2026-09-13.tiny.found", size=20)
         mock_stdin = MagicMock()
         mock_stdin.isatty.return_value = False
-        with (
-            patch("hate_crack.api.sys.stdin", mock_stdin),
-            patch("builtins.input") as mock_input,
-        ):
+        with patch("hate_crack.api.sys.stdin", mock_stdin):
             removed = _replace_older_hashmob_found(
                 "hashmob.net_2026-09-13.tiny.found", str(tmp_path)
             )
-        assert removed == 0
-        assert older.exists()
-        mock_input.assert_not_called()
+        assert removed == 1
+        assert not older.exists()
 
     def test_undated_new_name_is_a_noop(self, tmp_path):
         older = self._write(tmp_path, "hashmob.net_2026-04-26.tiny.found")
-        with patch("builtins.input") as mock_input:
-            removed = _replace_older_hashmob_found("rockyou.txt", str(tmp_path))
+        removed = _replace_older_hashmob_found("rockyou.txt", str(tmp_path))
         assert removed == 0
         assert older.exists()
-        mock_input.assert_not_called()
 
     def test_missing_directory_is_a_noop(self, tmp_path):
         removed = _replace_older_hashmob_found(

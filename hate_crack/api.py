@@ -3601,32 +3601,60 @@ def _parse_hashmob_found_name(name):
     return match.group(1), match.group(2) or ""
 
 
-def _replace_older_hashmob_found(new_name, dest_dir):
-    """Offer to delete older same-tier Hashmob found corpora in ``dest_dir``.
+def _resolve_hashmob_found_on_disk(new_name, dest_dir):
+    """Return the path of the downloaded copy of ``new_name``, or ``None``.
 
-    Called once the newest file for ``new_name`` is on disk (freshly
-    downloaded and extracted, or already present), so the older files it
-    supersedes are redundant. Every candidate is confirmed individually --
-    silently removing a multi-gigabyte corpus on a mistyped pattern is not a
-    failure worth risking -- and a non-interactive context declines, matching
-    the ``_safe_input`` pattern used elsewhere in this module. Returns the
-    number of files removed.
+    A listing entry names the archive (``....found.7z``) but what survives the
+    download is the extracted corpus, so both spellings are tried and the
+    extracted one wins when the archive has not been cleaned up yet. Returns
+    ``None`` when neither is present or the file is empty -- which is how an
+    interrupted or truncated download is recognised, and the only signal
+    :func:`_replace_older_hashmob_found` has that the new corpus is complete.
+    """
+    sanitized = sanitize_filename(new_name)
+    names = [sanitized]
+    if sanitized.endswith(".7z"):
+        names.insert(0, sanitized[:-3])
+    for name in names:
+        path = os.path.join(dest_dir, name)
+        try:
+            if os.path.isfile(path) and os.path.getsize(path) > 0:
+                return path
+        except OSError:
+            continue
+    return None
+
+
+def _replace_older_hashmob_found(new_name, dest_dir):
+    """Delete older same-tier Hashmob found corpora superseded by ``new_name``.
+
+    Each dated release is additive over the previous one, so once the newest
+    file is on disk the older same-tier copies are dead weight and go without
+    a prompt. Two conditions gate every deletion, and together they are the
+    whole safety story now that nothing is confirmed:
+
+    * **The new file is complete.** It must exist in ``dest_dir`` and be
+      non-empty, so an interrupted download or a failed extraction removes
+      nothing.
+    * **The new file is strictly larger.** A cumulative corpus only grows, so
+      a replacement that is not bigger than what it would replace is treated
+      as suspect and the old file is kept. The comparison is per file, so one
+      anomalous old copy does not protect the rest.
+
+    Returns the number of files removed.
     """
     parsed_new = _parse_hashmob_found_name(new_name)
     if parsed_new is None:
         return 0
     new_date, new_tier = parsed_new
 
-    def _safe_input(prompt):
-        try:
-            if not sys.stdin or not sys.stdin.isatty():
-                return "q"
-        except Exception:
-            return "q"
-        try:
-            return input(prompt)
-        except EOFError:
-            return "q"
+    new_path = _resolve_hashmob_found_on_disk(new_name, dest_dir)
+    if new_path is None:
+        return 0
+    try:
+        new_size = os.path.getsize(new_path)
+    except OSError:
+        return 0
 
     try:
         candidates = sorted(os.listdir(dest_dir))
@@ -3636,7 +3664,7 @@ def _replace_older_hashmob_found(new_name, dest_dir):
     removed = 0
     for name in candidates:
         path = os.path.join(dest_dir, name)
-        if not os.path.isfile(path):
+        if path == new_path or not os.path.isfile(path):
             continue
         parsed = _parse_hashmob_found_name(name)
         if parsed is None:
@@ -3648,16 +3676,17 @@ def _replace_older_hashmob_found(new_name, dest_dir):
             size = os.path.getsize(path)
         except OSError:
             continue
-        label = f"{tier} " if tier else ""
-        answer = _safe_input(
-            f"[?] Replace older {label}list '{name}' ({_format_size(size)})? [y/N]: "
-        )
-        if answer.strip().lower() not in ("y", "yes"):
+        if new_size <= size:
+            print(
+                f"[!] Keeping '{name}' ({_format_size(size)}): the newer "
+                f"{os.path.basename(new_path)} ({_format_size(new_size)}) is "
+                "not larger."
+            )
             continue
         try:
             os.remove(path)
             removed += 1
-            print(f"[i] Removed '{name}'.")
+            print(f"[i] Removed superseded '{name}' ({_format_size(size)}).")
         except OSError as e:
             print(f"[!] Could not remove '{name}': {e}")
     return removed
@@ -3731,11 +3760,13 @@ def list_and_download_official_wordlists():
             return os.path.isfile(check_path) and os.path.getsize(check_path) > 0
 
         def _download_and_replace(file_name):
-            """Fetch one wordlist, then offer to drop the older same-tier copies.
+            """Fetch one wordlist, then drop the older same-tier copies.
 
             The cleanup runs only once the newest file is actually on disk --
             freshly downloaded and extracted, or already present -- so a
             failed download never removes the copy it was meant to supersede.
+            It re-checks that itself rather than trusting this ordering, and
+            also requires the new file to be larger than the one it replaces.
             """
             if _already_downloaded_wordlist(file_name):
                 print(f"[i] Skipping {file_name} (already present)")
