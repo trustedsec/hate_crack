@@ -39,11 +39,11 @@ run history the issue asks for. ``sqlite3`` is in the standard library, so none
 of this costs a dependency.
 """
 
-import array
 import hashlib
 import json
 import os
 import sqlite3
+import struct
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -211,10 +211,10 @@ CREATE TABLE IF NOT EXISTS variants  (id INTEGER PRIMARY KEY, variant TEXT NOT N
 -- handed to hashcat and never run. rulegen.py writes rule files here, so
 -- this is a real class of file, not a hypothetical.
 --
--- Cost is one sequential read per plan, which is cheaper than read_entries
--- (no line splitting or dedup) and far cheaper than what a hit skips: the
--- parse, the per-line hashing, the Rosetta mask parse, and every dictionary
--- round trip. Two bonuses fall out: a moved or copied file reuses its
+-- A manifest hit skips intern_entries -- the per-line hashing, the Rosetta
+-- mask parse, and every dictionary round trip. The file is still read once
+-- to verify it hasn't changed (cheap: 0.2s for large files) and entries are
+-- parsed from it. Two bonuses fall out: a moved or copied file reuses its
 -- manifest, and one path used as both rule and mask cannot collide.
 CREATE TABLE IF NOT EXISTS file_manifests (
     content_sha256 TEXT NOT NULL,
@@ -452,26 +452,32 @@ class CoverageStore:
         """Entries and their interned ids for one rule or mask file.
 
         Returns (entries, entry_ids) in file order, or None when identity
-        cannot be established. The entries are the literal file content, read
-        fresh on every call (it is cheap, and filters must output the exact
-        lines the author wrote). A manifest hit skips intern_entries -- the
-        per-line hashing, the Rosetta mask parse, and every dictionary round
-        trip. A manifest miss reads the entries, interns them, and caches the
-        ids for future calls.
+        cannot be established. The entries are the literal file content, and
+        filters must output exactly what was written. A manifest hit skips
+        intern_entries -- the per-line hashing, the Rosetta mask parse, and
+        every dictionary round trip. A manifest miss reads the file, interns
+        the entries, and caches the ids for future calls.
+
+        The file is read exactly once per call, and the same bytes are used
+        to compute the content digest and parse entries. This makes it
+        impossible for digest and entries to come from different content.
 
         The entries are returned alongside the ids so that filtering can write
         them directly without any dictionary lookups. The dictionary holds
         canonical forms for mask entries (with NUL separators), so reading
         entries back out would corrupt the output file.
         """
-        entries = read_entries(path)
+        try:
+            with open(path, "rb") as handle:
+                raw = handle.read()
+        except OSError:
+            return None
+
+        entries = read_entries_from_bytes(raw)
         if not entries:
             return None
 
-        try:
-            digest = _sha256_file(path)
-        except OSError:
-            return None
+        digest = hashlib.sha256(raw).hexdigest()
 
         conn = self._connect()
         if conn is None:
@@ -498,11 +504,17 @@ class CoverageStore:
             return None
 
         try:
+            packed_ids = _pack_ids(ids)
+        except (OverflowError, TypeError):
+            # Entry ids overflow or corrupt. Do not cache.
+            return entries, ids
+
+        try:
             with conn:
                 conn.execute(
                     "INSERT OR REPLACE INTO file_manifests "
                     "(content_sha256, kind, entry_ids) VALUES (?, ?, ?)",
-                    (digest, kind, _pack_ids(ids)),
+                    (digest, kind, packed_ids),
                 )
         except sqlite3.Error:
             # A manifest we could not persist is a cache miss next time, not
@@ -870,6 +882,36 @@ def target_id(hash_file: str) -> str | None:
 # --- rule / mask entry parsing --------------------------------------------
 
 
+def read_entries_from_bytes(raw: bytes) -> list[str]:
+    """Parse rule or .hcmask entries from raw bytes.
+
+    Complements read_entries(path). Decodes with surrogateescape so the round
+    trip is lossless (rule files in this project are not all UTF-8), drops
+    blank lines and ``#`` comments, and collapses duplicates while preserving
+    first-seen order.
+
+    Splitting is on ``\\n``/``\\r\\n`` only, unlike str.splitlines(), which
+    also breaks on ``\\x0b``, ``\\x0c``, ``\\x1c``-``\\x1e`` and
+    U+2028/2029/0085 -- every one of which a rule can legitimately append.
+    """
+    text = raw.decode("utf-8", errors="surrogateescape")
+    lines = text.split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
+    lines = [line[:-1] if line.endswith("\r") else line for line in lines]
+
+    entries: list[str] = []
+    seen: set[str] = set()
+    for line in lines:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if line in seen:
+            continue
+        seen.add(line)
+        entries.append(line)
+    return entries
+
+
 def read_entries(path: str) -> list[str]:
     """Read a rule or .hcmask file into its individual entries.
 
@@ -899,23 +941,7 @@ def read_entries(path: str) -> list[str]:
             raw = handle.read()
     except OSError:
         return []
-
-    text = raw.decode("utf-8", errors="surrogateescape")
-    lines = text.split("\n")
-    if lines and lines[-1] == "":
-        lines.pop()
-    lines = [line[:-1] if line.endswith("\r") else line for line in lines]
-
-    entries: list[str] = []
-    seen: set[str] = set()
-    for line in lines:
-        if not line.strip() or line.lstrip().startswith("#"):
-            continue
-        if line in seen:
-            continue
-        seen.add(line)
-        entries.append(line)
-    return entries
+    return read_entries_from_bytes(raw)
 
 
 # --- keys ------------------------------------------------------------------
@@ -1013,20 +1039,25 @@ def _entry_text(blob: bytes) -> str:
 
 # int64 rather than int32: the entry dictionary is append-only and never
 # garbage collected, so ids grow monotonically for the life of the store.
-_ID_TYPECODE = "q"
+# Packed in little-endian byte order so the store is not portable across
+# architectures of differing endianness. A blob packed in big-endian would
+# decode to wrong ids with no length error; that is a silent failure in the
+# covered-when-untried direction. Testing rejects a reversed blob.
 
 
 def _pack_ids(ids: Sequence[int]) -> bytes:
-    return array.array(_ID_TYPECODE, ids).tobytes()
+    """Pack entry ids as little-endian int64 array."""
+    return b"".join(struct.pack("<q", id) for id in ids)
 
 
 def _unpack_ids(blob: bytes) -> list[int] | None:
-    buf = array.array(_ID_TYPECODE)
-    try:
-        buf.frombytes(bytes(blob))
-    except (ValueError, TypeError):
+    """Unpack entry ids from little-endian int64 array, or None if malformed."""
+    if len(blob) % 8 != 0:
         return None
-    return list(buf)
+    try:
+        return [struct.unpack("<q", blob[i : i + 8])[0] for i in range(0, len(blob), 8)]
+    except (struct.error, ValueError, TypeError):
+        return None
 
 
 # --- planning --------------------------------------------------------------
