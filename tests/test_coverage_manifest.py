@@ -33,6 +33,8 @@ def test_manifest_hit_skips_interning_not_reading(store, tmp_path, monkeypatch):
     A manifest hit skips intern_entries -- the expensive per-line hashing,
     Rosetta mask parse, and dictionary round trips. The file is still read
     (cheap, needed to verify it hasn't changed) and entries are parsed.
+    See test_manifest_reads_file_exactly_once_per_call for verification that
+    the file is read; this test verifies intern_entries is skipped.
     """
     path = _rule(tmp_path, "a.rule", "$1\nc\n")
     store.file_entry_ids(path, "rule")
@@ -132,7 +134,7 @@ def test_manifest_reads_file_exactly_once_per_call(store, tmp_path, monkeypatch)
     assert len(open_count) == 1
 
 
-def test_manifest_entries_from_file_not_dictionary(store, tmp_path, monkeypatch):
+def test_manifest_entries_from_file_not_dictionary(store, tmp_path):
     """Entries come from the file, never from dictionary lookups.
 
     On a cache hit, making the dictionary unreadable must not affect the
@@ -144,15 +146,13 @@ def test_manifest_entries_from_file_not_dictionary(store, tmp_path, monkeypatch)
     path = _rule(tmp_path, "a.rule", "$1\nc\n")
     entries_first, ids_first = store.file_entry_ids(path, "rule")
 
-    # Make dictionary lookups fail to prove they are not called.
-    def break_entry_text(self, entry_id):
-        raise RuntimeError("entry_text was called; entries should come from file")
+    # Actually make the dictionary unreadable by dropping the entries table.
+    conn = store._connect()
+    assert conn is not None
+    conn.execute("DROP TABLE entries")
+    conn.commit()
 
-    monkeypatch.setattr(ac.CoverageStore, "entry_text", break_entry_text)
-
-    # Second call with cache hit and broken dictionary.
-    # If entry_text is called, it will raise. Since we don't call it,
-    # this succeeds.
+    # Second call with cache hit and destroyed dictionary.
     entries_second, ids_second = store.file_entry_ids(path, "rule")
 
     # Entries must still be correct (from file, not dictionary).

@@ -39,11 +39,11 @@ run history the issue asks for. ``sqlite3`` is in the standard library, so none
 of this costs a dependency.
 """
 
+import array
 import hashlib
 import json
 import os
 import sqlite3
-import struct
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -1047,17 +1047,24 @@ def _entry_text(blob: bytes) -> str:
 
 def _pack_ids(ids: Sequence[int]) -> bytes:
     """Pack entry ids as little-endian int64 array."""
-    return b"".join(struct.pack("<q", id) for id in ids)
+    buf = array.array("q", ids)
+    if sys.byteorder != "little":
+        buf.byteswap()
+    return buf.tobytes()
 
 
 def _unpack_ids(blob: bytes) -> list[int] | None:
     """Unpack entry ids from little-endian int64 array, or None if malformed."""
     if len(blob) % 8 != 0:
         return None
+    buf = array.array("q")
     try:
-        return [struct.unpack("<q", blob[i : i + 8])[0] for i in range(0, len(blob), 8)]
-    except (struct.error, ValueError, TypeError):
+        buf.frombytes(bytes(blob))
+    except (ValueError, TypeError):
         return None
+    if sys.byteorder != "little":
+        buf.byteswap()
+    return list(buf)
 
 
 # --- planning --------------------------------------------------------------
