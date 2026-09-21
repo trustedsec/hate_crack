@@ -399,7 +399,8 @@ class CoverageStore:
                 )
                 conn.execute("DELETE FROM cov_probe")
                 conn.executemany(
-                    "INSERT OR IGNORE INTO cov_probe VALUES (?, ?, ?)", probes
+                    "INSERT OR IGNORE INTO cov_probe (wl_id, variant_id, entry_id) VALUES (?, ?, ?)",
+                    probes,
                 )
             rows = conn.execute(
                 "SELECT c.wl_id, c.variant_id, c.entry_id FROM covered_v2 c "
@@ -408,43 +409,63 @@ class CoverageStore:
                 "WHERE c.target_id = ?",
                 (target_id,),
             ).fetchall()
-        except sqlite3.Error:
+        except (sqlite3.Error, OverflowError):
             return set()
         return {(row[0], row[1], row[2]) for row in rows}
 
     # -- dictionaries ------------------------------------------------------
 
-    def _intern_one(self, table: str, column: str, value) -> int | None:
-        """Intern one value into a dictionary table, returning its id.
-
-        INSERT OR IGNORE then SELECT, so two hate_crack processes racing on
-        the same value converge on one id rather than producing a duplicate
-        or a miss. Returns None on any failure, which the caller must treat
-        as "identity not established" and answer with an inert plan.
-        """
+    def intern_target(self, sha: str) -> int | None:
+        """Intern a target SHA into the targets table, returning its id."""
         conn = self._connect()
         if conn is None:
             return None
         try:
             with conn:
                 conn.execute(
-                    f"INSERT OR IGNORE INTO {table} ({column}) VALUES (?)", (value,)
+                    "INSERT OR IGNORE INTO targets (sha256) VALUES (?)", (sha,)
                 )
                 row = conn.execute(
-                    f"SELECT id FROM {table} WHERE {column} = ?", (value,)
+                    "SELECT id FROM targets WHERE sha256 = ?", (sha,)
                 ).fetchone()
         except sqlite3.Error:
             return None
         return row[0] if row else None
 
-    def intern_target(self, sha: str) -> int | None:
-        return self._intern_one("targets", "sha256", sha)
-
     def intern_wordlist(self, fingerprint: str) -> int | None:
-        return self._intern_one("wordlists", "sha256", fingerprint)
+        """Intern a wordlist fingerprint into the wordlists table, returning its id."""
+        conn = self._connect()
+        if conn is None:
+            return None
+        try:
+            with conn:
+                conn.execute(
+                    "INSERT OR IGNORE INTO wordlists (sha256) VALUES (?)",
+                    (fingerprint,),
+                )
+                row = conn.execute(
+                    "SELECT id FROM wordlists WHERE sha256 = ?", (fingerprint,)
+                ).fetchone()
+        except sqlite3.Error:
+            return None
+        return row[0] if row else None
 
     def intern_variant(self, variant: str) -> int | None:
-        return self._intern_one("variants", "variant", variant)
+        """Intern a variant string into the variants table, returning its id."""
+        conn = self._connect()
+        if conn is None:
+            return None
+        try:
+            with conn:
+                conn.execute(
+                    "INSERT OR IGNORE INTO variants (variant) VALUES (?)", (variant,)
+                )
+                row = conn.execute(
+                    "SELECT id FROM variants WHERE variant = ?", (variant,)
+                ).fetchone()
+        except sqlite3.Error:
+            return None
+        return row[0] if row else None
 
     def intern_entries(self, kind: str, entries: Sequence[str]) -> list[int] | None:
         """Intern many entries at once, preserving input order.
@@ -738,13 +759,14 @@ class CoverageStore:
         conn = self._connect()
         if conn is None:
             return 0
+        prepared = [(target_id, w, v, e, run_id) for (w, v, e) in rows]
         try:
             with conn:
                 cursor = conn.executemany(
                     "INSERT OR IGNORE INTO covered_v2 "
                     "(target_id, wl_id, variant_id, entry_id, run_id) "
                     "VALUES (?, ?, ?, ?, ?)",
-                    [(target_id, w, v, e, run_id) for (w, v, e) in rows],
+                    prepared,
                 )
         except (sqlite3.Error, OverflowError):
             return 0
