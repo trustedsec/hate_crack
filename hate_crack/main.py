@@ -1822,12 +1822,46 @@ def _coverage_forget(hash_file: str) -> str:
     )
 
 
+def _run_coverage_precompute(args) -> int:
+    """`hate_crack coverage precompute [--rules-dir DIR ...] [--masks-dir DIR ...]`.
+
+    Not per-target: warms the manifest cache for whole directories of rule
+    and mask files ahead of time, so the first attack of an engagement does
+    not pay the interning cost. Defaults mirror the tool's own directory
+    resolution (``rulesDirectory`` for rules, ``hate_path/masks`` for masks,
+    since there is no ``masks_directory`` config key) and a missing directory
+    contributes zero paths rather than raising, per Invariant 1.
+    """
+    rules_dirs = args.rules_dir if args.rules_dir else [rulesDirectory]
+    masks_dirs = (
+        args.masks_dir if args.masks_dir else [os.path.join(hate_path, "masks")]
+    )
+
+    paths: list[tuple[str, str]] = []
+    for directory, kind in [(d, "rule") for d in rules_dirs] + [
+        (d, "mask") for d in masks_dirs
+    ]:
+        if not directory or not os.path.isdir(directory):
+            continue
+        for entry in sorted(os.listdir(directory)):
+            full = os.path.join(directory, entry)
+            if os.path.isfile(full):
+                paths.append((full, kind))
+
+    built, failed = _coverage_store().precompute(paths)
+    print(f"Built {built} manifest(s), {failed} failed.")
+    return 0 if failed == 0 else 1
+
+
 def _run_coverage_command(args) -> int:
-    """`hate_crack coverage status|history|forget --hashfile X`."""
+    """`hate_crack coverage status|history|forget --hashfile X`, or `precompute --rules-dir/--masks-dir`."""
     command = getattr(args, "coverage_command", None)
     if not command:
-        print("Error: coverage needs one of: status, history, forget")
+        print("Error: coverage needs one of: status, history, forget, precompute")
         return 2
+
+    if command == "precompute":
+        return _run_coverage_precompute(args)
 
     hash_file = resolve_path(args.hashfile)
     if not hash_file or not os.path.isfile(hash_file):
@@ -9857,6 +9891,23 @@ def main():
                     action="store_true",
                     help="Skip the confirmation prompt",
                 )
+
+        precompute_sub = coverage_subparsers.add_parser(
+            "precompute",
+            help="Warm the manifest cache for directories of rule/mask files",
+        )
+        precompute_sub.add_argument(
+            "--rules-dir",
+            action="append",
+            default=None,
+            help="Directory of rule files to warm (repeatable)",
+        )
+        precompute_sub.add_argument(
+            "--masks-dir",
+            action="append",
+            default=None,
+            help="Directory of mask files to warm (repeatable)",
+        )
 
         hashview_parser = subparsers.add_parser(
             "hashview", help="Hashview menu actions"

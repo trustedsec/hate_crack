@@ -708,6 +708,20 @@ class CoverageStore:
             return None
         return cast(list[int], resolved)
 
+    def precompute(self, paths: Iterable[tuple[str, str]]) -> tuple[int, int]:
+        """Build manifests for (path, kind) pairs ahead of time.
+
+        Manifests build lazily on first use anyway, so this only moves the
+        cost off the first attack of an engagement.
+        """
+        built = failed = 0
+        for path, kind in paths:
+            if self.file_entry_ids(path, kind) is None:
+                failed += 1
+            else:
+                built += 1
+        return built, failed
+
     def entry_text(self, entry_id: int) -> str | None:
         """Decode one interned entry back to its original text."""
         conn = self._connect()

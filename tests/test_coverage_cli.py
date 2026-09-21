@@ -168,6 +168,67 @@ def test_coverage_forget_runs_end_to_end(
     assert store.covered(["a", "b"]) == set()
 
 
+# --- coverage precompute ----------------------------------------------------
+
+
+def test_run_coverage_precompute_direct(main_module, store, tmp_path, capsys):
+    rules_dir = tmp_path / "rules"
+    rules_dir.mkdir()
+    (rules_dir / "a.rule").write_text("$1\nc\n", encoding="utf-8")
+    masks_dir = tmp_path / "masks"
+    masks_dir.mkdir()
+    (masks_dir / "a.hcmask").write_text("?d?d\n", encoding="utf-8")
+
+    code = main_module._run_coverage_precompute(
+        _args(rules_dir=[str(rules_dir)], masks_dir=[str(masks_dir)])
+    )
+    assert code == 0
+    assert "Built 2 manifest(s), 0 failed." in capsys.readouterr().out
+
+
+def test_run_coverage_precompute_skips_missing_directories(
+    main_module, store, tmp_path, capsys
+):
+    """A configured-but-absent directory contributes zero paths, not a crash."""
+    code = main_module._run_coverage_precompute(
+        _args(rules_dir=[str(tmp_path / "nope")], masks_dir=[str(tmp_path / "gone")])
+    )
+    assert code == 0
+    assert "Built 0 manifest(s), 0 failed." in capsys.readouterr().out
+
+
+def test_coverage_precompute_cli_does_not_require_hashfile(
+    main_module, store, tmp_path, monkeypatch, capsys
+):
+    """`coverage precompute` has no --hashfile and must not crash on args.hashfile.
+
+    Regression test: the naive wiring resolves args.hashfile unconditionally
+    before dispatching on the subcommand, which raises AttributeError for a
+    subparser that was never given a --hashfile argument.
+    """
+    rules_dir = tmp_path / "rules"
+    rules_dir.mkdir()
+    (rules_dir / "a.rule").write_text("$1\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        main_module.sys,
+        "argv",
+        [
+            "hate_crack",
+            "coverage",
+            "precompute",
+            "--rules-dir",
+            str(rules_dir),
+            "--masks-dir",
+            str(tmp_path / "no-masks-here"),
+        ],
+    )
+    with pytest.raises(SystemExit) as excinfo:
+        main_module.main()
+    assert excinfo.value.code == 0
+    assert "Built 1 manifest(s), 0 failed." in capsys.readouterr().out
+
+
 # --- the scripted skip exit code -------------------------------------------
 
 
