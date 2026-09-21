@@ -251,17 +251,28 @@ CREATE TABLE IF NOT EXISTS covered_v2 (
 def _coverage_dir() -> Path:
     """Directory holding the coverage store.
 
-    Honours HATE_CRACK_COVERAGE_DIR so tests and tooling cannot reach the
-    operator's real store. An env override is deliberate: the alternative is
-    every caller threading a path, and a caller that forgets writes to real
-    engagement data.
+    Honours HATE_CRACK_COVERAGE_DIR for test isolation and ad-hoc scripting.
+    Only pytest tests are automatically isolated via the conftest.py fixture;
+    ad-hoc scripts and agent commands must set this variable themselves to
+    avoid writing to the operator's real multi-gigabyte store.
+
+    An empty or whitespace-only HATE_CRACK_COVERAGE_DIR raises rather than
+    falling back to the real store, because an empty value almost always means
+    a caller intended isolation and computed the path wrong.
 
     Mirrors hashview_cache._cache_path()'s ~/.hate_crack construction, with
     its own subdirectory so the store sits beside the potfile and
     hashcat_debug rather than among them.
     """
     override = os.environ.get("HATE_CRACK_COVERAGE_DIR")
-    if override:
+    if override is not None:
+        if not override.strip():
+            raise ValueError(
+                "HATE_CRACK_COVERAGE_DIR is set but empty. Refusing to fall "
+                "back to the operator's real coverage store -- an empty "
+                "override almost always means a caller meant to isolate and "
+                "computed the path wrong."
+            )
         return Path(override).expanduser()
     return Path(os.path.expanduser("~")) / ".hate_crack" / COVERAGE_DIRNAME
 
@@ -323,6 +334,8 @@ class CoverageStore:
             except sqlite3.Error:
                 pass
             self._conn = None
+
+    # -- diagnostics -------------------------------------------------------
 
     @property
     def path(self) -> Path:
