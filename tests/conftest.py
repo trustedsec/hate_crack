@@ -136,6 +136,27 @@ def _isolate_hashview_cache(monkeypatch, tmp_path):
     )
 
 
+@pytest.fixture(autouse=True)
+def _isolate_coverage_store(monkeypatch, tmp_path):
+    """Point the coverage store at tmp_path for every test.
+
+    Deliberate hermeticity guard, same family as _isolate_hashview_cache and
+    the emptied config candidate roots. Without it, any test reaching
+    attack_coverage.get_store() writes to the operator's real multi-gigabyte store.
+    This is not theoretical: it happened on 2026-09-21 during execution of
+    the interning plan. Do not remove as clutter.
+    """
+    from hate_crack import attack_coverage
+
+    monkeypatch.setenv("HATE_CRACK_COVERAGE_DIR", str(tmp_path / "coverage"))
+    # Reset the process-wide store so it picks up the new HATE_CRACK_COVERAGE_DIR
+    # before the test runs.
+    attack_coverage.reset_store()
+    yield
+    # Clean up after the test.
+    attack_coverage.reset_store()
+
+
 def _corrupted_submodule_references():
     """Report and repair duplicated ``hate_crack.main.<mod>`` module objects.
 

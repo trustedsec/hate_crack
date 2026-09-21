@@ -249,9 +249,20 @@ CREATE TABLE IF NOT EXISTS covered_v2 (
 
 
 def _coverage_dir() -> Path:
-    # Mirrors hashview_cache._cache_path()'s ~/.hate_crack construction, with
-    # its own subdirectory so the store sits beside the potfile and
-    # hashcat_debug rather than among them.
+    """Directory holding the coverage store.
+
+    Honours HATE_CRACK_COVERAGE_DIR so tests and tooling cannot reach the
+    operator's real store. An env override is deliberate: the alternative is
+    every caller threading a path, and a caller that forgets writes to real
+    engagement data.
+
+    Mirrors hashview_cache._cache_path()'s ~/.hate_crack construction, with
+    its own subdirectory so the store sits beside the potfile and
+    hashcat_debug rather than among them.
+    """
+    override = os.environ.get("HATE_CRACK_COVERAGE_DIR")
+    if override:
+        return Path(override).expanduser()
     return Path(os.path.expanduser("~")) / ".hate_crack" / COVERAGE_DIRNAME
 
 
@@ -312,6 +323,11 @@ class CoverageStore:
             except sqlite3.Error:
                 pass
             self._conn = None
+
+    @property
+    def path(self) -> Path:
+        """Read-only path to the store database file."""
+        return self._path
 
     # -- coverage ----------------------------------------------------------
 
