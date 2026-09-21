@@ -1020,9 +1020,11 @@ class CoverageStore:
                     "SELECT id FROM targets WHERE sha256 = ?", (target,)
                 ).fetchone()
                 if target_row is not None:
-                    conn.execute(
+                    cv2_cursor = conn.execute(
                         "DELETE FROM covered_v2 WHERE target_id = ?", (target_row[0],)
                     )
+                    if cv2_cursor.rowcount and cv2_cursor.rowcount > 0:
+                        removed += cv2_cursor.rowcount
                 conn.execute("DELETE FROM converted WHERE target = ?", (target,))
                 conn.execute("DELETE FROM legacy_targets WHERE target = ?", (target,))
                 conn.execute(
@@ -1043,6 +1045,12 @@ class CoverageStore:
         ``by_attack`` rows are ``(attack, entries, runs)``. An attack with zero
         entries but a nonzero run count is one that was logged rather than
         filtered -- a dynamic generator, or a repeat that added no new keys.
+
+        During the migration window, a converted target's ``entries`` count
+        may temporarily include the same coverage twice -- once in the legacy
+        table, once carried over into the interned one -- until
+        ``coverage compact`` drops the legacy table for that target. This is
+        a reporting artifact only; it does not affect what gets filtered.
         """
         empty = {"entries": 0, "runs": 0, "by_attack": [], "last_run": None}
         conn = self._connect()

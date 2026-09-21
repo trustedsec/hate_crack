@@ -58,6 +58,25 @@ def test_summary_of_an_unknown_target_is_empty(store):
     assert out["runs"] == 0
 
 
+def test_forget_counts_covered_v2_only_coverage(store):
+    """A target whose coverage lives entirely in covered_v2 (no legacy
+    `covered` rows at all -- the shape of every target going forward, since
+    plan_run writes only interned rows) must still report a nonzero removed
+    count. Before the fix, forget_target's return value only reflected the
+    legacy `covered` table's rowcount, so a covered_v2-only target reported
+    0 removed even though the deletion itself was correct.
+    """
+    target = "t" * 64
+    run_id = store.log_run(target, kind="rule", attack="Dictionary")
+    tid = store.intern_target(target)
+    store.record_ids(tid, [(1, 0, 1), (1, 0, 2), (1, 0, 3)], run_id)
+
+    removed = store.forget_target(target)
+
+    assert removed == 3
+    assert store.covered_ids(tid, [(1, 0, 1), (1, 0, 2), (1, 0, 3)]) == set()
+
+
 def test_summary_by_attack_sums_across_multiple_runs_of_same_attack(store):
     """Two runs of the same attack, with 2 and 3 covered_v2 entries.
 
