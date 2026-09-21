@@ -1007,21 +1007,33 @@ class CoverageStore:
         if conn is None:
             return 0
         try:
-            cursor = conn.execute(
-                "DELETE FROM covered WHERE run_id IN "
-                "(SELECT id FROM runs WHERE target = ?)",
-                (target,),
-            )
-            conn.execute(
-                "DELETE FROM run_wordlists WHERE run_id IN "
-                "(SELECT id FROM runs WHERE target = ?)",
-                (target,),
-            )
-            conn.execute("DELETE FROM runs WHERE target = ?", (target,))
-            conn.commit()
+            with conn:
+                cursor = conn.execute(
+                    "DELETE FROM covered WHERE run_id IN "
+                    "(SELECT id FROM runs WHERE target = ?)",
+                    (target,),
+                )
+                removed = (
+                    cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
+                )
+                target_row = conn.execute(
+                    "SELECT id FROM targets WHERE sha256 = ?", (target,)
+                ).fetchone()
+                if target_row is not None:
+                    conn.execute(
+                        "DELETE FROM covered_v2 WHERE target_id = ?", (target_row[0],)
+                    )
+                conn.execute("DELETE FROM converted WHERE target = ?", (target,))
+                conn.execute("DELETE FROM legacy_targets WHERE target = ?", (target,))
+                conn.execute(
+                    "DELETE FROM run_wordlists WHERE run_id IN "
+                    "(SELECT id FROM runs WHERE target = ?)",
+                    (target,),
+                )
+                conn.execute("DELETE FROM runs WHERE target = ?", (target,))
         except sqlite3.Error:
             return 0
-        return cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
+        return removed
 
     # -- history -----------------------------------------------------------
 
@@ -1037,10 +1049,16 @@ class CoverageStore:
         if conn is None:
             return empty
         try:
+            target_row = conn.execute(
+                "SELECT id FROM targets WHERE sha256 = ?", (target,)
+            ).fetchone()
+            target_id = target_row[0] if target_row is not None else None
             entries = conn.execute(
-                "SELECT COUNT(*) FROM covered WHERE run_id IN "
-                "(SELECT id FROM runs WHERE target = ?)",
-                (target,),
+                "SELECT (SELECT COUNT(*) FROM covered WHERE run_id IN "
+                "        (SELECT id FROM runs WHERE target = ?)) + "
+                "       (SELECT COUNT(*) FROM covered_v2 WHERE target_id = "
+                "        (SELECT id FROM targets WHERE sha256 = ?))",
+                (target, target),
             ).fetchone()[0]
             runs, last_run = conn.execute(
                 "SELECT COUNT(*), MAX(ran_at) FROM runs WHERE target = ?",
@@ -1048,12 +1066,14 @@ class CoverageStore:
             ).fetchone()
             by_attack = conn.execute(
                 "SELECT runs.attack, "
-                "       COUNT(covered.key), "
-                "       COUNT(DISTINCT runs.id) "
-                "FROM runs LEFT JOIN covered ON covered.run_id = runs.id "
-                "WHERE runs.target = ? "
+                "  SUM((SELECT COUNT(*) FROM covered WHERE covered.run_id = runs.id)) + "
+                "  SUM((SELECT COUNT(*) FROM covered_v2 "
+                "       WHERE covered_v2.target_id = ? "
+                "         AND covered_v2.run_id = runs.id)), "
+                "  COUNT(DISTINCT runs.id) "
+                "FROM runs WHERE runs.target = ? "
                 "GROUP BY runs.attack ORDER BY runs.attack",
-                (target,),
+                (target_id, target),
             ).fetchall()
         except sqlite3.Error:
             return empty
