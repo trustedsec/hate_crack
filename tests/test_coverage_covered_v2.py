@@ -98,3 +98,11 @@ def test_record_ids_rollback_on_mixed_batch(store):
     assert store.record_ids(tid, rows, run_id) == 0
     # Verify that neither valid row was inserted despite transaction failure
     assert store.covered_ids(tid, [(1, 0, 10), (1, 0, 11)]) == set()
+
+
+def test_record_ids_handles_malformed_row(store):
+    """Malformed row (wrong tuple size) doesn't raise, returns 0."""
+    run_id = store.log_run("a" * 64)
+    tid = store.intern_target("a" * 64)
+    # Tuple with wrong number of elements — should not raise
+    assert store.record_ids(tid, [(1, 0)], run_id) == 0

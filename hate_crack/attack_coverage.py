@@ -775,7 +775,16 @@ class CoverageStore:
         conn = self._connect()
         if conn is None:
             return 0
-        prepared = [(target_id, w, v, e, run_id) for (w, v, e) in rows]
+        try:
+            prepared = [(target_id, w, v, e, run_id) for (w, v, e) in rows]
+        except (ValueError, TypeError):
+            # A malformed row is a caller-contract violation, not an
+            # environmental failure. Return 0 rather than raising: this
+            # class's whole premise is that "a broken store must never take
+            # an attack down with it", and recording nothing is the safe
+            # direction -- it can only cost a redundant run later, never mark
+            # an entry covered that was not run.
+            return 0
         try:
             with conn:
                 cursor = conn.executemany(
