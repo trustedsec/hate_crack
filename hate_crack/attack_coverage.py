@@ -47,7 +47,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Iterable, Sequence
+from typing import Callable, Iterable, Sequence, cast
 
 # Import HashcatRosetta for mask canonicalization. Like hate_crack.llm, this
 # module needs its own path setup rather than relying on main.py's: main.py
@@ -180,11 +180,13 @@ CREATE TABLE IF NOT EXISTS wordlist_fingerprints (
 --
 -- `entry` is BLOB, not TEXT, and this is load-bearing. read_entries decodes
 -- with surrogateescape because rule files here are not all UTF-8 (rulegen.py
--- writes latin-1). Python's sqlite3 binds str as strict UTF-8, so a lone
--- surrogate raises UnicodeEncodeError on a TEXT column. Storing the
--- surrogatepass bytes keeps the round trip lossless and keeps two rules
--- differing only in undecodable bytes distinct -- the property whose loss
--- once collapsed 154 distinct Spoonman rules into shared keys.
+-- writes latin-1). When a str with a lone surrogate is bound to the database,
+-- Python's sqlite3 raises UnicodeEncodeError trying to encode it as UTF-8.
+-- The _entry_blob function prevents this by encoding with surrogatepass first,
+-- converting the str to bytes before binding. Storing as BLOB keeps the round
+-- trip lossless and keeps two rules differing only in undecodable bytes
+-- distinct -- the property whose loss once collapsed 154 distinct Spoonman
+-- rules into shared keys.
 CREATE TABLE IF NOT EXISTS entries (
     id    INTEGER PRIMARY KEY,
     kind  TEXT NOT NULL,
@@ -338,13 +340,13 @@ class CoverageStore:
         if conn is None:
             return None
         try:
-            conn.execute(
-                f"INSERT OR IGNORE INTO {table} ({column}) VALUES (?)", (value,)
-            )
-            row = conn.execute(
-                f"SELECT id FROM {table} WHERE {column} = ?", (value,)
-            ).fetchone()
-            conn.commit()
+            with conn:
+                conn.execute(
+                    f"INSERT OR IGNORE INTO {table} ({column}) VALUES (?)", (value,)
+                )
+                row = conn.execute(
+                    f"SELECT id FROM {table} WHERE {column} = ?", (value,)
+                ).fetchone()
         except sqlite3.Error:
             return None
         return row[0] if row else None
@@ -373,11 +375,12 @@ class CoverageStore:
         entries_to_store = [
             canonical_mask_entry(e) if kind == "mask" else e for e in entries
         ]
+        blobs = [_entry_blob(e) for e in entries_to_store]
         try:
             with conn:
                 conn.executemany(
                     "INSERT OR IGNORE INTO entries (kind, entry) VALUES (?, ?)",
-                    [(kind, _entry_blob(e)) for e in entries_to_store],
+                    [(kind, blob) for blob in blobs],
                 )
             with conn:
                 conn.execute(
@@ -386,7 +389,7 @@ class CoverageStore:
                 conn.execute("DELETE FROM intern_probe")
                 conn.executemany(
                     "INSERT OR IGNORE INTO intern_probe (entry) VALUES (?)",
-                    [(_entry_blob(e),) for e in entries_to_store],
+                    [(blob,) for blob in blobs],
                 )
             rows = conn.execute(
                 "SELECT entries.entry, entries.id FROM entries "
@@ -396,31 +399,11 @@ class CoverageStore:
             ).fetchall()
         except sqlite3.Error:
             return None
-        blobs = [_entry_blob(e) for e in entries_to_store]
         by_blob = {bytes(row[0]): row[1] for row in rows}
         resolved = [by_blob.get(blob) for blob in blobs]
         if any(value is None for value in resolved):
-            return self._intern_entries_one_by_one(kind, blobs)
-        return resolved
-
-    def _intern_entries_one_by_one(self, kind: str, blobs) -> list[int] | None:
-        """Fallback when the bulk select cannot match, e.g. no JSON1."""
-        conn = self._connect()
-        if conn is None:
             return None
-        out: list[int] = []
-        try:
-            for blob in blobs:
-                row = conn.execute(
-                    "SELECT id FROM entries WHERE kind = ? AND entry = ?",
-                    (kind, blob),
-                ).fetchone()
-                if row is None:
-                    return None
-                out.append(row[0])
-        except sqlite3.Error:
-            return None
-        return out
+        return cast(list[int], resolved)
 
     def entry_text(self, entry_id: int) -> str | None:
         """Decode one interned entry back to its original text."""
