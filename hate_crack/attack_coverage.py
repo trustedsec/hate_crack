@@ -222,6 +222,29 @@ CREATE TABLE IF NOT EXISTS file_manifests (
     entry_ids      BLOB NOT NULL,
     PRIMARY KEY (content_sha256, kind)
 ) WITHOUT ROWID;
+
+-- The interned replacement for `covered`. Five integers per row.
+--
+-- Primary key column order is load-bearing: leading with target_id and
+-- wl_id turns a probe into a range scan over only this engagement's rows
+-- for this corpus, instead of scattered lookups across every hex key in
+-- the store. Measured 80.4 MB per million rows with the old hex TEXT key
+-- against 11.5 MB all-integer.
+--
+-- run_id is a non-key column so summary() can keep reporting per-attack
+-- entry counts. It keeps the existing first-writer semantics: a repeat adds
+-- no row, so run_id names when an entry was FIRST covered. That matches the
+-- old INSERT OR IGNORE behaviour rather than being new here. SQLite does not
+-- enforce REFERENCES without PRAGMA foreign_keys=ON, which this store does
+-- not set; the clause is documentation.
+CREATE TABLE IF NOT EXISTS covered_v2 (
+    target_id  INTEGER NOT NULL,
+    wl_id      INTEGER NOT NULL,
+    variant_id INTEGER NOT NULL,
+    entry_id   INTEGER NOT NULL,
+    run_id     INTEGER NOT NULL REFERENCES runs (id),
+    PRIMARY KEY (target_id, wl_id, variant_id, entry_id)
+) WITHOUT ROWID;
 """
 
 
@@ -351,6 +374,43 @@ class CoverageStore:
 
     def covered_lookup(self) -> Callable[[Sequence[str]], set[str]]:
         return self.covered
+
+    def covered_ids(
+        self, target_id: int, probes: Sequence[tuple[int, int, int]]
+    ) -> set[tuple[int, int, int]]:
+        """Which (wl_id, variant_id, entry_id) triples are already covered.
+
+        Probes go through a temp table rather than an IN list. The old hex
+        path used json_each to dodge SQLite's 999-parameter limit; a temp
+        table does the same for composite keys, which json_each cannot
+        express, and it lets the planner use covered_v2's primary key.
+        """
+        if not probes:
+            return set()
+        conn = self._connect()
+        if conn is None:
+            return set()
+        try:
+            with conn:
+                conn.execute(
+                    "CREATE TEMP TABLE IF NOT EXISTS cov_probe "
+                    "(wl_id INTEGER, variant_id INTEGER, entry_id INTEGER, "
+                    " PRIMARY KEY (wl_id, variant_id, entry_id)) WITHOUT ROWID"
+                )
+                conn.execute("DELETE FROM cov_probe")
+                conn.executemany(
+                    "INSERT OR IGNORE INTO cov_probe VALUES (?, ?, ?)", probes
+                )
+            rows = conn.execute(
+                "SELECT c.wl_id, c.variant_id, c.entry_id FROM covered_v2 c "
+                "JOIN cov_probe p ON c.wl_id = p.wl_id "
+                "AND c.variant_id = p.variant_id AND c.entry_id = p.entry_id "
+                "WHERE c.target_id = ?",
+                (target_id,),
+            ).fetchall()
+        except sqlite3.Error:
+            return set()
+        return {(row[0], row[1], row[2]) for row in rows}
 
     # -- dictionaries ------------------------------------------------------
 
@@ -663,6 +723,30 @@ class CoverageStore:
             )
             conn.commit()
         except sqlite3.Error:
+            return 0
+        return cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
+
+    def record_ids(
+        self,
+        target_id: int,
+        rows: Sequence[tuple[int, int, int]],
+        run_id: int,
+    ) -> int:
+        """Link interned coverage to a run. Returns newly-inserted count."""
+        if not rows:
+            return 0
+        conn = self._connect()
+        if conn is None:
+            return 0
+        try:
+            with conn:
+                cursor = conn.executemany(
+                    "INSERT OR IGNORE INTO covered_v2 "
+                    "(target_id, wl_id, variant_id, entry_id, run_id) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    [(target_id, w, v, e, run_id) for (w, v, e) in rows],
+                )
+        except (sqlite3.Error, OverflowError):
             return 0
         return cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
 
