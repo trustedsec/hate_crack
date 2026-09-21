@@ -26,18 +26,31 @@ def test_intern_entries_separates_kinds(store):
 
 
 def test_intern_entries_canonicalizes_mask_charsets(store):
-    # Canonicalization is applied for mask kind, so identical charsets with
-    # different orders should still intern to a single id. Test by verifying
-    # that the same canonical form produces the same id.
-    mask_with_charset = "?d?d,?1=abc"
-    ids1 = store.intern_entries("mask", [mask_with_charset])
-    ids2 = store.intern_entries("mask", [mask_with_charset])
-    # Same mask should get same id on both calls
-    assert ids1[0] == ids2[0]
-    # Rule kind should not canonicalize, so it stays verbatim
-    rule_ids1 = store.intern_entries("rule", [mask_with_charset])
-    rule_ids2 = store.intern_entries("rule", [mask_with_charset])
-    assert rule_ids1[0] == rule_ids2[0]
+    # Canonicalization collapses masks that enumerate the same candidates but
+    # differ in charset spelling. Test three mechanisms:
+    # (1) Charset order: 'abc,?1?1' and 'cba,?1?1' both normalize to 'abc\x00?1?1'
+    # (2) Charset dedup: 'aa,?1?1' and 'a,?1?1' both normalize to 'a\x00?1?1'
+    # (3) Token vs literal: '0123456789,?1?1' and '?d,?1?1' both normalize to '0123456789\x00?1?1'
+    mask1a, mask1b = "abc,?1?1", "cba,?1?1"  # Different order, same charset
+    mask2a, mask2b = "aa,?1?1", "a,?1?1"  # Dedup
+    mask3a, mask3b = "0123456789,?1?1", "?d,?1?1"  # Token vs literal
+
+    # Intern pairs in single call; mask kind canonicalizes, rule kind does not
+    mask_ids = store.intern_entries(
+        "mask", [mask1a, mask1b, mask2a, mask2b, mask3a, mask3b]
+    )
+    assert len(set(mask_ids)) == 3, (
+        "Canonical forms should collapse 6 spellings to 3 ids"
+    )
+    assert mask_ids[0] == mask_ids[1], "Charset order should not matter"
+    assert mask_ids[2] == mask_ids[3], "Charset dedup should not matter"
+    assert mask_ids[4] == mask_ids[5], "Token vs literal should not matter"
+
+    # Rule kind stays verbatim; same inputs should produce different ids
+    rule_ids = store.intern_entries(
+        "rule", [mask1a, mask1b, mask2a, mask2b, mask3a, mask3b]
+    )
+    assert len(set(rule_ids)) == 6, "Rule kind should not canonicalize"
 
 
 def test_intern_entries_round_trips_undecodable_bytes(store, tmp_path):
@@ -53,15 +66,16 @@ def test_intern_entries_round_trips_undecodable_bytes(store, tmp_path):
     assert ids is not None
     assert len(set(ids)) == 2
     assert store.entry_text(ids[0]) == "$\udcc3"
-    # Verify the schema declares entry as BLOB, not TEXT
+    # Verify the schema declares entry as BLOB, not TEXT.
+    # PRAGMA table_info reports the declared column type, whereas typeof() reports
+    # the storage class of the bound value. This assertion catches a regression if
+    # the schema is changed to TEXT.
     conn = store._connect()
     assert conn is not None
-    # Check that the entry column is actually storing as BLOB type
-    for entry_id in ids:
-        row = conn.execute(
-            "SELECT typeof(entry) FROM entries WHERE id = ?", (entry_id,)
-        ).fetchone()
-        assert row[0] == "blob", "entry column must store as BLOB type"
+    schema_info = conn.execute("PRAGMA table_info(entries)").fetchall()
+    entry_column = [col for col in schema_info if col[1] == "entry"]
+    assert len(entry_column) == 1
+    assert entry_column[0][2] == "BLOB", "entry column must be declared as BLOB"
 
 
 def test_intern_entries_preserves_significant_trailing_space(store):
