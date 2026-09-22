@@ -42,11 +42,6 @@ try:
 except Exception:
     pass
 
-# Ensure project root is on sys.path so package imports work when loaded via spec.
-_root_dir = os.path.dirname(os.path.realpath(__file__))
-if _root_dir not in sys.path:
-    sys.path.insert(0, _root_dir)
-
 from hate_crack.api import (  # noqa: E402
     fetch_all_weakpass_wordlists_multithreaded,
     download_torrent_file,

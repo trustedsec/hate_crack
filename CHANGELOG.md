@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [Unreleased]
+
+### Fixed
+- **Removed a vestigial `sys.path` insertion from `hate_crack/main.py` (#335).** The block put the *package* directory on `sys.path` while its comment claimed it was the project root, and nothing depended on it: every import in the module is stdlib or an absolute `hate_crack.X` import, and the HashcatRosetta path insertion is independent. Leaving it in place silently changed import resolution for everything loaded afterwards in the process, so a flat module shadowing a stdlib name inside the package would have been picked up ahead of the real one. Follow-up to the `__path__` shim removal in #298.
+
 ## [2.37.0] - 2026-09-21
 
 ### Added
