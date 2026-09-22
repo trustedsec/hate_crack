@@ -505,6 +505,80 @@ def test_prime_coverage_decision_skips_the_lookup_for_loopback(main_module, stor
     assert decision == {}
 
 
+# --- batch overlap counts ---------------------------------------------------
+
+
+def test_batch_overlap_counts_across_every_selected_chain(main_module, tmp_path):
+    """The up-front pass reports real numbers, not just 'has run before'."""
+    main = main_module
+    hashes = tmp_path / "hashes.txt"
+    hashes.write_text("aad3b435b51404ee\n", encoding="utf-8")
+    a = tmp_path / "a.rule"
+    a.write_text("$1\nc\n", encoding="utf-8")
+    b = tmp_path / "b.rule"
+    b.write_text("c\nsa@\n", encoding="utf-8")
+    words = tmp_path / "w.txt"
+    words.write_text("a\n", encoding="utf-8")
+    covered, total = main._batch_overlap(
+        str(hashes), [f"-r {a}", f"-r {b}"], [str(words)], ""
+    )
+    assert (covered, total) == (0, 4)
+
+
+def test_batch_overlap_is_display_only_and_does_not_record(main_module, tmp_path):
+    """Chain N must still be filtered against what chains 1..N-1 recorded.
+
+    Subtracting up front would be unsound: an interrupted chain records
+    nothing, so later chains would skip candidates never actually tried.
+    """
+    main = main_module
+    hashes = tmp_path / "hashes.txt"
+    hashes.write_text("aad3b435b51404ee\n", encoding="utf-8")
+    a = tmp_path / "a.rule"
+    a.write_text("$1\n", encoding="utf-8")
+    words = tmp_path / "w.txt"
+    words.write_text("a\n", encoding="utf-8")
+    main._batch_overlap(str(hashes), [f"-r {a}"], [str(words)], "")
+    summary = main._coverage_store().summary(main._coverage.target_id(str(hashes)))
+    assert summary["entries"] == 0
+
+
+def test_batch_overlap_treats_a_chained_multi_file_run_as_one_unit(
+    main_module, tmp_path
+):
+    """``-r a -r b`` in a single chain is one all-or-nothing unit, matching
+    how plan_run and _chain_entry already track a real ``-r a -r b`` run --
+    not two independently countable files."""
+    main = main_module
+    hashes = tmp_path / "hashes.txt"
+    hashes.write_text("aad3b435b51404ee\n", encoding="utf-8")
+    a = tmp_path / "a.rule"
+    a.write_text("$1\nc\n", encoding="utf-8")
+    b = tmp_path / "b.rule"
+    b.write_text("c\nsa@\n", encoding="utf-8")
+    words = tmp_path / "w.txt"
+    words.write_text("a\n", encoding="utf-8")
+    covered, total = main._batch_overlap(
+        str(hashes), [f"-r {a} -r {b}"], [str(words)], ""
+    )
+    assert total == 1
+
+
+def test_batch_overlap_skips_wordlist_kind_chains_and_returns_none_alone(
+    main_module, tmp_path
+):
+    """A chain naming no rule files (the "no rules" choice) has nothing in
+    the rule dimension to count. A batch of only such chains has nothing to
+    report at all."""
+    main = main_module
+    hashes = tmp_path / "hashes.txt"
+    hashes.write_text("aad3b435b51404ee\n", encoding="utf-8")
+    words = tmp_path / "w.txt"
+    words.write_text("a\n", encoding="utf-8")
+    result = main._batch_overlap(str(hashes), [""], [str(words)], "")
+    assert result is None
+
+
 # --- opting out ------------------------------------------------------------
 
 

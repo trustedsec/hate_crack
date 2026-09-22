@@ -3462,12 +3462,93 @@ def _quick_dictionary_coverage(hash_file, chains, wordlists, loopback):
     )
 
 
+def _batch_overlap(hash_file, chains, wordlists, variant):
+    """Combined (covered, total) entry counts across every selected chain.
+
+    Display only. Each chain still re-diffs immediately before it runs, so
+    chain 7 is filtered against what chains 1 through 6 recorded during this
+    same batch. Returns None when identity cannot be established, or when
+    none of the selected chains name any rule files (this function is scoped
+    to the rule dimension; the wordlist-kind prompt has no counting design
+    here and callers must not invoke this for it).
+
+    Each ``chain`` is a shlex-splittable hashcat argument fragment
+    (``"-r a.rule"``, ``"-r a.rule -r b.rule"``, or ``""`` for "no rules"),
+    matching what ``_prime_coverage_decision`` already builds -- not a tuple
+    of paths. A chain naming exactly one rule file contributes one countable
+    unit per rule line in that file, matching how plan_run diffs a
+    single-file rule run. A chain naming two or more rule files contributes
+    exactly one all-or-nothing unit for the whole chain, via ``_chain_entry``,
+    matching how it is actually tracked in covered_v2 -- treating each file
+    separately here would misrepresent the count.
+
+    All probes across every unit are batched into a single covered_ids call
+    at the end, not queried per unit, to avoid exactly the slow per-file
+    wait this function exists to prevent an operator from sitting through.
+    """
+    store = _coverage_store()
+    target = _coverage.target_id(hash_file)
+    if target is None:
+        return None
+    target_id = store.intern_target(target)
+    variant_id = store.intern_variant(variant)
+    if target_id is None or variant_id is None:
+        return None
+
+    wl_ids = []
+    for path in _expand_wordlist_dirs(wordlists):
+        fingerprint = store.wordlist_fingerprint(path)
+        if fingerprint is None:
+            continue
+        wl_id = store.intern_wordlist(fingerprint)
+        if wl_id is not None:
+            wl_ids.append(wl_id)
+    slots = wl_ids or [0]
+
+    units: list[list[tuple[int, int, int]]] = []
+    for chain in chains:
+        tokens = shlex.split(chain) if isinstance(chain, str) else list(chain)
+        rule_files = [
+            tokens[i + 1]
+            for i, tok in enumerate(tokens)
+            if tok == "-r" and i + 1 < len(tokens)
+        ]
+        if not rule_files:
+            continue
+        if len(rule_files) > 1:
+            entry = _coverage._chain_entry(tuple(rule_files))
+            if entry is None:
+                continue
+            ids = store.intern_entries("rule", [entry])
+            if not ids:
+                continue
+            units.append([(wl, variant_id, ids[0]) for wl in slots])
+            continue
+        loaded = store.file_entry_ids(rule_files[0], "rule")
+        if loaded is None:
+            continue
+        _entries, ids = loaded
+        for entry_id in ids:
+            units.append([(wl, variant_id, entry_id) for wl in slots])
+
+    if not units:
+        return None
+    all_probes = [probe for unit in units for probe in unit]
+    already = store.covered_ids(target_id, all_probes)
+    total = len(units)
+    covered = sum(1 for unit in units if all(probe in already for probe in unit))
+    return covered, total
+
+
 def _prompt_skip_covered_batch(
-    attack_name: str, num_chains: int, kind: str = "rule"
+    attack_name: str,
+    num_chains: int,
+    kind: str = "rule",
+    covered: int | None = None,
+    total: int | None = None,
 ) -> bool:
-    """Ask, without pre-computing any counts, whether to skip already-tried
-    ground across a whole batch of selected rule files, or run every one
-    of them in full.
+    """Ask whether to skip already-tried ground across a whole batch of
+    selected rule files, or run every one of them in full.
 
     Only reached when ``attack_name`` has run against this hash file before
     (see ``_prime_coverage_decision``); a fresh engagement never sees this.
@@ -3477,6 +3558,13 @@ def _prompt_skip_covered_batch(
     it: answering "0) To run without any rules" sends a batch of one empty
     chain, which filters whole wordlists, so naming "the 1 selected rule file"
     there points at a file the operator never selected.
+
+    ``covered``/``total``, when both given, are ``_batch_overlap``'s real
+    counts for the rule dimension and are folded into the question so it
+    reads "N of M rule lines already tried" instead of the countless form.
+    Left ``None`` (as they always are for the wordlist kind, which has no
+    counting design here) the wording falls back to the countless form
+    unchanged.
     """
     plural = "" if num_chains == 1 else "s"
     print(
@@ -3485,10 +3573,17 @@ def _prompt_skip_covered_batch(
     if non_interactive:
         return True
     if kind == "rule":
-        question = (
-            f"[?] Skip rule lines already tried in the {num_chains} selected "
-            f"rule file{plural}, or run everything? [Y/n]: "
-        )
+        if covered is not None and total is not None:
+            question = (
+                f"[?] Skip the {covered} of {total} rule lines already tried "
+                f"across the {num_chains} selected rule file{plural}, or run "
+                "everything? [Y/n]: "
+            )
+        else:
+            question = (
+                f"[?] Skip rule lines already tried in the {num_chains} selected "
+                f"rule file{plural}, or run everything? [Y/n]: "
+            )
     else:
         question = (
             "[?] Skip wordlists already tried against this hash file, "
@@ -3506,20 +3601,20 @@ def _prime_coverage_decision(
     hash_file, chains, wordlists, attack_name: str, loopback: bool = False
 ) -> dict:
     """Ask once, up front, whether to skip already-covered rule lines for
-    this whole batch of selected rule files -- before any of it runs, and
-    without diffing any of them first.
+    this whole batch of selected rule files -- before any of it runs.
 
-    Finding the exact overlap for a display like "N of M rules already
-    covered" means reading and hashing every selected rule file's lines,
-    which for a large batch (YOLO across dozens of files, some
-    multi-million lines) is exactly the slow, silent-feeling step an
-    operator should not have to wait through just to be asked a yes/no
-    question. So this asks the store only whether ``attack_name`` has run
-    against this hash file *with one of these wordlists* before -- no rule
-    file is read -- and, if so, asks plainly. The real per-file diffing
-    still happens lazily, once per chain, inside ``_apply_coverage`` exactly
-    as it always has; this only decides up front whether that filtering is
-    wanted.
+    Whether ``attack_name`` has run against this hash file *with one of
+    these wordlists* before is answered first, without reading a single rule
+    file -- that alone decides whether the prompt fires at all, so a fresh
+    engagement or a fresh corpus never pays to read anything. Only once that
+    cheap check says yes does this read and hash the selected rule files, via
+    ``_batch_overlap``, to show real "N of M rule lines already tried"
+    counts in the question -- the one case where an operator is about to be
+    asked a yes/no question anyway, so the read is not pure overhead. The
+    real per-chain diffing that actually filters a run still happens lazily,
+    once per chain, inside ``_apply_coverage`` exactly as it always has;
+    this only decides up front whether that filtering is wanted, and what
+    number to show while asking.
 
     **The wordlists are part of the question, not decoration.** They used to
     be ignored, leaving the store asked only whether anything by this attack
@@ -3577,9 +3672,22 @@ def _prime_coverage_decision(
     ):
         return {}
 
+    # Real counts only for the rule dimension -- _batch_overlap has no
+    # counting design for the wordlist kind, and calling it there would
+    # silently return None every time anyway (no chain in a wordlist-kind
+    # batch ever names a rule file). Keep the countless wording exactly as
+    # it has always read for that kind.
+    counts = None
+    if asked[0] == "rule":
+        counts = _batch_overlap(hash_file, chains, wordlists, "")
+
+    covered = total = None
+    if counts is not None:
+        covered, total = counts
+
     return {
         "apply_filtering": _prompt_skip_covered_batch(
-            attack_name, len(chains), kind=asked[0]
+            attack_name, len(chains), kind=asked[0], covered=covered, total=total
         )
     }
 
