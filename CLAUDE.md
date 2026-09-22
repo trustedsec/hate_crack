@@ -556,7 +556,7 @@ small single-purpose ones:
 | `config_loader.py` | 467 | the one config loader (see Config System) |
 | `config_schema.py` | 434 | `CONFIG_SCHEMA` source of truth (see Config System) |
 | `corpus_stats.py` | 322 | Pipal-adjacent corpus stats |
-| `attack_coverage.py` | ~470 | per-target rule/mask/wordlist coverage store — see below |
+| `attack_coverage.py` | ~2.2k | per-target rule/mask/wordlist coverage store, interned and content-addressed — see below |
 | `brain.py` | 388 | hashcat brain oracle, slow/fast policy, session identity, client flags, local server lifecycle — see below |
 | `plaintext.py`, `noninteractive.py`, `username_detect.py`, `menu.py`, `formatting.py`, `progress.py`, `cli.py`, `hashview_cache.py` | 60–165 each | small, single-purpose helpers |
 | `notify/` | 871 total | Pushover notifications — see below |
@@ -568,10 +568,28 @@ skip the overlap. Backed by SQLite at
 append-only key file `hashview_cache.py` uses, because that cache is bounded by
 hash-list size while this one is bounded by rules x wordlists (~191k keys from
 one Dictionary attack, where an append-only file grows on every repeat).
-Two invariants to preserve when touching it: **every failure to establish
-identity returns an inert plan** (never filter on a guess — a wrongly filtered
-run silently skips untried candidates), and **coverage is recorded only on clean
-completion** (hashcat exit 0 or 1, not interrupted). Chained `-r a -r b` runs are
+The store is **interned and content-addressed**: targets, wordlists, variants
+and entries (rule/mask lines) are dictionary-mapped to integer ids rather than
+stored as 64-character sha256 hex keys, and a rule or mask file's manifest
+(the set of interned entry ids it contains) is keyed on a hash of the whole
+file's content, not on which target is asking — so identical files are hashed
+and parsed once and reused across every engagement that touches them, instead
+of every new hash file re-reading and re-hashing the same files from scratch.
+A pre-existing store migrates lazily: targets present before interning are
+marked legacy and dual-read against both the old `covered` table and the new
+`covered_v2` table until their coverage is converted one combination at a
+time. Two subcommands operate this: `coverage precompute` builds and persists
+file manifests ahead of an engagement so that cost is paid once, up front,
+rather than inside planning, and `coverage compact` converts remaining legacy
+coverage and reclaims the old schema's storage. Two invariants to preserve
+when touching it: **every failure to establish identity returns an inert
+plan** (never filter on a guess — a wrongly filtered run silently skips
+untried candidates), and **coverage is recorded only on clean completion**
+(hashcat exit 0 or 1, not interrupted) — both still hold under interning:
+every id-interning step (`intern_target`, `intern_wordlist`, `intern_entries`,
+`file_entry_ids`) returns `None` on any failure, and `plan_run` treats a
+`None` anywhere in that chain as a reason to fall back to `_INERT`, the same
+inert-plan behaviour the sha256-keyed store had. Chained `-r a -r b` runs are
 tracked as one all-or-nothing unit because hashcat applies the *cartesian
 product* of the two files. Attacks opt in by passing `coverage=` to
 `_run_hcat_cmd`; dynamic generators (PRINCE, PCFG, OMEN, Markov, LLM) pass
