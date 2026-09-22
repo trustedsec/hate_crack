@@ -498,12 +498,13 @@ Two further consequences to keep in mind:
     rest.
   - **A `chore(deps)` merge to `main` does cut a release** — a patch.
     `tools/next_version.py:106` returns `patch + 1` for any non-empty batch
-    without a `feat`; it never returns "no bump". The comments in
-    `.github/dependabot.yml` that say the `chore(deps)` / `chore(ci)` prefixes
-    mean "dependency PRs never auto-cut a tag" describe the pre-2026-07-31
-    bump-pattern scheme and are wrong under the current policy. What the prefix
-    actually buys is that the batch stays a *patch* instead of being promoted to
-    a minor.
+    without a `feat`; it never returns "no bump". What the `chore(deps)` /
+    `chore(ci)` prefix buys is that the batch stays a *patch* instead of being
+    promoted to a minor — not that it cuts nothing. The comments in
+    `.github/dependabot.yml` claimed the latter until 2026-09-22, describing the
+    pre-2026-07-31 bump-pattern scheme; they now say the same thing this bullet
+    does, so if the two ever disagree again, `tools/next_version.py` is the
+    arbiter.
 - **A security fix that must ship immediately** can go straight to `main` as
   its own PR, then be merged down into `nightly-dev` to keep the branches from
   diverging. Say so explicitly in the PR body when doing this.
