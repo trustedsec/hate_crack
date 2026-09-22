@@ -1206,8 +1206,13 @@ _HASH_HEX_LEN = {
 # ``<int:hash_type>`` -- so on the API path the guard is never true and the
 # ciphertext is stored in whatever case it arrived in. An uppercase hash then
 # misses on dedup (no instacrack) and misses again when the agent returns the
-# crack lowercased, which silently drops the result. Folding client-side
-# sidesteps that, and stays correct once the server is fixed.
+# crack lowercased, which silently drops the result.
+#
+# Upstream fixed that in hashview#444 (PR hashview#540, merged 2026-09-22), but
+# only on the ``v0.8.3-dev`` branch -- ``main`` and every tagged release still
+# carry it, and worse: there formats 4 and 5 never lowercase at all. The client
+# cannot tell which version a server runs, so the fold stays. It is idempotent
+# against a fixed server, so it costs nothing to keep.
 _RAW_HEX_HASH_MODES = frozenset(
     {
         "0",  # MD5
