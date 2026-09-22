@@ -9,6 +9,9 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ## [Unreleased]
 
+### Changed
+- **`test_commitizen_pin_is_still_coherent` no longer asserts *which* commitizen version is pinned**, only that exactly one exact `commitizen==X.Y.Z` pin exists. The literal it compared against meant every Dependabot bump of commitizen failed CI and needed a matching edit to the test before it could land (PR #322). Neither invariant the test documents -- that a pin exists so `cz commit` keeps working locally, and that neither tagging workflow calls `cz bump` -- depends on the version number, so the literal bought nothing.
+
 ### Fixed
 - **Removed a vestigial `sys.path` insertion from `hate_crack/main.py` (#335).** The block put the *package* directory on `sys.path` while its comment claimed it was the project root, and nothing depended on it: every import in the module is stdlib or an absolute `hate_crack.X` import, and the HashcatRosetta path insertion is independent. Leaving it in place silently changed import resolution for everything loaded afterwards in the process, so a flat module shadowing a stdlib name inside the package would have been picked up ahead of the real one. Follow-up to the `__path__` shim removal in #298.
 

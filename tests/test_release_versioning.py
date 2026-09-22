@@ -58,12 +58,6 @@ BOTH_WORKFLOWS = [
     pytest.param(NIGHTLY_TAG, id="nightly-tag"),
 ]
 
-# The version commitizen is pinned to in the dev group. The workflows no longer
-# install or invoke it, so this is asserted in one place only; see
-# test_commitizen_pin_is_still_coherent for what remains worth guarding.
-COMMITIZEN_PIN = "4.17.0"
-
-
 # --- parsing helpers ---------------------------------------------------------
 
 
@@ -169,11 +163,19 @@ def test_commitizen_pin_is_still_coherent() -> None:
     once asserted the pin agreed across three places. The policy moved to
     tools/next_version.py, so the workflows install nothing; only the dev-group
     pin remains, and it is asserted so `cz commit` keeps working locally.
+
+    What is asserted is that the pin exists and is exact -- deliberately not
+    which version it names. An earlier revision compared against a literal, so
+    every Dependabot bump of commitizen failed here and needed a matching edit
+    to this file before it could land (#322). Neither thing this test documents
+    depends on the version number, so pinning it bought nothing and cost a red
+    CI run per bump.
     """
     dev = _pyproject()["dependency-groups"]["dev"]
     pins = [d for d in dev if d.split("==")[0].strip() == "commitizen"]
-    assert pins == [f"commitizen=={COMMITIZEN_PIN}"], (
-        f"dev group commitizen pin should be commitizen=={COMMITIZEN_PIN}, got {pins}"
+    assert len(pins) == 1, f"expected exactly one commitizen pin, got {pins}"
+    assert re.fullmatch(r"commitizen==\d+\.\d+\.\d+", pins[0].strip()), (
+        f"dev group commitizen must be pinned exactly (commitizen==X.Y.Z), got {pins[0]!r}"
     )
 
     for path in (AUTO_TAG, NIGHTLY_TAG):
