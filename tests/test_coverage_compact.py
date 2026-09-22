@@ -60,6 +60,7 @@ def test_compact_drops_the_old_table_when_everything_converted(tmp_path):
     out = s.compact([])
     # A fresh store has no legacy targets, so there is nothing blocking.
     assert out["unconvertible"] == 0
+    assert out["dropped_old_table"] is True
     s.close()
 
 
@@ -128,15 +129,19 @@ def test_compact_round_trip_preserves_coverage_and_drops_old_table(tmp_path):
     )
     assert before == {(wl_id, var_id, rule_ids[0])}
 
-    empty_wl = s.intern_wordlist("")
+    # A wordlist-less scope (a pure mask attack) is keyed at the sentinel
+    # wl_id 0 everywhere else in this module -- never intern_wordlist("")'s
+    # real interned row. See _plan_entries / _convert_legacy_if_needed's
+    # `wl_ids[0] if wl_ids else 0` fallback.
+    mask_wl_id = 0
     mask_legacy = ac.LegacyProbe(
         target=target,
-        keys={(empty_wl, var_id, mask_ids[0]): covered_mask_key},
+        keys={(mask_wl_id, var_id, mask_ids[0]): covered_mask_key},
     )
     before_mask = s.covered_ids(
-        tid, [(empty_wl, var_id, mask_ids[0])], legacy=mask_legacy
+        tid, [(mask_wl_id, var_id, mask_ids[0])], legacy=mask_legacy
     )
-    assert before_mask == {(empty_wl, var_id, mask_ids[0])}
+    assert before_mask == {(mask_wl_id, var_id, mask_ids[0])}
 
     out = s.compact([(str(rule_path), "rule"), (str(mask_path), "mask")])
 
@@ -155,8 +160,16 @@ def test_compact_round_trip_preserves_coverage_and_drops_old_table(tmp_path):
         tid, [(wl_id, var_id, rule_ids[0]), (wl_id, var_id, rule_ids[1])]
     )
     assert after == {(wl_id, var_id, rule_ids[0])}
-    after_mask = s.covered_ids(tid, [(empty_wl, var_id, mask_ids[0])])
-    assert after_mask == {(empty_wl, var_id, mask_ids[0])}
+    after_mask = s.covered_ids(tid, [(mask_wl_id, var_id, mask_ids[0])])
+    assert after_mask == {(mask_wl_id, var_id, mask_ids[0])}
+
+    # And confirm it did NOT land at intern_wordlist("")'s real row --
+    # exactly the coordinate a wl_id = self.intern_wordlist(fp) bug (fp=="")
+    # would have written to instead of the sentinel 0.
+    real_empty_wl = s.intern_wordlist("")
+    assert real_empty_wl != mask_wl_id
+    stray = s.covered_ids(tid, [(real_empty_wl, var_id, mask_ids[0])])
+    assert stray == set()
 
     s.close()
 
@@ -252,4 +265,93 @@ def test_compact_is_idempotent_after_drop(tmp_path):
     assert first["dropped_old_table"] is True
     second = s.compact([])
     assert second == {"converted": 0, "unconvertible": 0, "dropped_old_table": False}
+    s.close()
+
+
+def test_compact_converts_wordless_mask_coverage_to_a_reachable_coordinate(tmp_path):
+    """A pure -a 3 mask attack (no wordlist) is keyed with the sentinel
+    wl_id 0 everywhere else in this module (_plan_entries,
+    _convert_legacy_if_needed's `wl_ids[0] if wl_ids else 0` fallback).
+    compact()'s file-backed sweep must write to that same sentinel, not to
+    intern_wordlist("")'s real interned row -- writing to the latter would
+    "convert" successfully and then, once the old table is dropped, be
+    permanently unreachable by plan_run.
+    """
+    target = "m" * 64
+    mask_path = tmp_path / "some.hcmask"
+    mask_path.write_text("?d?d?l\nabc,?1?1\n")
+
+    key1 = ac.entry_key(target, "mask", "", "?d?d?l", "")
+    key2 = ac.entry_key(target, "mask", "", "abc,?1?1", "")
+    db = tmp_path / "cov.sqlite3"
+    _old_store(db, target, [key1, key2], kind="mask")
+
+    s = ac.CoverageStore(db)
+    out = s.compact([(str(mask_path), "mask")])
+    assert out["unconvertible"] == 0
+    assert out["dropped_old_table"] is True
+
+    tid = s.intern_target(target)
+    var_id = s.intern_variant("")
+    (id1, id2) = s.intern_entries("mask", ["?d?d?l", "abc,?1?1"])
+
+    # The sentinel coordinate _plan_entries/_convert_legacy_if_needed
+    # actually probe for a wordlist-less scope is wl_id == 0, never
+    # intern_wordlist("")'s real row id.
+    after = s.covered_ids(tid, [(0, var_id, id1), (0, var_id, id2)])
+    assert after == {(0, var_id, id1), (0, var_id, id2)}
+
+    real_empty_wl_id = s.intern_wordlist("")
+    assert real_empty_wl_id != 0
+    stray = s.covered_ids(
+        tid, [(real_empty_wl_id, var_id, id1), (real_empty_wl_id, var_id, id2)]
+    )
+    assert stray == set(), "coverage must not land at intern_wordlist('')'s row"
+    s.close()
+
+
+def test_compact_does_not_claim_a_key_when_convert_scope_fails(tmp_path, monkeypatch):
+    """A transient write failure (e.g. a busy database from a second
+    process) must count conservatively toward unconvertible, never toward
+    success -- claiming a key before its write is confirmed would silently
+    lose real coverage the moment the old table is dropped.
+    """
+    target = "n" * 64
+    rule_path = tmp_path / "some.rule"
+    rule_path.write_text("$1\n")
+    wl_fp = "w" * 64
+    key1 = ac.entry_key(target, "rule", wl_fp, "$1", "")
+
+    db = tmp_path / "cov.sqlite3"
+    _old_store(db, target, [key1])
+    conn = sqlite3.connect(str(db))
+    run_id = conn.execute("SELECT id FROM runs LIMIT 1").fetchone()[0]
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS run_wordlists (run_id INTEGER NOT NULL, "
+        "wordlist TEXT NOT NULL, PRIMARY KEY (run_id, wordlist)) WITHOUT ROWID"
+    )
+    conn.execute(
+        "INSERT INTO run_wordlists (run_id, wordlist) VALUES (?, ?)",
+        (run_id, wl_fp),
+    )
+    conn.commit()
+    conn.close()
+
+    s = ac.CoverageStore(db)
+    monkeypatch.setattr(s, "convert_scope", lambda *a, **kw: False)
+    out = s.compact([(str(rule_path), "rule")])
+
+    assert out["converted"] == 0
+    assert out["unconvertible"] >= 1
+    assert out["dropped_old_table"] is False
+
+    conn2 = s._connect()
+    row = conn2.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='covered'"
+    ).fetchone()
+    assert row is not None
+    legacy_row = conn2.execute(
+        "SELECT 1 FROM legacy_targets WHERE target = ?", (target,)
+    ).fetchone()
+    assert legacy_row is not None
     s.close()

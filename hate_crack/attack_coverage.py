@@ -1166,7 +1166,24 @@ class CoverageStore:
                     # _convert_legacy_if_needed's slots fallback becomes
                     # exactly [("", ...)].
                     for fp in dict.fromkeys([*run_wl_fps, ""]):
-                        wl_id = self.intern_wordlist(fp)
+                        # A wordlist-less scope (a pure `-a 3` mask attack,
+                        # or in principle a wordlist-less rule scope) is keyed
+                        # in covered_v2/plan_run with the sentinel wl_id 0 --
+                        # never a real interned row. intern_wordlist("")
+                        # returns the *real* id of the interned "" row, which
+                        # is a different, unreachable coordinate: nothing in
+                        # _plan_entries or _convert_legacy_if_needed ever
+                        # probes wl_id == intern_wordlist(""), only wl_id ==
+                        # 0 for this shape. Writing there would "convert"
+                        # successfully and then, once the old table is
+                        # dropped, be permanently unreadable. See plan_run's
+                        # mask branch: `wl_ids=[]` for a pure mask attack, and
+                        # `_convert_legacy_if_needed`'s own fallback is
+                        # `wl_ids[0] if wl_ids else 0` -- 0, not
+                        # intern_wordlist(""). The wordlist-*kind* sweep below
+                        # is a genuinely different shape and correctly uses
+                        # intern_wordlist("") -- do not unify the two.
+                        wl_id = 0 if fp == "" else self.intern_wordlist(fp)
                         if wl_id is None:
                             continue
                         reconstructed = {
@@ -1177,8 +1194,11 @@ class CoverageStore:
                             )
                             for entry, eid in zip(entries, entry_ids)
                         }
-                        claimed |= reconstructed.keys()
                         if self.is_converted(target, scope, kind, fp, variant):
+                            # Already carried over by an earlier compact --
+                            # safe to claim now, since that earlier call's
+                            # convert_scope already succeeded.
+                            claimed |= reconstructed.keys()
                             continue
                         hit_keys = reconstructed.keys() & old_keys
                         if not hit_keys:
@@ -1199,18 +1219,23 @@ class CoverageStore:
                                 target_id_of,
                             ):
                                 converted_total += 1
+                                # Only claim once convert_scope has actually
+                                # committed -- claiming first and writing
+                                # second would mark a key "accounted for"
+                                # before it is safely represented anywhere,
+                                # so any failure between the two would lose it
+                                # silently rather than count as unconvertible.
+                                claimed |= reconstructed.keys()
                             continue
+                        # hit_keys was already derived from old_keys, a
+                        # direct successful read -- no need to re-verify it
+                        # through covered_ids (which can itself fail and
+                        # return set(), degrading silently by its own
+                        # documented contract). Write what the old table
+                        # itself already proved is covered.
                         probes_by_key = {
                             k: v for k, v in reconstructed.items() if k in hit_keys
                         }
-                        legacy_probe = LegacyProbe(
-                            target=target,
-                            keys={v: k for k, v in probes_by_key.items()},
-                        )
-                        probes = list(legacy_probe.keys.keys())
-                        hits = self.covered_ids(
-                            target_id_of, probes, legacy=legacy_probe
-                        )
                         run_id = self.log_run(
                             target, kind=kind, detail="legacy-conversion"
                         )
@@ -1220,11 +1245,12 @@ class CoverageStore:
                             kind,
                             fp,
                             variant,
-                            list(hits),
+                            list(probes_by_key.values()),
                             run_id,
                             target_id_of,
                         ):
                             converted_total += 1
+                            claimed |= reconstructed.keys()
 
             # Wordlist-kind reconstruction: no file, driven by run_wordlists
             # directly. Legacy key formula matches the wordlist-kind branch
@@ -1234,17 +1260,16 @@ class CoverageStore:
             # literal "wordlist" scope -- see _convert_legacy_if_needed's
             # call site in plan_run for why that used to collapse every
             # wordlist-kind plan for a target onto one marker).
+            empty_wl = self.intern_wordlist("")
             for variant in variant_rows:
                 variant_id = self.intern_variant(variant)
-                if variant_id is None:
+                if variant_id is None or empty_wl is None:
                     continue
                 for fp in run_wl_fps:
-                    empty_wl = self.intern_wordlist("")
-                    if empty_wl is None:
-                        continue
                     key = entry_key(target, "wordlist", "", fp, variant)
-                    claimed.add(key)
                     if self.is_converted(target, fp, "wordlist", "", variant):
+                        # Already carried over by an earlier compact.
+                        claimed.add(key)
                         continue
                     if key not in old_keys:
                         run_id = self.log_run(
@@ -1261,13 +1286,19 @@ class CoverageStore:
                             target_id_of,
                         ):
                             converted_total += 1
+                            claimed.add(key)
                         continue
                     ids = self.intern_entries("wordlist", [fp])
                     if not ids:
+                        # Leave unclaimed: costs a blocked drop and a retry,
+                        # never a silently lost key.
                         continue
                     probe = (empty_wl, variant_id, ids[0])
-                    legacy_probe = LegacyProbe(target=target, keys={probe: key})
-                    hits = self.covered_ids(target_id_of, [probe], legacy=legacy_probe)
+                    # probe is already known covered -- it came from `key`
+                    # being present in old_keys, a direct successful read.
+                    # No need to re-verify through covered_ids, which can
+                    # itself fail and silently return set() by its own
+                    # documented contract.
                     run_id = self.log_run(
                         target, kind="wordlist", detail="legacy-conversion"
                     )
@@ -1277,11 +1308,12 @@ class CoverageStore:
                         "wordlist",
                         "",
                         variant,
-                        list(hits),
+                        [probe],
                         run_id,
                         target_id_of,
                     ):
                         converted_total += 1
+                        claimed.add(key)
 
             unclaimed = old_keys - claimed
             unconvertible_total += len(unclaimed)
