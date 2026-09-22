@@ -17,6 +17,11 @@ than decorative.
 `--stdout` is the whole harness here. No hash, no attack, no session state: it
 prints the candidates a rule file produces over a wordlist and exits, which is
 exactly the question being asked and costs one process start per case.
+
+Its framing is version dependent, so read it through `_decode_candidate` rather
+than comparing the raw stream (#337). hashcat 7.1.2-754 and later wrap a
+candidate in ``$HEX[...]`` when it holds a byte that would otherwise break the
+line, earlier versions emit it raw, and both are accepted here.
 """
 
 import shutil
@@ -67,8 +72,37 @@ _CASES = [
 ]
 
 
+def _decode_candidate(line):
+    """Decode one ``--stdout`` line, undoing hashcat's ``$HEX[...]`` framing.
+
+    hashcat 7.1.2-754 (upstream 836f11de1, 2026-09-20) made ``--stdout`` wrap a
+    candidate in ``$HEX[...]`` whenever ``need_hexify()`` asks for it, matching
+    what the outfile has always done. Before that commit the candidate went out
+    raw, which turned one candidate holding an LF into two lines that no reader
+    could put back together -- the exact ambiguity this file cares about.
+
+    Both framings are accepted on purpose. Pinning only the new one would go red
+    against hashcat <= 7.1.2 release, and pinning only the old one is what broke
+    here. There is no flag to choose: ``--outfile-autohex-disable`` does not
+    reach this path, because the new writer takes its ``always_ascii`` from the
+    hash mode's ``OPTS_TYPE_PT_ALWAYS_ASCII`` rather than from that option.
+
+    The decode cannot misfire on a candidate that merely looks hex-wrapped:
+    ``need_hexify()`` calls ``is_hexify()`` first, so hashcat wraps a literal
+    ``$HEX[41]`` as ``$HEX[244845585b34315d]``. Verified against the binary.
+    """
+    if line.startswith(b"$HEX[") and line.endswith(b"]"):
+        return bytes.fromhex(line[5:-1].decode("ascii"))
+    return line
+
+
 def _candidates(tmp_path, baseword, rule, name="case"):
-    """Return the raw bytes hashcat emits for one baseword under one rule."""
+    """Return the candidates hashcat emits for one baseword under one rule.
+
+    A list of decoded candidates, not the raw stream: splitting the stream is
+    only safe because any candidate containing a line break now arrives hex
+    wrapped, so one candidate really is one line.
+    """
     words = tmp_path / f"{name}.words"
     rules = tmp_path / f"{name}.rule"
     # latin-1 so a high byte round-trips as itself rather than as UTF-8, the
@@ -81,19 +115,32 @@ def _candidates(tmp_path, baseword, rule, name="case"):
         timeout=60,
         check=False,
     )
-    return proc.stdout
+    out = proc.stdout
+    if out == b"":
+        return []
+    # hashcat terminates every candidate, including the last, so the split
+    # leaves one trailing empty element that is framing rather than a candidate.
+    lines = out.split(b"\n")
+    assert lines[-1] == b"", f"unterminated --stdout stream: {out!r}"
+    return [_decode_candidate(line) for line in lines[:-1]]
+
+
+def _one_candidate(tmp_path, baseword, rule, name="case"):
+    """The single candidate the one-word, one-rule harness must produce."""
+    got = _candidates(tmp_path, baseword, rule, name=name)
+    assert len(got) == 1, f"expected exactly one candidate, got {got!r}"
+    return got[0]
 
 
 @_requires_hashcat
 @pytest.mark.parametrize("pw", _CASES)
 def test_hashcat_reproduces_the_password_from_the_derived_pair(tmp_path, pw):
     baseword, rule = rulegen.derive(pw)
-    out = _candidates(tmp_path, baseword, rule)
-    # hashcat terminates each candidate with a newline of its own, so the
-    # expected stream is the password plus that terminator. Compared as bytes:
-    # a candidate that legitimately ends in 0x0a is indistinguishable from a
-    # short one under any line-splitting comparison.
-    assert out == pw.encode("latin-1") + b"\n", (
+    # Compared as bytes, against the one decoded candidate. A password that
+    # legitimately ends in 0x0a is the case this file exists for, and it is
+    # distinguishable from a shorter one only because the framing is undone
+    # before the comparison rather than after a naive line split.
+    assert _one_candidate(tmp_path, baseword, rule) == pw.encode("latin-1"), (
         f"derive({pw!r}) -> ({baseword!r}, {rule!r}) did not round-trip"
     )
 
@@ -104,7 +151,7 @@ def test_every_derived_rule_survives_a_rule_file(tmp_path, pw):
     """A rule hashcat drops produces no candidate at all, and it says nothing
     about it when other rules in the file are valid. Empty output is the tell."""
     baseword, rule = rulegen.derive(pw)
-    assert _candidates(tmp_path, baseword, rule) != b"", (
+    assert _candidates(tmp_path, baseword, rule) != [], (
         f"hashcat rejected {rule!r} outright"
     )
 
@@ -115,10 +162,10 @@ def test_a_raw_line_break_argument_really_is_broken(tmp_path):
     rule and hashcat sees a truncated `$`; a raw CR argument it rejects. If
     either of these ever starts working, the escape is no longer needed and this
     test should be the thing that says so."""
-    assert _candidates(tmp_path, "zorptangle", "$\n", name="rawlf") != (
-        "zorptangle\n".encode("latin-1") + b"\n"
-    )
-    assert _candidates(tmp_path, "zorptangle", "$\r", name="rawcr") == b""
+    assert _candidates(tmp_path, "zorptangle", "$\n", name="rawlf") != [
+        "zorptangle\n".encode("latin-1")
+    ]
+    assert _candidates(tmp_path, "zorptangle", "$\r", name="rawcr") == []
 
 
 @_requires_hashcat
@@ -132,15 +179,50 @@ def test_a_blank_wordlist_line_still_yields_a_candidate(tmp_path):
     for the password it would have produced."""
     baseword, rule = rulegen.derive("\n")
     assert (baseword, rule) == ("", "i0\\x0a")
-    out = _candidates(tmp_path, baseword, rule, name="emptybase")
-    assert out == b"\n\n"
+    assert _one_candidate(tmp_path, baseword, rule, name="emptybase") == b"\n"
 
 
 @_requires_hashcat
 def test_the_escape_is_what_hashcat_decodes_it_to(tmp_path):
     """Pin the mechanism rather than just the outcome: hashcat turns \\xNN into
     one byte, which is the only reason a line break is expressible."""
-    assert _candidates(tmp_path, "zorptangle", "$\\x0a") == b"zorptangle\n\n"
-    assert _candidates(tmp_path, "zorptangle", "$\\x0d") == b"zorptangle\r\n"
+    assert _one_candidate(tmp_path, "zorptangle", "$\\x0a") == b"zorptangle\n"
+    assert _one_candidate(tmp_path, "zorptangle", "$\\x0d") == b"zorptangle\r"
     # And an ordinary byte spelled the same way, to show the decode is general.
-    assert _candidates(tmp_path, "zorptangle", "$\\x41") == b"zorptangleA\n"
+    # This one also stays unwrapped on the wire, which is the control showing
+    # the $HEX[...] framing above is driven by the byte and not applied blanket.
+    assert _one_candidate(tmp_path, "zorptangle", "$\\x41") == b"zorptangleA"
+
+
+# --- the decoder itself, without hashcat -------------------------------------
+#
+# Everything above needs hashcat on PATH, and CI has none -- the whole file is
+# skipped there. So the framing decode, which is the part that broke, had no
+# automated cover at all on the machine that gates merges. These run anywhere.
+
+
+@pytest.mark.parametrize(
+    ("line", "expected"),
+    [
+        # Unwrapped: what hashcat emits for a candidate needing no framing, and
+        # what every hashcat before 836f11de1 emitted for all of them.
+        (b"zorptangle", b"zorptangle"),
+        (b"", b""),
+        # Wrapped, which is the whole point: the payload holds the line break
+        # that cannot survive the stream any other way.
+        (b"$HEX[7a6f727074616e676c650a]", b"zorptangle\n"),
+        (b"$HEX[0a]", b"\n"),
+        (b"$HEX[]", b""),
+        # A candidate that is itself literally "$HEX[41]" arrives double
+        # wrapped, so decoding once yields the literal rather than "A".
+        # hashcat guarantees this by calling is_hexify() inside need_hexify().
+        (b"$HEX[244845585b34315d]", b"$HEX[41]"),
+        # Near misses stay verbatim -- a decode keyed on a loose prefix match
+        # would corrupt these into something that never appeared on the wire.
+        (b"$HEX[41", b"$HEX[41"),
+        (b"HEX[41]", b"HEX[41]"),
+        (b"x$HEX[41]", b"x$HEX[41]"),
+    ],
+)
+def test_decode_candidate_accepts_both_framings(line, expected):
+    assert _decode_candidate(line) == expected
