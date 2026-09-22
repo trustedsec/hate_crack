@@ -58,8 +58,15 @@ updates:
       - dependency-name: "instructor"
       - dependency-name: "openai"
         update-types: ["version-update:semver-major"]
-    # "chore" deliberately does NOT match the feat|fix|perf patterns in
-    # .github/workflows/auto-tag.yml, so dependency PRs never auto-cut a tag.
+    # "chore" deliberately does NOT match the feat subject pattern in
+    # tools/next_version.py, so a dependency batch stays a PATCH bump instead of
+    # being promoted to a minor.
+    #
+    # It does NOT mean dependency PRs never cut a tag: target_version() in that
+    # module returns patch + 1 for any non-empty batch without a feat, so a
+    # merge to main containing only chore(deps) commits still cuts a release.
+    # This comment used to claim otherwise, which was true only under the
+    # pre-2026-07-31 bump-pattern scheme.
     commit-message:
       prefix: "chore(deps)"
       prefix-development: "chore(deps-dev)"
@@ -72,7 +79,9 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
-    # "chore(ci)" deliberately does NOT match the feat|fix|perf patterns in
-    # .github/workflows/auto-tag.yml, so dependency PRs never auto-cut a tag.
+    # "chore(ci)" deliberately does NOT match the feat subject pattern in
+    # tools/next_version.py, so an actions batch stays a PATCH bump rather than
+    # being promoted to a minor. It still cuts a tag on a merge to main -- see
+    # the note on the uv entry above.
     commit-message:
       prefix: "chore(ci)"

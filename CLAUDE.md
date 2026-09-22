@@ -479,11 +479,31 @@ for the bot tags above.
 
 Two further consequences to keep in mind:
 
-- **Dependabot still targets `main`.** Its PRs are exempt from the branching
-  policy unless `target-branch: nightly-dev` is added to each entry in
-  `.github/dependabot.yml`. Note that a Dependabot merge to `main` **does** cut
-  a release — a patch, since `chore(deps)` is not a feature. Under the older
-  no-bump-pattern scheme it cut nothing at all.
+- **Dependabot targets `nightly-dev`, like everything else.** Both entries in
+  `.github/dependabot.yml` carry `target-branch: "nightly-dev"`, so its PRs are
+  on the same path as any other work branch and get no exemption from the
+  branching policy. This section used to say the opposite — that Dependabot
+  still targeted `main` and was exempt "unless `target-branch` is added" — and
+  that was stale: the key is present on both the `uv` and `github-actions`
+  entries.
+
+  Two things follow that are easy to get wrong:
+
+  - **Its PRs land by local fast-forward too, not with the merge button.** A
+    Dependabot branch is almost always based on an older `nightly-dev`, so
+    `--ff-only` refuses. Comment `@dependabot rebase` on the PR and wait for it
+    to force-push, rather than force-pushing its branch yourself or falling back
+    to a merge commit. Because each fast-forward moves `nightly-dev`, a batch of
+    them is inherently serial: merge one, push, then re-request a rebase on the
+    rest.
+  - **A `chore(deps)` merge to `main` does cut a release** — a patch.
+    `tools/next_version.py:106` returns `patch + 1` for any non-empty batch
+    without a `feat`; it never returns "no bump". The comments in
+    `.github/dependabot.yml` that say the `chore(deps)` / `chore(ci)` prefixes
+    mean "dependency PRs never auto-cut a tag" describe the pre-2026-07-31
+    bump-pattern scheme and are wrong under the current policy. What the prefix
+    actually buys is that the batch stays a *patch* instead of being promoted to
+    a minor.
 - **A security fix that must ship immediately** can go straight to `main` as
   its own PR, then be merged down into `nightly-dev` to keep the branches from
   diverging. Say so explicitly in the PR body when doing this.
