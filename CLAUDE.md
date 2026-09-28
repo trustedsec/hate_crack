@@ -658,8 +658,13 @@ Alongside the interactive menu, `main.py` exposes scripted entry points:
     because of a blocking `while True: input()` with no default. It now takes
     `company_name=None`; the prompt runs only when that is unset.
   - **Menu 6 "Combinator Attacks" is a submenu of four** (combinator, YOLO,
-    middle, thorough). The `combinator` subcommand wires `hcatCombination`
-    only.
+    middle, thorough). The `combinator` subcommand covers the first, and
+    **routes by wordlist count exactly as `attacks.combinator_crack` does** —
+    two to `hcatCombination`, three to `hcatCombinator3`, anything else, or
+    any `--separator`, to `hcatCombinatorX`. That routing is not cosmetic:
+    `hcatCombination` slices to `wordlists[:2]` (`main.py:4865`), so sending
+    it three silently drops the third. YOLO, middle and thorough have no
+    subcommand.
 
   Flags follow the kebab-case of the underlying `hcat*` parameter, and an
   omitted flag passes the function's own default rather than restating it
