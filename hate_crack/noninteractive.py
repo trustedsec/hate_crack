@@ -3,12 +3,32 @@
 These helpers translate parsed argparse namespaces into calls against the
 existing ``hcat*`` attack functions on the main module (passed in as ``ctx``,
 the same pattern ``attacks.py`` uses).
+
+Every subcommand is one :class:`AttackSpec` in :data:`ATTACK_SPECS`. That table
+is the single source of truth: ``ATTACK_COMMANDS`` is derived from it and both
+``add_attack_subparsers`` and ``_dispatch`` are driven off it. Keeping the
+three in one place matters because ``main.py`` sets its ``non_interactive``
+global from membership in ``ATTACK_COMMANDS`` -- a name registered as a
+subparser but missing from that tuple would run the attack with every
+interactive prompt still live, waiting on a stdin nobody is attached to.
 """
 
 import os
-from typing import Any
+from typing import Any, Callable, NamedTuple
 
-ATTACK_COMMANDS = ("quick", "dict", "brute", "topmask")
+
+class AttackSpec(NamedTuple):
+    """One non-interactive subcommand.
+
+    ``add_arguments`` receives the subparser (the shared ``hashfile`` and
+    ``hashtype`` positionals are added for it). ``run`` receives ``(ctx,
+    args)`` and returns a process exit code.
+    """
+
+    name: str
+    help: str
+    add_arguments: Callable[[Any], None] | None
+    run: Callable[[Any, Any], int]
 
 
 def build_rule_chains(ctx: Any, rule_tokens: list[str] | None) -> list[str]:
@@ -81,64 +101,323 @@ def run_noninteractive(ctx: Any, args: Any) -> int:
 
 
 def _dispatch(ctx: Any, args: Any) -> int:
-    command = args.command
+    spec = _SPECS_BY_NAME.get(getattr(args, "command", None))
+    if spec is None:
+        print(f"Error: unknown non-interactive command: {args.command}")
+        return 2
+    return spec.run(ctx, args)
 
-    if command == "quick":
-        wordlist = ctx.resolve_path(args.wordlist)
-        if not wordlist or not os.path.isfile(wordlist):
-            print(f"Error: wordlist not found: {args.wordlist}")
-            return 1
+
+# ---------------------------------------------------------------------------
+# Shared input validation
+#
+# Every one of these returns the resolved value or raises _BadInput, which the
+# runners turn into exit 1. Validating up front rather than letting the attack
+# function bail halfway matters for a scripted caller: a run that dies after
+# launching looks the same as one that never started unless the exit code
+# distinguishes them.
+# ---------------------------------------------------------------------------
+
+
+class _BadInput(Exception):
+    """A CLI argument that cannot produce a usable attack."""
+
+
+def _validated(fn: Callable[[Any, Any], int]) -> Callable[[Any, Any], int]:
+    """Turn a _BadInput raised by a runner into exit 1 plus a message."""
+
+    def _wrapper(ctx: Any, args: Any) -> int:
         try:
-            chains = build_rule_chains(ctx, args.rule_files)
-        except (FileNotFoundError, ValueError) as exc:
-            print(f"Error: invalid --rules value: {exc}")
+            return fn(ctx, args)
+        except _BadInput as exc:
+            print(f"Error: {exc}")
             return 1
-        for chain in chains:
-            ctx.hcatQuickDictionary(
-                ctx.hcatHashType,
-                ctx.hcatHashFile,
-                chain,
-                wordlist,
-                attack_name="Quick Crack",
-            )
-        return 0
 
-    if command == "dict":
-        ctx.hcatDictionary(ctx.hcatHashType, ctx.hcatHashFile)
-        return 0
+    _wrapper.__name__ = fn.__name__
+    _wrapper.__doc__ = fn.__doc__
+    return _wrapper
 
-    if command == "brute":
-        ctx.hcatBruteForce(
-            ctx.hcatHashType, ctx.hcatHashFile, args.min_len, args.max_len
+
+def _existing_file(ctx: Any, raw: str, label: str) -> str:
+    path = ctx.resolve_path(raw)
+    if not path or not os.path.isfile(path):
+        raise _BadInput(f"{label} not found: {raw}")
+    return path
+
+
+def _positive_int(value: int, label: str) -> int:
+    if value <= 0:
+        raise _BadInput(f"{label} must be greater than 0")
+    return value
+
+
+def _rule_chains(ctx: Any, tokens: list[str] | None) -> list[str]:
+    try:
+        return build_rule_chains(ctx, tokens)
+    except (FileNotFoundError, ValueError) as exc:
+        raise _BadInput(f"invalid --rules value: {exc}") from exc
+
+
+def _target(ctx: Any) -> tuple[Any, Any]:
+    return ctx.hcatHashType, ctx.hcatHashFile
+
+
+# ---------------------------------------------------------------------------
+# Runners -- the original four
+# ---------------------------------------------------------------------------
+
+
+@_validated
+def _run_quick(ctx: Any, args: Any) -> int:
+    wordlist = _existing_file(ctx, args.wordlist, "wordlist")
+    for chain in _rule_chains(ctx, args.rule_files):
+        ctx.hcatQuickDictionary(
+            *_target(ctx), chain, wordlist, attack_name="Quick Crack"
         )
+    return 0
+
+
+def _run_dict(ctx: Any, args: Any) -> int:
+    ctx.hcatDictionary(*_target(ctx))
+    return 0
+
+
+def _run_brute(ctx: Any, args: Any) -> int:
+    ctx.hcatBruteForce(*_target(ctx), args.min_len, args.max_len)
+    return 0
+
+
+def _run_topmask(ctx: Any, args: Any) -> int:
+    ctx.hcatTopMask(*_target(ctx), args.target_time * 3600)
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Runners -- no-argument tier (#340)
+# ---------------------------------------------------------------------------
+
+
+@_validated
+def _run_fingerprint(ctx: Any, args: Any) -> int:
+    # The interactive prompt enforces 7-36 before calling; a scripted run that
+    # skipped the check would hand hashcat an expander length that quietly
+    # produces nothing rather than failing.
+    if not 7 <= args.max_expander_len <= 36:
+        raise _BadInput("--max-expander-len must be between 7 and 36")
+    if args.keyspace_limit is not None and args.keyspace_limit < 0:
+        raise _BadInput("--keyspace-limit must be zero (no limit) or greater")
+
+    if args.no_dictionary_wordlist:
+        # "" means skip, which is distinct from None ("fall back to config").
+        dictionary_wordlist: str | None = ""
+    elif args.dictionary_wordlist:
+        dictionary_wordlist = _existing_file(
+            ctx, args.dictionary_wordlist, "dictionary wordlist"
+        )
+    else:
+        dictionary_wordlist = None
+
+    ctx.hcatFingerprint(
+        *_target(ctx),
+        max_expander_len=args.max_expander_len,
+        run_hybrid_on_expanded=args.run_hybrid_on_expanded,
+        dictionary_wordlist=dictionary_wordlist,
+        keyspace_limit=args.keyspace_limit,
+    )
+    return 0
+
+
+def _run_bare(func_name: str) -> Callable[[Any, Any], int]:
+    """Runner for an attack taking only hashtype + hashfile."""
+
+    def _run(ctx: Any, args: Any) -> int:
+        getattr(ctx, func_name)(*_target(ctx))
         return 0
 
-    if command == "topmask":
-        ctx.hcatTopMask(ctx.hcatHashType, ctx.hcatHashFile, args.target_time * 3600)
-        return 0
-
-    print(f"Error: unknown non-interactive command: {command}")
-    return 2
+    return _run
 
 
-def add_attack_subparsers(subparsers) -> None:
-    """Register the non-interactive attack subcommands on an argparse
-    subparsers object (the same one used for ``hashview``).
+def _run_smartmask(ctx: Any, args: Any) -> int:
+    if args.keyspace_limit is not None and args.keyspace_limit < 0:
+        print("Error: --keyspace-limit must be zero (no limit) or greater")
+        return 1
+    ctx.hcatSmartMask(*_target(ctx), keyspace_limit=args.keyspace_limit)
+    return 0
 
-    Each subcommand carries its own required ``hashfile`` + ``hashtype``
-    positionals plus attack-specific flags.
+
+def _run_corporate(ctx: Any, args: Any) -> int:
+    # Passed only when set, so hcatCorporateMasks applies its own documented
+    # defaults (and its own clamping to the 8-14 corporate range) rather than
+    # this module duplicating those constants.
+    kwargs = {}
+    if args.min_len is not None:
+        kwargs["minLen"] = args.min_len
+    if args.max_len is not None:
+        kwargs["maxLen"] = args.max_len
+    ctx.hcatCorporateMasks(*_target(ctx), **kwargs)
+    return 0
+
+
+def _wordlist_runner(func_name: str, minimum: int) -> Callable[[Any, Any], int]:
+    """Runner for an attack whose wordlists default to a configured list.
+
+    ``None`` is the sentinel both hcatCombination and hcatHybrid use for "fall
+    back to config", so an unset --wordlist must pass None rather than [].
     """
 
-    def _add_target(p):
-        p.add_argument("hashfile", help="Path to hash file to crack")
-        p.add_argument("hashtype", help="Hashcat hash type (e.g. 1000 for NTLM)")
+    @_validated
+    def _run(ctx: Any, args: Any) -> int:
+        if not args.wordlists:
+            wordlists = None
+        else:
+            if len(args.wordlists) < minimum:
+                raise _BadInput(
+                    f"--wordlist needs at least {minimum} entries for this attack"
+                )
+            wordlists = [_existing_file(ctx, w, "wordlist") for w in args.wordlists]
+        getattr(ctx, func_name)(*_target(ctx), wordlists=wordlists)
+        return 0
 
-    quick = subparsers.add_parser(
-        "quick", help="Non-interactive quick crack (single wordlist + optional rules)"
+    return _run
+
+
+# ---------------------------------------------------------------------------
+# Runners -- one-argument tier (#340)
+# ---------------------------------------------------------------------------
+
+
+@_validated
+def _run_bandrel(ctx: Any, args: Any) -> int:
+    company = args.company.strip()
+    if not company:
+        raise _BadInput("--company must not be blank")
+    ctx.hcatBandrel(*_target(ctx), company_name=company)
+    return 0
+
+
+@_validated
+def _run_permute(ctx: Any, args: Any) -> int:
+    ctx.hcatPermute(*_target(ctx), _existing_file(ctx, args.wordlist, "wordlist"))
+    return 0
+
+
+@_validated
+def _run_adhocmask(ctx: Any, args: Any) -> int:
+    inc_min = args.increment_min
+    inc_max = args.increment_max
+    increment = bool(inc_min or inc_max)
+    if inc_min and inc_max and int(inc_min) > int(inc_max):
+        raise _BadInput("--increment-min must not exceed --increment-max")
+    ctx.hcatAdHocMask(
+        *_target(ctx),
+        args.mask,
+        increment=increment,
+        increment_min=inc_min or "",
+        increment_max=inc_max or "",
     )
-    _add_target(quick)
-    quick.add_argument("--wordlist", required=True, help="Path to wordlist file")
-    quick.add_argument(
+    return 0
+
+
+@_validated
+def _run_ngram(ctx: Any, args: Any) -> int:
+    corpus = _existing_file(ctx, args.corpus, "corpus")
+    ctx.hcatNgramX(
+        *_target(ctx), corpus, group_size=_positive_int(args.group_size, "--group-size")
+    )
+    return 0
+
+
+#: combipow enumerates 2^n-1 combinations, so the interactive path refuses a
+#: wordlist over this many lines. The scripted path refuses too rather than
+#: launching a run that cannot finish.
+COMBIPOW_MAX_LINES = 63
+
+
+@_validated
+def _run_combipow(ctx: Any, args: Any) -> int:
+    wordlist = _existing_file(ctx, args.wordlist, "wordlist")
+    with ctx._open_wordlist(wordlist) as fh:
+        line_count = sum(1 for _ in fh)
+    if line_count > COMBIPOW_MAX_LINES:
+        raise _BadInput(
+            f"wordlist has {line_count} lines (max {COMBIPOW_MAX_LINES}); "
+            "combipow generates 2^n-1 combinations"
+        )
+    ctx.hcatCombipow(*_target(ctx), wordlist, not args.no_spaces)
+    return 0
+
+
+@_validated
+def _run_spoonman(ctx: Any, args: Any) -> int:
+    corpus = _existing_file(ctx, args.corpus, "corpus")
+    ctx.hcatSpoonman(
+        *_target(ctx),
+        corpus,
+        coverage=args.rule_coverage,
+        baseword_cap=args.baseword_cap,
+    )
+    return 0
+
+
+@_validated
+def _run_omen(ctx: Any, args: Any) -> int:
+    max_candidates = _positive_int(args.max_candidates, "--max-candidates")
+    # The interactive handler offers to train a model here. Training needs its
+    # own corpus and runs for a long time, so a scripted caller that asked for
+    # an attack gets an error rather than a surprise training run.
+    if not ctx._omen_model_is_valid(ctx._omen_model_dir()):
+        raise _BadInput(
+            "no valid OMEN model found; train one from the interactive menu "
+            "(option 13) before running this subcommand"
+        )
+    ctx.hcatOmen(*_target(ctx), max_candidates)
+    return 0
+
+
+@_validated
+def _run_loopback(ctx: Any, args: Any) -> int:
+    """Re-run rules against the plaintexts already cracked for this hash file.
+
+    Mirrors ``attacks.loopback_attack``: an empty wordlist plus
+    ``hcatQuickDictionary(loopback=True)``, which makes hashcat feed its own
+    potfile back in. It deliberately does not call ``hcatRecycle`` -- that
+    function's third argument is a count of newly cracked passwords used as an
+    internal gate by ``extensive_crack``, and has no meaning for a caller
+    choosing to run a loopback pass.
+    """
+    chains = _rule_chains(ctx, args.rule_files)
+
+    empty_wordlist = os.path.join(ctx.hcatWordlists, "empty.txt")
+    os.makedirs(ctx.hcatWordlists, exist_ok=True)
+    if not os.path.exists(empty_wordlist):
+        with open(empty_wordlist, "w"):
+            pass
+
+    # Primed once against the combined coverage of every selected rule file, so
+    # the skip decision reflects the whole batch rather than the first chain's
+    # numbers alone -- same reason attacks.loopback_attack does it.
+    coverage_decision = ctx._prime_coverage_decision(
+        ctx.hcatHashFile, chains, empty_wordlist, "Loopback", loopback=True
+    )
+    for chain in chains:
+        ctx.hcatQuickDictionary(
+            *_target(ctx),
+            chain,
+            empty_wordlist,
+            loopback=True,
+            attack_name="Loopback",
+            coverage_decision=coverage_decision,
+        )
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Argument builders
+# ---------------------------------------------------------------------------
+
+
+def _add_rules(p) -> None:
+    p.add_argument(
         "--rules",
         nargs="*",
         default=[],
@@ -148,29 +427,321 @@ def add_attack_subparsers(subparsers) -> None:
         "(e.g. best64.rule+d3ad0ne.rule). Omit to run without rules.",
     )
 
-    dictp = subparsers.add_parser(
-        "dict",
-        help="Non-interactive dictionary methodology (uses configured wordlists)",
-    )
-    _add_target(dictp)
 
-    brute = subparsers.add_parser(
-        "brute", help="Non-interactive brute force (mask) attack"
+def _add_keyspace_limit(p, subject: str) -> None:
+    p.add_argument(
+        "--keyspace-limit",
+        type=int,
+        default=None,
+        dest="keyspace_limit",
+        help=f"Skip a {subject} that would exceed this many candidates "
+        "(0 for no limit; omit for the built-in default of 50,000,000,000).",
     )
-    _add_target(brute)
-    brute.add_argument(
+
+
+def _add_wordlists(p, subject: str) -> None:
+    p.add_argument(
+        "--wordlist",
+        nargs="+",
+        default=[],
+        dest="wordlists",
+        metavar="PATH",
+        help=f"Wordlist(s) for the {subject}. Omit to use the configured "
+        "default from config.json.",
+    )
+
+
+def _quick_args(p) -> None:
+    p.add_argument("--wordlist", required=True, help="Path to wordlist file")
+    _add_rules(p)
+
+
+def _brute_args(p) -> None:
+    p.add_argument(
         "--min", type=int, default=1, dest="min_len", help="Minimum length (default 1)"
     )
-    brute.add_argument(
+    p.add_argument(
         "--max", type=int, default=7, dest="max_len", help="Maximum length (default 7)"
     )
 
-    topmask = subparsers.add_parser("topmask", help="Non-interactive top-mask attack")
-    _add_target(topmask)
-    topmask.add_argument(
+
+def _topmask_args(p) -> None:
+    p.add_argument(
         "--target-time",
         type=int,
         default=4,
         dest="target_time",
         help="Target completion time in hours (default 4)",
     )
+
+
+def _fingerprint_args(p) -> None:
+    p.add_argument(
+        "--max-expander-len",
+        type=int,
+        default=21,
+        dest="max_expander_len",
+        help="Maximum expander fragment length to escalate to, 7-36 (default 21)",
+    )
+    p.add_argument(
+        "--run-hybrid-on-expanded",
+        action="store_true",
+        dest="run_hybrid_on_expanded",
+        help="Also run hybrid passes over the expanded fragments",
+    )
+    p.add_argument(
+        "--dictionary-wordlist",
+        default=None,
+        dest="dictionary_wordlist",
+        help="Wordlist to combine expanded fragments against. Omit to use the "
+        "configured default.",
+    )
+    p.add_argument(
+        "--no-dictionary-wordlist",
+        action="store_true",
+        dest="no_dictionary_wordlist",
+        help="Skip the fragment/wordlist combination step entirely, rather "
+        "than falling back to the configured wordlist.",
+    )
+    _add_keyspace_limit(p, "combination step")
+
+
+def _smartmask_args(p) -> None:
+    _add_keyspace_limit(p, "template")
+
+
+def _corporate_args(p) -> None:
+    p.add_argument(
+        "--min",
+        type=int,
+        default=None,
+        dest="min_len",
+        help="Minimum mask length (clamped to the corporate 8-14 range)",
+    )
+    p.add_argument(
+        "--max",
+        type=int,
+        default=None,
+        dest="max_len",
+        help="Maximum mask length (clamped to the corporate 8-14 range)",
+    )
+
+
+def _bandrel_args(p) -> None:
+    p.add_argument(
+        "--company",
+        required=True,
+        help="Company name(s), comma separated for multiples",
+    )
+
+
+def _permute_args(p) -> None:
+    p.add_argument(
+        "--wordlist",
+        required=True,
+        help="Path to a short targeted wordlist (scales as N! per word)",
+    )
+
+
+def _adhocmask_args(p) -> None:
+    p.add_argument(
+        "--mask",
+        required=True,
+        help="A hashcat mask (e.g. ?u?l?l?l?d?d) or a path to a .hcmask file",
+    )
+    p.add_argument(
+        "--increment-min",
+        default="",
+        dest="increment_min",
+        help="Enable mask increment starting at this length",
+    )
+    p.add_argument(
+        "--increment-max",
+        default="",
+        dest="increment_max",
+        help="Enable mask increment stopping at this length",
+    )
+
+
+def _ngram_args(p) -> None:
+    p.add_argument("--corpus", required=True, help="Path to the corpus file")
+    p.add_argument(
+        "--group-size",
+        type=int,
+        default=3,
+        dest="group_size",
+        help="N-gram group size (default 3)",
+    )
+
+
+def _combipow_args(p) -> None:
+    p.add_argument(
+        "--wordlist",
+        required=True,
+        help=f"Path to a wordlist of at most {COMBIPOW_MAX_LINES} lines",
+    )
+    p.add_argument(
+        "--no-spaces",
+        action="store_true",
+        dest="no_spaces",
+        help="Join words directly instead of separating them with spaces",
+    )
+
+
+def _spoonman_args(p) -> None:
+    p.add_argument(
+        "--corpus",
+        required=True,
+        help="Path to a password corpus to derive basewords and rules from",
+    )
+    p.add_argument(
+        "--rule-coverage",
+        type=int,
+        default=None,
+        dest="rule_coverage",
+        help="Use the capped rule file reaching this percent of the corpus "
+        "(e.g. 95); omit for the full rule set.",
+    )
+    p.add_argument(
+        "--baseword-cap",
+        type=int,
+        default=None,
+        dest="baseword_cap",
+        help="Keep at most this many derived basewords",
+    )
+
+
+def _omen_args(p) -> None:
+    p.add_argument(
+        "--max-candidates",
+        type=int,
+        required=True,
+        dest="max_candidates",
+        help="Maximum number of candidates for OMEN to enumerate",
+    )
+
+
+# ---------------------------------------------------------------------------
+# The table
+# ---------------------------------------------------------------------------
+
+ATTACK_SPECS: tuple[AttackSpec, ...] = (
+    AttackSpec(
+        "quick",
+        "Non-interactive quick crack (single wordlist + optional rules)",
+        _quick_args,
+        _run_quick,
+    ),
+    AttackSpec(
+        "dict",
+        "Non-interactive dictionary methodology (uses configured wordlists)",
+        None,
+        _run_dict,
+    ),
+    AttackSpec(
+        "brute", "Non-interactive brute force (mask) attack", _brute_args, _run_brute
+    ),
+    AttackSpec(
+        "topmask", "Non-interactive top-mask attack", _topmask_args, _run_topmask
+    ),
+    # --- no-argument tier ---
+    AttackSpec(
+        "fingerprint",
+        "Fingerprint attack (expand cracked plaintexts into fragments)",
+        _fingerprint_args,
+        _run_fingerprint,
+    ),
+    AttackSpec(
+        "combinator",
+        "Combinator attack (concatenate two or more wordlists)",
+        lambda p: _add_wordlists(p, "combinator attack (at least two)"),
+        _wordlist_runner("hcatCombination", minimum=2),
+    ),
+    AttackSpec(
+        "hybrid",
+        "Hybrid attack (wordlist + mask, hashcat modes 6 and 7)",
+        lambda p: _add_wordlists(p, "hybrid attack"),
+        _wordlist_runner("hcatHybrid", minimum=1),
+    ),
+    AttackSpec(
+        "pathwell",
+        "Pathwell top-100 mask brute force",
+        None,
+        _run_bare("hcatPathwellBruteForce"),
+    ),
+    AttackSpec("prince", "PRINCE attack", None, _run_bare("hcatPrince")),
+    AttackSpec("pcfg", "PCFG attack", None, _run_bare("hcatPCFG")),
+    AttackSpec("princeling", "PRINCE-LING attack", None, _run_bare("hcatPrinceLing")),
+    AttackSpec(
+        "smartmask",
+        "Smart mask attack (masks derived from cracked plaintext patterns)",
+        _smartmask_args,
+        _run_smartmask,
+    ),
+    AttackSpec(
+        "corporate",
+        "Corporate masks brute force (statistical 8-14 character masks)",
+        _corporate_args,
+        _run_corporate,
+    ),
+    # --- one-argument tier ---
+    AttackSpec(
+        "bandrel",
+        "Bandrel methodology (company-name basewords plus masks)",
+        _bandrel_args,
+        _run_bandrel,
+    ),
+    AttackSpec(
+        "permute",
+        "Permutation attack (all character permutations of each word)",
+        _permute_args,
+        _run_permute,
+    ),
+    AttackSpec("adhocmask", "Ad-hoc mask attack", _adhocmask_args, _run_adhocmask),
+    AttackSpec(
+        "ngram",
+        "N-gram attack (candidates generated from a corpus)",
+        _ngram_args,
+        _run_ngram,
+    ),
+    AttackSpec(
+        "combipow",
+        "Combipow passphrase attack (all combinations of a short wordlist)",
+        _combipow_args,
+        _run_combipow,
+    ),
+    AttackSpec(
+        "spoonman",
+        "Spoonman attack (basewords and rules derived from a corpus)",
+        _spoonman_args,
+        _run_spoonman,
+    ),
+    AttackSpec(
+        "omen", "OMEN attack (Ordered Markov ENumerator)", _omen_args, _run_omen
+    ),
+    AttackSpec(
+        "loopback",
+        "Loopback attack (re-run rules against already-cracked plaintexts)",
+        _add_rules,
+        _run_loopback,
+    ),
+)
+
+ATTACK_COMMANDS: tuple[str, ...] = tuple(spec.name for spec in ATTACK_SPECS)
+
+_SPECS_BY_NAME: dict[str, AttackSpec] = {spec.name: spec for spec in ATTACK_SPECS}
+
+
+def add_attack_subparsers(subparsers) -> None:
+    """Register the non-interactive attack subcommands on an argparse
+    subparsers object (the same one used for ``hashview``).
+
+    Each subcommand carries its own required ``hashfile`` + ``hashtype``
+    positionals plus attack-specific flags.
+    """
+    for spec in ATTACK_SPECS:
+        parser = subparsers.add_parser(spec.name, help=spec.help)
+        parser.add_argument("hashfile", help="Path to hash file to crack")
+        parser.add_argument("hashtype", help="Hashcat hash type (e.g. 1000 for NTLM)")
+        if spec.add_arguments is not None:
+            spec.add_arguments(parser)

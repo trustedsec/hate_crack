@@ -5306,19 +5306,30 @@ def hcatYoloCombination(hcatHashType, hcatHashFile):
 
 
 # Bandrel methodlogy
-def hcatBandrel(hcatHashType, hcatHashFile):
+def hcatBandrel(hcatHashType, hcatHashFile, company_name=None):
+    """Bandrel methodology: company-name basewords crossed with masks.
+
+    ``company_name`` is comma-separated for multiple companies. Passing it
+    skips the prompt, which is what makes the attack drivable from the
+    ``bandrel`` non-interactive subcommand -- the prompt loop below cannot
+    take a default, so a scripted run would otherwise raise EOFError inside
+    it (issue #340).
+    """
     global hcatProcess
     basewords = []
-    while True:
+    while not (company_name or "").strip():
         company_name = input(
             "What is the company name (Enter multiples comma separated)? "
         )
-        if company_name:
-            break
+    # Stripped because the list is comma-separated: "Acme, Globex" otherwise
+    # yields " Globex", whose first character is a space, and the masks below
+    # are built from name[0]/name[1:].
     for name in company_name.split(","):
-        basewords.append(name)
+        if name.strip():
+            basewords.append(name.strip())
     for word in bandrelbasewords.split(","):
-        basewords.append(word)
+        if word.strip():
+            basewords.append(word.strip())
     for name in basewords:
         mask1 = "-1{0}{1}".format(name[0].lower(), name[0].upper())
         mask2 = " ?1{0}".format(name[1:])

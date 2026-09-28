@@ -215,6 +215,94 @@ hate_crack brute hashes.txt 1000 --min 1 --max 8
 hate_crack topmask hashes.txt 1000 --target-time 4
 ```
 
+Most of the menu's attacks are available the same way. These need nothing
+beyond the hash file and hash type:
+
+```bash
+hate_crack fingerprint hashes.txt 1000
+hate_crack pathwell    hashes.txt 1000
+hate_crack prince      hashes.txt 1000
+hate_crack pcfg        hashes.txt 1000
+hate_crack princeling  hashes.txt 1000
+hate_crack smartmask   hashes.txt 1000
+hate_crack corporate   hashes.txt 1000
+hate_crack combinator  hashes.txt 1000     # configured wordlists
+hate_crack hybrid      hashes.txt 1000     # configured wordlists
+```
+
+Each also accepts the settings its menu entry prompts for:
+
+```bash
+# Fingerprint, tuned: escalate to 24-character fragments and cap the keyspace
+hate_crack fingerprint hashes.txt 1000 --max-expander-len 24 \
+    --run-hybrid-on-expanded --keyspace-limit 50000000000
+
+# Skip the fragment/wordlist combination step entirely
+hate_crack fingerprint hashes.txt 1000 --no-dictionary-wordlist
+
+# Override the configured wordlists (combinator needs at least two)
+hate_crack combinator hashes.txt 1000 --wordlist first.txt second.txt
+hate_crack hybrid     hashes.txt 1000 --wordlist rockyou.txt
+
+# Corporate masks, lengths 8-12 only
+hate_crack corporate hashes.txt 1000 --min 8 --max 12
+
+# Smart mask, skipping templates over 10 billion candidates
+hate_crack smartmask hashes.txt 1000 --keyspace-limit 10000000000
+```
+
+The rest take the one input their menu entry asks for:
+
+```bash
+# Bandrel methodology (comma-separate multiple companies)
+hate_crack bandrel hashes.txt 1000 --company "Acme,Acme Corp"
+
+# Permutation attack over a short targeted wordlist
+hate_crack permute hashes.txt 1000 --wordlist names.txt
+
+# Ad-hoc mask -- a literal mask or a .hcmask file, optionally incrementing
+hate_crack adhocmask hashes.txt 1000 --mask '?u?l?l?l?d?d'
+hate_crack adhocmask hashes.txt 1000 --mask masks/corporate.hcmask
+hate_crack adhocmask hashes.txt 1000 --mask '?a?a?a?a?a?a?a?a' \
+    --increment-min 4 --increment-max 8
+
+# N-gram candidates from a corpus
+hate_crack ngram hashes.txt 1000 --corpus corpus.txt --group-size 3
+
+# Combipow passphrases (wordlist capped at 63 lines: it generates 2^n-1)
+hate_crack combipow hashes.txt 1000 --wordlist words.txt
+hate_crack combipow hashes.txt 1000 --wordlist words.txt --no-spaces
+
+# Spoonman: basewords and rules derived from a corpus of known passwords
+hate_crack spoonman hashes.txt 1000 --corpus previous-engagement.txt
+hate_crack spoonman hashes.txt 1000 --corpus previous.txt --rule-coverage 95
+
+# OMEN -- requires a model trained beforehand from the interactive menu
+hate_crack omen hashes.txt 1000 --max-candidates 1000000
+
+# Loopback: re-run rules against the plaintexts already cracked
+hate_crack loopback hashes.txt 1000 --rules best64.rule
+```
+
+Five menu entries are still interactive-only, because they need input a single
+flag cannot carry: Markov brute force, Random Rules, the Rosetta attack, the
+LLM attack, and the Extensive Pure_Hate methodology (an orchestrator over the
+others rather than a single attack).
+
+#### Exit codes
+
+| Code | Meaning |
+|---|---|
+| `0` | The attack ran |
+| `1` | Bad input — missing hash file or wordlist, non-numeric hash type, unknown rule filename, out-of-range argument |
+| `2` | Unknown subcommand — this build of hate_crack does not have it |
+| `3` | Only with `--exit-code-on-skip`: coverage had already seen every pass, so nothing was launched |
+
+Exit `2` and exit `3` are what let a scripted driver tell "this version cannot
+run that attack" and "it was redundant" apart from "it ran and found nothing".
+`--exit-code-on-skip` is opt-in so that enabling coverage does not start
+failing harnesses that predate it.
+
 -------------------------------------------------------------------
 ## Troubleshooting
 

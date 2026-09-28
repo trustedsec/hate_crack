@@ -630,10 +630,44 @@ notification prompt's `input()` call.
 
 Alongside the interactive menu, `main.py` exposes scripted entry points:
 
-- **Scripted attacks** — `quick | dict | brute | topmask` subcommands
-  (`hate_crack/noninteractive.py`'s `ATTACK_COMMANDS`), with `--wordlist`,
-  `--rules` (supports `a+b` chaining and multi-token passes), `--min`/`--max`,
-  `--target-time`.
+- **Scripted attacks** — 21 subcommands covering all but five of the menu
+  attacks (#340). Every one is a row in `hate_crack/noninteractive.py`'s
+  **`ATTACK_SPECS`**, which is the source of truth: `ATTACK_COMMANDS` is
+  derived from it, and both `add_attack_subparsers` and `_dispatch` iterate
+  it. **Add a subcommand by adding a row, never by editing those three
+  separately** — `main.py` sets its `non_interactive` global from membership
+  in `ATTACK_COMMANDS` (`main.py:9992`), so a name that reached the subparsers
+  but not the tuple would run the attack with every interactive prompt still
+  live, blocking on a stdin nothing is attached to.
+  `tests/test_noninteractive_attacks.py` pins the derivation in both
+  directions.
+
+  Still interactive-only, as #340 scoped it: `hcatMarkovBruteForce`,
+  `hcatGenerateRules`, `hcatRosetta`, `hcatOllama`, and Extensive Pure_Hate
+  (an orchestrator, not a single attack).
+
+  Three things the issue's own tables got wrong, confirmed against the source
+  and worth not rediscovering:
+
+  - **Menu 11 "Loopback" is not `hcatRecycle`.** `attacks.loopback_attack`
+    runs `hcatQuickDictionary(..., loopback=True)` over an empty wordlist.
+    `hcatRecycle`'s third argument is a count of newly cracked passwords used
+    as an internal gate by `extensive_crack` only, and is meaningless as a CLI
+    argument — so the `loopback` subcommand takes `--rules`.
+  - **`hcatBandrel` was the one attack that genuinely could not be scripted**,
+    because of a blocking `while True: input()` with no default. It now takes
+    `company_name=None`; the prompt runs only when that is unset.
+  - **Menu 6 "Combinator Attacks" is a submenu of four** (combinator, YOLO,
+    middle, thorough). The `combinator` subcommand wires `hcatCombination`
+    only.
+
+  Flags follow the kebab-case of the underlying `hcat*` parameter, and an
+  omitted flag passes the function's own default rather than restating it
+  here — `corporate` omits `minLen`/`maxLen` entirely when unset so
+  `hcatCorporateMasks` applies and clamps its own. The one place that
+  distinction is load-bearing is `fingerprint`'s `--dictionary-wordlist`:
+  `None` means "fall back to config" and `""` means "skip the step", so
+  `--no-dictionary-wordlist` exists to reach the second.
 - **`hashview` subparser tree** (`main.py:6439-6520`): `upload-cracked`,
   `upload-wordlist`, `download-left`, `download-rules`, `upload-hashfile-job`.
 - **Top-level flags** (`main.py:6297-6430`): `--download-hashview`,
