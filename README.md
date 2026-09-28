@@ -240,8 +240,12 @@ hate_crack fingerprint hashes.txt 1000 --max-expander-len 24 \
 # Skip the fragment/wordlist combination step entirely
 hate_crack fingerprint hashes.txt 1000 --no-dictionary-wordlist
 
-# Override the configured wordlists (combinator needs at least two)
+# Override the configured wordlists (combinator needs at least two).
+# Two wordlists use combinator, three use combinator3, more -- or any
+# --separator -- use combinatorX, matching what the menu does.
 hate_crack combinator hashes.txt 1000 --wordlist first.txt second.txt
+hate_crack combinator hashes.txt 1000 --wordlist a.txt b.txt c.txt
+hate_crack combinator hashes.txt 1000 --wordlist a.txt b.txt --separator -
 hate_crack hybrid     hashes.txt 1000 --wordlist rockyou.txt
 
 # Corporate masks, lengths 8-12 only
@@ -265,6 +269,7 @@ hate_crack adhocmask hashes.txt 1000 --mask '?u?l?l?l?d?d'
 hate_crack adhocmask hashes.txt 1000 --mask masks/corporate.hcmask
 hate_crack adhocmask hashes.txt 1000 --mask '?a?a?a?a?a?a?a?a' \
     --increment-min 4 --increment-max 8
+hate_crack adhocmask hashes.txt 1000 --mask '?a?a?a?a' --increment
 
 # N-gram candidates from a corpus
 hate_crack ngram hashes.txt 1000 --corpus corpus.txt --group-size 3
@@ -276,6 +281,8 @@ hate_crack combipow hashes.txt 1000 --wordlist words.txt --no-spaces
 # Spoonman: basewords and rules derived from a corpus of known passwords
 hate_crack spoonman hashes.txt 1000 --corpus previous-engagement.txt
 hate_crack spoonman hashes.txt 1000 --corpus previous.txt --rule-coverage 95
+# --rule-coverage accepts 50, 75, 95 or 99 -- the only capped rule files
+# derived. Omit it for the full rule set.
 
 # OMEN -- requires a model trained beforehand from the interactive menu
 hate_crack omen hashes.txt 1000 --max-candidates 1000000
@@ -283,6 +290,11 @@ hate_crack omen hashes.txt 1000 --max-candidates 1000000
 # Loopback: re-run rules against the plaintexts already cracked
 hate_crack loopback hashes.txt 1000 --rules best64.rule
 ```
+
+`fingerprint` is the one command whose bare form is not identical to its menu
+entry: menu option 5 always runs the hybrid passes over expanded fragments,
+while the subcommand defaults to `hcatFingerprint`'s own default of off. Pass
+`--run-hybrid-on-expanded` to match the menu.
 
 Five menu entries are still interactive-only, because they need input a single
 flag cannot carry: Markov brute force, Random Rules, the Rosetta attack, the

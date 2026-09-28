@@ -281,6 +281,38 @@ def _wordlist_runner(func_name: str, minimum: int) -> Callable[[Any, Any], int]:
     return _run
 
 
+@_validated
+def _run_combinator(ctx: Any, args: Any) -> int:
+    """Concatenate two or more wordlists.
+
+    Three different attack functions back this, and picking between them is
+    not optional: ``hcatCombination`` slices to ``wordlists[:2]``, so handing
+    it three would silently drop the third. The routing mirrors
+    ``attacks.combinator_crack`` -- two and no separator go to
+    ``hcatCombination``, exactly three and no separator to
+    ``hcatCombinator3``, and everything else to ``hcatCombinatorX``, which is
+    the only one of the three that can insert a separator at all.
+    """
+    if not args.wordlists:
+        # No --wordlist: fall back to the configured combinator list, which is
+        # a pair, so hcatCombination is the right destination.
+        ctx.hcatCombination(*_target(ctx), wordlists=None)
+        return 0
+
+    if len(args.wordlists) < 2:
+        raise _BadInput("--wordlist needs at least 2 entries for a combinator attack")
+    wordlists = [_existing_file(ctx, w, "wordlist") for w in args.wordlists]
+    separator = args.separator
+
+    if len(wordlists) == 2 and not separator:
+        ctx.hcatCombination(*_target(ctx), wordlists=wordlists)
+    elif len(wordlists) == 3 and not separator:
+        ctx.hcatCombinator3(*_target(ctx), wordlists)
+    else:
+        ctx.hcatCombinatorX(*_target(ctx), wordlists, separator or None)
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # Runners -- one-argument tier (#340)
 # ---------------------------------------------------------------------------
@@ -288,10 +320,12 @@ def _wordlist_runner(func_name: str, minimum: int) -> Callable[[Any, Any], int]:
 
 @_validated
 def _run_bandrel(ctx: Any, args: Any) -> int:
-    company = args.company.strip()
-    if not company:
-        raise _BadInput("--company must not be blank")
-    ctx.hcatBandrel(*_target(ctx), company_name=company)
+    # Validated against the comma-split, which is what hcatBandrel actually
+    # consumes -- "," is non-blank but contributes no basewords at all.
+    names = [part.strip() for part in args.company.split(",") if part.strip()]
+    if not names:
+        raise _BadInput("--company must name at least one company")
+    ctx.hcatBandrel(*_target(ctx), company_name=",".join(names))
     return 0
 
 
@@ -301,16 +335,51 @@ def _run_permute(ctx: Any, args: Any) -> int:
     return 0
 
 
+def _increment_bound(raw: str, flag: str) -> str:
+    """Validate one --increment-min/--increment-max value.
+
+    Bounds stay strings so a blank one reaches the command builder blank --
+    an omitted bound is hashcat's own default, not a number to invent here.
+    Mirrors ``attacks._prompt_length``, which re-asks until the answer is a
+    positive whole number or empty.
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return ""
+    if not raw.isdigit() or int(raw) <= 0:
+        raise _BadInput(f"{flag} must be a positive whole number")
+    return raw
+
+
+def _checked_mask(ctx: Any, raw: str) -> str:
+    """Return the mask, refusing a mask *file* that does not exist.
+
+    hashcat takes either a literal mask or a path to a .hcmask file in the
+    same slot, and treats a path it cannot open as a literal mask -- so a
+    typo'd filename enumerates one nonsense candidate and exits 0, which a
+    scripted caller reads as "ran, found nothing". The interactive path checks
+    os.path.isfile before calling, and so does this.
+    """
+    looks_like_a_path = os.sep in raw or raw.lower().endswith(".hcmask")
+    if looks_like_a_path and not os.path.isfile(raw):
+        raise _BadInput(f"mask file not found: {raw}")
+    return raw
+
+
 @_validated
 def _run_adhocmask(ctx: Any, args: Any) -> int:
-    inc_min = args.increment_min
-    inc_max = args.increment_max
-    increment = bool(inc_min or inc_max)
+    mask = _checked_mask(ctx, args.mask)
+    inc_min = _increment_bound(args.increment_min, "--increment-min")
+    inc_max = _increment_bound(args.increment_max, "--increment-max")
+    # Either bound implies increment, but --increment alone is also valid:
+    # it is how the interactive path reaches "increment over the full
+    # keyspace of the mask", which no combination of bounds can express.
+    increment = bool(args.increment or inc_min or inc_max)
     if inc_min and inc_max and int(inc_min) > int(inc_max):
         raise _BadInput("--increment-min must not exceed --increment-max")
     ctx.hcatAdHocMask(
         *_target(ctx),
-        args.mask,
+        mask,
         increment=increment,
         increment_min=inc_min or "",
         increment_max=inc_max or "",
@@ -439,6 +508,24 @@ def _add_keyspace_limit(p, subject: str) -> None:
     )
 
 
+#: The only coverage percentages rulegen derives capped rule files for
+#: (``rulegen.generate(cover=...)``). Any other value would miss the cache on
+#: every run -- so the expensive derivation repeats -- and then fall back to
+#: the full rule set, silently handing an operator who asked for a small rule
+#: set the largest one instead.
+SPOONMAN_RULE_COVERAGES = (50, 75, 95, 99)
+
+
+def _combinator_args(p) -> None:
+    _add_wordlists(p, "combinator attack (at least two)")
+    p.add_argument(
+        "--separator",
+        default="",
+        help="String to insert between words. Any separator routes the attack "
+        "through combinatorX, the only variant that supports one.",
+    )
+
+
 def _add_wordlists(p, subject: str) -> None:
     p.add_argument(
         "--wordlist",
@@ -487,7 +574,10 @@ def _fingerprint_args(p) -> None:
         "--run-hybrid-on-expanded",
         action="store_true",
         dest="run_hybrid_on_expanded",
-        help="Also run hybrid passes over the expanded fragments",
+        help="Also run hybrid passes over the expanded fragments. NOTE: menu "
+        "option 5 always does this; the default here is off, matching "
+        "hcatFingerprint's own default, so a bare `fingerprint` runs a "
+        "narrower attack than the menu entry of the same name.",
     )
     p.add_argument(
         "--dictionary-wordlist",
@@ -550,6 +640,13 @@ def _adhocmask_args(p) -> None:
         help="A hashcat mask (e.g. ?u?l?l?l?d?d) or a path to a .hcmask file",
     )
     p.add_argument(
+        "--increment",
+        action="store_true",
+        dest="increment",
+        help="Increment the mask length. Implied by either bound below; pass "
+        "it alone to increment over the full keyspace of the mask.",
+    )
+    p.add_argument(
         "--increment-min",
         default="",
         dest="increment_min",
@@ -599,8 +696,9 @@ def _spoonman_args(p) -> None:
         type=int,
         default=None,
         dest="rule_coverage",
-        help="Use the capped rule file reaching this percent of the corpus "
-        "(e.g. 95); omit for the full rule set.",
+        choices=SPOONMAN_RULE_COVERAGES,
+        help="Use the capped rule file reaching this percent of the corpus; "
+        "omit for the full rule set.",
     )
     p.add_argument(
         "--baseword-cap",
@@ -654,8 +752,8 @@ ATTACK_SPECS: tuple[AttackSpec, ...] = (
     AttackSpec(
         "combinator",
         "Combinator attack (concatenate two or more wordlists)",
-        lambda p: _add_wordlists(p, "combinator attack (at least two)"),
-        _wordlist_runner("hcatCombination", minimum=2),
+        _combinator_args,
+        _run_combinator,
     ),
     AttackSpec(
         "hybrid",

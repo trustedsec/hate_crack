@@ -21,7 +21,21 @@ def stub_hashcat(monkeypatch, tmp_path):
     launched = []
 
     class _Proc:
+        """Stands in for a Popen object.
+
+        It carries `args` and the context-manager protocol because some call
+        sites reach hashcat through subprocess.run(), which builds on Popen and
+        touches both -- and which of those paths hcatBandrel takes depends on
+        module globals an earlier test may have left set. Being complete here
+        is what keeps this file order-independent.
+        """
+
         returncode = 0
+        stdout = None
+        stderr = None
+
+        def __init__(self, cmd=None):
+            self.args = cmd
 
         def communicate(self, *a, **k):
             return (b"", b"")
@@ -32,12 +46,31 @@ def stub_hashcat(monkeypatch, tmp_path):
         def poll(self):
             return 0
 
+        def kill(self):
+            return None
+
+        # subprocess.run() and some call sites use Popen as a context manager,
+        # and which branch hcatBandrel takes depends on module globals an
+        # earlier test may have left set -- so support both shapes rather than
+        # being correct only in the order this file happens to run in.
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
     def _popen(cmd, *a, **k):
         launched.append(cmd)
-        return _Proc()
+        return _Proc(cmd)
 
     monkeypatch.setattr(subprocess, "Popen", _popen)
     monkeypatch.setattr(hc_main, "bandrelbasewords", "summer,winter")
+    # hcatBandrel finishes by calling pipal(), which reads the module-level
+    # hcatHashFile global. hate_crack.main is shared across the session, so
+    # whatever an earlier test left there would leak in here -- and pipal is
+    # a reporting step, not part of what these tests pin.
+    monkeypatch.setattr(hc_main, "hcatHashFile", str(tmp_path / "hashes.txt"))
+    monkeypatch.setattr(hc_main, "pipal", lambda *a, **k: [])
     return launched
 
 

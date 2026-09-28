@@ -18,14 +18,6 @@ from hate_crack import noninteractive as ni
 # --------------------------------------------------------------------------
 
 
-def test_attack_commands_is_derived_from_the_spec_table():
-    """ATTACK_COMMANDS must not be a hand-maintained tuple that can drift from
-    the dispatcher -- main.py keys `non_interactive` off membership in it, so a
-    name present in one and absent from the other silently runs an attack with
-    the interactive prompts still live."""
-    assert ni.ATTACK_COMMANDS == tuple(spec.name for spec in ni.ATTACK_SPECS)
-
-
 def test_every_spec_has_a_runner_and_unique_name():
     names = [spec.name for spec in ni.ATTACK_SPECS]
     assert len(names) == len(set(names)), "duplicate subcommand name"
@@ -34,14 +26,19 @@ def test_every_spec_has_a_runner_and_unique_name():
         assert spec.help, f"{spec.name} has no help text"
 
 
-def test_every_spec_registers_a_subparser():
+def test_registered_subparsers_match_attack_commands_exactly():
+    """Equality, not containment, in both directions. main.py keys its
+    `non_interactive` global off membership in ATTACK_COMMANDS, so a name that
+    reached the subparsers but not the tuple would run the attack with every
+    interactive prompt still live; a name in the tuple with no subparser can
+    never be invoked."""
     import argparse
 
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command")
     ni.add_attack_subparsers(subparsers)
-    registered = set(subparsers.choices)
-    assert set(ni.ATTACK_COMMANDS) <= registered
+    assert set(subparsers.choices) == set(ni.ATTACK_COMMANDS)
+    assert set(ni._SPECS_BY_NAME) == set(ni.ATTACK_COMMANDS)
 
 
 def test_issue_340_attacks_are_all_present():
@@ -529,6 +526,7 @@ def test_combipow_accepts_exactly_63_lines(tmp_path):
     ctx = _spy_ctx(tmp_path)
     args = _parse(["combipow", ctx.hcatHashFile, "1000", "--wordlist", str(wl)])
     assert ni.run_noninteractive(ctx, args) == 0
+    assert [c[0] for c in ctx.calls] == ["hcatCombipow"]
 
 
 def test_spoonman_dispatches_with_corpus(tmp_path):
@@ -788,3 +786,199 @@ def test_main_unknown_subcommand_exits_2(monkeypatch, tmp_path):
     older hate_crack can tell "unsupported" from "ran and found nothing"."""
     hf = _ntlm_hashfile(tmp_path)
     assert _run_main(monkeypatch, ["prince", str(hf), "1000", "--bogus-flag"]) == 2
+
+
+# --------------------------------------------------------------------------
+# adhocmask increment bounds -- these mirror attacks._prompt_increment, which
+# enforces "a positive whole number, or blank" and keeps blanks as "" so an
+# omitted bound stays hashcat's own default.
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bad", ["abc", "-2", "0", "3.5"])
+def test_adhocmask_rejects_a_non_positive_integer_bound(tmp_path, bad):
+    """A bad bound must be exit 1, not a ValueError traceback out of int()."""
+    ctx = _spy_ctx(tmp_path)
+    args = _parse(
+        [
+            "adhocmask",
+            ctx.hcatHashFile,
+            "1000",
+            "--mask",
+            "?a?a",
+            "--increment-min",
+            bad,
+        ]
+    )
+    assert ni.run_noninteractive(ctx, args) == 1
+    assert ctx.calls == []
+
+
+def test_adhocmask_increment_over_the_full_keyspace(tmp_path):
+    """The interactive path allows "increment? yes" with both bounds blank.
+    --increment reaches that state; deriving it from the bounds alone cannot."""
+    ctx = _spy_ctx(tmp_path)
+    args = _parse(
+        ["adhocmask", ctx.hcatHashFile, "1000", "--mask", "?a?a", "--increment"]
+    )
+    assert ni.run_noninteractive(ctx, args) == 0
+    k = ctx.calls[0][2]
+    assert k["increment"] is True
+    assert k["increment_min"] == ""
+    assert k["increment_max"] == ""
+
+
+def test_adhocmask_bounds_imply_increment_without_the_flag(tmp_path):
+    ctx = _spy_ctx(tmp_path)
+    args = _parse(
+        [
+            "adhocmask",
+            ctx.hcatHashFile,
+            "1000",
+            "--mask",
+            "?a?a",
+            "--increment-max",
+            "6",
+        ]
+    )
+    assert ni.run_noninteractive(ctx, args) == 0
+    k = ctx.calls[0][2]
+    assert k["increment"] is True
+    assert k["increment_min"] == ""
+    assert k["increment_max"] == "6"
+
+
+# --------------------------------------------------------------------------
+# Review findings: divergences from the interactive path that ran silently
+# --------------------------------------------------------------------------
+
+
+def _combinator_ctx(tmp_path):
+    ctx = _spy_ctx(tmp_path)
+    for name in ("hcatCombinator3", "hcatCombinatorX"):
+
+        def rec(n=name):
+            def _fn(*a, **k):
+                ctx.calls.append((n, a, k))
+
+            return _fn
+
+        setattr(ctx, name, rec())
+    return ctx
+
+
+def test_combinator_routes_three_wordlists_to_combinator3(tmp_path):
+    """hcatCombination hard-slices to wordlists[:2] (main.py), so sending it
+    three would silently drop the third. attacks.combinator_crack routes 3 to
+    hcatCombinator3 and the scripted path must do the same."""
+    ws = [str(_wordlist(tmp_path, f"w{i}.txt")) for i in range(3)]
+    ctx = _combinator_ctx(tmp_path)
+    args = _parse(["combinator", ctx.hcatHashFile, "1000", "--wordlist", *ws])
+    assert ni.run_noninteractive(ctx, args) == 0
+    name, a, k = ctx.calls[0]
+    assert name == "hcatCombinator3"
+    assert len(a[2]) == 3
+
+
+def test_combinator_routes_four_wordlists_to_combinatorx(tmp_path):
+    ws = [str(_wordlist(tmp_path, f"w{i}.txt")) for i in range(4)]
+    ctx = _combinator_ctx(tmp_path)
+    args = _parse(["combinator", ctx.hcatHashFile, "1000", "--wordlist", *ws])
+    assert ni.run_noninteractive(ctx, args) == 0
+    name, a, k = ctx.calls[0]
+    assert name == "hcatCombinatorX"
+    assert len(a[2]) == 4
+
+
+def test_combinator_separator_forces_combinatorx(tmp_path):
+    """attacks.combinator_crack sends any separator to hcatCombinatorX, since
+    neither of the other two can insert one."""
+    ws = [str(_wordlist(tmp_path, f"w{i}.txt")) for i in range(2)]
+    ctx = _combinator_ctx(tmp_path)
+    args = _parse(
+        ["combinator", ctx.hcatHashFile, "1000", "--wordlist", *ws, "--separator", "-"]
+    )
+    assert ni.run_noninteractive(ctx, args) == 0
+    name, a, k = ctx.calls[0]
+    assert name == "hcatCombinatorX"
+    assert a[3] == "-"
+
+
+def test_combinator_two_wordlists_still_uses_hcat_combination(tmp_path):
+    ws = [str(_wordlist(tmp_path, f"w{i}.txt")) for i in range(2)]
+    ctx = _combinator_ctx(tmp_path)
+    args = _parse(["combinator", ctx.hcatHashFile, "1000", "--wordlist", *ws])
+    assert ni.run_noninteractive(ctx, args) == 0
+    assert ctx.calls[0][0] == "hcatCombination"
+
+
+@pytest.mark.parametrize("bad", ["80", "100", "1"])
+def test_spoonman_rejects_an_underived_rule_coverage(tmp_path, bad):
+    """rulegen only ever writes rules.top{50,75,95,99}.rule. Any other value
+    makes the cache check miss on every run (so the expensive derivation
+    repeats) and then falls back to the FULL rule set via
+    capped_rules.get(N, rules_path) -- an operator who asked for a small rule
+    set silently gets the largest one."""
+    corpus = _wordlist(tmp_path, "corpus.txt")
+    ctx = _spy_ctx(tmp_path)
+    with pytest.raises(SystemExit):
+        _parse(
+            [
+                "spoonman",
+                ctx.hcatHashFile,
+                "1000",
+                "--corpus",
+                str(corpus),
+                "--rule-coverage",
+                bad,
+            ]
+        )
+
+
+@pytest.mark.parametrize("good", [50, 75, 95, 99])
+def test_spoonman_accepts_every_derived_rule_coverage(tmp_path, good):
+    corpus = _wordlist(tmp_path, "corpus.txt")
+    ctx = _spy_ctx(tmp_path)
+    args = _parse(
+        [
+            "spoonman",
+            ctx.hcatHashFile,
+            "1000",
+            "--corpus",
+            str(corpus),
+            "--rule-coverage",
+            str(good),
+        ]
+    )
+    assert ni.run_noninteractive(ctx, args) == 0
+    assert ctx.calls[0][2]["coverage"] == good
+
+
+def test_adhocmask_rejects_a_missing_hcmask_file(tmp_path):
+    """attacks.adhoc_mask_crack refuses a mask file that does not exist. Passed
+    through, hashcat treats the path as a LITERAL mask, enumerates one
+    candidate and exits 0 -- so a typo reads to a scripted caller as an attack
+    that ran and found nothing."""
+    ctx = _spy_ctx(tmp_path)
+    args = _parse(
+        ["adhocmask", ctx.hcatHashFile, "1000", "--mask", str(tmp_path / "typo.hcmask")]
+    )
+    assert ni.run_noninteractive(ctx, args) == 1
+    assert ctx.calls == []
+
+
+def test_adhocmask_still_accepts_a_literal_mask_with_no_separator(tmp_path):
+    """The path check must not catch an ordinary mask."""
+    ctx = _spy_ctx(tmp_path)
+    args = _parse(["adhocmask", ctx.hcatHashFile, "1000", "--mask", "?u?l?l?d"])
+    assert ni.run_noninteractive(ctx, args) == 0
+
+
+@pytest.mark.parametrize("blank", [",", " , ", ",,,"])
+def test_bandrel_rejects_a_company_that_yields_no_basewords(tmp_path, blank):
+    """hcatBandrel builds its baseword list from the comma-split components,
+    so "," passes a non-empty check while contributing nothing."""
+    ctx = _spy_ctx(tmp_path)
+    args = _parse(["bandrel", ctx.hcatHashFile, "1000", "--company", blank])
+    assert ni.run_noninteractive(ctx, args) == 1
+    assert ctx.calls == []
