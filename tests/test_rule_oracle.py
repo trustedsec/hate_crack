@@ -24,15 +24,24 @@ candidate in ``$HEX[...]`` when it holds a byte that would otherwise break the
 line, earlier versions emit it raw, and both are accepted here.
 """
 
-import shutil
+import os
 import subprocess
 
 import pytest
 
 from hate_crack import rulegen
 
+#: Ask this hashcat specifically, rather than whichever one PATH surfaces.
+#: It is the binary hate_crack itself shells out to (`hcatBin`), so the oracle
+#: validates the build the tool actually uses -- and a stale or broken hashcat
+#: earlier in PATH cannot quietly answer for it. A wrong answer here does not
+#: look like a broken environment; it looks like `derive()` emitting bad rules,
+#: which is the one thing this file exists to detect.
+HASHCAT_BIN = "/opt/hashcat/hashcat"
+
 _requires_hashcat = pytest.mark.skipif(
-    shutil.which("hashcat") is None, reason="hashcat not available in PATH"
+    not os.access(HASHCAT_BIN, os.X_OK),
+    reason=f"no executable hashcat at {HASHCAT_BIN}",
 )
 
 # Each is a password derive() must be able to round-trip through real hashcat.
@@ -110,7 +119,7 @@ def _candidates(tmp_path, baseword, rule, name="case"):
     words.write_bytes(baseword.encode("latin-1") + b"\n")
     rules.write_bytes(rule.encode("latin-1") + b"\n")
     proc = subprocess.run(
-        ["hashcat", "--stdout", "-r", str(rules), str(words)],
+        [HASHCAT_BIN, "--stdout", "-r", str(rules), str(words)],
         capture_output=True,
         timeout=60,
         check=False,

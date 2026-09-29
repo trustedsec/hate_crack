@@ -15,13 +15,18 @@ def test_ntlm_matches_hashcat_cracking_a_known_hash(tmp_path):
     to crack it against a one-line wordlist containing that password, and
     confirm hashcat reports a crack. This is the actual thing this whole
     suite depends on being correct."""
+    import os
     import subprocess
-    import shutil
 
-    if not shutil.which("hashcat"):
+    # The binary hate_crack itself shells out to, rather than whichever
+    # hashcat PATH surfaces -- this test is the one that proves the suite's
+    # own NTLM helper agrees with the real thing, so it must ask the real
+    # thing and not a stale build that happens to come first.
+    hashcat_bin = "/opt/hashcat/hashcat"
+    if not os.access(hashcat_bin, os.X_OK):
         import pytest
 
-        pytest.skip("hashcat not on PATH")
+        pytest.skip(f"no executable hashcat at {hashcat_bin}")
     from tests.e2e.conftest import _ntlm
 
     pw = "e2etestvector99"
@@ -32,7 +37,7 @@ def test_ntlm_matches_hashcat_cracking_a_known_hash(tmp_path):
     out_file = tmp_path / "test.ntlm.out"
     result = subprocess.run(
         [
-            "hashcat",
+            hashcat_bin,
             "-m",
             "1000",
             str(hash_file),

@@ -19,8 +19,8 @@ ASCII/non-ASCII corpus and makes hashcat crack it.
 """
 
 import hashlib
+import os
 import shlex
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -52,8 +52,15 @@ _ASCII_CASES = [
 _NEGATIVE_CASE = ("ab2x", "?l?l?l?l")
 
 
+#: Ask this hashcat specifically, rather than whichever one PATH surfaces.
+#: It is the binary hate_crack itself shells out to (`hcatBin`), so the oracle
+#: validates the build the tool actually uses, and a stale or broken hashcat
+#: earlier in PATH cannot quietly answer for it.
+HASHCAT_BIN = "/opt/hashcat/hashcat"
+
+
 def _hashcat_available() -> bool:
-    return shutil.which("hashcat") is not None
+    return os.access(HASHCAT_BIN, os.X_OK)
 
 
 def _sessions_writable() -> bool:
@@ -77,13 +84,13 @@ def _sessions_writable() -> bool:
 
 
 _requires_hashcat = pytest.mark.skipif(
-    not _hashcat_available(), reason="hashcat not available in PATH"
+    not _hashcat_available(), reason=f"no executable hashcat at {HASHCAT_BIN}"
 )
 
 
 def _run_mask(md5_hash: str, mask: str, session: str) -> subprocess.CompletedProcess:
     cmd = [
-        "hashcat",
+        HASHCAT_BIN,
         "-m",
         "0",
         "-a",
@@ -171,7 +178,7 @@ def test_every_builtin_charset_is_ascii_only():
     counts = {}
     for charset in ("d", "a"):
         result = subprocess.run(
-            ["hashcat", "--stdout", "-a", "3", f"?{charset}"],
+            [HASHCAT_BIN, "--stdout", "-a", "3", f"?{charset}"],
             capture_output=True,
             text=True,
             timeout=60,

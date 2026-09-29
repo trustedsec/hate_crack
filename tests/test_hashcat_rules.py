@@ -22,6 +22,14 @@ _LOOPBACK_SESSION_NOISE_RE = re.compile(
 )
 
 
+#: Ask this hashcat specifically, rather than whichever one PATH surfaces.
+#: It is the binary hate_crack itself shells out to (`hcatBin`). This file is
+#: doubly sensitive to getting it wrong: an unusable hashcat does not fail
+#: here, it trips the OpenCL-device skip below, so a broken PATH build turns
+#: the whole file into a silent no-op rather than anything anyone notices.
+HASHCAT_BIN = "/opt/hashcat/hashcat"
+
+
 def _format_hashcat_cmd(cmd: list[str]) -> str:
     # Mirror hate_crack's debug printing: safe shell-style quoting.
     return " ".join(shlex.quote(part) for part in cmd)
@@ -90,7 +98,7 @@ def _run_hashcat(
             timeout=timeout_s,
         )
     except FileNotFoundError:
-        pytest.skip("hashcat not available in PATH")
+        pytest.skip(f"no executable hashcat at {HASHCAT_BIN}")
     except subprocess.TimeoutExpired:
         pytest.fail(f"hashcat timed out after {timeout_s}s: {cmd!r}")
 
@@ -145,8 +153,8 @@ def test_toggle_rule_parses_with_and_without_loopback(tmp_path: Path, capsys):
     Execute the two hashcat command-lines requested (with a one-word wordlist),
     primarily to ensure hashcat does not crash while parsing/using the rule file.
     """
-    if shutil.which("hashcat") is None:
-        pytest.skip("hashcat not available in PATH")
+    if not os.access(HASHCAT_BIN, os.X_OK):
+        pytest.skip(f"no executable hashcat at {HASHCAT_BIN}")
     if not _hashcat_sessions_writable():
         pytest.skip("hashcat session directory (~/.hashcat/sessions) is not writable")
     # Hashcat renames hashcat.induct after each run; recreate so loopback can write.
@@ -184,7 +192,7 @@ def test_toggle_rule_parses_with_and_without_loopback(tmp_path: Path, capsys):
     session_base = f"hate_crack_test_toggle_rule_{tmp_path.name}"
 
     cmd_with_loopback = [
-        "hashcat",
+        HASHCAT_BIN,
         *tuning_args,
         "-m",
         "1000",
@@ -197,7 +205,7 @@ def test_toggle_rule_parses_with_and_without_loopback(tmp_path: Path, capsys):
         f"{session_base}_loopback",
     ]
     cmd_without_loopback = [
-        "hashcat",
+        HASHCAT_BIN,
         *tuning_args,
         "-m",
         "1000",
