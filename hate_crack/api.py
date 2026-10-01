@@ -2633,29 +2633,38 @@ class HashviewAPI:
         One rule failing to download (e.g. a 404 on a stale listing) must not
         abort the rest, so each rule's outcome is collected individually
         rather than raised.
+
+        Downloads are parallelized using a ThreadPoolExecutor to improve speed
+        when downloading multiple rules.
         """
+        import concurrent.futures
+
         rules = self.list_rules()
         results = []
-        for rule in rules:
+
+        def _download_one_rule(rule):
             rule_id = rule.get("id")
             rule_name = rule.get("name")
             if rule_id is None:
-                results.append(
-                    {"id": rule_id, "name": rule_name, "error": "missing id"}
-                )
-                continue
+                return {"id": rule_id, "name": rule_name, "error": "missing id"}
             try:
                 download_result = self.download_rules(rule_id, rule_name)
-                results.append(
-                    {
-                        "id": rule_id,
-                        "name": rule_name,
-                        "output_file": download_result["output_file"],
-                        "size": download_result["size"],
-                    }
-                )
+                return {
+                    "id": rule_id,
+                    "name": rule_name,
+                    "output_file": download_result["output_file"],
+                    "size": download_result["size"],
+                }
             except Exception as e:
-                results.append({"id": rule_id, "name": rule_name, "error": str(e)})
+                return {"id": rule_id, "name": rule_name, "error": str(e)}
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+            futures = {
+                executor.submit(_download_one_rule, rule): rule for rule in rules
+            }
+            for future in concurrent.futures.as_completed(futures):
+                results.append(future.result())
+
         return results
 
     def create_customer(self, name):
@@ -3945,7 +3954,8 @@ def list_and_download_hashmob_masks(masks_dir=None):
 
     succeeded = 0
     failed = 0
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+    # Use max_workers=8 for network I/O; thread overhead is negligible for I/O-bound ops
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
         futures = {
             executor.submit(download_hashmob_mask, fn, op): fn for fn, op in jobs
         }
@@ -4042,7 +4052,8 @@ def list_and_download_hashmob_rules(rules_dir=None):
 
     succeeded = 0
     failed = 0
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+    # Use max_workers=8 for network I/O; thread overhead is negligible for I/O-bound ops
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
         futures = {
             executor.submit(download_hashmob_rule, fn, op, rt): fn
             for fn, op, rt in jobs
