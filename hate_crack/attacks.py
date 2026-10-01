@@ -23,7 +23,10 @@ from hate_crack.menu import interactive_menu
 
 
 def _configure_readline(completer):
-    readline.set_completer_delims(" \t\n;")
+    # NOTE: Do NOT include \n in delimiters — libedit on macOS has a cursor-tracking bug
+    # when newline is a delimiter and the prompt contains \n. This breaks backspace
+    # during readline completion. See https://github.com/python/cpython/issues/117447
+    readline.set_completer_delims(" \t;")
     try:
         readline.parse_and_bind("set completion-query-items -1")
     except Exception:

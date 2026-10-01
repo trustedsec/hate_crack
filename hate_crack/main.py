@@ -2809,7 +2809,10 @@ def select_file_with_autocomplete(
         readline.redisplay()
 
     # Configure readline for tab completion
-    readline.set_completer_delims(" \t\n;")
+    # NOTE: Do NOT include \n in delimiters — libedit on macOS has a cursor-tracking bug
+    # when newline is a delimiter and the prompt contains \n. This breaks backspace
+    # during readline completion. See https://github.com/python/cpython/issues/117447
+    readline.set_completer_delims(" \t;")
     try:
         readline.set_completion_display_matches_hook(display_matches)
     except AttributeError:
