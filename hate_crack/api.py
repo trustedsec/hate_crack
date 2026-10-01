@@ -3773,30 +3773,51 @@ def list_and_download_official_wordlists():
                 check_path = os.path.join(dest_dir, sanitized)
             return os.path.isfile(check_path) and os.path.getsize(check_path) > 0
 
-        def _download_and_replace(file_name):
-            """Fetch one wordlist, then drop the older same-tier copies.
-
-            The cleanup runs only once the newest file is actually on disk --
-            freshly downloaded and extracted, or already present -- so a
-            failed download never removes the copy it was meant to supersede.
-            It re-checks that itself rather than trusting this ordering, and
-            also requires the new file to be larger than the one it replaces.
-            """
+        def _download_wordlist_only(file_name):
+            """Download one wordlist without cleanup."""
             if _already_downloaded_wordlist(file_name):
                 print(f"[i] Skipping {file_name} (already present)")
-                _replace_older_hashmob_found(file_name, dest_dir)
-                return
+                return file_name
             if download_official_wordlist(file_name):
-                _replace_older_hashmob_found(file_name, dest_dir)
+                return file_name
+            return None
 
         if sel.lower() == "a":
             try:
+                entries_to_download = []
                 for entry in data:
                     file_name = entry.get("file_name")
                     if not file_name:
                         print("No file_name found for an entry, skipping.")
                         continue
-                    _download_and_replace(file_name)
+                    entries_to_download.append(file_name)
+
+                # Parallelize downloads, tracking which ones succeeded
+                succeeded_downloads = []
+                with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+                    futures = {
+                        executor.submit(_download_wordlist_only, fn): fn
+                        for fn in entries_to_download
+                    }
+                    for future in concurrent.futures.as_completed(futures):
+                        file_name = futures[future]
+                        try:
+                            result = future.result()
+                            if result:
+                                succeeded_downloads.append(result)
+                        except Exception as exc:
+                            print(f"[!] Failed to download {file_name}: {exc}")
+
+                # Run cleanups sequentially only for successfully downloaded files
+                for file_name in succeeded_downloads:
+                    try:
+                        _replace_older_hashmob_found(file_name, dest_dir)
+                    except Exception as exc:
+                        print(f"[!] Cleanup failed for {file_name}: {exc}")
+
+                print(
+                    f"[i] Wordlist downloads complete: {len(succeeded_downloads)} succeeded."
+                )
             except KeyboardInterrupt:
                 print("\nKeyboard interrupt: Returning to download menu...")
                 return
@@ -3828,13 +3849,42 @@ def list_and_download_official_wordlists():
             if not indices:
                 print("No valid selection.")
                 return
+
+            entries_to_download = []
             for idx in indices:
                 entry = data[idx - 1]
                 file_name = entry.get("file_name")
                 if not file_name:
                     print("No file_name found for selection, skipping.")
                     continue
-                _download_and_replace(file_name)
+                entries_to_download.append(file_name)
+
+            # Parallelize downloads, tracking which ones succeeded
+            succeeded_downloads = []
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+                futures = {
+                    executor.submit(_download_wordlist_only, fn): fn
+                    for fn in entries_to_download
+                }
+                for future in concurrent.futures.as_completed(futures):
+                    file_name = futures[future]
+                    try:
+                        result = future.result()
+                        if result:
+                            succeeded_downloads.append(result)
+                    except Exception as exc:
+                        print(f"[!] Failed to download {file_name}: {exc}")
+
+            # Run cleanups sequentially only for successfully downloaded files
+            for file_name in succeeded_downloads:
+                try:
+                    _replace_older_hashmob_found(file_name, dest_dir)
+                except Exception as exc:
+                    print(f"[!] Cleanup failed for {file_name}: {exc}")
+
+            print(
+                f"[i] Wordlist downloads complete: {len(succeeded_downloads)} succeeded."
+            )
         except Exception as e:
             print(f"Error: {e}")
     except Exception as e:
