@@ -1,7 +1,55 @@
 import logging
 import os
+import readline
 import sys
 from typing import Optional
+
+# Space, tab and semicolon split one path token from the next.
+#
+# Deliberately NOT including "\n": libedit on macOS mistracks the cursor when
+# newline is a completer delimiter and the prompt contains an embedded newline
+# (26+ input locations here do), which breaks backspace during completion.
+# See https://github.com/python/cpython/issues/117447
+COMPLETER_DELIMS = " \t;"
+
+
+def using_libedit() -> bool:
+    """True when Python's readline is backed by libedit rather than GNU readline.
+
+    macOS ships libedit, which needs a different key-binding syntax. ``backend``
+    exists on 3.13+; the docstring sniff is the historical fallback.
+    """
+    backend = getattr(readline, "backend", None)
+    if backend is not None:
+        return backend == "editline"
+    return "libedit" in (readline.__doc__ or "")
+
+
+def configure_completion(completer, display_matches_hook=None) -> None:
+    """Install *completer* and bind Tab to it.
+
+    The two backends need different bind syntax and the wrong one is silently
+    ignored, so pick by backend rather than firing both and hoping: an
+    unbound Tab inserts a literal tab instead of completing, which looks like
+    "tab completion is broken" with nothing logged.
+    """
+    readline.set_completer_delims(COMPLETER_DELIMS)
+    libedit = using_libedit()
+    if libedit:
+        bind = "bind ^I rl_complete"
+    else:
+        bind = "tab: complete"
+        # GNU readline only -- libedit has no "set" command, and asking it
+        # anyway is how the old code ended up swallowing every bind error.
+        # Suppresses "Display all 312 possibilities?" -- callers print their
+        # own listings.
+        readline.parse_and_bind("set completion-query-items -1")
+    if display_matches_hook is not None and hasattr(
+        readline, "set_completion_display_matches_hook"
+    ):
+        readline.set_completion_display_matches_hook(display_matches_hook)
+    readline.parse_and_bind(bind)
+    readline.set_completer(completer)
 
 
 def orig_cwd() -> str:

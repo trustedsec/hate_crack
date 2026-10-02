@@ -59,6 +59,7 @@ from hate_crack.api import (  # noqa: E402
     extract_with_7z,
 )
 from hate_crack.cli import (  # noqa: E402
+    configure_completion,
     resolve_path,
     setup_logging,
 )
@@ -2773,7 +2774,9 @@ def select_file_with_autocomplete(
         allow_multiple: If True, allows comma-separated file list
 
     Returns:
-        String path or list of paths (if allow_multiple=True)
+        A path string, "" if the user entered nothing, or a list of paths when
+        allow_multiple=True *and* the input contained a comma. Callers that
+        pass allow_multiple must handle both str and list.
     """
 
     def path_completer(text, state):
@@ -2809,23 +2812,7 @@ def select_file_with_autocomplete(
         readline.redisplay()
 
     # Configure readline for tab completion
-    # NOTE: Do NOT include \n in delimiters — libedit on macOS has a cursor-tracking bug
-    # when newline is a delimiter and the prompt contains \n. This breaks backspace
-    # during readline completion. See https://github.com/python/cpython/issues/117447
-    readline.set_completer_delims(" \t;")
-    try:
-        readline.set_completion_display_matches_hook(display_matches)
-    except AttributeError:
-        pass
-    try:
-        readline.parse_and_bind("tab: complete")
-    except Exception:
-        pass
-    try:
-        readline.parse_and_bind("bind ^I rl_complete")
-    except Exception:
-        pass
-    readline.set_completer(path_completer)
+    configure_completion(path_completer, display_matches_hook=display_matches)
 
     # Build prompt
     full_prompt = f"\n{prompt}"
@@ -2851,7 +2838,11 @@ def select_file_with_autocomplete(
         files = [f.strip() for f in result.split(",")]
         return [os.path.expanduser(f) for f in files if f]
 
-    return os.path.expanduser(result) if result else None
+    # Empty input returns "" rather than None: ~20 call sites do
+    # `select_file_with_autocomplete(...).strip()`, and the ones without a
+    # base_dir to fall back on used to raise AttributeError on a bare Enter.
+    # Every caller tests falsiness or isinstance, never `is None`.
+    return os.path.expanduser(result) if result else ""
 
 
 # Counts the number of lines in a file

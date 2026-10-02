@@ -16,6 +16,7 @@ from hate_crack.api import (
     list_hashmob_combined_left,
     weakpass_wordlist_menu,
 )
+from hate_crack.cli import configure_completion
 from hate_crack.formatting import print_multicolumn_list
 from hate_crack.hashcat_paths import hashcat_major_version
 from hate_crack.llm import clean_research_field
@@ -23,23 +24,21 @@ from hate_crack.menu import interactive_menu
 
 
 def _configure_readline(completer):
-    # NOTE: Do NOT include \n in delimiters — libedit on macOS has a cursor-tracking bug
-    # when newline is a delimiter and the prompt contains \n. This breaks backspace
-    # during readline completion. See https://github.com/python/cpython/issues/117447
-    readline.set_completer_delims(" \t;")
-    try:
-        readline.parse_and_bind("set completion-query-items -1")
-    except Exception:
-        pass
-    try:
-        readline.parse_and_bind("tab: complete")
-    except Exception:
-        pass
-    try:
-        readline.parse_and_bind("bind ^I rl_complete")
-    except Exception:
-        pass
-    readline.set_completer(completer)
+    configure_completion(completer)
+
+
+def _as_path_list(result) -> list[str]:
+    """Normalise a ``select_file_with_autocomplete`` result to a list of paths.
+
+    That helper returns a str, "" or a list depending on ``allow_multiple`` and
+    whether the input happened to contain a comma; callers that want "all the
+    paths the user named" should not have to care which.
+    """
+    if isinstance(result, list):
+        return [p.strip() for p in result if p and p.strip()]
+    if isinstance(result, str):
+        return [p.strip() for p in result.split(",") if p.strip()]
+    return []
 
 
 def _select_rules(ctx) -> list[str] | None:
@@ -1162,15 +1161,31 @@ def _pick_training_wordlist(ctx: Any, title: str = "Training Wordlists"):
         )
     print("\tp. Enter a custom path")
     print("\tq. Cancel")
+    # The numbered entries are not the only valid answer -- a path typed here
+    # should tab-complete like every other wordlist prompt does.
+    _configure_readline(_wordlist_path_completer(ctx))
+    try:
+        return _pick_training_wordlist_loop(ctx, entries_meta)
+    finally:
+        readline.set_completer(None)
+
+
+def _pick_training_wordlist_loop(ctx: Any, entries_meta):
     while True:
         sel = input("\n\tSelect wordlist: ").strip()
         if sel.lower() == "q":
             return None
         if sel.lower() == "p":
+            # base_dir matters: without it the completer globs the process CWD,
+            # which the launcher sets to the install directory, not the
+            # wordlists directory the user is picking from.
             path = ctx.select_file_with_autocomplete(
-                "\tPath to wordlist (tab to autocomplete)"
+                "\tPath to wordlist (tab to autocomplete)",
+                base_dir=ctx.hcatWordlists,
             )
-            return path.strip() if path else None
+            # "" (bare Enter) means cancelled here, same as None.
+            path = path.strip() if isinstance(path, str) else ""
+            return path or None
         try:
             idx = int(sel)
             if 1 <= idx <= len(entries_meta):
@@ -1187,6 +1202,14 @@ def _pick_training_wordlist(ctx: Any, title: str = "Training Wordlists"):
                 return os.path.join(ctx.hcatWordlists, entry.name)
         except (ValueError, IndexError):
             pass
+        # A tab-completed path is only useful if it is also accepted, so take
+        # any existing file here rather than forcing the user back through 'p'.
+        candidate = os.path.expanduser(sel) if sel else ""
+        if candidate and os.path.isfile(candidate):
+            return candidate
+        if candidate and os.path.isdir(candidate):
+            print(f"\t[!] {sel} is a directory. Training takes a single corpus file.")
+            continue
         print("\t[!] Invalid selection.")
 
 
@@ -2056,12 +2079,15 @@ def wordlist_subtract_words(ctx: Any) -> None:
         if not outfile:
             print("[!] Output path cannot be empty.")
             return
+        # allow_multiple returns a list once the input contains a comma, which
+        # is exactly the case this prompt is for -- so normalise instead of
+        # assuming a string.
         raw = ctx.select_file_with_autocomplete(
             "[*] Enter remove file paths",
             allow_multiple=True,
             base_dir=ctx.hcatWordlists,
-        ).strip()
-        remove_files = [r.strip() for r in raw.split(",") if r.strip()]
+        )
+        remove_files = _as_path_list(raw)
         if not remove_files:
             print("[!] No remove files provided.")
             return
