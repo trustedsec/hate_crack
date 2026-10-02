@@ -52,6 +52,45 @@ def configure_completion(completer, display_matches_hook=None) -> None:
     readline.set_completer(completer)
 
 
+def prompt_int(
+    prompt: str,
+    default: Optional[int] = None,
+    minimum: Optional[int] = None,
+) -> Optional[int]:
+    """Ask for an integer, re-asking until one arrives. ``None`` means cancel.
+
+    Exists because ``int(input(...))`` scattered through the attack handlers
+    turns a single mistyped character into a ValueError traceback that exits
+    hate_crack -- in OMEN's case not even at the prompt, but several prompts
+    later, discarding the model and rule selections the user had just made.
+
+    *default* is returned for empty input; without one, empty re-asks. ``q``
+    and EOF cancel, so a caller can abort its attack the same way every other
+    picker here does.
+    """
+    while True:
+        try:
+            raw = input(prompt).strip()
+        except EOFError:
+            return None
+        if raw.lower() == "q":
+            return None
+        if not raw:
+            if default is not None:
+                return default
+            print("\t[!] Enter a number.")
+            continue
+        try:
+            value = int(raw)
+        except ValueError:
+            print(f"\t[!] Not a number: {raw}")
+            continue
+        if minimum is not None and value < minimum:
+            print(f"\t[!] Must be {minimum} or greater.")
+            continue
+        return value
+
+
 def orig_cwd() -> str:
     """Return the caller's original working directory.
 

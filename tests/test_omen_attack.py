@@ -463,6 +463,76 @@ class TestOmenAttackHandler:
             omen_attack(ctx)
         ctx.hcatOmen.assert_not_called()
 
+    def test_non_integer_max_candidates_reprompts(self, tmp_path, capsys):
+        """A typo here used to raise ValueError -- after the rules picker."""
+        ctx = self._make_ctx(tmp_path, model_valid=True)
+        self._setup_rules_dir(ctx, tmp_path)
+        with (
+            patch("os.path.isfile", return_value=True),
+            patch("hate_crack.attacks.interactive_menu", return_value="1"),
+            patch("builtins.input", side_effect=["abc", "1000", "0"]),
+        ):
+            from hate_crack.attacks import omen_attack
+
+            omen_attack(ctx)
+        assert "abc" in capsys.readouterr().out
+        assert ctx.hcatOmen.call_args[0][2] == 1000
+
+    def test_zero_max_candidates_reprompts(self, tmp_path):
+        """Enumerating zero candidates is a no-op run, not a valid answer."""
+        ctx = self._make_ctx(tmp_path, model_valid=True)
+        self._setup_rules_dir(ctx, tmp_path)
+        with (
+            patch("os.path.isfile", return_value=True),
+            patch("hate_crack.attacks.interactive_menu", return_value="1"),
+            patch("builtins.input", side_effect=["0", "2500", "0"]),
+        ):
+            from hate_crack.attacks import omen_attack
+
+            omen_attack(ctx)
+        assert ctx.hcatOmen.call_args[0][2] == 2500
+
+    def test_blank_max_candidates_uses_config_default(self, tmp_path):
+        ctx = self._make_ctx(tmp_path, model_valid=True)
+        self._setup_rules_dir(ctx, tmp_path)
+        with (
+            patch("os.path.isfile", return_value=True),
+            patch("hate_crack.attacks.interactive_menu", return_value="1"),
+            patch("builtins.input", side_effect=["", "0"]),
+        ):
+            from hate_crack.attacks import omen_attack
+
+            omen_attack(ctx)
+        assert ctx.hcatOmen.call_args[0][2] == ctx.omenMaxCandidates
+
+    def test_cancelling_max_candidates_aborts_before_rules(self, tmp_path):
+        ctx = self._make_ctx(tmp_path, model_valid=True)
+        self._setup_rules_dir(ctx, tmp_path)
+        with (
+            patch("os.path.isfile", return_value=True),
+            patch("hate_crack.attacks.interactive_menu", return_value="1"),
+            patch("builtins.input", side_effect=["q"]),
+        ):
+            from hate_crack.attacks import omen_attack
+
+            omen_attack(ctx)
+        ctx.hcatOmen.assert_not_called()
+
+    def test_unrecognised_model_choice_reports_itself(self, tmp_path, capsys):
+        """Without this the menu silently repaints and looks like a dead key."""
+        ctx = self._make_ctx(tmp_path, model_valid=True)
+        self._setup_rules_dir(ctx, tmp_path)
+        with (
+            patch("os.path.isfile", return_value=True),
+            patch("hate_crack.attacks.interactive_menu", side_effect=["x", "99"]),
+            patch("builtins.input", side_effect=[]),
+        ):
+            from hate_crack.attacks import omen_attack
+
+            omen_attack(ctx)
+        assert "Invalid selection" in capsys.readouterr().out
+        ctx.hcatOmen.assert_not_called()
+
     def test_no_rules_passes_empty_chain(self, tmp_path):
         ctx = self._make_ctx(tmp_path, model_valid=True)
         self._setup_rules_dir(ctx, tmp_path, ["best64.rule"])

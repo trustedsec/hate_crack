@@ -16,7 +16,7 @@ from hate_crack.api import (
     list_hashmob_combined_left,
     weakpass_wordlist_menu,
 )
-from hate_crack.cli import configure_completion
+from hate_crack.cli import configure_completion, prompt_int
 from hate_crack.formatting import print_multicolumn_list
 from hate_crack.hashcat_paths import hashcat_major_version
 from hate_crack.llm import clean_research_field
@@ -1250,6 +1250,9 @@ def omen_attack(ctx: Any) -> None:
                 break
             elif choice == "2":
                 break
+            # Without this the menu just repaints and a rejected key is
+            # indistinguishable from one the terminal never delivered.
+            print("\t[!] Invalid selection.")
     else:
         print("\n\tNo valid OMEN model found. Training is required.")
 
@@ -1261,18 +1264,22 @@ def omen_attack(ctx: Any) -> None:
             print("\n\t[!] Training failed. Aborting OMEN attack.")
             return
 
-    max_candidates = input(
-        f"\n\tMax candidates to generate ({ctx.omenMaxCandidates}): "
-    ).strip()
-    if not max_candidates:
-        max_candidates = str(ctx.omenMaxCandidates)
+    # Validated here rather than at the point of use: the rules picker runs
+    # next, and a ValueError after it would discard that selection too.
+    max_candidates = prompt_int(
+        f"\n\tMax candidates to generate ({ctx.omenMaxCandidates}): ",
+        default=ctx.omenMaxCandidates,
+        minimum=1,
+    )
+    if max_candidates is None:
+        return
 
     selected_rules = _select_rules(ctx)
     if selected_rules is None:
         return
 
     for chain in selected_rules:
-        ctx.hcatOmen(ctx.hcatHashType, ctx.hcatHashFile, int(max_candidates), chain)
+        ctx.hcatOmen(ctx.hcatHashType, ctx.hcatHashFile, max_candidates, chain)
 
 
 def _markov_pick_training_source(ctx: Any):
@@ -1938,8 +1945,12 @@ def wordlist_filter_length(ctx: Any) -> None:
     if not outfile:
         print("[!] Output path cannot be empty.")
         return
-    min_len = int(input("Minimum length: ").strip() or "0")
-    max_len = int(input("Maximum length: ").strip() or "0")
+    min_len = prompt_int("Minimum length: ", default=0, minimum=0)
+    if min_len is None:
+        return
+    max_len = prompt_int("Maximum length: ", default=0, minimum=0)
+    if max_len is None:
+        return
     if ctx.wordlist_filter_len(infile, outfile, min_len, max_len):
         print(f"\n[*] Filtered wordlist written to: {outfile}")
     else:
@@ -1963,7 +1974,9 @@ def wordlist_filter_charclass_include(ctx: Any) -> None:
     print(
         "[*] Char class mask: 1=lowercase, 2=uppercase, 4=digit, 8=symbol (additive, e.g. 3=lower+upper)"
     )
-    mask = int(input("Mask value: ").strip() or "0")
+    mask = prompt_int("Mask value: ", default=0, minimum=0)
+    if mask is None:
+        return
     if ctx.wordlist_filter_req_include(infile, outfile, mask):
         print(f"\n[*] Filtered wordlist written to: {outfile}")
     else:
@@ -1985,7 +1998,9 @@ def wordlist_filter_charclass_exclude(ctx: Any) -> None:
         print("[!] Output path cannot be empty.")
         return
     print("[*] Char class mask: 1=lowercase, 2=uppercase, 4=digit, 8=symbol (additive)")
-    mask = int(input("Mask value: ").strip() or "0")
+    mask = prompt_int("Mask value: ", default=0, minimum=0)
+    if mask is None:
+        return
     if ctx.wordlist_filter_req_exclude(infile, outfile, mask):
         print(f"\n[*] Filtered wordlist written to: {outfile}")
     else:
@@ -2006,9 +2021,22 @@ def wordlist_cut_substring(ctx: Any) -> None:
     if not outfile:
         print("[!] Output path cannot be empty.")
         return
-    offset = int(input("Byte offset to start from: ").strip() or "0")
-    raw_length = input("Length (leave blank for rest of line): ").strip()
-    length = int(raw_length) if raw_length else None
+    offset = prompt_int("Byte offset to start from: ", default=0, minimum=0)
+    if offset is None:
+        return
+    # Not prompt_int: blank here means "rest of the line", which is None
+    # rather than a number, and prompt_int reserves None for cancel.
+    length = None
+    while True:
+        raw_length = input("Length (leave blank for rest of line): ").strip()
+        if not raw_length:
+            break
+        if raw_length.lower() == "q":
+            return
+        if raw_length.isdigit():
+            length = int(raw_length)
+            break
+        print(f"\t[!] Not a number: {raw_length}")
     if ctx.wordlist_cutb(infile, outfile, offset, length):
         print(f"\n[*] Output written to: {outfile}")
     else:
@@ -2113,7 +2141,9 @@ def wordlist_shard(ctx: Any) -> None:
     if not outbase:
         print("[!] Output path cannot be empty.")
         return
-    mod = int(input("Shard count (e.g. 4 to split into 4 parts): ").strip() or "0")
+    mod = prompt_int("Shard count (e.g. 4 to split into 4 parts): ", default=0)
+    if mod is None:
+        return
     if mod < 2:
         print("[!] Shard count must be at least 2.")
         return

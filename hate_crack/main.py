@@ -60,6 +60,7 @@ from hate_crack.api import (  # noqa: E402
 )
 from hate_crack.cli import (  # noqa: E402
     configure_completion,
+    prompt_int,
     resolve_path,
     setup_logging,
 )
@@ -8520,7 +8521,11 @@ def hashview_api():
                     hash_type = int(hcatHashType)
                     print(f"Using hash type: {hash_type}")
                 else:
-                    hash_type = int(input("Enter hash type (e.g., 1000 for NTLM): "))
+                    hash_type = prompt_int(
+                        "Enter hash type (e.g., 1000 for NTLM): ", minimum=0
+                    )
+                    if hash_type is None:
+                        continue
 
                 # Auto-detect file format based on content
                 file_format = 5  # Default to hash_only

@@ -677,3 +677,67 @@ class TestWordlistOptimizeWorker:
         assert call_count["n"] == 1
         out = capsys.readouterr().out
         assert "Skipping" in out
+
+
+class TestNumericPromptsSurviveTypos:
+    """Every numeric prompt in the wordlist tools used to be ``int(input(...))``.
+
+    A single stray character raised ValueError out of the handler and took
+    hate_crack down with it, discarding the in/out paths already chosen.
+    """
+
+    def _paths(self, ctx, tmp_path):
+        infile = tmp_path / "in.txt"
+        infile.write_text("word1\n")
+        outfile = tmp_path / "out.txt"
+        ctx.select_file_with_autocomplete.side_effect = [str(infile), str(outfile)]
+        return str(infile), str(outfile)
+
+    def test_filter_length_reprompts_on_typo(self, tmp_path):
+        ctx = _make_ctx()
+        infile, outfile = self._paths(ctx, tmp_path)
+        with patch("builtins.input", side_effect=["abc", "4", "8"]):
+            wordlist_filter_length(ctx)
+        ctx.wordlist_filter_len.assert_called_once_with(infile, outfile, 4, 8)
+
+    def test_charclass_include_reprompts_on_typo(self, tmp_path):
+        ctx = _make_ctx()
+        infile, outfile = self._paths(ctx, tmp_path)
+        with patch("builtins.input", side_effect=["lower", "3"]):
+            wordlist_filter_charclass_include(ctx)
+        ctx.wordlist_filter_req_include.assert_called_once_with(infile, outfile, 3)
+
+    def test_charclass_exclude_reprompts_on_typo(self, tmp_path):
+        ctx = _make_ctx()
+        infile, outfile = self._paths(ctx, tmp_path)
+        with patch("builtins.input", side_effect=["digits", "4"]):
+            wordlist_filter_charclass_exclude(ctx)
+        ctx.wordlist_filter_req_exclude.assert_called_once_with(infile, outfile, 4)
+
+    def test_cut_substring_reprompts_on_bad_offset(self, tmp_path):
+        ctx = _make_ctx()
+        infile, outfile = self._paths(ctx, tmp_path)
+        with patch("builtins.input", side_effect=["x", "2", ""]):
+            wordlist_cut_substring(ctx)
+        ctx.wordlist_cutb.assert_called_once_with(infile, outfile, 2, None)
+
+    def test_cut_substring_reprompts_on_bad_length(self, tmp_path):
+        ctx = _make_ctx()
+        infile, outfile = self._paths(ctx, tmp_path)
+        with patch("builtins.input", side_effect=["2", "lots", "5"]):
+            wordlist_cut_substring(ctx)
+        ctx.wordlist_cutb.assert_called_once_with(infile, outfile, 2, 5)
+
+    def test_shard_reprompts_on_typo(self, tmp_path):
+        ctx = _make_ctx()
+        self._paths(ctx, tmp_path)
+        with patch("builtins.input", side_effect=["four", "3"]):
+            wordlist_shard(ctx)
+        assert ctx.wordlist_gate.call_count == 3
+
+    def test_cancelling_shard_count_aborts(self, tmp_path):
+        ctx = _make_ctx()
+        self._paths(ctx, tmp_path)
+        with patch("builtins.input", side_effect=["q"]):
+            wordlist_shard(ctx)
+        ctx.wordlist_gate.assert_not_called()
