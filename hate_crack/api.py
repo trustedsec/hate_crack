@@ -1,5 +1,4 @@
 import concurrent.futures
-import html
 import json
 import re
 import sys
@@ -9,7 +8,6 @@ import tempfile
 import threading
 import time
 import urllib.parse
-from queue import Queue
 from typing import Callable, Optional, Tuple
 
 import requests  # type: ignore[import-untyped]
@@ -29,7 +27,6 @@ from hate_crack.plaintext import encode_hex_wrapper
 from hate_crack.hashview_cache import append_to_cache, cache_key, load_cache
 
 _TORRENT_CLEANUP_REGISTERED = False
-_WEAKPASS_INERTIA_VERSION: str | None = None
 HASHVIEW_DEFAULT_TIMEOUT = 30
 # requests' scalar timeout caps connect time AND inter-byte read time, so a
 # bulk upload/import POST needs headroom beyond the metadata-call default --
@@ -715,6 +712,62 @@ def register_torrent_cleanup():
     _TORRENT_CLEANUP_REGISTERED = True
 
 
+WEAKPASS_API_BASE = "https://weakpass.com/api/v1"
+WEAKPASS_TIMEOUT = 30
+WEAKPASS_PER_PAGE = 100
+# Weakpass's API reports rank as a letter tier; the menu, --rank and
+# weakpass_min_rank were built on the numeric rank its old page data carried.
+# The two agree 1:1 across the whole catalogue (checked 2026-10-09), so the
+# integer contract is kept and the letter is mapped onto it.
+WEAKPASS_TIER_RANK = {"S": 7, "A": 6, "B": 5, "C": 4, "D": 3, "E": 2, "F": 1}
+
+
+def _weakpass_headers() -> dict:
+    from hate_crack import __version__
+
+    return {
+        "User-Agent": f"hate_crack/{__version__} (+https://github.com/trustedsec/hate_crack)",
+        "Accept": "application/json",
+    }
+
+
+def _weakpass_api_get(path: str, params: dict | None = None) -> requests.Response:
+    """GET a Weakpass API path. Raises requests.HTTPError on a non-2xx status."""
+    r = requests.get(
+        f"{WEAKPASS_API_BASE}{path}",
+        params=params,
+        headers=_weakpass_headers(),
+        timeout=WEAKPASS_TIMEOUT,
+    )
+    r.raise_for_status()
+    return r
+
+
+def _normalize_weakpass_entry(wl: dict) -> dict:
+    tier = (wl.get("rank") or "").upper()
+    return {
+        "id": wl.get("id", ""),
+        "name": wl.get("name", ""),
+        "slug": wl.get("slug") or "",
+        "size": wl.get("size", 0),
+        "count": wl.get("count", 0),
+        "rank": WEAKPASS_TIER_RANK.get(tier, 0),
+        "tier": tier,
+        "rate": wl.get("rate", 0.0),
+        "torrent_url": wl.get("torrent_url") or "",
+    }
+
+
+def _fetch_weakpass_page(
+    page: int, params: dict | None = None
+) -> tuple[list[dict], int]:
+    """Return (normalized entries, last_page) for one listing page."""
+    query = {"page": page, "per_page": WEAKPASS_PER_PAGE, **(params or {})}
+    body = _weakpass_api_get("/wordlists", query).json()
+    entries = [_normalize_weakpass_entry(wl) for wl in body.get("data", [])]
+    return entries, int(body.get("meta", {}).get("last_page", page))
+
+
 def run_torrent_session(torrent_files, save_dir, *, print_fn=print) -> None:
     """Run a single transmission-daemon session that downloads all
     ``torrent_files`` into ``save_dir`` in parallel.
@@ -763,186 +816,67 @@ def run_torrent_session(torrent_files, save_dir, *, print_fn=print) -> None:
     print_fn(f"[i] Torrent session complete: {completed} succeeded, {failed} failed.")
 
 
-def _get_weakpass_inertia_version(headers: dict) -> str | None:
-    global _WEAKPASS_INERTIA_VERSION
-    if _WEAKPASS_INERTIA_VERSION:
-        return _WEAKPASS_INERTIA_VERSION
-    try:
-        r = requests.get("https://weakpass.com/wordlists", headers=headers, timeout=30)
-        m = re.search(r'data-page="([^"]*)"', r.text)
-        if not m:
-            return None
-        raw = html.unescape(m.group(1))
-        data = json.loads(raw)
-        version = data.get("version")
-        if version:
-            _WEAKPASS_INERTIA_VERSION = version
-        return version
-    except Exception:
-        return None
-
-
-def _fetch_weakpass_listing_page(
-    page: int, headers: dict
-) -> tuple[list[dict], int | None]:
-    url = f"https://weakpass.com/wordlists?page={page}"
-    version = _get_weakpass_inertia_version(headers)
-    if version:
-        req_headers = {
-            **headers,
-            "X-Inertia": "true",
-            "X-Inertia-Version": version,
-            "X-Requested-With": "XMLHttpRequest",
-        }
-        r = requests.get(url, headers=req_headers, timeout=30)
-        if r.status_code == 409:
-            global _WEAKPASS_INERTIA_VERSION
-            _WEAKPASS_INERTIA_VERSION = None
-            r = requests.get(url, headers=headers, timeout=30)
-            if r.status_code != 200:
-                return [], None
-            return _parse_weakpass_html_page(r.text)
-        if r.status_code != 200:
-            return [], None
-        try:
-            data = r.json()
-        except Exception:
-            return [], None
-    else:
-        r = requests.get(url, headers=headers, timeout=30)
-        if r.status_code != 200:
-            return [], None
-        return _parse_weakpass_html_page(r.text)
-
-    return _extract_weakpass_entries(data)
-
-
-def _parse_weakpass_html_page(page_html: str) -> tuple[list[dict], int | None]:
-    m = re.search(r'data-page="([^"]*)"', page_html)
-    if not m:
-        return [], None
-    try:
-        data = json.loads(html.unescape(m.group(1)))
-    except Exception:
-        return [], None
-    return _extract_weakpass_entries(data)
-
-
-def _extract_weakpass_entries(data: dict) -> tuple[list[dict], int | None]:
-    wordlists_raw = data.get("props", {}).get("wordlists", {})
-    last_page = None
-    if isinstance(wordlists_raw, dict):
-        last_page = wordlists_raw.get("last_page") or wordlists_raw.get("meta", {}).get(
-            "last_page"
-        )
-        wordlists_raw = wordlists_raw.get("data", [])
-    if not isinstance(wordlists_raw, list):
-        return [], last_page
-    entries = [
-        {
-            "id": wl.get("id", ""),
-            "name": wl.get("name", ""),
-            "size": wl.get("size", ""),
-            "rank": wl.get("rank", ""),
-            "downloads": wl.get("downloaded", ""),
-            "torrent_url": wl.get("torrent_link", ""),
-        }
-        for wl in wordlists_raw
-    ]
-    return entries, last_page
-
-
 def fetch_all_weakpass_wordlists_multithreaded(total_pages=None, threads=10):
-    """Fetch all Weakpass wordlists. Auto-detects page count from the Inertia payload."""
-    headers = {"User-Agent": "Mozilla/5.0"}
+    """Fetch all Weakpass wordlists via REST API."""
+    # Fetch page 1 to get last_page
+    try:
+        entries1, last_page = _fetch_weakpass_page(1)
+    except requests.RequestException as e:
+        print(f"[!] Weakpass listing failed: {e}")
+        return []
 
-    # Determine total_pages via probe if not provided
-    if total_pages is None:
-        try:
-            entries1, detected = _fetch_weakpass_listing_page(1, headers)
-            if detected:
-                total_pages = int(detected)
-                print(f"[i] Weakpass: {total_pages} pages detected")
-            elif entries1:
-                # last_page not in payload; fall back to sequential until empty
-                all_wordlists = list(entries1)
-                page = 2
-                while True:
-                    try:
-                        entries, _ = _fetch_weakpass_listing_page(page, headers)
-                    except Exception as e:
-                        print(f"Error fetching page {page}: {e}")
-                        break
-                    if not entries:
-                        break
-                    all_wordlists.extend(entries)
-                    page += 1
-                # de-duplicate and return early
-                seen = set()
-                result = []
-                for wl in all_wordlists:
-                    if wl["name"] not in seen:
-                        result.append(wl)
-                        seen.add(wl["name"])
-                return result
-            else:
-                print(
-                    "[!] Weakpass page 1 returned no results; falling back to 67 pages"
-                )
-                total_pages = 67
-                entries1 = []
-        except Exception as e:
-            print(f"[!] Weakpass probe failed ({e}); falling back to 67 pages")
-            total_pages = 67
-            entries1 = []
+    # Determine the final page to fetch
+    if total_pages is not None:
+        last = min(total_pages, last_page)
     else:
-        entries1 = []
+        last = last_page
 
-    # Thread-pool fetch for pages 1..total_pages
-    # (If we already have entries1 from the probe, we skip page 1 in the pool)
-    wordlists = list(entries1)
-    lock = threading.Lock()
-    q = Queue()
+    # Collect results keyed by page number to maintain order
+    result_dict = {1: entries1}
 
-    def worker():
-        while True:
-            page = q.get()
-            if page is None:
-                break
+    # Fetch remaining pages with ThreadPoolExecutor
+    if last > 1:
+
+        def fetch_page(page):
             try:
-                entries, _ = _fetch_weakpass_listing_page(page, headers)
-                with lock:
-                    wordlists.extend(entries)
-            except Exception as e:
-                print(f"Error fetching page {page}: {e}")
-            finally:
-                q.task_done()
+                entries, _ = _fetch_weakpass_page(page)
+                return (page, entries, None)
+            except requests.RequestException as e:
+                print(f"[!] Weakpass page {page} failed: {e}")
+                return (page, [], e)
 
-    start_page = 2 if entries1 else 1
-    for page in range(start_page, total_pages + 1):
-        q.put(page)
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=max(1, min(threads, last - 1))
+        ) as executor:
+            futures = {
+                executor.submit(fetch_page, page): page for page in range(2, last + 1)
+            }
+            for future in concurrent.futures.as_completed(futures):
+                page, entries, error = future.result()
+                if error is None:
+                    result_dict[page] = entries
 
-    threads_list = []
-    for _ in range(threads):
-        t = threading.Thread(target=worker)
-        t.start()
-        threads_list.append(t)
+    # Assemble final list in page order and de-duplicate by id
+    all_entries = []
+    for page in range(1, last + 1):
+        all_entries.extend(result_dict.get(page, []))
 
-    q.join()
+    # De-duplicate by id (first occurrence wins), preserving order
+    seen_ids = set()
+    unique_entries = []
+    for entry in all_entries:
+        entry_id = entry.get("id")
+        if entry_id not in seen_ids:
+            unique_entries.append(entry)
+            seen_ids.add(entry_id)
 
-    for _ in range(threads):
-        q.put(None)
-    for t in threads_list:
-        t.join()
+    print(f"[i] Weakpass: {len(unique_entries)} wordlists across {last} pages")
+    return unique_entries
 
-    seen = set()
-    unique_wordlists = []
-    for wl in wordlists:
-        if wl["name"] not in seen:
-            unique_wordlists.append(wl)
-            seen.add(wl["name"])
 
-    return unique_wordlists
+def _resolve_weakpass_torrent_url(filename: str) -> str | None:
+    """Implemented in Task 2."""
+    return None
 
 
 def _match_entry(entries: list[dict], filename: str) -> tuple[int, str] | None:
@@ -985,25 +919,15 @@ def fetch_torrent_metadata(torrent_url, save_dir=None, wordlist_id=None):
     elif wordlist_id:
         torrent_link = f"https://weakpass.com/download/{wordlist_id}/{torrent_url}"
     else:
-        entries, last_page = _fetch_weakpass_listing_page(1, headers)
-        match = _match_entry(entries, filename)
-        if not match and last_page and last_page > 1:
-            for page in range(2, last_page + 1):
-                entries, _ = _fetch_weakpass_listing_page(page, headers)
-                match = _match_entry(entries, filename)
-                if match:
-                    break
-        if match:
-            resolved_id, torrent_link_from_data = match
-            torrent_link = (
-                f"https://weakpass.com/download/{resolved_id}/{torrent_link_from_data}"
-            )
+        torrent_link = _resolve_weakpass_torrent_url(filename)
 
     if not torrent_link:
         torrent_link = f"https://weakpass.com/files/{filename}"
 
     print(f"[+] Downloading .torrent file from: {torrent_link}")
-    r2 = requests.get(torrent_link, headers=headers, stream=True)
+    r2 = requests.get(
+        torrent_link, headers=headers, stream=True, timeout=WEAKPASS_TIMEOUT
+    )
     content_type = r2.headers.get("Content-Type", "")
     local_filename = os.path.join(
         torrent_dir,

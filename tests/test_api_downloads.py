@@ -2096,159 +2096,342 @@ class TestListAndDownloadOfficialWordlistsSkipExisting:
         mock_sleep.assert_called_once()
 
 
-class TestGetWeakpassInertiaVersion:
-    def setup_method(self):
-        _api_mod._WEAKPASS_INERTIA_VERSION = None  # reset cache before each test
-
-    def _html(self, version):
-        return f'<div id="app" data-page="{{&quot;version&quot;:&quot;{version}&quot;,&quot;props&quot;:{{}}}}"></div>'
-
-    def test_returns_version_from_html(self):
+class TestWeakpassApiListing:
+    def test_request_url_and_params(self):
+        """Test that requests use correct URL, params, timeout, and User-Agent."""
         mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.text = self._html("abc123def456")
-        with patch("hate_crack.api.requests.get", return_value=mock_resp):
-            result = _api_mod._get_weakpass_inertia_version({"User-Agent": "test"})
-        assert result == "abc123def456"
-
-    def test_caches_version_on_second_call(self):
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.text = self._html("cached_ver")
+        mock_resp.json.return_value = {"data": [], "meta": {"last_page": 1}}
         with patch("hate_crack.api.requests.get", return_value=mock_resp) as mock_get:
-            _api_mod._get_weakpass_inertia_version({"User-Agent": "test"})
-            _api_mod._get_weakpass_inertia_version({"User-Agent": "test"})
-        assert mock_get.call_count == 1  # second call uses cache
+            _api_mod._fetch_weakpass_page(1)
 
-    def test_returns_none_on_network_error(self):
-        with patch("hate_crack.api.requests.get", side_effect=Exception("timeout")):
-            result = _api_mod._get_weakpass_inertia_version({"User-Agent": "test"})
-        assert result is None
+        # Verify the call
+        call_args = mock_get.call_args
+        assert call_args[0][0] == "https://weakpass.com/api/v1/wordlists"
+        assert call_args[1]["params"]["page"] == 1
+        assert call_args[1]["params"]["per_page"] == 100
+        assert call_args[1]["timeout"] == 30
 
-    def test_returns_none_when_version_absent(self):
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.text = '<div id="app" data-page="{&quot;props&quot;:{}}"></div>'
-        with patch("hate_crack.api.requests.get", return_value=mock_resp):
-            result = _api_mod._get_weakpass_inertia_version({"User-Agent": "test"})
-        assert result is None
+        # Check headers
+        headers = call_args[1]["headers"]
+        assert headers["User-Agent"].startswith("hate_crack/")
+        assert headers["Accept"] == "application/json"
+        assert "X-Inertia" not in headers
+        assert "api-key" not in headers
 
+    def test_three_pages_fetched_and_returned_in_order(self):
+        """Test that all pages are fetched and results are in page order."""
 
-class TestFetchWeakpassListingPage:
-    def setup_method(self):
-        _api_mod._WEAKPASS_INERTIA_VERSION = None
-
-    def _inertia_json(self, entries, last_page=1):
-        """Return the JSON dict that Inertia returns directly."""
-        return {
-            "props": {
-                "wordlists": {
-                    "data": entries,
-                    "last_page": last_page,
+        def mock_get_impl(url, **kwargs):
+            mock_resp = MagicMock()
+            page = kwargs.get("params", {}).get("page", 1)
+            if page == 1:
+                mock_resp.json.return_value = {
+                    "data": [
+                        {
+                            "id": 1,
+                            "name": "list1",
+                            "rank": "S",
+                            "size": 100,
+                            "count": 10,
+                            "rate": 1.0,
+                            "slug": "list1",
+                            "torrent_url": "url1",
+                        }
+                    ],
+                    "meta": {"last_page": 3},
                 }
-            }
-        }
+            elif page == 2:
+                mock_resp.json.return_value = {
+                    "data": [
+                        {
+                            "id": 2,
+                            "name": "list2",
+                            "rank": "A",
+                            "size": 200,
+                            "count": 20,
+                            "rate": 2.0,
+                            "slug": "list2",
+                            "torrent_url": "url2",
+                        }
+                    ],
+                    "meta": {"last_page": 3},
+                }
+            elif page == 3:
+                mock_resp.json.return_value = {
+                    "data": [
+                        {
+                            "id": 3,
+                            "name": "list3",
+                            "rank": "B",
+                            "size": 300,
+                            "count": 30,
+                            "rate": 3.0,
+                            "slug": "list3",
+                            "torrent_url": "url3",
+                        }
+                    ],
+                    "meta": {"last_page": 3},
+                }
+            else:
+                mock_resp.json.return_value = {"data": [], "meta": {"last_page": 3}}
+            mock_resp.raise_for_status.return_value = None
+            return mock_resp
 
-    def _html_with_data_page(self, props_dict):
-        """Return HTML with data-page attribute encoding the given props."""
-        import json as _json
+        with patch("hate_crack.api.requests.get", side_effect=mock_get_impl):
+            result = _api_mod.fetch_all_weakpass_wordlists_multithreaded()
 
-        payload = _json.dumps({"props": props_dict}).replace('"', "&quot;")
-        return f'<div id="app" data-page="{payload}"></div>'
+        assert len(result) == 3
+        assert result[0]["id"] == 1
+        assert result[1]["id"] == 2
+        assert result[2]["id"] == 3
 
-    def test_uses_inertia_headers_when_version_available(self):
-        _api_mod._WEAKPASS_INERTIA_VERSION = "ver123"
-        entry = {
-            "id": 1,
-            "name": "test.txt",
-            "torrent_link": "test.txt.7z.torrent",
-            "size": 100,
-            "rank": 5,
-            "downloaded": 10,
-        }
+    def test_two_entries_same_name_different_id_both_kept(self):
+        """Test that two entries with same name but different id are both kept."""
         mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.json.return_value = self._inertia_json([entry], last_page=3)
-        with patch("hate_crack.api.requests.get", return_value=mock_resp) as mock_get:
-            entries, last_page = _api_mod._fetch_weakpass_listing_page(
-                1, {"User-Agent": "t"}
-            )
-        sent_headers = mock_get.call_args[1]["headers"]
-        assert sent_headers.get("X-Inertia") == "true"
-        assert sent_headers.get("X-Inertia-Version") == "ver123"
-        assert sent_headers.get("X-Requested-With") == "XMLHttpRequest"
-        assert len(entries) == 1
-        assert entries[0]["name"] == "test.txt"
-        assert entries[0]["torrent_url"] == "test.txt.7z.torrent"
-        assert last_page == 3
-
-    def test_falls_back_to_html_parse_when_version_unavailable(self):
-        # _WEAKPASS_INERTIA_VERSION is None; preflight also fails
-        entry = {
-            "id": 2,
-            "name": "rock.txt",
-            "torrent_link": "rock.txt.7z.torrent",
-            "size": 200,
-            "rank": 4,
-            "downloaded": 5,
+        mock_resp.json.return_value = {
+            "data": [
+                {
+                    "id": 1,
+                    "name": "example-list.txt",
+                    "rank": "S",
+                    "size": 100,
+                    "count": 10,
+                    "rate": 1.0,
+                    "slug": "example-list-txt",
+                    "torrent_url": "url1",
+                },
+                {
+                    "id": 2,
+                    "name": "example-list.txt",
+                    "rank": "A",
+                    "size": 200,
+                    "count": 20,
+                    "rate": 2.0,
+                    "slug": "example-list-txt-2",
+                    "torrent_url": "url2",
+                },
+            ],
+            "meta": {"last_page": 1},
         }
-        html = self._html_with_data_page(
-            {"wordlists": {"data": [entry], "last_page": 1}}
-        )
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.text = html
-        with (
-            patch("hate_crack.api._get_weakpass_inertia_version", return_value=None),
-            patch("hate_crack.api.requests.get", return_value=mock_resp) as mock_get,
-        ):
-            entries, last_page = _api_mod._fetch_weakpass_listing_page(
-                1, {"User-Agent": "t"}
-            )
-        sent_headers = mock_get.call_args[1]["headers"]
-        assert "X-Inertia" not in sent_headers
-        assert len(entries) == 1
-        assert entries[0]["name"] == "rock.txt"
+        mock_resp.raise_for_status.return_value = None
 
-    def test_clears_version_cache_and_retries_on_409(self):
-        _api_mod._WEAKPASS_INERTIA_VERSION = "stale_ver"
-        entry = {
-            "id": 3,
-            "name": "mini.txt",
-            "torrent_link": "mini.txt.7z.torrent",
-            "size": 50,
-            "rank": 6,
-            "downloaded": 1,
+        with patch("hate_crack.api.requests.get", return_value=mock_resp):
+            result = _api_mod.fetch_all_weakpass_wordlists_multithreaded()
+
+        assert len(result) == 2
+        assert result[0]["id"] == 1
+        assert result[1]["id"] == 2
+
+    def test_same_id_on_two_pages_kept_once(self):
+        """Test that the same id on two pages is kept only once (first occurrence)."""
+
+        def mock_get_impl(url, **kwargs):
+            mock_resp = MagicMock()
+            page = kwargs.get("params", {}).get("page", 1)
+            if page == 1:
+                mock_resp.json.return_value = {
+                    "data": [
+                        {
+                            "id": 1,
+                            "name": "list1",
+                            "rank": "S",
+                            "size": 100,
+                            "count": 10,
+                            "rate": 1.0,
+                            "slug": "list1",
+                            "torrent_url": "url1",
+                        }
+                    ],
+                    "meta": {"last_page": 2},
+                }
+            elif page == 2:
+                mock_resp.json.return_value = {
+                    "data": [
+                        {
+                            "id": 1,
+                            "name": "list1_dup",
+                            "rank": "B",
+                            "size": 150,
+                            "count": 15,
+                            "rate": 1.5,
+                            "slug": "list1_dup",
+                            "torrent_url": "url1_dup",
+                        }
+                    ],
+                    "meta": {"last_page": 2},
+                }
+            else:
+                mock_resp.json.return_value = {"data": [], "meta": {"last_page": 2}}
+            mock_resp.raise_for_status.return_value = None
+            return mock_resp
+
+        with patch("hate_crack.api.requests.get", side_effect=mock_get_impl):
+            result = _api_mod.fetch_all_weakpass_wordlists_multithreaded()
+
+        assert len(result) == 1
+        assert result[0]["id"] == 1
+        assert result[0]["name"] == "list1"  # First occurrence wins
+
+    def test_tier_mapping(self):
+        """Test tier to rank mapping: S=7, b(lowercase)=5, None=0."""
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "data": [
+                {
+                    "id": 1,
+                    "name": "s-tier",
+                    "rank": "S",
+                    "size": 100,
+                    "count": 10,
+                    "rate": 1.0,
+                    "slug": "s-tier",
+                    "torrent_url": "url1",
+                },
+                {
+                    "id": 2,
+                    "name": "b-tier",
+                    "rank": "b",
+                    "size": 200,
+                    "count": 20,
+                    "rate": 2.0,
+                    "slug": "b-tier",
+                    "torrent_url": "url2",
+                },
+                {
+                    "id": 3,
+                    "name": "no-tier",
+                    "rank": None,
+                    "size": 300,
+                    "count": 30,
+                    "rate": 3.0,
+                    "slug": "no-tier",
+                    "torrent_url": "url3",
+                },
+            ],
+            "meta": {"last_page": 1},
         }
-        resp_409 = MagicMock()
-        resp_409.status_code = 409
-        html = self._html_with_data_page(
-            {"wordlists": {"data": [entry], "last_page": 1}}
-        )
-        resp_html = MagicMock()
-        resp_html.status_code = 200
-        resp_html.text = html
-        with patch("hate_crack.api.requests.get", side_effect=[resp_409, resp_html]):
-            entries, last_page = _api_mod._fetch_weakpass_listing_page(
-                1, {"User-Agent": "t"}
-            )
-        assert _api_mod._WEAKPASS_INERTIA_VERSION is None  # cache cleared
-        assert len(entries) == 1
-        assert entries[0]["name"] == "mini.txt"
+        mock_resp.raise_for_status.return_value = None
 
-    def test_returns_empty_on_non_200(self):
-        _api_mod._WEAKPASS_INERTIA_VERSION = "ver"
+        with patch("hate_crack.api.requests.get", return_value=mock_resp):
+            result = _api_mod.fetch_all_weakpass_wordlists_multithreaded()
+
+        assert result[0]["rank"] == 7
+        assert result[0]["tier"] == "S"
+        assert result[1]["rank"] == 5
+        assert result[1]["tier"] == "B"
+        assert result[2]["rank"] == 0
+        assert result[2]["tier"] == ""
+
+    def test_page1_http500_returns_empty_and_prints_error(self):
+        """Test that page 1 returning HTTP 500 returns [] and prints 'Weakpass listing failed'."""
         mock_resp = MagicMock()
-        mock_resp.status_code = 500
-        with (
-            patch("hate_crack.api.requests.get", return_value=mock_resp),
-            patch("hate_crack.api._get_weakpass_inertia_version", return_value="ver"),
-        ):
-            entries, last_page = _api_mod._fetch_weakpass_listing_page(
-                1, {"User-Agent": "t"}
-            )
-        assert entries == []
-        assert last_page is None
+        mock_resp.raise_for_status.side_effect = req_lib.HTTPError("500 Server Error")
+
+        with patch("hate_crack.api.requests.get", return_value=mock_resp):
+            result = _api_mod.fetch_all_weakpass_wordlists_multithreaded()
+
+        assert result == []
+
+    def test_page2_of3_fails_returns_pages1and3(self, capsys):
+        """Test that a failed page 2 of 3 still returns pages 1 and 3, and prints error."""
+
+        def mock_get_impl(url, **kwargs):
+            mock_resp = MagicMock()
+            page = kwargs.get("params", {}).get("page", 1)
+            if page == 1:
+                mock_resp.json.return_value = {
+                    "data": [
+                        {
+                            "id": 1,
+                            "name": "list1",
+                            "rank": "S",
+                            "size": 100,
+                            "count": 10,
+                            "rate": 1.0,
+                            "slug": "list1",
+                            "torrent_url": "url1",
+                        }
+                    ],
+                    "meta": {"last_page": 3},
+                }
+                mock_resp.raise_for_status.return_value = None
+            elif page == 2:
+                mock_resp.raise_for_status.side_effect = req_lib.HTTPError(
+                    "500 Server Error"
+                )
+            elif page == 3:
+                mock_resp.json.return_value = {
+                    "data": [
+                        {
+                            "id": 3,
+                            "name": "list3",
+                            "rank": "B",
+                            "size": 300,
+                            "count": 30,
+                            "rate": 3.0,
+                            "slug": "list3",
+                            "torrent_url": "url3",
+                        }
+                    ],
+                    "meta": {"last_page": 3},
+                }
+                mock_resp.raise_for_status.return_value = None
+            else:
+                mock_resp.json.return_value = {"data": [], "meta": {"last_page": 3}}
+                mock_resp.raise_for_status.return_value = None
+            return mock_resp
+
+        with patch("hate_crack.api.requests.get", side_effect=mock_get_impl):
+            result = _api_mod.fetch_all_weakpass_wordlists_multithreaded()
+
+        captured = capsys.readouterr()
+        assert len(result) == 2
+        assert result[0]["id"] == 1
+        assert result[1]["id"] == 3
+        assert "page 2 failed" in captured.out
+
+    def test_total_pages_caps_at_last_page(self):
+        """Test that total_pages=2 with last_page=5 fetches exactly pages 1 and 2."""
+
+        def mock_get_impl(url, **kwargs):
+            mock_resp = MagicMock()
+            page = kwargs.get("params", {}).get("page", 1)
+            if page in [1, 2]:
+                mock_resp.json.return_value = {
+                    "data": [
+                        {
+                            "id": page,
+                            "name": f"list{page}",
+                            "rank": "S",
+                            "size": 100 * page,
+                            "count": 10 * page,
+                            "rate": 1.0 * page,
+                            "slug": f"list{page}",
+                            "torrent_url": f"url{page}",
+                        }
+                    ],
+                    "meta": {"last_page": 5},
+                }
+                mock_resp.raise_for_status.return_value = None
+            else:
+                mock_resp.json.return_value = {"data": [], "meta": {"last_page": 5}}
+                mock_resp.raise_for_status.return_value = None
+            return mock_resp
+
+        with patch(
+            "hate_crack.api.requests.get", side_effect=mock_get_impl
+        ) as mock_get:
+            result = _api_mod.fetch_all_weakpass_wordlists_multithreaded(total_pages=2)
+
+        # Should only call pages 1 and 2, not 3-5
+        pages_called = set()
+        for call_args in mock_get.call_args_list:
+            params = call_args[1].get("params", {})
+            if "page" in params:
+                pages_called.add(params["page"])
+
+        assert pages_called == {1, 2}
+        assert len(result) == 2
 
 
 class TestMatchEntry:
