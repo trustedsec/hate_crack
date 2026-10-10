@@ -875,21 +875,79 @@ def fetch_all_weakpass_wordlists_multithreaded(total_pages=None, threads=10):
 
 
 def _resolve_weakpass_torrent_url(filename: str) -> str | None:
-    """Implemented in Task 2."""
-    return None
+    """Resolve a Weakpass wordlist filename to its torrent URL via the API detail endpoint.
 
+    Tries candidates in order: filename, without .torrent, without .7z/.gz.
+    Falls back to a name search if direct lookups fail.
+    Returns the absolute torrent_url string or None.
+    """
+    # Build candidates: filename, without .torrent, without .7z/.gz (de-duplicated)
+    candidates = [filename]
+    if filename.endswith(".torrent"):
+        candidates.append(filename[: -len(".torrent")])
+    last = candidates[-1]
+    for ext in [".7z", ".gz"]:
+        if last.endswith(ext):
+            candidates.append(last[: -len(ext)])
+    # De-duplicate while preserving order
+    seen = set()
+    unique_candidates = []
+    for c in candidates:
+        if c not in seen:
+            unique_candidates.append(c)
+            seen.add(c)
+    candidates = unique_candidates
 
-def _match_entry(entries: list[dict], filename: str) -> tuple[int, str] | None:
-    wordlist_base = (
-        filename.replace(".torrent", "").replace(".7z", "").replace(".txt", "")
-    )
-    for wl in entries:
-        if wl.get("name") == filename or wordlist_base in wl.get("name", ""):
-            wl_id = wl.get("id")
-            torrent_link = wl.get("torrent_url", "")
-            if wl_id and torrent_link:
-                return (wl_id, torrent_link)
-    return None
+    # Try each candidate directly
+    for candidate in candidates:
+        try:
+            encoded_candidate = urllib.parse.quote(candidate, safe="")
+            r = _weakpass_api_get(f"/wordlists/{encoded_candidate}")
+            data = r.json().get("data", {})
+            torrent_url = data.get("torrent_url")
+            if torrent_url:
+                return torrent_url
+        except requests.HTTPError as e:
+            if e.response is not None and e.response.status_code == 404:
+                # Try next candidate
+                continue
+            else:
+                print(f"[!] Weakpass lookup for {candidate} failed: {e}")
+                return None
+        except Exception as e:
+            print(f"[!] Weakpass lookup for {candidate} failed: {e}")
+            return None
+
+    # All candidates failed; try a search on the last candidate
+    last_candidate = candidates[-1]
+    try:
+        r = _weakpass_api_get(
+            "/wordlists", {"name": last_candidate, "per_page": WEAKPASS_PER_PAGE}
+        )
+        entries = r.json().get("data", [])
+        if not entries:
+            return None
+
+        # Look for an exact case-insensitive match
+        exact_matches = [
+            e for e in entries if e.get("name", "").lower() == last_candidate.lower()
+        ]
+        if len(exact_matches) == 1:
+            return exact_matches[0].get("torrent_url")
+
+        # If exactly one entry, use it
+        if len(entries) == 1:
+            return entries[0].get("torrent_url")
+
+        # Multiple entries and no exact match
+        if len(entries) > 1:
+            print(
+                f"[!] '{filename}' matches {len(entries)} Weakpass wordlists; use the exact name"
+            )
+        return None
+    except Exception as e:
+        print(f"[!] Weakpass lookup for {last_candidate} failed: {e}")
+        return None
 
 
 def fetch_torrent_metadata(torrent_url, save_dir=None, wordlist_id=None):
@@ -903,26 +961,29 @@ def fetch_torrent_metadata(torrent_url, save_dir=None, wordlist_id=None):
     torrent_dir = os.path.join(tempfile.gettempdir(), "hate_crack")
     os.makedirs(torrent_dir, exist_ok=True)
     # Do not send Hashmob API key to weakpass.com
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
+    headers = _weakpass_headers()
 
     # Resolve a filename even if a URL is provided.
     if not torrent_url.startswith("http"):
         filename = torrent_url
     else:
-        filename = torrent_url.split("/")[-1]
+        # Decode the filename from the URL path
+        filename = urllib.parse.unquote(
+            urllib.parse.urlparse(torrent_url).path.rsplit("/", 1)[-1]
+        )
 
     torrent_link = None
     if torrent_url.startswith("http"):
         torrent_link = torrent_url
     elif wordlist_id:
-        torrent_link = f"https://weakpass.com/download/{wordlist_id}/{torrent_url}"
+        # Quote the path segment
+        torrent_link = f"https://weakpass.com/download/{wordlist_id}/{urllib.parse.quote(torrent_url)}"
     else:
         torrent_link = _resolve_weakpass_torrent_url(filename)
 
     if not torrent_link:
-        torrent_link = f"https://weakpass.com/files/{filename}"
+        print(f"[!] '{filename}' was not found on Weakpass.")
+        return None
 
     print(f"[+] Downloading .torrent file from: {torrent_link}")
     r2 = requests.get(
