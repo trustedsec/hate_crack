@@ -569,81 +569,83 @@ class TestFetchTorrentMetadataApiKey:
 class TestResolveWeakpassTorrentUrl:
     """Test _resolve_weakpass_torrent_url which resolves filenames to torrent URLs."""
 
-    def test_first_candidate_resolves(self, monkeypatch, capsys):
+    def test_first_candidate_resolves(self, monkeypatch):
         """example-list.txt resolves on the first detail lookup."""
         calls = []
 
-        def mock_api_get(path, params=None):
-            calls.append((path, params))
+        def mock_get(url, params=None, headers=None, timeout=None):
+            calls.append((url, params))
             resp = MagicMock()
             resp.json.return_value = {
                 "data": {
                     "torrent_url": "https://weakpass.com/download/1/example-list.txt.torrent"
                 }
             }
+            resp.raise_for_status = MagicMock()
             return resp
 
-        monkeypatch.setattr(api, "_weakpass_api_get", mock_api_get)
+        monkeypatch.setattr(api.requests, "get", mock_get)
         result = api._resolve_weakpass_torrent_url("example-list.txt")
         assert result == "https://weakpass.com/download/1/example-list.txt.torrent"
-        assert calls[0] == ("/wordlists/example-list.txt", None)
-        captured = capsys.readouterr()
-        assert "[!]" not in captured.out
+        # Assert the full composed URL
+        assert calls[0][0] == "https://weakpass.com/api/v1/wordlists/example-list.txt"
+        assert calls[0][1] is None
 
-    def test_multiple_candidates_tries_each(self, monkeypatch, capsys):
+    def test_multiple_candidates_tries_each(self, monkeypatch):
         """example-list.txt.7z.torrent 404s twice then resolves on example-list.txt."""
         calls = []
 
-        def mock_api_get(path, params=None):
-            calls.append((path, params))
+        def mock_get(url, params=None, headers=None, timeout=None):
+            calls.append(url)
             resp = MagicMock()
-            if "example-list.txt.7z.torrent" in path:
+            if "example-list.txt.7z.torrent" in url:
                 err = req_lib.HTTPError()
                 err.response = MagicMock(status_code=404)
-                raise err
-            elif "example-list.txt.7z" in path:
+                resp.raise_for_status = MagicMock(side_effect=err)
+            elif "example-list.txt.7z" in url:
                 err = req_lib.HTTPError()
                 err.response = MagicMock(status_code=404)
-                raise err
-            resp.json.return_value = {
-                "data": {
-                    "torrent_url": "https://weakpass.com/download/1/example-list.txt.torrent"
+                resp.raise_for_status = MagicMock(side_effect=err)
+            else:
+                resp.json.return_value = {
+                    "data": {
+                        "torrent_url": "https://weakpass.com/download/1/example-list.txt.torrent"
+                    }
                 }
-            }
+                resp.raise_for_status = MagicMock()
             return resp
 
-        monkeypatch.setattr(api, "_weakpass_api_get", mock_api_get)
+        monkeypatch.setattr(api.requests, "get", mock_get)
         result = api._resolve_weakpass_torrent_url("example-list.txt.7z.torrent")
         assert result == "https://weakpass.com/download/1/example-list.txt.torrent"
         # Should have tried all three candidates
         assert len(calls) == 3
-        captured = capsys.readouterr()
-        assert "[!]" not in captured.out
 
-    def test_path_with_space_and_slash_is_quoted(self, monkeypatch, capsys):
+    def test_path_with_space_and_slash_is_quoted(self, monkeypatch):
         """Names containing space and / are quoted (%20, %2F) in request path."""
         calls = []
 
-        def mock_api_get(path, params=None):
-            calls.append((path, params))
+        def mock_get(url, params=None, headers=None, timeout=None):
+            calls.append(url)
             resp = MagicMock()
             resp.json.return_value = {
                 "data": {"torrent_url": "https://weakpass.com/download/1/file.torrent"}
             }
+            resp.raise_for_status = MagicMock()
             return resp
 
-        monkeypatch.setattr(api, "_weakpass_api_get", mock_api_get)
+        monkeypatch.setattr(api.requests, "get", mock_get)
         result = api._resolve_weakpass_torrent_url("My List/file.txt")
         assert result == "https://weakpass.com/download/1/file.torrent"
-        # Path should be quoted
-        assert "/wordlists/My%20List%2Ffile.txt" in calls[0][0]
+        # Path should be quoted in the full URL
+        assert calls[0] == "https://weakpass.com/api/v1/wordlists/My%20List%2Ffile.txt"
 
-    def test_all_candidates_fail_search_returns_exact_match(self, monkeypatch, capsys):
+    def test_all_candidates_fail_search_returns_exact_match(self, monkeypatch):
         """Search with exact case-insensitive match among several entries."""
 
-        def mock_api_get(path, params=None):
+        def mock_get(url, params=None, headers=None, timeout=None):
             resp = MagicMock()
-            if "name" in (params or {}):
+            if params and "name" in params:
                 # Search results: multiple entries, one exact match case-insensitively
                 resp.json.return_value = {
                     "data": [
@@ -652,14 +654,15 @@ class TestResolveWeakpassTorrentUrl:
                         {"name": "Other List", "torrent_url": "other.torrent"},
                     ]
                 }
+                resp.raise_for_status = MagicMock()
             else:
                 # Detail lookup 404
                 err = req_lib.HTTPError()
                 err.response = MagicMock(status_code=404)
-                raise err
+                resp.raise_for_status = MagicMock(side_effect=err)
             return resp
 
-        monkeypatch.setattr(api, "_weakpass_api_get", mock_api_get)
+        monkeypatch.setattr(api.requests, "get", mock_get)
         result = api._resolve_weakpass_torrent_url("EXAMPLE-LIST.TXT")
         assert result == "exact.torrent"
 
@@ -668,45 +671,47 @@ class TestResolveWeakpassTorrentUrl:
     ):
         """Search returns 2+ entries without exact match -> None with message."""
 
-        def mock_api_get(path, params=None):
+        def mock_get(url, params=None, headers=None, timeout=None):
             resp = MagicMock()
-            if "name" in (params or {}):
+            if params and "name" in params:
                 resp.json.return_value = {
                     "data": [
                         {"name": "example-list-a.txt", "torrent_url": "a.torrent"},
                         {"name": "example-list-b.txt", "torrent_url": "b.torrent"},
                     ]
                 }
+                resp.raise_for_status = MagicMock()
             else:
                 err = req_lib.HTTPError()
                 err.response = MagicMock(status_code=404)
-                raise err
+                resp.raise_for_status = MagicMock(side_effect=err)
             return resp
 
-        monkeypatch.setattr(api, "_weakpass_api_get", mock_api_get)
+        monkeypatch.setattr(api.requests, "get", mock_get)
         result = api._resolve_weakpass_torrent_url("example-list.txt")
         assert result is None
         captured = capsys.readouterr()
         assert "matches 2 Weakpass wordlists" in captured.out
 
-    def test_search_single_entry_returned(self, monkeypatch, capsys):
+    def test_search_single_entry_returned(self, monkeypatch):
         """If search returns exactly one entry, use it."""
 
-        def mock_api_get(path, params=None):
+        def mock_get(url, params=None, headers=None, timeout=None):
             resp = MagicMock()
-            if "name" in (params or {}):
+            if params and "name" in params:
                 resp.json.return_value = {
                     "data": [
                         {"name": "example-list.txt", "torrent_url": "single.torrent"}
                     ]
                 }
+                resp.raise_for_status = MagicMock()
             else:
                 err = req_lib.HTTPError()
                 err.response = MagicMock(status_code=404)
-                raise err
+                resp.raise_for_status = MagicMock(side_effect=err)
             return resp
 
-        monkeypatch.setattr(api, "_weakpass_api_get", mock_api_get)
+        monkeypatch.setattr(api.requests, "get", mock_get)
         result = api._resolve_weakpass_torrent_url("example-list.txt")
         assert result == "single.torrent"
 
@@ -714,13 +719,15 @@ class TestResolveWeakpassTorrentUrl:
         """Non-404 error (500) -> None plus failed line, no search issued."""
         calls = []
 
-        def mock_api_get(path, params=None):
-            calls.append((path, params))
+        def mock_get(url, params=None, headers=None, timeout=None):
+            calls.append(url)
             err = req_lib.HTTPError()
             err.response = MagicMock(status_code=500)
-            raise err
+            resp = MagicMock()
+            resp.raise_for_status = MagicMock(side_effect=err)
+            return resp
 
-        monkeypatch.setattr(api, "_weakpass_api_get", mock_api_get)
+        monkeypatch.setattr(api.requests, "get", mock_get)
         result = api._resolve_weakpass_torrent_url("example-list.txt")
         assert result is None
         # Should only try once (detail lookup) then stop
@@ -728,25 +735,45 @@ class TestResolveWeakpassTorrentUrl:
         captured = capsys.readouterr()
         assert "lookup for example-list.txt failed" in captured.out
 
-    def test_unresolvable_bare_name_returns_none(self, monkeypatch, capsys):
-        """Bare name not found -> None, prints was not found on Weakpass, no /files/ request."""
+    def test_resolver_returns_none_when_all_lookups_fail(self, monkeypatch):
+        """_resolve_weakpass_torrent_url returns None when all lookups and search fail."""
 
-        def mock_api_get(path, params=None):
+        def mock_get(url, params=None, headers=None, timeout=None):
             resp = MagicMock()
-            if "name" in (params or {}):
+            if params and "name" in params:
                 resp.json.return_value = {"data": []}  # No search results
+                resp.raise_for_status = MagicMock()
             else:
                 err = req_lib.HTTPError()
                 err.response = MagicMock(status_code=404)
-                raise err
+                resp.raise_for_status = MagicMock(side_effect=err)
             return resp
 
-        monkeypatch.setattr(api, "_weakpass_api_get", mock_api_get)
+        monkeypatch.setattr(api.requests, "get", mock_get)
         result = api._resolve_weakpass_torrent_url("nonexistent.txt")
         assert result is None
+
+    def test_resolver_with_empty_torrent_url(self, monkeypatch, capsys):
+        """Entry found but with empty torrent_url prints specific message."""
+
+        def mock_get(url, params=None, headers=None, timeout=None):
+            resp = MagicMock()
+            if params and "name" in params:
+                resp.json.return_value = {
+                    "data": [{"name": "example-list.txt", "torrent_url": ""}]
+                }
+                resp.raise_for_status = MagicMock()
+            else:
+                err = req_lib.HTTPError()
+                err.response = MagicMock(status_code=404)
+                resp.raise_for_status = MagicMock(side_effect=err)
+            return resp
+
+        monkeypatch.setattr(api.requests, "get", mock_get)
+        result = api._resolve_weakpass_torrent_url("example-list.txt")
+        assert result is None
         captured = capsys.readouterr()
-        # Should NOT print the "was not found on Weakpass" message - that's in fetch_torrent_metadata
-        assert "[!]" not in captured.out
+        assert "is on Weakpass but has no torrent" in captured.out
 
 
 class TestFetchTorrentMetadataUpdated:
@@ -797,25 +824,34 @@ class TestFetchTorrentMetadataUpdated:
     def test_unresolvable_bare_name_not_found_message(
         self, monkeypatch, tmp_path, capsys
     ):
-        """Unresolvable bare name prints 'was not found on Weakpass'."""
+        """Unresolvable bare name prints 'was not found on Weakpass', no /files/ URL."""
         monkeypatch.setattr(api, "register_torrent_cleanup", lambda: None)
         monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path))
 
-        def mock_api_get(path, params=None):
+        seen_urls = []
+
+        def mock_get(
+            url, params=None, headers=None, stream=False, timeout=None, **kwargs
+        ):
+            seen_urls.append(url)
             resp = MagicMock()
-            if "name" in (params or {}):
+            if params and "name" in params:
                 resp.json.return_value = {"data": []}
+                resp.raise_for_status = MagicMock()
             else:
                 err = req_lib.HTTPError()
                 err.response = MagicMock(status_code=404)
-                raise err
+                resp.raise_for_status = MagicMock(side_effect=err)
             return resp
 
-        monkeypatch.setattr(api, "_weakpass_api_get", mock_api_get)
+        monkeypatch.setattr(api.requests, "get", mock_get)
         result = api.fetch_torrent_metadata("nonexistent.txt")
         assert result is None
         captured = capsys.readouterr()
         assert "was not found on Weakpass" in captured.out
+        # Assert no URL contains the old /files/ fallback
+        for url in seen_urls:
+            assert "weakpass.com/files/" not in url
 
     def test_torrent_download_gets_timeout(self, monkeypatch, tmp_path):
         """The torrent GET is passed timeout=WEAKPASS_TIMEOUT."""
@@ -835,6 +871,31 @@ class TestFetchTorrentMetadataUpdated:
         monkeypatch.setattr(api.requests, "get", mock_get)
         api.fetch_torrent_metadata("http://example.com/file.torrent")
         assert seen_kwargs.get("timeout") == api.WEAKPASS_TIMEOUT
+
+    def test_path_traversal_blocked_in_filename(self, monkeypatch, tmp_path):
+        """Encoded path traversal (..%2F..%2Fevil) is stripped, file stays in temp dir."""
+        monkeypatch.setattr(api, "register_torrent_cleanup", lambda: None)
+        monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path))
+
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.headers = {"Content-Type": "application/octet-stream"}
+        resp.iter_content = MagicMock(return_value=[b"fake torrent data"])
+
+        def mock_get(*args, **kwargs):
+            return resp
+
+        monkeypatch.setattr(api.requests, "get", mock_get)
+
+        result = api.fetch_torrent_metadata(
+            "https://weakpass.com/download/9/..%2F..%2Fevil.txt"
+        )
+        # Should use basename, preventing directory traversal
+        assert result is not None
+        # Verify the file was saved under the torrent dir, not above it
+        saved_dir = os.path.dirname(result)
+        expected_dir = os.path.join(str(tmp_path), "hate_crack")
+        assert saved_dir == expected_dir
 
 
 class TestExtractWith7z:

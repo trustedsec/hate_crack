@@ -933,11 +933,21 @@ def _resolve_weakpass_torrent_url(filename: str) -> str | None:
             e for e in entries if e.get("name", "").lower() == last_candidate.lower()
         ]
         if len(exact_matches) == 1:
-            return exact_matches[0].get("torrent_url")
+            torrent_url = exact_matches[0].get("torrent_url")
+            if torrent_url:
+                return torrent_url
+            else:
+                print(f"[!] '{filename}' is on Weakpass but has no torrent.")
+                return None
 
         # If exactly one entry, use it
         if len(entries) == 1:
-            return entries[0].get("torrent_url")
+            torrent_url = entries[0].get("torrent_url")
+            if torrent_url:
+                return torrent_url
+            else:
+                print(f"[!] '{filename}' is on Weakpass but has no torrent.")
+                return None
 
         # Multiple entries and no exact match
         if len(entries) > 1:
@@ -965,19 +975,22 @@ def fetch_torrent_metadata(torrent_url, save_dir=None, wordlist_id=None):
 
     # Resolve a filename even if a URL is provided.
     if not torrent_url.startswith("http"):
-        filename = torrent_url
+        # For bare names, strip any path separators to prevent directory traversal
+        filename = os.path.basename(torrent_url)
     else:
-        # Decode the filename from the URL path
-        filename = urllib.parse.unquote(
+        # Decode the filename from the URL path, then extract basename
+        # to prevent directory traversal via encoded path separators
+        decoded = urllib.parse.unquote(
             urllib.parse.urlparse(torrent_url).path.rsplit("/", 1)[-1]
         )
+        filename = os.path.basename(decoded)
 
     torrent_link = None
     if torrent_url.startswith("http"):
         torrent_link = torrent_url
     elif wordlist_id:
-        # Quote the path segment
-        torrent_link = f"https://weakpass.com/download/{wordlist_id}/{urllib.parse.quote(torrent_url)}"
+        # Quote the path segment (but use basename to prevent directory traversal)
+        torrent_link = f"https://weakpass.com/download/{wordlist_id}/{urllib.parse.quote(os.path.basename(torrent_url))}"
     else:
         torrent_link = _resolve_weakpass_torrent_url(filename)
 
