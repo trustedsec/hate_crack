@@ -1650,8 +1650,9 @@ Downloads wordlists from Hashmob.net's collection of cracked passwords and commo
 #### Weakpass Wordlist Menu (Wordlist Tools option 10)
 Interactive menu for downloading and managing wordlists from Weakpass.com via BitTorrent, pulling the listing from Weakpass's public REST API.
 
-* Browse available Weakpass wordlists, showing tier (S–F) and crack rate (%)
-* Download specific wordlists or entire collections by tier: 7=S, 6=A, 5=B, 4=C, 3=D, 2=E, 1=F
+* Browse available Weakpass wordlists, showing tier (S-F) and crack rate (%)
+* Filter by tier using the `--rank` flag (7=S, 6=A, 5=B, 4=C, 3=D, 2=E, 1=F; -1 defaults to S/A/B)
+* Download specific wordlists by selection
 * Automatic extraction of compressed archives
 * Progress tracking for torrent downloads
 

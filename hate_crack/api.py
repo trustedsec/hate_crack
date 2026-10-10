@@ -4242,7 +4242,10 @@ def download_all_weakpass_torrents(
             need_refresh = any(
                 "id" not in wl or wl.get("id") in ("", None) for wl in all_wordlists
             )
-        except Exception:
+        except Exception as exc:
+            print_fn(
+                f"[!] Weakpass cache {cache_path} unreadable ({exc}); refreshing..."
+            )
             need_refresh = True
 
     if need_refresh:
@@ -4253,13 +4256,6 @@ def download_all_weakpass_torrents(
             return
         with open(cache_path, "w", encoding="utf-8") as f:
             json.dump(all_wordlists, f, indent=2)
-    else:
-        try:
-            with open(cache_path, "r", encoding="utf-8") as f:
-                all_wordlists = json.load(f)
-        except Exception as exc:
-            print_fn(f"Failed to load local wordlist cache: {exc}")
-            raise
 
     torrents = [
         (wl.get("torrent_url"), wl.get("id"))

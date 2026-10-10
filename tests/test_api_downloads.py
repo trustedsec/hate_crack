@@ -2976,9 +2976,10 @@ class TestWeakpassWordlistMenu:
         api.weakpass_wordlist_menu(rank=0)
 
         captured = capsys.readouterr()
-        # Check the format is approximately right: should have S and 5.5%
-        assert "S" in captured.out
-        assert "5.5" in captured.out or "5.5%" in captured.out
+        # Check entry row contains name, tier, and rate
+        assert "test-list" in captured.out
+        assert " S " in captured.out  # tier with spaces
+        assert "5.5%" in captured.out  # rate percentage
 
 
 class TestDownloadAllWeakpassTorrents:
@@ -2998,15 +2999,10 @@ class TestDownloadAllWeakpassTorrents:
         def mock_download(url, wordlist_id=None):
             return f"torrent_{wordlist_id}"
 
-        output = []
-
-        def mock_print(msg):
-            output.append(msg)
-
         monkeypatch.setattr(api, "run_torrent_session", MagicMock())
 
         api.download_all_weakpass_torrents(
-            mock_fetch, mock_download, print_fn=mock_print, cache_path=str(cache_file)
+            mock_fetch, mock_download, cache_path=str(cache_file)
         )
 
         # Cache should have been written
@@ -3017,29 +3013,24 @@ class TestDownloadAllWeakpassTorrents:
         assert cached[0]["id"] == 1
         assert cached[1]["id"] == 2
 
-    def test_prints_error_and_returns_when_fetch_empty(self, tmp_path, monkeypatch):
+    def test_prints_error_and_returns_when_fetch_empty(self, tmp_path, capsys):
         """When fetch returns [], prints error and doesn't write cache."""
         cache_file = tmp_path / "wordlists.json"
 
         def mock_fetch():
             return []
 
-        output = []
-
-        def mock_print(msg):
-            output.append(msg)
-
         api.download_all_weakpass_torrents(
             mock_fetch,
             lambda url, wordlist_id=None: None,
-            print_fn=mock_print,
             cache_path=str(cache_file),
         )
 
         # Cache should NOT have been written
         assert not cache_file.exists()
         # Error message should have been printed
-        assert any("[!] Could not fetch" in msg for msg in output)
+        captured = capsys.readouterr()
+        assert "[!] Could not fetch" in captured.out
 
     def test_refreshes_cache_when_entry_lacks_id(self, tmp_path, monkeypatch):
         """When an entry in cache lacks id, refreshes the cache."""
@@ -3055,21 +3046,13 @@ class TestDownloadAllWeakpassTorrents:
         def mock_fetch():
             return new_wordlists
 
-        download_calls = []
-
         def mock_download(url, wordlist_id=None):
-            download_calls.append((url, wordlist_id))
             return f"torrent_{wordlist_id}"
-
-        output = []
-
-        def mock_print(msg):
-            output.append(msg)
 
         monkeypatch.setattr(api, "run_torrent_session", MagicMock())
 
         api.download_all_weakpass_torrents(
-            mock_fetch, mock_download, print_fn=mock_print, cache_path=str(cache_file)
+            mock_fetch, mock_download, cache_path=str(cache_file)
         )
 
         # Cache should have been updated
@@ -3095,18 +3078,50 @@ class TestDownloadAllWeakpassTorrents:
             download_calls.append({"url": url, "wordlist_id": wordlist_id})
             return f"torrent_{wordlist_id}"
 
-        output = []
+        monkeypatch.setattr(api, "run_torrent_session", MagicMock())
 
-        def mock_print(msg):
-            output.append(msg)
+        api.download_all_weakpass_torrents(
+            mock_fetch, mock_download, cache_path=str(cache_file)
+        )
+
+        # Each wordlist should be downloaded with its id
+        assert len(download_calls) == 2
+        assert download_calls[0]["wordlist_id"] == 1
+        assert download_calls[1]["wordlist_id"] == 2
+
+    def test_valid_complete_cache_used_as_is(self, tmp_path, monkeypatch):
+        """A valid, complete cache (every entry has id) is used as-is."""
+        cache_file = tmp_path / "wordlists.json"
+        original_wordlists = [
+            {"id": 1, "name": "list1", "torrent_url": "url1"},
+            {"id": 2, "name": "list2", "torrent_url": "url2"},
+        ]
+        cache_file.write_text(json.dumps(original_wordlists))
+        original_mtime = cache_file.stat().st_mtime
+
+        fetch_called = []
+
+        def mock_fetch():
+            fetch_called.append(True)
+            return []  # Should never be called
+
+        download_calls = []
+
+        def mock_download(url, wordlist_id=None):
+            download_calls.append({"url": url, "wordlist_id": wordlist_id})
+            return f"torrent_{wordlist_id}"
 
         monkeypatch.setattr(api, "run_torrent_session", MagicMock())
 
         api.download_all_weakpass_torrents(
-            mock_fetch, mock_download, print_fn=mock_print, cache_path=str(cache_file)
+            mock_fetch, mock_download, cache_path=str(cache_file)
         )
 
-        # Each wordlist should be downloaded with its id
+        # fetch_all_wordlists should NOT have been called
+        assert len(fetch_called) == 0
+        # Cache file should not have been rewritten
+        assert cache_file.stat().st_mtime == original_mtime
+        # download_torrent should have been called once per entry
         assert len(download_calls) == 2
         assert download_calls[0]["wordlist_id"] == 1
         assert download_calls[1]["wordlist_id"] == 2
