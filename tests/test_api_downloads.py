@@ -2322,7 +2322,7 @@ class TestWeakpassApiListing:
         assert result[2]["rank"] == 0
         assert result[2]["tier"] == ""
 
-    def test_page1_http500_returns_empty_and_prints_error(self):
+    def test_page1_http500_returns_empty_and_prints_error(self, capsys):
         """Test that page 1 returning HTTP 500 returns [] and prints 'Weakpass listing failed'."""
         mock_resp = MagicMock()
         mock_resp.raise_for_status.side_effect = req_lib.HTTPError("500 Server Error")
@@ -2330,7 +2330,9 @@ class TestWeakpassApiListing:
         with patch("hate_crack.api.requests.get", return_value=mock_resp):
             result = _api_mod.fetch_all_weakpass_wordlists_multithreaded()
 
+        captured = capsys.readouterr()
         assert result == []
+        assert "Weakpass listing failed" in captured.out
 
     def test_page2_of3_fails_returns_pages1and3(self, capsys):
         """Test that a failed page 2 of 3 still returns pages 1 and 3, and prints error."""
@@ -2432,6 +2434,77 @@ class TestWeakpassApiListing:
 
         assert pages_called == {1, 2}
         assert len(result) == 2
+
+    def test_page1_malformed_json_response_returns_empty_and_prints_error(self, capsys):
+        """Test page 1 with malformed data (last_page=None) returns [] and prints error."""
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"data": [], "meta": {"last_page": None}}
+        mock_resp.raise_for_status.return_value = None
+
+        with patch("hate_crack.api.requests.get", return_value=mock_resp):
+            result = _api_mod.fetch_all_weakpass_wordlists_multithreaded()
+
+        captured = capsys.readouterr()
+        assert result == []
+        assert "Weakpass listing failed" in captured.out
+
+    def test_page2_json_decode_error_returns_pages1and3(self, capsys):
+        """Test page 2 with .json() raising ValueError still returns pages 1 and 3."""
+
+        def mock_get_impl(url, **kwargs):
+            mock_resp = MagicMock()
+            page = kwargs.get("params", {}).get("page", 1)
+            if page == 1:
+                mock_resp.json.return_value = {
+                    "data": [
+                        {
+                            "id": 1,
+                            "name": "list1",
+                            "rank": "S",
+                            "size": 100,
+                            "count": 10,
+                            "rate": 1.0,
+                            "slug": "list1",
+                            "torrent_url": "url1",
+                        }
+                    ],
+                    "meta": {"last_page": 3},
+                }
+                mock_resp.raise_for_status.return_value = None
+            elif page == 2:
+                # Simulate malformed JSON by raising ValueError on json() call
+                mock_resp.json.side_effect = ValueError("Expecting value")
+                mock_resp.raise_for_status.return_value = None
+            elif page == 3:
+                mock_resp.json.return_value = {
+                    "data": [
+                        {
+                            "id": 3,
+                            "name": "list3",
+                            "rank": "B",
+                            "size": 300,
+                            "count": 30,
+                            "rate": 3.0,
+                            "slug": "list3",
+                            "torrent_url": "url3",
+                        }
+                    ],
+                    "meta": {"last_page": 3},
+                }
+                mock_resp.raise_for_status.return_value = None
+            else:
+                mock_resp.json.return_value = {"data": [], "meta": {"last_page": 3}}
+                mock_resp.raise_for_status.return_value = None
+            return mock_resp
+
+        with patch("hate_crack.api.requests.get", side_effect=mock_get_impl):
+            result = _api_mod.fetch_all_weakpass_wordlists_multithreaded()
+
+        captured = capsys.readouterr()
+        assert len(result) == 2
+        assert result[0]["id"] == 1
+        assert result[1]["id"] == 3
+        assert "page 2 failed" in captured.out
 
 
 class TestMatchEntry:

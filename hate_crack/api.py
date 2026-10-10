@@ -821,7 +821,7 @@ def fetch_all_weakpass_wordlists_multithreaded(total_pages=None, threads=10):
     # Fetch page 1 to get last_page
     try:
         entries1, last_page = _fetch_weakpass_page(1)
-    except requests.RequestException as e:
+    except Exception as e:
         print(f"[!] Weakpass listing failed: {e}")
         return []
 
@@ -841,7 +841,7 @@ def fetch_all_weakpass_wordlists_multithreaded(total_pages=None, threads=10):
             try:
                 entries, _ = _fetch_weakpass_page(page)
                 return (page, entries, None)
-            except requests.RequestException as e:
+            except Exception as e:
                 print(f"[!] Weakpass page {page} failed: {e}")
                 return (page, [], e)
 
