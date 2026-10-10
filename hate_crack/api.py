@@ -744,16 +744,33 @@ def _weakpass_api_get(path: str, params: dict | None = None) -> requests.Respons
 
 
 def _normalize_weakpass_entry(wl: dict) -> dict:
-    tier = (wl.get("rank") or "").upper()
+    # F4: Defensive coercion of rank and rate
+    rank_value = wl.get("rank")
+    # If rank is an int in 1..7, use it and derive the tier by reverse lookup
+    if isinstance(rank_value, int) and 1 <= rank_value <= 7:
+        # Reverse lookup from WEAKPASS_TIER_RANK: {tier: rank_int}
+        tier = next((t for t, r in WEAKPASS_TIER_RANK.items() if r == rank_value), "")
+        rank_coerced = rank_value
+    else:
+        # Otherwise use string mapping
+        tier = (str(rank_value or "")).upper()
+        rank_coerced = WEAKPASS_TIER_RANK.get(tier, 0)
+
+    # F4: Coerce rate to float, defaulting to 0.0
+    try:
+        rate_value = float(wl.get("rate") or 0.0)
+    except (ValueError, TypeError):
+        rate_value = 0.0
+
     return {
         "id": wl.get("id", ""),
         "name": wl.get("name", ""),
         "slug": wl.get("slug") or "",
         "size": wl.get("size", 0),
         "count": wl.get("count", 0),
-        "rank": WEAKPASS_TIER_RANK.get(tier, 0),
+        "rank": rank_coerced,
         "tier": tier,
-        "rate": wl.get("rate", 0.0),
+        "rate": rate_value,
         "torrent_url": wl.get("torrent_url") or "",
     }
 
@@ -816,14 +833,22 @@ def run_torrent_session(torrent_files, save_dir, *, print_fn=print) -> None:
     print_fn(f"[i] Torrent session complete: {completed} succeeded, {failed} failed.")
 
 
-def fetch_all_weakpass_wordlists_multithreaded(total_pages=None, threads=10):
-    """Fetch all Weakpass wordlists via REST API."""
+def _fetch_all_weakpass_wordlists(
+    total_pages=None, threads=10
+) -> tuple[list[dict], list[int], int]:
+    """Fetch all Weakpass wordlists via REST API.
+
+    Returns (entries, failed_pages, last_page) where:
+    - entries: list of normalized wordlist entries
+    - failed_pages: sorted list of page numbers that failed to fetch (empty list if all succeeded)
+    - last_page: total number of pages that were attempted
+    """
     # Fetch page 1 to get last_page
     try:
         entries1, last_page = _fetch_weakpass_page(1)
     except Exception as e:
         print(f"[!] Weakpass listing failed: {e}")
-        return []
+        return [], [], 0
 
     # Determine the final page to fetch
     if total_pages is not None:
@@ -833,6 +858,7 @@ def fetch_all_weakpass_wordlists_multithreaded(total_pages=None, threads=10):
 
     # Collect results keyed by page number to maintain order
     result_dict = {1: entries1}
+    failed_pages = []
 
     # Fetch remaining pages with ThreadPoolExecutor
     if last > 1:
@@ -855,23 +881,48 @@ def fetch_all_weakpass_wordlists_multithreaded(total_pages=None, threads=10):
                 page, entries, error = future.result()
                 if error is None:
                     result_dict[page] = entries
+                else:
+                    failed_pages.append(page)
 
     # Assemble final list in page order and de-duplicate by id
     all_entries = []
     for page in range(1, last + 1):
         all_entries.extend(result_dict.get(page, []))
 
-    # De-duplicate by id (first occurrence wins), preserving order
+    # F5: De-duplicate by id (first occurrence wins), preserving order
+    # Skip de-duplication for falsy ids (keep them all)
     seen_ids = set()
     unique_entries = []
     for entry in all_entries:
         entry_id = entry.get("id")
-        if entry_id not in seen_ids:
+        if entry_id:  # Only track non-falsy ids
+            if entry_id not in seen_ids:
+                unique_entries.append(entry)
+                seen_ids.add(entry_id)
+        else:
+            # Keep all entries with falsy ids
             unique_entries.append(entry)
-            seen_ids.add(entry_id)
 
-    print(f"[i] Weakpass: {len(unique_entries)} wordlists across {last} pages")
-    return unique_entries
+    return unique_entries, sorted(failed_pages), last
+
+
+def fetch_all_weakpass_wordlists_multithreaded(total_pages=None, threads=10):
+    """Fetch all Weakpass wordlists via REST API."""
+    # Store entries, failed pages, and last page for summary
+    entries, failed_pages, last_page = _fetch_all_weakpass_wordlists(
+        total_pages, threads
+    )
+
+    # F1: Print summary with failure information if applicable
+    if failed_pages:
+        failed_str = ", ".join(str(p) for p in failed_pages)
+        print(
+            f"[i] Weakpass: {len(entries)} wordlists across {last_page} pages ({len(failed_pages)} page(s) failed: {failed_str})"
+        )
+    else:
+        print(f"[i] Weakpass: {len(entries)} wordlists across {last_page} pages")
+
+    return entries
 
 
 def _resolve_weakpass_torrent_url(filename: str) -> str | None:
@@ -995,7 +1046,8 @@ def fetch_torrent_metadata(torrent_url, save_dir=None, wordlist_id=None):
         torrent_link = _resolve_weakpass_torrent_url(filename)
 
     if not torrent_link:
-        print(f"[!] '{filename}' was not found on Weakpass.")
+        # F2: Better error message - _resolve_weakpass_torrent_url already printed specific reasons
+        print(f"[!] Could not resolve a Weakpass torrent for '{filename}'.")
         return None
 
     print(f"[+] Downloading .torrent file from: {torrent_link}")
@@ -4232,7 +4284,12 @@ def download_all_weakpass_torrents(
     print_fn=print,
     cache_path: str = "weakpass_wordlists.json",
 ) -> None:
-    """Download all Weakpass torrents from a cached wordlist JSON."""
+    """Download all Weakpass torrents from a cached wordlist JSON.
+
+    The fetch_all_wordlists callback may return either:
+    - A list of wordlist entries
+    - A tuple of (entries, failed_pages) where failed_pages is a list
+    """
     # Check if we need to refresh the cache
     need_refresh = not os.path.exists(cache_path)
     if not need_refresh:
@@ -4250,12 +4307,27 @@ def download_all_weakpass_torrents(
 
     if need_refresh:
         print_fn("[i] Fetching wordlist cache...")
-        all_wordlists = fetch_all_wordlists()
+        result = fetch_all_wordlists()
+
+        # F1: Handle both tuple and list return shapes
+        if isinstance(result, tuple):
+            all_wordlists, failed_pages = result
+        else:
+            all_wordlists = result
+            failed_pages = []
+
         if not all_wordlists:
             print_fn("[!] Could not fetch the Weakpass wordlist list.")
             return
-        with open(cache_path, "w", encoding="utf-8") as f:
-            json.dump(all_wordlists, f, indent=2)
+
+        # F1: Do NOT write cache if listing was incomplete
+        if failed_pages:
+            print_fn(
+                f"[!] Weakpass listing incomplete ({len(failed_pages)} page(s) failed); not caching it, so the next run refetches."
+            )
+        else:
+            with open(cache_path, "w", encoding="utf-8") as f:
+                json.dump(all_wordlists, f, indent=2)
 
     torrents = [
         (wl.get("torrent_url"), wl.get("id"))

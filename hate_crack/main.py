@@ -43,7 +43,6 @@ except Exception:
     pass
 
 from hate_crack.api import (  # noqa: E402
-    fetch_all_weakpass_wordlists_multithreaded,
     download_torrent_file,
     fetch_torrent_metadata,
     weakpass_wordlist_menu,
@@ -57,6 +56,7 @@ from hate_crack.api import (  # noqa: E402
     download_hashmob_rules,
     download_weakpass_torrent,
     extract_with_7z,
+    _fetch_all_weakpass_wordlists,
 )
 from hate_crack.cli import (  # noqa: E402
     configure_completion,
@@ -10187,7 +10187,7 @@ def main():
     if args.download_all_torrents:
         try:
             download_all_weakpass_torrents(
-                fetch_all_wordlists=fetch_all_weakpass_wordlists_multithreaded,
+                fetch_all_wordlists=_fetch_all_weakpass_wordlists,
                 download_torrent=fetch_torrent_metadata,
                 print_fn=print,
             )

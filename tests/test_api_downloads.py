@@ -824,7 +824,7 @@ class TestFetchTorrentMetadataUpdated:
     def test_unresolvable_bare_name_not_found_message(
         self, monkeypatch, tmp_path, capsys
     ):
-        """Unresolvable bare name prints 'was not found on Weakpass', no /files/ URL."""
+        """Unresolvable bare name prints the new error message, no /files/ URL."""
         monkeypatch.setattr(api, "register_torrent_cleanup", lambda: None)
         monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path))
 
@@ -848,7 +848,8 @@ class TestFetchTorrentMetadataUpdated:
         result = api.fetch_torrent_metadata("nonexistent.txt")
         assert result is None
         captured = capsys.readouterr()
-        assert "was not found on Weakpass" in captured.out
+        # F2: Updated error message
+        assert "Could not resolve a Weakpass torrent for" in captured.out
         # Assert no URL contains the old /files/ fallback
         for url in seen_urls:
             assert "weakpass.com/files/" not in url
@@ -2838,6 +2839,141 @@ class TestWeakpassApiListing:
         assert result[1]["id"] == 3
         assert "page 2 failed" in captured.out
 
+    def test_rank_as_int_coerced_correctly(self):
+        """F4: Test that rank as an int (1-7) is coerced and tier reverse-looked-up."""
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "data": [
+                {
+                    "id": 1,
+                    "name": "list1",
+                    "rank": 7,  # int instead of string
+                    "size": 100,
+                    "count": 10,
+                    "rate": 1.0,
+                    "slug": "list1",
+                    "torrent_url": "url1",
+                },
+            ],
+            "meta": {"last_page": 1},
+        }
+        mock_resp.raise_for_status.return_value = None
+
+        with patch("hate_crack.api.requests.get", return_value=mock_resp):
+            result = _api_mod.fetch_all_weakpass_wordlists_multithreaded()
+
+        assert len(result) == 1
+        assert result[0]["rank"] == 7
+        assert result[0]["tier"] == "S"
+
+    def test_rate_coerced_to_float(self):
+        """F4: Test that rate is coerced to float, defaulting to 0.0 on failure."""
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "data": [
+                {
+                    "id": 1,
+                    "name": "valid-rate",
+                    "rank": "A",
+                    "size": 100,
+                    "count": 10,
+                    "rate": "2.5",  # string instead of float
+                    "slug": "valid-rate",
+                    "torrent_url": "url1",
+                },
+                {
+                    "id": 2,
+                    "name": "invalid-rate",
+                    "rank": "B",
+                    "size": 200,
+                    "count": 20,
+                    "rate": "not-a-number",  # invalid
+                    "slug": "invalid-rate",
+                    "torrent_url": "url2",
+                },
+                {
+                    "id": 3,
+                    "name": "missing-rate",
+                    "rank": "C",
+                    "size": 300,
+                    "count": 30,
+                    "rate": None,  # missing
+                    "slug": "missing-rate",
+                    "torrent_url": "url3",
+                },
+            ],
+            "meta": {"last_page": 1},
+        }
+        mock_resp.raise_for_status.return_value = None
+
+        with patch("hate_crack.api.requests.get", return_value=mock_resp):
+            result = _api_mod.fetch_all_weakpass_wordlists_multithreaded()
+
+        assert len(result) == 3
+        assert result[0]["rate"] == 2.5
+        assert result[1]["rate"] == 0.0
+        assert result[2]["rate"] == 0.0
+
+    def test_falsy_ids_not_deduplicated(self):
+        """F5: Test that entries with falsy ids are kept, not de-duplicated."""
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "data": [
+                {
+                    "id": 1,
+                    "name": "list1",
+                    "rank": "A",
+                    "size": 100,
+                    "count": 10,
+                    "rate": 1.0,
+                    "slug": "list1",
+                    "torrent_url": "url1",
+                },
+                {
+                    "id": None,  # falsy id
+                    "name": "no-id-1",
+                    "rank": "B",
+                    "size": 200,
+                    "count": 20,
+                    "rate": 2.0,
+                    "slug": "no-id-1",
+                    "torrent_url": "url2",
+                },
+                {
+                    "id": None,  # another falsy id
+                    "name": "no-id-2",
+                    "rank": "C",
+                    "size": 300,
+                    "count": 30,
+                    "rate": 3.0,
+                    "slug": "no-id-2",
+                    "torrent_url": "url3",
+                },
+                {
+                    "id": "",  # empty string, also falsy
+                    "name": "empty-id",
+                    "rank": "D",
+                    "size": 400,
+                    "count": 40,
+                    "rate": 4.0,
+                    "slug": "empty-id",
+                    "torrent_url": "url4",
+                },
+            ],
+            "meta": {"last_page": 1},
+        }
+        mock_resp.raise_for_status.return_value = None
+
+        with patch("hate_crack.api.requests.get", return_value=mock_resp):
+            result = _api_mod.fetch_all_weakpass_wordlists_multithreaded()
+
+        # All 4 entries should be kept, even with repeated falsy ids
+        assert len(result) == 4
+        assert result[0]["name"] == "list1"
+        assert result[1]["name"] == "no-id-1"
+        assert result[2]["name"] == "no-id-2"
+        assert result[3]["name"] == "empty-id"
+
 
 class TestWeakpassWordlistMenu:
     """Test the weakpass_wordlist_menu function with rank filtering."""
@@ -3125,6 +3261,121 @@ class TestDownloadAllWeakpassTorrents:
         assert len(download_calls) == 2
         assert download_calls[0]["wordlist_id"] == 1
         assert download_calls[1]["wordlist_id"] == 2
+
+    def test_partial_fetch_not_cached_and_warning_printed(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        """F1: When fetch returns (entries, failed_pages) with failures, cache is NOT written."""
+        cache_file = tmp_path / "wordlists.json"
+        entries = [
+            {"id": 1, "name": "list1", "torrent_url": "url1"},
+            {"id": 2, "name": "list2", "torrent_url": "url2"},
+        ]
+        failed_pages = [2, 3]
+
+        def mock_fetch():
+            # Return tuple with failed pages
+            return (entries, failed_pages)
+
+        def mock_download(url, wordlist_id=None):
+            return f"torrent_{wordlist_id}"
+
+        monkeypatch.setattr(api, "run_torrent_session", MagicMock())
+
+        api.download_all_weakpass_torrents(
+            mock_fetch, mock_download, cache_path=str(cache_file)
+        )
+
+        # Cache should NOT have been written
+        assert not cache_file.exists()
+        # Warning should have been printed
+        captured = capsys.readouterr()
+        assert "not caching it, so the next run refetches" in captured.out
+        assert "2 page(s) failed" in captured.out
+
+    def test_complete_fetch_tuple_is_cached(self, tmp_path, monkeypatch):
+        """F1: When fetch returns (entries, []) with no failures, cache IS written."""
+        cache_file = tmp_path / "wordlists.json"
+        entries = [
+            {"id": 1, "name": "list1", "torrent_url": "url1"},
+            {"id": 2, "name": "list2", "torrent_url": "url2"},
+        ]
+        failed_pages = []
+
+        def mock_fetch():
+            # Return tuple with empty failed_pages
+            return (entries, failed_pages)
+
+        def mock_download(url, wordlist_id=None):
+            return f"torrent_{wordlist_id}"
+
+        monkeypatch.setattr(api, "run_torrent_session", MagicMock())
+
+        api.download_all_weakpass_torrents(
+            mock_fetch, mock_download, cache_path=str(cache_file)
+        )
+
+        # Cache should have been written
+        assert cache_file.exists()
+        with open(cache_file) as f:
+            cached = json.load(f)
+        assert len(cached) == 2
+
+    def test_partial_fetch_still_downloads_fetched_entries(self, tmp_path, monkeypatch):
+        """F1: Even with failures, downloads still happen for the entries that were fetched."""
+        cache_file = tmp_path / "wordlists.json"
+        entries = [
+            {"id": 1, "name": "list1", "torrent_url": "url1"},
+            {"id": 2, "name": "list2", "torrent_url": "url2"},
+        ]
+        failed_pages = [3]
+
+        def mock_fetch():
+            return (entries, failed_pages)
+
+        download_calls = []
+
+        def mock_download(url, wordlist_id=None):
+            download_calls.append({"url": url, "wordlist_id": wordlist_id})
+            return f"torrent_{wordlist_id}"
+
+        monkeypatch.setattr(api, "run_torrent_session", MagicMock())
+
+        api.download_all_weakpass_torrents(
+            mock_fetch, mock_download, cache_path=str(cache_file)
+        )
+
+        # Downloads should still happen for the 2 fetched entries
+        assert len(download_calls) == 2
+        assert download_calls[0]["wordlist_id"] == 1
+        assert download_calls[1]["wordlist_id"] == 2
+
+    def test_plain_list_callback_still_works(self, tmp_path, monkeypatch):
+        """F1: Callback returning a plain list (old shape) still works."""
+        cache_file = tmp_path / "wordlists.json"
+        wordlists = [
+            {"id": 1, "name": "list1", "torrent_url": "url1"},
+            {"id": 2, "name": "list2", "torrent_url": "url2"},
+        ]
+
+        def mock_fetch():
+            # Return plain list, not tuple
+            return wordlists
+
+        def mock_download(url, wordlist_id=None):
+            return f"torrent_{wordlist_id}"
+
+        monkeypatch.setattr(api, "run_torrent_session", MagicMock())
+
+        api.download_all_weakpass_torrents(
+            mock_fetch, mock_download, cache_path=str(cache_file)
+        )
+
+        # Cache should have been written (no failures)
+        assert cache_file.exists()
+        with open(cache_file) as f:
+            cached = json.load(f)
+        assert len(cached) == 2
 
 
 class TestStreamedDownloadChunkSize:
