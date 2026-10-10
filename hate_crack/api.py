@@ -835,20 +835,23 @@ def run_torrent_session(torrent_files, save_dir, *, print_fn=print) -> None:
 
 def _fetch_all_weakpass_wordlists(
     total_pages=None, threads=10
-) -> tuple[list[dict], list[int], int]:
+) -> tuple[list[dict], list[int]]:
     """Fetch all Weakpass wordlists via REST API.
 
-    Returns (entries, failed_pages, last_page) where:
+    Returns (entries, failed_pages) where:
     - entries: list of normalized wordlist entries
     - failed_pages: sorted list of page numbers that failed to fetch (empty list if all succeeded)
-    - last_page: total number of pages that were attempted
+
+    When page 1 fails, prints error and returns ([], []).
+    When page 1 succeeds but later pages fail, prints summary with failed page numbers.
+    When all pages succeed, prints summary with no failures.
     """
     # Fetch page 1 to get last_page
     try:
         entries1, last_page = _fetch_weakpass_page(1)
     except Exception as e:
         print(f"[!] Weakpass listing failed: {e}")
-        return [], [], 0
+        return [], []
 
     # Determine the final page to fetch
     if total_pages is not None:
@@ -903,25 +906,22 @@ def _fetch_all_weakpass_wordlists(
             # Keep all entries with falsy ids
             unique_entries.append(entry)
 
-    return unique_entries, sorted(failed_pages), last
+    # F1: Print summary with failure information if applicable
+    failed_pages_sorted = sorted(failed_pages)
+    if failed_pages_sorted:
+        failed_str = ", ".join(str(p) for p in failed_pages_sorted)
+        print(
+            f"[i] Weakpass: {len(unique_entries)} wordlists across {last} pages ({len(failed_pages_sorted)} page(s) failed: {failed_str})"
+        )
+    else:
+        print(f"[i] Weakpass: {len(unique_entries)} wordlists across {last} pages")
+
+    return unique_entries, failed_pages_sorted
 
 
 def fetch_all_weakpass_wordlists_multithreaded(total_pages=None, threads=10):
     """Fetch all Weakpass wordlists via REST API."""
-    # Store entries, failed pages, and last page for summary
-    entries, failed_pages, last_page = _fetch_all_weakpass_wordlists(
-        total_pages, threads
-    )
-
-    # F1: Print summary with failure information if applicable
-    if failed_pages:
-        failed_str = ", ".join(str(p) for p in failed_pages)
-        print(
-            f"[i] Weakpass: {len(entries)} wordlists across {last_page} pages ({len(failed_pages)} page(s) failed: {failed_str})"
-        )
-    else:
-        print(f"[i] Weakpass: {len(entries)} wordlists across {last_page} pages")
-
+    entries, _ = _fetch_all_weakpass_wordlists(total_pages, threads)
     return entries
 
 

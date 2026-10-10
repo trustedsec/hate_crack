@@ -3377,6 +3377,209 @@ class TestDownloadAllWeakpassTorrents:
             cached = json.load(f)
         assert len(cached) == 2
 
+    def test_fetch_returns_2tuple_not_3tuple(self):
+        """Pin that _fetch_all_weakpass_wordlists returns exactly (entries, failed_pages), not (entries, failed_pages, last_page)."""
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "data": [
+                {
+                    "id": 1,
+                    "name": "list1",
+                    "rank": "A",
+                    "size": 100,
+                    "count": 10,
+                    "rate": 1.0,
+                    "slug": "list1",
+                    "torrent_url": "url1",
+                }
+            ],
+            "meta": {"last_page": 1},
+        }
+        mock_resp.raise_for_status.return_value = None
+
+        with patch("hate_crack.api.requests.get", return_value=mock_resp):
+            result = _api_mod._fetch_all_weakpass_wordlists()
+
+        # Should be a 2-tuple, not 3-tuple
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+        entries, failed_pages = result
+        assert len(entries) == 1
+        assert failed_pages == []
+
+    def test_real_fetch_integration_all_pages_ok(self, tmp_path, monkeypatch, capsys):
+        """Real integration: _fetch_all_weakpass_wordlists as callback, all pages OK."""
+        cache_file = tmp_path / "wordlists.json"
+
+        def mock_get_impl(url, **kwargs):
+            mock_resp = MagicMock()
+            page = kwargs.get("params", {}).get("page", 1)
+            if page == 1:
+                mock_resp.json.return_value = {
+                    "data": [
+                        {
+                            "id": 1,
+                            "name": "list1",
+                            "rank": "A",
+                            "size": 100,
+                            "count": 10,
+                            "rate": 1.0,
+                            "slug": "list1",
+                            "torrent_url": "url1",
+                        }
+                    ],
+                    "meta": {"last_page": 2},
+                }
+            elif page == 2:
+                mock_resp.json.return_value = {
+                    "data": [
+                        {
+                            "id": 2,
+                            "name": "list2",
+                            "rank": "B",
+                            "size": 200,
+                            "count": 20,
+                            "rate": 2.0,
+                            "slug": "list2",
+                            "torrent_url": "url2",
+                        }
+                    ],
+                    "meta": {"last_page": 2},
+                }
+            else:
+                mock_resp.json.return_value = {"data": [], "meta": {"last_page": 2}}
+            mock_resp.raise_for_status.return_value = None
+            return mock_resp
+
+        download_calls = []
+
+        def mock_download(url, wordlist_id=None):
+            download_calls.append({"url": url, "wordlist_id": wordlist_id})
+            return f"torrent_{wordlist_id}"
+
+        monkeypatch.setattr(api.requests, "get", mock_get_impl)
+        monkeypatch.setattr(api, "run_torrent_session", MagicMock())
+
+        api.download_all_weakpass_torrents(
+            fetch_all_wordlists=_api_mod._fetch_all_weakpass_wordlists,
+            download_torrent=mock_download,
+            cache_path=str(cache_file),
+        )
+
+        # Cache should have been written
+        assert cache_file.exists()
+        with open(cache_file) as f:
+            cached = json.load(f)
+        assert len(cached) == 2
+
+        # Downloads should have been called
+        assert len(download_calls) == 2
+
+        # Summary should print without failure notice
+        captured = capsys.readouterr()
+        assert "[i] Weakpass:" in captured.out
+        assert "failed" not in captured.out
+
+    def test_real_fetch_integration_page2_fails(self, tmp_path, monkeypatch, capsys):
+        """Real integration: _fetch_all_weakpass_wordlists as callback, page 2 fails."""
+        cache_file = tmp_path / "wordlists.json"
+
+        def mock_get_impl(url, **kwargs):
+            mock_resp = MagicMock()
+            page = kwargs.get("params", {}).get("page", 1)
+            if page == 1:
+                mock_resp.json.return_value = {
+                    "data": [
+                        {
+                            "id": 1,
+                            "name": "list1",
+                            "rank": "A",
+                            "size": 100,
+                            "count": 10,
+                            "rate": 1.0,
+                            "slug": "list1",
+                            "torrent_url": "url1",
+                        }
+                    ],
+                    "meta": {"last_page": 3},
+                }
+                mock_resp.raise_for_status.return_value = None
+            elif page == 2:
+                mock_resp.raise_for_status.side_effect = req_lib.HTTPError("500")
+            elif page == 3:
+                mock_resp.json.return_value = {
+                    "data": [
+                        {
+                            "id": 3,
+                            "name": "list3",
+                            "rank": "C",
+                            "size": 300,
+                            "count": 30,
+                            "rate": 3.0,
+                            "slug": "list3",
+                            "torrent_url": "url3",
+                        }
+                    ],
+                    "meta": {"last_page": 3},
+                }
+                mock_resp.raise_for_status.return_value = None
+            else:
+                mock_resp.json.return_value = {"data": [], "meta": {"last_page": 3}}
+                mock_resp.raise_for_status.return_value = None
+            return mock_resp
+
+        download_calls = []
+
+        def mock_download(url, wordlist_id=None):
+            download_calls.append({"url": url, "wordlist_id": wordlist_id})
+            return f"torrent_{wordlist_id}"
+
+        monkeypatch.setattr(api.requests, "get", mock_get_impl)
+        monkeypatch.setattr(api, "run_torrent_session", MagicMock())
+
+        api.download_all_weakpass_torrents(
+            fetch_all_wordlists=_api_mod._fetch_all_weakpass_wordlists,
+            download_torrent=mock_download,
+            cache_path=str(cache_file),
+        )
+
+        # Cache should NOT have been written (page 2 failed)
+        assert not cache_file.exists()
+
+        # Downloads should still happen for pages 1 and 3
+        assert len(download_calls) == 2
+        assert download_calls[0]["wordlist_id"] == 1
+        assert download_calls[1]["wordlist_id"] == 3
+
+        # Incomplete warning should print
+        captured = capsys.readouterr()
+        assert "not caching it, so the next run refetches" in captured.out
+
+    def test_real_fetch_integration_page1_fails(self, tmp_path, monkeypatch, capsys):
+        """Real integration: _fetch_all_weakpass_wordlists as callback, page 1 fails."""
+        cache_file = tmp_path / "wordlists.json"
+
+        def mock_get_impl(url, **kwargs):
+            mock_resp = MagicMock()
+            mock_resp.raise_for_status.side_effect = req_lib.HTTPError("500")
+            return mock_resp
+
+        monkeypatch.setattr(api.requests, "get", mock_get_impl)
+        monkeypatch.setattr(api, "run_torrent_session", MagicMock())
+
+        api.download_all_weakpass_torrents(
+            fetch_all_wordlists=_api_mod._fetch_all_weakpass_wordlists,
+            download_torrent=lambda url, wordlist_id=None: None,
+            cache_path=str(cache_file),
+        )
+
+        # Cache should NOT have been written
+        assert not cache_file.exists()
+
+        # Error message should print
+        captured = capsys.readouterr()
+        assert "[!] Could not fetch the Weakpass wordlist list" in captured.out
+
 
 class TestStreamedDownloadChunkSize:
     """chunk_size was accepted by _streamed_download and never forwarded, so
