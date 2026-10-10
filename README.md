@@ -586,6 +586,7 @@ Common options:
 - `--hashview`: Interactive Hashview menu for managing hashes, wordlists, and jobs.
 - `--hashview --help`: Show Hashview command-line options.
 - `--weakpass`: Download wordlists from Weakpass.
+- `--rank`: Only show Weakpass wordlists with a specific tier (0=all, -1=S/A/B tiers). Ranks: 7=S, 6=A, 5=B, 4=C, 3=D, 2=E, 1=F.
 - `--hashmob`: Download wordlists from Hashmob.net.
 - `--hashmob-masks`: Download masks from Hashmob.net.
 - `--download-torrent <FILENAME>`: Download a specific Weakpass torrent file.
@@ -1647,10 +1648,10 @@ Downloads wordlists from Hashmob.net's collection of cracked passwords and commo
 * Stores wordlists in configured wordlist directory
 
 #### Weakpass Wordlist Menu (Wordlist Tools option 10)
-Interactive menu for downloading and managing wordlists from Weakpass.com via BitTorrent.
+Interactive menu for downloading and managing wordlists from Weakpass.com via BitTorrent, pulling the listing from Weakpass's public REST API.
 
-* Browse available Weakpass wordlist torrents
-* Download specific wordlists or entire collections
+* Browse available Weakpass wordlists, showing tier (S–F) and crack rate (%)
+* Download specific wordlists or entire collections by tier: 7=S, 6=A, 5=B, 4=C, 3=D, 2=E, 1=F
 * Automatic extraction of compressed archives
 * Progress tracking for torrent downloads
 

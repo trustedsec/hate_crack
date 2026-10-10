@@ -2839,6 +2839,279 @@ class TestWeakpassApiListing:
         assert "page 2 failed" in captured.out
 
 
+class TestWeakpassWordlistMenu:
+    """Test the weakpass_wordlist_menu function with rank filtering."""
+
+    def _mock_wordlists(self):
+        """Return mock wordlist data with tier and rate."""
+        return [
+            {
+                "id": 1,
+                "name": "s-tier-list",
+                "tier": "S",
+                "rank": 7,
+                "rate": 5.0,
+                "torrent_url": "url1",
+            },
+            {
+                "id": 2,
+                "name": "a-tier-list",
+                "tier": "A",
+                "rank": 6,
+                "rate": 4.0,
+                "torrent_url": "url2",
+            },
+            {
+                "id": 3,
+                "name": "b-tier-list",
+                "tier": "B",
+                "rank": 5,
+                "rate": 3.0,
+                "torrent_url": "url3",
+            },
+            {
+                "id": 4,
+                "name": "c-tier-list",
+                "tier": "C",
+                "rank": 4,
+                "rate": 2.0,
+                "torrent_url": "url4",
+            },
+            {
+                "id": 5,
+                "name": "unranked-list",
+                "tier": "",
+                "rank": 0,
+                "rate": 1.0,
+                "torrent_url": "url5",
+            },
+        ]
+
+    def test_rank_equals_minus_one_filters_to_gt_4(self, capsys, monkeypatch):
+        """rank=-1 shows only rank > 4, i.e., tiers S(7), A(6), B(5)."""
+        wordlists = self._mock_wordlists()
+
+        monkeypatch.setattr(
+            api, "fetch_all_weakpass_wordlists_multithreaded", lambda: wordlists
+        )
+        monkeypatch.setattr(
+            "sys.stdin", MagicMock(isatty=MagicMock(return_value=False))
+        )
+
+        api.weakpass_wordlist_menu(rank=-1)
+
+        captured = capsys.readouterr()
+        # Should show 3 entries: S, A, B
+        assert "s-tier-list" in captured.out
+        assert "a-tier-list" in captured.out
+        assert "b-tier-list" in captured.out
+        # Should not show C or unranked
+        assert "c-tier-list" not in captured.out
+        assert "unranked-list" not in captured.out
+        # Check header mentions tier and crack rate
+        assert "tier S-F" in captured.out
+        assert "crack rate" in captured.out
+
+    def test_rank_equals_zero_shows_all(self, capsys, monkeypatch):
+        """rank=0 shows all wordlists regardless of tier."""
+        wordlists = self._mock_wordlists()
+
+        monkeypatch.setattr(
+            api, "fetch_all_weakpass_wordlists_multithreaded", lambda: wordlists
+        )
+        monkeypatch.setattr(
+            "sys.stdin", MagicMock(isatty=MagicMock(return_value=False))
+        )
+
+        api.weakpass_wordlist_menu(rank=0)
+
+        captured = capsys.readouterr()
+        # All 5 should appear
+        assert "s-tier-list" in captured.out
+        assert "a-tier-list" in captured.out
+        assert "b-tier-list" in captured.out
+        assert "c-tier-list" in captured.out
+        assert "unranked-list" in captured.out
+
+    def test_rank_equals_six_shows_only_tier_a(self, capsys, monkeypatch):
+        """rank=6 shows only rank == 6 (tier A)."""
+        wordlists = self._mock_wordlists()
+
+        monkeypatch.setattr(
+            api, "fetch_all_weakpass_wordlists_multithreaded", lambda: wordlists
+        )
+        monkeypatch.setattr(
+            "sys.stdin", MagicMock(isatty=MagicMock(return_value=False))
+        )
+
+        api.weakpass_wordlist_menu(rank=6)
+
+        captured = capsys.readouterr()
+        # Only A-tier
+        assert "a-tier-list" in captured.out
+        # Others should not appear
+        assert "s-tier-list" not in captured.out
+        assert "b-tier-list" not in captured.out
+
+    def test_output_format_shows_tier_and_rate(self, capsys, monkeypatch):
+        """Output format should show tier and crack rate as specified."""
+        wordlists = [
+            {
+                "id": 1,
+                "name": "test-list",
+                "tier": "S",
+                "rank": 7,
+                "rate": 5.5,
+                "torrent_url": "url1",
+            }
+        ]
+
+        monkeypatch.setattr(
+            api, "fetch_all_weakpass_wordlists_multithreaded", lambda: wordlists
+        )
+        monkeypatch.setattr(
+            "sys.stdin", MagicMock(isatty=MagicMock(return_value=False))
+        )
+
+        api.weakpass_wordlist_menu(rank=0)
+
+        captured = capsys.readouterr()
+        # Check the format is approximately right: should have S and 5.5%
+        assert "S" in captured.out
+        assert "5.5" in captured.out or "5.5%" in captured.out
+
+
+class TestDownloadAllWeakpassTorrents:
+    """Test the download_all_weakpass_torrents function."""
+
+    def test_creates_cache_when_missing(self, tmp_path, monkeypatch):
+        """When cache file is missing, fetches wordlists and writes cache."""
+        cache_file = tmp_path / "wordlists.json"
+        wordlists = [
+            {"id": 1, "name": "list1", "torrent_url": "url1"},
+            {"id": 2, "name": "list2", "torrent_url": "url2"},
+        ]
+
+        def mock_fetch():
+            return wordlists
+
+        def mock_download(url, wordlist_id=None):
+            return f"torrent_{wordlist_id}"
+
+        output = []
+
+        def mock_print(msg):
+            output.append(msg)
+
+        monkeypatch.setattr(api, "run_torrent_session", MagicMock())
+
+        api.download_all_weakpass_torrents(
+            mock_fetch, mock_download, print_fn=mock_print, cache_path=str(cache_file)
+        )
+
+        # Cache should have been written
+        assert cache_file.exists()
+        with open(cache_file) as f:
+            cached = json.load(f)
+        assert len(cached) == 2
+        assert cached[0]["id"] == 1
+        assert cached[1]["id"] == 2
+
+    def test_prints_error_and_returns_when_fetch_empty(self, tmp_path, monkeypatch):
+        """When fetch returns [], prints error and doesn't write cache."""
+        cache_file = tmp_path / "wordlists.json"
+
+        def mock_fetch():
+            return []
+
+        output = []
+
+        def mock_print(msg):
+            output.append(msg)
+
+        api.download_all_weakpass_torrents(
+            mock_fetch,
+            lambda url, wordlist_id=None: None,
+            print_fn=mock_print,
+            cache_path=str(cache_file),
+        )
+
+        # Cache should NOT have been written
+        assert not cache_file.exists()
+        # Error message should have been printed
+        assert any("[!] Could not fetch" in msg for msg in output)
+
+    def test_refreshes_cache_when_entry_lacks_id(self, tmp_path, monkeypatch):
+        """When an entry in cache lacks id, refreshes the cache."""
+        cache_file = tmp_path / "wordlists.json"
+        # Write a cache with missing id
+        cache_file.write_text(json.dumps([{"name": "list1", "torrent_url": "url1"}]))
+
+        new_wordlists = [
+            {"id": 1, "name": "list1", "torrent_url": "url1"},
+            {"id": 2, "name": "list2", "torrent_url": "url2"},
+        ]
+
+        def mock_fetch():
+            return new_wordlists
+
+        download_calls = []
+
+        def mock_download(url, wordlist_id=None):
+            download_calls.append((url, wordlist_id))
+            return f"torrent_{wordlist_id}"
+
+        output = []
+
+        def mock_print(msg):
+            output.append(msg)
+
+        monkeypatch.setattr(api, "run_torrent_session", MagicMock())
+
+        api.download_all_weakpass_torrents(
+            mock_fetch, mock_download, print_fn=mock_print, cache_path=str(cache_file)
+        )
+
+        # Cache should have been updated
+        with open(cache_file) as f:
+            cached = json.load(f)
+        assert len(cached) == 2
+        assert all("id" in wl for wl in cached)
+
+    def test_download_called_with_wordlist_id(self, tmp_path, monkeypatch):
+        """download_torrent is called with wordlist_id for each entry."""
+        cache_file = tmp_path / "wordlists.json"
+        wordlists = [
+            {"id": 1, "name": "list1", "torrent_url": "url1"},
+            {"id": 2, "name": "list2", "torrent_url": "url2"},
+        ]
+
+        def mock_fetch():
+            return wordlists
+
+        download_calls = []
+
+        def mock_download(url, wordlist_id=None):
+            download_calls.append({"url": url, "wordlist_id": wordlist_id})
+            return f"torrent_{wordlist_id}"
+
+        output = []
+
+        def mock_print(msg):
+            output.append(msg)
+
+        monkeypatch.setattr(api, "run_torrent_session", MagicMock())
+
+        api.download_all_weakpass_torrents(
+            mock_fetch, mock_download, print_fn=mock_print, cache_path=str(cache_file)
+        )
+
+        # Each wordlist should be downloaded with its id
+        assert len(download_calls) == 2
+        assert download_calls[0]["wordlist_id"] == 1
+        assert download_calls[1]["wordlist_id"] == 2
+
+
 class TestStreamedDownloadChunkSize:
     """chunk_size was accepted by _streamed_download and never forwarded, so
     tuning it did nothing (the writer hardcoded 8192)."""

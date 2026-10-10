@@ -1048,21 +1048,17 @@ def weakpass_wordlist_menu(rank=-1):
     if rank == 0:
         filtered_wordlists = all_wordlists
     elif rank > 0:
-        filtered_wordlists = [
-            wl for wl in all_wordlists if str(wl.get("rank", "")) == str(rank)
-        ]
+        filtered_wordlists = [wl for wl in all_wordlists if wl.get("rank") == rank]
     else:
         # Default: show all with rank > 4
-        filtered_wordlists = [
-            wl for wl in all_wordlists if str(wl.get("rank", "")) > "4"
-        ]
-    print("\nEach entry shows: [number]. [wordlist name] [effectiveness score] [rank]")
+        filtered_wordlists = [wl for wl in all_wordlists if wl.get("rank", 0) > 4]
+    print("\nEach entry shows: [number]. [wordlist name] [tier S-F] [crack rate]")
     entries = []
     for idx, wl in enumerate(filtered_wordlists):
-        effectiveness = wl.get("effectiveness", wl.get("downloads", ""))
-        rank = wl.get("rank", "")
+        tier = wl.get("tier") or "-"
+        rate = float(wl.get("rate") or 0)
         name = str(wl.get("name", ""))[:30]
-        entry = f"{idx + 1:3d}. {name:<30} {effectiveness:<8} {rank:<2}"
+        entry = f"{idx + 1:3d}. {name:<30} {tier:<1} {rate:>5.1f}%"
         entries.append(entry)
     max_entry_len = max((len(e) for e in entries), default=36)
     print_multicolumn_list(
@@ -4237,22 +4233,34 @@ def download_all_weakpass_torrents(
     cache_path: str = "weakpass_wordlists.json",
 ) -> None:
     """Download all Weakpass torrents from a cached wordlist JSON."""
-    if not os.path.exists(cache_path):
-        print_fn("[i] weakpass_wordlists.json not found, fetching wordlist cache...")
-        fetch_all_wordlists()
-    try:
-        with open(cache_path, "r", encoding="utf-8") as f:
-            all_wordlists = json.load(f)
-    except Exception as exc:
-        print_fn(f"Failed to load local wordlist cache: {exc}")
-        raise
-    if any("id" not in wl or wl.get("id") in ("", None) for wl in all_wordlists):
-        print_fn(
-            "[i] weakpass_wordlists.json missing wordlist IDs, refreshing cache..."
-        )
-        fetch_all_wordlists()
-        with open(cache_path, "r", encoding="utf-8") as f:
-            all_wordlists = json.load(f)
+    # Check if we need to refresh the cache
+    need_refresh = not os.path.exists(cache_path)
+    if not need_refresh:
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                all_wordlists = json.load(f)
+            need_refresh = any(
+                "id" not in wl or wl.get("id") in ("", None) for wl in all_wordlists
+            )
+        except Exception:
+            need_refresh = True
+
+    if need_refresh:
+        print_fn("[i] Fetching wordlist cache...")
+        all_wordlists = fetch_all_wordlists()
+        if not all_wordlists:
+            print_fn("[!] Could not fetch the Weakpass wordlist list.")
+            return
+        with open(cache_path, "w", encoding="utf-8") as f:
+            json.dump(all_wordlists, f, indent=2)
+    else:
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                all_wordlists = json.load(f)
+        except Exception as exc:
+            print_fn(f"Failed to load local wordlist cache: {exc}")
+            raise
+
     torrents = [
         (wl.get("torrent_url"), wl.get("id"))
         for wl in all_wordlists

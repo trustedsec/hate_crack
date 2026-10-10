@@ -9694,7 +9694,8 @@ def main():
             help=(
                 "Only show wordlists with this rank (use 0 to show all, -1 for "
                 "the built-in >4 rule). Overrides `weakpass_min_rank` in "
-                "config.json for this run; defaults to that key (-1) when omitted."
+                "config.json for this run; defaults to that key (-1) when omitted. "
+                "Ranks follow Weakpass tiers: 7=S, 6=A, 5=B, 4=C, 3=D, 2=E, 1=F."
             ),
         )
         parser.add_argument(
