@@ -19,7 +19,6 @@ ASCII/non-ASCII corpus and makes hashcat crack it.
 """
 
 import hashlib
-import os
 import shlex
 import subprocess
 from pathlib import Path
@@ -29,6 +28,7 @@ import pytest
 from hate_crack import corpus_stats
 from hate_crack import hashcat_paths
 from hate_crack.corpus_stats import _mask
+from tests._hashcat_oracle import HASHCAT_BIN, requires_hashcat, run_hashcat
 
 
 # Short on purpose. `?l?l?d?l` is 175,760 candidates and exhausts in under a
@@ -52,17 +52,6 @@ _ASCII_CASES = [
 _NEGATIVE_CASE = ("ab2x", "?l?l?l?l")
 
 
-#: Ask this hashcat specifically, rather than whichever one PATH surfaces.
-#: It is the binary hate_crack itself shells out to (`hcatBin`), so the oracle
-#: validates the build the tool actually uses, and a stale or broken hashcat
-#: earlier in PATH cannot quietly answer for it.
-HASHCAT_BIN = "/opt/hashcat/hashcat"
-
-
-def _hashcat_available() -> bool:
-    return os.access(HASHCAT_BIN, os.X_OK)
-
-
 def _sessions_writable() -> bool:
     """hashcat writes session state under its per-user data directory.
 
@@ -81,11 +70,6 @@ def _sessions_writable() -> bool:
     except OSError:
         return False
     return True
-
-
-_requires_hashcat = pytest.mark.skipif(
-    not _hashcat_available(), reason=f"no executable hashcat at {HASHCAT_BIN}"
-)
 
 
 def _run_mask(md5_hash: str, mask: str, session: str) -> subprocess.CompletedProcess:
@@ -107,9 +91,7 @@ def _run_mask(md5_hash: str, mask: str, session: str) -> subprocess.CompletedPro
         mask,
     ]
     try:
-        return subprocess.run(
-            cmd, capture_output=True, text=True, timeout=180, check=False
-        )
+        return run_hashcat(cmd, timeout=180)
     except subprocess.TimeoutExpired:
         pytest.fail(
             f"hashcat timed out on {shlex.join(cmd)} -- the mask keyspace is "
@@ -121,7 +103,7 @@ def _md5(plaintext: str) -> str:
     return hashlib.md5(plaintext.encode()).hexdigest()
 
 
-@_requires_hashcat
+@requires_hashcat
 @pytest.mark.parametrize("plaintext", _ASCII_CASES)
 def test_generated_mask_actually_generates_the_password(plaintext, request):
     """hashcat must recover the plaintext from the mask `_mask()` produced."""
@@ -141,7 +123,7 @@ def test_generated_mask_actually_generates_the_password(plaintext, request):
     )
 
 
-@_requires_hashcat
+@requires_hashcat
 def test_a_wrong_mask_is_not_cracked():
     """Negative control: the oracle must be able to fail.
 
@@ -162,9 +144,14 @@ def test_a_wrong_mask_is_not_cracked():
         "cannot generate it. The oracle is not measuring candidate generation "
         f"-- check --potfile-disable. output={combined!r}"
     )
+    # hashcat exits with code 1 when exhausted (keyspace exhausted without a crack)
+    assert result.returncode == 1, (
+        f"expected hashcat to exhaust (exit code 1) with a wrong mask, "
+        f"got exit code {result.returncode}"
+    )
 
 
-@_requires_hashcat
+@requires_hashcat
 def test_every_builtin_charset_is_ascii_only():
     """Pin the fact #230 rests on: no built-in charset reaches beyond ASCII.
 
@@ -177,12 +164,9 @@ def test_every_builtin_charset_is_ascii_only():
     # are implied by ?a's total and are not worth a process start each.
     counts = {}
     for charset in ("d", "a"):
-        result = subprocess.run(
+        result = run_hashcat(
             [HASHCAT_BIN, "--stdout", "-a", "3", f"?{charset}"],
-            capture_output=True,
-            text=True,
             timeout=60,
-            check=False,
         )
         counts[charset] = len([line for line in result.stdout.splitlines() if line])
 
@@ -200,7 +184,7 @@ _MIXED_ASCII = ["ab2x", "Qz7", "kk90"]
 _MIXED_NON_ASCII = ["ab²x", "abéx", "ab中x"]
 
 
-@_requires_hashcat
+@requires_hashcat
 def test_every_mask_summarize_reports_for_a_mixed_corpus_is_crackable(
     tmp_path, request
 ):

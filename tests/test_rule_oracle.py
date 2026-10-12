@@ -24,25 +24,10 @@ candidate in ``$HEX[...]`` when it holds a byte that would otherwise break the
 line, earlier versions emit it raw, and both are accepted here.
 """
 
-import os
-import subprocess
-
 import pytest
 
 from hate_crack import rulegen
-
-#: Ask this hashcat specifically, rather than whichever one PATH surfaces.
-#: It is the binary hate_crack itself shells out to (`hcatBin`), so the oracle
-#: validates the build the tool actually uses -- and a stale or broken hashcat
-#: earlier in PATH cannot quietly answer for it. A wrong answer here does not
-#: look like a broken environment; it looks like `derive()` emitting bad rules,
-#: which is the one thing this file exists to detect.
-HASHCAT_BIN = "/opt/hashcat/hashcat"
-
-_requires_hashcat = pytest.mark.skipif(
-    not os.access(HASHCAT_BIN, os.X_OK),
-    reason=f"no executable hashcat at {HASHCAT_BIN}",
-)
+from tests._hashcat_oracle import HASHCAT_BIN, requires_hashcat, run_hashcat
 
 # Each is a password derive() must be able to round-trip through real hashcat.
 # The line-break cases are the point; the rest are controls, so a regression in
@@ -118,13 +103,23 @@ def _candidates(tmp_path, baseword, rule, name="case"):
     # same convention rulegen writes its output files with.
     words.write_bytes(baseword.encode("latin-1") + b"\n")
     rules.write_bytes(rule.encode("latin-1") + b"\n")
-    proc = subprocess.run(
+    proc = run_hashcat(
         [HASHCAT_BIN, "--stdout", "-r", str(rules), str(words)],
-        capture_output=True,
+        ok_returncodes=(0, 1, 255),
         timeout=60,
-        check=False,
     )
-    out = proc.stdout
+    # Exit 255 is allowed only when hashcat fully rejects the rule file
+    # (verified: raw $<CR> or $<LF> split across lines → exit 255 + stderr
+    # "No valid rules left."). Any other exit 255 is a real error.
+    if proc.returncode == 255 and "No valid rules left." not in (proc.stderr or ""):
+        pytest.fail(
+            f"hashcat exited with code 255 but stderr does not indicate rule "
+            f"rejection. rule={rule!r} stderr={proc.stderr!r}"
+        )
+    # run_hashcat returns text (str), which is lossless for the current
+    # ASCII/CR/LF cases (LF arrives $HEX-wrapped). A latin-1 high-byte case
+    # would need bytes output.
+    out = proc.stdout.encode()
     if out == b"":
         return []
     # hashcat terminates every candidate, including the last, so the split
@@ -141,7 +136,7 @@ def _one_candidate(tmp_path, baseword, rule, name="case"):
     return got[0]
 
 
-@_requires_hashcat
+@requires_hashcat
 @pytest.mark.parametrize("pw", _CASES)
 def test_hashcat_reproduces_the_password_from_the_derived_pair(tmp_path, pw):
     baseword, rule = rulegen.derive(pw)
@@ -154,7 +149,7 @@ def test_hashcat_reproduces_the_password_from_the_derived_pair(tmp_path, pw):
     )
 
 
-@_requires_hashcat
+@requires_hashcat
 @pytest.mark.parametrize("pw", _CASES)
 def test_every_derived_rule_survives_a_rule_file(tmp_path, pw):
     """A rule hashcat drops produces no candidate at all, and it says nothing
@@ -165,7 +160,7 @@ def test_every_derived_rule_survives_a_rule_file(tmp_path, pw):
     )
 
 
-@_requires_hashcat
+@requires_hashcat
 def test_a_raw_line_break_argument_really_is_broken(tmp_path):
     """Negative control for the escape. Written raw, an LF argument splits the
     rule and hashcat sees a truncated `$`; a raw CR argument it rejects. If
@@ -177,7 +172,7 @@ def test_a_raw_line_break_argument_really_is_broken(tmp_path):
     assert _candidates(tmp_path, "zorptangle", "$\r", name="rawcr") == []
 
 
-@_requires_hashcat
+@requires_hashcat
 def test_a_blank_wordlist_line_still_yields_a_candidate(tmp_path):
     """#304: a pure-CR/LF password derives to an empty baseword, i.e. a blank
     line in basewords.txt. That line is the defect -- but pin what hashcat
@@ -191,7 +186,7 @@ def test_a_blank_wordlist_line_still_yields_a_candidate(tmp_path):
     assert _one_candidate(tmp_path, baseword, rule, name="emptybase") == b"\n"
 
 
-@_requires_hashcat
+@requires_hashcat
 def test_the_escape_is_what_hashcat_decodes_it_to(tmp_path):
     """Pin the mechanism rather than just the outcome: hashcat turns \\xNN into
     one byte, which is the only reason a line break is expressible."""
