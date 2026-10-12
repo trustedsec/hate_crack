@@ -129,36 +129,37 @@ class RichUI:
         num_cols = max(1, width // col_width)
         rows = (len(entries) + num_cols - 1) // num_cols
 
-        if title:
-            self.console.print("")
-            self.console.rule(style="none", characters="=")
-            self.console.print(title, markup=False, highlight=False)
-            self.console.rule(style="none", characters="=")
-
-        table = Table.grid(padding=0)
-        for _ in range(num_cols):
-            table.add_column(width=col_width, no_wrap=True, overflow="ellipsis")
-        for row in range(rows):
-            cells: list[Text] = []
-            for col in range(num_cols):
-                idx = row + col * rows  # column-major: entries read down a column
-                if idx < len(entries):
-                    style = styles[idx] if styles and idx < len(styles) else None
-                    cells.append(Text(entries[idx], style=_rich_style(style) or ""))
-                else:
-                    cells.append(Text(""))
-            table.add_row(*cells)
-        # Render at the width the columns were laid out for: print(width=) is
-        # capped at the console's own width, which may be Rich's 80 default.
+        # Render the whole block (rules, title, table) at the width the columns
+        # were laid out for: print(width=) is capped at the console's own width,
+        # which may be Rich's 80 default. Rich has no public way to unset it.
         saved = self.console._width
         self.console.width = width
         try:
-            self.console.print(table, highlight=False)
-        finally:
-            self.console._width = saved  # Rich has no public unset
+            if title:
+                self.console.print("")
+                self.console.rule(style="none", characters="=")
+                self.console.print(title, markup=False, highlight=False)
+                self.console.rule(style="none", characters="=")
 
-        if title:
-            self.console.rule(style="none", characters="=")
+            table = Table.grid(padding=0)
+            for _ in range(num_cols):
+                table.add_column(width=col_width, no_wrap=True, overflow="ellipsis")
+            for row in range(rows):
+                cells: list[Text] = []
+                for col in range(num_cols):
+                    idx = row + col * rows  # column-major: down a column
+                    if idx < len(entries):
+                        style = styles[idx] if styles and idx < len(styles) else None
+                        cells.append(Text(entries[idx], style=_rich_style(style) or ""))
+                    else:
+                        cells.append(Text(""))
+                table.add_row(*cells)
+            self.console.print(table, highlight=False)
+
+            if title:
+                self.console.rule(style="none", characters="=")
+        finally:
+            self.console._width = saved
 
     def spinner(self, message: str) -> AbstractContextManager[Any]:
         return self._spinner(message)

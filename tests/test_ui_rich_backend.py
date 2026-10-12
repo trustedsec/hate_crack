@@ -149,3 +149,32 @@ def test_columns_width_fallback_matches_plain_without_tty_or_columns(
     assert (
         cols(buf.getvalue()) == cols(plain_out) == 10
     )  # 40 entries, 120 // 10 = 12 slots, 4 rows -> 10 used
+
+
+def test_columns_titled_line_widths_match_plain_without_tty_or_columns(
+    monkeypatch, capsys
+):
+    """The title rules must be as wide as the block they bracket (PlainUI: 120)."""
+    import os
+
+    from hate_crack.ui.plain import PlainUI
+
+    monkeypatch.delenv("COLUMNS", raising=False)
+
+    def _no_tty(*_a, **_k):
+        raise OSError("no tty")
+
+    monkeypatch.setattr(os, "get_terminal_size", _no_tty)
+    entries = [f"entry{i:02d}" for i in range(40)]
+
+    buf = io.StringIO()
+    console = Console(file=buf, force_terminal=False, color_system=None)
+    RichUI(console).columns("Title", entries, min_col_width=10, max_col_width=10)
+    PlainUI().columns("Title", entries, min_col_width=10, max_col_width=10)
+    plain_out = capsys.readouterr().out
+
+    def widths(out: str) -> list[int]:
+        return [len(ln.rstrip()) for ln in out.splitlines()]
+
+    assert widths(buf.getvalue()) == widths(plain_out)
+    assert console._width is None  # save/restore round-trip leaves no pinned width
