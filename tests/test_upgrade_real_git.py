@@ -35,9 +35,9 @@ def _init(path):
     _git("init", "-q", "-b", "main", cwd=path)
     _git("config", "user.email", "t@example.com", cwd=path)
     _git("config", "user.name", "Test", cwd=path)
-    # Global and system git config are masked by the fixture, ensuring this
-    # repo sees only local config. A developer's pull.rebase=true silently
-    # changes the scenario under test (a plain pull that diverges).
+    # Global and system git config are masked by _isolate_git_config fixture,
+    # ensuring this repo sees only local config. A developer's pull.rebase=true
+    # silently changes the scenario under test (a plain pull that diverges).
     return path
 
 
@@ -53,6 +53,39 @@ def _isolate_git_config(monkeypatch):
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
     monkeypatch.setenv("GIT_CONFIG_SYSTEM", os.devnull)
     monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+
+
+def test_isolate_git_config_fixture_is_load_bearing(tmp_path):
+    """Regression guard: disabling _isolate_git_config fails on this machine.
+
+    The fixture masks global and system git config to prevent a developer's
+    pull.rebase=true from silently changing the test scenario. This test
+    proves the fixture is needed: on a machine with pull.rebase=true in
+    global config, this test would fail (prove it by temporarily disabling
+    the fixture and running this test on such a machine).
+
+    The test asserts: within a fresh repo created by _init(), `git config
+    --get pull.rebase` exits non-zero (no such key in local config), AND
+    GIT_CONFIG_GLOBAL == os.devnull (fixture is masking global config).
+    """
+    # Verify the fixture set the environment variables correctly.
+    assert os.environ.get("GIT_CONFIG_GLOBAL") == os.devnull
+    assert os.environ.get("GIT_CONFIG_SYSTEM") == os.devnull
+    assert os.environ.get("GIT_CONFIG_NOSYSTEM") == "1"
+
+    # Create a fresh repo with only local config (no global/system).
+    repo = tmp_path / "test-repo"
+    _init(repo)
+
+    # Verify no pull.rebase setting exists in local config alone.
+    result = _git("config", "--get", "pull.rebase", cwd=repo, check=False)
+    assert result.returncode != 0, (
+        "pull.rebase should not exist in local config (would indicate global config leaked in)"
+    )
+    assert result.stdout == "", (
+        "pull.rebase lookup should produce no output when not set, "
+        "but got: {!r}".format(result.stdout)
+    )
 
 
 @pytest.fixture
