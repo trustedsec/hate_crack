@@ -61,6 +61,7 @@ EXPECTED_KEYS = {
     "debug",
     "weakpass_min_rank",
     "update_channel",
+    "ui_backend",
     "restore_potfile_on_start",
     "rule_debug_mode_enabled",
     "coverage_enabled",
