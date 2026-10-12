@@ -24,10 +24,17 @@ candidate in ``$HEX[...]`` when it holds a byte that would otherwise break the
 line, earlier versions emit it raw, and both are accepted here.
 """
 
+import subprocess
+
 import pytest
 
 from hate_crack import rulegen
 from tests._hashcat_oracle import HASHCAT_BIN, requires_hashcat, run_hashcat
+
+#: Exit code and stderr message when hashcat fully rejects a rule file.
+#: Verified: a rule holding a raw $<CR> or $<LF> split across lines exits 255
+#: with this exact stderr message.
+_HASHCAT_RULE_REJECTION_MESSAGE = "No valid rules left."
 
 # Each is a password derive() must be able to round-trip through real hashcat.
 # The line-break cases are the point; the rest are controls, so a regression in
@@ -103,23 +110,29 @@ def _candidates(tmp_path, baseword, rule, name="case"):
     # same convention rulegen writes its output files with.
     words.write_bytes(baseword.encode("latin-1") + b"\n")
     rules.write_bytes(rule.encode("latin-1") + b"\n")
-    proc = run_hashcat(
-        [HASHCAT_BIN, "--stdout", "-r", str(rules), str(words)],
-        ok_returncodes=(0, 1, 255),
-        timeout=60,
-    )
+    try:
+        proc = run_hashcat(
+            [HASHCAT_BIN, "--stdout", "-r", str(rules), str(words)],
+            ok_returncodes=(0, 1, 255),
+            timeout=60,
+            text=False,
+        )
+    except subprocess.TimeoutExpired:
+        pytest.fail(f"hashcat timeout on rule={rule!r}")
     # Exit 255 is allowed only when hashcat fully rejects the rule file
     # (verified: raw $<CR> or $<LF> split across lines → exit 255 + stderr
     # "No valid rules left."). Any other exit 255 is a real error.
-    if proc.returncode == 255 and "No valid rules left." not in (proc.stderr or ""):
+    stderr_str = (proc.stderr or b"").decode("utf-8", errors="replace")
+    if proc.returncode == 255 and _HASHCAT_RULE_REJECTION_MESSAGE not in stderr_str:
         pytest.fail(
             f"hashcat exited with code 255 but stderr does not indicate rule "
-            f"rejection. rule={rule!r} stderr={proc.stderr!r}"
+            f"rejection. rule={rule!r} stderr={stderr_str!r}"
         )
-    # run_hashcat returns text (str), which is lossless for the current
-    # ASCII/CR/LF cases (LF arrives $HEX-wrapped). A latin-1 high-byte case
-    # would need bytes output.
-    out = proc.stdout.encode()
+    # run_hashcat with text=False returns bytes, which preserves CR as-is.
+    # This matters for passwords holding a literal CR or LF: the raw form would
+    # be split across lines and misreported as a regression, but hashcat emits
+    # it $HEX-wrapped so one candidate really is one line.
+    out = proc.stdout
     if out == b"":
         return []
     # hashcat terminates every candidate, including the last, so the split
