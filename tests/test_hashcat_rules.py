@@ -9,6 +9,8 @@ from pathlib import Path
 import pytest
 
 from hate_crack import hashcat_paths
+from tests._hashcat_oracle import HASHCAT_BIN as _SHARED_HASHCAT_BIN
+from tests._hashcat_oracle import is_backend_failure
 
 
 _TEST_HASH = "994a24ad0d9ac6f1fd7d4d75adffeda2"
@@ -22,12 +24,8 @@ _LOOPBACK_SESSION_NOISE_RE = re.compile(
 )
 
 
-#: Ask this hashcat specifically, rather than whichever one PATH surfaces.
-#: It is the binary hate_crack itself shells out to (`hcatBin`). This file is
-#: doubly sensitive to getting it wrong: an unusable hashcat does not fail
-#: here, it trips the OpenCL-device skip below, so a broken PATH build turns
-#: the whole file into a silent no-op rather than anything anyone notices.
-HASHCAT_BIN = "/opt/hashcat/hashcat"
+# Use HASHCAT_BIN from the shared oracle helper
+HASHCAT_BIN = _SHARED_HASHCAT_BIN
 
 
 def _format_hashcat_cmd(cmd: list[str]) -> str:
@@ -119,11 +117,7 @@ def _run_hashcat(
     if stderr:
         # OpenCL/device build failures are environment-specific, not code bugs.
         opencl_noise = all(
-            "clCreateProgramWithBinary" in line
-            or "Kernel" in line
-            and "build failed" in line
-            or line == ""
-            for line in stderr.splitlines()
+            line == "" or is_backend_failure(line) for line in stderr.splitlines()
         )
         if opencl_noise:
             pytest.skip(f"hashcat OpenCL device error (environment issue): {stderr!r}")
