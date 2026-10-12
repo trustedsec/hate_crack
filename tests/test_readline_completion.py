@@ -140,6 +140,30 @@ def test_tab_is_not_left_as_a_literal_character_anywhere(wordlists):
         assert "\t" not in _complete(wordlists, keys)
 
 
+@pytest.fixture
+def spaced_wordlists(tmp_path):
+    """A wordlist dir whose path contains a space, like "/Volumes/2TB NVME/..."."""
+    d = tmp_path / "2TB NVME" / "Passwords"
+    d.mkdir(parents=True)
+    (d / "rockyou.txt").write_text("a\n")
+    return str(d)
+
+
+def test_tab_completes_a_typed_path_containing_a_space(spaced_wordlists):
+    # A space in COMPLETER_DELIMS made readline hand the completer only the text
+    # after the last space ("NVME/Passwords/rock"), which matches nothing.
+    typed = os.path.join(spaced_wordlists, "rock").encode()
+    assert _complete(spaced_wordlists, typed + b"\t") == os.path.join(
+        spaced_wordlists, "rockyou.txt"
+    )
+
+
+def test_space_is_not_a_completer_delimiter():
+    from hate_crack.cli import COMPLETER_DELIMS
+
+    assert " " not in COMPLETER_DELIMS
+
+
 class TestSelectorReturnContract:
     """``select_file_with_autocomplete`` returns str, "" or list.
 

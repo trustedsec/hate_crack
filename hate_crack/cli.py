@@ -4,13 +4,19 @@ import readline
 import sys
 from typing import Optional
 
-# Space, tab and semicolon split one path token from the next.
+# Tab and semicolon split one path token from the next.
 #
-# Deliberately NOT including "\n": libedit on macOS mistracks the cursor when
-# newline is a completer delimiter and the prompt contains an embedded newline
-# (26+ input locations here do), which breaks backspace during completion.
-# See https://github.com/python/cpython/issues/117447
-COMPLETER_DELIMS = " \t;"
+# Deliberately NOT including " ": every prompt that installs a completer takes
+# one path (or comma-separated paths), never whitespace-separated ones, and
+# paths contain spaces ("/Volumes/2TB NVME/Passwords"). With a space as a
+# delimiter readline hands the completer only the text after the last space,
+# so the rest of such a path never completes.
+#
+# Deliberately NOT including "\n" either: libedit on macOS mistracks the cursor
+# when newline is a completer delimiter and the prompt contains an embedded
+# newline (26+ input locations here do), which breaks backspace during
+# completion. See https://github.com/python/cpython/issues/117447
+COMPLETER_DELIMS = "\t;"
 
 
 def using_libedit() -> bool:
