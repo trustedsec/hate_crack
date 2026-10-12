@@ -10,9 +10,8 @@ from hate_crack.ui import PlainUI, build_ui, resolve_backend_name
 from hate_crack.ui.rich_ui import RichUI
 
 
-def test_non_interactive_forces_plain_even_with_env_rich():
+def test_non_interactive_forces_plain_even_with_config_rich():
     name = resolve_backend_name(
-        env_value="rich",
         config_value="rich",
         is_tty=True,
         term="xterm",
@@ -23,7 +22,6 @@ def test_non_interactive_forces_plain_even_with_env_rich():
 
 def test_non_tty_forces_plain_even_with_config_rich():
     name = resolve_backend_name(
-        env_value=None,
         config_value="rich",
         is_tty=False,
         term="xterm",
@@ -96,7 +94,7 @@ _MAIN_WRITTEN_GLOBALS = (
 )
 
 
-def _drive_main(monkeypatch, tmp_path, *, tty: bool, env_ui: str | None):
+def _drive_main(monkeypatch, tmp_path, *, tty: bool, config_ui: str | None):
     """Run the real main() on an md5 hash file until it reaches the menu.
 
     Returns the list of objects passed to ``set_ui``.
@@ -123,10 +121,13 @@ def _drive_main(monkeypatch, tmp_path, *, tty: bool, env_ui: str | None):
     monkeypatch.setattr(hc_main._ui, "set_ui", installed.append)
     monkeypatch.setattr(hc_main.sys.stdout, "isatty", lambda: tty, raising=False)
     monkeypatch.setenv("TERM", "xterm")
-    if env_ui is None:
-        monkeypatch.delenv("HATE_CRACK_UI", raising=False)
+    # config_parser is built at import time, so the UI_BACKEND env override
+    # (covered in test_ui_backend_resolution) cannot be driven from here;
+    # set the resolved config value that override would produce.
+    if config_ui is None:
+        monkeypatch.delitem(hc_main.config_parser, "ui_backend", raising=False)
     else:
-        monkeypatch.setenv("HATE_CRACK_UI", env_ui)
+        monkeypatch.setitem(hc_main.config_parser, "ui_backend", config_ui)
 
     def _stop(*_a, **_k):
         raise _StopAtMenu
@@ -141,14 +142,14 @@ def _drive_main(monkeypatch, tmp_path, *, tty: bool, env_ui: str | None):
 
 
 def test_main_installs_plain_ui_and_prints_nothing_extra(monkeypatch, tmp_path, capsys):
-    installed = _drive_main(monkeypatch, tmp_path, tty=False, env_ui=None)
+    installed = _drive_main(monkeypatch, tmp_path, tty=False, config_ui=None)
     assert len(installed) == 1
     assert isinstance(installed[0], PlainUI)
     assert "UI backend" not in capsys.readouterr().out
 
 
 def test_main_installs_rich_ui_and_announces_it(monkeypatch, tmp_path, capsys):
-    installed = _drive_main(monkeypatch, tmp_path, tty=True, env_ui="rich")
+    installed = _drive_main(monkeypatch, tmp_path, tty=True, config_ui="rich")
     assert len(installed) == 1
     assert isinstance(installed[0], RichUI)
     assert "[*] UI backend: rich" in capsys.readouterr().out

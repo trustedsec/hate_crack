@@ -56,17 +56,20 @@ class UI(Protocol):
 
 def resolve_backend_name(
     *,
-    env_value: str | None = None,
     config_value: str | None = None,
     is_tty: bool = False,
     term: str | None = None,
     non_interactive: bool = False,
 ) -> str:
-    """Pick a backend name. Pure: every input is a parameter."""
+    """Pick a backend name. Pure: every input is a parameter.
+
+    There is deliberately no environment parameter: the ``UI_BACKEND``
+    environment override arrives through the config loader (CLI flag >
+    os.environ > home file > schema default), so ``config_value`` already
+    carries it. A second env path here would be a parallel config path.
+    """
     name = "plain"
-    if env_value and env_value in BACKENDS:
-        name = env_value
-    elif config_value and config_value in BACKENDS:
+    if config_value and config_value in BACKENDS:
         name = config_value
     if non_interactive or not is_tty or (term or "").lower() == "dumb":
         return "plain"

@@ -19,7 +19,7 @@ from rich.live import Live
 from rich.table import Table
 from rich.text import Text
 
-from hate_crack import cli, menu
+from hate_crack import cli, formatting, menu
 
 
 class _RichSpinnerHandle:
@@ -114,7 +114,9 @@ class RichUI:
         max_col_width: int | None = None,
         styles: list[str | None] | None = None,
     ) -> None:
-        width = self.console.width
+        # Same fallback chain as PlainUI (tty, COLUMNS, then 120) so both
+        # backends lay out the same columns; Rich's own default is 80.
+        width = formatting._terminal_width()
         if not entries:
             if title:
                 self.console.print(
@@ -146,7 +148,14 @@ class RichUI:
                 else:
                     cells.append(Text(""))
             table.add_row(*cells)
-        self.console.print(table, highlight=False)
+        # Render at the width the columns were laid out for: print(width=) is
+        # capped at the console's own width, which may be Rich's 80 default.
+        saved = self.console._width
+        self.console.width = width
+        try:
+            self.console.print(table, highlight=False)
+        finally:
+            self.console._width = saved  # Rich has no public unset
 
         if title:
             self.console.rule(style="none", characters="=")

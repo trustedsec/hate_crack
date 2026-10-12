@@ -4,6 +4,7 @@ import sys
 from rich.console import Console
 
 import hate_crack.cli
+import hate_crack.formatting
 import hate_crack.menu
 from hate_crack.ui.rich_ui import RichUI
 
@@ -72,7 +73,8 @@ def test_spinner_handle_has_set_detail_non_tty(monkeypatch):
     assert out.getvalue().count("working") == 1
 
 
-def test_columns_preserve_column_major_order():
+def test_columns_preserve_column_major_order(monkeypatch):
+    monkeypatch.setattr(hate_crack.formatting, "_terminal_width", lambda *a, **k: 20)
     ui, out, _ = _ui(width=20)
     entries = [f"({i})" for i in range(1, 8)]
     ui.columns(None, entries, min_col_width=5, max_col_width=5)
@@ -115,3 +117,35 @@ def test_ask_prompt_verbatim_and_whitespace_preserved(monkeypatch):
     monkeypatch.setattr("builtins.input", lambda _p="": " ")
     assert ui.ask("Pick [default 5]: ", default="5") == " "
     assert out.getvalue() == "Pick [default 5]: "
+
+
+def test_columns_width_fallback_matches_plain_without_tty_or_columns(
+    monkeypatch, capsys
+):
+    """No tty and no COLUMNS: both backends must lay out the same columns."""
+    import os
+
+    from hate_crack.ui.plain import PlainUI
+
+    monkeypatch.delenv("COLUMNS", raising=False)
+
+    def _no_tty(*_a, **_k):
+        raise OSError("no tty")
+
+    monkeypatch.setattr(os, "get_terminal_size", _no_tty)
+    entries = [f"entry{i:02d}" for i in range(40)]
+
+    buf = io.StringIO()
+    # A Console with no explicit width: it must not impose Rich's 80 default.
+    RichUI(Console(file=buf, force_terminal=False, color_system=None)).columns(
+        None, entries, min_col_width=10, max_col_width=10
+    )
+    PlainUI().columns(None, entries, min_col_width=10, max_col_width=10)
+    plain_out = capsys.readouterr().out
+
+    def cols(out: str) -> int:
+        return len(out.splitlines()[0].split())
+
+    assert (
+        cols(buf.getvalue()) == cols(plain_out) == 10
+    )  # 40 entries, 120 // 10 = 12 slots, 4 rows -> 10 used

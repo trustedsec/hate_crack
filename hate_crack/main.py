@@ -10486,8 +10486,12 @@ def main():
 
     # Resolve and install the UI backend once, after config is loaded and
     # non_interactive is known, before any menu or attack runs.
+    # NOTE: get_ui() lazily builds a PlainUI on first call, so the backend must
+    # be installed before any converted call site runs. Converting a call site
+    # that executes earlier in main() than this point requires moving this
+    # installation earlier too, or it silently gets plain under ui_backend=rich.
+    # It cannot move before config load, which it depends on.
     _ui_name = _ui.resolve_backend_name(
-        env_value=os.environ.get("HATE_CRACK_UI"),
         config_value=config_parser.get("ui_backend"),
         is_tty=sys.stdout.isatty(),
         term=os.environ.get("TERM"),
