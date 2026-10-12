@@ -1135,7 +1135,7 @@ def fetch_torrent_metadata(torrent_url, save_dir=None, wordlist_id=None):
         try:
             response_body = r2.content.decode(errors="replace")
             get_ui().say("--- Begin HTML Debug Output ---")
-            get_ui().say(response_body[:2000])
+            get_ui().say(str(response_body[:2000]))
             get_ui().say("--- End HTML Debug Output ---")
         except Exception as e:
             get_ui().say(f"Could not decode response for debug: {e}")
@@ -3707,7 +3707,7 @@ def list_official_wordlists():
             return data
         except Exception:
             get_ui().say("Official Hashmob Wordlists (raw text):")
-            get_ui().say(resp.text)
+            get_ui().say(str(resp.text))
             return resp.text
     except Exception as e:
         get_ui().error(f"Error listing official wordlists: {e}")
@@ -3851,7 +3851,7 @@ def list_and_download_official_wordlists():
 
     if not isinstance(data, list):
         get_ui().say("Unexpected response format. Raw output:")
-        get_ui().say(data)
+        get_ui().say(str(data))
         return
 
     try:
@@ -4318,7 +4318,7 @@ def extract_with_7z(archive_path, output_dir=None, remove_archive=True):
             text=True,
             cwd=output_dir,
         )
-        get_ui().say(result.stdout)
+        get_ui().say(str(result.stdout))
         if result.returncode == 0:
             get_ui().say(f"[+] Extraction complete: {archive_path}")
             if remove_archive:

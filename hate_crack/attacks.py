@@ -201,7 +201,7 @@ def quick_crack(ctx: Any) -> None:
                 )
                 if os.path.exists(chosen):
                     wordlist_choice = chosen
-                    get_ui().say(wordlist_choice)
+                    get_ui().say(str(wordlist_choice))
             elif os.path.exists(raw_choice):
                 wordlist_choice = raw_choice
             else:
@@ -1692,7 +1692,7 @@ def generate_rules_crack(ctx: Any) -> None:
                 )
                 if os.path.isdir(chosen) or os.path.isfile(chosen):
                     wordlist_choice = chosen
-                    get_ui().say(wordlist_choice)
+                    get_ui().say(str(wordlist_choice))
                 else:
                     get_ui().warn(f"[!] {chosen} no longer exists.")
             elif os.path.exists(raw_choice):
