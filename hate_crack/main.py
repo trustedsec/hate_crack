@@ -10495,7 +10495,7 @@ def main():
     )
     _ui.set_ui(_ui.build_ui(_ui_name))
     if _ui_name != "plain":
-        print(f"[*] UI backend:  {_ui_name}")
+        print(f"[*] UI backend: {_ui_name}")
 
     if non_interactive:
         sys.exit(_noninteractive.run_noninteractive(_attack_ctx(), args))
