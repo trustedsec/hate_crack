@@ -219,6 +219,48 @@ class TestTransmissionSession:
         assert entries[1]["id"] == 2
         assert entries[1]["percent_done"] == 45.0
 
+    def _list_with(self, tmp_path, stdout):
+        ts = TransmissionSession(str(tmp_path))
+        ts._rpc = "127.0.0.1:9999"
+        result = MagicMock(returncode=0, stdout=stdout, stderr="")
+        with patch("subprocess.run", return_value=result):
+            return ts.list()
+
+    def test_list_parses_real_transmission_4_row(self, tmp_path):
+        """Captured verbatim from transmission-remote 4.1.1: 'Have' is the
+        single token None and Done carries decimals."""
+        stdout = (
+            "    ID    Done       Have  ETA              Up      Down  Ratio  Status       Name\n"
+            "     1   0.00%       None  Unknown         0.0       0.0   0.00  Idle         f.bin\n"
+            "Sum:                 None                  0.0       0.0\n"
+        )
+        [entry] = self._list_with(tmp_path, stdout)
+        assert entry["id"] == 1
+        assert entry["percent_done"] == 0.0
+        assert entry["have"] == "None"
+        assert entry["eta"] == "Unknown"
+        assert entry["status"] == "Idle"
+        assert entry["name"] == "f.bin"
+
+    def test_list_parses_two_token_have_and_eta(self, tmp_path):
+        """'Have' and 'ETA' are each two tokens here, which used to shift the
+        status and name columns."""
+        stdout = "  2    45%  500 MB   3 hours        0.0   200.0   0.1  Downloading  another list.7z\n"
+        [entry] = self._list_with(tmp_path, stdout)
+        assert entry["percent_done"] == 45.0
+        assert entry["have"] == "500 MB"
+        assert entry["eta"] == "3 hours"
+        assert entry["down"] == 200.0
+        assert entry["status"] == "Downloading"
+        assert entry["name"] == "another list.7z"
+
+    def test_list_parses_multi_word_status(self, tmp_path):
+        stdout = "  3    12.5%  1.20 GB  2 min      10.0   900.0   0.1  Up & Down    big.7z\n"
+        [entry] = self._list_with(tmp_path, stdout)
+        assert entry["status"] == "Up & Down"
+        assert entry["name"] == "big.7z"
+        assert entry["eta"] == "2 min"
+
     def test_list_returns_empty_on_nonzero_rc(self, tmp_path):
         ts = TransmissionSession(str(tmp_path))
         ts._rpc = "127.0.0.1:9999"
@@ -305,6 +347,97 @@ class TestTransmissionSession:
         assert callbacks == [(2, "")], (
             "on_complete must fire even when info_file returns empty"
         )
+
+    @staticmethod
+    def _entry(tid, pct, name="big.7z", **kw):
+        base = {
+            "id": tid,
+            "percent_done": pct,
+            "status": "Downloading",
+            "name": name,
+            "have": "500 MB",
+            "eta": "3 hours",
+            "down": 200.0,
+        }
+        base.update(kw)
+        return base
+
+    def _run_wait(self, tmp_path, polls, stream, on_complete=None):
+        ts = TransmissionSession(str(tmp_path), poll_interval=0.0)
+        ts._rpc = "127.0.0.1:9999"
+        with (
+            patch.object(ts, "list", side_effect=lambda: polls.pop(0)),
+            patch.object(ts, "info_file", return_value="big.7z"),
+            patch.object(ts, "remove"),
+            patch("time.sleep"),
+        ):
+            ts.wait_for_all(
+                on_complete=on_complete or (lambda *a: None), progress_stream=stream
+            )
+
+    def test_wait_for_all_reports_progress(self, tmp_path):
+        import io
+
+        stream = io.StringIO()
+        polls = [[self._entry(1, 45.0)], [self._entry(1, 100.0)], []]
+        self._run_wait(tmp_path, polls, stream)
+        out = stream.getvalue()
+        assert "big.7z" in out
+        assert "45.0%" in out
+        assert "500 MB" in out
+        assert "ETA 3 hours" in out
+        assert "200.0 kB/s" in out
+        assert "0/1 complete" in out
+
+    def test_wait_for_all_progress_counts_completed_torrents(self, tmp_path):
+        import io
+
+        stream = io.StringIO()
+        polls = [
+            [self._entry(1, 100.0, name="a.7z"), self._entry(2, 10.0, name="b.7z")],
+            [self._entry(2, 60.0, name="b.7z")],
+            [],
+        ]
+        self._run_wait(tmp_path, polls, stream)
+        assert "1/2 complete" in stream.getvalue()
+
+    def test_wait_for_all_non_tty_does_not_repeat_unchanged_progress(self, tmp_path):
+        """A log file must not get a line every poll interval for hours."""
+        import io
+
+        stream = io.StringIO()
+        polls = [
+            [self._entry(1, 45.0, eta="3 hours")],
+            [self._entry(1, 45.4, eta="2 hours")],
+            [self._entry(1, 71.0)],
+            [],
+        ]
+        self._run_wait(tmp_path, polls, stream)
+        lines = [ln for ln in stream.getvalue().splitlines() if "big.7z" in ln]
+        assert len(lines) == 2
+        assert "\r" not in stream.getvalue()
+
+    def test_wait_for_all_tty_redraws_in_place_and_breaks_line_before_completion(
+        self, tmp_path
+    ):
+        import io
+
+        class TTY(io.StringIO):
+            def isatty(self):
+                return True
+
+        stream = TTY()
+        seen_at_complete = []
+        polls = [[self._entry(1, 45.0)], [self._entry(1, 100.0)], []]
+        self._run_wait(
+            tmp_path,
+            polls,
+            stream,
+            on_complete=lambda *a: seen_at_complete.append(stream.getvalue()),
+        )
+        assert stream.getvalue().startswith("\r")
+        # Whatever on_complete prints (7z extraction) must start on a fresh line.
+        assert seen_at_complete[0].endswith("\n")
 
     def test_wait_for_all_keyboard_interrupt_propagates(self, tmp_path):
         ts = TransmissionSession(str(tmp_path), poll_interval=0.0)

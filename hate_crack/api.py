@@ -487,46 +487,10 @@ class TransmissionSession:
             return []
         entries = []
         try:
-            lines = (result.stdout or "").splitlines()
-            for line in lines:
-                stripped = line.strip()
-                if not stripped:
-                    continue
-                if stripped.startswith("ID"):
-                    continue
-                if stripped.startswith("Sum:"):
-                    continue
-                tokens = stripped.split()
-                if not tokens:
-                    continue
-                # First token must be an integer ID
-                try:
-                    tid = int(tokens[0])
-                except ValueError:
-                    continue
-                # transmission-remote -l columns:
-                # ID  Done  Have  ETA  Up  Down  Ratio  Status  Name
-                # Done is tokens[1], like "100%" or "0%".
-                percent_str = tokens[1] if len(tokens) > 1 else "0%"
-                try:
-                    percent_done = float(percent_str.rstrip("%"))
-                except ValueError:
-                    percent_done = 0.0
-                # Status is tokens[7] (best-effort); name is the rest.
-                status = tokens[7] if len(tokens) > 8 else ""
-                name = (
-                    " ".join(tokens[8:])
-                    if len(tokens) > 8
-                    else (tokens[-1] if len(tokens) > 1 else "")
-                )
-                entries.append(
-                    {
-                        "id": tid,
-                        "percent_done": percent_done,
-                        "status": status,
-                        "name": name,
-                    }
-                )
+            for line in (result.stdout or "").splitlines():
+                entry = _parse_transmission_list_row(line)
+                if entry is not None:
+                    entries.append(entry)
         except Exception:
             return []
         return entries
@@ -587,19 +551,111 @@ class TransmissionSession:
             capture_output=True,
         )
 
-    def wait_for_all(self, on_complete: Callable[[int, str], None]) -> None:
+    def wait_for_all(
+        self,
+        on_complete: Callable[[int, str], None],
+        progress_stream=None,
+    ) -> None:
+        """Poll until every torrent finishes, reporting progress as it goes.
+
+        On a terminal the progress line is redrawn in place; anywhere else
+        (a log, a pipe) a line is written only when a torrent crosses a 10%
+        step, so an hours-long download does not log every poll interval.
+        """
+        stream = progress_stream if progress_stream is not None else sys.stdout
+        is_tty = bool(getattr(stream, "isatty", lambda: False)())
         completed_ids: set = set()
+        seen_ids: set = set()
+        last_key = None
+        line_open = False
         while True:
             time.sleep(self.poll_interval)
             entries = self.list()
             if not entries:
                 break
+            seen_ids.update(e["id"] for e in entries)
+            line = _format_torrent_progress(entries, len(completed_ids), len(seen_ids))
+            if is_tty:
+                width = shutil.get_terminal_size((100, 20)).columns - 1
+                stream.write("\r" + line[:width].ljust(width))
+                line_open = True
+            else:
+                key = (
+                    len(completed_ids),
+                    tuple((e["id"], int(e["percent_done"] // 10)) for e in entries),
+                )
+                if key != last_key:
+                    stream.write(line + "\n")
+                    last_key = key
+            stream.flush()
             for entry in entries:
                 if entry["percent_done"] >= 100.0 and entry["id"] not in completed_ids:
+                    if line_open:
+                        stream.write("\n")
+                        stream.flush()
+                        line_open = False
                     completed_ids.add(entry["id"])
                     file_name = self.info_file(entry["id"])
                     on_complete(entry["id"], file_name)
                     self.remove(entry["id"])
+        if line_open:
+            stream.write("\n")
+            stream.flush()
+
+
+# One row of `transmission-remote -l`. Column widths vary by version and the
+# Have/ETA/Status columns are one or two words ("None" / "1.50 GB", "Done" /
+# "3 hours", "Idle" / "Up & Down"), so rows are anchored on the numeric
+# Up/Down/Ratio columns rather than split by token position.
+_TRANSMISSION_ROW_RE = re.compile(
+    r"^\s*(?P<id>\d+)\*?\s+"
+    r"(?P<done>n/a|[\d.]+%)\s+"
+    r"(?P<have>None|[\d.]+\s+\S+)\s+"
+    r"(?P<eta>.+?)\s+"
+    r"(?P<up>[\d.]+)\s+"
+    r"(?P<down>[\d.]+)\s+"
+    r"(?P<ratio>None|Inf|[\d.]+)\s+"
+    r"(?P<status>Up & Down|Will Verify|\S+)\s+"
+    r"(?P<name>.+?)\s*$"
+)
+
+
+def _parse_transmission_list_row(line: str) -> dict | None:
+    """Parse one `transmission-remote -l` row; None for headers, Sum and junk."""
+    m = _TRANSMISSION_ROW_RE.match(line)
+    if not m:
+        return None
+    try:
+        percent_done = float(m["done"].rstrip("%"))
+    except ValueError:
+        percent_done = 0.0
+    return {
+        "id": int(m["id"]),
+        "percent_done": percent_done,
+        "have": m["have"],
+        "eta": m["eta"],
+        "down": float(m["down"]),
+        "status": m["status"],
+        "name": m["name"],
+    }
+
+
+def _format_torrent_progress(entries: list, completed: int, total: int) -> str:
+    """One status line for every torrent still in the session."""
+    parts = []
+    for e in entries:
+        part = f"{e.get('name') or e['id']} {e['percent_done']:.1f}%"
+        have = e.get("have")
+        if have and have != "None":
+            part += f" ({have})"
+        eta = e.get("eta")
+        if eta and e["percent_done"] < 100.0:
+            part += f" ETA {eta}"
+        down = e.get("down")
+        if down:
+            part += f" {down:.1f} kB/s"
+        parts.append(part)
+    return f"[i] Torrents {completed}/{total} complete | " + " | ".join(parts)
 
 
 def _load_merged_config():
