@@ -47,6 +47,7 @@ from hate_crack.api import (  # noqa: E402
     fetch_torrent_metadata,
     weakpass_wordlist_menu,
 )
+from hate_crack.ui import get_ui  # noqa: E402
 from hate_crack.api import HashviewAPI  # noqa: E402
 from hate_crack.api import HASHVIEW_LISTING_TIMEOUT, _http_status  # noqa: E402
 from hate_crack.api import (  # noqa: E402
@@ -148,7 +149,7 @@ def _visible_entries(directory):
     try:
         names = os.listdir(directory)
     except PermissionError:
-        print(f"[!] Cannot list {directory}: permission denied")
+        get_ui().warn(f"[!] Cannot list {directory}: permission denied")
         return []
     except (FileNotFoundError, NotADirectoryError):
         return []
@@ -291,14 +292,16 @@ def _warn_optimized_kernel_drift(missing, config_path=None):
     if SKIP_INIT or not missing:
         return
     where = f" in {config_path}" if config_path else ""
-    print(
+    get_ui().warn(
         f"[!] optimizedKernelAttacks{where} is missing "
         f"{len(missing)} attack(s) that use -O by default. "
         "They will run unoptimized:"
     )
     for name in missing:
-        print(f"[!]   {name}")
-    print("[!] Add them to optimizedKernelAttacks to enable -O for those attacks.")
+        get_ui().warn(f"[!]   {name}")
+    get_ui().warn(
+        "[!] Add them to optimizedKernelAttacks to enable -O for those attacks."
+    )
 
 
 def _strip_optimized_flags(tuning):
@@ -656,7 +659,7 @@ def _initialize_config_json():
     try:
         shutil.copy(src_config, destination)
     except OSError as exc:
-        print(f"[!] Could not write {destination}: {exc}")
+        get_ui().warn(f"[!] Could not write {destination}: {exc}")
         return None
     _config_bootstrap_detail["json"] = f"from {os.path.basename(src_config)}"
     return destination
@@ -687,10 +690,10 @@ def _initialize_env(legacy_json_path):
         try:
             notes = _config_writer.write_env_from_legacy(legacy_json_path, destination)
         except OSError as exc:
-            print(f"[!] Could not write {destination}: {exc}")
+            get_ui().warn(f"[!] Could not write {destination}: {exc}")
             return None
         for note in notes:
-            print(f"[!] {note}")
+            get_ui().warn(f"[!] {note}")
         # "the config.json above" rather than the path again: that path is the
         # one _print_config_sources() prints on the immediately preceding line,
         # and it is always this migration's source, so repeating it in full
@@ -702,7 +705,7 @@ def _initialize_env(legacy_json_path):
     try:
         _config_writer.write_env(destination, {})
     except OSError as exc:
-        print(f"[!] Could not write {destination}: {exc}")
+        get_ui().warn(f"[!] Could not write {destination}: {exc}")
         return None
     _config_bootstrap_detail["env"] = "from built-in defaults"
     return destination
@@ -737,10 +740,10 @@ def _finish_stale_migration(env_path, legacy_json_path):
     try:
         notes = _config_writer.finish_stale_migration(legacy_json_path, env_path)
     except Exception as exc:
-        print(f"[!] Could not tidy {legacy_json_path}: {exc}")
+        get_ui().warn(f"[!] Could not tidy {legacy_json_path}: {exc}")
         return
     for note in notes:
-        print(f"[!] {note}")
+        get_ui().warn(f"[!] {note}")
 
 
 def _describe_config_source(path, created, detail=None):
@@ -787,11 +790,11 @@ def _print_config_sources(
     """
     if SKIP_INIT:
         return
-    print(
+    get_ui().say(
         "[*] config.json: "
         f"{_describe_config_source(legacy_json_path, json_created, json_detail)}"
     )
-    print(
+    get_ui().say(
         f"[*] .env:        {_describe_config_source(env_path, env_created, env_detail)}"
     )
 
@@ -808,7 +811,7 @@ def _print_discovery_warnings(warnings):
     if SKIP_INIT:
         return
     for warning in warnings:
-        print(f"[!] {warning}")
+        get_ui().warn(f"[!] {warning}")
 
 
 try:
@@ -873,25 +876,27 @@ def ensure_binary(binary_path, build_dir=None, name=None):
     if not os.path.isfile(binary_path) or not os.access(binary_path, os.X_OK):
         if build_dir:
             if not os.path.isdir(build_dir):
-                print(f"Error: Build directory {build_dir} does not exist.")
-                print(f"Expected to find {name or 'binary'} at {binary_path}.")
-                print(
+                get_ui().error(f"Error: Build directory {build_dir} does not exist.")
+                get_ui().say(f"Expected to find {name or 'binary'} at {binary_path}.")
+                get_ui().say(
                     "\nThe hate_crack assets (hashcat-utils, princeprocessor) could not be found."
                 )
-                print(
+                get_ui().say(
                     "\nRun 'make install' from the repository directory to install with assets:"
                 )
-                print("  cd /path/to/hate_crack && make install")
+                get_ui().say("  cd /path/to/hate_crack && make install")
                 sys.exit(1)
 
             # Binary missing - need to build
-            print(f"Error: {name or 'binary'} not found at {binary_path}.")
-            print("\nPlease build the utilities by running:")
-            print(f"  cd {build_dir} && make")
-            print("\nEnsure build tools (gcc, make) are installed on your system.")
+            get_ui().error(f"Error: {name or 'binary'} not found at {binary_path}.")
+            get_ui().say("\nPlease build the utilities by running:")
+            get_ui().say(f"  cd {build_dir} && make")
+            get_ui().say(
+                "\nEnsure build tools (gcc, make) are installed on your system."
+            )
             sys.exit(1)
         else:
-            print(
+            get_ui().error(
                 f"Error: {name or binary_path} not found or not executable at {binary_path}."
             )
             sys.exit(1)
@@ -966,7 +971,7 @@ def _warn_stale_hashcat_home(*, hcat_bin=None):
     except OSError:
         return
     if message:
-        print(message)
+        get_ui().say(message)
 
 
 def _run_hashcat_home_migration(*, hcat_bin=None):
@@ -975,22 +980,24 @@ def _run_hashcat_home_migration(*, hcat_bin=None):
     try:
         result = _hashcat_paths.migrate_legacy_home(hcat_bin=bin_name)
     except OSError as exc:
-        print(f"[!] Migration failed: {exc}")
+        get_ui().warn(f"[!] Migration failed: {exc}")
         return
 
     if result.source == result.destination:
-        print(f"[*] Nothing to do: this hashcat still uses {result.source}.")
+        get_ui().say(f"[*] Nothing to do: this hashcat still uses {result.source}.")
         return
     if not result.copied and not result.skipped:
-        print(f"[*] Nothing to migrate: {result.source} does not exist or is empty.")
+        get_ui().say(
+            f"[*] Nothing to migrate: {result.source} does not exist or is empty."
+        )
         return
 
-    print(f"[*] Copied from {result.source} to {result.destination}:")
+    get_ui().say(f"[*] Copied from {result.source} to {result.destination}:")
     for name in result.copied:
-        print(f"      {name}")
+        get_ui().say(f"      {name}")
     for name in result.skipped:
-        print(f"    [!] skipped (already present or unreadable): {name}")
-    print(
+        get_ui().warn(f"    [!] skipped (already present or unreadable): {name}")
+    get_ui().say(
         "[*] Nothing was deleted. Once you have checked the copies, "
         f"remove {result.source} yourself to silence hashcat's notice."
     )
@@ -1226,9 +1233,9 @@ def ensure_toggle_rule():
         else:
             with open(target_path, "w") as dst:
                 dst.write("l\nu\n")
-        print(f"[i] Created rule file: {target_path}")
+        get_ui().say(f"[i] Created rule file: {target_path}")
     except Exception as e:
-        print(f"[!] Failed to create toggles-lm-ntlm.rule: {e}")
+        get_ui().warn(f"[!] Failed to create toggles-lm-ntlm.rule: {e}")
     return target_path
 
 
@@ -1249,20 +1256,20 @@ def cleanup_wordlist_artifacts():
                 try:
                     os.remove(path)
                 except Exception as e:
-                    print(f"[!] Failed to remove output file {path}: {e}")
+                    get_ui().warn(f"[!] Failed to remove output file {path}: {e}")
             if base == wordlists_dir and name.endswith(".torrent"):
                 try:
                     os.remove(path)
                 except Exception as e:
-                    print(f"[!] Failed to remove torrent file {path}: {e}")
+                    get_ui().warn(f"[!] Failed to remove torrent file {path}: {e}")
             if base == wordlists_dir and name.endswith(".7z"):
                 ok = extract_with_7z(path)
                 if not ok:
                     try:
                         os.remove(path)
-                        print(f"[!] Removed failed archive: {path}")
+                        get_ui().warn(f"[!] Removed failed archive: {path}")
                     except Exception as e:
-                        print(f"[!] Failed to remove archive {path}: {e}")
+                        get_ui().warn(f"[!] Failed to remove archive {path}: {e}")
 
 
 wordlists_dir = _resolve_wordlists_dir()
@@ -1518,7 +1525,7 @@ def _format_cmd(cmd):
 
 def _debug_cmd(cmd):
     if debug_mode:
-        print(f"[DEBUG] hashcat cmd: {_format_cmd(cmd)}")
+        get_ui().say(f"[DEBUG] hashcat cmd: {_format_cmd(cmd)}")
 
 
 def _coverage_store():
@@ -1648,13 +1655,13 @@ def _prompt_coverage_filter(plan, attack_name: str, spec=None) -> bool:
     scope = (
         _coverage_overlap_scope(plan, spec) if spec is not None else "this hash file"
     )
-    print(
+    get_ui().say(
         f"\n[*] Coverage: {plan.covered_count} of {plan.total_count} "
         f"{_plural(noun, plan.covered_count)} in this "
         f"{attack_name or 'attack'} have already been run against {scope}."
     )
     if plan.kind in ("rule", "mask") and plan.covered_count == plan.total_count:
-        print(
+        get_ui().say(
             f"    ({noun}s are tracked individually, so this can happen the "
             f"first time a {noun} file is used, if a larger one already "
             f"covered every line in it.)"
@@ -1667,9 +1674,9 @@ def _prompt_coverage_filter(plan, attack_name: str, spec=None) -> bool:
             # operator gets the same say here as on a partial overlap. Without
             # this, deliberately re-running a covered attack meant restarting
             # the whole tool with --no-coverage.
-            answer = input("[?] Skip this attack entirely? [Y/n]: ").strip()
+            answer = get_ui().ask("[?] Skip this attack entirely? [Y/n]: ").strip()
         except EOFError:
-            print("[*] No input available; taking the default and skipping.")
+            get_ui().say("[*] No input available; taking the default and skipping.")
             return True
         return answer.lower() not in ("n", "no")
     if non_interactive:
@@ -1677,15 +1684,19 @@ def _prompt_coverage_filter(plan, attack_name: str, spec=None) -> bool:
         # decided that filtering is wanted by getting this far.
         return True
     try:
-        answer = input(
-            f"[?] Skip them and run only the {remaining} "
-            f"{_plural(noun, remaining)}? [Y/n]: "
-        ).strip()
+        answer = (
+            get_ui()
+            .ask(
+                f"[?] Skip them and run only the {remaining} "
+                f"{_plural(noun, remaining)}? [Y/n]: "
+            )
+            .strip()
+        )
     except EOFError:
         # stdin is closed -- a piped or cron-driven run that never set
         # non_interactive. Take the documented default rather than letting an
         # unanswerable prompt kill the attack.
-        print("[*] No input available; taking the default and filtering.")
+        get_ui().say("[*] No input available; taking the default and filtering.")
         return True
     return answer.lower() not in ("n", "no")
 
@@ -1722,11 +1733,11 @@ def _apply_coverage(cmd, spec, attack_name: str, decision_cache: dict | None = N
     label = _coverage_spec_label(spec)
 
     if not apply_filtering:
-        print(f"[*] Running everything in {label}, as requested.")
+        get_ui().say(f"[*] Running everything in {label}, as requested.")
         return cmd, plan, []
 
     if plan.skip:
-        print(
+        get_ui().say(
             f"[*] Skipping {attack_name or 'this attack'} ({label}): every "
             f"{plan.kind or 'entry'} in it has already been run against this "
             "hash file."
@@ -1752,7 +1763,7 @@ def _apply_coverage(cmd, spec, attack_name: str, decision_cache: dict | None = N
         temp_paths.append(replacement)
         cmd = _replace_rule_arg(cmd, plan.source_path, replacement, plan.kind)
 
-    print(
+    get_ui().say(
         f"[*] Coverage ({label}): running {len(plan.filtered_entries)} new "
         f"{plan.kind} entr{'y' if len(plan.filtered_entries) == 1 else 'ies'} "
         f"and skipping {plan.covered_count} already covered."
@@ -1824,31 +1835,33 @@ def _run_coverage_command(args) -> int:
     """`hate_crack coverage status|history|forget --hashfile X`."""
     command = getattr(args, "coverage_command", None)
     if not command:
-        print("Error: coverage needs one of: status, history, forget")
+        get_ui().error("Error: coverage needs one of: status, history, forget")
         return 2
 
     hash_file = resolve_path(args.hashfile)
     if not hash_file or not os.path.isfile(hash_file):
-        print(f"Error: hash file not found: {args.hashfile}")
+        get_ui().error(f"Error: hash file not found: {args.hashfile}")
         return 1
 
     if command == "status":
-        print(_coverage_report(hash_file))
+        get_ui().say(_coverage_report(hash_file))
         return 0
     if command == "history":
-        print(_coverage_history_report(hash_file))
+        get_ui().say(_coverage_history_report(hash_file))
         return 0
     if command == "forget":
         if not args.yes:
-            print(_coverage_report(hash_file))
-            answer = input("\n[?] Drop all of this and start over? [y/N]: ").strip()
+            get_ui().say(_coverage_report(hash_file))
+            answer = (
+                get_ui().ask("\n[?] Drop all of this and start over? [y/N]: ").strip()
+            )
             if answer.lower() not in ("y", "yes"):
-                print("Left unchanged.")
+                get_ui().say("Left unchanged.")
                 return 0
-        print(_coverage_forget(hash_file))
+        get_ui().say(_coverage_forget(hash_file))
         return 0
 
-    print(f"Error: unknown coverage command: {command}")
+    get_ui().error(f"Error: unknown coverage command: {command}")
     return 2
 
 
@@ -1967,7 +1980,7 @@ def _maybe_add_brain(cmd, hash_file, stdin):
     server = _brain.ensure_server(config_parser, hcat_bin=hcatBin)
     if server is None:
         if not _brain_notice_fail_printed:
-            print(
+            get_ui().warn(
                 "[!] Hash mode {0} is slow, but no brain server could be "
                 "reached; running without candidate de-duplication.".format(mode)
             )
@@ -1976,7 +1989,7 @@ def _maybe_add_brain(cmd, hash_file, stdin):
         return cmd
 
     if not _brain_notice_ok_printed:
-        print(
+        get_ui().say(
             "[*] Brain enabled for slow mode {0} (session {1}, server {2}:{3}). "
             "The server holds roughly 12 bytes per candidate in RAM; set "
             "brain_client_features to 2 in config.json if that is too much.".format(
@@ -2220,7 +2233,7 @@ def _run_hcat_cmd_uncovered(
                 pass
     except KeyboardInterrupt:
         interrupted = True
-        print("Killing PID {0}...".format(str(hcatProcess.pid)))
+        get_ui().say("Killing PID {0}...".format(str(hcatProcess.pid)))
         hcatProcess.kill()
         for gen in companions:
             try:
@@ -2245,7 +2258,7 @@ def _run_hcat_cmd_uncovered(
             debug_mode_idx = cmd.index("--debug-mode") + 1
             requested_level = cmd[debug_mode_idx]
             if requested_level == str(_debug_mode_level) and _debug_mode_level > 4:
-                print(
+                get_ui().warn(
                     f"[!] hashcat rejected --debug-mode {requested_level} "
                     "(unsupported by this build); falling back to "
                     "--debug-mode 4 for the rest of this run."
@@ -2280,7 +2293,7 @@ def _run_hcat_cmd_uncovered(
             # rather than being retried per attack. Never on a plain
             # KeyboardInterrupt (``interrupted`` guards that), and at most
             # once per invocation (``_brain_retry`` guards that).
-            print(
+            get_ui().warn(
                 "[!] hashcat rejected the brain connection; disabling brain "
                 "for the rest of this run and retrying without it."
             )
@@ -2448,19 +2461,19 @@ def generate_session_id(hash_file, attack=""):
 
 # Help
 def usage():
-    print("usage: python hate_crack.py <hash_file> <hash_type>")
-    print(
+    get_ui().say("usage: python hate_crack.py <hash_file> <hash_type>")
+    get_ui().say(
         '\nThe <hash_type> is attained by running "{hcatBin} --help"\n'.format(
             hcatBin=hcatBin
         )
     )
-    print("Example Hashes: http://hashcat.net/wiki/doku.php?id=example_hashes\n")
+    get_ui().say("Example Hashes: http://hashcat.net/wiki/doku.php?id=example_hashes\n")
 
 
 def ascii_art():
     from hate_crack import __version__
 
-    print(
+    get_ui().say(
         r"""
 
   ___ ___         __             _________                       __
@@ -2490,7 +2503,7 @@ def _run_upgrade(branch="main"):
     """
     import subprocess
 
-    print()
+    get_ui().say()
     # Find the actual git repo root - _repo_root may point to
     # site-packages when installed rather than the source checkout.
     git_root_result = subprocess.run(
@@ -2500,7 +2513,7 @@ def _run_upgrade(branch="main"):
         text=True,
     )
     if git_root_result.returncode != 0:
-        print(
+        get_ui().say(
             "\n  Could not find a git repository to upgrade from."
             f"\n  Run manually: git fetch --tags --force origin && git checkout -B {branch} origin/{branch} && make install\n"
         )
@@ -2524,7 +2537,7 @@ def _run_upgrade(branch="main"):
         text=True,
     )
     if fetch_result.returncode != 0:
-        print(
+        get_ui().say(
             f"\n  Failed to fetch from origin:\n  {fetch_result.stderr.strip()}\n"
             f"\n  Upgrade manually: git fetch --tags --force origin && git checkout -B {branch} origin/{branch} && make install\n"
         )
@@ -2603,7 +2616,7 @@ def _run_upgrade(branch="main"):
         listing = "\n".join(f"    {line}" for line in changed[:20])
         if len(changed) > 20:
             listing += f"\n    ... and {len(changed) - 20} more"
-        print(
+        get_ui().say(
             f"\n  Cannot auto-upgrade: uncommitted changes on '{current_branch or 'HEAD'}'."
             f"\n{listing}"
             "\n  Commit or stash them, then re-run."
@@ -2612,7 +2625,7 @@ def _run_upgrade(branch="main"):
         raise SystemExit(1)
 
     if current_branch and current_branch != branch:
-        print(
+        get_ui().say(
             f"\n  Switching from '{current_branch}' to '{branch}' to pick up the new tag..."
         )
 
@@ -2627,7 +2640,7 @@ def _run_upgrade(branch="main"):
         text=True,
     )
     if checkout.returncode != 0:
-        print(
+        get_ui().say(
             f"\n  Failed to switch to {branch}:\n  {checkout.stderr.strip()}\n"
             f"\n  Upgrade manually: git checkout -B {branch} origin/{branch} && make install\n"
         )
@@ -2659,10 +2672,10 @@ def _run_upgrade(branch="main"):
         cwd=repo_root,
     )
     if result.returncode != 0:
-        print("\n  Upgrade failed. Check the output above for errors.\n")
+        get_ui().say("\n  Upgrade failed. Check the output above for errors.\n")
         raise SystemExit(1)
 
-    print("\n  Upgrade complete. Please restart hate_crack.\n")
+    get_ui().say("\n  Upgrade complete. Please restart hate_crack.\n")
     raise SystemExit(0)
 
 
@@ -2748,14 +2761,14 @@ def check_for_updates():
         from packaging.version import parse
 
         if parse(latest) > parse(local_base) and not _head_contains_release_tag(tag):
-            print(
+            get_ui().say(
                 f"\n  Update available: {latest} (current: {local_base})."
                 f"\n  See https://github.com/trustedsec/hate_crack/releases\n"
             )
             try:
-                answer = input("  Upgrade now? [y/N] ").strip().lower()
+                answer = get_ui().ask("  Upgrade now? [y/N] ").strip().lower()
             except (EOFError, KeyboardInterrupt):
-                print()
+                get_ui().say()
                 return
             if answer == "y":
                 _run_upgrade()
@@ -2808,9 +2821,9 @@ def select_file_with_autocomplete(
             return None
 
     def display_matches(substitution, matches, longest_match_length):
-        print()
+        get_ui().say()
         for match in matches:
-            print(f"  {match}")
+            get_ui().say(f"  {match}")
         readline.redisplay()
 
     # Configure readline for tab completion
@@ -2823,7 +2836,7 @@ def select_file_with_autocomplete(
     full_prompt += ": "
 
     try:
-        result = input(full_prompt).strip()
+        result = get_ui().ask(full_prompt).strip()
     finally:
         # Drop the path completer so later plain prompts (numeric menus, y/n)
         # don't inherit stale file-path tab completion.
@@ -2940,7 +2953,7 @@ def _count_computer_accounts(input_path: str, delimiter: str = ":") -> int:
                     count += 1
     except (FileNotFoundError, PermissionError, OSError) as e:
         if not isinstance(e, FileNotFoundError):
-            print(f"Warning: Could not process {input_path}: {e}")
+            get_ui().say(f"Warning: Could not process {input_path}: {e}")
     return count
 
 
@@ -2970,7 +2983,7 @@ def _filter_computer_accounts(
                     dst.write(stripped + "\n")
     except (FileNotFoundError, PermissionError, OSError) as e:
         if not isinstance(e, FileNotFoundError):
-            print(f"Warning: Could not process {input_path}: {e}")
+            get_ui().say(f"Warning: Could not process {input_path}: {e}")
     return removed
 
 
@@ -3022,7 +3035,7 @@ def _dedup_netntlm_by_username(
                         dst.write(stripped + "\n")
     except (FileNotFoundError, PermissionError, OSError) as e:
         if not isinstance(e, FileNotFoundError):
-            print(f"Warning: Could not process {input_path}: {e}")
+            get_ui().say(f"Warning: Could not process {input_path}: {e}")
     return total, duplicates
 
 
@@ -3061,13 +3074,13 @@ def _run_hashcat_show(hash_type, hash_file, output_path, force_overwrite=False):
         check=False,
     )
     if result.returncode != 0:
-        print(
+        get_ui().say(
             f"Warning: hashcat --show exited with code {result.returncode};"
             f" leaving {output_path} unchanged."
         )
         stderr_output = result.stderr.decode("utf-8", errors="replace").strip()
         if stderr_output:
-            print(f"  hashcat: {stderr_output.splitlines()[-1]}")
+            get_ui().say(f"  hashcat: {stderr_output.splitlines()[-1]}")
         return False
     lines = [
         line
@@ -3081,7 +3094,7 @@ def _run_hashcat_show(hash_type, hash_file, output_path, force_overwrite=False):
         except OSError:
             already_populated = False
         if already_populated:
-            print(
+            get_ui().say(
                 f"Warning: hashcat --show returned no results; preserving the"
                 f" existing contents of {output_path}."
             )
@@ -3254,7 +3267,7 @@ def _expand_wordlist_dirs(wordlists):
         if files:
             expanded.extend(files)
         else:
-            print(
+            get_ui().warn(
                 f"[!] No wordlists directly inside {path} "
                 "(subdirectories are not searched)"
             )
@@ -3266,7 +3279,7 @@ def _expand_wordlist_dirs(wordlists):
         # one whose archives were dropped, both leave the count unchanged while
         # attacking something different from what was asked for. The operator
         # should be told either way.
-        print(
+        get_ui().say(
             f"[*] {len(selection)} entr(y/ies) expanded to {len(expanded)} wordlist(s)."
         )
     return expanded
@@ -3297,7 +3310,7 @@ def hcatQuickDictionary(
         # run that enumerated nothing would claim every rule line. Reachable
         # from an ordinary empty or archives-only wordlists directory.
         # hcatHybrid guards the same expansion the same way.
-        print("[!] No valid wordlists found. Aborting attack.")
+        get_ui().warn("[!] No valid wordlists found. Aborting attack.")
         return
     cmd = [
         hcatBin,
@@ -3376,7 +3389,7 @@ def _prompt_skip_covered_batch(
     there points at a file the operator never selected.
     """
     plural = "" if num_chains == 1 else "s"
-    print(
+    get_ui().say(
         f"\n[*] {attack_name or 'This attack'} has run against this hash file before."
     )
     if non_interactive:
@@ -3392,9 +3405,9 @@ def _prompt_skip_covered_batch(
             "or run everything? [Y/n]: "
         )
     try:
-        answer = input(question).strip()
+        answer = get_ui().ask(question).strip()
     except EOFError:
-        print("[*] No input available; taking the default and filtering.")
+        get_ui().say("[*] No input available; taking the default and filtering.")
         return True
     return answer.lower() not in ("n", "no")
 
@@ -3537,7 +3550,7 @@ def hcatTopMask(hcatHashType, hcatHashFile, hcatTargetTime):
     try:
         hcatProcess.wait()
     except KeyboardInterrupt:
-        print("Killing PID {0}...".format(str(hcatProcess.pid)))
+        get_ui().say("Killing PID {0}...".format(str(hcatProcess.pid)))
         hcatProcess.kill()
 
     hcatProcess = subprocess.Popen(
@@ -3559,7 +3572,7 @@ def hcatTopMask(hcatHashType, hcatHashFile, hcatTargetTime):
     try:
         hcatProcess.wait()
     except KeyboardInterrupt:
-        print("Killing PID {0}...".format(str(hcatProcess.pid)))
+        get_ui().say("Killing PID {0}...".format(str(hcatProcess.pid)))
         hcatProcess.kill()
 
     cmd = [
@@ -3640,7 +3653,7 @@ def hcatRosettaMask(hcatHashType, hcatHashFile, description):
         ollamaUrl, llmBackend, no_cloud=ollamaNoCloud
     )
     if destination_warning is not None:
-        print(destination_warning)
+        get_ui().say(destination_warning)
 
     try:
         with spinner(f"Generating masks via {_llm_backend_label()} ({ollamaModel})..."):
@@ -3655,10 +3668,10 @@ def hcatRosettaMask(hcatHashType, hcatHashFile, description):
                 api_key=llmApiKey,
             )
     except llm.LLMTimeoutError:
-        print(
+        get_ui().error(
             f"Error: the {_llm_backend_label()} request timed out after {ollamaTimeout:g} seconds."
         )
-        print(
+        get_ui().say(
             f"The model ({ollamaModel}) may still be loading into VRAM. Retry, or "
             "raise OLLAMA_TIMEOUT in the .env file to wait longer."
         )
@@ -3671,22 +3684,22 @@ def hcatRosettaMask(hcatHashType, hcatHashFile, description):
         # "ollama" and the installed HashcatRosetta submodule predates the
         # think/extra_request_body parameters that backend needs; the
         # message tells the operator to update the submodule.
-        print(f"Error: {e}")
+        get_ui().error(f"Error: {e}")
         return
     except llm.CloudDestinationRefused as e:
         # Same reasoning as the RosettaBackendRefused branch above: a precise,
         # self-contained refusal, not a connectivity problem, so the generic
         # connection-help line below would be misleading.
-        print(f"Error: {e}")
+        get_ui().error(f"Error: {e}")
         return
     except Exception as e:
-        print(f"Error generating masks: {e}")
-        print(_llm_connection_help())
+        get_ui().error(f"Error generating masks: {e}")
+        get_ui().say(_llm_connection_help())
         return
 
     valid_masks = [mask for mask in masks if _valid_hcmask(mask)]
     if not valid_masks:
-        print("Error: the model returned no usable masks.")
+        get_ui().error("Error: the model returned no usable masks.")
         return
 
     hcmask_path = f"{hcatHashFile}.hcmask"
@@ -3695,7 +3708,7 @@ def hcatRosettaMask(hcatHashType, hcatHashFile, description):
     # a different, multi-byte UTF-8 sequence.
     with open(hcmask_path, "w", encoding="latin-1") as f:
         f.writelines(f"{mask}\n" for mask in valid_masks)
-    print(f"Generated {len(valid_masks)} mask(s) -> {hcmask_path}")
+    get_ui().say(f"Generated {len(valid_masks)} mask(s) -> {hcmask_path}")
 
     cmd = [
         hcatBin,
@@ -3746,7 +3759,7 @@ def _fingerprint_keyspace_guard(left_path, right_path, label, limit):
     keyspace = lineCount(left_path) * lineCount(right_path)
     if keyspace <= limit:
         return True
-    print(
+    get_ui().warn(
         f"[!] {label}: {keyspace:,} candidates exceeds the "
         f"{limit:,}-candidate guardrail. Skipping."
     )
@@ -3800,7 +3813,7 @@ def _fingerprint_expand_new(expander_len, hcatHashFile, new_plaintexts):
             sort_proc.wait()
             expander_proc.wait()
         except KeyboardInterrupt:
-            print("Killing PID {0}...".format(str(sort_proc.pid)))
+            get_ui().say("Killing PID {0}...".format(str(sort_proc.pid)))
             sort_proc.kill()
             expander_proc.kill()
 
@@ -3882,7 +3895,7 @@ def hcatFingerprint(
     # and ignored rather than silently dropped.
     if dictionary_wordlist is None:
         if len(hcatFingerprintWordlist) > 1:
-            print(
+            get_ui().warn(
                 "[!] hcatFingerprintWordlist has multiple entries; using the "
                 f"first ({hcatFingerprintWordlist[0]}), ignoring the rest."
             )
@@ -3896,7 +3909,7 @@ def hcatFingerprint(
         if os.path.isfile(candidate):
             resolved_dict = candidate
         else:
-            print(f"[!] Wordlist not found: {candidate}")
+            get_ui().warn(f"[!] Wordlist not found: {candidate}")
 
     expanded_path = f"{hcatHashFile}.expanded"
     open(expanded_path, "w").close()  # fresh accumulator for this attack run
@@ -3961,7 +3974,7 @@ def hcatFingerprint(
             hcatHybrid(hcatHashType, hcatHashFile, [expanded_path])
 
     if not any_candidates:
-        print(
+        get_ui().warn(
             "[!] Skipping Fingerprint Attack: no candidates to expand "
             "(no cracked passwords yet)."
         )
@@ -4619,7 +4632,7 @@ def hcatSmartMask(
         or RosettaMaskError is None
         or rosetta_keyspace is None
     ):
-        print(f"[!] Smart Mask: {rosetta_unavailable_reason()}")
+        get_ui().warn(f"[!] Smart Mask: {rosetta_unavailable_reason()}")
         hcatSmartMaskCount = 0
         return
 
@@ -4636,13 +4649,13 @@ def hcatSmartMask(
         plaintexts, min_cluster_size
     )
     if skipped_no_stem:
-        print(
+        get_ui().warn(
             f"[!] Smart Mask: skipping {skipped_no_stem} plaintext(s) with no "
             "alphabetic stem (all-digit/symbol passwords) -- unsupported in "
             "this version."
         )
     if not templates:
-        print("[*] Smart Mask: no qualifying clusters found.")
+        get_ui().say("[*] Smart Mask: no qualifying clusters found.")
         hcatSmartMaskCount = 0
         return
 
@@ -4673,7 +4686,7 @@ def hcatSmartMask(
             # Named separately from the generic unbuildable case because it is
             # the one failure an operator can act on: it says the cluster is
             # too internally varied to express, not that something is wrong.
-            print(
+            get_ui().warn(
                 f"[!] Smart Mask (template {index}/{len(templates)}, "
                 f"{template.member_count} accounts): {exc.needed} distinct "
                 f"charsets across {len(template.variable_positions)} varying "
@@ -4685,12 +4698,12 @@ def hcatSmartMask(
             )
             continue
         except RosettaMaskError as exc:
-            print(f"[!] Smart Mask: skipping an unbuildable template ({exc}).")
+            get_ui().warn(f"[!] Smart Mask: skipping an unbuildable template ({exc}).")
             continue
 
         candidate_total = sum(rosetta_keyspace(p) for p in parsed_lines)
         if keyspace_limit and candidate_total > keyspace_limit:
-            print(
+            get_ui().warn(
                 f"[!] Smart Mask (template {index}/{len(templates)}, "
                 f"{template.member_count} accounts): {candidate_total:,} "
                 f"candidates exceeds the {keyspace_limit:,}-candidate guardrail. "
@@ -4707,14 +4720,14 @@ def hcatSmartMask(
             hybrid_groups.setdefault((mode, charsets, mask), []).append(stem)
 
     if not hybrid_groups and not residual_lines:
-        print(
+        get_ui().say(
             "[*] Smart Mask: no templates survived validation or the keyspace "
             "guardrail."
         )
         hcatSmartMaskCount = 0
         return
 
-    print(
+    get_ui().say(
         f"[*] Smart Mask: {accounts_covered} account(s) matched; "
         f"{len(hybrid_groups)} collapsed hybrid run(s)"
         + (
@@ -4784,7 +4797,7 @@ def hcatSmartMask(
             # history table and leave "did I already run Smart Mask against
             # this target?" unanswerable by name. Counts and the mask only, in
             # any case: the stems are cracked plaintext.
-            print(
+            get_ui().say(
                 f"[*] Smart Mask: -a {mode} over {len(stems)} stem(s), "
                 f"mask {mask} ({group_index}/{len(hybrid_groups)})"
             )
@@ -4818,7 +4831,7 @@ def hcatSmartMask(
                 _insert_optimized_flag(cmd)
             cmd.extend(shlex.split(hcatTuning))
             _append_potfile_arg(cmd)
-            print(
+            get_ui().say(
                 f"[*] Smart Mask: -a 3 over {len(residual_lines)} pattern(s) "
                 "that could not be collapsed (charsets widened)"
             )
@@ -4853,7 +4866,7 @@ def hcatCombination(hcatHashType, hcatHashFile, wordlists=None):
         wordlists = [wordlists]
 
     if len(wordlists) < 2:
-        print("[!] Combinator attack requires at least 2 wordlists.")
+        get_ui().warn("[!] Combinator attack requires at least 2 wordlists.")
         return
 
     # Resolve wordlist paths
@@ -4863,10 +4876,12 @@ def hcatCombination(hcatHashType, hcatHashFile, wordlists=None):
         if os.path.isfile(resolved):
             resolved_wordlists.append(resolved)
         else:
-            print(f"[!] Wordlist not found: {resolved}")
+            get_ui().warn(f"[!] Wordlist not found: {resolved}")
 
     if len(resolved_wordlists) < 2:
-        print("[!] Could not find 2 valid wordlists. Aborting combinator attack.")
+        get_ui().warn(
+            "[!] Could not find 2 valid wordlists. Aborting combinator attack."
+        )
         return
 
     cmd = [
@@ -4898,7 +4913,7 @@ def hcatCombinator3(hcatHashType, hcatHashFile, wordlists):
     global hcatProcess
 
     if len(wordlists) < 3:
-        print("[!] Combinator3 attack requires exactly 3 wordlists.")
+        get_ui().warn("[!] Combinator3 attack requires exactly 3 wordlists.")
         return
 
     combinator3_bin = os.path.join(hate_path, "hashcat-utils/bin/combinator3.bin")
@@ -4940,7 +4955,7 @@ def hcatCombinatorX(hcatHashType, hcatHashFile, wordlists, separator=None):
     global hcatProcess
 
     if len(wordlists) < 2:
-        print("[!] CombinatorX attack requires at least 2 wordlists.")
+        get_ui().warn("[!] CombinatorX attack requires at least 2 wordlists.")
         return
 
     combinatorX_bin = os.path.join(hate_path, "hashcat-utils/bin/combinatorX.bin")
@@ -5161,7 +5176,7 @@ def hcatHybrid(hcatHashType, hcatHashFile, wordlists=None):
             # verbatim and fail as a missing file.
             matches = sorted(glob.glob(resolved))
             if not matches:
-                print(f"[!] Wordlist pattern matched nothing: {resolved}")
+                get_ui().warn(f"[!] Wordlist pattern matched nothing: {resolved}")
                 continue
         else:
             matches = [resolved]
@@ -5185,14 +5200,14 @@ def hcatHybrid(hcatHashType, hcatHashFile, wordlists=None):
                 if files:
                     resolved_wordlists.extend(files)
                 else:
-                    print(
+                    get_ui().warn(
                         f"[!] No wordlists directly inside {match} "
                         "(subdirectories are not searched)"
                     )
             elif os.path.isfile(match):
                 resolved_wordlists.append(match)
             else:
-                print(f"[!] Wordlist not found: {match}")
+                get_ui().warn(f"[!] Wordlist not found: {match}")
     # Order-preserving dedupe: the same list named twice is eight wasted passes.
     resolved_wordlists = list(dict.fromkeys(resolved_wordlists))
     if len(resolved_wordlists) > len(wordlists):
@@ -5201,12 +5216,12 @@ def hcatHybrid(hcatHashType, hcatHashFile, wordlists=None):
         # counted off the generator rather than multiplied out here, so it
         # cannot drift from the matrix actually run.
         total = sum(1 for _ in _hybrid_passes(resolved_wordlists))
-        print(
+        get_ui().say(
             f"[*] {len(wordlists)} entr(y/ies) expanded to "
             f"{len(resolved_wordlists)} wordlist(s): {total} passes."
         )
     if not resolved_wordlists:
-        print("[!] No valid wordlists found. Aborting hybrid attack.")
+        get_ui().warn("[!] No valid wordlists found. Aborting hybrid attack.")
         return
 
     # One deadline for the whole attack, not one per pass. hashcat's --runtime
@@ -5218,7 +5233,7 @@ def hcatHybrid(hcatHashType, hcatHashFile, wordlists=None):
     deadline = None
     if hcatHybridMaxRuntime > 0:
         deadline = time.monotonic() + hcatHybridMaxRuntime
-        print(
+        get_ui().say(
             f"\n[*] Hybrid attack budget: {hcatHybridMaxRuntime}s across all "
             "passes. Set hcatHybridMaxRuntime to 0 in config.json to run every "
             "pass to exhaustion."
@@ -5255,7 +5270,7 @@ def hcatHybrid(hcatHashType, hcatHashFile, wordlists=None):
         # Say so rather than ending quietly: passes the budget did not reach
         # have left candidates untried, and whether to raise the budget or move
         # on is the operator's call, not something to decide by omission.
-        print(
+        get_ui().say(
             f"[*] Hybrid budget spent; {skipped} pass(es) not run. "
             "Raise hcatHybridMaxRuntime in config.json to go further."
         )
@@ -5314,7 +5329,7 @@ def hcatBandrel(hcatHashType, hcatHashFile, company_name=None):
     global hcatProcess
     basewords = []
     while not (company_name or "").strip():
-        company_name = input(
+        company_name = get_ui().ask(
             "What is the company name (Enter multiples comma separated)? "
         )
     # Stripped because the list is comma-separated: "Acme, Globex" otherwise
@@ -5353,7 +5368,7 @@ def hcatBandrel(hcatHashType, hcatHashFile, company_name=None):
         cmd.extend(shlex.split(hcatTuning))
         _append_potfile_arg(cmd)
         _run_hcat_cmd(cmd, attack_name="Bandrel", hash_file=hcatHashFile)
-    print(
+    get_ui().say(
         "Checking passwords against pipal for top {0} passwords and basewords".format(
             pipal_count
         )
@@ -5417,7 +5432,7 @@ def _sample_plaintext_file(path, cap, source_label="wordlist"):
                 if _usable_plaintext(raw):
                     total_usable += 1
     except Exception as e:
-        print(f"Error reading {source_label}: {e}")
+        get_ui().error(f"Error reading {source_label}: {e}")
         return None
 
     # Invalid cap (zero or negative): fall back to the built-in default of 500.
@@ -5434,9 +5449,9 @@ def _sample_plaintext_file(path, cap, source_label="wordlist"):
                     if w:
                         sampled.append(w)
         except Exception as e:
-            print(f"Error reading {source_label}: {e}")
+            get_ui().error(f"Error reading {source_label}: {e}")
             return None
-        print(f"Loaded {len(sampled):,} passwords from {source_label}.")
+        get_ui().say(f"Loaded {len(sampled):,} passwords from {source_label}.")
         return sampled
 
     # Evenly-spaced sample: the k-th pick targets index floor(k * total / cap),
@@ -5455,9 +5470,9 @@ def _sample_plaintext_file(path, cap, source_label="wordlist"):
                     sampled.append(w)
                 usable_idx += 1
     except Exception as e:
-        print(f"Error reading {source_label}: {e}")
+        get_ui().error(f"Error reading {source_label}: {e}")
         return None
-    print(
+    get_ui().say(
         f"Sampled {len(sampled):,} of {total_usable:,} passwords from {source_label}."
     )
     return sampled
@@ -5501,14 +5516,14 @@ def _corpus_context(path, source_label="wordlist"):
             context = {"summary": _corpus_stats.format_summary(stats)}
             if stats.get("sampled"):
                 estimated = stats.get("estimated_total") or stats["total"]
-                print(
+                get_ui().say(
                     f"Profiled {stats['total']:,} passwords sampled evenly from "
                     f"{source_label} (~{estimated:,} lines, "
                     f"{stats['baseword_total']:,} distinct basewords). Raise "
                     "hcatCorpusProfileMaxLines in config.json to sample more."
                 )
             else:
-                print(
+                get_ui().say(
                     f"Analyzed all {stats['total']:,} passwords in {source_label} "
                     f"({stats['baseword_total']:,} distinct basewords)."
                 )
@@ -5518,7 +5533,7 @@ def _corpus_context(path, source_label="wordlist"):
             # letting it through quietly.
             hash_shaped = stats.get("hash_shaped", 0)
             if hash_shaped > stats["total"] * 0.25:
-                print(
+                get_ui().warn(
                     f"[!] Warning: {hash_shaped:,} of {stats['total']:,} lines "
                     "look like hashes, not plaintexts. This file may be an "
                     "uncracked dump rather than cracked output; the statistics "
@@ -5540,10 +5555,10 @@ def _corpus_context(path, source_label="wordlist"):
             # neither helper currently raises those.
             return context
     except OSError as e:
-        print(f"Error reading {source_label}: {e}")
+        get_ui().error(f"Error reading {source_label}: {e}")
         return None
     except ValueError as e:
-        print(f"Error: {e}")
+        get_ui().error(f"Error: {e}")
         return None
 
 
@@ -5568,7 +5583,7 @@ def hcatOllamaResearchTarget(company):
         ollamaUrl, llmBackend, no_cloud=ollamaNoCloud
     )
     if destination_warning is not None:
-        print(destination_warning)
+        get_ui().say(destination_warning)
 
     try:
         with spinner(
@@ -5585,16 +5600,18 @@ def hcatOllamaResearchTarget(company):
                 api_key=llmApiKey,
             )
     except llm.LLMTimeoutError:
-        print(
+        get_ui().say(
             f"Note: target research timed out after {ollamaTimeout:g} seconds — "
             "enter the details manually."
         )
         return blank
     except llm.CloudDestinationRefused as e:
-        print(f"Note: {e} Enter the details manually.")
+        get_ui().say(f"Note: {e} Enter the details manually.")
         return blank
     except Exception as e:
-        print(f"Note: target research unavailable ({e}) — enter the details manually.")
+        get_ui().say(
+            f"Note: target research unavailable ({e}) — enter the details manually."
+        )
         return blank
 
     return {
@@ -5612,7 +5629,7 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
     if mode == "wordlist":
         wordlist_path = context_data
         if not os.path.isfile(wordlist_path):
-            print(f"Error: Wordlist not found: {wordlist_path}")
+            get_ui().error(f"Error: Wordlist not found: {wordlist_path}")
             return
 
         gen_context = _corpus_context(wordlist_path)
@@ -5623,12 +5640,12 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
         # cracked-output file.
         cracked_path = context_data or f"{hcatHashFile}.out"
         if not os.path.isfile(cracked_path):
-            print(f"Error: No cracked passwords found: {cracked_path}")
+            get_ui().error(f"Error: No cracked passwords found: {cracked_path}")
             return
 
         gen_context = _corpus_context(cracked_path, source_label="cracked passwords")
         if gen_context is None:
-            print(
+            get_ui().error(
                 "Error: No cracked passwords yet — crack some hashes first, then "
                 "use this mode to generate more candidates in the same style."
             )
@@ -5636,14 +5653,14 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
     elif mode == "target":
         gen_context = context_data
     else:
-        print(f"Error: Unknown LLM generation mode: {mode}")
+        get_ui().error(f"Error: Unknown LLM generation mode: {mode}")
         return
 
     destination_warning = llm.offsite_destination_warning(
         ollamaUrl, llmBackend, no_cloud=ollamaNoCloud
     )
     if destination_warning is not None:
-        print(destination_warning)
+        get_ui().say(destination_warning)
 
     # Step B: generate candidates via the Atomic Agents module.
     try:
@@ -5662,10 +5679,10 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
                 api_key=llmApiKey,
             )
     except llm.LLMTimeoutError:
-        print(
+        get_ui().error(
             f"Error: the {_llm_backend_label()} request timed out after {ollamaTimeout:g} seconds."
         )
-        print(
+        get_ui().say(
             f"The model ({ollamaModel}) may still be loading into VRAM. Retry, or "
             "raise OLLAMA_TIMEOUT in the .env file to wait longer."
         )
@@ -5673,20 +5690,22 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
     except ValueError as e:
         # Defensive: mode is already validated above, but keep an explicit,
         # non-misleading message if generate_candidates ever rejects its input.
-        print(f"Error: {e}")
+        get_ui().error(f"Error: {e}")
         return
     except llm.CloudDestinationRefused as e:
         # A precise, self-contained refusal, not a connectivity problem, so
         # the generic connection-help line below would be misleading.
-        print(f"Error: {e}")
+        get_ui().error(f"Error: {e}")
         return
     except Exception as e:
-        print(f"Error generating candidates: {e}")
-        print(_llm_connection_help())
+        get_ui().error(f"Error generating candidates: {e}")
+        get_ui().say(_llm_connection_help())
         return
 
     if not candidates:
-        print(f"Error: {_llm_backend_label()} returned no usable password candidates.")
+        get_ui().error(
+            f"Error: {_llm_backend_label()} returned no usable password candidates."
+        )
         return
 
     try:
@@ -5694,13 +5713,15 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
             for candidate in candidates:
                 f.write(candidate + "\n")
     except Exception as e:
-        print(f"Error writing candidates file: {e}")
+        get_ui().error(f"Error writing candidates file: {e}")
         return
 
-    print(f"Generated {len(candidates)} password candidates -> {candidates_path}")
+    get_ui().say(
+        f"Generated {len(candidates)} password candidates -> {candidates_path}"
+    )
 
     # Step C: hashcat wordlist attack with the generated candidates (no rules).
-    print("Running wordlist attack with LLM-generated candidates...")
+    get_ui().say("Running wordlist attack with LLM-generated candidates...")
     cmd = [
         hcatBin,
         "-m",
@@ -5729,15 +5750,17 @@ def hcatOllama(hcatHashType, hcatHashFile, mode, context_data):
     # Step D: hashcat with candidates against every rule in the rules directory.
     rule_files = list_rule_files(rulesDirectory)
     if not rule_files:
-        print("No rule files found in rules directory. Skipping rule-based attacks.")
+        get_ui().say(
+            "No rule files found in rules directory. Skipping rule-based attacks."
+        )
         return
 
-    print(
+    get_ui().say(
         f"\nRunning LLM candidates with {len(rule_files)} rule file(s) from {rulesDirectory}..."
     )
     for rule in rule_files:
         rule_path = os.path.join(rulesDirectory, rule)
-        print(f"\n\tRunning with rule: {rule}")
+        get_ui().say(f"\n\tRunning with rule: {rule}")
         cmd = [
             hcatBin,
             "-m",
@@ -5848,18 +5871,18 @@ def _llm_pattern_rules(gen_context):
                     api_key=llmApiKey,
                 )
         except llm.LLMTimeoutError:
-            print(
+            get_ui().error(
                 f"Error: the {_llm_backend_label()} rule request timed out after {ollamaTimeout:g} s."
             )
             return (None, 0) if attempt == 1 else (rules, discarded)
         except ValueError as e:
-            print(f"Error: {e}")
+            get_ui().error(f"Error: {e}")
             return (None, 0) if attempt == 1 else (rules, discarded)
         except llm.CloudDestinationRefused as e:
-            print(f"Error: {e}")
+            get_ui().error(f"Error: {e}")
             return (None, 0) if attempt == 1 else (rules, discarded)
         except Exception as e:
-            print(f"Error inferring rules: {e}")
+            get_ui().error(f"Error inferring rules: {e}")
             return (None, 0) if attempt == 1 else (rules, discarded)
 
         for raw in raw_rules:
@@ -5896,7 +5919,7 @@ def hcatOllamaPatterns(hcatHashType, hcatHashFile, source_path):
     expensive half already succeeded.
     """
     if not os.path.isfile(source_path):
-        print(f"Error: pattern source not found: {source_path}")
+        get_ui().error(f"Error: pattern source not found: {source_path}")
         return
 
     gen_context = _corpus_context(source_path, source_label="pattern source")
@@ -5907,7 +5930,7 @@ def hcatOllamaPatterns(hcatHashType, hcatHashFile, source_path):
         ollamaUrl, llmBackend, no_cloud=ollamaNoCloud
     )
     if destination_warning is not None:
-        print(destination_warning)
+        get_ui().say(destination_warning)
 
     try:
         with spinner(
@@ -5925,23 +5948,23 @@ def hcatOllamaPatterns(hcatHashType, hcatHashFile, source_path):
                 api_key=llmApiKey,
             )
     except llm.LLMTimeoutError:
-        print(
+        get_ui().error(
             f"Error: the {_llm_backend_label()} request timed out after {ollamaTimeout:g} seconds."
         )
-        print(
+        get_ui().say(
             f"The model ({ollamaModel}) may still be loading into VRAM. Retry, or "
             "raise OLLAMA_TIMEOUT in the .env file to wait longer."
         )
         return
     except ValueError as e:
-        print(f"Error: {e}")
+        get_ui().error(f"Error: {e}")
         return
     except llm.CloudDestinationRefused as e:
-        print(f"Error: {e}")
+        get_ui().error(f"Error: {e}")
         return
     except Exception as e:
-        print(f"Error inferring patterns: {e}")
-        print(_llm_connection_help())
+        get_ui().error(f"Error inferring patterns: {e}")
+        get_ui().say(_llm_connection_help())
         return
 
     seen = set()
@@ -5953,7 +5976,7 @@ def hcatOllamaPatterns(hcatHashType, hcatHashFile, source_path):
             patterns.append(cleaned)
 
     if not patterns:
-        print(
+        get_ui().error(
             "Error: none of the model's output survived cleanup — every entry was "
             f"under {MIN_PATTERN_LEN} letters once digits and punctuation were "
             "stripped."
@@ -5971,14 +5994,14 @@ def hcatOllamaPatterns(hcatHashType, hcatHashFile, source_path):
             for pattern in patterns:
                 f.write(pattern + "\n")
     except OSError as e:
-        print(f"Error writing patterns file: {e}")
+        get_ui().error(f"Error writing patterns file: {e}")
         return
 
     discarded = len(raw_patterns) - len(patterns)
     summary = f"Inferred {len(patterns)} pattern basewords -> {patterns_path}"
     if discarded > 0:
         summary += f" ({discarded} discarded during cleanup)"
-    print(summary)
+    get_ui().say(summary)
 
     rules, rules_discarded = _llm_pattern_rules(gen_context)
     rule_chain = ""
@@ -5988,13 +6011,13 @@ def hcatOllamaPatterns(hcatHashType, hcatHashFile, source_path):
                 for rule in rules:
                     f.write(rule + "\n")
         except OSError as e:
-            print(f"Error writing rules file: {e}")
+            get_ui().error(f"Error writing rules file: {e}")
         else:
             rule_chain = f"-r {shlex.quote(rules_path)}"
             rule_summary = f"Inferred {len(rules)} hashcat rules -> {rules_path}"
             if rules_discarded > 0:
                 rule_summary += f" ({rules_discarded} rejected as invalid)"
-            print(rule_summary)
+            get_ui().say(rule_summary)
     if not rule_chain:
         # Say how many were rejected: "the model returned nothing" and "the
         # model returned 40 rules and every one was invalid" call for
@@ -6003,7 +6026,7 @@ def hcatOllamaPatterns(hcatHashType, hcatHashFile, source_path):
         reason = ""
         if rules_discarded > 0:
             reason = f" (all {rules_discarded} returned rules were rejected as invalid)"
-        print(
+        get_ui().warn(
             f"[!] No usable rules were inferred{reason}; running the basewords "
             "unmutated. Re-run to try again, or use the Spoonman Attack for "
             "rules derived mechanically from the same corpus."
@@ -6248,9 +6271,11 @@ def hcatCorporateMasks(
 
     # Handle missing mask directory or no files
     if not mask_files:
-        print("[!] No corporate mask files found.")
-        print(f"[!] Expected to find corp_*.hcmask files in: {_corporate_masks_dir}")
-        print(
+        get_ui().warn("[!] No corporate mask files found.")
+        get_ui().warn(
+            f"[!] Expected to find corp_*.hcmask files in: {_corporate_masks_dir}"
+        )
+        get_ui().warn(
             "[!] Run 'make submodules' or "
             "'git submodule update --init Corporate_Masks' to initialize it."
         )
@@ -6259,7 +6284,7 @@ def hcatCorporateMasks(
     # Run one hashcat invocation per mask file
     try:
         for n, mask_path in mask_files:
-            print(f"\n[*] Corporate Masks Attack (length {n})")
+            get_ui().say(f"\n[*] Corporate Masks Attack (length {n})")
             cmd = [
                 hcatBin,
                 "-m",
@@ -6368,16 +6393,16 @@ def hcatMarkovTrain(source_file, hcatHashFile):
     global hcatProcess
     hcstat2gen_bin = os.path.join(hate_path, "hashcat-utils", "bin", hcatHcstat2genBin)
     hcstat2_path = f"{hcatHashFile}.hcstat2"
-    print(f"[*] Generating markov table -> {hcstat2_path}")
+    get_ui().say(f"[*] Generating markov table -> {hcstat2_path}")
 
     # Verify hcstat2gen.bin exists
     if not os.path.isfile(hcstat2gen_bin):
-        print(f"[!] hcstat2gen.bin not found at {hcstat2gen_bin}")
+        get_ui().warn(f"[!] hcstat2gen.bin not found at {hcstat2gen_bin}")
         return False
 
     # Verify source file is readable
     if not os.path.isfile(source_file):
-        print(f"[!] Source file not found: {source_file}")
+        get_ui().warn(f"[!] Source file not found: {source_file}")
         return False
 
     try:
@@ -6397,28 +6422,28 @@ def hcatMarkovTrain(source_file, hcatHashFile):
                         if stderr_data
                         else "Unknown error"
                     )
-                    print(
+                    get_ui().warn(
                         f"[!] hcstat2gen.bin failed with code {hcatProcess.returncode}: {err_msg}"
                     )
                     return False
             except subprocess.TimeoutExpired:
-                print("[!] hcstat2gen.bin timed out after 300 seconds")
+                get_ui().warn("[!] hcstat2gen.bin timed out after 300 seconds")
                 hcatProcess.kill()
                 return False
             except KeyboardInterrupt:
-                print("Killing PID {0}...".format(str(hcatProcess.pid)))
+                get_ui().say("Killing PID {0}...".format(str(hcatProcess.pid)))
                 hcatProcess.kill()
                 return False
     except Exception as e:
-        print(f"[!] Failed to run hcstat2gen.bin: {e}")
+        get_ui().warn(f"[!] Failed to run hcstat2gen.bin: {e}")
         return False
 
     # Verify output file was created
     if not os.path.isfile(hcstat2_path):
-        print(f"[!] Output file not created: {hcstat2_path}")
+        get_ui().warn(f"[!] Output file not created: {hcstat2_path}")
         return False
     if os.path.getsize(hcstat2_path) == 0:
-        print(f"[!] Output file is empty: {hcstat2_path}")
+        get_ui().warn(f"[!] Output file is empty: {hcstat2_path}")
         return False
 
     # Compress the hcstat2 file with LZMA2 (hashcat requires compressed format)
@@ -6434,7 +6459,7 @@ def hcatMarkovTrain(source_file, hcatHashFile):
         with open(hcstat2_path, "wb") as f_out:
             f_out.write(compressed_data)
     except Exception as e:
-        print(f"[!] Failed to compress hcstat2 file: {e}")
+        get_ui().warn(f"[!] Failed to compress hcstat2 file: {e}")
         return False
 
     return True
@@ -6522,7 +6547,7 @@ def hcatPrince(hcatHashType, hcatHashFile, attack_name="PRINCE"):
         else hcatPrinceBaseList
     )
     if not prince_base or not os.path.isfile(prince_base):
-        print(f"Prince base list not found: {prince_base}")
+        get_ui().say(f"Prince base list not found: {prince_base}")
         return
     prince_cmd = [
         os.path.join(hate_path, "princeprocessor", hcatPrinceBin),
@@ -6592,7 +6617,7 @@ def hcatPCFG(hcatHashType, hcatHashFile):
     """Mode A: pipe pcfg_guesser.py output into hashcat in stdin mode."""
     pcfg_guesser_script = os.path.join(hate_path, "pcfg_cracker", "pcfg_guesser.py")
     if not os.path.isfile(pcfg_guesser_script):
-        print(f"pcfg_guesser.py not found at {pcfg_guesser_script}")
+        get_ui().say(f"pcfg_guesser.py not found at {pcfg_guesser_script}")
         return
     pcfg_root = os.path.join(hate_path, "pcfg_cracker")
     resolved_ruleset_dir = _resolve_pcfg_ruleset_dir(pcfg_root, pcfgRuleset)
@@ -6645,10 +6670,10 @@ def hcatPrinceLing(hcatHashType, hcatHashFile):
     prince_ling_script = os.path.join(pcfg_root, "prince_ling.py")
     ruleset_dir = _resolve_pcfg_ruleset_dir(pcfg_root, pcfgRuleset)
     if not os.path.isfile(prince_ling_script):
-        print(f"prince_ling.py not found at {prince_ling_script}")
+        get_ui().say(f"prince_ling.py not found at {prince_ling_script}")
         return
     if not os.path.isdir(ruleset_dir):
-        print(f"PCFG ruleset not found: {ruleset_dir}")
+        get_ui().say(f"PCFG ruleset not found: {ruleset_dir}")
         return
     resolved_ruleset_name = os.path.basename(ruleset_dir)
 
@@ -6680,7 +6705,7 @@ def hcatPrinceLing(hcatHashType, hcatHashFile):
             needs_regen = False
 
     if needs_regen:
-        print(f"[*] Generating prince_ling wordlist -> {cache_path}")
+        get_ui().say(f"[*] Generating prince_ling wordlist -> {cache_path}")
         cmd = [
             sys.executable,
             prince_ling_script,
@@ -6701,7 +6726,7 @@ def hcatPrinceLing(hcatHashType, hcatHashFile):
                     os.remove(tmp_path)
                 except OSError:
                     pass
-            print(f"prince_ling generation failed: {e}")
+            get_ui().say(f"prince_ling generation failed: {e}")
             return
 
     # Delegate to existing PRINCE attack with rebound base list. The
@@ -6773,7 +6798,7 @@ def _write_spoonman_provenance(path, provenance):
             json.dump(provenance, handle, indent=2, sort_keys=True)
             handle.write("\n")
     except OSError as e:
-        print(f"[!] Could not record corpus provenance in {path}: {e}")
+        get_ui().warn(f"[!] Could not record corpus provenance in {path}: {e}")
 
 
 def _invalidate_spoonman_provenance(path):
@@ -6798,7 +6823,7 @@ def _invalidate_spoonman_provenance(path):
     except OSError as e:
         # Cannot invalidate, so say so: a reused stale record is the one
         # outcome worth being loud about.
-        print(f"[!] Could not invalidate stale corpus provenance {path}: {e}")
+        get_ui().warn(f"[!] Could not invalidate stale corpus provenance {path}: {e}")
 
 
 def _spoonman_cache_mismatch(recorded, current):
@@ -6870,7 +6895,7 @@ def _warn_optimized_kernel_length_loss(basewords_path):
     except OSError:
         size = 0
     if size >= SPOONMAN_BASEWORD_SCAN_NOTICE_BYTES:
-        print(
+        get_ui().say(
             f"[*] Scanning {size // (1024 * 1024)} MB of basewords for entries "
             "the optimized kernel would drop..."
         )
@@ -6881,12 +6906,12 @@ def _warn_optimized_kernel_length_loss(basewords_path):
     # directions. Spoonman runs at any hash mode and the real -O cap varies with
     # the mode, and a rule that appends characters can carry a baseword that
     # fits here past the cap. An operator must not read this as an exact loss.
-    print(
+    get_ui().warn(
         f"[!] At least {over_long} baseword(s) exceed "
         f"{OPTIMIZED_KERNEL_MAX_PLAIN_LENGTH} characters and will be dropped "
         "silently by hashcat's optimized kernel (-O)."
     )
-    print(
+    get_ui().say(
         f"    {OPTIMIZED_KERNEL_MAX_PLAIN_LENGTH} is the cap verified for mode 0; "
         "the real cap varies by hash mode, and a rule that appends characters "
         "can push a shorter baseword over it. Re-run with "
@@ -6989,12 +7014,12 @@ def _spoonman_wordlists(basewords_path, extra_wordlists, corpus=None):
     wordlists = [basewords_path]
     for extra in extra_wordlists or []:
         if not os.path.exists(extra):
-            print(f"[!] Skipping wordlist (not found): {extra}")
+            get_ui().warn(f"[!] Skipping wordlist (not found): {extra}")
             continue
         # Order here only picks which message prints below: both guards are
         # independently sufficient for the exact-match case since #292.
         if corpus is not None and _same_path(extra, corpus):
-            print(
+            get_ui().warn(
                 f"[!] Skipping wordlist (it is the corpus this attack derived "
                 f"from): {extra}"
             )
@@ -7002,7 +7027,7 @@ def _spoonman_wordlists(basewords_path, extra_wordlists, corpus=None):
         # Same note as above -- this guard no longer depends on the previous
         # one having run first; either order still catches an exact match.
         if corpus is not None and _path_contains(extra, corpus):
-            print(
+            get_ui().warn(
                 f"[!] Skipping wordlist (it is a directory containing the corpus "
                 f"this attack derived from): {extra}"
             )
@@ -7057,10 +7082,14 @@ def _spoonman_capped_basewords(full_path, capped_path, cap):
                     break
                 dst.write(line)
     except OSError as e:
-        print(f"[!] Could not write the capped baseword list {capped_path}: {e}")
-        print("    Continuing with the full derived baseword list.")
+        get_ui().warn(
+            f"[!] Could not write the capped baseword list {capped_path}: {e}"
+        )
+        get_ui().say("    Continuing with the full derived baseword list.")
         return full_path
-    print(f"[*] Capped the cached baseword list to its {cap} most frequent entries")
+    get_ui().say(
+        f"[*] Capped the cached baseword list to its {cap} most frequent entries"
+    )
     return capped_path
 
 
@@ -7096,7 +7125,7 @@ def hcatSpoonman(
     *retained* basewords rather than of every baseword the corpus held.
     """
     if not os.path.isfile(corpus):
-        print(f"Error: corpus not found: {corpus}")
+        get_ui().error(f"Error: corpus not found: {corpus}")
         return
 
     # Derived basewords/rules are per-run scratch, so they live beside the hash
@@ -7123,7 +7152,7 @@ def hcatSpoonman(
     )
     fresh = cached and os.path.getmtime(corpus) <= os.path.getmtime(full_basewords_path)
     if fresh and mismatch is None:
-        print(f"[*] Reusing derived basewords and rules in {cache_dir}")
+        get_ui().say(f"[*] Reusing derived basewords and rules in {cache_dir}")
         if baseword_cap:
             basewords_path = _spoonman_capped_basewords(
                 full_basewords_path,
@@ -7134,8 +7163,8 @@ def hcatSpoonman(
         if cached and mismatch is not None:
             # Say why an expensive derivation is running again over what looks
             # from the outside like a warm cache.
-            print(f"[*] Ignoring the cache in {cache_dir}: {mismatch}")
-        print(f"[*] Deriving basewords and rules from {corpus}")
+            get_ui().say(f"[*] Ignoring the cache in {cache_dir}: {mismatch}")
+        get_ui().say(f"[*] Deriving basewords and rules from {corpus}")
         # Drop the old record first: from here until the new one is written the
         # cache directory is not to be trusted, including if this is
         # interrupted. See _invalidate_spoonman_provenance.
@@ -7149,7 +7178,7 @@ def hcatSpoonman(
                     baseword_caps=(baseword_cap,) if baseword_cap else (),
                 )
         except (OSError, ValueError) as e:
-            print(f"Rule derivation failed: {e}")
+            get_ui().say(f"Rule derivation failed: {e}")
             return
         basewords_path = result["basewords"]
         rules_path = result["rules"]
@@ -7160,16 +7189,16 @@ def hcatSpoonman(
                 baseword_cap, basewords_path
             )
         _write_spoonman_provenance(provenance_path, current_provenance)
-    print(f"[*] Basewords: {basewords_path}")
-    print(f"[*] Rules:     {rules_path}")
-    print(f"[*] Coverage:  {os.path.join(cache_dir, 'coverage.txt')}")
+    get_ui().say(f"[*] Basewords: {basewords_path}")
+    get_ui().say(f"[*] Rules:     {rules_path}")
+    get_ui().say(f"[*] Coverage:  {os.path.join(cache_dir, 'coverage.txt')}")
     # Scan the list actually being run: with a cap in effect that is the capped
     # file, and its over-long count is not the uncapped file's.
     _warn_optimized_kernel_length_loss(basewords_path)
 
     wordlists = _spoonman_wordlists(basewords_path, extra_wordlists, corpus=corpus)
     for extra in wordlists[1:]:
-        print(f"[*] Also:      {extra}")
+        get_ui().say(f"[*] Also:      {extra}")
 
     hcatQuickDictionary(
         hcatHashType,
@@ -7309,17 +7338,17 @@ def hcatRosetta(
     baseword has usually never been tried against the others.
     """
     if not debug_files:
-        print("Error: no debug logs selected.")
+        get_ui().error("Error: no debug logs selected.")
         return
     missing = [path for path in debug_files if not os.path.isfile(path)]
     if missing:
-        print(f"Error: debug log not found: {missing[0]}")
+        get_ui().error(f"Error: debug log not found: {missing[0]}")
         return
 
     # Per-run scratch beside the hash file, laid out like .spoonman so both
     # are removed by cleanup().
     out_dir = f"{hcatHashFile}.rosetta"
-    print(f"[*] Analyzing {len(debug_files)} debug log(s) with HashcatRosetta")
+    get_ui().say(f"[*] Analyzing {len(debug_files)} debug log(s) with HashcatRosetta")
     try:
         derived = rosetta_derive(
             debug_files,
@@ -7329,19 +7358,19 @@ def hcatRosetta(
             top_basewords=top_basewords,
         )
     except (OSError, ValueError, RuntimeError) as e:
-        print(f"Rosetta derivation failed: {e}")
+        get_ui().say(f"Rosetta derivation failed: {e}")
         return
 
-    print(f"[*] Debug entries:  {derived['entries']}")
-    print(
+    get_ui().say(f"[*] Debug entries:  {derived['entries']}")
+    get_ui().say(
         f"[*] Basewords:      {derived['baseword_count']}"
         f" of {derived['total_basewords']} -> {derived['basewords']}"
     )
-    print(
+    get_ui().say(
         f"[*] Rules ({metric}): {derived['rule_count']} of {derived['total_rules']}"
         f" -> {derived['rules']}"
     )
-    print(
+    get_ui().say(
         f"[*] Keyspace:       {derived['baseword_count'] * derived['rule_count']} candidates"
     )
 
@@ -7358,10 +7387,10 @@ def hcatPermute(hcatHashType, hcatHashFile, wordlist):
     global hcatProcess, hcatPermuteCount
     permute_path = os.path.join(hate_path, "hashcat-utils", "bin", "permute.bin")
     if not os.path.isfile(permute_path):
-        print(f"Error: permute.bin not found: {permute_path}")
+        get_ui().error(f"Error: permute.bin not found: {permute_path}")
         return
     if not os.path.isfile(wordlist):
-        print(f"Error: wordlist not found: {wordlist}")
+        get_ui().error(f"Error: wordlist not found: {wordlist}")
         return
     hashcat_cmd = [
         hcatBin,
@@ -7438,15 +7467,15 @@ def hcatOmenTrain(training_file):
     omen_dir = _omen_dir
     create_bin = os.path.join(omen_dir, hcatOmenCreateBin)
     if not os.path.isfile(create_bin):
-        print(f"Error: OMEN createNG binary not found: {create_bin}")
+        get_ui().error(f"Error: OMEN createNG binary not found: {create_bin}")
         return False
     training_file = os.path.abspath(training_file)
     if not os.path.isfile(training_file):
-        print(f"Error: Training file not found: {training_file}")
+        get_ui().error(f"Error: Training file not found: {training_file}")
         return False
     model_dir = _omen_model_dir()
-    print(f"Training OMEN model with: {training_file}")
-    print(f"Model output directory: {model_dir}")
+    get_ui().say(f"Training OMEN model with: {training_file}")
+    get_ui().say(f"Model output directory: {model_dir}")
     with _wordlist_path(training_file) as resolved_training_file:
         cmd = [
             create_bin,
@@ -7463,18 +7492,18 @@ def hcatOmenTrain(training_file):
             "-l",
             os.path.join(model_dir, "LN"),
         ]
-        print(f"[*] Running: {_format_cmd(cmd)}")
+        get_ui().say(f"[*] Running: {_format_cmd(cmd)}")
         proc = subprocess.Popen(cmd)
         try:
             proc.wait()
         except KeyboardInterrupt:
-            print("Killing PID {0}...".format(str(proc.pid)))
+            get_ui().say("Killing PID {0}...".format(str(proc.pid)))
             proc.kill()
             return False
     if proc.returncode != 0:
-        print(f"OMEN training failed with exit code {proc.returncode}")
+        get_ui().say(f"OMEN training failed with exit code {proc.returncode}")
         return False
-    print("OMEN model training complete.")
+    get_ui().say("OMEN model training complete.")
     info = {
         "training_file": training_file,
         "trained_at": datetime.datetime.now().isoformat(),
@@ -7493,13 +7522,13 @@ def hcatOmen(hcatHashType, hcatHashFile, max_candidates, hcatChains=""):
     omen_dir = _omen_dir
     enum_bin = os.path.join(omen_dir, hcatOmenEnumBin)
     if not os.path.isfile(enum_bin):
-        print(f"Error: OMEN enumNG binary not found: {enum_bin}")
+        get_ui().error(f"Error: OMEN enumNG binary not found: {enum_bin}")
         return
     model_dir = _omen_model_dir()
     config_path = os.path.join(model_dir, "createConfig")
     if not os.path.isfile(config_path):
-        print(f"Error: OMEN model not found at {config_path}")
-        print("Run training first (option 16).")
+        get_ui().error(f"Error: OMEN model not found at {config_path}")
+        get_ui().say("Run training first (option 16).")
         return
     enum_cmd = [enum_bin, "-p", "-m", str(max_candidates), "-C", config_path]
     hashcat_cmd = [
@@ -7519,7 +7548,7 @@ def hcatOmen(hcatHashType, hcatHashFile, max_candidates, hcatChains=""):
     hashcat_cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(hashcat_cmd)
     hashcat_cmd = _add_debug_mode_for_rules(hashcat_cmd)
-    print(f"[*] Running: {_format_cmd(enum_cmd)} | {_format_cmd(hashcat_cmd)}")
+    get_ui().say(f"[*] Running: {_format_cmd(enum_cmd)} | {_format_cmd(hashcat_cmd)}")
     _debug_cmd(hashcat_cmd)
     enum_proc = subprocess.Popen(
         enum_cmd, cwd=model_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE
@@ -7543,9 +7572,9 @@ def hcatOmen(hcatHashType, hcatHashFile, max_candidates, hcatChains=""):
         stderr_output = (
             enum_proc.stderr.read().decode("utf-8", errors="replace").strip()
         )
-        print(f"[!] enumNG failed with exit code {enum_proc.returncode}")
+        get_ui().warn(f"[!] enumNG failed with exit code {enum_proc.returncode}")
         if stderr_output:
-            print(f"[!] enumNG error: {stderr_output}")
+            get_ui().warn(f"[!] enumNG error: {stderr_output}")
     if enum_proc.stderr:
         enum_proc.stderr.close()
 
@@ -7640,7 +7669,7 @@ def hcatLMtoNT():
             hcatProcess.wait()
             combine_proc.wait()
         except KeyboardInterrupt:
-            print("Killing PID {0}...".format(str(hcatProcess.pid)))
+            get_ui().say("Killing PID {0}...".format(str(hcatProcess.pid)))
             hcatProcess.kill()
             combine_proc.kill()
 
@@ -7754,7 +7783,7 @@ def check_potfile(force_overwrite=False):
     and `--restore-potfile`), which has already confirmed with the operator that
     an empty POT file may replace whatever is there.
     """
-    print("Checking POT file for already cracked hashes...")
+    get_ui().say("Checking POT file for already cracked hashes...")
     _run_hashcat_show(
         hcatHashType,
         hcatHashFile,
@@ -7763,12 +7792,12 @@ def check_potfile(force_overwrite=False):
     )
     hcatHashCracked = lineCount(hcatHashFile + ".out")
     if hcatHashCracked > 0:
-        print(
+        get_ui().say(
             "Found %d hashes already cracked.\nCopied hashes to %s.out"
             % (hcatHashCracked, hcatHashFile)
         )
     else:
-        print("No hashes found in POT file.")
+        get_ui().say("No hashes found in POT file.")
 
 
 def _confirm_overwrite(path, prompt):
@@ -7781,23 +7810,23 @@ def _confirm_overwrite(path, prompt):
     existing = lineCount(path)
     if existing <= 0:
         return True
-    print(f"{path} already contains {existing} cracked hash(es).")
+    get_ui().say(f"{path} already contains {existing} cracked hash(es).")
     if not sys.stdin.isatty():
         return True
-    answer = input(prompt).strip().lower()
+    answer = get_ui().ask(prompt).strip().lower()
     return answer in ("", "y", "yes")
 
 
 # Rebuild <hashfile>.out from the POT file, discarding whatever is there now.
 def restore_from_potfile():
     if not hcatHashFile:
-        print("Error: No hashfile loaded.")
+        get_ui().error("Error: No hashfile loaded.")
         return False
     out_path = hcatHashFile + ".out"
     if not _confirm_overwrite(
         out_path, "Overwrite it with the POT file contents? (Y/n): "
     ):
-        print("Left the existing output file untouched.")
+        get_ui().say("Left the existing output file untouched.")
         return False
     check_potfile(force_overwrite=True)
     return True
@@ -7818,11 +7847,11 @@ def combine_ntlm_output():
     orig_path = str(hcatHashFileOrig)
     live_path = str(hcatHashFile)
     if os.path.abspath(orig_path) == os.path.abspath(live_path):
-        print("Hash file is not pwdump format; nothing to combine.")
+        get_ui().say("Hash file is not pwdump format; nothing to combine.")
         return
     check_potfile()
     if not os.path.isfile(hcatHashFile + ".out"):
-        print("No hashes found in POT file.")
+        get_ui().say("No hashes found in POT file.")
         return
     with open(hcatHashFile + ".out", "r") as hcatCrackedFile:
         for crackedLine in hcatCrackedFile:
@@ -7832,7 +7861,7 @@ def combine_ntlm_output():
             hash, password = parts
             hashes[hash] = password.rstrip()
     if not hashes:
-        print("No hashes found in POT file.")
+        get_ui().say("No hashes found in POT file.")
         return
 
     # Build the merged file beside its destination and move it into place only
@@ -7856,7 +7885,9 @@ def combine_ntlm_output():
         if written:
             os.replace(temp_path, destination)
         else:
-            print("No cracked hashes matched the original file; leaving it as is.")
+            get_ui().say(
+                "No cracked hashes matched the original file; leaving it as is."
+            )
     finally:
         if os.path.isfile(temp_path):
             try:
@@ -7877,16 +7908,18 @@ def cleanup():
                 return
             hcatHashFileOrig = hcatHashFile
         if hcatHashType == "1000" and pwdump_format:
-            print("\nComparing cracked hashes to original file...")
+            get_ui().say("\nComparing cracked hashes to original file...")
             combine_ntlm_output()
         out_path = hcatHashFileOrig + ".out"
         if os.path.isfile(out_path):
-            print(f"\nCracked passwords combined with original hashes in {out_path}")
+            get_ui().say(
+                f"\nCracked passwords combined with original hashes in {out_path}"
+            )
         else:
-            print(
+            get_ui().say(
                 f"\nNo cracked hashes to combine. Raw output (if any): {hcatHashFile}.out"
             )
-        print("\nCleaning up temporary files...")
+        get_ui().say("\nCleaning up temporary files...")
         if os.path.exists(hcatHashFile + ".masks"):
             os.remove(hcatHashFile + ".masks")
         if os.path.exists(hcatHashFile + ".hcmask"):
@@ -7953,19 +7986,19 @@ def _prompt_hashfile_id(hashfile_map, exhaustive):
     """
     while True:
         try:
-            raw = input("\nEnter hashfile ID (or Q to cancel): ").strip()
+            raw = get_ui().ask("\nEnter hashfile ID (or Q to cancel): ").strip()
         except (KeyboardInterrupt, EOFError):
-            print()
+            get_ui().say()
             return None
         if raw.lower() == "q":
             return None
         try:
             hashfile_id = int(raw)
         except ValueError:
-            print("\n✗ Error: Invalid ID entered. Please enter a numeric ID.")
+            get_ui().error("\n✗ Error: Invalid ID entered. Please enter a numeric ID.")
             continue
         if exhaustive and hashfile_map and hashfile_id not in hashfile_map:
-            print("\n✗ Error: Hashfile ID not in the list. Please try again.")
+            get_ui().error("\n✗ Error: Hashfile ID not in the list. Please try again.")
             continue
         return hashfile_id
 
@@ -8003,15 +8036,17 @@ def _list_hashfiles_for_customer(api_harness, customer_id, debug=False):
         return api_harness.list_customer_hashfiles(customer_id), True
     except Exception as e:
         if _http_status(e) != 404:
-            print(f"\n! Could not list hashfiles for customer {customer_id}: {e}")
+            get_ui().say(
+                f"\n! Could not list hashfiles for customer {customer_id}: {e}"
+            )
             return [], False
         if debug:
-            print(
+            get_ui().say(
                 "[DEBUG] customer-scoped listing route absent (404); "
                 "falling back to the per-type sweep"
             )
 
-    print(
+    get_ui().say(
         "\nThis Hashview server has no customer-scoped hashfile listing, so "
         "hashfiles\nhave to be enumerated one hash type at a time."
     )
@@ -8024,13 +8059,13 @@ def _list_hashfiles_for_customer(api_harness, customer_id, debug=False):
         try:
             choice = _auto_input(prompt, default).strip()
         except (KeyboardInterrupt, EOFError):
-            print()
+            get_ui().say()
             return [], False
         if choice.lower() == "s":
             return [], False
         if choice.lower() == "a":
             hash_types = tuple(api_harness.COMMON_HASH_TYPES)
-            print(
+            get_ui().say(
                 f"\nSweeping {len(hash_types)} hash types. This is slow -- each "
                 "type is a\nseparate server-side scan and can take minutes on a "
                 "populated instance."
@@ -8039,7 +8074,9 @@ def _list_hashfiles_for_customer(api_harness, customer_id, debug=False):
         try:
             hash_types = (int(choice),)
         except ValueError:
-            print("  Enter a numeric hashcat mode, A for all types, or S to skip.")
+            get_ui().say(
+                "  Enter a numeric hashcat mode, A for all types, or S to skip."
+            )
             continue
         break
 
@@ -8048,16 +8085,16 @@ def _list_hashfiles_for_customer(api_harness, customer_id, debug=False):
             customer_id, hash_types=hash_types
         )
     except KeyboardInterrupt:
-        print("\n  Listing cancelled.")
+        get_ui().say("\n  Listing cancelled.")
         return [], False
     except Exception as e:
-        print(f"\n! Hashfile listing failed: {e}")
+        get_ui().say(f"\n! Hashfile listing failed: {e}")
         return [], False
 
     timed_out = list(getattr(api_harness, "last_listing_timeouts", None) or [])
     if timed_out:
         types = ", ".join(str(t) for t in timed_out)
-        print(
+        get_ui().say(
             f"\n! This listing is incomplete: hash type(s) {types} timed out "
             f"after {HASHVIEW_LISTING_TIMEOUT}s.\n"
             "  Any hashfiles of those types are missing below. Look the "
@@ -8073,16 +8110,16 @@ def _print_rule_download_summary(results):
     one dict per rule, carrying ``error`` when that rule failed.
     """
     if not results:
-        print("\nNo rules found.")
+        get_ui().say("\nNo rules found.")
         return
 
     succeeded = [r for r in results if "error" not in r]
     failed = [r for r in results if "error" in r]
     for r in succeeded:
-        print(f"\n✓ Downloaded {r['size']} bytes: {r['output_file']}")
+        get_ui().success(f"\n✓ Downloaded {r['size']} bytes: {r['output_file']}")
     for r in failed:
-        print(f"\n✗ Error downloading rule {r.get('id')}: {r['error']}")
-    print(
+        get_ui().error(f"\n✗ Error downloading rule {r.get('id')}: {r['error']}")
+    get_ui().say(
         f"\n{'=' * 60}\n"
         f"Downloaded {len(succeeded)} of {len(results)} rules"
         f"{f' ({len(failed)} failed)' if failed else ''}"
@@ -8094,21 +8131,21 @@ def hashview_api():
     global hcatHashFile, hcatHashType, hcatHashFileOrig
 
     if not REQUESTS_AVAILABLE:
-        print("\nError: 'requests' module not found.")
-        print("Install it with: pip install requests")
+        get_ui().error("\nError: 'requests' module not found.")
+        get_ui().say("Install it with: pip install requests")
         return
 
-    print("\n" + "=" * 60)
-    print("Hashview Integration")
-    print("=" * 60)
+    get_ui().say("\n" + "=" * 60)
+    get_ui().say("Hashview Integration")
+    get_ui().say("=" * 60)
 
     # Get Hashview connection details from config
     if not hashview_api_key:
-        print("\nError: Hashview API key not configured.")
-        print("Please set HASHVIEW_API_KEY in the .env file")
+        get_ui().error("\nError: Hashview API key not configured.")
+        get_ui().say("Please set HASHVIEW_API_KEY in the .env file")
         return
 
-    print(f"\nConnecting to Hashview at: {hashview_url}")
+    get_ui().say(f"\nConnecting to Hashview at: {hashview_url}")
 
     try:
         api_harness = HashviewAPI(
@@ -8119,9 +8156,9 @@ def hashview_api():
         )
 
         while True:
-            print("\n" + "=" * 60)
-            print("What would you like to do?")
-            print("=" * 60)
+            get_ui().say("\n" + "=" * 60)
+            get_ui().say("What would you like to do?")
+            get_ui().say("=" * 60)
 
             # Build dynamic menu based on state
             menu_options = []
@@ -8166,7 +8203,7 @@ def hashview_api():
 
             if choice is None or choice not in option_map:
                 if choice is not None:
-                    print("Invalid option. Please try again.")
+                    get_ui().say("Invalid option. Please try again.")
                 continue
 
             option_key = option_map[choice]
@@ -8174,14 +8211,14 @@ def hashview_api():
             if option_key == "upload_cracked":
                 # Upload cracked hashes
                 if not hcatHashFile:
-                    print(
+                    get_ui().error(
                         "\n✗ Error: No hashfile is currently set. This option is not available."
                     )
                     continue
 
-                print("\n" + "-" * 60)
-                print("Upload Cracked Hashes")
-                print("-" * 60)
+                get_ui().say("\n" + "-" * 60)
+                get_ui().say("Upload Cracked Hashes")
+                get_ui().say("-" * 60)
 
                 # Check if we're in an active session
                 cracked_file = None
@@ -8191,18 +8228,18 @@ def hashview_api():
                         potential_file = hcatHashFile + ".out"
                         if os.path.exists(potential_file):
                             session_file = potential_file
-                            print(f"Found session file: {session_file}")
+                            get_ui().say(f"Found session file: {session_file}")
                     elif "hcatHashFile" in globals() and hcatHashFile:
                         potential_file = hcatHashFile + "nt.out"
                         if os.path.exists(potential_file):
                             session_file = potential_file
-                            print(f"Found session file: {session_file}")
+                            get_ui().say(f"Found session file: {session_file}")
                 except Exception:
                     pass
 
                 # Prompt for file
                 if session_file:
-                    use_session = input("Use this file? (Y/n): ").strip().lower()
+                    use_session = get_ui().ask("Use this file? (Y/n): ").strip().lower()
                     if use_session != "n":
                         cracked_file = session_file
 
@@ -8224,31 +8261,33 @@ def hashview_api():
                     or not isinstance(cracked_file, str)
                     or not os.path.exists(cracked_file)
                 ):
-                    print(f"✗ Error: File not found: {cracked_file}")
+                    get_ui().error(f"✗ Error: File not found: {cracked_file}")
                     continue
                 # Show file info
                 file_size = os.path.getsize(cracked_file)
                 with open(cracked_file, "r") as f:
                     line_count = sum(1 for _ in f)
-                print(f"File: {cracked_file}")
-                print(f"Size: {file_size} bytes")
-                print(f"Lines: {line_count}")
+                get_ui().say(f"File: {cracked_file}")
+                get_ui().say(f"Size: {file_size} bytes")
+                get_ui().say(f"Lines: {line_count}")
 
                 # Block upload if file is empty
                 if file_size == 0 or line_count == 0:
-                    print(f"✗ Error: File {cracked_file} is empty. Upload aborted.")
+                    get_ui().error(
+                        f"✗ Error: File {cracked_file} is empty. Upload aborted."
+                    )
                     continue
 
                 # Use the same hash type from main menu
                 hash_type = hcatHashType
 
                 # Upload
-                print(f"\nUploading to Hashview (hash type: {hash_type})...")
+                get_ui().say(f"\nUploading to Hashview (hash type: {hash_type})...")
                 try:
                     result = api_harness.upload_cracked_hashes(
                         cracked_file, hash_type, potfile_path=hcatPotfilePath
                     )
-                    print(
+                    get_ui().success(
                         f"\n✓ Success: {result.get('msg', 'Cracked hashes uploaded')}"
                     )
                     if not isinstance(result, dict):
@@ -8258,33 +8297,33 @@ def hashview_api():
                         line = f"  Uploaded: {result['uploaded']} pair(s)"
                         if result.get("skipped"):
                             line += f" ({result['skipped']} skipped by validation)"
-                        print(line)
+                        get_ui().say(line)
                     if result.get("skipped_cached"):
-                        print(
+                        get_ui().say(
                             f"  Skipped: {result['skipped_cached']} already uploaded previously"
                         )
                     # What the server actually did (newer Hashview reports these).
                     if "verified" in result or "updated" in result or "count" in result:
                         updated = result.get("updated", result.get("count"))
-                        print(f"  Newly cracked in Hashview: {updated}")
+                        get_ui().say(f"  Newly cracked in Hashview: {updated}")
                         if "verified" in result:
-                            print(f"  Verified: {result['verified']}")
+                            get_ui().say(f"  Verified: {result['verified']}")
                         if result.get("unmatched"):
-                            print(
+                            get_ui().say(
                                 "  Unmatched (already cracked or not in Hashview): "
                                 f"{result['unmatched']}"
                             )
                 except Exception as e:
-                    print(f"\n✗ Error: {str(e)}")
+                    get_ui().error(f"\n✗ Error: {str(e)}")
                     import traceback
 
-                    print("\nFull error details:")
+                    get_ui().say("\nFull error details:")
                     traceback.print_exc()
 
             elif option_key == "upload_wordlist":
-                print("\n" + "-" * 60)
-                print("Upload Wordlist")
-                print("-" * 60)
+                get_ui().say("\n" + "-" * 60)
+                get_ui().say("Upload Wordlist")
+                get_ui().say("-" * 60)
                 wordlist_path = select_file_with_autocomplete(
                     "Enter path to wordlist file (TAB to autocomplete)",
                     base_dir=hcatWordlists,
@@ -8294,22 +8333,26 @@ def hashview_api():
                 if isinstance(wordlist_path, str):
                     wordlist_path = wordlist_path.strip()
                 if not wordlist_path or not os.path.isfile(wordlist_path):
-                    print(f"✗ Error: File not found: {wordlist_path}")
+                    get_ui().error(f"✗ Error: File not found: {wordlist_path}")
                     continue
                 default_name = os.path.basename(wordlist_path)
                 wordlist_name = (
-                    input(f"Enter wordlist name (default: {default_name}): ").strip()
+                    get_ui()
+                    .ask(f"Enter wordlist name (default: {default_name}): ")
+                    .strip()
                     or default_name
                 )
                 try:
                     result = api_harness.upload_wordlist_file(
                         wordlist_path, wordlist_name
                     )
-                    print(f"\n✓ Success: {result.get('msg', 'Wordlist uploaded')}")
+                    get_ui().success(
+                        f"\n✓ Success: {result.get('msg', 'Wordlist uploaded')}"
+                    )
                     if "wordlist_id" in result:
-                        print(f"  Wordlist ID: {result['wordlist_id']}")
+                        get_ui().say(f"  Wordlist ID: {result['wordlist_id']}")
                 except Exception as e:
-                    print(f"\n✗ Error uploading wordlist: {str(e)}")
+                    get_ui().error(f"\n✗ Error uploading wordlist: {str(e)}")
 
             elif option_key == "download_wordlist":
                 # Download wordlist
@@ -8317,11 +8360,11 @@ def hashview_api():
                     wordlists = api_harness.list_wordlists()
                     wordlist_map = {}
                     if wordlists:
-                        print("\n" + "=" * 100)
-                        print("Available Wordlists:")
-                        print("=" * 100)
-                        print(f"{'ID':<10} {'Name':<60} {'Size':>12}")
-                        print("-" * 100)
+                        get_ui().say("\n" + "=" * 100)
+                        get_ui().say("Available Wordlists:")
+                        get_ui().say("=" * 100)
+                        get_ui().say(f"{'ID':<10} {'Name':<60} {'Size':>12}")
+                        get_ui().say("-" * 100)
                         for wl in wordlists:
                             wl_id = wl.get("id", "N/A")
                             wl_name = wl.get("name", "N/A")
@@ -8329,23 +8372,25 @@ def hashview_api():
                             name = str(wl_name)
                             if len(name) > 60:
                                 name = name[:57] + "..."
-                            print(f"{wl_id:<10} {name:<60} {wl_size:>12}")
+                            get_ui().say(f"{wl_id:<10} {name:<60} {wl_size:>12}")
                             if wl_id != "N/A":
                                 try:
                                     wordlist_map[int(wl_id)] = str(wl_name)
                                 except ValueError:
                                     pass
-                        print("=" * 100)
+                        get_ui().say("=" * 100)
                     else:
-                        print("\nNo wordlists found.")
+                        get_ui().say("\nNo wordlists found.")
                 except Exception as e:
-                    print(f"\n✗ Error fetching wordlists: {str(e)}")
+                    get_ui().error(f"\n✗ Error fetching wordlists: {str(e)}")
                     continue
 
                 try:
-                    wordlist_id = int(input("\nEnter wordlist ID: "))
+                    wordlist_id = int(get_ui().ask("\nEnter wordlist ID: "))
                 except ValueError:
-                    print("\n✗ Error: Invalid ID entered. Please enter a numeric ID.")
+                    get_ui().error(
+                        "\n✗ Error: Invalid ID entered. Please enter a numeric ID."
+                    )
                     continue
 
                 api_name = (
@@ -8357,21 +8402,25 @@ def hashview_api():
                     f" (API filename: {api_name})" if api_name else " (API filename)"
                 )
                 output_file = (
-                    input(
+                    get_ui()
+                    .ask(
                         f"Enter output file name{prompt_suffix} or press Enter to "
                         "auto-generate one (a dynamic wordlist gets its name plus "
                         "today's date, e.g. Usernames-2026-08-31.txt.gz): "
-                    ).strip()
+                    )
+                    .strip()
                     or None
                 )
                 try:
                     download_result = api_harness.download_wordlist(
                         wordlist_id, output_file
                     )
-                    print(f"\n✓ Success: Downloaded {download_result['size']} bytes")
-                    print(f"  File: {download_result['output_file']}")
+                    get_ui().success(
+                        f"\n✓ Success: Downloaded {download_result['size']} bytes"
+                    )
+                    get_ui().say(f"  File: {download_result['output_file']}")
                 except Exception as e:
-                    print(f"\n✗ Error downloading wordlist: {str(e)}")
+                    get_ui().error(f"\n✗ Error downloading wordlist: {str(e)}")
 
             elif option_key == "download_rules":
                 # Download rule file
@@ -8379,11 +8428,11 @@ def hashview_api():
                     rules = api_harness.list_rules()
                     rule_map = {}
                     if rules:
-                        print("\n" + "=" * 100)
-                        print("Available Rules:")
-                        print("=" * 100)
-                        print(f"{'ID':<10} {'Name':<60} {'Size':>12}")
-                        print("-" * 100)
+                        get_ui().say("\n" + "=" * 100)
+                        get_ui().say("Available Rules:")
+                        get_ui().say("=" * 100)
+                        get_ui().say(f"{'ID':<10} {'Name':<60} {'Size':>12}")
+                        get_ui().say("-" * 100)
                         for rule in rules:
                             r_id = rule.get("id", "N/A")
                             r_name = rule.get("name", "N/A")
@@ -8391,25 +8440,27 @@ def hashview_api():
                             name = str(r_name)
                             if len(name) > 60:
                                 name = name[:57] + "..."
-                            print(f"{r_id:<10} {name:<60} {r_size:>12}")
+                            get_ui().say(f"{r_id:<10} {name:<60} {r_size:>12}")
                             if r_id != "N/A":
                                 try:
                                     rule_map[int(r_id)] = str(r_name)
                                 except ValueError:
                                     pass
-                        print("=" * 100)
+                        get_ui().say("=" * 100)
                     else:
-                        print("\nNo rules found.")
+                        get_ui().say("\nNo rules found.")
                 except Exception as e:
-                    print(f"\n✗ Error fetching rules: {str(e)}")
+                    get_ui().error(f"\n✗ Error fetching rules: {str(e)}")
                     continue
 
-                rules_choice = input("\nEnter rule ID (or 'a' for all): ").strip()
+                rules_choice = (
+                    get_ui().ask("\nEnter rule ID (or 'a' for all): ").strip()
+                )
                 if rules_choice.lower() in ("a", "all"):
                     try:
                         results = api_harness.download_all_rules()
                     except Exception as e:
-                        print(f"\n✗ Error fetching rules: {str(e)}")
+                        get_ui().error(f"\n✗ Error fetching rules: {str(e)}")
                         continue
                     _print_rule_download_summary(results)
                     continue
@@ -8417,7 +8468,9 @@ def hashview_api():
                 try:
                     rules_id = int(rules_choice)
                 except ValueError:
-                    print("\n✗ Error: Invalid ID entered. Please enter a numeric ID.")
+                    get_ui().error(
+                        "\n✗ Error: Invalid ID entered. Please enter a numeric ID."
+                    )
                     continue
 
                 api_name = rule_map.get(rules_id)
@@ -8425,24 +8478,28 @@ def hashview_api():
                     f" (API filename: {api_name})" if api_name else " (API filename)"
                 )
                 output_file = (
-                    input(
+                    get_ui()
+                    .ask(
                         f"Enter output file name{prompt_suffix} or press Enter to use API filename: "
-                    ).strip()
+                    )
+                    .strip()
                     or api_name
                 )
                 try:
                     download_result = api_harness.download_rules(rules_id, output_file)
-                    print(f"\n✓ Success: Downloaded {download_result['size']} bytes")
-                    print(f"  File: {download_result['output_file']}")
+                    get_ui().success(
+                        f"\n✓ Success: Downloaded {download_result['size']} bytes"
+                    )
+                    get_ui().say(f"  File: {download_result['output_file']}")
                 except Exception as e:
-                    print(f"\n✗ Error downloading rule: {str(e)}")
+                    get_ui().error(f"\n✗ Error downloading rule: {str(e)}")
 
             elif option_key == "download_all_rules":
                 # Download every rule file listed by the Hashview API
                 try:
                     results = api_harness.download_all_rules()
                 except Exception as e:
-                    print(f"\n✗ Error fetching rules: {str(e)}")
+                    get_ui().error(f"\n✗ Error fetching rules: {str(e)}")
                     continue
 
                 _print_rule_download_summary(results)
@@ -8450,7 +8507,7 @@ def hashview_api():
             elif option_key == "upload_hashfile_job":
                 # Upload hashfile and create job
                 if not hcatHashFile:
-                    print("\n✗ Error: No hashfile is currently set.")
+                    get_ui().error("\n✗ Error: No hashfile is currently set.")
                     continue
                 # First, list customers to help user select
                 try:
@@ -8463,38 +8520,38 @@ def hashview_api():
                     if customers:
                         api_harness.display_customers_multicolumn(customers)
                     else:
-                        print("\nNo customers found.")
+                        get_ui().say("\nNo customers found.")
                 except Exception as e:
-                    print(f"\n✗ Error fetching customers: {str(e)}")
+                    get_ui().error(f"\n✗ Error fetching customers: {str(e)}")
 
                 # Select or create customer
-                customer_input = input(
-                    "\nEnter customer ID or N to create new: "
-                ).strip()
+                customer_input = (
+                    get_ui().ask("\nEnter customer ID or N to create new: ").strip()
+                )
                 if customer_input.lower() == "n":
-                    customer_name = input("Enter customer name: ").strip()
+                    customer_name = get_ui().ask("Enter customer name: ").strip()
                     if customer_name:
                         try:
                             result = api_harness.create_customer(customer_name)
-                            print(
+                            get_ui().success(
                                 f"\n✓ Success: {result.get('msg', 'Customer created')}"
                             )
                             customer_id = result.get("customer_id") or result.get("id")
                             if not customer_id:
-                                print("\n✗ Error: Customer ID not returned.")
+                                get_ui().error("\n✗ Error: Customer ID not returned.")
                                 continue
-                            print(f"  Customer ID: {customer_id}")
+                            get_ui().say(f"  Customer ID: {customer_id}")
                         except Exception as e:
-                            print(f"\n✗ Error creating customer: {str(e)}")
+                            get_ui().error(f"\n✗ Error creating customer: {str(e)}")
                             continue
                     else:
-                        print("\n✗ Error: Customer name cannot be empty.")
+                        get_ui().error("\n✗ Error: Customer name cannot be empty.")
                         continue
                 else:
                     try:
                         customer_id = int(customer_input)
                     except ValueError:
-                        print(
+                        get_ui().error(
                             "\n✗ Error: Invalid ID entered. Please enter a numeric ID or N."
                         )
                         continue
@@ -8514,13 +8571,13 @@ def hashview_api():
                         hashfile_path = hashfile_path.strip()
 
                 if not hashfile_path or not os.path.exists(hashfile_path):
-                    print(f"Error: File not found: {hashfile_path}")
+                    get_ui().error(f"Error: File not found: {hashfile_path}")
                     continue
 
                 # Use hash type from original command if available, otherwise prompt
                 if hcatHashType and str(hcatHashType).isdigit():
                     hash_type = int(hcatHashType)
-                    print(f"Using hash type: {hash_type}")
+                    get_ui().say(f"Using hash type: {hash_type}")
                 else:
                     hash_type = prompt_int(
                         "Enter hash type (e.g., 1000 for NTLM): ", minimum=0
@@ -8559,23 +8616,25 @@ def hashview_api():
                     5: "hash_only",
                 }
                 format_list = ", ".join(f"{k}={v}" for k, v in format_names.items())
-                print(
+                get_ui().say(
                     f"\nAuto-detected file format: {file_format} ({format_names.get(file_format, 'unknown')})"
                 )
-                override = input(
-                    f"Override format number? [{format_list}] (Enter to accept): "
-                ).strip()
+                override = (
+                    get_ui()
+                    .ask(f"Override format number? [{format_list}] (Enter to accept): ")
+                    .strip()
+                )
                 if override:
                     try:
                         file_format = int(override)
                     except ValueError:
-                        print(
+                        get_ui().error(
                             f"\n✗ Invalid format '{override}', using auto-detected value."
                         )
 
                 # Default hashfile name to the basename of the file
                 hashfile_name = os.path.basename(hashfile_path)
-                print(f"Using hashfile name: {hashfile_name}")
+                get_ui().say(f"Using hashfile name: {hashfile_name}")
 
                 try:
                     result = api_harness.upload_hashfile(
@@ -8585,24 +8644,26 @@ def hashview_api():
                         file_format,
                         hashfile_name,
                     )
-                    print(f"\n✓ Success: {result.get('msg', 'Hashfile uploaded')}")
+                    get_ui().success(
+                        f"\n✓ Success: {result.get('msg', 'Hashfile uploaded')}"
+                    )
                     if result.get("hashfile_id"):
-                        print(f"  Hashfile ID: {result['hashfile_id']}")
+                        get_ui().say(f"  Hashfile ID: {result['hashfile_id']}")
                         # Hash count is not returned by the upload API, so we don't display it
                         if "hash_count" in result:
-                            print(f"  Hash count: {result['hash_count']}")
+                            get_ui().say(f"  Hash count: {result['hash_count']}")
                         if "instacracked" in result:
-                            print(f"  Insta-cracked: {result['instacracked']}")
+                            get_ui().say(f"  Insta-cracked: {result['instacracked']}")
 
                         # Offer to create a job
                         create_job = (
-                            input(
+                            get_ui().ask(
                                 "\nWould you like to create a job for this hashfile? (Y/n): "
                             )
                             or "Y"
                         )
                         if create_job.upper() == "Y":
-                            job_name = input("Enter job name: ")
+                            job_name = get_ui().ask("Enter job name: ")
                             limit_recovered = False
                             try:
                                 job_result = api_harness.create_job(
@@ -8613,22 +8674,26 @@ def hashview_api():
                                 )
                                 msg = job_result.get("msg", "")
                                 if "job_id" in job_result:
-                                    print(f"\n✓ Success: {msg or 'Job created'}")
-                                    print(f"  Job ID: {job_result['job_id']}")
-                                    print(
+                                    get_ui().success(
+                                        f"\n✓ Success: {msg or 'Job created'}"
+                                    )
+                                    get_ui().say(f"  Job ID: {job_result['job_id']}")
+                                    get_ui().say(
                                         "\nNote: Job created with automatically assigned tasks based on"
                                     )
-                                    print(
+                                    get_ui().say(
                                         f"      historical effectiveness for hash type {hash_type}."
                                     )
 
                                     # Offer to start the job
                                     start_now = (
-                                        input("\nStart the job now? (Y/n): ") or "Y"
+                                        get_ui().ask("\nStart the job now? (Y/n): ")
+                                        or "Y"
                                     )
                                     if start_now.upper() == "Y":
                                         stop_after_one = (
-                                            input("Stop after a single result? (y/N): ")
+                                            get_ui()
+                                            .ask("Stop after a single result? (y/N): ")
                                             .strip()
                                             .upper()
                                             == "Y"
@@ -8637,25 +8702,25 @@ def hashview_api():
                                             job_result["job_id"],
                                             limit_recovered=stop_after_one,
                                         )
-                                        print(
+                                        get_ui().success(
                                             f"\n✓ Success: {start_result.get('msg', 'Job started')}"
                                         )
                                 else:
-                                    print(
+                                    get_ui().error(
                                         f"\n✗ Error: {msg or 'Job creation failed (no job_id returned)'}"
                                     )
-                                    print(
+                                    get_ui().say(
                                         "  Note: The Hashview server may have created the job"
                                         " despite this error. Check the Hashview UI before retrying."
                                     )
                             except Exception as e:
-                                print(f"\n✗ Error creating job: {str(e)}")
+                                get_ui().error(f"\n✗ Error creating job: {str(e)}")
                     if result.get("skipped_cached"):
-                        print(
+                        get_ui().say(
                             f"  Skipped: {result['skipped_cached']} already uploaded previously"
                         )
                 except Exception as e:
-                    print(f"\n✗ Error uploading hashfile: {str(e)}")
+                    get_ui().error(f"\n✗ Error uploading hashfile: {str(e)}")
 
             elif option_key == "download_hashes":
                 # Download left hashes
@@ -8672,38 +8737,48 @@ def hashview_api():
                         if customers:
                             api_harness.display_customers_multicolumn(customers)
                         else:
-                            print("\nNo customers found.")
+                            get_ui().say("\nNo customers found.")
 
                         # Select or create customer
-                        customer_input = input(
-                            "\nEnter customer ID or N to create new: "
-                        ).strip()
+                        customer_input = (
+                            get_ui()
+                            .ask("\nEnter customer ID or N to create new: ")
+                            .strip()
+                        )
                         if customer_input.lower() == "n":
-                            customer_name = input("Enter customer name: ").strip()
+                            customer_name = (
+                                get_ui().ask("Enter customer name: ").strip()
+                            )
                             if customer_name:
                                 try:
                                     result = api_harness.create_customer(customer_name)
-                                    print(
+                                    get_ui().success(
                                         f"\n✓ Success: {result.get('msg', 'Customer created')}"
                                     )
                                     customer_id = result.get(
                                         "customer_id"
                                     ) or result.get("id")
                                     if not customer_id:
-                                        print("\n✗ Error: Customer ID not returned.")
+                                        get_ui().error(
+                                            "\n✗ Error: Customer ID not returned."
+                                        )
                                         continue
-                                    print(f"  Customer ID: {customer_id}")
+                                    get_ui().say(f"  Customer ID: {customer_id}")
                                 except Exception as e:
-                                    print(f"\n✗ Error creating customer: {str(e)}")
+                                    get_ui().error(
+                                        f"\n✗ Error creating customer: {str(e)}"
+                                    )
                                     continue
                             else:
-                                print("\n✗ Error: Customer name cannot be empty.")
+                                get_ui().error(
+                                    "\n✗ Error: Customer name cannot be empty."
+                                )
                                 continue
                         else:
                             try:
                                 customer_id = int(customer_input)
                             except ValueError:
-                                print(
+                                get_ui().error(
                                     "\n✗ Error: Invalid ID entered. Please enter a numeric ID or N."
                                 )
                                 continue
@@ -8715,7 +8790,7 @@ def hashview_api():
                         # hashfile ID has to be entered directly (look it up in
                         # the web UI). See _list_hashfiles_for_customer.
                         hashfile_map = {}
-                        print("\nRetrieving customer hashfiles...")
+                        get_ui().say("\nRetrieving customer hashfiles...")
                         customer_hashfiles, listing_exhaustive = (
                             _list_hashfiles_for_customer(
                                 api_harness, customer_id, debug=debug_mode
@@ -8723,11 +8798,11 @@ def hashview_api():
                         )
 
                         if customer_hashfiles:
-                            print("\n" + "=" * 120)
-                            print(f"Hashfiles for Customer ID {customer_id}:")
-                            print("=" * 120)
-                            print(f"{'ID':<10} {'Hash Type':<10} {'Name':<96}")
-                            print("-" * 120)
+                            get_ui().say("\n" + "=" * 120)
+                            get_ui().say(f"Hashfiles for Customer ID {customer_id}:")
+                            get_ui().say("=" * 120)
+                            get_ui().say(f"{'ID':<10} {'Hash Type':<10} {'Name':<96}")
+                            get_ui().say("-" * 120)
                             for hf in customer_hashfiles:
                                 hf_id = hf.get("id")
                                 hf_name = hf.get("name", "N/A")
@@ -8740,15 +8815,15 @@ def hashview_api():
                                 if len(str(hf_name)) > 96:
                                     hf_name = str(hf_name)[:93] + "..."
                                 if debug_mode:
-                                    print(
+                                    get_ui().say(
                                         f"[DEBUG] Hashfile {hf_id}: hash_type={hf.get('hash_type')}, hashtype={hf.get('hashtype')}, combined={hf_type}"
                                     )
-                                print(f"{hf_id:<10} {hf_type:<10} {hf_name:<96}")
+                                get_ui().say(f"{hf_id:<10} {hf_type:<10} {hf_name:<96}")
                                 hashfile_map[int(hf_id)] = hf_type
-                            print("=" * 120)
-                            print(f"Total: {len(hashfile_map)} hashfile(s)")
+                            get_ui().say("=" * 120)
+                            get_ui().say(f"Total: {len(hashfile_map)} hashfile(s)")
                         else:
-                            print(
+                            get_ui().say(
                                 f"\nNo hashfiles listed for customer {customer_id}. "
                                 "Either the customer has none, or this Hashview "
                                 "server predates the hashfile-listing API. Look up "
@@ -8775,7 +8850,7 @@ def hashview_api():
                     # Get hash type for hashcat from the hashfile map
                     selected_hash_type = hashfile_map.get(hashfile_id)
                     if debug_mode:
-                        print(
+                        get_ui().say(
                             f"[DEBUG] selected_hash_type from map: {selected_hash_type}"
                         )
                     if not selected_hash_type or selected_hash_type == "N/A":
@@ -8783,12 +8858,14 @@ def hashview_api():
                             details = api_harness.get_hashfile_details(hashfile_id)
                             selected_hash_type = details.get("hashtype")
                             if debug_mode:
-                                print(
+                                get_ui().say(
                                     f"[DEBUG] selected_hash_type from get_hashfile_details: {selected_hash_type}"
                                 )
                         except Exception as e:
                             if debug_mode:
-                                print(f"[DEBUG] Error fetching hashfile details: {e}")
+                                get_ui().say(
+                                    f"[DEBUG] Error fetching hashfile details: {e}"
+                                )
                             selected_hash_type = None
 
                     # Download the left hashes
@@ -8798,14 +8875,17 @@ def hashview_api():
                         output_file,
                         potfile_path=hcatPotfilePath,
                     )
-                    print(f"\n✓ Success: Downloaded {download_result['size']} bytes")
-                    print(f"  File: {download_result['output_file']}")
+                    get_ui().success(
+                        f"\n✓ Success: Downloaded {download_result['size']} bytes"
+                    )
+                    get_ui().say(f"  File: {download_result['output_file']}")
                     if selected_hash_type:
-                        print(f"  Hash mode: {selected_hash_type}")
+                        get_ui().say(f"  Hash mode: {selected_hash_type}")
 
                     # Ask if user wants to switch to this hashfile
                     switch = (
-                        input("\nSwitch to this hashfile for cracking? (Y/n): ")
+                        get_ui()
+                        .ask("\nSwitch to this hashfile for cracking? (Y/n): ")
                         .strip()
                         .lower()
                     )
@@ -8819,23 +8899,25 @@ def hashview_api():
                             hcatHashType = str(selected_hash_type)
                         else:
                             hcatHashType = "1000"  # Default to NTLM if unavailable
-                        print(f"✓ Switched to hashfile: {hcatHashFile}")
-                        print("\nReturning to main menu to start cracking...")
+                        get_ui().success(f"✓ Switched to hashfile: {hcatHashFile}")
+                        get_ui().say("\nReturning to main menu to start cracking...")
                         return  # Exit hashview menu and return to main menu
 
                 except ValueError:
-                    print("\n✗ Error: Invalid ID entered. Please enter a numeric ID.")
+                    get_ui().error(
+                        "\n✗ Error: Invalid ID entered. Please enter a numeric ID."
+                    )
                 except Exception as e:
-                    print(f"\n✗ Error downloading hashes: {str(e)}")
+                    get_ui().error(f"\n✗ Error downloading hashes: {str(e)}")
 
             elif option_key == "back":
                 break
 
     except KeyboardInterrupt:
-        print("\nKeyboard interrupt: Returning to main menu...")
+        get_ui().say("\nKeyboard interrupt: Returning to main menu...")
         return
     except Exception as e:
-        print(f"\nError connecting to Hashview: {str(e)}")
+        get_ui().error(f"\nError connecting to Hashview: {str(e)}")
 
 
 def _auto_input(prompt, default=""):
@@ -8844,7 +8926,7 @@ def _auto_input(prompt, default=""):
     to ``input(prompt) or default``."""
     if non_interactive:
         return default
-    return input(prompt) or default
+    return get_ui().ask(prompt) or default
 
 
 def _attack_ctx():
@@ -9075,7 +9157,7 @@ def wordlist_optimize(input_wordlists: list[str], outdir: str) -> bool:
     os.makedirs(outdir, exist_ok=True)
     for wl in input_wordlists:
         if not os.path.isfile(wl):
-            print(f"[!] Skipping missing wordlist: {wl}")
+            get_ui().warn(f"[!] Skipping missing wordlist: {wl}")
             continue
         if _outdir_is_empty(outdir):
             if not wordlist_splitlen(wl, outdir):
@@ -9150,7 +9232,7 @@ def coverage_submenu():
     from hate_crack.menu import interactive_menu
 
     if not hcatHashFile:
-        print("\n[!] Load a hash file first.")
+        get_ui().warn("\n[!] Load a hash file first.")
         return
 
     while True:
@@ -9164,19 +9246,21 @@ def coverage_submenu():
         if choice in (None, "99"):
             return
         if choice == "1":
-            print()
-            print(_coverage_report(hcatHashFile))
+            get_ui().say()
+            get_ui().say(_coverage_report(hcatHashFile))
         elif choice == "2":
-            print()
-            print(_coverage_history_report(hcatHashFile))
+            get_ui().say()
+            get_ui().say(_coverage_history_report(hcatHashFile))
         elif choice == "3":
-            print()
-            print(_coverage_report(hcatHashFile))
-            answer = input("\n[?] Drop all of this and start over? [y/N]: ").strip()
+            get_ui().say()
+            get_ui().say(_coverage_report(hcatHashFile))
+            answer = (
+                get_ui().ask("\n[?] Drop all of this and start over? [y/N]: ").strip()
+            )
             if answer.lower() in ("y", "yes"):
-                print(_coverage_forget(hcatHashFile))
+                get_ui().say(_coverage_forget(hcatHashFile))
             else:
-                print("Left unchanged.")
+                get_ui().say("Left unchanged.")
 
 
 def notifications_submenu():
@@ -9241,9 +9325,9 @@ def show_results():
     if os.path.isfile(hcatHashFile + ".out"):
         with open(hcatHashFile + ".out") as hcatOutput:
             for cracked_hash in hcatOutput:
-                print(cracked_hash.strip())
+                get_ui().say(cracked_hash.strip())
     else:
-        print("No hashes were cracked :(")
+        get_ui().say("No hashes were cracked :(")
 
 
 # Analyze Hashes with Pipal
@@ -9274,7 +9358,7 @@ def pipal():
                 pipalFile.close()
 
             if os.path.getsize(hcatHashFilePipal + ".passwords") == 0:
-                print(
+                get_ui().warn(
                     "\n[!] No cracked passwords to analyse; Pipal would report "
                     "zero entries. Crack some hashes first."
                 )
@@ -9295,24 +9379,25 @@ def pipal():
             try:
                 pipalProcess.wait()
             except KeyboardInterrupt:
-                print("Killing PID {0}...".format(str(pipalProcess.pid)))
+                get_ui().say("Killing PID {0}...".format(str(pipalProcess.pid)))
                 pipalProcess.kill()
-            print("Pipal file is at " + hcatHashFilePipal + ".pipal\n")
+            get_ui().say("Pipal file is at " + hcatHashFilePipal + ".pipal\n")
             import sys
 
             if not sys.stdin.isatty():
                 view_choice = "y"
             else:
                 view_choice = (
-                    input("Would you like to view (cat) the pipal output? (Y/n): ")
+                    get_ui()
+                    .ask("Would you like to view (cat) the pipal output? (Y/n): ")
                     .strip()
                     .lower()
                 )
             if view_choice in ("", "y", "yes"):
-                print("\n--- Pipal Output Start ---\n")
+                get_ui().say("\n--- Pipal Output Start ---\n")
                 with open(hcatHashFilePipal + ".pipal") as pipalfile:
-                    print(pipalfile.read())
-                print("\n--- Pipal Output End ---\n")
+                    get_ui().say(pipalfile.read())
+                get_ui().say("\n--- Pipal Output End ---\n")
             with open(hcatHashFilePipal + ".pipal") as pipalfile:
                 pipal_content = pipalfile.read()
                 # Parse the "Top N base words" section line by line rather than
@@ -9340,10 +9425,10 @@ def pipal():
                                 break
                 return top_basewords
         else:
-            print("No hashes were cracked :(")
+            get_ui().say("No hashes were cracked :(")
             return []
     else:
-        print(
+        get_ui().say(
             "The path to pipal.rb is either not set, or is incorrect. "
             "Set PIPAL_PATH in the .env file."
         )
@@ -9403,7 +9488,9 @@ def export_excel():
                 current_ws["E" + str(current_row)] = clear_text
                 current_row += 1
             output.save(hcatHashFile + ".xlsx")
-            print("Output exported succesfully to {0}".format(hcatHashFile + ".xlsx"))
+            get_ui().say(
+                "Output exported succesfully to {0}".format(hcatHashFile + ".xlsx")
+            )
     else:
         sys.stderr.write(
             "Excel export is only supported for NTLM hashes in pwdump format "
@@ -9415,37 +9502,37 @@ def export_excel():
 # Show README
 def show_readme():
     with open(hate_path + "/readme.md") as hcatReadme:
-        print(hcatReadme.read())
+        get_ui().say(hcatReadme.read())
 
 
 # Analyze Hashcat Rules
 def analyze_rules():
     """Analyze hashcat rule file and display opcode statistics."""
     if display_rule_opcodes_summary is None:
-        print("\nError: HashcatRosetta formatting module not found.")
-        print(rosetta_unavailable_reason())
+        get_ui().error("\nError: HashcatRosetta formatting module not found.")
+        get_ui().say(rosetta_unavailable_reason())
         return
 
-    print("\n" + "=" * 60)
-    print("Rule Opcode Analyzer")
-    print("=" * 60)
+    get_ui().say("\n" + "=" * 60)
+    get_ui().say("Rule Opcode Analyzer")
+    get_ui().say("=" * 60)
 
     # Get rule file path from user with tab completion
     rule_file = select_file_with_autocomplete("Enter path to rule file")
 
     if not rule_file:
-        print("No rule file specified.")
+        get_ui().say("No rule file specified.")
         return
 
     if not os.path.isfile(rule_file):
-        print(f"Error: Rule file not found: {rule_file}")
+        get_ui().error(f"Error: Rule file not found: {rule_file}")
         return
 
     try:
         display_rule_opcodes_summary(rule_file)
-        print()
+        get_ui().say()
     except Exception as e:
-        print(f"Error analyzing rule file: {e}")
+        get_ui().error(f"Error analyzing rule file: {e}")
 
 
 # Exit Program
@@ -9464,11 +9551,11 @@ def toggle_notifications():
     """
     new_state = _notify.toggle_enabled()
     label = "ON" if new_state else "OFF"
-    print(f"\nPushover notifications are now {label}.")
+    get_ui().say(f"\nPushover notifications are now {label}.")
     if new_state:
         settings = _notify.get_settings()
         if not settings.pushover_token or not settings.pushover_user:
-            print(
+            get_ui().warn(
                 "[!] NOTIFY_PUSHOVER_TOKEN / NOTIFY_PUSHOVER_USER are empty in "
                 "the .env file — notifications will silently no-op until set."
             )
@@ -9487,14 +9574,14 @@ def toggle_per_crack_notifications():
     """
     settings = _notify.get_settings()
     if not settings.per_crack_enabled and not settings.enabled:
-        print(
+        get_ui().warn(
             "\n[!] Global Pushover notifications are OFF. Enable option 1 "
             "(Toggle Pushover Notifications) first."
         )
         return
     new_state = _notify.toggle_per_crack_enabled()
     label = "ON" if new_state else "OFF"
-    print(f"\nPer-crack notifications are now {label}.")
+    get_ui().say(f"\nPer-crack notifications are now {label}.")
 
 
 def test_pushover_notification():
@@ -9509,14 +9596,14 @@ def test_pushover_notification():
     token = settings.pushover_token
     user = settings.pushover_user
     if not token or not user:
-        print(
+        get_ui().warn(
             "\n[!] Pushover credentials missing. Set NOTIFY_PUSHOVER_TOKEN "
             "and NOTIFY_PUSHOVER_USER in the .env file."
         )
         return
 
     if not settings.enabled:
-        print("\n(notifications are globally OFF, but sending test anyway)")
+        get_ui().say("\n(notifications are globally OFF, but sending test anyway)")
 
     title = "hate_crack: test notification"
     message = (
@@ -9525,9 +9612,11 @@ def test_pushover_notification():
     )
     ok = _notify._send_pushover(token, user, title, message)
     if ok:
-        print("[+] Test Pushover notification sent. Check your device.")
+        get_ui().say("[+] Test Pushover notification sent. Check your device.")
     else:
-        print("[!] Test Pushover notification failed. See log output for details.")
+        get_ui().warn(
+            "[!] Test Pushover notification failed. See log output for details."
+        )
 
 
 def get_main_menu_items():
@@ -10021,7 +10110,7 @@ def main():
     )
     _ui.set_ui(_ui.build_ui(_ui_name))
     if _ui_name != "plain":
-        print(f"[*] UI backend: {_ui_name}")
+        get_ui().say(f"[*] UI backend: {_ui_name}")
 
     # Seven flags are per-run overrides of schema-backed keys; resolve_flag_overrides
     # layers the flag (when present) on top of what the loader already merged
@@ -10042,7 +10131,7 @@ def main():
     _brain_enabled = flags.brain_enabled
     if flags.optimized_kernel_disabled:
         disable_optimized_kernel()
-        print("[*] Optimized kernels (-O) disabled for this run")
+        get_ui().say("[*] Optimized kernels (-O) disabled for this run")
     hcatPotfilePath = flags.potfile_path
 
     setup_logging(logger, hate_path, debug_mode)
@@ -10099,8 +10188,8 @@ def main():
 
     if getattr(args, "command", None) == "hashview":
         if not hashview_api_key:
-            print("\nError: Hashview API key not configured.")
-            print("Please set HASHVIEW_API_KEY in the .env file")
+            get_ui().error("\nError: Hashview API key not configured.")
+            get_ui().say("Please set HASHVIEW_API_KEY in the .env file")
             sys.exit(1)
 
         api_harness = HashviewAPI(
@@ -10113,16 +10202,18 @@ def main():
         if args.hashview_command == "upload-cracked":
             cracked_file = resolve_path(args.file)
             if not cracked_file or not os.path.isfile(cracked_file):
-                print(f"✗ Error: File not found: {args.file}")
+                get_ui().error(f"✗ Error: File not found: {args.file}")
                 sys.exit(1)
             result = api_harness.upload_cracked_hashes(
                 cracked_file, hash_type=args.hash_type, potfile_path=hcatPotfilePath
             )
-            print(f"\n✓ Success: {result.get('msg', 'Cracked hashes uploaded')}")
+            get_ui().success(
+                f"\n✓ Success: {result.get('msg', 'Cracked hashes uploaded')}"
+            )
             if "count" in result:
-                print(f"  Imported: {result['count']} hashes")
+                get_ui().say(f"  Imported: {result['count']} hashes")
             if result.get("skipped_cached"):
-                print(
+                get_ui().say(
                     f"  Skipped: {result['skipped_cached']} already uploaded previously"
                 )
             sys.exit(0)
@@ -10130,12 +10221,12 @@ def main():
         if args.hashview_command == "upload-wordlist":
             wordlist_path = resolve_path(args.file)
             if not wordlist_path or not os.path.isfile(wordlist_path):
-                print(f"✗ Error: File not found: {args.file}")
+                get_ui().error(f"✗ Error: File not found: {args.file}")
                 sys.exit(1)
             result = api_harness.upload_wordlist_file(wordlist_path, args.name)
-            print(f"\n✓ Success: {result.get('msg', 'Wordlist uploaded')}")
+            get_ui().success(f"\n✓ Success: {result.get('msg', 'Wordlist uploaded')}")
             if "wordlist_id" in result:
-                print(f"  Wordlist ID: {result['wordlist_id']}")
+                get_ui().say(f"  Wordlist ID: {result['wordlist_id']}")
             sys.exit(0)
 
         if args.hashview_command == "download-hashes":
@@ -10144,8 +10235,8 @@ def main():
                 args.hashfile_id,
                 potfile_path=hcatPotfilePath,
             )
-            print(f"\n✓ Success: Downloaded {download_result['size']} bytes")
-            print(f"  File: {download_result['output_file']}")
+            get_ui().success(f"\n✓ Success: Downloaded {download_result['size']} bytes")
+            get_ui().say(f"  File: {download_result['output_file']}")
             sys.exit(0)
 
         if args.hashview_command == "download-rules":
@@ -10153,14 +10244,14 @@ def main():
                 args.rules_id,
                 args.output,
             )
-            print(f"\n✓ Success: Downloaded {download_result['size']} bytes")
-            print(f"  File: {download_result['output_file']}")
+            get_ui().success(f"\n✓ Success: Downloaded {download_result['size']} bytes")
+            get_ui().say(f"  File: {download_result['output_file']}")
             sys.exit(0)
 
         if args.hashview_command == "upload-hashfile-job":
             hashfile_path = resolve_path(args.file)
             if not hashfile_path or not os.path.isfile(hashfile_path):
-                print(f"✗ Error: File not found: {args.file}")
+                get_ui().error(f"✗ Error: File not found: {args.file}")
                 sys.exit(1)
             upload_result = api_harness.upload_hashfile(
                 hashfile_path,
@@ -10169,13 +10260,15 @@ def main():
                 args.file_format,
                 args.hashfile_name,
             )
-            print(f"\n✓ Success: {upload_result.get('msg', 'Hashfile uploaded')}")
+            get_ui().success(
+                f"\n✓ Success: {upload_result.get('msg', 'Hashfile uploaded')}"
+            )
             if upload_result.get("skipped_cached"):
-                print(
+                get_ui().say(
                     f"  Skipped: {upload_result['skipped_cached']} already uploaded previously"
                 )
             if not upload_result.get("hashfile_id"):
-                print("✗ Error: Hashfile upload did not return a hashfile_id.")
+                get_ui().error("✗ Error: Hashfile upload did not return a hashfile_id.")
                 sys.exit(1)
             job_result = api_harness.create_job(
                 args.job_name,
@@ -10185,18 +10278,20 @@ def main():
             )
             msg = job_result.get("msg", "")
             if "job_id" in job_result:
-                print(f"\n✓ Success: {msg or 'Job created'}")
-                print(f"  Job ID: {job_result['job_id']}")
+                get_ui().success(f"\n✓ Success: {msg or 'Job created'}")
+                get_ui().say(f"  Job ID: {job_result['job_id']}")
                 sys.exit(0)
             else:
-                print(f"\n✗ Error: {msg or 'Job creation failed (no job_id returned)'}")
-                print(
+                get_ui().error(
+                    f"\n✗ Error: {msg or 'Job creation failed (no job_id returned)'}"
+                )
+                get_ui().say(
                     "  Note: The Hashview server may have created the job despite this error."
                     " Check the Hashview UI before retrying."
                 )
                 sys.exit(1)
 
-        print("✗ Error: No hashview subcommand provided.")
+        get_ui().error("✗ Error: No hashview subcommand provided.")
         hashview_parser.print_help()
         sys.exit(2)
 
@@ -10217,9 +10312,9 @@ def main():
 
     if args.hashview:
         if not hashview_api_key:
-            print("Available Customers:")
-            print("\nError: Hashview API key not configured.")
-            print("Please set HASHVIEW_API_KEY in the .env file")
+            get_ui().say("Available Customers:")
+            get_ui().error("\nError: Hashview API key not configured.")
+            get_ui().say("Please set HASHVIEW_API_KEY in the .env file")
             sys.exit(1)
         hashview_api()
         sys.exit(0)
@@ -10244,10 +10339,10 @@ def main():
         hcatHashFile = _ensure_hashfile_in_cwd(hcatHashFile)
         hcatHashType = args.hashtype
         if not hcatHashFile or not os.path.isfile(hcatHashFile):
-            print(f"Error: hashfile not found: {args.hashfile}")
+            get_ui().error(f"Error: hashfile not found: {args.hashfile}")
             sys.exit(1)
         if not str(hcatHashType).isdigit():
-            print(f"Error: invalid hash type: {hcatHashType}")
+            get_ui().error(f"Error: invalid hash type: {hcatHashType}")
             sys.exit(1)
     else:
         ascii_art()
@@ -10270,9 +10365,9 @@ def main():
 
         menu_loop = not hcatHashFile
         while menu_loop:
-            print("\n" + "=" * 60)
-            print("No hash file provided. What would you like to do?")
-            print("=" * 60)
+            get_ui().say("\n" + "=" * 60)
+            get_ui().say("No hash file provided. What would you like to do?")
+            get_ui().say("=" * 60)
             choice = interactive_menu(
                 _no_hash_items,
                 title="No hash file provided. What would you like to do?",
@@ -10302,11 +10397,11 @@ def main():
                 # --download-hashview is handled above, and a cancel is
                 # handled as None, so the only way here is an answer that
                 # matches no menu key.
-                print("\n[!] Invalid selection.")
+                get_ui().warn("\n[!] Invalid selection.")
 
     # At this point, a hashfile must be loaded
     if not hcatHashFile:
-        print("\n✗ Error: No hashfile loaded. Exiting.")
+        get_ui().error("\n✗ Error: No hashfile loaded. Exiting.")
         sys.exit(1)
 
     # Store original hashfile path if not already set (e.g., when downloaded from Hashview)
@@ -10341,11 +10436,11 @@ def main():
                         break
             if re.search(r"[a-f0-9A-F]{32}:[a-f0-9A-F]{32}:::", hcatHashFileLine):
                 pwdump_format = True
-                print("PWDUMP format detected...")
+                get_ui().say("PWDUMP format detected...")
                 # Detect computer accounts (usernames ending with $)
                 computer_count = _count_computer_accounts(hcatHashFile)
                 if computer_count > 0:
-                    print(
+                    get_ui().say(
                         f"Detected {computer_count} computer account(s)"
                         " (usernames ending with $)."
                     )
@@ -10356,13 +10451,13 @@ def main():
                         filtered_path = f"{hcatHashFile}.filtered"
                         _preprocessing_temp_files.append(filtered_path)
                         removed = _filter_computer_accounts(hcatHashFile, filtered_path)
-                        print(f"Removed {removed} computer account(s).")
+                        get_ui().say(f"Removed {removed} computer account(s).")
                         hcatHashFile = filtered_path
                         # Keep this file - remove from cleanup list
                         _preprocessing_temp_files.remove(filtered_path)
-                print("Parsing NT hashes...")
+                get_ui().say("Parsing NT hashes...")
                 _write_field_sorted_unique(hcatHashFile, f"{hcatHashFile}.nt", 4)
-                print("Parsing LM hashes...")
+                get_ui().say("Parsing LM hashes...")
                 _write_field_sorted_unique(hcatHashFile, f"{hcatHashFile}.lm", 3)
                 if (
                     (lineCount(hcatHashFile + ".lm") == 1)
@@ -10383,12 +10478,12 @@ def main():
                 hcatHashFile = hcatHashFile + ".nt"
             elif re.search(r"^[a-f0-9A-F]{32}$", hcatHashFileLine):
                 pwdump_format = False
-                print("PWDUMP format was not detected...")
-                print("Hash only detected")
+                get_ui().say("PWDUMP format was not detected...")
+                get_ui().say("Hash only detected")
             elif re.search(r"^.+:[a-f0-9A-F]{32}$", hcatHashFileLine):
                 pwdump_format = False
-                print("PWDUMP format was not detected...")
-                print("username with Hash detected")
+                get_ui().say("PWDUMP format was not detected...")
+                get_ui().say("username with Hash detected")
                 _write_field_sorted_unique(hcatHashFile, f"{hcatHashFile}.nt", 2)
                 hcatHashFileOrig = hcatHashFile
                 hcatHashFile = hcatHashFile + ".nt"
@@ -10401,14 +10496,18 @@ def main():
                     r"^.+::.+:.+:[a-f0-9A-F]{16}:[a-f0-9A-F]{32}:[a-f0-9A-F]+$",
                     hcatHashFileLine,
                 ):
-                    print("NetNTLMv2-ESS format detected")
-                    print("Note: Hash type should be 5600 for NetNTLMv2-ESS hashes")
+                    get_ui().say("NetNTLMv2-ESS format detected")
+                    get_ui().say(
+                        "Note: Hash type should be 5600 for NetNTLMv2-ESS hashes"
+                    )
                 else:
-                    print("NetNTLMv2 format detected")
-                    print("Note: Hash type should be 5500 for NetNTLMv2 hashes")
+                    get_ui().say("NetNTLMv2 format detected")
+                    get_ui().say("Note: Hash type should be 5500 for NetNTLMv2 hashes")
             else:
-                print(f"Unrecognized hash format on first line: {hcatHashFileLine!r}")
-                print(
+                get_ui().say(
+                    f"Unrecognized hash format on first line: {hcatHashFileLine!r}"
+                )
+                get_ui().say(
                     "Expected one of: pwdump (user:RID:LM:NT:::),"
                     " bare hash (32 hex chars), user:hash, or NetNTLMv2"
                 )
@@ -10417,7 +10516,7 @@ def main():
         if hcatHashType in ("5500", "5600"):
             computer_count = _count_computer_accounts(hcatHashFile)
             if computer_count > 0:
-                print(
+                get_ui().say(
                     f"Detected {computer_count} computer account(s)"
                     " (usernames ending with $)."
                 )
@@ -10428,7 +10527,7 @@ def main():
                     filtered_path = f"{hcatHashFile}.filtered"
                     _preprocessing_temp_files.append(filtered_path)
                     removed = _filter_computer_accounts(hcatHashFile, filtered_path)
-                    print(f"Removed {removed} computer account(s).")
+                    get_ui().say(f"Removed {removed} computer account(s).")
                     hcatHashFile = filtered_path
                     _preprocessing_temp_files.remove(filtered_path)
 
@@ -10441,7 +10540,7 @@ def main():
                 # No dedup file was created, remove from cleanup list
                 _preprocessing_temp_files.remove(dedup_path)
             else:
-                print(
+                get_ui().say(
                     f"Detected {duplicates} duplicate account(s) out of"
                     f" {total} total NetNTLM hashes."
                 )
@@ -10455,7 +10554,7 @@ def main():
                     hcatHashFile = dedup_path
                     # Keep this file - remove from cleanup list
                     _preprocessing_temp_files.remove(dedup_path)
-                    print(
+                    get_ui().say(
                         f"Using deduplicated hash file with"
                         f" {total - duplicates} unique accounts."
                     )
@@ -10467,11 +10566,11 @@ def main():
                         pass
                     _preprocessing_temp_files.remove(dedup_path)
     except DoubleInterrupt:
-        print("\nPreprocessing interrupted. Cleaning up temp files...")
+        get_ui().say("\nPreprocessing interrupted. Cleaning up temp files...")
         _cleanup_preprocessing_temps()
         raise
     except KeyboardInterrupt:
-        print("\nPreprocessing interrupted. Cleaning up temp files...")
+        get_ui().say("\nPreprocessing interrupted. Cleaning up temp files...")
         _cleanup_preprocessing_temps()
         sys.exit(1)
 
@@ -10482,7 +10581,7 @@ def main():
     if hcatHashType not in ("1000", "5500", "5600"):
         hcatUsernamePrefix = detect_username_hash_format(hcatHashFile, hcatHashType)
         if hcatUsernamePrefix:
-            print("[*] Username prefixes detected \u2014 adding --username flag")
+            get_ui().say("[*] Username prefixes detected \u2014 adding --username flag")
 
     # Check POT File for Already Cracked Hashes. --restore-potfile forces the
     # rebuild even when .out already exists; the flag is the explicit request,
@@ -10492,16 +10591,16 @@ def main():
     elif not os.path.isfile(hcatHashFile + ".out"):
         hcatOutput = open(hcatHashFile + ".out", "w+")
         hcatOutput.close()
-        print("Checking POT file for already cracked hashes...")
+        get_ui().say("Checking POT file for already cracked hashes...")
         _run_hashcat_show(hcatHashType, hcatHashFile, f"{hcatHashFile}.out")
         hcatHashCracked = lineCount(hcatHashFile + ".out")
         if hcatHashCracked > 0:
-            print(
+            get_ui().say(
                 "Found %d hashes already cracked.\nCopied hashes to %s.out"
                 % (hcatHashCracked, hcatHashFile)
             )
         else:
-            print("No hashes found in POT file.")
+            get_ui().say("No hashes found in POT file.")
 
     if non_interactive:
         sys.exit(_noninteractive.run_noninteractive(_attack_ctx(), args))
@@ -10521,7 +10620,7 @@ def main():
             except KeyError:
                 pass
             except DoubleInterrupt:
-                print("\n[!] Returning to main menu...")
+                get_ui().warn("\n[!] Returning to main menu...")
     except KeyboardInterrupt:
         quit_hc()
 

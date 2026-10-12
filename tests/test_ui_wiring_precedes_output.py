@@ -28,12 +28,32 @@ def _callee_name(call: ast.Call) -> str | None:
     return None
 
 
-def test_set_ui_precedes_first_print_in_main():
-    """set_ui must be called strictly before the first print() in main().
+_UI_METHODS = {"say", "warn", "error", "success", "ask"}
 
-    get_ui() lazily builds a PlainUI, so a converted call site that runs
-    before installation silently ignores ui_backend and nothing else would
-    fail. The walk is scoped to main() itself and skips nested defs
+
+def _is_ui_output_call(call: ast.Call) -> bool:
+    """True for a bare print(...) or a get_ui().<method>(...) call."""
+    fn = call.func
+    if isinstance(fn, ast.Name):
+        return fn.id == "print"
+    if (
+        isinstance(fn, ast.Attribute)
+        and fn.attr in _UI_METHODS
+        and isinstance(fn.value, ast.Call)
+        and isinstance(fn.value.func, ast.Name)
+        and fn.value.func.id == "get_ui"
+    ):
+        return True
+    return False
+
+
+def test_set_ui_precedes_first_output_in_main():
+    """set_ui must be called strictly before the first output call in main().
+
+    Output means a bare print() or a get_ui().<say|warn|error|success|ask>()
+    call. get_ui() lazily builds a PlainUI, so a call that runs before
+    installation silently ignores ui_backend and nothing else would fail.
+    The walk is scoped to main() itself and skips nested defs
     (_build_parser, _cleanup_preprocessing_temps), whose bodies do not run
     at main()'s top level.
     """
@@ -43,8 +63,8 @@ def test_set_ui_precedes_first_print_in_main():
 
     calls = list(_calls_outside_nested_defs(func))
     set_ui_lines = [c.lineno for c in calls if _callee_name(c) == "set_ui"]
-    print_lines = [c.lineno for c in calls if _callee_name(c) == "print"]
+    output_lines = [c.lineno for c in calls if _is_ui_output_call(c)]
 
     assert set_ui_lines, "no set_ui call found in main()"
-    assert print_lines, "no print call found in main()"
-    assert min(set_ui_lines) < min(print_lines)
+    assert output_lines, "no output call found in main()"
+    assert min(set_ui_lines) < min(output_lines)

@@ -5,6 +5,7 @@ hcatHashFileOrig. Any flow that rebinds hcatHashFile after startup has to
 rebind the original alongside it, or artifacts are stranded on disk.
 """
 
+import builtins
 import os
 from unittest.mock import MagicMock, patch
 
@@ -105,9 +106,7 @@ class TestHashviewSwitchSetsOrig:
         }
 
         answers = iter(["7", "42", "y"])
-        monkeypatch.setattr(
-            main_module, "input", lambda *a, **k: next(answers), raising=False
-        )
+        monkeypatch.setattr(builtins, "input", lambda *a, **k: next(answers))
         monkeypatch.setattr(
             main_module,
             "interactive_menu",
