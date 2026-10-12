@@ -48,6 +48,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Iterable, Sequence
+from hate_crack.ui import get_ui
 
 # Import HashcatRosetta for mask canonicalization. Like hate_crack.llm, this
 # module needs its own path setup rather than relying on main.py's: main.py
@@ -574,7 +575,7 @@ class CoverageStore:
             # Otherwise this is minutes of dead silence before hashcat even
             # starts: the first fingerprint of a multi-gigabyte corpus is a
             # full sequential read, and it happens inside plan_run.
-            print(
+            get_ui().say(
                 f"[*] Coverage: fingerprinting {os.path.basename(real)} "
                 f"({stat.st_size / 1e9:.1f} GB) for the first time; "
                 "subsequent runs reuse it."

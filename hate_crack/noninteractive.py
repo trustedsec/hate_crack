@@ -15,6 +15,7 @@ interactive prompt still live, waiting on a stdin nobody is attached to.
 
 import os
 from typing import Any, Callable, NamedTuple
+from hate_crack.ui import get_ui
 
 
 class AttackSpec(NamedTuple):
@@ -92,7 +93,7 @@ def run_noninteractive(ctx: Any, args: Any) -> int:
     counters = getattr(ctx, "run_counters", None)
     launches, skips = counters() if callable(counters) else (0, 0)
     if getattr(args, "exit_code_on_skip", False) and skips and not launches:
-        print(
+        get_ui().say(
             f"[coverage] every pass of `{args.command}` was already covered; "
             "nothing was launched"
         )
@@ -103,7 +104,7 @@ def run_noninteractive(ctx: Any, args: Any) -> int:
 def _dispatch(ctx: Any, args: Any) -> int:
     spec = _SPECS_BY_NAME.get(getattr(args, "command", None))
     if spec is None:
-        print(f"Error: unknown non-interactive command: {args.command}")
+        get_ui().error(f"Error: unknown non-interactive command: {args.command}")
         return 2
     return spec.run(ctx, args)
 
@@ -130,7 +131,7 @@ def _validated(fn: Callable[[Any, Any], int]) -> Callable[[Any, Any], int]:
         try:
             return fn(ctx, args)
         except _BadInput as exc:
-            print(f"Error: {exc}")
+            get_ui().error(f"Error: {exc}")
             return 1
 
     _wrapper.__name__ = fn.__name__
@@ -239,7 +240,7 @@ def _run_bare(func_name: str) -> Callable[[Any, Any], int]:
 
 def _run_smartmask(ctx: Any, args: Any) -> int:
     if args.keyspace_limit is not None and args.keyspace_limit < 0:
-        print("Error: --keyspace-limit must be zero (no limit) or greater")
+        get_ui().error("Error: --keyspace-limit must be zero (no limit) or greater")
         return 1
     ctx.hcatSmartMask(*_target(ctx), keyspace_limit=args.keyspace_limit)
     return 0
