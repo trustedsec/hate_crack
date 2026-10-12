@@ -230,6 +230,50 @@ class TestRunHashcat:
         expected_dir = subdir.resolve()
         assert output_dir == expected_dir
 
+    def test_text_false_preserves_cr_in_stdout(self, tmp_path):
+        """With text=False, a CR in the output is preserved as bytes b'\\r'."""
+        fake_hashcat = tmp_path / "hashcat"
+        # printf emits a literal CR without newline translation
+        fake_hashcat.write_text("#!/bin/sh\nprintf 'a\\rb'\n")
+        fake_hashcat.chmod(0o755)
+
+        result = oracle.run_hashcat([str(fake_hashcat)], text=False)
+
+        assert result.returncode == 0
+        assert result.stdout == b"a\rb", (
+            f"CR should be preserved as bytes, got {result.stdout!r}. "
+            f"With text=True, universal newline translation would convert CR to LF."
+        )
+
+    def test_text_false_backend_failure_still_skips(self, tmp_path):
+        """With text=False, backend failure stderr + exit 255 still raises pytest.skip."""
+        fake_hashcat = tmp_path / "hashcat"
+        fake_hashcat.write_text(
+            "#!/bin/sh\necho 'clCreateProgramWithBinary error' >&2\nexit 255\n"
+        )
+        fake_hashcat.chmod(0o755)
+
+        with pytest.raises(pytest.skip.Exception) as exc_info:
+            oracle.run_hashcat([str(fake_hashcat)], text=False)
+
+        assert "backend could not build kernels" in str(exc_info.value)
+
+    def test_text_false_unrelated_stderr_fails_with_message(self, tmp_path):
+        """With text=False, exit 255 + unrelated stderr fails with decoded stderr."""
+        fake_hashcat = tmp_path / "hashcat"
+        fake_hashcat.write_text(
+            "#!/bin/sh\necho 'something went wrong' >&2\nexit 255\n"
+        )
+        fake_hashcat.chmod(0o755)
+
+        with pytest.raises(pytest.fail.Exception) as exc_info:
+            oracle.run_hashcat([str(fake_hashcat)], text=False)
+
+        msg = str(exc_info.value)
+        assert "255" in msg
+        # The stderr should be decoded and present in the message
+        assert "something went wrong" in msg
+
 
 class TestHashcatBinConstant:
     """Test HASHCAT_BIN constant."""
