@@ -96,3 +96,22 @@ def test_delegates_resolve_at_call_time(monkeypatch):
     ui, _, _ = _ui()
     assert ui.ask_int("n") == 9
     assert ui.select([("3", "x")]) == "3"
+
+
+def test_say_does_not_interpret_markup():
+    ui, out, _ = _ui(width=80)
+    ui.say("rock[you].txt")
+    ui.say("[/] done")
+    ui.warn("a[b]c")
+    ui.success("[bold]x")
+    ui.error("[/] e")
+    assert "rock[you].txt" in out.getvalue()
+    assert "[/] done" in out.getvalue()
+    assert "a[b]c" in out.getvalue() and "[bold]x" in out.getvalue()
+
+
+def test_ask_prompt_verbatim_and_whitespace_preserved(monkeypatch):
+    ui, out, _ = _ui(width=80)
+    monkeypatch.setattr("builtins.input", lambda _p="": " ")
+    assert ui.ask("Pick [default 5]: ", default="5") == " "
+    assert out.getvalue() == "Pick [default 5]: "

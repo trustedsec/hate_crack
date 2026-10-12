@@ -1,4 +1,5 @@
 import inspect
+import re
 
 import pytest
 
@@ -147,3 +148,65 @@ def test_spinner_resolves_module_attribute_at_call_time(monkeypatch):
     monkeypatch.setattr(hate_crack.progress, "spinner", fake)
     assert PlainUI().spinner("busy") is sentinel
     assert calls == ["busy"]
+
+
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def test_confirm_all_backends(backend, monkeypatch):
+    answers = iter(["maybe", " YES "])
+    monkeypatch.setattr("builtins.input", lambda _p="": next(answers))
+    assert backend.confirm("ok? ") is True
+    monkeypatch.setattr("builtins.input", lambda _p="": "")
+    assert backend.confirm("ok? ", default=False) is False
+    monkeypatch.setattr("builtins.input", lambda _p="": "No")
+    assert backend.confirm("ok? ") is False
+
+    def eof(_p=""):
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", eof)
+    assert backend.confirm("ok? ", default=False) is False
+    assert backend.confirm("ok? ", default=True) is True
+
+
+def test_ask_all_backends(backend, monkeypatch):
+    monkeypatch.setattr("builtins.input", lambda _p="": "")
+    assert backend.ask("? ", default="d") == "d"
+    monkeypatch.setattr("builtins.input", lambda _p="": " ")
+    assert backend.ask("? ", default="d") == " "
+    monkeypatch.setattr("builtins.input", lambda _p="": "x")
+    assert backend.ask("? ") == "x"
+
+    def eof(_p=""):
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", eof)
+    with pytest.raises(EOFError):
+        backend.ask("? ")
+
+
+def test_say_family_text_all_backends(backend, capsys):
+    backend.say()
+    backend.say("hi", style="bold")
+    backend.warn("w")
+    backend.error("rock[you].txt")
+    backend.success("[/] done")
+    cap = capsys.readouterr()
+    # stdout and stderr interleave differently per backend; compare as a set.
+    visible = _ANSI.sub("", cap.out + cap.err)
+    assert sorted(visible.splitlines()) == sorted(
+        ["", "hi", "w", "rock[you].txt", "[/] done"]
+    )
+
+
+def test_columns_column_major_all_backends(backend, monkeypatch, capsys):
+    monkeypatch.setenv("COLUMNS", "20")
+    monkeypatch.setattr(
+        "os.get_terminal_size", lambda *a: (_ for _ in ()).throw(OSError)
+    )
+    entries = [f"({i})" for i in range(1, 8)]
+    backend.columns(None, entries, min_col_width=5, max_col_width=5)
+    out = _ANSI.sub("", capsys.readouterr().out)
+    rows = [ln.split() for ln in out.splitlines() if ln.strip()]
+    assert rows == [["(1)", "(3)", "(5)", "(7)"], ["(2)", "(4)", "(6)"]]

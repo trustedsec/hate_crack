@@ -16,7 +16,6 @@ from typing import Any
 
 from rich.console import Console
 from rich.live import Live
-from rich.prompt import Confirm, Prompt
 from rich.table import Table
 from rich.text import Text
 
@@ -56,21 +55,23 @@ class RichUI:
         )
 
     def say(self, text: str = "", *, style: str | None = None) -> None:
-        self.console.print(text, style=style, highlight=False)
+        self.console.print(text, style=style, highlight=False, markup=False)
 
     def warn(self, text: str) -> None:
-        self.console.print(text, style="yellow", highlight=False)
+        self.console.print(text, style="yellow", highlight=False, markup=False)
 
     def error(self, text: str) -> None:
-        self.err_console.print(text, style="bold red", highlight=False)
+        self.err_console.print(text, style="bold red", highlight=False, markup=False)
 
     def success(self, text: str) -> None:
-        self.console.print(text, style="green", highlight=False)
+        self.console.print(text, style="green", highlight=False, markup=False)
 
     def ask(self, prompt: str = "", *, default: str = "") -> str:
-        return Prompt.ask(
-            prompt, default=default, show_default=False, console=self.console
-        )
+        # Not rich.prompt: it strips whitespace, appends its own ": " suffix and
+        # interprets markup. Behaviour must match PlainUI exactly, so render the
+        # prompt through the console and read with input().
+        self.console.print(prompt, end="", markup=False, highlight=False)
+        return input() or default
 
     def ask_int(
         self,
@@ -82,7 +83,18 @@ class RichUI:
         return cli.prompt_int(prompt, default=default, minimum=minimum)
 
     def confirm(self, prompt: str, *, default: bool = True) -> bool:
-        return Confirm.ask(prompt, default=default, console=self.console)
+        while True:
+            self.console.print(prompt, end="", markup=False, highlight=False)
+            try:
+                answer = input().strip().lower()
+            except EOFError:
+                return default
+            if not answer:
+                return default
+            if answer in ("y", "yes"):
+                return True
+            if answer in ("n", "no"):
+                return False
 
     def select(
         self,
