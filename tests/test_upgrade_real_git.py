@@ -35,9 +35,24 @@ def _init(path):
     _git("init", "-q", "-b", "main", cwd=path)
     _git("config", "user.email", "t@example.com", cwd=path)
     _git("config", "user.name", "Test", cwd=path)
-    # Leave pull.rebase unset, matching a default user install: that is what
-    # turns a divergent pull into "Need to specify how to reconcile".
+    # Global and system git config are masked by the fixture, ensuring this
+    # repo sees only local config. A developer's pull.rebase=true silently
+    # changes the scenario under test (a plain pull that diverges).
     return path
+
+
+@pytest.fixture(autouse=True)
+def _isolate_git_config(monkeypatch):
+    """Mask global and system git config to isolate tests from developer settings.
+
+    A developer's ~/.gitconfig or /etc/gitconfig (especially pull.rebase=true)
+    would silently change the expected behavior of `git pull` in the
+    test repositories. This fixture masks both using environment variables
+    so tests see only the local config set by _init().
+    """
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
 
 
 @pytest.fixture
