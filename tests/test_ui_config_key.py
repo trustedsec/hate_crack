@@ -14,7 +14,7 @@ def test_ui_backend_choices_match_ui_backends():
     assert _row("ui_backend").choices == tuple(ui.BACKENDS)
 
 
-def test_ui_backend_default_is_plain_and_json_homed():
+def test_ui_backend_default_is_rich_and_json_homed():
     row = _row("ui_backend")
-    assert row.default == "plain"
+    assert row.default == "rich"
     assert row.home == "json"
