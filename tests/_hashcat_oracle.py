@@ -11,12 +11,9 @@ import subprocess
 import pytest
 
 
-#: Hashcat binary path used throughout the test suite.
-#: Tests pin this specific binary rather than searching PATH, because hashcat
-#: is the binary hate_crack itself uses (`hcatBin`). If this path is wrong or
-#: unusable, tests that depend on it silently skip rather than fail, so the
-#: entire test suite becomes a no-op if the path is broken. Explicit is better
-#: than implicit: use the binary the production code uses.
+#: Hashcat binary path. Tests pin this binary (hate_crack's hcatBin) rather than
+#: searching PATH, because a different hashcat on PATH can answer differently.
+#: Tests that require hashcat skip if nothing executable is found at this path.
 HASHCAT_BIN = "/opt/hashcat/hashcat"
 
 
@@ -87,8 +84,8 @@ def run_hashcat(
             timeout=timeout,
             **kwargs,
         )
-    except FileNotFoundError:
-        pytest.skip(f"no executable hashcat at {cmd[0]}")
+    except FileNotFoundError as e:
+        pytest.skip(f"no executable hashcat at {cmd[0]} ({e})")
 
     stderr = result.stderr or ""
 

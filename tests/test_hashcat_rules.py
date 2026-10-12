@@ -9,8 +9,7 @@ from pathlib import Path
 import pytest
 
 from hate_crack import hashcat_paths
-from tests._hashcat_oracle import HASHCAT_BIN as _SHARED_HASHCAT_BIN
-from tests._hashcat_oracle import is_backend_failure
+from tests._hashcat_oracle import HASHCAT_BIN, is_backend_failure
 
 
 _TEST_HASH = "994a24ad0d9ac6f1fd7d4d75adffeda2"
@@ -22,10 +21,6 @@ _TEST_HASH = "994a24ad0d9ac6f1fd7d4d75adffeda2"
 _LOOPBACK_SESSION_NOISE_RE = re.compile(
     r"^.*[/\\]hashcat\.induct[/\\]hashcat\.loopback\.\d+_\d+: No such file or directory$"
 )
-
-
-# Use HASHCAT_BIN from the shared oracle helper
-HASHCAT_BIN = _SHARED_HASHCAT_BIN
 
 
 def _format_hashcat_cmd(cmd: list[str]) -> str:

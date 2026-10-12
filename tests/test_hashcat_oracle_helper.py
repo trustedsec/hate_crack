@@ -5,6 +5,8 @@ Tests use fake executables (small shell scripts in tmp_path) to avoid depending
 on a real hashcat installation.
 """
 
+import subprocess
+
 import pytest
 
 from tests import _hashcat_oracle as oracle
@@ -45,6 +47,24 @@ class TestIsBackendFailure:
         """The 'Kernel' check is case-sensitive (capital K)."""
         stderr = "kernel build failed\n"  # lowercase 'kernel'
         assert oracle.is_backend_failure(stderr) is False
+
+    def test_exact_clCreateProgramWithBinary_line(self):
+        """True for the exact clCreateProgramWithBinary error line from hashcat."""
+        stderr = "clCreateProgramWithBinary(): CL_INVALID_VALUE\n"
+        assert oracle.is_backend_failure(stderr) is True
+
+    def test_exact_Kernel_build_failed_line(self):
+        """True for the exact Kernel build failed line from hashcat."""
+        stderr = "* Device #2: Kernel /opt/hashcat/OpenCL/shared.cl build failed.\n"
+        assert oracle.is_backend_failure(stderr) is True
+
+    def test_both_exact_backend_failure_lines(self):
+        """True when both exact backend failure lines appear together."""
+        stderr = (
+            "clCreateProgramWithBinary(): CL_INVALID_VALUE\n"
+            "* Device #2: Kernel /opt/hashcat/OpenCL/shared.cl build failed.\n"
+        )
+        assert oracle.is_backend_failure(stderr) is True
 
 
 class TestRunHashcat:
@@ -121,7 +141,7 @@ class TestRunHashcat:
             oracle.run_hashcat([str(fake_hashcat)])
 
         msg = str(exc_info.value)
-        assert "2" in msg
+        assert "code 2" in msg
         assert "error output" in msg
 
     def test_nonexistent_path_skips(self):
@@ -163,27 +183,52 @@ class TestRunHashcat:
 
         assert "backend could not build kernels" in str(exc_info.value)
 
-    def test_timeout_parameter_respected(self, tmp_path):
-        """timeout parameter is passed to subprocess.run."""
+    def test_exact_backend_failure_lines_exit_255_skips(self, tmp_path):
+        """Exact backend failure lines with exit 255 causes skip."""
         fake_hashcat = tmp_path / "hashcat"
-        fake_hashcat.write_text("#!/bin/sh\necho 'quick'\nexit 0\n")
+        fake_hashcat.write_text(
+            "#!/bin/sh\necho 'clCreateProgramWithBinary(): CL_INVALID_VALUE' >&2\n"
+            "echo '* Device #2: Kernel /opt/hashcat/OpenCL/shared.cl build failed.' >&2\nexit 255\n"
+        )
         fake_hashcat.chmod(0o755)
 
-        # This should not timeout (command is instant)
-        result = oracle.run_hashcat([str(fake_hashcat)], timeout=10)
+        with pytest.raises(pytest.skip.Exception) as exc_info:
+            oracle.run_hashcat([str(fake_hashcat)])
 
-        assert result.returncode == 0
+        assert "backend could not build kernels" in str(exc_info.value)
+
+    def test_timeout_parameter_respected(self, tmp_path):
+        """timeout parameter causes subprocess.TimeoutExpired when elapsed."""
+        fake_hashcat = tmp_path / "hashcat"
+        # Script that sleeps longer than the timeout
+        fake_hashcat.write_text("#!/bin/sh\nsleep 5\n")
+        fake_hashcat.chmod(0o755)
+
+        # Should timeout after 1 second and raise TimeoutExpired
+        with pytest.raises(subprocess.TimeoutExpired):
+            oracle.run_hashcat([str(fake_hashcat)], timeout=1)
 
     def test_kwargs_passed_to_subprocess_run(self, tmp_path):
-        """Additional kwargs are passed to subprocess.run."""
-        fake_hashcat = tmp_path / "hashcat"
-        fake_hashcat.write_text("#!/bin/sh\necho 'test'\nexit 0\n")
+        """Additional kwargs (like cwd) are passed to subprocess.run."""
+        from pathlib import Path
+
+        # Create a subdirectory
+        subdir = tmp_path / "subdir"
+        subdir.mkdir()
+
+        # Fake hashcat that prints its working directory
+        fake_hashcat = subdir / "hashcat"
+        fake_hashcat.write_text("#!/bin/sh\npwd\n")
         fake_hashcat.chmod(0o755)
 
-        # Pass cwd as a kwarg
-        result = oracle.run_hashcat([str(fake_hashcat)], cwd=str(tmp_path))
+        # Run with cwd set to subdir
+        result = oracle.run_hashcat([str(fake_hashcat)], cwd=str(subdir))
 
         assert result.returncode == 0
+        # Compare resolved paths (handles macOS /private/tmp symlinks)
+        output_dir = Path(result.stdout.strip()).resolve()
+        expected_dir = subdir.resolve()
+        assert output_dir == expected_dir
 
 
 class TestHashcatBinConstant:
@@ -206,10 +251,15 @@ class TestRequiresHashcatMarker:
         assert hasattr(oracle.requires_hashcat, "mark")
 
     def test_requires_hashcat_callable(self):
-        """requires_hashcat can be called as a decorator."""
+        """requires_hashcat has correct marker properties."""
+        marker = oracle.requires_hashcat
+        # Check it's a skipif marker
+        assert marker.mark.name == "skipif"
+        # Check reason mentions HASHCAT_BIN
+        assert oracle.HASHCAT_BIN in marker.mark.kwargs["reason"]
 
-        # This is just checking it's a pytest marker object that can decorate
-        @oracle.requires_hashcat
+        # Check it can be used as a decorator
+        @marker
         def dummy_test():
             pass
 
