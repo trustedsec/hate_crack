@@ -14,6 +14,7 @@ import requests  # type: ignore[import-untyped]
 import urllib3
 
 from hate_crack.cli import orig_cwd
+from hate_crack.ui import get_ui
 from hate_crack.config_loader import (
     ConfigFileJSONError,
     ConfigFileUnreadableError,
@@ -174,19 +175,19 @@ def _stream_response_to_file(
         if show_progress:
             sys.stdout.write("\n")
         os.replace(temp_path, dest_path)
-        print(f"Downloaded {dest_path}")
+        get_ui().say(f"Downloaded {dest_path}")
         return True
     except KeyboardInterrupt:
-        print("\nKeyboard interrupt: Cleaning up partial download...")
+        get_ui().say("\nKeyboard interrupt: Cleaning up partial download...")
         if os.path.exists(temp_path):
             try:
                 os.remove(temp_path)
-                print(f"Removed partial file: {temp_path}")
+                get_ui().say(f"Removed partial file: {temp_path}")
             except Exception as e:
-                print(f"Failed to remove partial file: {e}")
+                get_ui().say(f"Failed to remove partial file: {e}")
         raise
     except Exception as e:
-        print(f"Error during download: {e}")
+        get_ui().error(f"Error during download: {e}")
         if os.path.exists(temp_path):
             try:
                 os.remove(temp_path)
@@ -214,7 +215,7 @@ def _streamed_download(
     """
     if skip_existing and os.path.isfile(dest_path) and os.path.getsize(dest_path) > 0:
         name = label or os.path.basename(dest_path)
-        print(f"[i] Skipping {name} (already present)")
+        get_ui().say(f"[i] Skipping {name} (already present)")
         return True
     try:
         with requests.get(
@@ -235,7 +236,7 @@ def _streamed_download(
     except KeyboardInterrupt:
         raise
     except Exception as e:
-        print(f"Error downloading {label or url}: {e}")
+        get_ui().error(f"Error downloading {label or url}: {e}")
         return False
 
 
@@ -271,11 +272,13 @@ def _with_hashmob_backoff(
             delay = penalty
             if e.retry_after is not None:
                 delay = max(0.0, min(e.retry_after, max_delay))
-            print(f"[!] Rate limit hit (429). Backing off for {delay} seconds...")
+            get_ui().warn(
+                f"[!] Rate limit hit (429). Backing off for {delay} seconds..."
+            )
             time.sleep(delay)
             penalty = min(penalty + step, max_delay)
             step *= 2
-    print(f"[!] Hashmob rate limit: gave up after {max_attempts} attempts.")
+    get_ui().warn(f"[!] Hashmob rate limit: gave up after {max_attempts} attempts.")
     return False
 
 
@@ -310,10 +313,10 @@ def check_7z():
 
     if shutil.which("7z") or shutil.which("7za"):
         return True
-    print("\n[!] 7z (or 7za) is missing.")
-    print("To install on macOS:  brew install p7zip")
-    print("To install on Ubuntu/Debian:  sudo apt-get install p7zip-full")
-    print("Please install 7z and try again.")
+    get_ui().warn("\n[!] 7z (or 7za) is missing.")
+    get_ui().say("To install on macOS:  brew install p7zip")
+    get_ui().say("To install on Ubuntu/Debian:  sudo apt-get install p7zip-full")
+    get_ui().say("Please install 7z and try again.")
     return False
 
 
@@ -324,10 +327,14 @@ def check_transmission_daemon():
     remote = shutil.which("transmission-remote")
     if daemon and remote:
         return True
-    print("\n[!] transmission-daemon and/or transmission-remote is missing.")
-    print("To install on macOS:  brew install transmission-cli")
-    print("To install on Ubuntu/Debian:  sudo apt-get install transmission-daemon")
-    print("Please install transmission-daemon and transmission-remote and try again.")
+    get_ui().warn("\n[!] transmission-daemon and/or transmission-remote is missing.")
+    get_ui().say("To install on macOS:  brew install transmission-cli")
+    get_ui().say(
+        "To install on Ubuntu/Debian:  sudo apt-get install transmission-daemon"
+    )
+    get_ui().say(
+        "Please install transmission-daemon and transmission-remote and try again."
+    )
     return False
 
 
@@ -753,9 +760,9 @@ def cleanup_torrent_files(directory=None):
                 try:
                     os.remove(path)
                 except Exception as e:
-                    print(f"[!] Failed to remove torrent file {path}: {e}")
+                    get_ui().warn(f"[!] Failed to remove torrent file {path}: {e}")
     except Exception as e:
-        print(f"[!] Failed to cleanup torrent files in {directory}: {e}")
+        get_ui().warn(f"[!] Failed to cleanup torrent files in {directory}: {e}")
 
 
 def register_torrent_cleanup():
@@ -906,7 +913,7 @@ def _fetch_all_weakpass_wordlists(
     try:
         entries1, last_page = _fetch_weakpass_page(1)
     except Exception as e:
-        print(f"[!] Weakpass listing failed: {e}")
+        get_ui().warn(f"[!] Weakpass listing failed: {e}")
         return [], []
 
     # Determine the final page to fetch
@@ -927,7 +934,7 @@ def _fetch_all_weakpass_wordlists(
                 entries, _ = _fetch_weakpass_page(page)
                 return (page, entries, None)
             except Exception as e:
-                print(f"[!] Weakpass page {page} failed: {e}")
+                get_ui().warn(f"[!] Weakpass page {page} failed: {e}")
                 return (page, [], e)
 
         with concurrent.futures.ThreadPoolExecutor(
@@ -966,11 +973,13 @@ def _fetch_all_weakpass_wordlists(
     failed_pages_sorted = sorted(failed_pages)
     if failed_pages_sorted:
         failed_str = ", ".join(str(p) for p in failed_pages_sorted)
-        print(
+        get_ui().say(
             f"[i] Weakpass: {len(unique_entries)} wordlists across {last} pages ({len(failed_pages_sorted)} page(s) failed: {failed_str})"
         )
     else:
-        print(f"[i] Weakpass: {len(unique_entries)} wordlists across {last} pages")
+        get_ui().say(
+            f"[i] Weakpass: {len(unique_entries)} wordlists across {last} pages"
+        )
 
     return unique_entries, failed_pages_sorted
 
@@ -1019,10 +1028,10 @@ def _resolve_weakpass_torrent_url(filename: str) -> str | None:
                 # Try next candidate
                 continue
             else:
-                print(f"[!] Weakpass lookup for {candidate} failed: {e}")
+                get_ui().warn(f"[!] Weakpass lookup for {candidate} failed: {e}")
                 return None
         except Exception as e:
-            print(f"[!] Weakpass lookup for {candidate} failed: {e}")
+            get_ui().warn(f"[!] Weakpass lookup for {candidate} failed: {e}")
             return None
 
     # All candidates failed; try a search on the last candidate
@@ -1044,7 +1053,7 @@ def _resolve_weakpass_torrent_url(filename: str) -> str | None:
             if torrent_url:
                 return torrent_url
             else:
-                print(f"[!] '{filename}' is on Weakpass but has no torrent.")
+                get_ui().warn(f"[!] '{filename}' is on Weakpass but has no torrent.")
                 return None
 
         # If exactly one entry, use it
@@ -1053,17 +1062,17 @@ def _resolve_weakpass_torrent_url(filename: str) -> str | None:
             if torrent_url:
                 return torrent_url
             else:
-                print(f"[!] '{filename}' is on Weakpass but has no torrent.")
+                get_ui().warn(f"[!] '{filename}' is on Weakpass but has no torrent.")
                 return None
 
         # Multiple entries and no exact match
         if len(entries) > 1:
-            print(
+            get_ui().warn(
                 f"[!] '{filename}' matches {len(entries)} Weakpass wordlists; use the exact name"
             )
         return None
     except Exception as e:
-        print(f"[!] Weakpass lookup for {last_candidate} failed: {e}")
+        get_ui().warn(f"[!] Weakpass lookup for {last_candidate} failed: {e}")
         return None
 
 
@@ -1103,10 +1112,10 @@ def fetch_torrent_metadata(torrent_url, save_dir=None, wordlist_id=None):
 
     if not torrent_link:
         # F2: Better error message - _resolve_weakpass_torrent_url already printed specific reasons
-        print(f"[!] Could not resolve a Weakpass torrent for '{filename}'.")
+        get_ui().warn(f"[!] Could not resolve a Weakpass torrent for '{filename}'.")
         return None
 
-    print(f"[+] Downloading .torrent file from: {torrent_link}")
+    get_ui().say(f"[+] Downloading .torrent file from: {torrent_link}")
     r2 = requests.get(
         torrent_link, headers=headers, stream=True, timeout=WEAKPASS_TIMEOUT
     )
@@ -1120,16 +1129,16 @@ def fetch_torrent_metadata(torrent_url, save_dir=None, wordlist_id=None):
             for chunk in r2.iter_content(chunk_size=8192):
                 if chunk:
                     f.write(chunk)
-        print(f"Saved to {local_filename}")
+        get_ui().say(f"Saved to {local_filename}")
     else:
-        print(f"Failed to download a valid torrent file: {torrent_link}")
+        get_ui().say(f"Failed to download a valid torrent file: {torrent_link}")
         try:
             response_body = r2.content.decode(errors="replace")
-            print("--- Begin HTML Debug Output ---")
-            print(response_body[:2000])
-            print("--- End HTML Debug Output ---")
+            get_ui().say("--- Begin HTML Debug Output ---")
+            get_ui().say(response_body[:2000])
+            get_ui().say("--- End HTML Debug Output ---")
         except Exception as e:
-            print(f"Could not decode response for debug: {e}")
+            get_ui().say(f"Could not decode response for debug: {e}")
         return None
 
     return local_filename
@@ -1151,7 +1160,7 @@ def weakpass_wordlist_menu(rank=-1):
     try:
         all_wordlists = fetch_all_weakpass_wordlists_multithreaded()
     except Exception as e:
-        print(f"Failed to fetch wordlists: {e}")
+        get_ui().say(f"Failed to fetch wordlists: {e}")
         return
     if rank == 0:
         filtered_wordlists = all_wordlists
@@ -1160,7 +1169,9 @@ def weakpass_wordlist_menu(rank=-1):
     else:
         # Default: show all with rank > 4
         filtered_wordlists = [wl for wl in all_wordlists if wl.get("rank", 0) > 4]
-    print("\nEach entry shows: [number]. [wordlist name] [tier S-F] [crack rate]")
+    get_ui().say(
+        "\nEach entry shows: [number]. [wordlist name] [tier S-F] [crack rate]"
+    )
     entries = []
     for idx, wl in enumerate(filtered_wordlists):
         tier = wl.get("tier") or "-"
@@ -1204,7 +1215,7 @@ def weakpass_wordlist_menu(rank=-1):
         except Exception:
             return "q"
         try:
-            return input(prompt)
+            return get_ui().ask(prompt)
         except EOFError:
             return "q"
 
@@ -1213,11 +1224,11 @@ def weakpass_wordlist_menu(rank=-1):
             "\nEnter the number(s) to download (e.g. 1,3,5-7) or 'q' to cancel: "
         )
         if sel.lower() == "q":
-            print("Returning to menu...")
+            get_ui().say("Returning to menu...")
             return
         indices = parse_indices(sel, len(filtered_wordlists))
         if not indices:
-            print("No valid selection.")
+            get_ui().say("No valid selection.")
             return
         save_dir = get_hcat_wordlists_dir()
         torrent_files = []
@@ -1225,7 +1236,7 @@ def weakpass_wordlist_menu(rank=-1):
             entry = filtered_wordlists[idx - 1]
             torrent_url = entry.get("torrent_url")
             if not torrent_url:
-                print(f"[!] Missing torrent URL for selection {idx}")
+                get_ui().warn(f"[!] Missing torrent URL for selection {idx}")
                 continue
             meta = fetch_torrent_metadata(
                 torrent_url, save_dir=save_dir, wordlist_id=entry.get("id")
@@ -1235,12 +1246,12 @@ def weakpass_wordlist_menu(rank=-1):
         if torrent_files:
             run_torrent_session(torrent_files, save_dir)
         else:
-            print("[!] No torrent metadata files were fetched successfully.")
+            get_ui().warn("[!] No torrent metadata files were fetched successfully.")
     except KeyboardInterrupt:
-        print("\nKeyboard interrupt: Returning to main menu...")
+        get_ui().say("\nKeyboard interrupt: Returning to main menu...")
         return
     except Exception as e:
-        print(f"Error: {e}")
+        get_ui().error(f"Error: {e}")
 
 
 def _md4(data: bytes) -> str:
@@ -1642,7 +1653,7 @@ def _warn_tls_verification_disabled(host: str) -> None:
     if host in _TLS_WARNING_EMITTED:
         return
     _TLS_WARNING_EMITTED.add(host)
-    print(
+    get_ui().warn(
         f"[!] TLS certificate verification is disabled for Hashview host "
         f"{host} (HASHVIEW_VERIFY_TLS=false) -- connections to it are not "
         f"protected against interception or a spoofed server. Set "
@@ -1773,7 +1784,7 @@ class HashviewAPI:
             data = resp.json()
         except Exception as e:
             if self.debug:
-                print(f"[DEBUG] Failed to parse JSON from {url}: {e}")
+                get_ui().say(f"[DEBUG] Failed to parse JSON from {url}: {e}")
             data = None
         hashtype = None
         if data:
@@ -1785,11 +1796,11 @@ class HashviewAPI:
             elif "hashtype" in data:
                 hashtype = data["hashtype"]
             if self.debug:
-                print(
+                get_ui().say(
                     f"[DEBUG] get_hashfile_details({hashfile_id}): raw data={data}, hashtype={hashtype}"
                 )
         elif self.debug:
-            print(
+            get_ui().say(
                 f"[DEBUG] get_hashfile_details({hashfile_id}): no data returned. raw response: {resp.text}"
             )
         return {
@@ -1835,7 +1846,7 @@ class HashviewAPI:
         """
         if hash_type is None:
             if self.debug:
-                print(
+                get_ui().say(
                     "[DEBUG] get_customer_hashfiles: no hash_type given; Hashview "
                     "has no list-all route, returning []"
                 )
@@ -1855,7 +1866,7 @@ class HashviewAPI:
                 hf["hash_type"] = str(hash_type)
 
         if self.debug:
-            print(
+            get_ui().say(
                 f"[DEBUG] get_customer_hashfiles({customer_id}, hash_type={hash_type}): "
                 f"found {len(customer_hfs)} hashfiles"
             )
@@ -1945,13 +1956,13 @@ class HashviewAPI:
                 if status != 404:
                     raise
                 if self.debug:
-                    print(
+                    get_ui().say(
                         "[DEBUG] get_all_customer_hashfiles: customer-scoped route "
                         "absent (404); falling back to per-type sweep"
                     )
             else:
                 if self.debug:
-                    print(
+                    get_ui().say(
                         f"[DEBUG] get_all_customer_hashfiles({customer_id}): "
                         f"{len(direct)} hashfiles from customer-scoped route"
                     )
@@ -1969,13 +1980,13 @@ class HashviewAPI:
                 # operator wants. Silently continuing hands back a listing
                 # missing them with nothing on screen to say so.
                 self.last_listing_timeouts.append(ht)
-                print(
+                get_ui().say(
                     f"  ! Listing hash type {ht} timed out after "
                     f"{HASHVIEW_LISTING_TIMEOUT}s; its hashfiles are missing "
                     f"from this list."
                 )
                 if len(self.last_listing_timeouts) >= HASHVIEW_LISTING_TIMEOUT_BUDGET:
-                    print(
+                    get_ui().say(
                         "  ! Giving up on the remaining hash types: this "
                         "Hashview server is too slow to enumerate. Look the "
                         "hashfile ID up in the web UI instead."
@@ -1990,13 +2001,15 @@ class HashviewAPI:
                     # so no per-type sweep is possible. Stop after the first 404
                     # instead of hammering the server with one request per type.
                     if self.debug:
-                        print(
+                        get_ui().say(
                             "[DEBUG] get_all_customer_hashfiles: hash_type listing "
                             "endpoint absent (404); aborting sweep"
                         )
                     break
                 if self.debug:
-                    print(f"[DEBUG] get_all_customer_hashfiles: type {ht} failed: {e}")
+                    get_ui().say(
+                        f"[DEBUG] get_all_customer_hashfiles: type {ht} failed: {e}"
+                    )
                 continue
             for hf in files:
                 if int(hf.get("customer_id", 0)) != int(customer_id):
@@ -2008,7 +2021,7 @@ class HashviewAPI:
                     hf["hash_type"] = str(ht)
                 seen.setdefault(int(hf_id), hf)
         if self.debug:
-            print(
+            get_ui().say(
                 f"[DEBUG] get_all_customer_hashfiles({customer_id}): "
                 f"found {len(seen)} hashfiles across {len(hash_types)} types"
             )
@@ -2039,7 +2052,7 @@ class HashviewAPI:
 
     def display_customers_multicolumn(self, customers):
         if not customers:
-            print("\nNo customers found.")
+            get_ui().say("\nNo customers found.")
             return
         try:
             terminal_width = os.get_terminal_size().columns
@@ -2048,9 +2061,9 @@ class HashviewAPI:
         max_id_len = max(len(str(c.get("id", ""))) for c in customers)
         col_width = max_id_len + 2 + 30 + 2
         num_cols = max(1, terminal_width // col_width)
-        print("\n" + "=" * terminal_width)
-        print("Available Customers:")
-        print("=" * terminal_width)
+        get_ui().say("\n" + "=" * terminal_width)
+        get_ui().say("Available Customers:")
+        get_ui().say("=" * terminal_width)
         num_customers = len(customers)
         rows = (num_customers + num_cols - 1) // num_cols
         for row in range(rows):
@@ -2066,9 +2079,9 @@ class HashviewAPI:
                         cust_name = str(cust_name)[: name_width - 3] + "..."
                     entry = f"{cust_id}: {cust_name}"
                     line_parts.append(entry.ljust(col_width))
-            print("".join(line_parts).rstrip())
-        print("=" * terminal_width)
-        print(f"Total: {len(customers)} customer(s)")
+            get_ui().say("".join(line_parts).rstrip())
+        get_ui().say("=" * terminal_width)
+        get_ui().say(f"Total: {len(customers)} customer(s)")
 
     def upload_hashfile(
         self, file_path, customer_id, hash_type, file_format=5, hashfile_name=None
@@ -2108,7 +2121,9 @@ class HashviewAPI:
                 new_keys.append(key)
 
         if skipped_cached:
-            print(f"↷ Skipped {skipped_cached} hash(es) already uploaded previously")
+            get_ui().say(
+                f"↷ Skipped {skipped_cached} hash(es) already uploaded previously"
+            )
 
         if not kept_lines:
             return {
@@ -2229,7 +2244,7 @@ class HashviewAPI:
                 sys.stdout.write("\n")
         # If content-length is not provided, just print size at end
         if total == 0:
-            print(f"Downloaded {downloaded} bytes.")
+            get_ui().say(f"Downloaded {downloaded} bytes.")
 
         # Try to download found file and process with hashcat
         combined_count = 0
@@ -2284,7 +2299,7 @@ class HashviewAPI:
                         cf.write(clear_part + "\n")
 
                 if undecodable_lines:
-                    print(
+                    get_ui().say(
                         f"⚠ Skipped {len(undecodable_lines)} found line(s) with an "
                         "undecodable hash field"
                     )
@@ -2295,7 +2310,7 @@ class HashviewAPI:
                         for line in hf:
                             lf.write(line)
 
-                print(
+                get_ui().say(
                     f"Split found file into {hashes_count} hashes and {clears_count} clears"
                 )
 
@@ -2312,11 +2327,11 @@ class HashviewAPI:
                             pf.write(f"{hash_part}:{clear_part}\n")
                             appended += 1
                     combined_count = appended
-                    print(
+                    get_ui().success(
                         f"✓ Appended {appended} found hashes to potfile: {resolved_potfile}"
                     )
                 else:
-                    print(
+                    get_ui().say(
                         "Warning: No potfile path configured, skipping potfile update"
                     )
 
@@ -2329,7 +2344,7 @@ class HashviewAPI:
 
         except Exception as e:
             # If there's any error downloading found file, just skip it
-            print(f"Note: Could not download found hashes: {e}")
+            get_ui().say(f"Note: Could not download found hashes: {e}")
 
         return {
             "output_file": output_file,
@@ -2417,10 +2432,12 @@ class HashviewAPI:
                 new_keys.append(key)
 
         if skipped_cached:
-            print(f"↷ Skipped {skipped_cached} hash(es) already uploaded previously")
+            get_ui().say(
+                f"↷ Skipped {skipped_cached} hash(es) already uploaded previously"
+            )
 
         if repaired_count:
-            print(
+            get_ui().success(
                 f"✓ Repaired {repaired_count} plaintext(s) corrupted by the historical "
                 "double-encoding bug (fixed in 07c2f15) before upload"
             )
@@ -2430,9 +2447,11 @@ class HashviewAPI:
                 potfile_path, potfile_repairs, potfile_removals
             )
             if n_repaired:
-                print(f"✓ Fixed {n_repaired} corrupted plaintext(s) in the potfile")
+                get_ui().success(
+                    f"✓ Fixed {n_repaired} corrupted plaintext(s) in the potfile"
+                )
             if n_removed:
-                print(
+                get_ui().success(
                     f"✓ Removed {n_removed} unrecoverable entr{'y' if n_removed == 1 else 'ies'} "
                     "from the potfile (hashcat would otherwise keep replaying them)"
                 )
@@ -2443,15 +2462,15 @@ class HashviewAPI:
             with open(rejected_path, "wb") as rf:
                 for _, _, _, raw_line in skipped:
                     rf.write(raw_line + b"\n")
-            print(
+            get_ui().say(
                 f"⚠ Skipped {len(skipped)} line(s) that do not match hash mode "
                 f"{hash_type} (would be rejected by Hashview) -- "
                 f"preserved in {rejected_path}:"
             )
             for lineno, hash_value, reason, _ in skipped[:10]:
-                print(f"    line {lineno}: {hash_value} — {reason}")
+                get_ui().say(f"    line {lineno}: {hash_value} — {reason}")
             if len(skipped) > 10:
-                print(f"    ... and {len(skipped) - 10} more")
+                get_ui().say(f"    ... and {len(skipped) - 10} more")
 
         if not valid_lines:
             if skipped_cached:
@@ -2494,7 +2513,7 @@ class HashviewAPI:
             line_batch = list(line_batch)
             key_batch = list(key_batch)
             if len(batches) > 1:
-                print(
+                get_ui().say(
                     f"Uploading batch {batch_num}/{len(batches)} "
                     f"({len(line_batch)} hashes)..."
                 )
@@ -2561,15 +2580,15 @@ class HashviewAPI:
                 break
 
         if rejected_by_server:
-            print(
+            get_ui().say(
                 f"⚠ Hashview rejected {len(rejected_by_server)} plaintext(s) as "
                 "invalid (server does not decode $HEX[...] on import) -- "
                 "skipped, rest of the batch uploaded:"
             )
             for hash_value in rejected_by_server[:10]:
-                print(f"    {hash_value}")
+                get_ui().say(f"    {hash_value}")
             if len(rejected_by_server) > 10:
-                print(f"    ... and {len(rejected_by_server) - 10} more")
+                get_ui().say(f"    ... and {len(rejected_by_server) - 10} more")
 
         aggregated.setdefault("uploaded", len(valid_lines) - len(rejected_by_server))
         aggregated["skipped"] = len(skipped) + len(rejected_by_server)
@@ -2594,7 +2613,7 @@ class HashviewAPI:
                 update_resp.raise_for_status()
             except Exception as exc:
                 if self.debug:
-                    print(
+                    get_ui().say(
                         f"Warning: failed to update dynamic wordlist {wordlist_id}: {exc}"
                     )
 
@@ -2618,7 +2637,7 @@ class HashviewAPI:
             pass
 
         if is_dynamic:
-            print(
+            get_ui().say(
                 "Hashview regenerates dynamic wordlists on demand -- it builds "
                 "and compresses the list before sending any data, so this can "
                 "sit silent for several minutes on a large corpus. Waiting up "
@@ -3059,11 +3078,11 @@ def download_hashmob_wordlist_list():
     try:
         data = _with_hashmob_backoff(_attempt)
     except Exception as e:
-        print(f"Error fetching Hashmob wordlists: {e}")
+        get_ui().error(f"Error fetching Hashmob wordlists: {e}")
         return []
 
     if not isinstance(data, list):
-        print(f"Error fetching Hashmob wordlists: unexpected response: {data}")
+        get_ui().error(f"Error fetching Hashmob wordlists: unexpected response: {data}")
         return []
 
     try:
@@ -3087,7 +3106,7 @@ def download_hashmob_wordlist_list():
         )
         return wordlists
     except Exception as e:
-        print(f"Error fetching Hashmob wordlists: {e}")
+        get_ui().error(f"Error fetching Hashmob wordlists: {e}")
         return []
 
 
@@ -3117,9 +3136,9 @@ def download_hashmob_wordlist(file_name, out_path):
                 )
                 if match:
                     real_url = match.group(1)
-                    print(f"Found meta refresh redirect to: {real_url}")
+                    get_ui().say(f"Found meta refresh redirect to: {real_url}")
                     return _streamed_download(real_url, out_path, label=file_name)
-                print(
+                get_ui().error(
                     "Error: Received HTML instead of file. Possible permission or quota issue."
                 )
                 return False
@@ -3128,7 +3147,7 @@ def download_hashmob_wordlist(file_name, out_path):
     try:
         return _with_hashmob_backoff(_attempt)
     except Exception as e:
-        print(f"Error downloading wordlist: {e}")
+        get_ui().error(f"Error downloading wordlist: {e}")
         return False
 
 
@@ -3149,11 +3168,11 @@ def download_hashmob_rule_list():
     try:
         data = _with_hashmob_backoff(_attempt)
     except Exception as e:
-        print(f"Error fetching Hashmob rules: {e}")
+        get_ui().error(f"Error fetching Hashmob rules: {e}")
         return []
 
     if not isinstance(data, list):
-        print(f"Error fetching Hashmob rules: unexpected response: {data}")
+        get_ui().error(f"Error fetching Hashmob rules: unexpected response: {data}")
         return []
 
     try:
@@ -3174,7 +3193,7 @@ def download_hashmob_rule_list():
         )
         return rules
     except Exception as e:
-        print(f"Error fetching Hashmob rules: {e}")
+        get_ui().error(f"Error fetching Hashmob rules: {e}")
         return []
 
 
@@ -3195,7 +3214,7 @@ def download_hashmob_rule(file_name, out_path, resource_type=None):
             f"https://www.hashmob.net/api/v2/downloads/research/rules/{file_name}"
         )
     else:
-        print(
+        get_ui().say(
             f"[i] Unknown Hashmob rule resource type, using public prefix: {file_name}"
         )
         primary_url = (
@@ -3213,7 +3232,7 @@ def download_hashmob_rule(file_name, out_path, resource_type=None):
             if r.status_code == 429:
                 raise _Hashmob429(_parse_retry_after(r))
             if r.status_code == 404:
-                print(
+                get_ui().say(
                     f"[i] Hashmob rule not found at primary URL, trying fallback: {alt_url}"
                 )
                 with requests.get(
@@ -3233,7 +3252,7 @@ def download_hashmob_rule(file_name, out_path, resource_type=None):
     try:
         return _with_hashmob_backoff(_attempt)
     except Exception as e:
-        print(f"Error downloading rule: {e}")
+        get_ui().error(f"Error downloading rule: {e}")
         return False
 
 
@@ -3258,11 +3277,11 @@ def download_hashmob_mask_list():
     try:
         data = _with_hashmob_backoff(_attempt)
     except Exception as e:
-        print(f"Error fetching Hashmob masks: {e}")
+        get_ui().error(f"Error fetching Hashmob masks: {e}")
         return []
 
     if not isinstance(data, list):
-        print(f"Error fetching Hashmob masks: unexpected response: {data}")
+        get_ui().error(f"Error fetching Hashmob masks: unexpected response: {data}")
         return []
 
     try:
@@ -3292,7 +3311,7 @@ def download_hashmob_mask_list():
         )
         return masks
     except Exception as e:
-        print(f"Error fetching Hashmob masks: {e}")
+        get_ui().error(f"Error fetching Hashmob masks: {e}")
         return []
 
 
@@ -3315,7 +3334,7 @@ def download_hashmob_mask(file_name, out_path):
     try:
         return _with_hashmob_backoff(_attempt)
     except Exception as e:
-        print(f"Error downloading mask: {e}")
+        get_ui().error(f"Error downloading mask: {e}")
         return False
 
 
@@ -3347,7 +3366,7 @@ def list_hashmob_archives():
     try:
         data = _with_hashmob_backoff(_attempt)
     except Exception as e:
-        print(f"Error fetching Hashmob archive listing: {e}")
+        get_ui().error(f"Error fetching Hashmob archive listing: {e}")
         return []
 
     if not data:
@@ -3356,19 +3375,19 @@ def list_hashmob_archives():
     if not isinstance(data, dict) or not all(
         isinstance(v, list) for v in data.values()
     ):
-        print(f"Error fetching Hashmob archives: unexpected response: {data}")
+        get_ui().error(f"Error fetching Hashmob archives: unexpected response: {data}")
         return []
 
     flattened = []
     idx = 0
     for year, entries in data.items():
-        print(f"\n{year}:")
+        get_ui().say(f"\n{year}:")
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
             idx += 1
             name = entry.get("name", "")
-            print(f"{idx}. {name}")
+            get_ui().say(f"{idx}. {name}")
             flattened.append({**entry, "year": year, "name": name})
     return flattened
 
@@ -3400,7 +3419,7 @@ def download_hashmob_archive(entry_or_file_name, out_path=None, *, confirm=True)
         file_name = file_name or ""
         if not url or not _is_hashmob_host(url):
             if url:
-                print(
+                get_ui().warn(
                     f"[!] Ignoring archive URL with untrusted host: {url!r}; "
                     "falling back to the hashmob.net API URL."
                 )
@@ -3418,7 +3437,7 @@ def download_hashmob_archive(entry_or_file_name, out_path=None, *, confirm=True)
         except Exception:
             return "q"
         try:
-            return input(prompt)
+            return get_ui().ask(prompt)
         except EOFError:
             return "q"
 
@@ -3429,7 +3448,7 @@ def download_hashmob_archive(entry_or_file_name, out_path=None, *, confirm=True)
             "long time to download. Proceed? [y/N]: "
         )
         if answer.strip().lower() not in ("y", "yes"):
-            print("Archive download cancelled.")
+            get_ui().say("Archive download cancelled.")
             return False
 
     if not out_path:
@@ -3456,7 +3475,7 @@ def download_hashmob_archive(entry_or_file_name, out_path=None, *, confirm=True)
     try:
         ok = _with_hashmob_backoff(_attempt)
     except Exception as e:
-        print(f"Error downloading Hashmob archive: {e}")
+        get_ui().error(f"Error downloading Hashmob archive: {e}")
         return False
 
     if ok and archive_path.endswith(".7z"):
@@ -3505,7 +3524,7 @@ def download_all_hashmob_archives(entries, out_dir=None):
         except Exception:
             return "q"
         try:
-            return input(prompt)
+            return get_ui().ask(prompt)
         except EOFError:
             return "q"
 
@@ -3514,13 +3533,13 @@ def download_all_hashmob_archives(entries, out_dir=None):
         "may take hours. Proceed? [y/N]: "
     )
     if answer.strip().lower() not in ("y", "yes"):
-        print("Archive download cancelled.")
+        get_ui().say("Archive download cancelled.")
         return counts
 
     for entry in entries:
         file_name = entry.get("name") or entry.get("file_name") or ""
         if not file_name:
-            print("[!] Archive entry has no name, skipping.")
+            get_ui().warn("[!] Archive entry has no name, skipping.")
             counts["skipped"] += 1
             continue
         out_path = os.path.join(dest_dir, sanitize_filename(file_name))
@@ -3532,17 +3551,17 @@ def download_all_hashmob_archives(entries, out_dir=None):
         if os.path.exists(out_path):
             local_size = os.path.getsize(out_path)
             if listed_size is None:
-                print(
+                get_ui().say(
                     f"[i] Skipping '{file_name}': already present and its size "
                     "cannot be verified against the listing."
                 )
                 counts["skipped"] += 1
                 continue
             if local_size == listed_size:
-                print(f"[i] Skipping '{file_name}': already downloaded in full.")
+                get_ui().say(f"[i] Skipping '{file_name}': already downloaded in full.")
                 counts["skipped"] += 1
                 continue
-            print(
+            get_ui().say(
                 f"[i] Re-downloading '{file_name}': on disk at "
                 f"{_format_size(local_size)}, listing says "
                 f"{_format_size(listed_size)}."
@@ -3550,11 +3569,11 @@ def download_all_hashmob_archives(entries, out_dir=None):
         try:
             ok = download_hashmob_archive(entry, out_path=out_path, confirm=False)
         except Exception as e:
-            print(f"Error downloading Hashmob archive '{file_name}': {e}")
+            get_ui().error(f"Error downloading Hashmob archive '{file_name}': {e}")
             ok = False
         counts["succeeded" if ok else "failed"] += 1
 
-    print(
+    get_ui().say(
         f"\n[*] Archives: {counts['succeeded']} downloaded, "
         f"{counts['failed']} failed, {counts['skipped']} skipped."
     )
@@ -3584,7 +3603,7 @@ def list_hashmob_combined_left():
     try:
         data = _with_hashmob_backoff(_attempt)
     except Exception as e:
-        print(f"Error fetching Hashmob combined-left listing: {e}")
+        get_ui().error(f"Error fetching Hashmob combined-left listing: {e}")
         return []
 
     if not data:
@@ -3593,7 +3612,7 @@ def list_hashmob_combined_left():
     if not isinstance(data, dict) or not isinstance(
         data.get("combined_left_files"), list
     ):
-        print(
+        get_ui().error(
             f"Error fetching Hashmob combined-left listing: unexpected response: {data}"
         )
         return []
@@ -3609,7 +3628,9 @@ def list_hashmob_combined_left():
             hash_count_str = f"{int(entry.get('hash_count', 0)):,}"
         except (TypeError, ValueError):
             hash_count_str = str(entry.get("hash_count", 0))
-        print(f"{mode}: {algorithm} ({hash_count_str} hashes, updated {updated_at})")
+        get_ui().say(
+            f"{mode}: {algorithm} ({hash_count_str} hashes, updated {updated_at})"
+        )
     return files
 
 
@@ -3661,7 +3682,7 @@ def download_hashmob_combined_left(mode, out_path=None, *, variant="all"):
     try:
         return _with_hashmob_backoff(_attempt)
     except Exception as e:
-        print(f"Error downloading Hashmob combined-left list: {e}")
+        get_ui().error(f"Error downloading Hashmob combined-left list: {e}")
         return False
 
 
@@ -3685,11 +3706,11 @@ def list_official_wordlists():
             )
             return data
         except Exception:
-            print("Official Hashmob Wordlists (raw text):")
-            print(resp.text)
+            get_ui().say("Official Hashmob Wordlists (raw text):")
+            get_ui().say(resp.text)
             return resp.text
     except Exception as e:
-        print(f"Error listing official wordlists: {e}")
+        get_ui().error(f"Error listing official wordlists: {e}")
         return []
 
 
@@ -3793,7 +3814,7 @@ def _replace_older_hashmob_found(new_name, dest_dir):
         except OSError:
             continue
         if new_size <= size:
-            print(
+            get_ui().warn(
                 f"[!] Keeping '{name}' ({_format_size(size)}): the newer "
                 f"{os.path.basename(new_path)} ({_format_size(new_size)}) is "
                 "not larger."
@@ -3802,9 +3823,9 @@ def _replace_older_hashmob_found(new_name, dest_dir):
         try:
             os.remove(path)
             removed += 1
-            print(f"[i] Removed superseded '{name}' ({_format_size(size)}).")
+            get_ui().say(f"[i] Removed superseded '{name}' ({_format_size(size)}).")
         except OSError as e:
-            print(f"[!] Could not remove '{name}': {e}")
+            get_ui().warn(f"[!] Could not remove '{name}': {e}")
     return removed
 
 
@@ -3825,12 +3846,12 @@ def list_and_download_official_wordlists():
     try:
         data = _with_hashmob_backoff(_attempt)
     except Exception as e:
-        print(f"Error listing official wordlists: {e}")
+        get_ui().error(f"Error listing official wordlists: {e}")
         return
 
     if not isinstance(data, list):
-        print("Unexpected response format. Raw output:")
-        print(data)
+        get_ui().say("Unexpected response format. Raw output:")
+        get_ui().say(data)
         return
 
     try:
@@ -3846,7 +3867,7 @@ def list_and_download_official_wordlists():
             min_col_width=max_entry_len,
             max_col_width=max_entry_len,
         )
-        print("a. Download ALL files")
+        get_ui().say("a. Download ALL files")
 
         def _safe_input(prompt):
             try:
@@ -3855,7 +3876,7 @@ def list_and_download_official_wordlists():
             except Exception:
                 return "q"
             try:
-                return input(prompt)
+                return get_ui().ask(prompt)
             except EOFError:
                 return "q"
 
@@ -3878,7 +3899,7 @@ def list_and_download_official_wordlists():
         def _download_wordlist_only(file_name):
             """Download one wordlist without cleanup."""
             if _already_downloaded_wordlist(file_name):
-                print(f"[i] Skipping {file_name} (already present)")
+                get_ui().say(f"[i] Skipping {file_name} (already present)")
                 return file_name
             if download_official_wordlist(file_name):
                 return file_name
@@ -3890,7 +3911,7 @@ def list_and_download_official_wordlists():
                 for entry in data:
                     file_name = entry.get("file_name")
                     if not file_name:
-                        print("No file_name found for an entry, skipping.")
+                        get_ui().say("No file_name found for an entry, skipping.")
                         continue
                     entries_to_download.append(file_name)
 
@@ -3908,20 +3929,20 @@ def list_and_download_official_wordlists():
                             if result:
                                 succeeded_downloads.append(result)
                         except Exception as exc:
-                            print(f"[!] Failed to download {file_name}: {exc}")
+                            get_ui().warn(f"[!] Failed to download {file_name}: {exc}")
 
                 # Run cleanups sequentially only for successfully downloaded files
                 for file_name in succeeded_downloads:
                     try:
                         _replace_older_hashmob_found(file_name, dest_dir)
                     except Exception as exc:
-                        print(f"[!] Cleanup failed for {file_name}: {exc}")
+                        get_ui().warn(f"[!] Cleanup failed for {file_name}: {exc}")
 
-                print(
+                get_ui().say(
                     f"[i] Wordlist downloads complete: {len(succeeded_downloads)} succeeded."
                 )
             except KeyboardInterrupt:
-                print("\nKeyboard interrupt: Returning to download menu...")
+                get_ui().say("\nKeyboard interrupt: Returning to download menu...")
                 return
             return
 
@@ -3949,7 +3970,7 @@ def list_and_download_official_wordlists():
         try:
             indices = parse_indices(sel, len(data))
             if not indices:
-                print("No valid selection.")
+                get_ui().say("No valid selection.")
                 return
 
             entries_to_download = []
@@ -3957,7 +3978,7 @@ def list_and_download_official_wordlists():
                 entry = data[idx - 1]
                 file_name = entry.get("file_name")
                 if not file_name:
-                    print("No file_name found for selection, skipping.")
+                    get_ui().say("No file_name found for selection, skipping.")
                     continue
                 entries_to_download.append(file_name)
 
@@ -3975,22 +3996,22 @@ def list_and_download_official_wordlists():
                         if result:
                             succeeded_downloads.append(result)
                     except Exception as exc:
-                        print(f"[!] Failed to download {file_name}: {exc}")
+                        get_ui().warn(f"[!] Failed to download {file_name}: {exc}")
 
             # Run cleanups sequentially only for successfully downloaded files
             for file_name in succeeded_downloads:
                 try:
                     _replace_older_hashmob_found(file_name, dest_dir)
                 except Exception as exc:
-                    print(f"[!] Cleanup failed for {file_name}: {exc}")
+                    get_ui().warn(f"[!] Cleanup failed for {file_name}: {exc}")
 
-            print(
+            get_ui().say(
                 f"[i] Wordlist downloads complete: {len(succeeded_downloads)} succeeded."
             )
         except Exception as e:
-            print(f"Error: {e}")
+            get_ui().error(f"Error: {e}")
     except Exception as e:
-        print(f"Error listing official wordlists: {e}")
+        get_ui().error(f"Error listing official wordlists: {e}")
 
 
 def _downloaded_rule_names(rules_dir):
@@ -4030,7 +4051,7 @@ def list_and_download_hashmob_masks(masks_dir=None):
     masks = download_hashmob_mask_list()
     if not masks:
         return
-    print("a. Download ALL files")
+    get_ui().say("a. Download ALL files")
 
     def _safe_input(prompt):
         try:
@@ -4039,7 +4060,7 @@ def list_and_download_hashmob_masks(masks_dir=None):
         except Exception:
             return "q"
         try:
-            return input(prompt)
+            return get_ui().ask(prompt)
         except EOFError:
             return "q"
 
@@ -4084,7 +4105,7 @@ def list_and_download_hashmob_masks(masks_dir=None):
     else:
         indices = parse_indices(sel, len(masks))
         if not indices:
-            print("No valid selection.")
+            get_ui().say("No valid selection.")
             return
         entries = [masks[idx - 1] for idx in indices]
 
@@ -4092,10 +4113,10 @@ def list_and_download_hashmob_masks(masks_dir=None):
     for entry in entries:
         file_name = entry.get("file_name")
         if not file_name:
-            print("No file_name found for an entry, skipping.")
+            get_ui().say("No file_name found for an entry, skipping.")
             continue
         if already_downloaded(file_name):
-            print(f"[i] Skipping already downloaded mask: {file_name}")
+            get_ui().say(f"[i] Skipping already downloaded mask: {file_name}")
             continue
         os.makedirs(masks_dir, exist_ok=True)
         out_path = os.path.join(masks_dir, sanitize_filename(file_name))
@@ -4117,10 +4138,12 @@ def list_and_download_hashmob_masks(masks_dir=None):
                 future.result()
                 succeeded += 1
             except Exception as exc:
-                print(f"[!] Failed to download {file_name}: {exc}")
+                get_ui().warn(f"[!] Failed to download {file_name}: {exc}")
                 failed += 1
 
-    print(f"[i] Mask downloads complete: {succeeded} succeeded, {failed} failed.")
+    get_ui().say(
+        f"[i] Mask downloads complete: {succeeded} succeeded, {failed} failed."
+    )
 
 
 def list_and_download_hashmob_rules(rules_dir=None):
@@ -4128,7 +4151,7 @@ def list_and_download_hashmob_rules(rules_dir=None):
     rules = download_hashmob_rule_list()
     if not rules:
         return
-    print("a. Download ALL files")
+    get_ui().say("a. Download ALL files")
 
     def _safe_input(prompt):
         try:
@@ -4137,7 +4160,7 @@ def list_and_download_hashmob_rules(rules_dir=None):
         except Exception:
             return "q"
         try:
-            return input(prompt)
+            return get_ui().ask(prompt)
         except EOFError:
             return "q"
 
@@ -4182,7 +4205,7 @@ def list_and_download_hashmob_rules(rules_dir=None):
     else:
         indices = parse_indices(sel, len(rules))
         if not indices:
-            print("No valid selection.")
+            get_ui().say("No valid selection.")
             return
         entries = [rules[idx - 1] for idx in indices]
 
@@ -4190,10 +4213,10 @@ def list_and_download_hashmob_rules(rules_dir=None):
     for entry in entries:
         file_name = entry.get("file_name")
         if not file_name:
-            print("No file_name found for an entry, skipping.")
+            get_ui().say("No file_name found for an entry, skipping.")
             continue
         if already_downloaded(file_name):
-            print(f"[i] Skipping already downloaded rule: {file_name}")
+            get_ui().say(f"[i] Skipping already downloaded rule: {file_name}")
             continue
         out_path = os.path.join(rules_dir, sanitize_filename(file_name))
         resource_type = entry.get("type")
@@ -4216,10 +4239,12 @@ def list_and_download_hashmob_rules(rules_dir=None):
                 future.result()
                 succeeded += 1
             except Exception as exc:
-                print(f"[!] Failed to download {file_name}: {exc}")
+                get_ui().warn(f"[!] Failed to download {file_name}: {exc}")
                 failed += 1
 
-    print(f"[i] Rule downloads complete: {succeeded} succeeded, {failed} failed.")
+    get_ui().say(
+        f"[i] Rule downloads complete: {succeeded} succeeded, {failed} failed."
+    )
 
 
 def download_official_wordlist(file_name, out_path=None):
@@ -4254,9 +4279,9 @@ def download_official_wordlist(file_name, out_path=None):
                 )
                 if match:
                     real_url = match.group(1)
-                    print(f"Found meta refresh redirect to: {real_url}")
+                    get_ui().say(f"Found meta refresh redirect to: {real_url}")
                     return _streamed_download(real_url, archive_path, label=file_name)
-                print(
+                get_ui().error(
                     "Error: Received HTML instead of file. Possible permission or quota issue."
                 )
                 return False
@@ -4265,7 +4290,7 @@ def download_official_wordlist(file_name, out_path=None):
     try:
         ok = _with_hashmob_backoff(_attempt)
     except Exception as e:
-        print(f"Error downloading official wordlist: {e}")
+        get_ui().error(f"Error downloading official wordlist: {e}")
         return False
 
     if ok and archive_path.endswith(".7z"):
@@ -4281,32 +4306,32 @@ def extract_with_7z(archive_path, output_dir=None, remove_archive=True):
         output_dir = os.path.dirname(archive_path) or "."
     sevenz_bin = shutil.which("7z") or shutil.which("7za")
     if not sevenz_bin:
-        print(
+        get_ui().warn(
             "[!] 7z or 7za not found in PATH. Please install p7zip-full or 7-zip to extract archives."
         )
         return False
     try:
-        print(f"Extracting {archive_path} to {output_dir} ...")
+        get_ui().say(f"Extracting {archive_path} to {output_dir} ...")
         result = subprocess.run(
             [sevenz_bin, "e", "-y", archive_path],
             capture_output=True,
             text=True,
             cwd=output_dir,
         )
-        print(result.stdout)
+        get_ui().say(result.stdout)
         if result.returncode == 0:
-            print(f"[+] Extraction complete: {archive_path}")
+            get_ui().say(f"[+] Extraction complete: {archive_path}")
             if remove_archive:
                 try:
                     os.remove(archive_path)
-                    print(f"[i] Removed archive: {archive_path}")
+                    get_ui().say(f"[i] Removed archive: {archive_path}")
                 except Exception as e:
-                    print(f"[!] Could not remove archive {archive_path}: {e}")
+                    get_ui().warn(f"[!] Could not remove archive {archive_path}: {e}")
             return True
-        print(f"[!] Extraction failed for {archive_path}: {result.stderr}")
+        get_ui().warn(f"[!] Extraction failed for {archive_path}: {result.stderr}")
         return False
     except Exception as e:
-        print(f"[!] Error extracting {archive_path}: {e}")
+        get_ui().warn(f"[!] Error extracting {archive_path}: {e}")
         return False
 
 
