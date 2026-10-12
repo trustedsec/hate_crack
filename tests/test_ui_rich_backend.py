@@ -178,3 +178,31 @@ def test_columns_titled_line_widths_match_plain_without_tty_or_columns(
 
     assert widths(buf.getvalue()) == widths(plain_out)
     assert console._width is None  # save/restore round-trip leaves no pinned width
+
+
+_LONG_CMD = (
+    "[*] Running: hashcat -m 1000 -a 0 --force /tmp/engagement/hashes.txt "
+    "/opt/wordlists/rockyou.txt -r /opt/rules/best64.rule -O -w 3"
+)
+
+
+def test_long_lines_are_not_hard_wrapped_like_print():
+    """Converted call sites print hashcat commands that operators copy out of
+    scrollback to reproduce a run. Console.print word-wraps at the console
+    width by inserting a real newline, so a pasted command silently loses its
+    tail (here `-r best64.rule -O -w 3`) and runs a different attack. The
+    builtin print does not wrap; the terminal soft-wraps instead. RichUI must
+    emit the same bytes as print.
+    """
+    assert len(_LONG_CMD) > 80
+    for method, stream in (
+        ("say", "out"),
+        ("warn", "out"),
+        ("success", "out"),
+        ("error", "err"),
+    ):
+        ui, out, err = _ui(width=80)
+        getattr(ui, method)(_LONG_CMD)
+        rendered = (out if stream == "out" else err).getvalue()
+        assert rendered.count("\n") == 1, method
+        assert rendered == _LONG_CMD + "\n", method

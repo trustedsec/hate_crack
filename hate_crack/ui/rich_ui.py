@@ -55,16 +55,24 @@ class RichUI:
         )
 
     def say(self, text: str = "", *, style: str | None = None) -> None:
-        self.console.print(text, style=style, highlight=False, markup=False)
+        self.console.print(
+            text, style=style, highlight=False, markup=False, soft_wrap=True
+        )
 
     def warn(self, text: str) -> None:
-        self.console.print(text, style="yellow", highlight=False, markup=False)
+        self.console.print(
+            text, style="yellow", highlight=False, markup=False, soft_wrap=True
+        )
 
     def error(self, text: str) -> None:
-        self.err_console.print(text, style="bold red", highlight=False, markup=False)
+        self.err_console.print(
+            text, style="bold red", highlight=False, markup=False, soft_wrap=True
+        )
 
     def success(self, text: str) -> None:
-        self.console.print(text, style="green", highlight=False, markup=False)
+        self.console.print(
+            text, style="green", highlight=False, markup=False, soft_wrap=True
+        )
 
     def ask(self, prompt: str = "", *, default: str = "") -> str:
         # Not rich.prompt: it strips whitespace, appends its own ": " suffix and
