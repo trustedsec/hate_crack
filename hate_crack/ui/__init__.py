@@ -1,0 +1,105 @@
+"""UI abstraction seam: a Protocol, the plain backend, and backend resolution."""
+
+from __future__ import annotations
+
+from contextlib import AbstractContextManager
+from typing import Any, Protocol
+
+from hate_crack.ui.plain import PlainUI
+
+BACKENDS = ("plain", "rich")  # "textual" joins this in Phase 3
+
+
+class UI(Protocol):
+    def say(self, text: str = "", *, style: str | None = None) -> None: ...
+
+    def warn(self, text: str) -> None: ...
+
+    def error(self, text: str) -> None: ...
+
+    def success(self, text: str) -> None: ...
+
+    def ask(self, prompt: str = "", *, default: str = "") -> str: ...
+
+    def ask_int(
+        self,
+        prompt: str,
+        *,
+        default: int | None = None,
+        minimum: int | None = None,
+    ) -> int | None: ...
+
+    def confirm(self, prompt: str, *, default: bool = True) -> bool: ...
+
+    def select(
+        self,
+        items: list[tuple[str, str]],
+        *,
+        title: str | None = None,
+        prompt: str = "\nSelect a task: ",
+    ) -> str | None: ...
+
+    def columns(
+        self,
+        title: str | None,
+        entries: list[str],
+        *,
+        min_col_width: int = 20,
+        max_col_width: int | None = None,
+        styles: list[str | None] | None = None,
+    ) -> None: ...
+
+    def spinner(self, message: str) -> AbstractContextManager[Any]: ...
+
+    def suspend(self) -> AbstractContextManager[None]: ...
+
+
+def resolve_backend_name(
+    *,
+    env_value: str | None = None,
+    config_value: str | None = None,
+    is_tty: bool = False,
+    term: str | None = None,
+    non_interactive: bool = False,
+) -> str:
+    """Pick a backend name. Pure: every input is a parameter."""
+    name = "plain"
+    if env_value and env_value in BACKENDS:
+        name = env_value
+    elif config_value and config_value in BACKENDS:
+        name = config_value
+    if non_interactive or not is_tty or (term or "").lower() == "dumb":
+        return "plain"
+    return name
+
+
+_ui: UI | None = None
+
+
+def get_ui() -> UI:
+    """Return the process-wide UI, lazily constructing a PlainUI."""
+    global _ui
+    if _ui is None:
+        _ui = PlainUI()
+    return _ui
+
+
+def set_ui(ui: UI) -> None:
+    global _ui
+    _ui = ui
+
+
+def reset_ui() -> None:
+    global _ui
+    _ui = None
+
+
+__all__ = [
+    "BACKENDS",
+    "PlainUI",
+    "UI",
+    "get_ui",
+    "reset_ui",
+    "resolve_backend_name",
+    "set_ui",
+]
