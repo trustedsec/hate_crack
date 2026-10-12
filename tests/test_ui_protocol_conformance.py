@@ -2,8 +2,10 @@ import inspect
 
 import pytest
 
+import hate_crack.cli
 import hate_crack.formatting
 import hate_crack.menu
+import hate_crack.progress
 import hate_crack.ui as ui_pkg
 from hate_crack.ui import UI, PlainUI, get_ui, reset_ui, set_ui
 
@@ -114,6 +116,33 @@ def test_say_and_ask(monkeypatch, capsys):
     ui.say()
     ui.say("hi", style="bold")
     ui.warn("w")
-    assert capsys.readouterr().out == "\nhi\nw\n"
+    ui.error("x")
+    ui.success("x")
+    assert capsys.readouterr().out == "\nhi\nw\nx\nx\n"
     monkeypatch.setattr("builtins.input", lambda _p="": "")
     assert ui.ask("? ", default="d") == "d"
+
+
+def test_ask_int_resolves_module_attribute_at_call_time(monkeypatch):
+    calls = []
+
+    def fake(prompt, default=None, minimum=None):
+        calls.append((prompt, default, minimum))
+        return 42
+
+    monkeypatch.setattr(hate_crack.cli, "prompt_int", fake)
+    assert PlainUI().ask_int("n? ", default=3, minimum=1) == 42
+    assert calls == [("n? ", 3, 1)]
+
+
+def test_spinner_resolves_module_attribute_at_call_time(monkeypatch):
+    sentinel = object()
+    calls = []
+
+    def fake(message):
+        calls.append(message)
+        return sentinel
+
+    monkeypatch.setattr(hate_crack.progress, "spinner", fake)
+    assert PlainUI().spinner("busy") is sentinel
+    assert calls == ["busy"]
