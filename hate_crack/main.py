@@ -10004,6 +10004,25 @@ def main():
     if getattr(args, "command", None) in _noninteractive.ATTACK_COMMANDS:
         non_interactive = True
 
+    # Resolve and install the UI backend here, as soon as non_interactive is
+    # final and before any of main()'s own output.
+    # INVARIANT: the installation must precede every converted call site.
+    # get_ui() lazily builds a PlainUI on first call, so a converted call that
+    # runs earlier silently ignores ui_backend=rich and nothing fails. This
+    # point precedes every print inside main(), so all of those are covered.
+    # The module-scope prints run at import, before main() and before config
+    # selection, and therefore stay plain permanently. config_parser is built
+    # at module scope, so the config read is valid here.
+    _ui_name = _ui.resolve_backend_name(
+        config_value=config_parser.get("ui_backend"),
+        is_tty=sys.stdout.isatty(),
+        term=os.environ.get("TERM"),
+        non_interactive=non_interactive,
+    )
+    _ui.set_ui(_ui.build_ui(_ui_name))
+    if _ui_name != "plain":
+        print(f"[*] UI backend: {_ui_name}")
+
     # Seven flags are per-run overrides of schema-backed keys; resolve_flag_overrides
     # layers the flag (when present) on top of what the loader already merged
     # from os.environ, the key's own home file (config.json for all seven) and
@@ -10483,23 +10502,6 @@ def main():
             )
         else:
             print("No hashes found in POT file.")
-
-    # Resolve and install the UI backend once, after config is loaded and
-    # non_interactive is known, before any menu or attack runs.
-    # NOTE: get_ui() lazily builds a PlainUI on first call, so the backend must
-    # be installed before any converted call site runs. Converting a call site
-    # that executes earlier in main() than this point requires moving this
-    # installation earlier too, or it silently gets plain under ui_backend=rich.
-    # It cannot move before config load, which it depends on.
-    _ui_name = _ui.resolve_backend_name(
-        config_value=config_parser.get("ui_backend"),
-        is_tty=sys.stdout.isatty(),
-        term=os.environ.get("TERM"),
-        non_interactive=non_interactive,
-    )
-    _ui.set_ui(_ui.build_ui(_ui_name))
-    if _ui_name != "plain":
-        print(f"[*] UI backend: {_ui_name}")
 
     if non_interactive:
         sys.exit(_noninteractive.run_noninteractive(_attack_ctx(), args))
