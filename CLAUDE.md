@@ -627,6 +627,30 @@ which is why `tests/conftest.py` has an autouse `_isolate_notify_state`
 fixture — without it, importing `main` during a test fires the per-attack
 notification prompt's `input()` call.
 
+**Terminal output and prompting (`hate_crack/ui/`).** In `main.py`, `attacks.py`,
+`api.py`, `noninteractive.py` and `attack_coverage.py`, output and prompts go
+through `get_ui()` (`say`, `warn`, `error`, `success`, `ask`) rather than bare
+`print`/`input` — 988 call sites. Severity markers like `[!]` stay inside the
+message strings; the method picks styling only. `PlainUI.say` is `print` and
+`PlainUI.ask` is `input(prompt) or default`, so the plain backend is
+byte-identical to the old behaviour. Non-TTY and non-interactive runs force plain.
+
+**Deliberately NOT converted — do not "finish the job":**
+
+- `formatting.py`, `progress.py`, `menu.py`, `cli.py`: `PlainUI` delegates *to*
+  these, so routing them back through `get_ui()` is circular.
+- `config_loader.py`: it emits during the import-time `load_config()` that
+  produces the value selecting the backend, so no backend can exist yet.
+- The 18 module-scope prints in `main.py` run at import, before argparse, and
+  stay plain permanently.
+- 17 sites pass `print` as a value (`print_fn=print`) and still bypass the seam;
+  a known follow-up.
+
+**Invariant:** the backend must be installed before any converted call site
+runs. `main()` does this immediately after `non_interactive` is finalised, and
+`tests/test_ui_wiring_precedes_output.py` guards the ordering. Installing it
+later silently ignores `ui_backend` and nothing else fails.
+
 ### Non-interactive CLI
 
 Alongside the interactive menu, `main.py` exposes scripted entry points:
