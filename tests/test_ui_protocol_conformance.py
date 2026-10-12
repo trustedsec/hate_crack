@@ -8,8 +8,9 @@ import hate_crack.menu
 import hate_crack.progress
 import hate_crack.ui as ui_pkg
 from hate_crack.ui import UI, PlainUI, get_ui, reset_ui, set_ui
+from hate_crack.ui.rich_ui import RichUI
 
-BACKEND_FACTORIES = [PlainUI]
+BACKEND_FACTORIES = [PlainUI, RichUI]
 
 UI_MEMBERS = [n for n in vars(UI) if not n.startswith("_")]
 
