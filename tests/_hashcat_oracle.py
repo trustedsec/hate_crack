@@ -53,7 +53,7 @@ def is_backend_failure(stderr: str) -> bool:
 
 
 def run_hashcat(
-    cmd, *, ok_returncodes=(0, 1), timeout=300, **kwargs
+    cmd, *, ok_returncodes=(0, 1), timeout=300, text=True, **kwargs
 ) -> subprocess.CompletedProcess:
     """
     Run hashcat with robust error handling for environment-specific failures.
@@ -61,16 +61,18 @@ def run_hashcat(
     Handles common issues:
     - Missing hashcat binary (skip)
     - GPU/OpenCL kernel-build failures (skip)
-    - Unexpected exit codes or stderr (fail with details)
+    - Unexpected exit codes (fail with details)
 
     Args:
         cmd: Command list to run (subprocess.run format).
         ok_returncodes: Tuple of acceptable exit codes (default: (0, 1)).
         timeout: Timeout in seconds (default: 300).
+        text: If True, return stdout/stderr as str; if False, as bytes (default: True).
         **kwargs: Additional arguments passed to subprocess.run.
 
     Returns:
-        subprocess.CompletedProcess if successful.
+        subprocess.CompletedProcess if successful. With text=True, stdout/stderr
+        are str; with text=False, they are bytes.
 
     Raises:
         pytest.skip.Exception: If hashcat is missing or backend fails.
@@ -80,26 +82,35 @@ def run_hashcat(
         result = subprocess.run(
             cmd,
             capture_output=True,
-            text=True,
+            text=text,
             timeout=timeout,
             **kwargs,
         )
     except FileNotFoundError as e:
         pytest.skip(f"no executable hashcat at {cmd[0]} ({e})")
 
-    stderr = result.stderr or ""
+    # Get stderr in string form for is_backend_failure check
+    if text:
+        stderr_str = result.stderr or ""
+    else:
+        stderr_str = (result.stderr or b"").decode("utf-8", errors="replace")
 
     # Backend failures (GPU/OpenCL issues) are environment-specific, not test bugs
-    if is_backend_failure(stderr):
+    if is_backend_failure(stderr_str):
         pytest.skip(
-            f"hashcat backend could not build kernels (environment issue): {stderr}"
+            f"hashcat backend could not build kernels (environment issue): {stderr_str}"
         )
 
     # Non-ok exit codes are failures (but only after checking for backend issues)
     if result.returncode not in ok_returncodes:
+        # Prepare stderr for error message
+        if text:
+            stderr_msg = result.stderr or ""
+        else:
+            stderr_msg = (result.stderr or b"").decode("utf-8", errors="replace")
         pytest.fail(
             f"hashcat exited with code {result.returncode}. "
-            f"cmd={cmd!r} stderr={stderr!r}"
+            f"cmd={cmd!r} stderr={stderr_msg!r}"
         )
 
     return result
