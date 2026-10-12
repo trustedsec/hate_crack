@@ -188,15 +188,21 @@ def test_ask_all_backends(backend, monkeypatch):
 
 def test_say_family_text_all_backends(backend, capsys):
     backend.say()
-    backend.say("hi", style="bold")
-    backend.warn("w")
+    backend.say("wordlists/rock[you].txt", style="bold")
+    backend.warn("[!] mask ?a[?d] rock[you].txt")
     backend.error("rock[you].txt")
     backend.success("[/] done")
     cap = capsys.readouterr()
     # stdout and stderr interleave differently per backend; compare as a set.
     visible = _ANSI.sub("", cap.out + cap.err)
     assert sorted(visible.splitlines()) == sorted(
-        ["", "hi", "w", "rock[you].txt", "[/] done"]
+        [
+            "",
+            "wordlists/rock[you].txt",
+            "[!] mask ?a[?d] rock[you].txt",
+            "rock[you].txt",
+            "[/] done",
+        ]
     )
 
 
