@@ -5,6 +5,7 @@ from collections.abc import Callable
 from typing import Any
 
 from hate_crack import notify as _notify
+from hate_crack.ui import get_ui
 from hate_crack.api import (
     download_all_hashmob_archives,
     download_hashmob_archive,
@@ -50,7 +51,8 @@ def _select_rules(ctx) -> list[str] | None:
     rule_files = ctx.list_rule_files(rules_dir)
     if not rule_files:
         download_rules = (
-            input("\nNo rules found. Download rules from Hashmob now? (Y/n): ")
+            get_ui()
+            .ask("\nNo rules found. Download rules from Hashmob now? (Y/n): ")
             .strip()
             .lower()
         )
@@ -59,10 +61,10 @@ def _select_rules(ctx) -> list[str] | None:
             rule_files = ctx.list_rule_files(rules_dir)
 
     if not rule_files:
-        print("No rules available. Proceeding without rules.")
+        get_ui().say("No rules available. Proceeding without rules.")
         return [""]
 
-    print("\nWhich rule(s) would you like to run?")
+    get_ui().say("\nWhich rule(s) would you like to run?")
     rule_entries = ["0) To run without any rules"]
     rule_entries.extend([f"{i}) {file}" for i, file in enumerate(rule_files, start=1)])
     rule_entries.append("98) YOLO...run all of the rules")
@@ -82,7 +84,7 @@ def _select_rules(ctx) -> list[str] | None:
         example_line = f"For example 1+1 will run {rule_files[0]} chained twice.\n"
 
     while rule_choice is None:
-        raw_choice = input(
+        raw_choice = get_ui().ask(
             "Enter Comma separated list of rules you would like to run. To run rules chained use the + symbol.\n"
             f"{example_line}"
             "Choose wisely: "
@@ -184,7 +186,7 @@ def quick_crack(ctx: Any) -> None:
 
     while wordlist_choice is None:
         try:
-            raw_choice = input(
+            raw_choice = get_ui().ask(
                 "\nEnter path of wordlist or wordlist directory (tab to autocomplete).\n"
                 f"Press Enter for default wordlist directory [{default_dir}]: "
             )
@@ -199,14 +201,14 @@ def quick_crack(ctx: Any) -> None:
                 )
                 if os.path.exists(chosen):
                     wordlist_choice = chosen
-                    print(wordlist_choice)
+                    get_ui().say(wordlist_choice)
             elif os.path.exists(raw_choice):
                 wordlist_choice = raw_choice
             else:
                 wordlist_choice = None
-                print("Please enter a valid wordlist or wordlist directory.")
+                get_ui().say("Please enter a valid wordlist or wordlist directory.")
         except ValueError:
-            print("Please enter a valid number.")
+            get_ui().say("Please enter a valid number.")
     readline.set_completer(None)
 
     selected_rules = _select_rules(ctx)
@@ -248,7 +250,7 @@ def loopback_attack(ctx: Any) -> None:
         with open(empty_wordlist, "w"):
             pass
 
-    print(f"\nUsing loopback attack with wordlist: {empty_wordlist}")
+    get_ui().say(f"\nUsing loopback attack with wordlist: {empty_wordlist}")
 
     selected_rules = _select_rules(ctx)
     if selected_rules is None:
@@ -320,10 +322,10 @@ def extensive_crack(ctx: Any) -> None:
 def brute_force_crack(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("Brute Force")
     hcatMinLen = int(
-        input("\nEnter the minimum password length to brute force (1): ") or 1
+        get_ui().ask("\nEnter the minimum password length to brute force (1): ") or 1
     )
     hcatMaxLen = int(
-        input("\nEnter the maximum password length to brute force (7): ") or 7
+        get_ui().ask("\nEnter the maximum password length to brute force (7): ") or 7
     )
     ctx.hcatBruteForce(ctx.hcatHashType, ctx.hcatHashFile, hcatMinLen, hcatMaxLen)
 
@@ -331,7 +333,7 @@ def brute_force_crack(ctx: Any) -> None:
 def top_mask_crack(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("Top Mask")
     hcatTargetTime = int(
-        input("\nEnter a target time for completion in hours (4): ") or 4
+        get_ui().ask("\nEnter a target time for completion in hours (4): ") or 4
     )
     hcatTargetTime = hcatTargetTime * 60 * 60
     ctx.hcatTopMask(ctx.hcatHashType, ctx.hcatHashFile, hcatTargetTime)
@@ -348,7 +350,8 @@ def _prompt_fingerprint_wordlist(ctx) -> str:
     configured = ctx.hcatFingerprintWordlist[0] if ctx.hcatFingerprintWordlist else None
     if configured:
         use_default = (
-            input(
+            get_ui()
+            .ask(
                 "\nCombine expanded fragments against configured wordlist "
                 f"'{configured}'? (Y/n): "
             )
@@ -360,10 +363,14 @@ def _prompt_fingerprint_wordlist(ctx) -> str:
 
     _configure_readline(_wordlist_path_completer(ctx))
     try:
-        return input(
-            "\nEnter a wordlist to combine expanded fragments against "
-            "(tab to autocomplete, blank to skip): "
-        ).strip()
+        return (
+            get_ui()
+            .ask(
+                "\nEnter a wordlist to combine expanded fragments against "
+                "(tab to autocomplete, blank to skip): "
+            )
+            .strip()
+        )
     finally:
         readline.set_completer(None)
 
@@ -371,39 +378,47 @@ def _prompt_fingerprint_wordlist(ctx) -> str:
 def fingerprint_crack(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("Fingerprint")
     while True:
-        raw = input("\nEnter max expander length to escalate to (7-36) (21): ").strip()
+        raw = (
+            get_ui()
+            .ask("\nEnter max expander length to escalate to (7-36) (21): ")
+            .strip()
+        )
         if raw == "":
             max_expander_len = 21
             break
         try:
             max_expander_len = int(raw)
         except ValueError:
-            print("Please enter an integer between 7 and 36.")
+            get_ui().say("Please enter an integer between 7 and 36.")
             continue
         if 7 <= max_expander_len <= 36:
             break
-        print("Please enter an integer between 7 and 36.")
+        get_ui().say("Please enter an integer between 7 and 36.")
 
     wordlist_raw = _prompt_fingerprint_wordlist(ctx)
 
     while True:
-        limit_raw = input(
-            "\nSkip a combination step if it would exceed this many candidates "
-            "(default 50,000,000,000, 0 for no limit): "
-        ).strip()
+        limit_raw = (
+            get_ui()
+            .ask(
+                "\nSkip a combination step if it would exceed this many candidates "
+                "(default 50,000,000,000, 0 for no limit): "
+            )
+            .strip()
+        )
         if limit_raw == "":
             keyspace_limit = None  # hcatFingerprint applies its own default
             break
         try:
             keyspace_limit = int(limit_raw)
         except ValueError:
-            print("Please enter a non-negative integer.")
+            get_ui().say("Please enter a non-negative integer.")
             continue
         if keyspace_limit < 0:
-            print("Please enter a non-negative integer.")
+            get_ui().say("Please enter a non-negative integer.")
             continue
         if keyspace_limit == 0:
-            print(
+            get_ui().warn(
                 "[!] No limit: an oversized combination could run for a very long time."
             )
         break
@@ -421,23 +436,29 @@ def fingerprint_crack(ctx: Any) -> None:
 def smart_mask_crack(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("Smart Mask")
     while True:
-        limit_raw = input(
-            "\nSkip a template if it would exceed this many candidates "
-            "(default 50,000,000,000, 0 for no limit): "
-        ).strip()
+        limit_raw = (
+            get_ui()
+            .ask(
+                "\nSkip a template if it would exceed this many candidates "
+                "(default 50,000,000,000, 0 for no limit): "
+            )
+            .strip()
+        )
         if limit_raw == "":
             keyspace_limit = None  # hcatSmartMask applies its own default
             break
         try:
             keyspace_limit = int(limit_raw)
         except ValueError:
-            print("Please enter a non-negative integer.")
+            get_ui().say("Please enter a non-negative integer.")
             continue
         if keyspace_limit < 0:
-            print("Please enter a non-negative integer.")
+            get_ui().say("Please enter a non-negative integer.")
             continue
         if keyspace_limit == 0:
-            print("[!] No limit: an oversized template could run for a very long time.")
+            get_ui().warn(
+                "[!] No limit: an oversized template could run for a very long time."
+            )
         break
 
     ctx.hcatSmartMask(ctx.hcatHashType, ctx.hcatHashFile, keyspace_limit=keyspace_limit)
@@ -445,16 +466,19 @@ def smart_mask_crack(ctx: Any) -> None:
 
 def combinator_crack(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("Combinator")
-    print("\n" + "=" * 60)
-    print("COMBINATOR ATTACK")
-    print("=" * 60)
-    print(
+    get_ui().say("\n" + "=" * 60)
+    get_ui().say("COMBINATOR ATTACK")
+    get_ui().say("=" * 60)
+    get_ui().say(
         "Combines 2-8 wordlists. 2 uses hashcat native mode; 3+ use external binaries."
     )
-    print("=" * 60)
+    get_ui().say("=" * 60)
 
     use_default = (
-        input("\nUse default combinator wordlists from config? (Y/n): ").strip().lower()
+        get_ui()
+        .ask("\nUse default combinator wordlists from config? (Y/n): ")
+        .strip()
+        .lower()
     )
 
     if use_default != "n":
@@ -464,21 +488,25 @@ def combinator_crack(ctx: Any) -> None:
             ctx._resolve_wordlist_path(wl, ctx.hcatWordlists) for wl in wordlists
         ]
         if len(wordlists) < 2:
-            print("\n[!] Config does not have at least 2 wordlists.")
-            print("Set hcatCombinationWordlist to a list of 2+ paths in config.json.")
-            print("Aborting combinator attack.")
+            get_ui().warn("\n[!] Config does not have at least 2 wordlists.")
+            get_ui().say(
+                "Set hcatCombinationWordlist to a list of 2+ paths in config.json."
+            )
+            get_ui().say("Aborting combinator attack.")
             return
         separator = ""
     else:
-        print("\nEnter 2-8 wordlists. Enter a blank line when done.")
+        get_ui().say("\nEnter 2-8 wordlists. Enter a blank line when done.")
         wordlists = _prompt_wordlist_paths(ctx, max_count=8)
         if len(wordlists) < 2:
-            print("\n[!] Combinator attack requires at least 2 wordlists.")
-            print("Aborting combinator attack.")
+            get_ui().warn("\n[!] Combinator attack requires at least 2 wordlists.")
+            get_ui().say("Aborting combinator attack.")
             return
-        separator = input(
-            "\nEnter separator between words (leave blank for none): "
-        ).strip()
+        separator = (
+            get_ui()
+            .ask("\nEnter separator between words (leave blank for none): ")
+            .strip()
+        )
 
     if len(wordlists) == 2 and not separator:
         ctx.hcatCombination(ctx.hcatHashType, ctx.hcatHashFile, wordlists)
@@ -492,35 +520,38 @@ def combinator_crack(ctx: Any) -> None:
 
 def hybrid_crack(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("Hybrid")
-    print("\n" + "=" * 60)
-    print("HYBRID ATTACK")
-    print("=" * 60)
-    print("This attack combines wordlists with masks to generate candidates.")
-    print("Examples:")
-    print("  - Mode 6: wordlist + mask (e.g., 'password' + '123')")
-    print("  - Mode 7: mask + wordlist (e.g., '123' + 'password')")
-    print("=" * 60)
+    get_ui().say("\n" + "=" * 60)
+    get_ui().say("HYBRID ATTACK")
+    get_ui().say("=" * 60)
+    get_ui().say("This attack combines wordlists with masks to generate candidates.")
+    get_ui().say("Examples:")
+    get_ui().say("  - Mode 6: wordlist + mask (e.g., 'password' + '123')")
+    get_ui().say("  - Mode 7: mask + wordlist (e.g., '123' + 'password')")
+    get_ui().say("=" * 60)
 
     use_default = (
-        input("\nUse default hybrid wordlist from config? (Y/n): ").strip().lower()
+        get_ui()
+        .ask("\nUse default hybrid wordlist from config? (Y/n): ")
+        .strip()
+        .lower()
     )
 
     if use_default not in ("n", "no"):
-        print("\nUsing default wordlist(s) from config:")
+        get_ui().say("\nUsing default wordlist(s) from config:")
         if isinstance(ctx.hcatHybridlist, list):
             for wl in ctx.hcatHybridlist:
-                print(f"  - {wl}")
+                get_ui().say(f"  - {wl}")
             wordlists = ctx.hcatHybridlist
         else:
-            print(f"  - {ctx.hcatHybridlist}")
+            get_ui().say(f"  - {ctx.hcatHybridlist}")
             wordlists = [ctx.hcatHybridlist]
     else:
-        print("\nSelect wordlist(s) for hybrid attack.")
-        print("You can enter:")
-        print("  - A single file path")
-        print("  - A directory, whose wordlists are all used")
-        print("  - Multiple paths separated by commas")
-        print("  - Press TAB to autocomplete file paths")
+        get_ui().say("\nSelect wordlist(s) for hybrid attack.")
+        get_ui().say("You can enter:")
+        get_ui().say("  - A single file path")
+        get_ui().say("  - A directory, whose wordlists are all used")
+        get_ui().say("  - Multiple paths separated by commas")
+        get_ui().say("  - Press TAB to autocomplete file paths")
 
         selection = ctx.select_file_with_autocomplete(
             "Enter wordlist file(s) or directory (comma-separated for multiple)",
@@ -529,7 +560,7 @@ def hybrid_crack(ctx: Any) -> None:
         )
 
         if not selection:
-            print("No wordlist selected. Aborting hybrid attack.")
+            get_ui().say("No wordlist selected. Aborting hybrid attack.")
             return
 
         if isinstance(selection, str):
@@ -545,28 +576,28 @@ def hybrid_crack(ctx: Any) -> None:
                 # rejecting it here would make a glob usable from config.json
                 # but not from this prompt.
                 valid_wordlists.append(resolved)
-                print(f"✓ Pattern: {resolved}")
+                get_ui().success(f"✓ Pattern: {resolved}")
             elif os.path.isdir(resolved):
                 # Same reasoning as the glob above: hcatHybrid expands the
                 # directory into the wordlists inside it.
                 valid_wordlists.append(resolved)
-                print(f"✓ Directory: {resolved}")
+                get_ui().success(f"✓ Directory: {resolved}")
             elif os.path.isfile(resolved):
                 valid_wordlists.append(resolved)
-                print(f"✓ Found: {resolved}")
+                get_ui().success(f"✓ Found: {resolved}")
             else:
-                print(f"✗ Not found: {resolved}")
+                get_ui().error(f"✗ Not found: {resolved}")
 
         if not valid_wordlists:
-            print("\nNo valid wordlists found. Aborting hybrid attack.")
+            get_ui().say("\nNo valid wordlists found. Aborting hybrid attack.")
             return
 
         wordlists = valid_wordlists
     wordlists = [ctx._resolve_wordlist_path(wl, ctx.hcatWordlists) for wl in wordlists]
 
-    print(f"\nStarting hybrid attack with {len(wordlists)} wordlist(s)...")
-    print(f"Hash type: {ctx.hcatHashType}")
-    print(f"Hash file: {ctx.hcatHashFile}")
+    get_ui().say(f"\nStarting hybrid attack with {len(wordlists)} wordlist(s)...")
+    get_ui().say(f"Hash type: {ctx.hcatHashType}")
+    get_ui().say(f"Hash file: {ctx.hcatHashFile}")
 
     ctx.hcatHybrid(ctx.hcatHashType, ctx.hcatHashFile, wordlists)
 
@@ -583,31 +614,33 @@ def corporate_masks_crack(ctx: Any) -> None:
     analysis of 3.2M NTLM hashes cracked on real engagements. Longer lengths
     cost exponentially more keyspace.
     """
-    print("\n" + "=" * 60)
-    print("CORPORATE MASKS ATTACK")
-    print("=" * 60)
-    print("Statistical masks (8-14 chars) derived from 3.2M NTLM hashes")
-    print("cracked on real engagements. Longer lengths cost dramatically")
-    print("more keyspace.")
-    print("=" * 60)
+    get_ui().say("\n" + "=" * 60)
+    get_ui().say("CORPORATE MASKS ATTACK")
+    get_ui().say("=" * 60)
+    get_ui().say("Statistical masks (8-14 chars) derived from 3.2M NTLM hashes")
+    get_ui().say("cracked on real engagements. Longer lengths cost dramatically")
+    get_ui().say("more keyspace.")
+    get_ui().say("=" * 60)
 
     ceiling = ctx.CORPORATE_MASK_MAX_LEN
 
     def _prompt_length(label: str, floor: int, default: int) -> int:
         """Prompt for a mask length in *floor*..*ceiling*, until it's valid."""
         while True:
-            raw = input(f"\nEnter {label} length ({floor}-{ceiling}) ({default}): ")
+            raw = get_ui().ask(
+                f"\nEnter {label} length ({floor}-{ceiling}) ({default}): "
+            )
             raw = raw.strip()
             if raw == "":
                 return default
             try:
                 value = int(raw)
             except ValueError:
-                print(f"Please enter an integer between {floor} and {ceiling}.")
+                get_ui().say(f"Please enter an integer between {floor} and {ceiling}.")
                 continue
             if floor <= value <= ceiling:
                 return value
-            print(f"Please enter an integer between {floor} and {ceiling}.")
+            get_ui().say(f"Please enter an integer between {floor} and {ceiling}.")
 
     min_len = _prompt_length(
         "minimum", ctx.CORPORATE_MASK_MIN_LEN, ctx.CORPORATE_MASK_MIN_LEN
@@ -643,17 +676,17 @@ def spoonman_attack(ctx: Any) -> None:
 
     Contributed as issue #169 by @Spoonman1091.
     """
-    print("\n" + "=" * 60)
-    print("SPOONMAN ATTACK")
-    print("=" * 60)
-    print("Derives a baseword list and hashcat rules from a corpus of known")
-    print("passwords, such as a previous engagement's cracked output.")
-    print("Against passwords it has not seen, the rule side saturates fast:")
-    print("the full rule set reaches only about three times what the top 50%")
-    print("does, for roughly 35x the rules. Most of what it misses is a")
-    print("missing baseword, not a missing rule — so the baseword source")
-    print("below is usually the setting that matters.")
-    print("=" * 60)
+    get_ui().say("\n" + "=" * 60)
+    get_ui().say("SPOONMAN ATTACK")
+    get_ui().say("=" * 60)
+    get_ui().say("Derives a baseword list and hashcat rules from a corpus of known")
+    get_ui().say("passwords, such as a previous engagement's cracked output.")
+    get_ui().say("Against passwords it has not seen, the rule side saturates fast:")
+    get_ui().say("the full rule set reaches only about three times what the top 50%")
+    get_ui().say("does, for roughly 35x the rules. Most of what it misses is a")
+    get_ui().say("missing baseword, not a missing rule — so the baseword source")
+    get_ui().say("below is usually the setting that matters.")
+    get_ui().say("=" * 60)
 
     def _prompt_for_corpus_path() -> str:
         return ctx.select_file_with_autocomplete(
@@ -678,10 +711,10 @@ def spoonman_attack(ctx: Any) -> None:
         corpus = _prompt_for_corpus_path()
 
     if not corpus:
-        print("[!] No corpus specified.")
+        get_ui().warn("[!] No corpus specified.")
         return
     if not os.path.isfile(corpus):
-        print(f"[!] Corpus not found: {corpus}")
+        get_ui().warn(f"[!] Corpus not found: {corpus}")
         return
 
     items = [
@@ -757,7 +790,7 @@ def _pick_spoonman_basewords(
                 for entry in ctx.list_wordlist_entries(ctx.hcatWordlists)
             ]
             if not extra:
-                print(
+                get_ui().warn(
                     f"\t[!] No wordlists found in {ctx.hcatWordlists}; "
                     "using the derived basewords only."
                 )
@@ -768,34 +801,36 @@ def _pick_spoonman_basewords(
             # corpus, the top-50% rules against a 5,000-baseword cap reached
             # 0.4% of unseen passwords for 0.011e9 candidates, against 1.6%
             # for 0.338e9 candidates uncapped.
-            print("\n\t[*] Capping the baseword list trades reach for keyspace:")
-            print("\t    in testing a 5,000-baseword cap reached roughly a")
-            print("\t    quarter of the uncapped reach for about a thirtieth of")
-            print("\t    the candidates. Use it to fit a run in the time you")
-            print("\t    have, not to make it more accurate.")
+            get_ui().say("\n\t[*] Capping the baseword list trades reach for keyspace:")
+            get_ui().say("\t    in testing a 5,000-baseword cap reached roughly a")
+            get_ui().say("\t    quarter of the uncapped reach for about a thirtieth of")
+            get_ui().say("\t    the candidates. Use it to fit a run in the time you")
+            get_ui().say("\t    have, not to make it more accurate.")
             cap = _prompt_positive_int(
                 "\n\tMost frequent basewords to keep (blank or 0 = no cap): ",
                 None,
             )
             if cap is None:
-                print("\t[*] No cap applied; using the full derived baseword list.")
+                get_ui().say(
+                    "\t[*] No cap applied; using the full derived baseword list."
+                )
             return None, cap
-        print("\t[!] Invalid selection.")
+        get_ui().warn("\t[!] Invalid selection.")
 
 
 def _prompt_positive_int(prompt: str, default: int | None) -> int | None:
     """Prompt for a positive integer. Blank keeps *default*, 0 means unlimited."""
     while True:
-        raw = input(prompt).strip()
+        raw = get_ui().ask(prompt).strip()
         if not raw:
             return default
         try:
             value = int(raw)
         except ValueError:
-            print("[!] Enter a number.")
+            get_ui().warn("[!] Enter a number.")
             continue
         if value < 0:
-            print("[!] Enter zero or a positive number.")
+            get_ui().warn("[!] Enter zero or a positive number.")
             continue
         return value or None
 
@@ -834,23 +869,23 @@ def _select_debug_logs(ctx) -> list[str] | None:
             "\n[*] Enter path to hashcat debug log", base_dir=ctx.hcatDebugLogPath
         ).strip()
         if not path:
-            print("[!] No debug log specified.")
+            get_ui().warn("[!] No debug log specified.")
             return None
         if not os.path.isfile(path):
-            print(f"[!] Debug log not found: {path}")
+            get_ui().warn(f"[!] Debug log not found: {path}")
             return None
         return [path]
     if choice.isdigit() and 1 <= int(choice) <= len(logs[:20]):
         return [logs[int(choice) - 1]]
-    print("[!] Invalid selection.")
+    get_ui().warn("[!] Invalid selection.")
     return None
 
 
 def rosetta_attack(ctx: Any) -> None:
     """Mine debug-mode logs for winning rules/basewords, or run an LLM mask attack."""
-    print("\n" + "=" * 60)
-    print("ROSETTA ATTACK")
-    print("=" * 60)
+    get_ui().say("\n" + "=" * 60)
+    get_ui().say("ROSETTA ATTACK")
+    get_ui().say("=" * 60)
 
     items = [
         ("1", "Application frequency (rules applied most often)"),
@@ -864,27 +899,31 @@ def rosetta_attack(ctx: Any) -> None:
         return
 
     if choice == "4":
-        description = input(
-            "\n[*] Describe the passwords you expect (patterns, length, "
-            "symbols, etc.): "
-        ).strip()
+        description = (
+            get_ui()
+            .ask(
+                "\n[*] Describe the passwords you expect (patterns, length, "
+                "symbols, etc.): "
+            )
+            .strip()
+        )
         if not description:
-            print("[!] Description cannot be empty.")
+            get_ui().warn("[!] Description cannot be empty.")
             return
         _notify.prompt_notify_for_attack("Rosetta Mask")
         ctx.hcatRosettaMask(ctx.hcatHashType, ctx.hcatHashFile, description)
         return
 
-    print("Mines hashcat --debug-mode 5 logs, which hate_crack writes for every")
-    print("rule-based attack, for the basewords and rules that actually cracked")
-    print("something. Those are then run as a full cross product: each winning")
-    print("rule gets tried against every winning baseword, not just the one it")
-    print("was originally paired with.")
-    print("=" * 60)
+    get_ui().say("Mines hashcat --debug-mode 5 logs, which hate_crack writes for every")
+    get_ui().say("rule-based attack, for the basewords and rules that actually cracked")
+    get_ui().say("something. Those are then run as a full cross product: each winning")
+    get_ui().say("rule gets tried against every winning baseword, not just the one it")
+    get_ui().say("was originally paired with.")
+    get_ui().say("=" * 60)
 
     metric = {"1": "frequency", "2": "basewords", "3": "candidates"}.get(choice)
     if metric is None:
-        print("[!] Invalid selection.")
+        get_ui().warn("[!] Invalid selection.")
         return
 
     debug_files = _select_debug_logs(ctx)
@@ -961,18 +1000,20 @@ def _prompt_wordlist_paths(ctx, max_count: int) -> list[str]:
     collected: list[str] = []
     count = 1
     while len(collected) < max_count:
-        raw = input(
-            f"\nWordlist #{count} (tab to autocomplete, blank to finish): "
-        ).strip()
+        raw = (
+            get_ui()
+            .ask(f"\nWordlist #{count} (tab to autocomplete, blank to finish): ")
+            .strip()
+        )
         if not raw:
             break
         resolved = ctx._resolve_wordlist_path(raw, ctx.hcatWordlists)
         if os.path.isfile(resolved):
             collected.append(resolved)
-            print(f"Added: {resolved}")
+            get_ui().say(f"Added: {resolved}")
             count += 1
         else:
-            print(f"Not found: {resolved}")
+            get_ui().say(f"Not found: {resolved}")
     readline.set_completer(None)
     return collected
 
@@ -996,7 +1037,9 @@ def _research_target_suggestions(ctx: Any, company: str) -> dict[str, str]:
     try:
         raw = ctx.hcatOllamaResearchTarget(company)
     except Exception as e:
-        print(f"Note: target research unavailable ({e}) — enter the details manually.")
+        get_ui().say(
+            f"Note: target research unavailable ({e}) — enter the details manually."
+        )
         return {}
 
     suggestions = {}
@@ -1007,11 +1050,11 @@ def _research_target_suggestions(ctx: Any, company: str) -> dict[str, str]:
                 suggestions[key] = value
 
     if suggestions:
-        print(
+        get_ui().warn(
             "\n[!] The values in parentheses below are the local model's GUESSES, "
             "not verified OSINT."
         )
-        print("    Press Enter to accept, or type your own value to override.")
+        get_ui().say("    Press Enter to accept, or type your own value to override.")
     return suggestions
 
 
@@ -1019,8 +1062,8 @@ def _prompt_with_default(label: str, default: Any) -> str:
     """Prompt for *label*, showing *default* in parentheses when there is one."""
     suggestion = clean_research_field(default)
     if suggestion:
-        return input(f"{label} ({suggestion}): ").strip() or suggestion
-    return input(f"{label}: ").strip()
+        return get_ui().ask(f"{label} ({suggestion}): ").strip() or suggestion
+    return get_ui().ask(f"{label}: ").strip()
 
 
 def _offer_cracked_or(
@@ -1051,7 +1094,7 @@ def _offer_cracked_or(
             return cracked_path
         if choice == "2":
             return fallback()
-        print("\t[!] Invalid selection.")
+        get_ui().warn("\t[!] Invalid selection.")
 
 
 def _pick_pattern_source(ctx: Any, cracked_path: str | None):
@@ -1097,7 +1140,7 @@ def ollama_attack(ctx: Any) -> None:
         if choice is None or choice == "99":
             return
         if choice == "1":
-            company = input("Company name: ").strip()
+            company = get_ui().ask("Company name: ").strip()
             suggestions = _research_target_suggestions(ctx, company)
             industry = _prompt_with_default("Industry", suggestions.get("industry"))
             location = _prompt_with_default("Location", suggestions.get("location"))
@@ -1136,7 +1179,7 @@ def ollama_attack(ctx: Any) -> None:
         else:
             # Without this the menu just silently redraws and the user cannot
             # tell a rejected key from a repainted prompt.
-            print("\t[!] Invalid selection.")
+            get_ui().warn("\t[!] Invalid selection.")
 
 
 def _pick_training_wordlist(ctx: Any, title: str = "Training Wordlists"):
@@ -1159,8 +1202,8 @@ def _pick_training_wordlist(ctx: Any, title: str = "Training Wordlists"):
             max_col_width=max_len,
             styles=entry_styles,
         )
-    print("\tp. Enter a custom path")
-    print("\tq. Cancel")
+    get_ui().say("\tp. Enter a custom path")
+    get_ui().say("\tq. Cancel")
     # The numbered entries are not the only valid answer -- a path typed here
     # should tab-complete like every other wordlist prompt does.
     _configure_readline(_wordlist_path_completer(ctx))
@@ -1172,7 +1215,7 @@ def _pick_training_wordlist(ctx: Any, title: str = "Training Wordlists"):
 
 def _pick_training_wordlist_loop(ctx: Any, entries_meta):
     while True:
-        sel = input("\n\tSelect wordlist: ").strip()
+        sel = get_ui().ask("\n\tSelect wordlist: ").strip()
         if sel.lower() == "q":
             return None
         if sel.lower() == "p":
@@ -1194,7 +1237,7 @@ def _pick_training_wordlist_loop(ctx: Any, entries_meta):
                     # Training takes one corpus file. Refusing here beats
                     # failing inside hcatOmenTrain/hcatMarkovTrain, where the
                     # error names a path and not the mistake.
-                    print(
+                    get_ui().warn(
                         f"\t[!] {entry.name}/ is a directory. "
                         "Pick a single file, or use 'p' for a path."
                     )
@@ -1208,20 +1251,22 @@ def _pick_training_wordlist_loop(ctx: Any, entries_meta):
         if candidate and os.path.isfile(candidate):
             return candidate
         if candidate and os.path.isdir(candidate):
-            print(f"\t[!] {sel} is a directory. Training takes a single corpus file.")
+            get_ui().warn(
+                f"\t[!] {sel} is a directory. Training takes a single corpus file."
+            )
             continue
-        print("\t[!] Invalid selection.")
+        get_ui().warn("\t[!] Invalid selection.")
 
 
 def omen_attack(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("OMEN")
-    print("\n\tOMEN Attack (Ordered Markov ENumerator)")
+    get_ui().say("\n\tOMEN Attack (Ordered Markov ENumerator)")
     omen_dir = os.path.join(ctx.hate_path, "omen")
     create_bin = os.path.join(omen_dir, ctx.hcatOmenCreateBin)
     enum_bin = os.path.join(omen_dir, ctx.hcatOmenEnumBin)
     if not os.path.isfile(create_bin) or not os.path.isfile(enum_bin):
-        print("\n\tOMEN binaries not found. Build them with:")
-        print(f"\t  cd {omen_dir} && make")
+        get_ui().say("\n\tOMEN binaries not found. Build them with:")
+        get_ui().say(f"\t  cd {omen_dir} && make")
         return
 
     model_dir = ctx._omen_model_dir()
@@ -1231,7 +1276,7 @@ def omen_attack(ctx: Any) -> None:
     if model_valid:
         info = ctx._omen_model_info(model_dir)
         trained_with = info.get("training_file", "unknown") if info else "unknown"
-        print(f"\n\tOMEN model found (trained with: {trained_with})")
+        get_ui().say(f"\n\tOMEN model found (trained with: {trained_with})")
         model_items = [
             ("1", "Use existing model"),
             ("2", "Train new model (overwrites existing)"),
@@ -1252,16 +1297,16 @@ def omen_attack(ctx: Any) -> None:
                 break
             # Without this the menu just repaints and a rejected key is
             # indistinguishable from one the terminal never delivered.
-            print("\t[!] Invalid selection.")
+            get_ui().warn("\t[!] Invalid selection.")
     else:
-        print("\n\tNo valid OMEN model found. Training is required.")
+        get_ui().say("\n\tNo valid OMEN model found. Training is required.")
 
     if need_training:
         training_file = _pick_training_wordlist(ctx)
         if not training_file:
             return
         if not ctx.hcatOmenTrain(training_file):
-            print("\n\t[!] Training failed. Aborting OMEN attack.")
+            get_ui().warn("\n\t[!] Training failed. Aborting OMEN attack.")
             return
 
     # Validated here rather than at the point of use: the rules picker runs
@@ -1308,10 +1353,10 @@ def _markov_pick_training_source(ctx: Any):
             max_col_width=max_len,
             styles=entry_styles,
         )
-    print("\tp. Enter a custom path")
-    print("\tq. Cancel")
+    get_ui().say("\tp. Enter a custom path")
+    get_ui().say("\tq. Cancel")
     while True:
-        sel = input("\n\tSelect training source: ").strip()
+        sel = get_ui().ask("\n\tSelect training source: ").strip()
         if sel.lower() == "q":
             return None
         if sel == "0" and has_cracked:
@@ -1329,7 +1374,7 @@ def _markov_pick_training_source(ctx: Any):
                     # Training takes one corpus file. Refusing here beats
                     # failing inside hcatOmenTrain/hcatMarkovTrain, where the
                     # error names a path and not the mistake.
-                    print(
+                    get_ui().warn(
                         f"\t[!] {entry.name}/ is a directory. "
                         "Pick a single file, or use 'p' for a path."
                     )
@@ -1337,7 +1382,7 @@ def _markov_pick_training_source(ctx: Any):
                 return os.path.join(ctx.hcatWordlists, entry.name)
         except (ValueError, IndexError):
             pass
-        print("\t[!] Invalid selection.")
+        get_ui().warn("\t[!] Invalid selection.")
 
 
 # hashcat <= 6 has -1 through -4; hashcat 7 added -5 through -8.
@@ -1394,7 +1439,7 @@ def _warn_if_extended_unsupported(ctx: Any, slots: list[int]) -> None:
     major = _hashcat_major(ctx)
     if major is None or major >= _EXTENDED_CHARSET_MAJOR:
         return
-    print(
+    get_ui().warn(
         f"\t[!] ?5-?8 need hashcat 7 or newer; this is hashcat {major}. "
         "The mask will be rejected."
     )
@@ -1407,15 +1452,18 @@ def _prompt_increment() -> tuple[bool, str, str]:
     blank answer stays blank all the way down to the command builder — an
     omitted bound is hashcat's own default, not a number to invent here.
     """
-    if input("\nIncrement mask length? (y/N): ").strip().lower() not in ("y", "yes"):
+    if get_ui().ask("\nIncrement mask length? (y/N): ").strip().lower() not in (
+        "y",
+        "yes",
+    ):
         return False, "", ""
 
-    print("\tLeave both blank to increment over the full keyspace of the mask.")
+    get_ui().say("\tLeave both blank to increment over the full keyspace of the mask.")
     low = _prompt_length("\tIncrement min [blank for full keyspace]: ")
     while True:
         high = _prompt_length("\tIncrement max [blank for full keyspace]: ")
         if low and high and int(high) < int(low):
-            print(f"\t[!] Increment max must be at least {low}.")
+            get_ui().warn(f"\t[!] Increment max must be at least {low}.")
             continue
         return True, low, high
 
@@ -1423,20 +1471,20 @@ def _prompt_increment() -> tuple[bool, str, str]:
 def _prompt_length(prompt: str) -> str:
     """Read an optional positive integer, re-asking until the answer is one."""
     while True:
-        answer = input(prompt).strip()
+        answer = get_ui().ask(prompt).strip()
         if not answer:
             return ""
         if answer.isdigit() and int(answer) > 0:
             return answer
-        print("\t[!] Enter a positive whole number, or leave blank.")
+        get_ui().warn("\t[!] Enter a positive whole number, or leave blank.")
 
 
 def adhoc_mask_crack(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("Ad-hoc Mask")
-    print("\n\tAd-hoc Mask Attack")
-    print("\t1. Type a mask")
-    print("\t2. Use a mask file (.hcmask)")
-    choice = input("\tSelect [1]: ").strip() or "1"
+    get_ui().say("\n\tAd-hoc Mask Attack")
+    get_ui().say("\t1. Type a mask")
+    get_ui().say("\t2. Use a mask file (.hcmask)")
+    choice = get_ui().ask("\tSelect [1]: ").strip() or "1"
 
     if choice == "2":
         masks_dir = os.path.join(ctx.hate_path, "masks")
@@ -1448,7 +1496,7 @@ def adhoc_mask_crack(ctx: Any) -> None:
         if not mask:
             return
         if not os.path.isfile(mask):
-            print(f"\t[!] Mask file not found: {mask}")
+            get_ui().warn(f"\t[!] Mask file not found: {mask}")
             return
         increment, inc_min, inc_max = _prompt_increment()
         ctx.hcatAdHocMask(
@@ -1463,11 +1511,11 @@ def adhoc_mask_crack(ctx: Any) -> None:
         return
 
     custom_range = "?1-?8" if _extended_charsets_available(ctx) else "?1-?4"
-    print(
+    get_ui().say(
         "\nEnter a hashcat mask. Tokens: ?l=lower ?u=upper ?d=digit ?s=special "
         f"?a=all ?b=binary {custom_range}=custom"
     )
-    mask = input("Mask (e.g. ?u?l?l?l?d?d): ").strip()
+    mask = get_ui().ask("Mask (e.g. ?u?l?l?l?d?d): ").strip()
     if not mask:
         return
 
@@ -1476,14 +1524,14 @@ def adhoc_mask_crack(ctx: Any) -> None:
 
     charset_flags = []
     for i in slots:
-        cs = input(f"Custom charset -{i} [leave blank to skip]: ").strip()
+        cs = get_ui().ask(f"Custom charset -{i} [leave blank to skip]: ").strip()
         if cs:
             charset_flags.extend([f"-{i}", cs])
         else:
             # A blank answer skips this slot only: a mask may use ?1 and ?3
             # without defining ?2 (issue #205). Since the slot was only asked
             # about because the mask uses it, say what skipping costs.
-            print(
+            get_ui().warn(
                 f"\t[!] ?{i} is used in the mask but left undefined - "
                 "hashcat will reject the mask."
             )
@@ -1503,16 +1551,16 @@ def adhoc_mask_crack(ctx: Any) -> None:
 
 def markov_brute_force(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("Markov Brute Force")
-    print("\n\tMarkov Brute Force Attack")
+    get_ui().say("\n\tMarkov Brute Force Attack")
     hcstat2_path = f"{ctx.hcatHashFile}.hcstat2"
     need_training = True
 
     if os.path.isfile(hcstat2_path):
-        print(f"\n\tMarkov table found: {hcstat2_path}")
-        print("\t1. Use existing table")
-        print("\t2. Generate new table (overwrites existing)")
-        print("\t3. Cancel")
-        choice = input("\n\tChoice: ").strip()
+        get_ui().say(f"\n\tMarkov table found: {hcstat2_path}")
+        get_ui().say("\t1. Use existing table")
+        get_ui().say("\t2. Generate new table (overwrites existing)")
+        get_ui().say("\t3. Cancel")
+        choice = get_ui().ask("\n\tChoice: ").strip()
         if choice == "1":
             need_training = False
         elif choice == "3":
@@ -1520,21 +1568,21 @@ def markov_brute_force(ctx: Any) -> None:
         elif choice != "2":
             return
     else:
-        print("\n\tNo markov table found. Generation is required.")
+        get_ui().say("\n\tNo markov table found. Generation is required.")
 
     if need_training:
         source = _markov_pick_training_source(ctx)
         if not source:
             return
         if not ctx.hcatMarkovTrain(source, ctx.hcatHashFile):
-            print("\n\t[!] Markov table generation failed. Aborting.")
+            get_ui().warn("\n\t[!] Markov table generation failed. Aborting.")
             return
 
     hcatMinLen = int(
-        input("\nEnter the minimum password length to brute force (1): ") or 1
+        get_ui().ask("\nEnter the minimum password length to brute force (1): ") or 1
     )
     hcatMaxLen = int(
-        input("\nEnter the maximum password length to brute force (7): ") or 7
+        get_ui().ask("\nEnter the maximum password length to brute force (7): ") or 7
     )
     ctx.hcatMarkovBruteForce(ctx.hcatHashType, ctx.hcatHashFile, hcatMinLen, hcatMaxLen)
 
@@ -1550,43 +1598,47 @@ def combipow_crack(ctx: Any) -> None:
         if not path:
             continue
         if not os.path.isfile(path):
-            print(f"[!] File not found: {path}")
+            get_ui().warn(f"[!] File not found: {path}")
             continue
         with ctx._open_wordlist(path) as fh:
             line_count = sum(1 for _ in fh)
         if line_count > 63:
-            print(
+            get_ui().warn(
                 f"[!] Wordlist has {line_count} lines (max 63). combipow generates 2^n-1 combinations."
             )
             return
         if line_count > 20:
-            print(
+            get_ui().say(
                 f"[*] Warning: {line_count} lines will generate a large number of combinations."
             )
         wordlist = path
-    use_space_sep = input("\nAdd spaces between words? (Y/n): ").strip().lower() != "n"
+    use_space_sep = (
+        get_ui().ask("\nAdd spaces between words? (Y/n): ").strip().lower() != "n"
+    )
     ctx.hcatCombipow(ctx.hcatHashType, ctx.hcatHashFile, wordlist, use_space_sep)
 
 
 def generate_rules_crack(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("Random Rules")
-    print("\n" + "=" * 60)
-    print("RANDOM RULES ATTACK")
-    print("=" * 60)
-    print("Generates random hashcat mutation rules and applies them to a wordlist.")
-    print(
+    get_ui().say("\n" + "=" * 60)
+    get_ui().say("RANDOM RULES ATTACK")
+    get_ui().say("=" * 60)
+    get_ui().say(
+        "Generates random hashcat mutation rules and applies them to a wordlist."
+    )
+    get_ui().say(
         "Use when known rulesets are exhausted - a chaos mode for rule-space exploration."
     )
-    print("=" * 60)
+    get_ui().say("=" * 60)
 
-    raw_count = input("\nNumber of random rules to generate (65536): ").strip()
+    raw_count = get_ui().ask("\nNumber of random rules to generate (65536): ").strip()
     try:
         rule_count = int(raw_count) if raw_count else 65536
         if rule_count < 1:
-            print("[!] Rule count must be at least 1.")
+            get_ui().warn("[!] Rule count must be at least 1.")
             return
     except ValueError:
-        print("[!] Invalid rule count.")
+        get_ui().warn("[!] Invalid rule count.")
         return
 
     entries_meta = ctx.list_wordlist_entries(ctx.hcatWordlists)
@@ -1627,7 +1679,7 @@ def generate_rules_crack(ctx: Any) -> None:
     wordlist_choice = None
     while wordlist_choice is None:
         try:
-            raw_choice = input(
+            raw_choice = get_ui().ask(
                 "\nEnter path of wordlist (tab to autocomplete).\n"
                 f"Press Enter for default wordlist directory [{ctx.hcatWordlists}]: "
             )
@@ -1640,17 +1692,17 @@ def generate_rules_crack(ctx: Any) -> None:
                 )
                 if os.path.isdir(chosen) or os.path.isfile(chosen):
                     wordlist_choice = chosen
-                    print(wordlist_choice)
+                    get_ui().say(wordlist_choice)
                 else:
-                    print(f"[!] {chosen} no longer exists.")
+                    get_ui().warn(f"[!] {chosen} no longer exists.")
             elif os.path.exists(raw_choice):
                 wordlist_choice = raw_choice
             else:
-                print("[!] Wordlist not found. Please enter a valid path.")
+                get_ui().warn("[!] Wordlist not found. Please enter a valid path.")
                 readline.set_completer(None)
                 return
         except ValueError:
-            print("Please enter a valid number.")
+            get_ui().say("Please enter a valid number.")
     readline.set_completer(None)
 
     ctx.hcatGenerateRules(
@@ -1659,39 +1711,39 @@ def generate_rules_crack(ctx: Any) -> None:
 
 
 def restore_potfile_output(ctx: Any) -> None:
-    print("\n" + "=" * 60)
-    print("REGENERATE .out FROM POT FILE")
-    print("=" * 60)
-    print("Rebuilds <hashfile>.out from the hashcat POT file, replacing its")
-    print("current contents. Useful when the output file has been truncated or")
-    print("lost but the POT file still holds the cracked hashes.")
-    print("=" * 60 + "\n")
+    get_ui().say("\n" + "=" * 60)
+    get_ui().say("REGENERATE .out FROM POT FILE")
+    get_ui().say("=" * 60)
+    get_ui().say("Rebuilds <hashfile>.out from the hashcat POT file, replacing its")
+    get_ui().say("current contents. Useful when the output file has been truncated or")
+    get_ui().say("lost but the POT file still holds the cracked hashes.")
+    get_ui().say("=" * 60 + "\n")
 
     ctx.restore_from_potfile()
 
 
 def ngram_attack(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("N-gram")
-    print("\n" + "=" * 60)
-    print("NGRAM ATTACK")
-    print("=" * 60)
-    print("Generates n-gram candidates from a corpus file via ngramX.bin.")
-    print("Gzip-compressed corpus files are auto-detected and decompressed.")
-    print("=" * 60)
+    get_ui().say("\n" + "=" * 60)
+    get_ui().say("NGRAM ATTACK")
+    get_ui().say("=" * 60)
+    get_ui().say("Generates n-gram candidates from a corpus file via ngramX.bin.")
+    get_ui().say("Gzip-compressed corpus files are auto-detected and decompressed.")
+    get_ui().say("=" * 60)
 
     corpus = ctx.select_file_with_autocomplete(
         "Select corpus file (tab to autocomplete)",
         base_dir=ctx.hcatWordlists,
     )
     if not corpus:
-        print("No corpus selected. Aborting ngram attack.")
+        get_ui().say("No corpus selected. Aborting ngram attack.")
         return
 
-    group_size_raw = input("\nEnter n-gram group size (3): ").strip()
+    group_size_raw = get_ui().ask("\nEnter n-gram group size (3): ").strip()
     try:
         group_size = int(group_size_raw) if group_size_raw else 3
     except ValueError:
-        print("[!] Invalid group size. Using default of 3.")
+        get_ui().warn("[!] Invalid group size. Using default of 3.")
         group_size = 3
 
     ctx.hcatNgramX(ctx.hcatHashType, ctx.hcatHashFile, corpus, group_size)
@@ -1699,15 +1751,19 @@ def ngram_attack(ctx: Any) -> None:
 
 def permute_crack(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("Permute")
-    print("\n" + "=" * 60)
-    print("PERMUTATION ATTACK")
-    print("=" * 60)
-    print("Generates ALL character permutations of each word in a targeted wordlist.")
-    print(
+    get_ui().say("\n" + "=" * 60)
+    get_ui().say("PERMUTATION ATTACK")
+    get_ui().say("=" * 60)
+    get_ui().say(
+        "Generates ALL character permutations of each word in a targeted wordlist."
+    )
+    get_ui().say(
         "WARNING: Scales as N! per word. Only practical for words up to ~8 characters."
     )
-    print("Best for: short targeted wordlists (names, abbreviations, known fragments).")
-    print("=" * 60)
+    get_ui().say(
+        "Best for: short targeted wordlists (names, abbreviations, known fragments)."
+    )
+    get_ui().say("=" * 60)
 
     def path_completer(text, state):
         base = ctx.hcatWordlists
@@ -1731,14 +1787,20 @@ def permute_crack(ctx: Any) -> None:
 
     wordlist_path = None
     while wordlist_path is None:
-        raw = input("\nEnter path to a wordlist FILE (tab to autocomplete): ").strip()
+        raw = (
+            get_ui()
+            .ask("\nEnter path to a wordlist FILE (tab to autocomplete): ")
+            .strip()
+        )
         if not raw:
             continue
         if not os.path.exists(raw):
-            print(f"[!] Path not found: {raw}")
+            get_ui().warn(f"[!] Path not found: {raw}")
             continue
         if os.path.isdir(raw):
-            print("[!] A directory was provided. Please enter a single wordlist file.")
+            get_ui().warn(
+                "[!] A directory was provided. Please enter a single wordlist file."
+            )
             continue
         wordlist_path = raw
     readline.set_completer(None)
@@ -1808,82 +1870,84 @@ def _rule_select_file(ctx: Any, prompt: str = "Rule file: ") -> str:
 
     _configure_readline(rule_completer)
     try:
-        return input(prompt).strip()
+        return get_ui().ask(prompt).strip()
     finally:
         readline.set_completer(None)
 
 
 def rule_cleanup_handler(ctx: Any) -> None:
     """Clean a rule file using cleanup-rules.bin."""
-    print("\nClean rule file - removes invalid and duplicate rules.")
-    print("Reads an input rule file and writes cleaned rules to an output file.\n")
+    get_ui().say("\nClean rule file - removes invalid and duplicate rules.")
+    get_ui().say(
+        "Reads an input rule file and writes cleaned rules to an output file.\n"
+    )
     infile = _rule_select_file(ctx, "Input rule file (tab to autocomplete): ")
     if not infile or not os.path.isfile(infile):
-        print(f"[!] File not found: {infile}")
+        get_ui().warn(f"[!] File not found: {infile}")
         return
     outfile = ctx.select_file_with_autocomplete(
         "Output file path (tab to autocomplete)"
     )
     outfile = outfile.strip() if outfile else ""
     if not outfile:
-        print("[!] Output path required.")
+        get_ui().warn("[!] Output path required.")
         return
-    print(f"\nCleaning {infile} -> {outfile}")
+    get_ui().say(f"\nCleaning {infile} -> {outfile}")
     if ctx.rules_cleanup(infile, outfile):
-        print("[+] Done.")
+        get_ui().say("[+] Done.")
     else:
-        print("[!] Cleanup failed.")
+        get_ui().warn("[!] Cleanup failed.")
 
 
 def rule_optimize_handler(ctx: Any) -> None:
     """Optimize a rule file using rules_optimize.bin."""
-    print("\nOptimize rule file - consolidates redundant operations.")
+    get_ui().say("\nOptimize rule file - consolidates redundant operations.")
     infile = _rule_select_file(ctx, "Input rule file: ")
     if not infile or not os.path.isfile(infile):
-        print(f"[!] File not found: {infile}")
+        get_ui().warn(f"[!] File not found: {infile}")
         return
     outfile = ctx.select_file_with_autocomplete(
         "Output file path (tab to autocomplete)"
     )
     outfile = outfile.strip() if outfile else ""
     if not outfile:
-        print("[!] Output path required.")
+        get_ui().warn("[!] Output path required.")
         return
-    print(f"\nOptimizing {infile} -> {outfile}")
+    get_ui().say(f"\nOptimizing {infile} -> {outfile}")
     if ctx.rules_optimize(infile, outfile):
-        print("[+] Done.")
+        get_ui().say("[+] Done.")
     else:
-        print("[!] Optimize failed.")
+        get_ui().warn("[!] Optimize failed.")
 
 
 def rule_cleanup_and_optimize_handler(ctx: Any) -> None:
     """Clean then optimize a rule file."""
     import tempfile
 
-    print("\nClean and optimize rule file (both operations in sequence).")
+    get_ui().say("\nClean and optimize rule file (both operations in sequence).")
     infile = _rule_select_file(ctx, "Input rule file: ")
     if not infile or not os.path.isfile(infile):
-        print(f"[!] File not found: {infile}")
+        get_ui().warn(f"[!] File not found: {infile}")
         return
     outfile = ctx.select_file_with_autocomplete(
         "Output file path (tab to autocomplete)"
     )
     outfile = outfile.strip() if outfile else ""
     if not outfile:
-        print("[!] Output path required.")
+        get_ui().warn("[!] Output path required.")
         return
     with tempfile.NamedTemporaryFile(suffix=".rule", delete=False) as tmp:
         tmp_path = tmp.name
     try:
-        print(f"\nStep 1/2: Cleaning {infile}...")
+        get_ui().say(f"\nStep 1/2: Cleaning {infile}...")
         if not ctx.rules_cleanup(infile, tmp_path):
-            print("[!] Cleanup failed.")
+            get_ui().warn("[!] Cleanup failed.")
             return
-        print(f"Step 2/2: Optimizing -> {outfile}...")
+        get_ui().say(f"Step 2/2: Optimizing -> {outfile}...")
         if ctx.rules_optimize(tmp_path, outfile):
-            print("[+] Done.")
+            get_ui().say("[+] Done.")
         else:
-            print("[!] Optimize failed.")
+            get_ui().warn("[!] Optimize failed.")
     finally:
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
@@ -1937,13 +2001,13 @@ def wordlist_filter_length(ctx: Any) -> None:
         "\n[*] Enter path to input wordlist", base_dir=ctx.hcatWordlists
     ).strip()
     if not os.path.isfile(infile):
-        print(f"[!] File not found: {infile}")
+        get_ui().warn(f"[!] File not found: {infile}")
         return
     outfile = ctx.select_file_with_autocomplete(
         "[*] Enter path to output wordlist"
     ).strip()
     if not outfile:
-        print("[!] Output path cannot be empty.")
+        get_ui().warn("[!] Output path cannot be empty.")
         return
     min_len = prompt_int("Minimum length: ", default=0, minimum=0)
     if min_len is None:
@@ -1952,9 +2016,9 @@ def wordlist_filter_length(ctx: Any) -> None:
     if max_len is None:
         return
     if ctx.wordlist_filter_len(infile, outfile, min_len, max_len):
-        print(f"\n[*] Filtered wordlist written to: {outfile}")
+        get_ui().say(f"\n[*] Filtered wordlist written to: {outfile}")
     else:
-        print("[!] Filter failed.")
+        get_ui().warn("[!] Filter failed.")
 
 
 def wordlist_filter_charclass_include(ctx: Any) -> None:
@@ -1963,24 +2027,24 @@ def wordlist_filter_charclass_include(ctx: Any) -> None:
         "\n[*] Enter path to input wordlist", base_dir=ctx.hcatWordlists
     ).strip()
     if not os.path.isfile(infile):
-        print(f"[!] File not found: {infile}")
+        get_ui().warn(f"[!] File not found: {infile}")
         return
     outfile = ctx.select_file_with_autocomplete(
         "[*] Enter path to output wordlist"
     ).strip()
     if not outfile:
-        print("[!] Output path cannot be empty.")
+        get_ui().warn("[!] Output path cannot be empty.")
         return
-    print(
+    get_ui().say(
         "[*] Char class mask: 1=lowercase, 2=uppercase, 4=digit, 8=symbol (additive, e.g. 3=lower+upper)"
     )
     mask = prompt_int("Mask value: ", default=0, minimum=0)
     if mask is None:
         return
     if ctx.wordlist_filter_req_include(infile, outfile, mask):
-        print(f"\n[*] Filtered wordlist written to: {outfile}")
+        get_ui().say(f"\n[*] Filtered wordlist written to: {outfile}")
     else:
-        print("[!] Filter failed.")
+        get_ui().warn("[!] Filter failed.")
 
 
 def wordlist_filter_charclass_exclude(ctx: Any) -> None:
@@ -1989,22 +2053,24 @@ def wordlist_filter_charclass_exclude(ctx: Any) -> None:
         "\n[*] Enter path to input wordlist", base_dir=ctx.hcatWordlists
     ).strip()
     if not os.path.isfile(infile):
-        print(f"[!] File not found: {infile}")
+        get_ui().warn(f"[!] File not found: {infile}")
         return
     outfile = ctx.select_file_with_autocomplete(
         "[*] Enter path to output wordlist"
     ).strip()
     if not outfile:
-        print("[!] Output path cannot be empty.")
+        get_ui().warn("[!] Output path cannot be empty.")
         return
-    print("[*] Char class mask: 1=lowercase, 2=uppercase, 4=digit, 8=symbol (additive)")
+    get_ui().say(
+        "[*] Char class mask: 1=lowercase, 2=uppercase, 4=digit, 8=symbol (additive)"
+    )
     mask = prompt_int("Mask value: ", default=0, minimum=0)
     if mask is None:
         return
     if ctx.wordlist_filter_req_exclude(infile, outfile, mask):
-        print(f"\n[*] Filtered wordlist written to: {outfile}")
+        get_ui().say(f"\n[*] Filtered wordlist written to: {outfile}")
     else:
-        print("[!] Filter failed.")
+        get_ui().warn("[!] Filter failed.")
 
 
 def wordlist_cut_substring(ctx: Any) -> None:
@@ -2013,13 +2079,13 @@ def wordlist_cut_substring(ctx: Any) -> None:
         "\n[*] Enter path to input wordlist", base_dir=ctx.hcatWordlists
     ).strip()
     if not os.path.isfile(infile):
-        print(f"[!] File not found: {infile}")
+        get_ui().warn(f"[!] File not found: {infile}")
         return
     outfile = ctx.select_file_with_autocomplete(
         "[*] Enter path to output wordlist"
     ).strip()
     if not outfile:
-        print("[!] Output path cannot be empty.")
+        get_ui().warn("[!] Output path cannot be empty.")
         return
     offset = prompt_int("Byte offset to start from: ", default=0, minimum=0)
     if offset is None:
@@ -2028,7 +2094,7 @@ def wordlist_cut_substring(ctx: Any) -> None:
     # rather than a number, and prompt_int reserves None for cancel.
     length = None
     while True:
-        raw_length = input("Length (leave blank for rest of line): ").strip()
+        raw_length = get_ui().ask("Length (leave blank for rest of line): ").strip()
         if not raw_length:
             break
         if raw_length.lower() == "q":
@@ -2036,11 +2102,11 @@ def wordlist_cut_substring(ctx: Any) -> None:
         if raw_length.isdigit():
             length = int(raw_length)
             break
-        print(f"\t[!] Not a number: {raw_length}")
+        get_ui().warn(f"\t[!] Not a number: {raw_length}")
     if ctx.wordlist_cutb(infile, outfile, offset, length):
-        print(f"\n[*] Output written to: {outfile}")
+        get_ui().say(f"\n[*] Output written to: {outfile}")
     else:
-        print("[!] Cut failed.")
+        get_ui().warn("[!] Cut failed.")
 
 
 def wordlist_split_by_length(ctx: Any) -> None:
@@ -2049,63 +2115,63 @@ def wordlist_split_by_length(ctx: Any) -> None:
         "\n[*] Enter path to input wordlist", base_dir=ctx.hcatWordlists
     ).strip()
     if not os.path.isfile(infile):
-        print(f"[!] File not found: {infile}")
+        get_ui().warn(f"[!] File not found: {infile}")
         return
     outdir = ctx.select_file_with_autocomplete(
         "[*] Enter output directory path"
     ).strip()
     if not outdir:
-        print("[!] Output directory cannot be empty.")
+        get_ui().warn("[!] Output directory cannot be empty.")
         return
     os.makedirs(outdir, exist_ok=True)
     if ctx.wordlist_splitlen(infile, outdir):
-        print(f"\n[*] Split wordlists written to: {outdir}")
+        get_ui().say(f"\n[*] Split wordlists written to: {outdir}")
     else:
-        print("[!] Split failed.")
+        get_ui().warn("[!] Split failed.")
 
 
 def wordlist_subtract_words(ctx: Any) -> None:
     """Prompt for mode then remove matching lines from a wordlist."""
-    print("\n[*] Subtract mode:")
-    print("    1. Single remove file (rli2 - faster for one file)")
-    print("    2. Multiple remove files (rli)")
-    mode = input("Choose mode (1/2): ").strip()
+    get_ui().say("\n[*] Subtract mode:")
+    get_ui().say("    1. Single remove file (rli2 - faster for one file)")
+    get_ui().say("    2. Multiple remove files (rli)")
+    mode = get_ui().ask("Choose mode (1/2): ").strip()
 
     if mode == "1":
         infile = ctx.select_file_with_autocomplete(
             "[*] Enter path to input wordlist", base_dir=ctx.hcatWordlists
         ).strip()
         if not os.path.isfile(infile):
-            print(f"[!] File not found: {infile}")
+            get_ui().warn(f"[!] File not found: {infile}")
             return
         remove_file = ctx.select_file_with_autocomplete(
             "[*] Enter path to wordlist to subtract", base_dir=ctx.hcatWordlists
         ).strip()
         if not os.path.isfile(remove_file):
-            print(f"[!] File not found: {remove_file}")
+            get_ui().warn(f"[!] File not found: {remove_file}")
             return
         outfile = ctx.select_file_with_autocomplete(
             "[*] Enter path to output wordlist"
         ).strip()
         if not outfile:
-            print("[!] Output path cannot be empty.")
+            get_ui().warn("[!] Output path cannot be empty.")
             return
         if ctx.wordlist_subtract_single(infile, remove_file, outfile):
-            print(f"\n[*] Result written to: {outfile}")
+            get_ui().say(f"\n[*] Result written to: {outfile}")
         else:
-            print("[!] Subtraction failed.")
+            get_ui().warn("[!] Subtraction failed.")
     elif mode == "2":
         infile = ctx.select_file_with_autocomplete(
             "[*] Enter path to input wordlist", base_dir=ctx.hcatWordlists
         ).strip()
         if not os.path.isfile(infile):
-            print(f"[!] File not found: {infile}")
+            get_ui().warn(f"[!] File not found: {infile}")
             return
         outfile = ctx.select_file_with_autocomplete(
             "[*] Enter path to output wordlist"
         ).strip()
         if not outfile:
-            print("[!] Output path cannot be empty.")
+            get_ui().warn("[!] Output path cannot be empty.")
             return
         # allow_multiple returns a list once the input contains a comma, which
         # is exactly the case this prompt is for -- so normalise instead of
@@ -2117,14 +2183,14 @@ def wordlist_subtract_words(ctx: Any) -> None:
         )
         remove_files = _as_path_list(raw)
         if not remove_files:
-            print("[!] No remove files provided.")
+            get_ui().warn("[!] No remove files provided.")
             return
         if ctx.wordlist_subtract(infile, outfile, *remove_files):
-            print(f"\n[*] Deduplicated wordlist written to: {outfile}")
+            get_ui().say(f"\n[*] Deduplicated wordlist written to: {outfile}")
         else:
-            print("[!] Subtraction failed.")
+            get_ui().warn("[!] Subtraction failed.")
     else:
-        print("[!] Invalid mode.")
+        get_ui().warn("[!] Invalid mode.")
 
 
 def wordlist_shard(ctx: Any) -> None:
@@ -2133,19 +2199,19 @@ def wordlist_shard(ctx: Any) -> None:
         "\n[*] Enter path to input wordlist", base_dir=ctx.hcatWordlists
     ).strip()
     if not os.path.isfile(infile):
-        print(f"[!] File not found: {infile}")
+        get_ui().warn(f"[!] File not found: {infile}")
         return
     outbase = ctx.select_file_with_autocomplete(
         "[*] Enter output base path (part numbers are appended, e.g. wl.001)"
     ).strip()
     if not outbase:
-        print("[!] Output path cannot be empty.")
+        get_ui().warn("[!] Output path cannot be empty.")
         return
     mod = prompt_int("Shard count (e.g. 4 to split into 4 parts): ", default=0)
     if mod is None:
         return
     if mod < 2:
-        print("[!] Shard count must be at least 2.")
+        get_ui().warn("[!] Shard count must be at least 2.")
         return
     width = max(3, len(str(mod)))
     written = []
@@ -2154,11 +2220,11 @@ def wordlist_shard(ctx: Any) -> None:
         if ctx.wordlist_gate(infile, outfile, mod, offset):
             written.append(outfile)
         else:
-            print(f"[!] Shard failed at part {offset + 1}: {outfile}")
+            get_ui().warn(f"[!] Shard failed at part {offset + 1}: {outfile}")
             return
-    print(f"\n[*] Wrote {len(written)} shard(s):")
+    get_ui().say(f"\n[*] Wrote {len(written)} shard(s):")
     for path in written:
-        print(f"    {path}")
+        get_ui().say(f"    {path}")
 
 
 def wordlist_optimize(ctx: Any) -> None:
@@ -2169,7 +2235,7 @@ def wordlist_optimize(ctx: Any) -> None:
     ).strip()
     raw_entries = [p.strip() for p in raw.split(",") if p.strip()]
     if not raw_entries:
-        print("[!] No input wordlists provided.")
+        get_ui().warn("[!] No input wordlists provided.")
         return
     inputs: list[str] = []
     not_found: list[str] = []
@@ -2179,26 +2245,26 @@ def wordlist_optimize(ctx: Any) -> None:
         elif os.path.isdir(entry):
             files = [os.path.join(entry, f) for f in ctx.list_wordlist_files(entry)]
             if not files:
-                print(f"[!] No wordlist files found in: {entry}")
+                get_ui().warn(f"[!] No wordlist files found in: {entry}")
                 return
             inputs.extend(files)
         else:
             not_found.append(entry)
     if not_found:
-        print("[!] Not found (not a file or directory):")
+        get_ui().warn("[!] Not found (not a file or directory):")
         for p in not_found:
-            print(f"    {p}")
+            get_ui().say(f"    {p}")
         return
     outdir = ctx.select_file_with_autocomplete(
         "[*] Enter output directory path"
     ).strip()
     if not outdir:
-        print("[!] Output directory cannot be empty.")
+        get_ui().warn("[!] Output directory cannot be empty.")
         return
     if ctx.wordlist_optimize(inputs, outdir):
-        print(f"\n[*] Optimized wordlists written to: {outdir}")
+        get_ui().say(f"\n[*] Optimized wordlists written to: {outdir}")
     else:
-        print("[!] Optimization failed.")
+        get_ui().warn("[!] Optimization failed.")
 
 
 def hashmob_archives_handler(ctx: Any) -> None:
@@ -2208,9 +2274,13 @@ def hashmob_archives_handler(ctx: Any) -> None:
     entries = list_hashmob_archives()
     if not entries:
         return
-    sel = input(
-        "\nEnter the number of the archive to download, 'a' for all, or 'q' to cancel: "
-    ).strip()
+    sel = (
+        get_ui()
+        .ask(
+            "\nEnter the number of the archive to download, 'a' for all, or 'q' to cancel: "
+        )
+        .strip()
+    )
     if not sel or sel.lower() == "q":
         return
     if sel.lower() in ("a", "all"):
@@ -2219,10 +2289,10 @@ def hashmob_archives_handler(ctx: Any) -> None:
     try:
         idx = int(sel)
     except ValueError:
-        print("[!] Invalid selection.")
+        get_ui().warn("[!] Invalid selection.")
         return
     if not (1 <= idx <= len(entries)):
-        print("[!] Invalid selection.")
+        get_ui().warn("[!] Invalid selection.")
         return
     download_hashmob_archive(entries[idx - 1])
 
@@ -2233,13 +2303,15 @@ def hashmob_combined_left_handler(ctx: Any) -> None:
     files = list_hashmob_combined_left()
     if not files:
         return
-    sel = input("\nEnter the hashcat mode to download, or 'q' to cancel: ").strip()
+    sel = (
+        get_ui().ask("\nEnter the hashcat mode to download, or 'q' to cancel: ").strip()
+    )
     if not sel or sel.lower() == "q":
         return
     try:
         mode = int(sel)
     except ValueError:
-        print("[!] Invalid mode.")
+        get_ui().warn("[!] Invalid mode.")
         return
     download_hashmob_combined_left(mode)
 
