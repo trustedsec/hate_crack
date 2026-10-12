@@ -70,6 +70,32 @@ class _StopAtMenu(Exception):
     pass
 
 
+_MAIN_WRITTEN_GLOBALS = (
+    "pwdump_format",
+    "hcatHashFile",
+    "hcatHashType",
+    "hcatHashFileOrig",
+    "hcatUsernamePrefix",
+    "lmHashesFound",
+    "debug_mode",
+    "non_interactive",
+    "hashview_url",
+    "hashview_api_key",
+    "hcatPath",
+    "hcatBin",
+    "hcatWordlists",
+    "hcatOptimizedWordlists",
+    "rulesDirectory",
+    "pipalPath",
+    "maxruntime",
+    "bandrelbasewords",
+    "hcatPotfilePath",
+    "_rule_debug_mode_enabled",
+    "_coverage_enabled",
+    "_brain_enabled",
+)
+
+
 def _drive_main(monkeypatch, tmp_path, *, tty: bool, env_ui: str | None):
     """Run the real main() on an md5 hash file until it reaches the menu.
 
@@ -80,6 +106,18 @@ def _drive_main(monkeypatch, tmp_path, *, tty: bool, env_ui: str | None):
     hashfile = tmp_path / "hashes.txt"
     hashfile.write_text("5f4dcc3b5aa765d61d8327deb882cf99\n")
     (tmp_path / "hashes.txt.out").write_text("")  # skip the potfile "show" run
+
+    # main() raw-assigns these on the session-shared module. Snapshot each
+    # through monkeypatch so teardown restores it and nothing leaks into later
+    # tests. Found by reading main()'s `global` declarations (top of function
+    # plus the two mid-function ones).
+    for name in _MAIN_WRITTEN_GLOBALS:
+        if hasattr(hc_main, name):
+            monkeypatch.setattr(hc_main, name, getattr(hc_main, name))
+        else:
+            # Not defined until main() assigns it: have teardown delete it.
+            monkeypatch.setattr(hc_main, name, None, raising=False)
+            monkeypatch.delattr(hc_main, name)
 
     installed: list = []
     monkeypatch.setattr(hc_main._ui, "set_ui", installed.append)
