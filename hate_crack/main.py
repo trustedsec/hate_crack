@@ -77,6 +77,7 @@ from hate_crack import plaintext as _plaintext  # noqa: E402
 from hate_crack import rulegen as _rulegen  # noqa: E402
 from hate_crack import attack_coverage as _coverage  # noqa: E402
 from hate_crack import brain as _brain  # noqa: E402
+from hate_crack import ui as _ui  # noqa: E402
 from hate_crack.menu import interactive_menu  # noqa: E402
 from hate_crack.username_detect import detect_username_hash_format  # noqa: E402
 
@@ -10482,6 +10483,19 @@ def main():
             )
         else:
             print("No hashes found in POT file.")
+
+    # Resolve and install the UI backend once, after config is loaded and
+    # non_interactive is known, before any menu or attack runs.
+    _ui_name = _ui.resolve_backend_name(
+        env_value=os.environ.get("HATE_CRACK_UI"),
+        config_value=config_parser.get("ui_backend"),
+        is_tty=sys.stdout.isatty(),
+        term=os.environ.get("TERM"),
+        non_interactive=non_interactive,
+    )
+    _ui.set_ui(_ui.build_ui(_ui_name))
+    if _ui_name != "plain":
+        print(f"[*] UI backend:  {_ui_name}")
 
     if non_interactive:
         sys.exit(_noninteractive.run_noninteractive(_attack_ctx(), args))

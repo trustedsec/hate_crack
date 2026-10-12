@@ -7,7 +7,6 @@ import hate_crack.cli
 import hate_crack.formatting
 import hate_crack.menu
 import hate_crack.progress
-import hate_crack.ui as ui_pkg
 from hate_crack.ui import UI, PlainUI, get_ui, reset_ui, set_ui
 from hate_crack.ui.rich_ui import RichUI
 
@@ -69,7 +68,6 @@ def test_get_set_reset_round_trip():
 
 def test_no_non_plain_backend_by_default():
     assert type(get_ui()) is PlainUI
-    assert "build_ui" not in dir(ui_pkg)
 
 
 def test_select_resolves_module_attribute_at_call_time(monkeypatch):

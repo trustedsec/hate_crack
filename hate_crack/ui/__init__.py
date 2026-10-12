@@ -73,6 +73,20 @@ def resolve_backend_name(
     return name
 
 
+def build_ui(name: str) -> UI:
+    """Map a backend name to an instance.
+
+    The only place that knows which class backs which name. ``rich_ui`` is
+    imported here, not at module scope, so a plain run never imports Rich.
+    An unknown name yields a PlainUI: a bad config value must not stop startup.
+    """
+    if name == "rich":
+        from hate_crack.ui.rich_ui import RichUI
+
+        return RichUI()
+    return PlainUI()
+
+
 _ui: UI | None = None
 
 
@@ -98,6 +112,7 @@ __all__ = [
     "BACKENDS",
     "PlainUI",
     "UI",
+    "build_ui",
     "get_ui",
     "reset_ui",
     "resolve_backend_name",
