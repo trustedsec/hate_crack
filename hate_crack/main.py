@@ -8420,7 +8420,12 @@ def hashview_api():
                     continue
 
                 try:
-                    wordlist_id = int(get_ui().ask("\nEnter wordlist ID: "))
+                    wordlist_id = int(
+                        get_ui().ask(
+                            "\nEnter wordlist ID: ",
+                            choices=[(str(k), v) for k, v in wordlist_map.items()],
+                        )
+                    )
                 except ValueError:
                     get_ui().error(
                         "\n✗ Error: Invalid ID entered. Please enter a numeric ID."
@@ -8488,7 +8493,13 @@ def hashview_api():
                     continue
 
                 rules_choice = (
-                    get_ui().ask("\nEnter rule ID (or 'a' for all): ").strip()
+                    get_ui()
+                    .ask(
+                        "\nEnter rule ID (or 'a' for all): ",
+                        choices=[(str(k), v) for k, v in rule_map.items()]
+                        + [("a", "all")],
+                    )
+                    .strip()
                 )
                 if rules_choice.lower() in ("a", "all"):
                     try:

@@ -1208,20 +1208,24 @@ def weakpass_wordlist_menu(rank=-1):
                     continue
         return sorted(i for i in indices if 1 <= i <= max_index)
 
-    def _safe_input(prompt):
+    def _safe_input(prompt, choices=None):
         try:
             if not sys.stdin or not sys.stdin.isatty():
                 return "q"
         except Exception:
             return "q"
         try:
-            return get_ui().ask(prompt)
+            return get_ui().ask(prompt, choices=choices)
         except EOFError:
             return "q"
 
     try:
         sel = _safe_input(
-            "\nEnter the number(s) to download (e.g. 1,3,5-7) or 'q' to cancel: "
+            "\nEnter the number(s) to download (e.g. 1,3,5-7) or 'q' to cancel: ",
+            choices=[
+                (str(i), str(wl.get("name", "")))
+                for i, wl in enumerate(filtered_wordlists, start=1)
+            ],
         )
         if sel.lower() == "q":
             get_ui().say("Returning to menu...")

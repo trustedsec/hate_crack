@@ -89,7 +89,8 @@ class RichUI:
         # interprets markup. Behaviour must match PlainUI exactly, so render the
         # prompt through the console and read with input().
         self.console.print(prompt, end="", markup=False, highlight=False)
-        return input() or default
+        with cli.choice_history(choices):
+            return input() or default
 
     def ask_int(
         self,

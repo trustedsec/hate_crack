@@ -38,7 +38,8 @@ class PlainUI:
         default: str = "",
         choices: list[tuple[str, str]] | None = None,
     ) -> str:
-        return input(prompt) or default
+        with cli.choice_history(choices):
+            return input(prompt) or default
 
     def ask_int(
         self,

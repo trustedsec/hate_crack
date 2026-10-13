@@ -573,6 +573,15 @@ keys or type the option number (including multi-digit ones such as `99`) and
 press Enter. Typing anything else filters the list. Arrow-key mode also
 requires a TTY, so it stays off when output is piped.
 
+The pickers that print a list and then take typed input (wordlists, rules, the
+Weakpass list, Hashview wordlist and rule IDs) accept Up/Down on every backend,
+without `HATE_CRACK_ARROW_MENU`. Up fills in the last listed key, Up again the
+one before it, Down goes back; you can still type a number, a path or a list
+such as `1,3` instead. A `,`, `+` or `-` typed straight after an arrow-filled
+key extends it. Under the `plain` and `rich` backends this works by loading the
+listed keys into readline history for that one prompt, so your own history is
+put back afterwards and is not reachable from inside a list prompt.
+
 ### Dev Dependencies
 
 The optional `[dev]` group includes:

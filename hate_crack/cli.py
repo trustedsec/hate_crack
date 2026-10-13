@@ -1,7 +1,9 @@
+import contextlib
 import logging
 import os
 import readline
 import sys
+from collections.abc import Iterator
 from typing import Optional
 
 # Tab and semicolon split one path token from the next.
@@ -195,3 +197,30 @@ def setup_logging(
     )
     urllib3_logger.addHandler(debug_handler)
     return None
+
+
+@contextlib.contextmanager
+def choice_history(choices: list[tuple[str, str]] | None) -> Iterator[None]:
+    """Make Up/Down walk ``choices`` for one ``input()``, then restore history.
+
+    The plain and rich backends read with ``input()``, where arrows are
+    readline history; this is how their list prompts get arrow keys. Keys are
+    added in list order, so Up starts at the last one, as it does under Textual.
+    """
+    if not choices:
+        yield
+        return
+    saved = [
+        readline.get_history_item(i)
+        for i in range(1, readline.get_current_history_length() + 1)
+    ]
+    readline.clear_history()
+    for key, _label in choices:
+        readline.add_history(key)
+    try:
+        yield
+    finally:
+        readline.clear_history()
+        for item in saved:
+            if item is not None:
+                readline.add_history(item)
