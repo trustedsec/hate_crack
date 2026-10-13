@@ -179,27 +179,40 @@ def test_coverage_menu_routes_through_both_duplicate_menu_mappings():
     )
 
 
-def test_shim_does_not_carry_its_own_menu_mapping():
+def test_shim_does_not_carry_its_own_menu_mapping(monkeypatch):
     """hate_crack.py used to hand-sync a duplicate of main's menu, whose
     handlers were the raw attacks.* functions (they need a ctx and would raise
-    TypeError if dispatched). The menu now lives once, in menu_registry, and
-    the shim only delegates; this keeps a second copy from coming back."""
+    TypeError if dispatched). The menu now lives once, in menu_registry."""
     import ast
     import inspect
 
-    from hate_crack import menu_registry
+    for key_state in ("", "k"):
+        monkeypatch.setattr(CLI_MODULE._main, "hashview_api_key", key_state)
+        monkeypatch.setattr(CLI_MODULE, "hashview_api_key", key_state)
+        shim = CLI_MODULE.get_main_menu_options()
+        main_ = CLI_MODULE._main.get_main_menu_options()
+        assert list(shim) == list(main_)
+        assert {k: v.__qualname__ for k, v in shim.items()} == {
+            k: v.__qualname__ for k, v in main_.items()
+        }
+        assert (
+            CLI_MODULE.get_main_menu_items() == CLI_MODULE._main.get_main_menu_items()
+        )
+        # Dispatch calls handlers with no arguments; the old shim copy did not.
+        assert not [k for k, v in shim.items() if inspect.signature(v).parameters]
 
     tree = ast.parse((PROJECT_ROOT / "hate_crack.py").read_text())
-    for node in tree.body:
+    found = set()
+    for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) and node.name in (
             "get_main_menu_items",
             "get_main_menu_options",
         ):
+            found.add(node.name)
             src = ast.unparse(node)
             assert "_attacks" not in src, f"{node.name} re-grew its own mapping"
             assert not any(isinstance(n, ast.Dict) for n in ast.walk(node))
-    assert "menu_options" in inspect.getsource(CLI_MODULE._main.get_main_menu_options)
-    assert len(menu_registry.MAIN_MENU) == 37
+    assert found == {"get_main_menu_items", "get_main_menu_options"}
 
 
 def test_menu_registry_resolves_handlers_late(monkeypatch):

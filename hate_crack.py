@@ -2,6 +2,7 @@
 import sys
 
 from hate_crack import main as _main
+from hate_crack import menu_registry as _menu_registry
 
 # Re-export symbols for tests and legacy imports.
 for _name, _value in _main.__dict__.items():
@@ -101,57 +102,30 @@ def pipal():
     return _main.pipal()
 
 
+# Snapshot of this shim's namespace once every import-time copy from main is in
+# place, so _ShimOverlay can tell "replaced on the shim" from "stale copy".
+_SHIM_SNAPSHOT = dict(globals())
+
+
+class _ShimOverlay:
+    """Read-only view for menu_registry: a name replaced on the shim (a test
+    patch or legacy caller) resolves there; anything else resolves against
+    main's live value. main is never mutated, so nothing can leak."""
+
+    def __getattr__(self, name):
+        missing = object()
+        current = globals().get(name, missing)
+        if current is not missing and current is not _SHIM_SNAPSHOT.get(name, missing):
+            return current
+        return getattr(_main, name)
+
+
 def get_main_menu_items():
-    return _main.get_main_menu_items()
-
-
-# Shim-level names the menu depends on, with the value each held at import
-# time. get_main_menu_options() uses these to tell "replaced on the shim" apart
-# from "still the stale import-time copy" (same idea as _IMPORT_TIME_SNAPSHOT).
-_MENU_SHIM_ORIGINALS = {
-    name: globals().get(name)
-    for name in (
-        "notifications_submenu",
-        "pipal",
-        "weakpass_wordlist_menu",
-        "download_hashmob_wordlists",
-        "download_hashmob_rules",
-        "download_hashmob_masks",
-        "hashview_api",
-        "hashview_api_key",
-        "export_excel",
-        "show_results",
-        "show_readme",
-        "quit_hc",
-    )
-}
-# name -> what main held before we pushed a shim replacement onto it.
-_MENU_PUSHED_FROM = {}
-
-
-def _mirror_menu_overrides():
-    """Make main see shim-level replacements, and undo them once reverted.
-
-    The menu is defined once, in hate_crack.menu_registry, and resolved against
-    main at call time. A replacement made on this shim (a test patch, or a
-    legacy caller) must therefore be visible on main while it is in force.
-    Only names that differ from their import-time value are pushed, and a push
-    is reverted when the shim value goes back, so a patch never outlives itself
-    on the session-shared main module.
-    """
-    for name, original in _MENU_SHIM_ORIGINALS.items():
-        current = globals().get(name, original)
-        if current is not original:
-            if name not in _MENU_PUSHED_FROM:
-                _MENU_PUSHED_FROM[name] = getattr(_main, name, None)
-            setattr(_main, name, current)
-        elif name in _MENU_PUSHED_FROM:
-            setattr(_main, name, _MENU_PUSHED_FROM.pop(name))
+    return _menu_registry.menu_items(_ShimOverlay())
 
 
 def get_main_menu_options():
-    _mirror_menu_overrides()
-    return _main.get_main_menu_options()
+    return _menu_registry.menu_options(_ShimOverlay())
 
 
 if __name__ == "__main__":

@@ -13,30 +13,22 @@ both silently stop taking effect.
 
 from __future__ import annotations
 
-import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 
-def _main_module() -> Any:
-    return sys.modules["hate_crack.main"]
-
-
 class _LateHandler:
     """Handler that looks ``name`` up on a main module each time it is called.
 
-    Called bare, it targets the live ``hate_crack.main``. ``bind(module)`` pins
-    it to a specific module object instead: the test suite purges
-    ``hate_crack.main`` from ``sys.modules`` between tests, so a stale module's
-    menu must dispatch against that module, not whichever is newest.
+    ``bind(module)`` pins it to a specific module object. There is deliberately
+    no lookup by name in ``sys.modules``: the test suite purges
+    ``hate_crack.main`` between tests, so a menu must dispatch against the
+    module it was built for, not whichever is newest.
     """
 
     def __init__(self, name: str) -> None:
         self.__name__ = self.__qualname__ = name
-
-    def __call__(self) -> Any:
-        return getattr(_main_module(), self.__name__)()
 
     def bind(self, module: Any) -> Callable[[], Any]:
         name = self.__name__
@@ -54,9 +46,6 @@ class _LateTruthy:
     def __init__(self, name: str) -> None:
         self.name = name
 
-    def __call__(self) -> bool:
-        return bool(getattr(_main_module(), self.name, ""))
-
     def bind(self, module: Any) -> Callable[[], bool]:
         return lambda: bool(getattr(module, self.name, ""))
 
@@ -72,8 +61,8 @@ _hashview_configured = _LateTruthy("hashview_api_key")
 class MenuAction:
     key: str
     label: str
-    handler: Callable[[], Any]
-    available: Callable[[], bool] = lambda: True
+    handler: Callable[[], Any] | _LateHandler
+    available: Callable[[], bool] | _LateTruthy = lambda: True
 
 
 MAIN_MENU: tuple[MenuAction, ...] = (
@@ -123,15 +112,13 @@ def _bound(fn: Any, module: Any) -> Any:
     return fn.bind(module) if hasattr(fn, "bind") else fn
 
 
-def menu_items(module: Any = None) -> list[tuple[str, str]]:
+def menu_items(module: Any) -> list[tuple[str, str]]:
     """Ordered (key, label) pairs; availability is read from ``module`` now."""
-    module = module or _main_module()
     return [(a.key, a.label) for a in MAIN_MENU if _bound(a.available, module)()]
 
 
-def menu_options(module: Any = None) -> dict[str, Callable[[], Any]]:
+def menu_options(module: Any) -> dict[str, Callable[[], Any]]:
     """Key -> handler; handlers resolve their function on ``module`` per call."""
-    module = module or _main_module()
     return {
         a.key: _bound(a.handler, module)
         for a in MAIN_MENU
