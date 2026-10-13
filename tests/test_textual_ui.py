@@ -110,3 +110,61 @@ def test_build_and_resolution():
         resolve_backend_name(config_value="textual", non_interactive=True, **kw)
         == "plain"
     )
+
+
+def _press(*keys):
+    async def script(pilot, app):
+        for k in keys:
+            await pilot.press(k)
+        await pilot.press("enter")
+        await pilot.pause(0.1)
+
+    return script
+
+
+def test_select_arrow_keys_pick_an_item():
+    items = [("1", "one"), ("2", "two"), ("99", "quit")]
+    assert _drive(lambda ui: ui.select(items), _press("down", "down"))["v"] == "2"
+    # Up from nothing wraps to the last item.
+    assert _drive(lambda ui: ui.select(items), _press("up"))["v"] == "99"
+
+
+def test_select_typed_number_still_works_after_arrows():
+    items = [("1", "one"), ("2", "two"), ("99", "quit")]
+
+    async def script(pilot, app):
+        await pilot.press("down")
+        app.query_one(Input).value = ""
+        for ch in "99":
+            await pilot.press(ch)
+        await pilot.press("enter")
+        await pilot.pause(0.1)
+
+    assert _drive(lambda ui: ui.select(items), script)["v"] == "99"
+
+
+def test_arrows_are_inert_outside_a_menu_prompt():
+    async def script(pilot, app):
+        await pilot.press("down")
+        await pilot.press("x", "enter")
+        await pilot.pause(0.1)
+
+    assert _drive(lambda ui: ui.ask("name? "), script)["v"] == "x"
+
+
+def test_interactive_menu_routes_through_bound_textual_ui(monkeypatch):
+    from hate_crack import menu, ui as ui_mod
+
+    items = [("1", "one"), ("2", "two")]
+    monkeypatch.setattr(
+        "builtins.input", lambda *_: (_ for _ in ()).throw(AssertionError("input()"))
+    )
+
+    def worker(tui):
+        ui_mod.set_ui(tui)
+        try:
+            return menu.interactive_menu(items, title="T")
+        finally:
+            ui_mod.reset_ui()
+
+    assert _drive(worker, _type("2"))["v"] == "2"

@@ -39,6 +39,8 @@ class HateCrackApp(App[None]):
     BINDINGS = [
         Binding("escape", "cancel_prompt", "Cancel", show=True),
         Binding("ctrl+q", "quit", "Quit", show=True),
+        Binding("up", "move_choice(-1)", "Prev", show=False),
+        Binding("down", "move_choice(1)", "Next", show=False),
     ]
 
     def __init__(self, on_ready: Callable[[], None] | None = None) -> None:
@@ -46,6 +48,9 @@ class HateCrackApp(App[None]):
         self._on_ready = on_ready
         self._prompt: _Prompt | None = None
         self._status: dict[str, Any] = {}
+        # (key, label) pairs while a menu prompt is open; Up/Down walk them.
+        self._choices: list[tuple[str, str]] = []
+        self._choice_index: int | None = None
         self.ui_thread: int | None = None
 
     def compose(self) -> ComposeResult:
@@ -87,12 +92,24 @@ class HateCrackApp(App[None]):
 
     # -- prompts -----------------------------------------------------------
 
-    def begin_prompt(self, text: str, prompt: _Prompt) -> None:
-        """Main thread: show the input for ``prompt`` and focus it."""
+    def begin_prompt(
+        self,
+        text: str,
+        prompt: _Prompt,
+        choices: list[tuple[str, str]] | None = None,
+    ) -> None:
+        """Main thread: show the input for ``prompt`` and focus it.
+
+        ``choices`` makes it a menu prompt: the operator may type a key or walk
+        the list with Up/Down, which fills the input with that key.
+        """
         self._release_prompt()
         self._prompt = prompt
+        self._choices = list(choices or [])
+        self._choice_index = None
         box = self.query_one("#answer", Input)
         box.value = ""
+        box.border_subtitle = "Up/Down or type a number, Enter" if choices else ""
         box.placeholder = text.strip()
         box.add_class("active")
         if text.strip():
@@ -104,6 +121,9 @@ class HateCrackApp(App[None]):
         box = self.query_one("#answer", Input)
         box.remove_class("active")
         box.value = ""
+        box.border_subtitle = ""
+        self._choices = []
+        self._choice_index = None
         if prompt is not None:
             prompt.value = value
             prompt.event.set()
@@ -113,6 +133,21 @@ class HateCrackApp(App[None]):
         if self._prompt is not None:
             self.append(f"> {event.value}", style="dim")
             self._release_prompt(event.value)
+
+    def action_move_choice(self, delta: int) -> None:
+        if self._prompt is None or not self._choices:
+            return
+        n = len(self._choices)
+        if self._choice_index is None:
+            idx = 0 if delta > 0 else n - 1
+        else:
+            idx = (self._choice_index + delta) % n
+        self._choice_index = idx
+        key, label = self._choices[idx]
+        box = self.query_one("#answer", Input)
+        box.value = key
+        box.cursor_position = len(key)
+        box.border_subtitle = f"{key}) {label}"
 
     def action_cancel_prompt(self) -> None:
         if self._prompt is not None:

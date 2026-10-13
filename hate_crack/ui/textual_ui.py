@@ -79,13 +79,23 @@ class TextualUI:
         except _AppGone:
             self._plain.say(text)
 
-    def _ask(self, app: HateCrackApp, prompt: str) -> str | None:
+    @property
+    def bound(self) -> bool:
+        """True once an app is attached and prompts go through it."""
+        return self._app is not None
+
+    def _ask(
+        self,
+        app: HateCrackApp,
+        prompt: str,
+        choices: list[tuple[str, str]] | None = None,
+    ) -> str | None:
         """Block the worker until the operator submits; None means cancelled."""
         from hate_crack.ui.app import _Prompt
 
         pending = _Prompt()
         try:
-            self._post(app, lambda: app.begin_prompt(prompt, pending))
+            self._post(app, lambda: app.begin_prompt(prompt, pending, choices))
         except _AppGone:
             return None
         while not pending.event.wait(0.25):
@@ -186,7 +196,7 @@ class TextualUI:
             self.say(f"  {key}) {label}")
         keys = {key for key, _ in items}
         while True:
-            answer = self._ask(app, prompt)
+            answer = self._ask(app, prompt, items)
             if answer is None:
                 return None
             answer = answer.strip()
