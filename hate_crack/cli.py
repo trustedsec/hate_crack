@@ -41,12 +41,6 @@ def configure_completion(completer, display_matches_hook=None) -> None:
     unbound Tab inserts a literal tab instead of completing, which looks like
     "tab completion is broken" with nothing logged.
     """
-    # Textual owns raw-mode stdin; a readline completer would fight it.
-    # Asked of the UI so this module never names a backend class.
-    from hate_crack.ui import readline_supported
-
-    if not readline_supported():
-        return
     readline.set_completer_delims(COMPLETER_DELIMS)
     libedit = using_libedit()
     if libedit:
@@ -139,46 +133,10 @@ def add_common_args(parser) -> None:
     pass  # All config items are now set via config file only
 
 
-DEBUG_LOG_NAME = "debug.log"
-
-
-def debug_log_path() -> str:
-    """Where debug logging goes when stderr is not usable (Textual)."""
-    return os.path.join(os.path.expanduser("~/.hate_crack"), DEBUG_LOG_NAME)
-
-
-def setup_logging(
-    logger: logging.Logger, hate_path: str, debug_mode: bool
-) -> Optional[str]:
-    """Configure debug logging. Returns the log file path when logging to a file.
-
-    Under Textual, stderr writes land on top of the display, so debug output
-    goes to ``~/.hate_crack/debug.log`` instead and the path is returned for
-    the caller to announce. Otherwise it goes to stderr and ``None`` is
-    returned.
-    """
+def setup_logging(logger: logging.Logger, hate_path: str, debug_mode: bool) -> None:
     if not debug_mode:
-        return None
-    from hate_crack.ui import readline_supported
-
+        return
     logger.setLevel(logging.DEBUG)
-    urllib3_logger = logging.getLogger("urllib3")
-    urllib3_logger.setLevel(logging.DEBUG)
-    if not readline_supported():
-        path = debug_log_path()
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        if not any(
-            isinstance(h, logging.FileHandler)
-            and os.path.abspath(h.baseFilename) == os.path.abspath(path)
-            for h in logger.handlers
-        ):
-            file_handler = logging.FileHandler(path, encoding="utf-8")
-            file_handler.setFormatter(
-                logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
-            )
-            logger.addHandler(file_handler)
-            urllib3_logger.addHandler(file_handler)
-        return path
     # Debug logs go to stderr by default (no log file side effects).
     has_stream = any(
         isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler)
@@ -195,8 +153,9 @@ def setup_logging(
     debug_handler.setFormatter(
         logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
     )
+    urllib3_logger = logging.getLogger("urllib3")
+    urllib3_logger.setLevel(logging.DEBUG)
     urllib3_logger.addHandler(debug_handler)
-    return None
 
 
 @contextlib.contextmanager
@@ -205,7 +164,7 @@ def choice_history(choices: list[tuple[str, str]] | None) -> Iterator[None]:
 
     The plain and rich backends read with ``input()``, where arrows are
     readline history; this is how their list prompts get arrow keys. Keys are
-    added in list order, so Up starts at the last one, as it does under Textual.
+    added in list order, so Up starts at the last one.
     """
     if not choices:
         yield

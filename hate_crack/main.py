@@ -2249,7 +2249,7 @@ def _run_hcat_cmd_uncovered(
             _notify.stop_tailer(tailer)
         return hcatProcess, interrupted
 
-    finished_process, interrupted = get_ui().run_terminal(_run_hashcat)
+    finished_process, interrupted = _run_hashcat()
 
     if stderr_capture is not None:
         try:
@@ -3564,7 +3564,7 @@ def hcatTopMask(hcatHashType, hcatHashFile, hcatTargetTime):
             get_ui().say("Killing PID {0}...".format(str(hcatProcess.pid)))
             hcatProcess.kill()
 
-    get_ui().run_terminal(_run_statsgen)
+    _run_statsgen()
 
     def _run_maskgen() -> None:
         global hcatProcess
@@ -3590,7 +3590,7 @@ def hcatTopMask(hcatHashType, hcatHashFile, hcatTargetTime):
             get_ui().say("Killing PID {0}...".format(str(hcatProcess.pid)))
             hcatProcess.kill()
 
-    get_ui().run_terminal(_run_maskgen)
+    _run_maskgen()
 
     cmd = [
         hcatBin,
@@ -6461,7 +6461,7 @@ def hcatMarkovTrain(source_file, hcatHashFile):
             return False
         return True
 
-    if not get_ui().run_terminal(_run_hcstat2gen):
+    if not _run_hcstat2gen():
         return False
 
     # Verify output file was created
@@ -7531,7 +7531,7 @@ def hcatOmenTrain(training_file):
                 return None
             return proc
 
-        proc = get_ui().run_terminal(_run_createng)
+        proc = _run_createng()
         if proc is None:
             return False
     if proc.returncode != 0:
@@ -9429,7 +9429,7 @@ def pipal():
                     get_ui().say("Killing PID {0}...".format(str(pipalProcess.pid)))
                     pipalProcess.kill()
 
-            get_ui().run_terminal(_run_pipal)
+            _run_pipal()
             get_ui().say("Pipal file is at " + hcatHashFilePipal + ".pipal\n")
             import sys
 
@@ -9698,54 +9698,6 @@ def get_main_menu_options():
 
 
 # The Main Guts
-def _menu_loop(select: Any = None) -> None:
-    """The interactive main-menu loop (quits via ``quit_hc`` on Ctrl-C).
-
-    ``select`` defaults to ``interactive_menu``, resolved at call time so
-    patches keep landing; the textual path passes ``get_ui().select`` because
-    the terminal menu cannot run under a Textual app.
-    """
-    pick = select if select is not None else interactive_menu
-    try:
-        options = get_main_menu_options()
-        while not _ui.shutdown_requested():
-            try:
-                task = pick(
-                    get_main_menu_items(),
-                    title="\nSelect a task:",
-                )
-                if task is None:
-                    continue
-                options[task]()
-            except KeyError:
-                pass
-            except _ui.TerminalUnavailable:
-                pass  # already reported by the backend; back to the menu
-            except DoubleInterrupt:
-                get_ui().warn("\n[!] Returning to main menu...")
-    except KeyboardInterrupt:
-        quit_hc()
-
-
-_debug_log_path: str | None = None
-
-
-def _textual_menu_loop() -> None:
-    """Menu loop for the textual backend: status bar plus the UI's own select."""
-    ui = get_ui()
-    if _debug_log_path:
-        ui.say(f"[*] Debug logging to {_debug_log_path}")
-    set_status = getattr(ui, "set_status", None)
-    if set_status is not None:
-        set_status(
-            hash_file=hcatHashFile,
-            hash_type=hcatHashType,
-            cracked=hcatHashCracked,
-            total=lineCount(hcatHashFile),
-        )
-    _menu_loop(ui.select)
-
-
 def main():
     global pwdump_format
     global hcatHashFile
@@ -10133,13 +10085,19 @@ def main():
     # The module-scope prints run at import, before main() and before config
     # selection, and therefore stay plain permanently. config_parser is built
     # at module scope, so the config read is valid here.
+    _ui_config = config_parser.get("ui_backend")
     _ui_name = _ui.resolve_backend_name(
-        config_value=config_parser.get("ui_backend"),
+        config_value=_ui_config,
         is_tty=sys.stdout.isatty(),
         term=os.environ.get("TERM"),
         non_interactive=non_interactive,
     )
     _ui.set_ui(_ui.build_ui(_ui_name))
+    if _ui_config in _ui.RETIRED_BACKENDS:
+        get_ui().warn(
+            f"[!] ui_backend '{_ui_config}' was removed; using "
+            f"'{_ui.RETIRED_BACKENDS[_ui_config]}'. Update ui_backend in config.json."
+        )
     if _ui_name != "plain":
         get_ui().say(f"[*] UI backend: {_ui_name}")
 
@@ -10165,8 +10123,7 @@ def main():
         get_ui().say("[*] Optimized kernels (-O) disabled for this run")
     hcatPotfilePath = flags.potfile_path
 
-    global _debug_log_path
-    _debug_log_path = setup_logging(logger, hate_path, debug_mode)
+    setup_logging(logger, hate_path, debug_mode)
 
     from types import SimpleNamespace
 
@@ -10637,10 +10594,24 @@ def main():
     if non_interactive:
         sys.exit(_noninteractive.run_noninteractive(_attack_ctx(), args))
 
-    if _ui_name == "textual":
-        _ui.run_textual(_textual_menu_loop)
-    else:
-        _menu_loop()
+    # Display Options
+    try:
+        options = get_main_menu_options()
+        while 1:
+            try:
+                task = interactive_menu(
+                    get_main_menu_items(),
+                    title="\nSelect a task:",
+                )
+                if task is None:
+                    continue
+                options[task]()
+            except KeyError:
+                pass
+            except DoubleInterrupt:
+                get_ui().warn("\n[!] Returning to main menu...")
+    except KeyboardInterrupt:
+        quit_hc()
 
 
 # Boilerplate

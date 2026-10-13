@@ -73,15 +73,6 @@ def _numbered_menu(
     return choice
 
 
-def _bound_textual_ui():
-    # Lazy: hate_crack.ui.plain imports this module.
-    from hate_crack.ui import get_ui
-
-    ui = get_ui()
-    # Only TextualUI has ``bound``; Plain/Rich must keep using this module.
-    return ui if getattr(ui, "bound", False) is True else None
-
-
 def interactive_menu(
     items: list[tuple[str, str]],
     title: str | None = None,
@@ -105,11 +96,6 @@ def interactive_menu(
     str | None
         The *key* of the selected item, or ``None`` on Escape / cancel.
     """
-    # Under the Textual backend the app owns the terminal, so input() and
-    # simple-term-menu would both fight it; route through the bound backend.
-    ui = _bound_textual_ui()
-    if ui is not None:
-        return ui.select(items, title=title, prompt=prompt)
     if _use_arrow_menu():
         return _arrow_menu(items, title)
     return _numbered_menu(items, prompt)

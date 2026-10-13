@@ -2,71 +2,24 @@
 
 Quick Crack's wordlist and rule pickers, the OMEN/Markov training pickers and
 the Random Rules wordlist picker are free-text prompts, not menus: they take
-paths, ``p``/``q``, ``1,2``, ``1+1`` and ranges. So they cannot go through ``select``; they
-pass the listed entries to ``ask(choices=...)``, which the Textual backend uses
-for Up/Down while still returning whatever was typed.
+paths, ``p``/``q``, ``1,2``, ``1+1`` and ranges. So they cannot go through
+``select``; they pass the listed entries to ``ask(choices=...)``, which the
+plain and rich backends load into readline history for Up/Down (see
+tests/test_readline_choice_history.py).
 """
 
 from __future__ import annotations
 
-import asyncio
-import threading
 from types import SimpleNamespace
 
-from textual.widgets import Input
-
-from hate_crack.ui.app import HateCrackApp
 from hate_crack.ui.plain import PlainUI
 from hate_crack.ui.rich_ui import RichUI
-from hate_crack.ui.textual_ui import TextualUI
-
-
-def _drive(worker, keys):
-    out = {}
-
-    async def body():
-        app = HateCrackApp()
-        ui = TextualUI()
-        ui.bind(app)
-        async with app.run_test() as pilot:
-            t = threading.Thread(target=lambda: out.update(v=worker(ui)))
-            t.start()
-            await pilot.pause(0.2)
-            await pilot.click(Input)
-            for k in keys:
-                await pilot.press(k)
-                await pilot.pause(0.02)
-            await pilot.press("enter")
-            while t.is_alive():
-                await pilot.pause(0.05)
-            t.join()
-
-    asyncio.run(body())
-    return out["v"]
 
 
 CHOICES = [("0", "none"), ("1", "best64.rule"), ("2", "d3ad0ne.rule")]
 
 
-def test_ask_with_choices_walks_them_with_arrows():
-    got = _drive(lambda ui: ui.ask("rules? ", choices=CHOICES), ["down", "down"])
-    assert got == "1"
-
-
-def test_ask_with_choices_still_returns_free_text():
-    got = _drive(lambda ui: ui.ask("rules? ", choices=CHOICES), list("/tmp/x"))
-    assert got == "/tmp/x"
-
-
-def test_a_separator_after_an_arrow_extends_the_filled_key():
-    """Arrow to 1, then type ",2": the rule list is "1,2", not ",2"."""
-    keys = ["down", "down", "comma", "2"]
-    assert _drive(lambda ui: ui.ask("rules? ", choices=CHOICES), keys) == "1,2"
-    keys = ["down", "down", "plus", "1"]
-    assert _drive(lambda ui: ui.ask("rules? ", choices=CHOICES), keys) == "1+1"
-
-
-def test_plain_and_rich_accept_and_ignore_choices(monkeypatch):
+def test_plain_and_rich_accept_choices(monkeypatch):
     monkeypatch.setattr("builtins.input", lambda *a: "7")
     assert PlainUI().ask("? ", choices=CHOICES) == "7"
     assert RichUI().ask("? ", choices=CHOICES) == "7"

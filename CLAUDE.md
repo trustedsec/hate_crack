@@ -580,7 +580,7 @@ small single-purpose ones:
 | `attack_coverage.py` | ~470 | per-target rule/mask/wordlist coverage store — see below |
 | `brain.py` | 388 | hashcat brain oracle, slow/fast policy, session identity, client flags, local server lifecycle — see below |
 | `plaintext.py`, `noninteractive.py`, `username_detect.py`, `menu.py`, `formatting.py`, `progress.py`, `cli.py`, `hashview_cache.py` | 60–165 each | small, single-purpose helpers |
-| `ui/` | 395 total | UI backend seam: a `UI` Protocol with `PlainUI` and `RichUI` implementations, `resolve_backend_name`/`build_ui`, and `get_ui`/`set_ui`/`reset_ui` — see Config System for `ui_backend` |
+| `ui/` | 434 total | UI backend seam: a `UI` Protocol with `PlainUI` and `RichUI` implementations, `resolve_backend_name`/`build_ui`, and `get_ui`/`set_ui`/`reset_ui` — see Config System for `ui_backend` |
 | `notify/` | 871 total | Pushover notifications — see below |
 
 **`attack_coverage.py`** (#273) records which rule lines, mask lines and
@@ -760,8 +760,9 @@ file is ignored, with a warning naming the key and its real home.
   toggles, the seven other `brain_*` keys, and five preferences promoted from
   CLI flags. It is **first-class forever**; it was never deprecated and there
   is no removal timeline. `ui_backend` is one of the 49; its `choices` is
-  pinned to `ui.BACKENDS` by `tests/test_ui_config_key.py`, so adding a backend
-  without offering it as a config value fails the suite.
+  pinned to `ui.BACKENDS` plus `ui.RETIRED_BACKENDS` by
+  `tests/test_ui_config_key.py`, so adding a backend without offering it as a
+  config value fails the suite.
 - Bundled submodules — `hashcat-utils`, `HashcatRosetta` (bandrel fork),
   `omen`, `princeprocessor`, `pcfg_cracker` (`.gitmodules`, all `ignore =
   dirty`) — and hashcat itself are **not** third-party integrations here — they
@@ -829,85 +830,24 @@ Wordlist path handling still lives in `_normalize_wordlist_setting()` in
 `main.py`; the loader handles `path`-typed keys (one `expanduser` pass
 post-merge, empty string stays empty) but wordlist normalization is separate.
 
-### Textual UI backend
+### No full-screen UI backend
 
-`ui_backend=textual` (opt-in; the default is `rich`) runs `hate_crack/ui/app.py`'s
-`HateCrackApp` on the **main thread** and hate_crack's synchronous logic on **one
-worker thread** (`hate_crack-menu`, started from the app's `on_mount` by
-`ui.run_textual`; Textual also has an `on_ready` event, which is not what is used).
-`TextualUI` is the bridge: from the worker, every `say`/`ask`
-goes through `app.call_from_thread` and blocks until the app answers; called on
-the app thread it runs inline. When the app exits, `run_textual` sets
-`ui.shutdown_requested()` (which `_menu_loop` polls), **joins the worker for up to
-`WORKER_JOIN_TIMEOUT` (30 s)** so a file it is mid-write is not cut off by the
-daemon thread dying with the interpreter, reports through the UI if the join
-times out, and only then re-raises anything the worker raised (including
-`SystemExit` from `quit_hc`) on the main thread. `ui._app` stays bound during the
-join; `TextualUI` degrades to plain output (and `ask` to a cancel) once
-`app.is_running` is false, so a late worker cannot deadlock on a dead app. If the
-terminal cannot suspend (`SuspendNotSupported`), `run_terminal` aborts that
-attack with a message to use `ui_backend=rich` or `plain` (raising
-`ui.TerminalUnavailable`, which the menu loop catches) rather than run hashcat
-under a live full-screen app.
+A Textual full-screen backend (`ui_backend=textual`) shipped on nightlies and
+was **removed on 2026-10-13 at the maintainer's request**: the backends are
+`rich` (default) and `plain`. Design and verify UI changes against `RichUI`,
+with `PlainUI` kept byte-identical to bare `print`/`input`. Do not reintroduce
+a full-screen backend unasked.
 
-**A terminal-owning subprocess must be awaited on the main thread.** Signals are
-delivered only there, so a hashcat awaited on the worker lets Ctrl-C kill the
-whole app instead of just hashcat. `UI.run_terminal(fn)` is the seam: `PlainUI`
-and `RichUI` just call `fn()`; `TextualUI` marshals `fn` to the main thread under
-`app.suspend()`. `tests/test_textual_runs_subprocess_on_main_thread.py` pins that
-`fn` runs on the event-loop thread. If you add a subprocess that inherits the
-tty (stdin/stdout not captured, awaited with `wait`/`communicate`), it must go
-through `run_terminal`, or Ctrl-C will take the app down with it.
+`textual` stays a valid config value so an existing config keeps starting:
+`hate_crack.ui.RETIRED_BACKENDS` maps it to `rich`, and `main()` prints a
+one-line notice. `tests/test_ui_startup_wiring.py` pins that.
 
-The six existing sites (`main.py`: the hashcat run in `_run_hcat_cmd_uncovered`,
-statsgen, maskgen, hcstat2gen, createng, pipal) were found by parsing
-`hate_crack/main.py` with `ast`, collecting every `subprocess.Popen` call, and
-classifying each on whether `stdout` is among its keyword arguments. `main.py`
-has 19 `Popen` calls; 13 pass `stdout=` and so write to a pipe, and 6 do not and
-therefore inherit the terminal. Those six are the wrapped ones. That is the test
-to apply to a new subprocess, and no guard test enforces it, so a new site is not
-caught automatically. Two traps:
-- A naive keyword filter reports **five**, not six: `_run_hcat_cmd_uncovered`
-  passes `**popen_kwargs`, so `stdout` is not a literal keyword there and the
-  call has to be treated as "no stdout" by inspection.
-- Classify on `stdout`, not `stderr`: a site can pipe stderr while still
-  inheriting stdout, and at least one does.
-
-**`run_terminal`'s marker scheme.** `_run_terminal_main` returns `("ok", value)`
-or `("raise", exc)` and never raises, and `TextualUI.run_terminal` re-raises on
-the worker side. An exception that escapes the callable handed to
-`call_from_thread` propagates to the worker **and** still kills the app, so the
-outcome has to travel as data. **A plain `suspend()` context manager cannot do
-this job:** the body of a `with` block would run on the calling worker thread,
-which is exactly the thread that must not await the subprocess. The callable has to be shipped to the main
-thread, so the API takes a function, not a `with` block.
-
-**Escape cancels a prompt**, replacing the double-Ctrl-C escape: application mode
-clears the terminal's signal generation, so Ctrl-C is a key, not a SIGINT, and
-that escape is unreachable.
-
-**Guards.** `UI.supports_readline` is an optional capability attribute (`True` on
-`PlainUI`/`RichUI`, `False` on `TextualUI`), read through
-`hate_crack.ui.readline_supported()`. It is deliberately not a `UI` Protocol
-member (`tests/test_ui_protocol_conformance.py` pins that list exactly), and
-`cli.py` must not import from `hate_crack.ui.textual_ui`, because it is imported
-very early. `configure_completion` is a no-op when it is False. `setup_logging`
-sends debug output to `~/.hate_crack/debug.log` rather than stderr, which would
-paint over the display, and returns the path; `_textual_menu_loop` announces it
-once. `tests/test_ui_textual_guards.py` covers both. SIGINT needed no guard:
-`main()` installs `_sigint_handler` before the app starts and nothing under
-`hate_crack/ui/` touches signal handlers (`tests/test_sigint_precondition.py`).
-
-**Limits, stated plainly.**
-- Phase 3 ships the shell: a log pane, status bar, prompts and Escape-to-cancel.
-  It does **not** ship a fuzzy attack picker, multi-select rule/wordlist/mask
-  pickers, or a file browser. Those are deferred.
-- There is no live hashcat dashboard. Hashcat still takes over the terminal while
-  it runs, which preserves its own status display and keybindings.
-- **Suspension itself is not covered by the test suite.** Headless `run_test()`
-  raises `SuspendNotSupported`, so the guard tests replace `app.suspend` with a
-  null context and prove thread placement only. Actual suspend-and-resume was
-  verified by pty prototypes outside the suite; do not assume the suite covers it.
+**List prompts get arrow keys through readline history.** A prompt that prints
+a list and reads free text passes `ask(choices=[(key, label), ...])`; `PlainUI`
+and `RichUI` wrap their `input()` in `cli.choice_history`, which swaps readline
+history for the listed keys for that one call and restores it afterwards. This
+machine's readline is libedit, so `tests/test_readline_choice_history.py` drives
+it in a real pty rather than trusting a mock.
 
 ### Path Distinction
 

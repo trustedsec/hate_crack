@@ -153,3 +153,14 @@ def test_main_installs_rich_ui_and_announces_it(monkeypatch, tmp_path, capsys):
     assert len(installed) == 1
     assert isinstance(installed[0], RichUI)
     assert "[*] UI backend: rich" in capsys.readouterr().out
+
+
+def test_main_runs_rich_for_retired_textual_and_says_so(monkeypatch, tmp_path, capsys):
+    """ui_backend=textual was removed; a config still carrying it must start
+    on rich and tell the operator, not fail or silently ignore the setting."""
+    installed = _drive_main(monkeypatch, tmp_path, tty=True, config_ui="textual")
+    assert len(installed) == 1
+    assert isinstance(installed[0], RichUI)
+    out = capsys.readouterr().out
+    assert "ui_backend 'textual' was removed" in out
+    assert "[*] UI backend: rich" in out

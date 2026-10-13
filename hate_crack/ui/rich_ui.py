@@ -10,9 +10,9 @@ from __future__ import annotations
 import contextlib
 import sys
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import AbstractContextManager
-from typing import Any, TypeVar
+from typing import Any
 
 from rich.console import Console
 from rich.live import Live
@@ -20,8 +20,6 @@ from rich.table import Table
 from rich.text import Text
 
 from hate_crack import cli, formatting, menu
-
-T = TypeVar("T")
 
 
 class _RichSpinnerHandle:
@@ -48,8 +46,6 @@ class _Elapsed:
 
 
 class RichUI:
-    supports_readline = True
-
     def __init__(
         self, console: Console | None = None, err_console: Console | None = None
     ) -> None:
@@ -198,9 +194,6 @@ class RichUI:
         )
         with live:
             yield handle
-
-    def run_terminal(self, fn: Callable[[], T]) -> T:
-        return fn()
 
 
 def _rich_style(style: str | None) -> str | None:

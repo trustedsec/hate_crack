@@ -82,7 +82,7 @@ print("RESULT=" + ans, flush=True)
 @pytest.mark.parametrize(
     "keys, expected",
     [
-        (b"\x1b[A\r", "99"),  # Up: the last key, as under Textual
+        (b"\x1b[A\r", "99"),  # Up: the last listed key
         (b"\x1b[A\x1b[A\r", "1"),
         (b"\x1b[A\x1b[A\x1b[B\r", "99"),
         (b"\x1b[A,1\r", "99,1"),  # a separator extends the filled key

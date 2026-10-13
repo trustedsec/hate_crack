@@ -9,11 +9,8 @@ import hate_crack.menu
 import hate_crack.progress
 from hate_crack.ui import UI, PlainUI, get_ui, reset_ui, set_ui
 from hate_crack.ui.rich_ui import RichUI
-from hate_crack.ui.textual_ui import TextualUI
 
-# TextualUI is left unbound: that is the degradation case, and it still has to
-# match the protocol signature for signature.
-BACKEND_FACTORIES = [PlainUI, RichUI, TextualUI]
+BACKEND_FACTORIES = [PlainUI, RichUI]
 
 UI_MEMBERS = [n for n in vars(UI) if not n.startswith("_")]
 
@@ -34,7 +31,7 @@ def test_protocol_member_list_is_exact():
     assert sorted(UI_MEMBERS) == sorted(
         [
             "say", "warn", "error", "success", "ask", "ask_int", "confirm",
-            "select", "columns", "spinner", "run_terminal",
+            "select", "columns", "spinner",
         ]
     )  # fmt: skip
 
