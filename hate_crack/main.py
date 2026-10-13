@@ -10306,7 +10306,10 @@ def main():
             get_ui().say("Please set HASHVIEW_API_KEY in the .env file")
             sys.exit(1)
         hashview_api()
-        sys.exit(0)
+        # Switching to a downloaded hashfile continues to the main menu, as
+        # --download-hashview does; only exit when nothing was loaded.
+        if not hcatHashFile:
+            sys.exit(0)
 
     if args.weakpass:
         weakpass_wordlist_menu(rank=flags.weakpass_min_rank)

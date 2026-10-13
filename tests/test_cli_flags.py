@@ -74,6 +74,37 @@ def test_hashview_flag(monkeypatch):
     assert called == [True]
 
 
+def test_hashview_flag_continues_to_main_menu_after_switch(monkeypatch, tmp_path):
+    """Answering yes to "Switch to this hashfile" must reach the main menu.
+
+    ``--hashview`` used to exit 0 unconditionally after ``hashview_api()``
+    returned, discarding the hashfile the user had just switched to.
+    """
+    monkeypatch.setattr(hc_main, "hashview_api_key", "dummy")
+    monkeypatch.setattr(hc_main, "ascii_art", lambda: None)
+    monkeypatch.setattr(hc_main, "hcatHashFile", None)
+    monkeypatch.setattr(hc_main, "hcatHashFileOrig", None)
+    hashfile = tmp_path / "left_1_2.txt"
+    hashfile.write_text("$1$abc$def\n")
+
+    def _fake_hashview_api():
+        hc_main.hcatHashFile = str(hashfile)
+        hc_main.hcatHashFileOrig = str(hashfile)
+        hc_main.hcatHashType = "500"
+
+    class _ReachedMainMenu(Exception):
+        pass
+
+    def _main_menu(*_a, **_kw):
+        raise _ReachedMainMenu
+
+    monkeypatch.setattr(hc_main, "hashview_api", _fake_hashview_api)
+    monkeypatch.setattr(hc_main, "interactive_menu", _main_menu)
+    monkeypatch.setattr(sys, "argv", ["hate_crack.py", "--hashview"])
+    with pytest.raises(_ReachedMainMenu):
+        hc_main.main()
+
+
 def test_download_hashview_flag_does_not_prompt(monkeypatch):
     """--download-hashview goes straight to Hashview: no menu, no discarded answer."""
     monkeypatch.setattr(hc_main, "hashview_api_key", "dummy")
