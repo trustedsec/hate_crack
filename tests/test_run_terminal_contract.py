@@ -8,9 +8,10 @@ import pytest
 
 from hate_crack.ui.plain import PlainUI
 from hate_crack.ui.rich_ui import RichUI
+from hate_crack.ui.textual_ui import TextualUI
 
 
-@pytest.fixture(params=[PlainUI, RichUI], ids=lambda c: c.__name__)
+@pytest.fixture(params=[PlainUI, RichUI, TextualUI], ids=lambda c: c.__name__)
 def backend(request):
     return request.param()
 

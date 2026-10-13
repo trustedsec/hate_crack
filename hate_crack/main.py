@@ -9687,6 +9687,47 @@ def get_main_menu_options():
 
 
 # The Main Guts
+def _menu_loop(select: Any = None) -> None:
+    """The interactive main-menu loop (quits via ``quit_hc`` on Ctrl-C).
+
+    ``select`` defaults to ``interactive_menu``, resolved at call time so
+    patches keep landing; the textual path passes ``get_ui().select`` because
+    the terminal menu cannot run under a Textual app.
+    """
+    pick = select if select is not None else interactive_menu
+    try:
+        options = get_main_menu_options()
+        while 1:
+            try:
+                task = pick(
+                    get_main_menu_items(),
+                    title="\nSelect a task:",
+                )
+                if task is None:
+                    continue
+                options[task]()
+            except KeyError:
+                pass
+            except DoubleInterrupt:
+                get_ui().warn("\n[!] Returning to main menu...")
+    except KeyboardInterrupt:
+        quit_hc()
+
+
+def _textual_menu_loop() -> None:
+    """Menu loop for the textual backend: status bar plus the UI's own select."""
+    ui = get_ui()
+    set_status = getattr(ui, "set_status", None)
+    if set_status is not None:
+        set_status(
+            hash_file=hcatHashFile,
+            hash_type=hcatHashType,
+            cracked=hcatHashCracked,
+            total=lineCount(hcatHashFile),
+        )
+    _menu_loop(ui.select)
+
+
 def main():
     global pwdump_format
     global hcatHashFile
@@ -10577,24 +10618,10 @@ def main():
     if non_interactive:
         sys.exit(_noninteractive.run_noninteractive(_attack_ctx(), args))
 
-    # Display Options
-    try:
-        options = get_main_menu_options()
-        while 1:
-            try:
-                task = interactive_menu(
-                    get_main_menu_items(),
-                    title="\nSelect a task:",
-                )
-                if task is None:
-                    continue
-                options[task]()
-            except KeyError:
-                pass
-            except DoubleInterrupt:
-                get_ui().warn("\n[!] Returning to main menu...")
-    except KeyboardInterrupt:
-        quit_hc()
+    if _ui_name == "textual":
+        _ui.run_textual(_textual_menu_loop)
+    else:
+        _menu_loop()
 
 
 # Boilerplate

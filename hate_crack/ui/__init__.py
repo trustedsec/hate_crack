@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from contextlib import AbstractContextManager
 from collections.abc import Callable
 from typing import Any, Protocol, TypeVar
@@ -10,7 +11,7 @@ from hate_crack.ui.plain import PlainUI
 
 T = TypeVar("T")
 
-BACKENDS = ("plain", "rich")  # "textual" joins this in Phase 3
+BACKENDS = ("plain", "rich", "textual")
 
 
 class UI(Protocol):
@@ -97,7 +98,50 @@ def build_ui(name: str) -> UI:
         from hate_crack.ui.rich_ui import RichUI
 
         return RichUI()
+    if name == "textual":
+        from hate_crack.ui.textual_ui import TextualUI
+
+        return TextualUI()
     return PlainUI()
+
+
+def run_textual(menu_loop: Callable[[], None]) -> None:
+    """Run ``menu_loop`` on one worker thread under a Textual app.
+
+    Textual owns the main thread; the loop and everything it calls run on the
+    worker. Returns when the app exits; anything the loop raised (including
+    SystemExit from ``quit_hc``) is re-raised here on the main thread.
+    """
+    import threading
+
+    from hate_crack.ui.app import HateCrackApp
+    from hate_crack.ui.textual_ui import TextualUI
+
+    ui = get_ui()
+    if not isinstance(ui, TextualUI):
+        raise RuntimeError("run_textual requires the textual backend to be installed")
+    outcome: list[BaseException] = []
+
+    def work() -> None:
+        try:
+            menu_loop()
+        except BaseException as exc:
+            outcome.append(exc)
+        finally:
+            with contextlib.suppress(Exception):
+                app.call_from_thread(app.exit)
+
+    def start() -> None:
+        threading.Thread(target=work, name="hate_crack-menu", daemon=True).start()
+
+    app = HateCrackApp(on_ready=start)
+    ui.bind(app)
+    try:
+        app.run()
+    finally:
+        ui._app = None
+    if outcome:
+        raise outcome[0]
 
 
 _ui: UI | None = None
@@ -128,6 +172,7 @@ __all__ = [
     "build_ui",
     "get_ui",
     "reset_ui",
+    "run_textual",
     "resolve_backend_name",
     "set_ui",
 ]

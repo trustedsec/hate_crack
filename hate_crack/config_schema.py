@@ -391,7 +391,9 @@ CONFIG_SCHEMA: tuple[ConfigKey, ...] = (
         "main",
         choices=("main", "nightly-dev"),
     ),
-    ConfigKey("UI_BACKEND", "ui_backend", "str", "rich", choices=("plain", "rich")),
+    ConfigKey(
+        "UI_BACKEND", "ui_backend", "str", "rich", choices=("plain", "rich", "textual")
+    ),
     ConfigKey("RESTORE_POTFILE_ON_START", "restore_potfile_on_start", "bool", False),
     ConfigKey("RULE_DEBUG_MODE_ENABLED", "rule_debug_mode_enabled", "bool", True),
     ConfigKey("COVERAGE_ENABLED", "coverage_enabled", "bool", True),
