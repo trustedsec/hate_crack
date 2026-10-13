@@ -4,34 +4,20 @@ import sys
 from hate_crack import main as _main
 from hate_crack import menu_registry as _menu_registry
 
-# Re-export symbols for tests and legacy imports.
-for _name, _value in _main.__dict__.items():
-    if _name.startswith("__") and _name not in {
-        "__all__",
-        "__doc__",
-        "__name__",
-        "__package__",
-        "__loader__",
-        "__spec__",
-    }:
-        continue
-    globals().setdefault(_name, _value)
-
-# NOTE: globals().setdefault() above copies main's import-time values into
-# this shim's module dict, which shadows __getattr__ for those names. Reading
-# e.g. hate_crack.hcatHashFile therefore returns this frozen copy rather than
-# proxying to main's live value. Latent today because nothing reads these
-# names that way and the snapshot guard below prevents the stale copy from
-# ever being pushed back onto main, but it will bite the first caller that
-# expects live-attribute semantics here.
+# This shim deliberately holds NO import-time copies of main's names. Reading
+# e.g. hate_crack.hcatHashFile falls through __getattr__ to main's live value,
+# and a name present in this module's own namespace therefore means exactly
+# one thing: it was assigned here after import (a test patch or a legacy
+# caller). That presence test is what _ShimOverlay and the _sync_* helpers
+# rely on, and it holds for interned values ("", None, True, small ints) where
+# an identity comparison against a snapshot cannot.
 #
-# Snapshot of the import-time values above, so _sync_globals_to_main() can
-# tell "this global was actually changed on the shim" apart from "this global
-# still holds the stale copy we grabbed at import." Without this, syncing a
-# name that main() later assigns a real value to (e.g. hcatHashFile) would
-# clobber that real value with the shim's stale import-time copy.
+# Snapshot of main's import-time values for the synced globals, so
+# _sync_globals_to_main() can tell "this global was actually changed on the
+# shim" apart from "still main's value." Without this, syncing a name that
+# main() later assigns a real value to (e.g. hcatHashFile) would clobber it.
 _IMPORT_TIME_SNAPSHOT = {
-    name: globals()[name]
+    name: getattr(_main, name)
     for name in (
         "hcatHashType",
         "pipal_count",
@@ -41,7 +27,7 @@ _IMPORT_TIME_SNAPSHOT = {
         "debug_mode",
         "hcatUsernamePrefix",
     )
-    if name in globals()
+    if hasattr(_main, name)
 }
 
 
@@ -102,21 +88,27 @@ def pipal():
     return _main.pipal()
 
 
-# Snapshot of this shim's namespace once every import-time copy from main is in
-# place, so _ShimOverlay can tell "replaced on the shim" from "stale copy".
-_SHIM_SNAPSHOT = dict(globals())
+# The shim's own definitions (main, pipal, helpers, imports). These exist from
+# the start, so presence proves nothing for them; they are modules and
+# functions, never interned values, so identity against this snapshot is a
+# sound "was it replaced" test. Any other name in globals() was assigned.
+_SHIM_NATIVES = dict(globals())
 
 
 class _ShimOverlay:
-    """Read-only view for menu_registry: a name replaced on the shim (a test
+    """Read-only view for menu_registry: a name assigned on the shim (a test
     patch or legacy caller) resolves there; anything else resolves against
-    main's live value. main is never mutated, so nothing can leak."""
+    main's live value. main is never mutated, so nothing can leak.
+
+    The shim keeps no copies of main's names, so for those, presence in its
+    namespace is itself proof of assignment (correct for interned values too).
+    Only the shim's own definitions need an identity check."""
 
     def __getattr__(self, name):
-        missing = object()
-        current = globals().get(name, missing)
-        if current is not missing and current is not _SHIM_SNAPSHOT.get(name, missing):
-            return current
+        if name in globals():
+            current = globals()[name]
+            if name not in _SHIM_NATIVES or current is not _SHIM_NATIVES[name]:
+                return current
         return getattr(_main, name)
 
 

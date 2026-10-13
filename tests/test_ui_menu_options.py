@@ -228,3 +228,20 @@ def test_menu_registry_resolves_handlers_late(monkeypatch):
             sys.modules["hate_crack.main"], "quit_hc", lambda: "swapped"
         )
     assert handler() == "swapped"
+
+
+def test_shim_assignment_of_an_interned_value_hides_hashview_entry(monkeypatch):
+    """Rebinding a shim name is detected by assignment, not by value identity.
+
+    Setting the shim's copy to "" (an interned value, as are None/True/small
+    ints) must still count as replaced, so a falsy key hides menu 94 even
+    while main's live key is truthy.
+    """
+    # An earlier test's monkeypatch undo leaves its restored value assigned on
+    # the shim, which is by design indistinguishable from an assignment.
+    monkeypatch.delitem(vars(CLI_MODULE), "hashview_api_key", raising=False)
+    monkeypatch.setattr(CLI_MODULE._main, "hashview_api_key", "abc")
+    assert "94" in CLI_MODULE.get_main_menu_options()
+    monkeypatch.setattr(CLI_MODULE, "hashview_api_key", "")
+    assert "94" not in CLI_MODULE.get_main_menu_options()
+    assert "94" not in {k for k, _ in CLI_MODULE.get_main_menu_items()}
