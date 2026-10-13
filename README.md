@@ -568,9 +568,10 @@ Menus use classic numbered `print()` + `input()` selection by default, which
 accepts full multi-digit keys.
 
 To enable arrow-key navigation via `simple-term-menu`, set
-`HATE_CRACK_ARROW_MENU=1`. In that mode only single-digit shortcut keys work;
-options numbered 10 and above must be reached with the arrow keys. Arrow-key
-mode also requires a TTY, so it stays off when output is piped.
+`HATE_CRACK_ARROW_MENU=1`. In that mode you can either move with the arrow
+keys or type the option number (including multi-digit ones such as `99`) and
+press Enter. Typing anything else filters the list. Arrow-key mode also
+requires a TTY, so it stays off when output is piped.
 
 ### Dev Dependencies
 

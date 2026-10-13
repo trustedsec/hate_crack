@@ -90,6 +90,30 @@ class TestArrowMenu:
             result = _arrow_menu(SAMPLE_ITEMS, "Title")
         assert result is None
 
+    def _menu_typing(self, text, idx):
+        inst = MagicMock()
+        inst.show.return_value = idx
+        inst._search.search_text = text
+        return inst
+
+    def test_typed_multi_digit_number_wins_over_highlight(self):
+        inst = self._menu_typing("99", 0)
+        with patch("hate_crack.menu.TerminalMenu", create=True, return_value=inst):
+            assert _arrow_menu(SAMPLE_ITEMS, "Title") == "99"
+
+    def test_typed_text_that_is_no_key_falls_back_to_highlight(self):
+        inst = self._menu_typing("zzz", 1)
+        with patch("hate_crack.menu.TerminalMenu", create=True, return_value=inst):
+            assert _arrow_menu(SAMPLE_ITEMS, "Title") == "2"
+
+    def test_enables_typed_entry(self):
+        inst = self._menu_typing(None, 0)
+        with patch(
+            "hate_crack.menu.TerminalMenu", create=True, return_value=inst
+        ) as cls:
+            _arrow_menu(SAMPLE_ITEMS, "Title")
+        assert cls.call_args.kwargs["search_key"] is None
+
 
 class TestInteractiveMenu:
     def test_uses_numbered_when_no_tty(self, monkeypatch):

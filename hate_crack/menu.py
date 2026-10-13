@@ -4,7 +4,8 @@ Default: classic numbered ``print()`` + ``input()`` selection (full number
 entry for all keys).
 
 Set ``HATE_CRACK_ARROW_MENU=1`` to enable arrow-key navigation via
-``simple-term-menu`` (single-digit shortcut keys only; 10+ require arrows).
+``simple-term-menu``.  Arrows move the cursor; typing a number (any length,
+e.g. ``10`` or ``99``) and pressing Enter selects that key directly.
 """
 
 from __future__ import annotations
@@ -38,10 +39,24 @@ def _arrow_menu(
     menu_entries = [f"[{key:>{w}}] {label}" for key, label in items]
     shortcuts = [key for key, _ in items]
 
-    menu = TerminalMenu(menu_entries, title=title)
+    # ``search_key=None`` makes any keystroke start the menu's incremental
+    # search, which is how a multi-digit number gets typed at all (its own
+    # ``[x]`` shortcuts are single-character only).
+    menu = TerminalMenu(
+        menu_entries,
+        title=title,
+        search_key=None,
+        status_bar="Arrows to move, or type a number; Enter to select",
+    )
     idx = menu.show()
     if idx is None:
         return None
+    # The search is a regex over the whole row, so "1" also matches rows whose
+    # label contains a 1 and the highlighted row can be the wrong one. An exact
+    # key typed by the user always wins over the highlight.
+    typed = getattr(getattr(menu, "_search", None), "search_text", None)
+    if isinstance(typed, str) and typed in shortcuts:
+        return typed
     return shortcuts[idx]
 
 
