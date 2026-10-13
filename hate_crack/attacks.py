@@ -42,6 +42,15 @@ def _as_path_list(result) -> list[str]:
     return []
 
 
+def _entry_choices(entries: list[str]) -> list[tuple[str, str]]:
+    """``"N) label"`` grid rows as ``(key, label)`` pairs for ``ask(choices=)``."""
+    return [(k, v) for k, _, v in (e.partition(") ") for e in entries)]
+
+
+# The letter options the training pickers print beneath their grids.
+_PATH_OR_CANCEL = [("p", "Enter a custom path"), ("q", "Cancel")]
+
+
 def _select_rules(ctx) -> list[str] | None:
     """Prompt user to select rules. Returns list of rule chain strings, or None if cancelled."""
     rule_choice = None
@@ -70,7 +79,7 @@ def _select_rules(ctx) -> list[str] | None:
     rule_entries.append("98) YOLO...run all of the rules")
     rule_entries.append("99) Back to Main Menu")
     max_rule_len = max((len(e) for e in rule_entries), default=26)
-    rule_choices = [(k, v) for k, _, v in (e.partition(") ") for e in rule_entries)]
+    rule_choices = _entry_choices(rule_entries)
     print_multicolumn_list(
         "Available Rules",
         rule_entries,
@@ -158,9 +167,7 @@ def quick_crack(ctx: Any) -> None:
         "\033[36m" if entry.is_dir else None for entry in wordlist_entries_meta
     ]
     max_entry_len = max((len(e) for e in wordlist_entries), default=24)
-    wordlist_choices = [
-        (k, v) for k, _, v in (e.partition(") ") for e in wordlist_entries)
-    ]
+    wordlist_choices = _entry_choices(wordlist_entries)
     print_multicolumn_list(
         "Wordlists (entries ending in / are directories: hashcat reads every file inside)",
         wordlist_entries,
@@ -1191,6 +1198,7 @@ def ollama_attack(ctx: Any) -> None:
 def _pick_training_wordlist(ctx: Any, title: str = "Training Wordlists"):
     """Show wordlist picker. Returns path or None (user cancelled with 'q')."""
     entries_meta = ctx.list_wordlist_entries(ctx.hcatWordlists)
+    choices = list(_PATH_OR_CANCEL)
     # Print the grid once, outside the retry loop: a wordlists directory can
     # hold dozens of entries, and repainting the whole thing after every typo
     # buries the error message.
@@ -1208,20 +1216,23 @@ def _pick_training_wordlist(ctx: Any, title: str = "Training Wordlists"):
             max_col_width=max_len,
             styles=entry_styles,
         )
+        choices = _entry_choices(entries) + choices
     get_ui().say("\tp. Enter a custom path")
     get_ui().say("\tq. Cancel")
     # The numbered entries are not the only valid answer -- a path typed here
     # should tab-complete like every other wordlist prompt does.
     _configure_readline(_wordlist_path_completer(ctx))
     try:
-        return _pick_training_wordlist_loop(ctx, entries_meta)
+        return _pick_training_wordlist_loop(ctx, entries_meta, choices)
     finally:
         readline.set_completer(None)
 
 
-def _pick_training_wordlist_loop(ctx: Any, entries_meta):
+def _pick_training_wordlist_loop(
+    ctx: Any, entries_meta, choices: list[tuple[str, str]] | None = None
+):
     while True:
-        sel = get_ui().ask("\n\tSelect wordlist: ").strip()
+        sel = get_ui().ask("\n\tSelect wordlist: ", choices=choices).strip()
         if sel.lower() == "q":
             return None
         if sel.lower() == "p":
@@ -1361,8 +1372,9 @@ def _markov_pick_training_source(ctx: Any):
         )
     get_ui().say("\tp. Enter a custom path")
     get_ui().say("\tq. Cancel")
+    choices = _entry_choices(entries) + _PATH_OR_CANCEL
     while True:
-        sel = get_ui().ask("\n\tSelect training source: ").strip()
+        sel = get_ui().ask("\n\tSelect training source: ", choices=choices).strip()
         if sel.lower() == "q":
             return None
         if sel == "0" and has_cracked:
@@ -1654,6 +1666,7 @@ def generate_rules_crack(ctx: Any) -> None:
     ]
     entry_styles = ["\033[36m" if entry.is_dir else None for entry in entries_meta]
     max_entry_len = max((len(e) for e in wordlist_entries), default=24)
+    wordlist_choices = _entry_choices(wordlist_entries)
     print_multicolumn_list(
         "Wordlists",
         wordlist_entries,
@@ -1687,7 +1700,8 @@ def generate_rules_crack(ctx: Any) -> None:
         try:
             raw_choice = get_ui().ask(
                 "\nEnter path of wordlist (tab to autocomplete).\n"
-                f"Press Enter for default wordlist directory [{ctx.hcatWordlists}]: "
+                f"Press Enter for default wordlist directory [{ctx.hcatWordlists}]: ",
+                choices=wordlist_choices,
             )
             raw_choice = raw_choice.strip()
             if raw_choice == "":
