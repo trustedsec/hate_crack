@@ -2356,7 +2356,7 @@ def _run_hcat_cmd_uncovered(
     #
     # A missing returncode only happens behind a test double -- a real Popen
     # always has one set by wait().
-    returncode = getattr(hcatProcess, "returncode", None)
+    returncode = getattr(finished_process, "returncode", None)
     return not interrupted and returncode in (1, None)
 
 
