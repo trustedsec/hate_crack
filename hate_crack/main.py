@@ -9714,9 +9714,14 @@ def _menu_loop(select: Any = None) -> None:
         quit_hc()
 
 
+_debug_log_path: str | None = None
+
+
 def _textual_menu_loop() -> None:
     """Menu loop for the textual backend: status bar plus the UI's own select."""
     ui = get_ui()
+    if _debug_log_path:
+        ui.say(f"[*] Debug logging to {_debug_log_path}")
     set_status = getattr(ui, "set_status", None)
     if set_status is not None:
         set_status(
@@ -10147,7 +10152,8 @@ def main():
         get_ui().say("[*] Optimized kernels (-O) disabled for this run")
     hcatPotfilePath = flags.potfile_path
 
-    setup_logging(logger, hate_path, debug_mode)
+    global _debug_log_path
+    _debug_log_path = setup_logging(logger, hate_path, debug_mode)
 
     from types import SimpleNamespace
 

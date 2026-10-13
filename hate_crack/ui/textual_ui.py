@@ -35,6 +35,9 @@ class _Handle:
 
 
 class TextualUI:
+    # Textual owns raw-mode stdin; readline completion would corrupt it.
+    supports_readline = False
+
     def __init__(self) -> None:
         self._app: HateCrackApp | None = None
         self._plain = PlainUI()

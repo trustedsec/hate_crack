@@ -48,6 +48,8 @@ class _Elapsed:
 
 
 class RichUI:
+    supports_readline = True
+
     def __init__(
         self, console: Console | None = None, err_console: Console | None = None
     ) -> None:

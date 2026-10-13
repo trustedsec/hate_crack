@@ -65,6 +65,16 @@ class UI(Protocol):
         ...
 
 
+def readline_supported() -> bool:
+    """False when the active backend owns raw-mode stdin (Textual).
+
+    ``supports_readline`` is an optional capability attribute on a backend, not
+    a ``UI`` protocol member: only the one backend that says False matters, and
+    a backend that omits it (a test double) gets readline as before.
+    """
+    return bool(getattr(get_ui(), "supports_readline", True))
+
+
 def resolve_backend_name(
     *,
     config_value: str | None = None,
@@ -171,6 +181,7 @@ __all__ = [
     "UI",
     "build_ui",
     "get_ui",
+    "readline_supported",
     "reset_ui",
     "run_textual",
     "resolve_backend_name",

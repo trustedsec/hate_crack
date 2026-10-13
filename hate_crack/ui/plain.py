@@ -17,6 +17,8 @@ T = TypeVar("T")
 
 
 class PlainUI:
+    supports_readline = True
+
     def say(self, text: str = "", *, style: str | None = None) -> None:
         print(text)
 
