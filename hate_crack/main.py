@@ -66,6 +66,7 @@ from hate_crack.cli import (  # noqa: E402
     setup_logging,
 )
 from hate_crack import attacks as _attacks  # noqa: E402
+from hate_crack.menu_registry import menu_items, menu_options  # noqa: E402
 from hate_crack import config_loader as _config_loader  # noqa: E402
 from hate_crack import config_schema as _config_schema  # noqa: E402
 from hate_crack import hashcat_paths as _hashcat_paths  # noqa: E402
@@ -9619,99 +9620,33 @@ def test_pushover_notification():
         )
 
 
+class _ModuleGlobals:
+    """Live attribute view of this module's own globals.
+
+    The menu must resolve handlers against *this* module, not whatever
+    ``sys.modules["hate_crack.main"]`` holds at call time: the suite purges that
+    entry between tests, and some tests load this file under a name that is
+    never registered at all. Reading ``globals()`` is correct in every case.
+    """
+
+    def __getattr__(self, name):
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(name) from None
+
+
+_THIS_MODULE = _ModuleGlobals()
+
+
 def get_main_menu_items():
     """Return ordered (key, label) pairs for the main menu."""
-    items = [
-        ("1", "Quick Crack"),
-        ("2", "Extensive Pure_Hate Methodology Crack"),
-        ("3", "Brute Force Attack"),
-        ("4", "Top Mask Attack"),
-        ("5", "Fingerprint Attack"),
-        ("6", "Combinator Attacks"),
-        ("7", "Hybrid Attack"),
-        ("8", "Pathwell Top 100 Mask Brute Force Crack"),
-        ("9", "PRINCE Attack"),
-        ("10", "Bandrel Methodology"),
-        ("11", "Loopback Attack"),
-        ("12", "LLM Attack"),
-        ("13", "OMEN Attack"),
-        ("14", "Ad-hoc Mask Attack"),
-        ("15", "Markov Brute Force Attack"),
-        ("16", "N-gram Attack"),
-        ("17", "Permutation Attack"),
-        ("18", "Random Rules Attack"),
-        ("19", "Combipow Passphrase Attack"),
-        ("20", "PCFG Attack"),
-        ("21", "PRINCE-LING Attack"),
-        ("22", "Spoonman Attack"),
-        ("23", "Rosetta Attack"),
-        ("24", "Corporate Masks Brute Force"),
-        ("25", "Smart Mask Attack"),
-        ("80", "Wordlist Tools"),
-        ("81", "Rule File Tools"),
-        ("82", "Notifications"),
-        ("83", "Mask Tools"),
-        ("85", "Attack Coverage"),
-        ("93", "Regenerate .out from POT file"),
-    ]
-    if hashview_api_key:
-        items.append(("94", "Hashview API"))
-    items.extend(
-        [
-            ("95", "Analyze hashes with Pipal"),
-            ("96", "Export Output to Excel Format"),
-            ("97", "Display Cracked Hashes"),
-            ("98", "Display README"),
-            ("99", "Quit"),
-        ]
-    )
-    return items
+    return menu_items(_THIS_MODULE)
 
 
 def get_main_menu_options():
     """Return the mapping of main menu keys to their handler functions."""
-    options = {
-        "1": quick_crack,
-        "2": extensive_crack,
-        "3": brute_force_crack,
-        "4": top_mask_crack,
-        "5": fingerprint_crack,
-        "6": combinator_submenu,
-        "7": hybrid_crack,
-        "8": pathwell_crack,
-        "9": prince_attack,
-        "10": bandrel_method,
-        "11": loopback_attack,
-        "12": ollama_attack,
-        "13": omen_attack,
-        "14": adhoc_mask_crack,
-        "15": markov_brute_force,
-        "16": ngram_attack,
-        "17": permute_crack,
-        "18": generate_rules_crack,
-        "19": combipow_crack,
-        "20": pcfg_attack,
-        "21": prince_ling_attack,
-        "22": spoonman_attack,
-        "23": rosetta_attack,
-        "24": corporate_masks_crack,
-        "25": smart_mask_crack,
-        "80": wordlist_tools_submenu,
-        "81": rule_tools_submenu,
-        "82": notifications_submenu,
-        "83": mask_tools_submenu,
-        "85": coverage_submenu,
-        "93": restore_potfile_output,
-        "95": pipal,
-        "96": export_excel,
-        "97": show_results,
-        "98": show_readme,
-        "99": quit_hc,
-    }
-    # Only show this when Hashview API is configured (requested behavior).
-    if hashview_api_key:
-        options["94"] = hashview_api
-    return options
+    return menu_options(_THIS_MODULE)
 
 
 # The Main Guts

@@ -105,49 +105,53 @@ def get_main_menu_items():
     return _main.get_main_menu_items()
 
 
+# Shim-level names the menu depends on, with the value each held at import
+# time. get_main_menu_options() uses these to tell "replaced on the shim" apart
+# from "still the stale import-time copy" (same idea as _IMPORT_TIME_SNAPSHOT).
+_MENU_SHIM_ORIGINALS = {
+    name: globals().get(name)
+    for name in (
+        "notifications_submenu",
+        "pipal",
+        "weakpass_wordlist_menu",
+        "download_hashmob_wordlists",
+        "download_hashmob_rules",
+        "download_hashmob_masks",
+        "hashview_api",
+        "hashview_api_key",
+        "export_excel",
+        "show_results",
+        "show_readme",
+        "quit_hc",
+    )
+}
+# name -> what main held before we pushed a shim replacement onto it.
+_MENU_PUSHED_FROM = {}
+
+
+def _mirror_menu_overrides():
+    """Make main see shim-level replacements, and undo them once reverted.
+
+    The menu is defined once, in hate_crack.menu_registry, and resolved against
+    main at call time. A replacement made on this shim (a test patch, or a
+    legacy caller) must therefore be visible on main while it is in force.
+    Only names that differ from their import-time value are pushed, and a push
+    is reverted when the shim value goes back, so a patch never outlives itself
+    on the session-shared main module.
+    """
+    for name, original in _MENU_SHIM_ORIGINALS.items():
+        current = globals().get(name, original)
+        if current is not original:
+            if name not in _MENU_PUSHED_FROM:
+                _MENU_PUSHED_FROM[name] = getattr(_main, name, None)
+            setattr(_main, name, current)
+        elif name in _MENU_PUSHED_FROM:
+            setattr(_main, name, _MENU_PUSHED_FROM.pop(name))
+
+
 def get_main_menu_options():
-    options = {
-        "1": _attacks.quick_crack,
-        "2": _attacks.extensive_crack,
-        "3": _attacks.brute_force_crack,
-        "4": _attacks.top_mask_crack,
-        "5": _attacks.fingerprint_crack,
-        "6": _attacks.combinator_submenu,
-        "7": _attacks.hybrid_crack,
-        "8": _attacks.pathwell_crack,
-        "9": _attacks.prince_attack,
-        "10": _attacks.bandrel_method,
-        "11": _attacks.loopback_attack,
-        "12": _attacks.ollama_attack,
-        "13": _attacks.omen_attack,
-        "14": _attacks.adhoc_mask_crack,
-        "15": _attacks.markov_brute_force,
-        "16": _attacks.ngram_attack,
-        "17": _attacks.permute_crack,
-        "18": _attacks.generate_rules_crack,
-        "19": _attacks.combipow_crack,
-        "20": _attacks.pcfg_attack,
-        "21": _attacks.prince_ling_attack,
-        "22": _attacks.spoonman_attack,
-        "23": _attacks.rosetta_attack,
-        "24": _attacks.corporate_masks_crack,
-        "25": _attacks.smart_mask_crack,
-        "80": _attacks.wordlist_tools_submenu,
-        "81": _attacks.rule_tools_submenu,
-        "82": notifications_submenu,
-        "83": _attacks.mask_tools_submenu,
-        "85": coverage_submenu,
-        "93": _attacks.restore_potfile_output,
-        "95": pipal,
-        "96": export_excel,
-        "97": show_results,
-        "98": show_readme,
-        "99": quit_hc,
-    }
-    # Only show Hashview API when configured.
-    if globals().get("hashview_api_key"):
-        options["94"] = hashview_api
-    return options
+    _mirror_menu_overrides()
+    return _main.get_main_menu_options()
 
 
 if __name__ == "__main__":

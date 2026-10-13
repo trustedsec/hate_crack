@@ -177,3 +177,41 @@ def test_coverage_menu_routes_through_both_duplicate_menu_mappings():
         == main_options["85"].__qualname__
         == "coverage_submenu"
     )
+
+
+def test_shim_does_not_carry_its_own_menu_mapping():
+    """hate_crack.py used to hand-sync a duplicate of main's menu, whose
+    handlers were the raw attacks.* functions (they need a ctx and would raise
+    TypeError if dispatched). The menu now lives once, in menu_registry, and
+    the shim only delegates; this keeps a second copy from coming back."""
+    import ast
+    import inspect
+
+    from hate_crack import menu_registry
+
+    tree = ast.parse((PROJECT_ROOT / "hate_crack.py").read_text())
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name in (
+            "get_main_menu_items",
+            "get_main_menu_options",
+        ):
+            src = ast.unparse(node)
+            assert "_attacks" not in src, f"{node.name} re-grew its own mapping"
+            assert not any(isinstance(n, ast.Dict) for n in ast.walk(node))
+    assert "menu_options" in inspect.getsource(CLI_MODULE._main.get_main_menu_options)
+    assert len(menu_registry.MAIN_MENU) == 37
+
+
+def test_menu_registry_resolves_handlers_late(monkeypatch):
+    """Replacing a function on main after import must change what the menu
+    dispatches to (this is what _sync_callables_to_main relies on)."""
+    main = CLI_MODULE._main
+    handler = main.get_main_menu_options()["99"]
+    monkeypatch.setattr(main, "quit_hc", lambda: "swapped")
+    import sys
+
+    if sys.modules["hate_crack.main"] is not main:
+        monkeypatch.setattr(
+            sys.modules["hate_crack.main"], "quit_hc", lambda: "swapped"
+        )
+    assert handler() == "swapped"
