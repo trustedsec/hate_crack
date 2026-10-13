@@ -848,20 +848,27 @@ and `RichUI` just call `fn()`; `TextualUI` marshals `fn` to the main thread unde
 tty (stdin/stdout not captured, awaited with `wait`/`communicate`), it must go
 through `run_terminal`, or Ctrl-C will take the app down with it.
 
-The six existing sites (`main.py`: the hashcat run in `_run_hcat_cmd_uncovered`, statsgen,
-maskgen, hcstat2gen, createng, pipal) were found by auditing every subprocess
-call in `main.py` for ones that inherit the terminal and are awaited, as opposed
-to captured or fire-and-forget. That audit is by reading, not by a guard test, so
-a new site is not caught automatically.
+The six existing sites (`main.py`: the hashcat run in `_run_hcat_cmd_uncovered`,
+statsgen, maskgen, hcstat2gen, createng, pipal) were found by parsing
+`hate_crack/main.py` with `ast`, collecting every `subprocess.Popen` call, and
+classifying each on whether `stdout` is among its keyword arguments. `main.py`
+has 19 `Popen` calls; 13 pass `stdout=` and so write to a pipe, and 6 do not and
+therefore inherit the terminal. Those six are the wrapped ones. That is the test
+to apply to a new subprocess, and no guard test enforces it, so a new site is not
+caught automatically. Two traps:
+- A naive keyword filter reports **five**, not six: `_run_hcat_cmd_uncovered`
+  passes `**popen_kwargs`, so `stdout` is not a literal keyword there and the
+  call has to be treated as "no stdout" by inspection.
+- Classify on `stdout`, not `stderr`: a site can pipe stderr while still
+  inheriting stdout, and at least one does.
 
 **`run_terminal`'s marker scheme.** `_run_terminal_main` returns `("ok", value)`
 or `("raise", exc)` and never raises, and `TextualUI.run_terminal` re-raises on
 the worker side. An exception that escapes the callable handed to
 `call_from_thread` propagates to the worker **and** still kills the app, so the
 outcome has to travel as data. **A plain `suspend()` context manager cannot do
-this job:** `suspend()` must be entered on the main thread, while the caller is a
-worker, and the body would still run on the worker, which is exactly the thread
-that must not await the subprocess. The callable has to be shipped to the main
+this job:** the body of a `with` block would run on the calling worker thread,
+which is exactly the thread that must not await the subprocess. The callable has to be shipped to the main
 thread, so the API takes a function, not a `with` block.
 
 **Escape cancels a prompt**, replacing the double-Ctrl-C escape: application mode
