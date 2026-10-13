@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from rich.text import Text
 
 from hate_crack import formatting
+from hate_crack.ui import TerminalUnavailable
 from hate_crack.ui.plain import PlainUI
 from hate_crack.ui.rich_ui import _rich_style
 
@@ -24,6 +25,10 @@ if TYPE_CHECKING:
     from hate_crack.ui.app import HateCrackApp
 
 T = TypeVar("T")
+
+
+class _AppGone(Exception):
+    """The bound app has exited; nothing can be posted to it any more."""
 
 
 class _Handle:
@@ -52,7 +57,14 @@ class TextualUI:
 
     def _post(self, app: HateCrackApp, fn: Callable[[], Any]) -> Any:
         """Run ``fn`` on the app thread. Callers hold the bound app themselves
-        and handle the unbound case first, so there is nothing to assert here."""
+        and handle the unbound case first, so there is nothing to assert here.
+
+        ``run_textual`` keeps the app bound while it joins the worker, so a
+        worker can still be talking after the app has exited. Posting to a
+        dead app raises ``_AppGone`` instead of blocking on a loop that will
+        never answer."""
+        if not app.is_running:
+            raise _AppGone
         if self._on_app_thread(app):
             return fn()
         return app.call_from_thread(fn)
@@ -62,21 +74,30 @@ class TextualUI:
         if app is None:
             self._plain.say(text)
             return
-        self._post(app, lambda: app.append(text, _rich_style(style)))
+        try:
+            self._post(app, lambda: app.append(text, _rich_style(style)))
+        except _AppGone:
+            self._plain.say(text)
 
     def _ask(self, app: HateCrackApp, prompt: str) -> str | None:
         """Block the worker until the operator submits; None means cancelled."""
         from hate_crack.ui.app import _Prompt
 
         pending = _Prompt()
-        self._post(app, lambda: app.begin_prompt(prompt, pending))
-        pending.event.wait()
+        try:
+            self._post(app, lambda: app.begin_prompt(prompt, pending))
+        except _AppGone:
+            return None
+        while not pending.event.wait(0.25):
+            if not app.is_running and not self._on_app_thread(app):
+                return None  # the app went away mid-prompt
         return pending.value
 
     def set_status(self, **fields: Any) -> None:
         app = self._app
         if app is not None:
-            self._post(app, lambda: app.set_status(**fields))
+            with contextlib.suppress(_AppGone):
+                self._post(app, lambda: app.set_status(**fields))
 
     # -- output ------------------------------------------------------------
 
@@ -219,7 +240,10 @@ class TextualUI:
                     style = styles[idx] if styles and idx < len(styles) else None
                     cell = entries[idx][:col_width].ljust(col_width)
                     line.append(cell, style=_rich_style(style) or "")
-            self._post(app, lambda line=line: app.append(line))
+            try:
+                self._post(app, lambda line=line: app.append(line))
+            except _AppGone:
+                self._plain.say(line.plain)
         if title:
             self.say("=" * width)
 
@@ -244,9 +268,20 @@ class TextualUI:
         ``call_from_thread`` reaches the worker AND still kills the app.
         """
         app = self._app
-        if app is None:
+        if app is None or not app.is_running:
             return fn()
         kind, payload = app.call_from_thread(app._run_terminal_main, fn)
+        if kind == "unsupported":
+            # ``fn`` was never run. Running it anyway on this worker thread
+            # would put a tty-owning hashcat under a live full-screen app and
+            # let Ctrl-C kill the app, so the attack is aborted instead; the
+            # menu loop catches TerminalUnavailable and carries on.
+            self.error(
+                "[!] The Textual backend cannot hand this terminal to hashcat "
+                "(suspend is not supported here). Set ui_backend=rich or "
+                "ui_backend=plain to run attacks."
+            )
+            raise TerminalUnavailable(str(payload))
         if kind == "raise":
             raise payload
         return payload

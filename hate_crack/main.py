@@ -9697,7 +9697,7 @@ def _menu_loop(select: Any = None) -> None:
     pick = select if select is not None else interactive_menu
     try:
         options = get_main_menu_options()
-        while 1:
+        while not _ui.shutdown_requested():
             try:
                 task = pick(
                     get_main_menu_items(),
@@ -9708,6 +9708,8 @@ def _menu_loop(select: Any = None) -> None:
                 options[task]()
             except KeyError:
                 pass
+            except _ui.TerminalUnavailable:
+                pass  # already reported by the backend; back to the menu
             except DoubleInterrupt:
                 get_ui().warn("\n[!] Returning to main menu...")
     except KeyboardInterrupt:

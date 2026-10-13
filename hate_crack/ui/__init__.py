@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import threading
 from contextlib import AbstractContextManager
 from collections.abc import Callable
 from typing import Any, Protocol, TypeVar
@@ -12,6 +13,10 @@ from hate_crack.ui.plain import PlainUI
 T = TypeVar("T")
 
 BACKENDS = ("plain", "rich", "textual")
+
+
+class TerminalUnavailable(RuntimeError):
+    """The backend cannot hand the terminal to a subprocess; the attack aborts."""
 
 
 class UI(Protocol):
@@ -115,15 +120,35 @@ def build_ui(name: str) -> UI:
     return PlainUI()
 
 
+# How long run_textual waits for the worker after the app exits. The worker may
+# legitimately be mid-write (a rule file, a .working file, an upload), so it is
+# waited out rather than abandoned; 30 s covers those and any loop that polls
+# shutdown_requested(), yet bounds a wedged network call so a quit can never
+# hold the restored terminal forever. Ctrl+C during the wait abandons it too.
+WORKER_JOIN_TIMEOUT = 30.0
+_WORKER_JOIN_QUIET = 1.0  # join this long silently before printing a notice
+
+_shutdown = threading.Event()
+
+
+def shutdown_requested() -> bool:
+    """True once the Textual app has exited and the worker should wind down.
+
+    A cooperative worker loop polls this and returns instead of being waited
+    out; it is never set under the plain/rich backends.
+    """
+    return _shutdown.is_set()
+
+
 def run_textual(menu_loop: Callable[[], None]) -> None:
     """Run ``menu_loop`` on one worker thread under a Textual app.
 
     Textual owns the main thread; the loop and everything it calls run on the
-    worker. Returns when the app exits; anything the loop raised (including
-    SystemExit from ``quit_hc``) is re-raised here on the main thread.
+    worker. When the app exits, ``shutdown_requested()`` flips and the worker
+    is joined (up to ``WORKER_JOIN_TIMEOUT``) so a file it is mid-way through
+    writing is not cut off; only then is anything the loop raised (including
+    SystemExit from ``quit_hc``) re-raised here on the main thread.
     """
-    import threading
-
     from hate_crack.ui.app import HateCrackApp
     from hate_crack.ui.textual_ui import TextualUI
 
@@ -131,6 +156,7 @@ def run_textual(menu_loop: Callable[[], None]) -> None:
     if not isinstance(ui, TextualUI):
         raise RuntimeError("run_textual requires the textual backend to be installed")
     outcome: list[BaseException] = []
+    _shutdown.clear()
 
     def work() -> None:
         try:
@@ -141,13 +167,25 @@ def run_textual(menu_loop: Callable[[], None]) -> None:
             with contextlib.suppress(Exception):
                 app.call_from_thread(app.exit)
 
-    def start() -> None:
-        threading.Thread(target=work, name="hate_crack-menu", daemon=True).start()
-
-    app = HateCrackApp(on_ready=start)
+    worker = threading.Thread(target=work, name="hate_crack-menu", daemon=True)
+    app = HateCrackApp(on_ready=worker.start)
     ui.bind(app)
     try:
-        app.run()
+        try:
+            app.run()
+        finally:
+            _shutdown.set()
+        if worker.is_alive():
+            worker.join(_WORKER_JOIN_QUIET)
+        if worker.is_alive():
+            ui.warn("[*] Waiting for background work to finish...")
+            worker.join(WORKER_JOIN_TIMEOUT - _WORKER_JOIN_QUIET)
+        if worker.is_alive():
+            ui.error(
+                "[!] Background work did not finish within "
+                f"{WORKER_JOIN_TIMEOUT:.0f}s; a file it was writing may be "
+                "incomplete."
+            )
     finally:
         ui._app = None
     if outcome:
@@ -178,12 +216,14 @@ def reset_ui() -> None:
 __all__ = [
     "BACKENDS",
     "PlainUI",
+    "TerminalUnavailable",
     "UI",
     "build_ui",
     "get_ui",
     "readline_supported",
     "reset_ui",
     "run_textual",
+    "shutdown_requested",
     "resolve_backend_name",
     "set_ui",
 ]
