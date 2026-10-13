@@ -13,7 +13,7 @@ from collections.abc import Callable
 from typing import Any, TypeVar
 
 from rich.text import Text
-from textual.app import App, ComposeResult
+from textual.app import App, ComposeResult, SuspendNotSupported
 from textual.binding import Binding
 from textual.widgets import Footer, Input, RichLog, Static
 
@@ -131,6 +131,9 @@ class HateCrackApp(App[None]):
         try:
             with self.suspend():
                 return ("ok", fn())
+        except SuspendNotSupported as exc:
+            # Raised on entering suspend(), so ``fn`` never ran.
+            return ("unsupported", exc)
         except BaseException as exc:
             return ("raise", exc)
 

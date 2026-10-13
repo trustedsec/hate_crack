@@ -9,8 +9,11 @@ import hate_crack.menu
 import hate_crack.progress
 from hate_crack.ui import UI, PlainUI, get_ui, reset_ui, set_ui
 from hate_crack.ui.rich_ui import RichUI
+from hate_crack.ui.textual_ui import TextualUI
 
-BACKEND_FACTORIES = [PlainUI, RichUI]
+# TextualUI is left unbound: that is the degradation case, and it still has to
+# match the protocol signature for signature.
+BACKEND_FACTORIES = [PlainUI, RichUI, TextualUI]
 
 UI_MEMBERS = [n for n in vars(UI) if not n.startswith("_")]
 

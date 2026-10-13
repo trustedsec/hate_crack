@@ -833,11 +833,22 @@ post-merge, empty string stays empty) but wordlist normalization is separate.
 
 `ui_backend=textual` (opt-in; the default is `rich`) runs `hate_crack/ui/app.py`'s
 `HateCrackApp` on the **main thread** and hate_crack's synchronous logic on **one
-worker thread** (`hate_crack-menu`, started from the app's `on_ready` by
-`ui.run_textual`). `TextualUI` is the bridge: from the worker, every `say`/`ask`
+worker thread** (`hate_crack-menu`, started from the app's `on_mount` by
+`ui.run_textual`; Textual also has an `on_ready` event, which is not what is used).
+`TextualUI` is the bridge: from the worker, every `say`/`ask`
 goes through `app.call_from_thread` and blocks until the app answers; called on
-the app thread it runs inline. `run_textual` re-raises anything the worker raised
-(including `SystemExit` from `quit_hc`) on the main thread after the app exits.
+the app thread it runs inline. When the app exits, `run_textual` sets
+`ui.shutdown_requested()` (which `_menu_loop` polls), **joins the worker for up to
+`WORKER_JOIN_TIMEOUT` (30 s)** so a file it is mid-write is not cut off by the
+daemon thread dying with the interpreter, reports through the UI if the join
+times out, and only then re-raises anything the worker raised (including
+`SystemExit` from `quit_hc`) on the main thread. `ui._app` stays bound during the
+join; `TextualUI` degrades to plain output (and `ask` to a cancel) once
+`app.is_running` is false, so a late worker cannot deadlock on a dead app. If the
+terminal cannot suspend (`SuspendNotSupported`), `run_terminal` aborts that
+attack with a message to use `ui_backend=rich` or `plain` (raising
+`ui.TerminalUnavailable`, which the menu loop catches) rather than run hashcat
+under a live full-screen app.
 
 **A terminal-owning subprocess must be awaited on the main thread.** Signals are
 delivered only there, so a hashcat awaited on the worker lets Ctrl-C kill the
