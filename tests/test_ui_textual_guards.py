@@ -93,3 +93,29 @@ def test_textual_declares_no_readline_and_others_do():
     assert PlainUI().supports_readline is True
     assert build_ui("rich").supports_readline is True
     assert build_ui("textual").supports_readline is False
+
+
+def test_unbound_textual_ui_degrades_to_plain(monkeypatch, capsys):
+    """Before the app is bound (startup), every call behaves like PlainUI."""
+    tui = build_ui("textual")
+    plain_ui = PlainUI()
+    items = [("1", "one"), ("2", "two")]
+
+    def drive(u, answers):
+        feed = iter(answers)
+        monkeypatch.setattr("builtins.input", lambda *_: next(feed))
+        u.say("s")
+        u.warn("w")
+        u.error("e")
+        u.success("ok")
+        out = [
+            u.ask("p: ", default="d"),
+            u.ask("p: ", default="d"),
+            u.confirm("c? ", default=False),
+            u.select(items, title="T"),
+        ]
+        u.columns("Cols", ["a", "b", "c"])
+        return out, capsys.readouterr().out
+
+    answers = ["x", "", "y", "2"]
+    assert drive(tui, answers) == drive(plain_ui, answers)

@@ -50,9 +50,9 @@ class TextualUI:
     def _on_app_thread(self, app: HateCrackApp) -> bool:
         return app.ui_thread == threading.get_ident()
 
-    def _post(self, fn: Callable[[], Any]) -> Any:
-        app = self._app
-        assert app is not None
+    def _post(self, app: HateCrackApp, fn: Callable[[], Any]) -> Any:
+        """Run ``fn`` on the app thread. Callers hold the bound app themselves
+        and handle the unbound case first, so there is nothing to assert here."""
         if self._on_app_thread(app):
             return fn()
         return app.call_from_thread(fn)
@@ -62,23 +62,21 @@ class TextualUI:
         if app is None:
             self._plain.say(text)
             return
-        self._post(lambda: app.append(text, _rich_style(style)))
+        self._post(app, lambda: app.append(text, _rich_style(style)))
 
-    def _ask(self, prompt: str) -> str | None:
+    def _ask(self, app: HateCrackApp, prompt: str) -> str | None:
         """Block the worker until the operator submits; None means cancelled."""
         from hate_crack.ui.app import _Prompt
 
-        app = self._app
-        assert app is not None
         pending = _Prompt()
-        self._post(lambda: app.begin_prompt(prompt, pending))
+        self._post(app, lambda: app.begin_prompt(prompt, pending))
         pending.event.wait()
         return pending.value
 
     def set_status(self, **fields: Any) -> None:
         app = self._app
         if app is not None:
-            self._post(lambda: app.set_status(**fields))
+            self._post(app, lambda: app.set_status(**fields))
 
     # -- output ------------------------------------------------------------
 
@@ -97,9 +95,10 @@ class TextualUI:
     # -- input -------------------------------------------------------------
 
     def ask(self, prompt: str = "", *, default: str = "") -> str:
-        if self._app is None:
+        app = self._app
+        if app is None:
             return self._plain.ask(prompt, default=default)
-        answer = self._ask(prompt)
+        answer = self._ask(app, prompt)
         if answer is None:
             return ""
         return answer or default
@@ -111,10 +110,11 @@ class TextualUI:
         default: int | None = None,
         minimum: int | None = None,
     ) -> int | None:
-        if self._app is None:
+        app = self._app
+        if app is None:
             return self._plain.ask_int(prompt, default=default, minimum=minimum)
         while True:
-            answer = self._ask(prompt)
+            answer = self._ask(app, prompt)
             if answer is None:
                 return None
             answer = answer.strip()
@@ -134,10 +134,11 @@ class TextualUI:
             return value
 
     def confirm(self, prompt: str, *, default: bool = True) -> bool:
-        if self._app is None:
+        app = self._app
+        if app is None:
             return self._plain.confirm(prompt, default=default)
         while True:
-            answer = self._ask(prompt)
+            answer = self._ask(app, prompt)
             if answer is None:
                 return default
             answer = answer.strip().lower()
@@ -155,7 +156,8 @@ class TextualUI:
         title: str | None = None,
         prompt: str = "\nSelect a task: ",
     ) -> str | None:
-        if self._app is None:
+        app = self._app
+        if app is None:
             return self._plain.select(items, title=title, prompt=prompt)
         if title:
             self.say(title)
@@ -163,7 +165,7 @@ class TextualUI:
             self.say(f"  {key}) {label}")
         keys = {key for key, _ in items}
         while True:
-            answer = self._ask(prompt)
+            answer = self._ask(app, prompt)
             if answer is None:
                 return None
             answer = answer.strip()
@@ -184,7 +186,8 @@ class TextualUI:
         max_col_width: int | None = None,
         styles: list[str | None] | None = None,
     ) -> None:
-        if self._app is None:
+        app = self._app
+        if app is None:
             self._plain.columns(
                 title,
                 entries,
@@ -216,8 +219,7 @@ class TextualUI:
                     style = styles[idx] if styles and idx < len(styles) else None
                     cell = entries[idx][:col_width].ljust(col_width)
                     line.append(cell, style=_rich_style(style) or "")
-            app = self._app
-            self._post(lambda line=line: app.append(line))
+            self._post(app, lambda line=line: app.append(line))
         if title:
             self.say("=" * width)
 
