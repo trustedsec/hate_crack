@@ -31,7 +31,7 @@ def test_protocol_member_list_is_exact():
     assert sorted(UI_MEMBERS) == sorted(
         [
             "say", "warn", "error", "success", "ask", "ask_int", "confirm",
-            "select", "columns", "spinner", "suspend",
+            "select", "columns", "spinner", "run_terminal",
         ]
     )  # fmt: skip
 
@@ -48,10 +48,8 @@ def test_backend_signature_matches_protocol(backend, name):
         assert gp.default == wp.default, pname
 
 
-def test_spinner_and_suspend_are_context_managers(backend):
+def test_spinner_is_a_context_manager(backend):
     with backend.spinner("working"):
-        pass
-    with backend.suspend():
         pass
 
 

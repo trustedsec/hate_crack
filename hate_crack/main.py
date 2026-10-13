@@ -2223,26 +2223,33 @@ def _run_hcat_cmd_uncovered(
     popen_kwargs = {"stdin": stdin} if stdin is not None else {}
     if stderr_capture is not None:
         popen_kwargs["stderr"] = stderr_capture
-    hcatProcess = subprocess.Popen(cmd, **popen_kwargs)
-    interrupted = False
-    try:
-        hcatProcess.wait()
-        for gen in companions:
-            try:
-                gen.wait()
-            except Exception:
-                pass
-    except KeyboardInterrupt:
-        interrupted = True
-        get_ui().say("Killing PID {0}...".format(str(hcatProcess.pid)))
-        hcatProcess.kill()
-        for gen in companions:
-            try:
-                gen.kill()
-            except Exception:
-                pass
-    finally:
-        _notify.stop_tailer(tailer)
+
+    def _run_hashcat() -> "tuple[subprocess.Popen[Any], bool]":
+        """Spawn and await hashcat; returns (process, was_interrupted)."""
+        global hcatProcess
+        hcatProcess = subprocess.Popen(cmd, **popen_kwargs)
+        interrupted = False
+        try:
+            hcatProcess.wait()
+            for gen in companions:
+                try:
+                    gen.wait()
+                except Exception:
+                    pass
+        except KeyboardInterrupt:
+            interrupted = True
+            get_ui().say("Killing PID {0}...".format(str(hcatProcess.pid)))
+            hcatProcess.kill()
+            for gen in companions:
+                try:
+                    gen.kill()
+                except Exception:
+                    pass
+        finally:
+            _notify.stop_tailer(tailer)
+        return hcatProcess, interrupted
+
+    finished_process, interrupted = get_ui().run_terminal(_run_hashcat)
 
     if stderr_capture is not None:
         try:
@@ -2253,7 +2260,7 @@ def _run_hcat_cmd_uncovered(
 
         if (
             not interrupted
-            and hcatProcess.returncode
+            and finished_process.returncode
             and _DEBUG_MODE_UNSUPPORTED_MSG in captured_stderr
         ):
             debug_mode_idx = cmd.index("--debug-mode") + 1
@@ -2282,7 +2289,7 @@ def _run_hcat_cmd_uncovered(
                 )
         elif (
             not interrupted
-            and hcatProcess.returncode
+            and finished_process.returncode
             and not _brain_retry
             and _is_brain_failure(captured_stderr)
         ):
@@ -3539,42 +3546,51 @@ def hcatTopMask(hcatHashType, hcatHashFile, hcatTargetTime):
     global hcatMaskCount
     global hcatProcess
     _extract_cracked_plaintexts(f"{hcatHashFile}.out", f"{hcatHashFile}.working")
-    hcatProcess = subprocess.Popen(
-        [
-            sys.executable,
-            os.path.join(hate_path, "PACK", "statsgen.py"),
-            f"{hcatHashFile}.working",
-            "-o",
-            f"{hcatHashFile}.masks",
-        ]
-    )
-    try:
-        hcatProcess.wait()
-    except KeyboardInterrupt:
-        get_ui().say("Killing PID {0}...".format(str(hcatProcess.pid)))
-        hcatProcess.kill()
 
-    hcatProcess = subprocess.Popen(
-        [
-            sys.executable,
-            os.path.join(hate_path, "PACK", "maskgen.py"),
-            f"{hcatHashFile}.masks",
-            "--targettime",
-            str(hcatTargetTime),
-            "--optindex",
-            "-q",
-            "--pps",
-            "14000000000",
-            "--minlength=7",
-            "-o",
-            f"{hcatHashFile}.hcmask",
-        ]
-    )
-    try:
-        hcatProcess.wait()
-    except KeyboardInterrupt:
-        get_ui().say("Killing PID {0}...".format(str(hcatProcess.pid)))
-        hcatProcess.kill()
+    def _run_statsgen() -> None:
+        global hcatProcess
+        hcatProcess = subprocess.Popen(
+            [
+                sys.executable,
+                os.path.join(hate_path, "PACK", "statsgen.py"),
+                f"{hcatHashFile}.working",
+                "-o",
+                f"{hcatHashFile}.masks",
+            ]
+        )
+        try:
+            hcatProcess.wait()
+        except KeyboardInterrupt:
+            get_ui().say("Killing PID {0}...".format(str(hcatProcess.pid)))
+            hcatProcess.kill()
+
+    get_ui().run_terminal(_run_statsgen)
+
+    def _run_maskgen() -> None:
+        global hcatProcess
+        hcatProcess = subprocess.Popen(
+            [
+                sys.executable,
+                os.path.join(hate_path, "PACK", "maskgen.py"),
+                f"{hcatHashFile}.masks",
+                "--targettime",
+                str(hcatTargetTime),
+                "--optindex",
+                "-q",
+                "--pps",
+                "14000000000",
+                "--minlength=7",
+                "-o",
+                f"{hcatHashFile}.hcmask",
+            ]
+        )
+        try:
+            hcatProcess.wait()
+        except KeyboardInterrupt:
+            get_ui().say("Killing PID {0}...".format(str(hcatProcess.pid)))
+            hcatProcess.kill()
+
+    get_ui().run_terminal(_run_maskgen)
 
     cmd = [
         hcatBin,
@@ -6406,37 +6422,46 @@ def hcatMarkovTrain(source_file, hcatHashFile):
         get_ui().warn(f"[!] Source file not found: {source_file}")
         return False
 
-    try:
-        with (
-            _wordlist_path(source_file) as resolved_source,
-            open(resolved_source, "rb") as stdin_f,
-        ):
-            hcatProcess = subprocess.Popen(
-                [hcstat2gen_bin, hcstat2_path], stdin=stdin_f, stderr=subprocess.PIPE
-            )
-            try:
-                hcatProcess.wait(timeout=300)
-                if hcatProcess.returncode != 0:
-                    _, stderr_data = hcatProcess.communicate()
-                    err_msg = (
-                        stderr_data.decode("utf-8", errors="replace")
-                        if stderr_data
-                        else "Unknown error"
-                    )
-                    get_ui().warn(
-                        f"[!] hcstat2gen.bin failed with code {hcatProcess.returncode}: {err_msg}"
-                    )
+    def _run_hcstat2gen() -> bool:
+        """Returns False when the run failed; True to carry on."""
+        global hcatProcess
+        try:
+            with (
+                _wordlist_path(source_file) as resolved_source,
+                open(resolved_source, "rb") as stdin_f,
+            ):
+                hcatProcess = subprocess.Popen(
+                    [hcstat2gen_bin, hcstat2_path],
+                    stdin=stdin_f,
+                    stderr=subprocess.PIPE,
+                )
+                try:
+                    hcatProcess.wait(timeout=300)
+                    if hcatProcess.returncode != 0:
+                        _, stderr_data = hcatProcess.communicate()
+                        err_msg = (
+                            stderr_data.decode("utf-8", errors="replace")
+                            if stderr_data
+                            else "Unknown error"
+                        )
+                        get_ui().warn(
+                            f"[!] hcstat2gen.bin failed with code {hcatProcess.returncode}: {err_msg}"
+                        )
+                        return False
+                except subprocess.TimeoutExpired:
+                    get_ui().warn("[!] hcstat2gen.bin timed out after 300 seconds")
+                    hcatProcess.kill()
                     return False
-            except subprocess.TimeoutExpired:
-                get_ui().warn("[!] hcstat2gen.bin timed out after 300 seconds")
-                hcatProcess.kill()
-                return False
-            except KeyboardInterrupt:
-                get_ui().say("Killing PID {0}...".format(str(hcatProcess.pid)))
-                hcatProcess.kill()
-                return False
-    except Exception as e:
-        get_ui().warn(f"[!] Failed to run hcstat2gen.bin: {e}")
+                except KeyboardInterrupt:
+                    get_ui().say("Killing PID {0}...".format(str(hcatProcess.pid)))
+                    hcatProcess.kill()
+                    return False
+        except Exception as e:
+            get_ui().warn(f"[!] Failed to run hcstat2gen.bin: {e}")
+            return False
+        return True
+
+    if not get_ui().run_terminal(_run_hcstat2gen):
         return False
 
     # Verify output file was created
@@ -7494,12 +7519,20 @@ def hcatOmenTrain(training_file):
             os.path.join(model_dir, "LN"),
         ]
         get_ui().say(f"[*] Running: {_format_cmd(cmd)}")
-        proc = subprocess.Popen(cmd)
-        try:
-            proc.wait()
-        except KeyboardInterrupt:
-            get_ui().say("Killing PID {0}...".format(str(proc.pid)))
-            proc.kill()
+
+        def _run_createng() -> "subprocess.Popen[Any] | None":
+            """Returns the finished process, or None when interrupted."""
+            proc = subprocess.Popen(cmd)
+            try:
+                proc.wait()
+            except KeyboardInterrupt:
+                get_ui().say("Killing PID {0}...".format(str(proc.pid)))
+                proc.kill()
+                return None
+            return proc
+
+        proc = get_ui().run_terminal(_run_createng)
+        if proc is None:
             return False
     if proc.returncode != 0:
         get_ui().say(f"OMEN training failed with exit code {proc.returncode}")
@@ -9376,12 +9409,16 @@ def pipal():
                 "--output",
                 hcatHashFilePipal + ".pipal",
             ]
-            pipalProcess = subprocess.Popen(pipal_cmd)
-            try:
-                pipalProcess.wait()
-            except KeyboardInterrupt:
-                get_ui().say("Killing PID {0}...".format(str(pipalProcess.pid)))
-                pipalProcess.kill()
+
+            def _run_pipal() -> None:
+                pipalProcess = subprocess.Popen(pipal_cmd)
+                try:
+                    pipalProcess.wait()
+                except KeyboardInterrupt:
+                    get_ui().say("Killing PID {0}...".format(str(pipalProcess.pid)))
+                    pipalProcess.kill()
+
+            get_ui().run_terminal(_run_pipal)
             get_ui().say("Pipal file is at " + hcatHashFilePipal + ".pipal\n")
             import sys
 

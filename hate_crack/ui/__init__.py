@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from contextlib import AbstractContextManager
-from typing import Any, Protocol
+from collections.abc import Callable
+from typing import Any, Protocol, TypeVar
 
 from hate_crack.ui.plain import PlainUI
+
+T = TypeVar("T")
 
 BACKENDS = ("plain", "rich")  # "textual" joins this in Phase 3
 
@@ -51,7 +54,14 @@ class UI(Protocol):
 
     def spinner(self, message: str) -> AbstractContextManager[Any]: ...
 
-    def suspend(self) -> AbstractContextManager[None]: ...
+    def run_terminal(self, fn: Callable[[], T]) -> T:
+        """Run ``fn``, which owns the terminal (e.g. awaits a child process).
+
+        A terminal-owning subprocess must be awaited on the main thread so
+        that Ctrl-C reaches it; a backend running logic on a worker thread
+        marshals ``fn`` there. Plain backends just call it.
+        """
+        ...
 
 
 def resolve_backend_name(

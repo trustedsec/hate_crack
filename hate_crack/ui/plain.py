@@ -7,11 +7,13 @@ at import time, so ``monkeypatch.setattr(hate_crack.menu, "interactive_menu",
 
 from __future__ import annotations
 
-import contextlib
+from collections.abc import Callable
 from contextlib import AbstractContextManager
-from typing import Any
+from typing import Any, TypeVar
 
 from hate_crack import cli, formatting, menu, progress
+
+T = TypeVar("T")
 
 
 class PlainUI:
@@ -81,5 +83,5 @@ class PlainUI:
     def spinner(self, message: str) -> AbstractContextManager[Any]:
         return progress.spinner(message)
 
-    def suspend(self) -> AbstractContextManager[None]:
-        return contextlib.nullcontext()
+    def run_terminal(self, fn: Callable[[], T]) -> T:
+        return fn()
