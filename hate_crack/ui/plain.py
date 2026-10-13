@@ -31,7 +31,13 @@ class PlainUI:
     def success(self, text: str) -> None:
         print(text)
 
-    def ask(self, prompt: str = "", *, default: str = "") -> str:
+    def ask(
+        self,
+        prompt: str = "",
+        *,
+        default: str = "",
+        choices: list[tuple[str, str]] | None = None,
+    ) -> str:
         return input(prompt) or default
 
     def ask_int(

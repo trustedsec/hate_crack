@@ -78,7 +78,13 @@ class RichUI:
             text, style="green", highlight=False, markup=False, soft_wrap=True
         )
 
-    def ask(self, prompt: str = "", *, default: str = "") -> str:
+    def ask(
+        self,
+        prompt: str = "",
+        *,
+        default: str = "",
+        choices: list[tuple[str, str]] | None = None,
+    ) -> str:
         # Not rich.prompt: it strips whitespace, appends its own ": " suffix and
         # interprets markup. Behaviour must match PlainUI exactly, so render the
         # prompt through the console and read with input().

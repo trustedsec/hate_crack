@@ -28,7 +28,13 @@ class UI(Protocol):
 
     def success(self, text: str) -> None: ...
 
-    def ask(self, prompt: str = "", *, default: str = "") -> str: ...
+    def ask(
+        self,
+        prompt: str = "",
+        *,
+        default: str = "",
+        choices: list[tuple[str, str]] | None = None,
+    ) -> str: ...
 
     def ask_int(
         self,

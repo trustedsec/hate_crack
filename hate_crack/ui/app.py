@@ -19,6 +19,10 @@ from textual.widgets import Footer, Input, RichLog, Static
 
 T = TypeVar("T")
 
+# Typed right after an arrow-filled key, these continue it (rule lists like
+# "1,2", "1+1", "1-3") rather than replacing it.
+_JOINERS = frozenset(",+-")
+
 
 class _Prompt:
     """One outstanding prompt: the worker blocks on ``event`` for ``value``."""
@@ -140,6 +144,10 @@ class HateCrackApp(App[None]):
                 self._arrow_value = arrow  # our own fill; keep waiting
             return
         # The operator typed over an arrow-filled key: keep only what they typed.
+        # A separator extends it instead, so arrowing to 1 then typing ",2" or
+        # "+1" builds a rule list rather than discarding the 1.
+        if event.value.startswith(arrow) and event.value[len(arrow) :][:1] in _JOINERS:
+            return
         typed = (
             event.value[len(arrow) :] if event.value.startswith(arrow) else event.value
         )

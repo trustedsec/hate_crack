@@ -125,11 +125,18 @@ class TextualUI:
 
     # -- input -------------------------------------------------------------
 
-    def ask(self, prompt: str = "", *, default: str = "") -> str:
+    def ask(
+        self,
+        prompt: str = "",
+        *,
+        default: str = "",
+        choices: list[tuple[str, str]] | None = None,
+    ) -> str:
         app = self._app
         if app is None:
             return self._plain.ask(prompt, default=default)
-        answer = self._ask(app, prompt)
+        # ``choices`` lets Up/Down fill a listed key; any typed text still wins.
+        answer = self._ask(app, prompt, choices)
         if answer is None:
             return ""
         return answer or default

@@ -70,6 +70,7 @@ def _select_rules(ctx) -> list[str] | None:
     rule_entries.append("98) YOLO...run all of the rules")
     rule_entries.append("99) Back to Main Menu")
     max_rule_len = max((len(e) for e in rule_entries), default=26)
+    rule_choices = [(k, v) for k, _, v in (e.partition(") ") for e in rule_entries)]
     print_multicolumn_list(
         "Available Rules",
         rule_entries,
@@ -87,7 +88,8 @@ def _select_rules(ctx) -> list[str] | None:
         raw_choice = get_ui().ask(
             "Enter Comma separated list of rules you would like to run. To run rules chained use the + symbol.\n"
             f"{example_line}"
-            "Choose wisely: "
+            "Choose wisely: ",
+            choices=rule_choices,
         )
         if raw_choice.strip() == "99":
             return None
@@ -156,6 +158,9 @@ def quick_crack(ctx: Any) -> None:
         "\033[36m" if entry.is_dir else None for entry in wordlist_entries_meta
     ]
     max_entry_len = max((len(e) for e in wordlist_entries), default=24)
+    wordlist_choices = [
+        (k, v) for k, _, v in (e.partition(") ") for e in wordlist_entries)
+    ]
     print_multicolumn_list(
         "Wordlists (entries ending in / are directories: hashcat reads every file inside)",
         wordlist_entries,
@@ -188,7 +193,8 @@ def quick_crack(ctx: Any) -> None:
         try:
             raw_choice = get_ui().ask(
                 "\nEnter path of wordlist or wordlist directory (tab to autocomplete).\n"
-                f"Press Enter for default wordlist directory [{default_dir}]: "
+                f"Press Enter for default wordlist directory [{default_dir}]: ",
+                choices=wordlist_choices,
             )
             raw_choice = raw_choice.strip()
             if raw_choice == "":
