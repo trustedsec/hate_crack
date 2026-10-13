@@ -51,6 +51,9 @@ class HateCrackApp(App[None]):
         # (key, label) pairs while a menu prompt is open; Up/Down walk them.
         self._choices: list[tuple[str, str]] = []
         self._choice_index: int | None = None
+        # Text an arrow key put in the input; the next keystroke replaces it
+        # rather than appending ("1" from Down plus typing 99 must not be 199).
+        self._arrow_value: str | None = None
         self.ui_thread: int | None = None
 
     def compose(self) -> ComposeResult:
@@ -107,6 +110,7 @@ class HateCrackApp(App[None]):
         self._prompt = prompt
         self._choices = list(choices or [])
         self._choice_index = None
+        self._arrow_value = None
         box = self.query_one("#answer", Input)
         box.value = ""
         box.border_subtitle = "Up/Down or type a number, Enter" if choices else ""
@@ -124,9 +128,24 @@ class HateCrackApp(App[None]):
         box.border_subtitle = ""
         self._choices = []
         self._choice_index = None
+        self._arrow_value = None
         if prompt is not None:
             prompt.value = value
             prompt.event.set()
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        arrow, self._arrow_value = self._arrow_value, None
+        if arrow is None or event.value == arrow:
+            if arrow is not None:
+                self._arrow_value = arrow  # our own fill; keep waiting
+            return
+        # The operator typed over an arrow-filled key: keep only what they typed.
+        typed = (
+            event.value[len(arrow) :] if event.value.startswith(arrow) else event.value
+        )
+        box = self.query_one("#answer", Input)
+        box.value = typed
+        box.cursor_position = len(typed)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         event.stop()
@@ -145,6 +164,7 @@ class HateCrackApp(App[None]):
         self._choice_index = idx
         key, label = self._choices[idx]
         box = self.query_one("#answer", Input)
+        self._arrow_value = key
         box.value = key
         box.cursor_position = len(key)
         box.border_subtitle = f"{key}) {label}"

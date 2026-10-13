@@ -168,3 +168,27 @@ def test_interactive_menu_routes_through_bound_textual_ui(monkeypatch):
             ui_mod.reset_ui()
 
     assert _drive(worker, _type("2"))["v"] == "2"
+
+
+def test_typing_after_an_arrow_replaces_the_filled_key():
+    items = [("1", "one"), ("2", "two"), ("99", "quit")]
+
+    async def script(pilot, app):
+        await pilot.press("down")  # fills "1"
+        await pilot.pause(0.1)
+        await pilot.press("9", "9", "enter")  # must be 99, not 199
+        await pilot.pause(0.1)
+
+    assert _drive(lambda ui: ui.select(items), script)["v"] == "99"
+
+
+def test_arrows_again_after_typing_still_work():
+    items = [("1", "one"), ("2", "two"), ("99", "quit")]
+
+    async def script(pilot, app):
+        await pilot.press("down", "9")
+        await pilot.pause(0.1)
+        await pilot.press("down", "enter")  # from index 0 -> index 1
+        await pilot.pause(0.1)
+
+    assert _drive(lambda ui: ui.select(items), script)["v"] == "2"
