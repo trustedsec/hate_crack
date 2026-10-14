@@ -84,6 +84,8 @@ def test_hashview_flag_continues_to_main_menu_after_switch(monkeypatch, tmp_path
     monkeypatch.setattr(hc_main, "ascii_art", lambda: None)
     monkeypatch.setattr(hc_main, "hcatHashFile", None)
     monkeypatch.setattr(hc_main, "hcatHashFileOrig", None)
+    # CI has no hashcat; a missing binary makes any unstubbed call fail here too.
+    monkeypatch.setattr(hc_main, "hcatBin", str(tmp_path / "no-hashcat"))
     hashfile = tmp_path / "left_1_2.txt"
     hashfile.write_text("$1$abc$def\n")
 
@@ -99,6 +101,8 @@ def test_hashview_flag_continues_to_main_menu_after_switch(monkeypatch, tmp_path
         raise _ReachedMainMenu
 
     monkeypatch.setattr(hc_main, "hashview_api", _fake_hashview_api)
+    # Preprocessing checks the potfile with `hashcat --show` before the menu.
+    monkeypatch.setattr(hc_main, "_run_hashcat_show", lambda *_a, **_kw: None)
     monkeypatch.setattr(hc_main, "interactive_menu", _main_menu)
     monkeypatch.setattr(sys, "argv", ["hate_crack.py", "--hashview"])
     with pytest.raises(_ReachedMainMenu):
