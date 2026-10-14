@@ -82,11 +82,13 @@ class RichUI:
         choices: list[tuple[str, str]] | None = None,
     ) -> str:
         # Not rich.prompt: it strips whitespace, appends its own ": " suffix and
-        # interprets markup. Behaviour must match PlainUI exactly, so render the
-        # prompt through the console and read with input().
-        self.console.print(prompt, end="", markup=False, highlight=False)
+        # interprets markup. Behaviour must match PlainUI exactly.
+        #
+        # The prompt goes to input() rather than console.print: readline only
+        # redraws a prompt it was given, so printing it separately let every
+        # Tab-completion redraw overwrite it (and a match listing erase it).
         with cli.choice_history(choices):
-            return input() or default
+            return input(prompt) or default
 
     def ask_int(
         self,
@@ -99,9 +101,8 @@ class RichUI:
 
     def confirm(self, prompt: str, *, default: bool = True) -> bool:
         while True:
-            self.console.print(prompt, end="", markup=False, highlight=False)
             try:
-                answer = input().strip().lower()
+                answer = input(prompt).strip().lower()
             except EOFError:
                 return default
             if not answer:

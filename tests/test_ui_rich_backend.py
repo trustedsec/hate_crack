@@ -113,10 +113,12 @@ def test_say_does_not_interpret_markup():
 
 
 def test_ask_prompt_verbatim_and_whitespace_preserved(monkeypatch):
-    ui, out, _ = _ui(width=80)
-    monkeypatch.setattr("builtins.input", lambda _p="": " ")
+    ui, _, _ = _ui(width=80)
+    prompts = []
+    monkeypatch.setattr("builtins.input", lambda p="": prompts.append(p) or " ")
     assert ui.ask("Pick [default 5]: ", default="5") == " "
-    assert out.getvalue() == "Pick [default 5]: "
+    # Handed to input() verbatim so readline can redraw it after a completion.
+    assert prompts == ["Pick [default 5]: "]
 
 
 def test_columns_width_fallback_matches_plain_without_tty_or_columns(

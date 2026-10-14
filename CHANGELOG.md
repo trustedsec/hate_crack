@@ -12,6 +12,8 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 ### Fixed
 - **`--hashview` no longer exits after you switch to a downloaded hashfile.** Answering yes to "Switch to this hashfile for cracking?" printed "Returning to main menu to start cracking..." and then the process exited, because the `--hashview` path called `sys.exit(0)` unconditionally once the Hashview menu returned. It now continues into preprocessing and the main menu with the downloaded hashfile, as `--download-hashview` already did, and still exits when nothing was loaded.
 
+- **Tab completion no longer erases the prompt under the `rich` backend.** File-path prompts such as Spoonman's corpus path still completed the right paths, but the prompt was printed through the Rich console and `input()` got none, so readline had no prompt to redraw: `ro<Tab>` overwrote `[*] Enter path to password corpus:` with the completed path, and a double-Tab match listing dropped the prompt entirely. `RichUI.ask` and `RichUI.confirm` now hand the prompt to `input()`, as `PlainUI` does; the console print added no styling, so the visible output is unchanged. `tests/test_rich_prompt_readline.py` drives both backends in a real pty.
+
 ## [2.38.0] - 2026-10-13
 
 ### Added
