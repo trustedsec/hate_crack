@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
-## [Unreleased]
+## [2.38.1] - 2026-10-15
 
 ### Fixed
 - **`--hashview` no longer exits after you switch to a downloaded hashfile.** Answering yes to "Switch to this hashfile for cracking?" printed "Returning to main menu to start cracking..." and then the process exited, because the `--hashview` path called `sys.exit(0)` unconditionally once the Hashview menu returned. It now continues into preprocessing and the main menu with the downloaded hashfile, as `--download-hashview` already did, and still exits when nothing was loaded.
