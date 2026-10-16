@@ -608,24 +608,33 @@ def test_release_checkout_has_history_and_no_credentials() -> None:
 
 
 @pytest.mark.parametrize(
-    ("tag", "on_main", "ok"),
+    ("tag", "on_main", "ok", "annotated"),
     [
-        pytest.param("v9.0.0", True, True, id="final-on-main"),
-        pytest.param("v9.0.0", False, False, id="final-off-main"),
-        pytest.param("v9.0.0rc1", False, True, id="candidate-off-main"),
+        pytest.param("v9.0.0", True, True, False, id="final-on-main"),
+        pytest.param("v9.0.0", False, False, False, id="final-off-main"),
+        pytest.param("v9.0.0rc1", False, True, False, id="candidate-off-main"),
+        pytest.param("v9.0.0", True, True, True, id="final-on-main-annotated"),
+        pytest.param("v9.0.0", False, False, True, id="final-off-main-annotated"),
     ],
 )
 def test_main_containment_guard(
-    tag: str, on_main: bool, ok: bool, tmp_path: Path
+    tag: str, on_main: bool, ok: bool, annotated: bool, tmp_path: Path
 ) -> None:
-    """Behavioural, like the tag-step tests: run the real step script."""
+    """Behavioural, like the tag-step tests: run the real step script.
+
+    The annotated rows matter: an annotated tag is a tag object, and the
+    containment check has to peel it to its commit to answer correctly.
+    """
     repo, _remote = _init_repo_with_remote(tmp_path)
     _git_cmd("update-ref", "refs/remotes/origin/main", "HEAD", cwd=repo)
     if not on_main:
         _git_cmd("checkout", "-qb", "side", cwd=repo)
         (repo / "f.txt").write_text("side\n")
         _git_cmd("commit", "-qam", "chore: side", cwd=repo)
-    _git_cmd("tag", tag, cwd=repo)
+    if annotated:
+        _git_cmd("tag", "-a", "-m", "release", tag, cwd=repo)
+    else:
+        _git_cmd("tag", tag, cwd=repo)
     result = _run_script(
         _release_script("Refuse a final tag that main does not contain"),
         repo,
@@ -634,8 +643,56 @@ def test_main_containment_guard(
     assert (result.returncode == 0) is ok, f"{result.stdout}\n{result.stderr}"
 
 
-def test_release_marks_candidates_as_prereleases_and_never_latest() -> None:
-    script = _release_script("Create GitHub release")
-    assert "--prerelease" in script
-    assert "--latest=false" in script
-    assert "--verify-tag" in script
+# A stub `gh` on PATH: records each call's argv and fails `release view` so the
+# create path runs. The real step script is what gets executed.
+_GH_STUB = """#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "$GH_STUB_LOG"
+if [[ "$1 $2" == "release view" ]]; then exit 1; fi
+exit 0
+"""
+
+
+@pytest.mark.parametrize(
+    ("tag", "final"),
+    [
+        pytest.param("v9.0.0", True, id="final"),
+        pytest.param("v9.0.0rc1", False, id="candidate"),
+        pytest.param("v9.0.0-foo", False, id="unexpected-shape"),
+    ],
+)
+def test_release_create_argv_by_tag_shape(
+    tag: str, final: bool, tmp_path: Path
+) -> None:
+    """Behavioural: a final is the only shape that may become "latest"; every
+    other shape must be a prerelease that is never latest."""
+    stub_dir = tmp_path / "bin"
+    stub_dir.mkdir()
+    gh = stub_dir / "gh"
+    gh.write_text(_GH_STUB)
+    gh.chmod(0o755)
+    log = tmp_path / "gh.log"
+    result = _run_script(
+        _release_script("Create GitHub release"),
+        tmp_path,
+        {
+            "GITHUB_REF_NAME": tag,
+            "GH_TOKEN": "stub",
+            "GH_STUB_LOG": str(log),
+            "PATH": f"{stub_dir}{os.pathsep}{os.environ['PATH']}",
+            **_git_env(),
+        },
+    )
+    assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
+    calls = log.read_text().splitlines()
+    creates = [c.split() for c in calls if c.startswith("release create ")]
+    assert len(creates) == 1, calls
+    argv = creates[0]
+    assert tag in argv
+    assert "--verify-tag" in argv
+    assert "--generate-notes" in argv
+    if final:
+        assert "--prerelease" not in argv
+        assert "--latest=false" not in argv
+    else:
+        assert "--prerelease" in argv
+        assert "--latest=false" in argv
