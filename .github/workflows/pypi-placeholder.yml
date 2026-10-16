@@ -1,6 +1,6 @@
 name: Publish PyPI name placeholder
 
-# Manual only, and deliberately NOT wired to auto-tag / nightly-tag / release.
+# Manual only, and deliberately NOT wired to the ci.yml tag job / release.
 # This uploads the 0.0.0 name placeholder in packaging/pypi-placeholder, never
 # the real project. If it ever fires from a tag or a push, the index starts
 # receiving releases of a tool that is only supported as a source install.

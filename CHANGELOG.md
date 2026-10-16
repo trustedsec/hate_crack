@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Dates are omitted for releases predating this file; see the git tags for exact timing.
 
+## [Unreleased]
+
+### Security
+- Tagging and release creation moved from two `workflow_run`-triggered workflows into a `tag` job in `ci.yml` gated on `needs:`. The old workflows ran `tools/next_version.py` from the pushed commit with a write token persisted on disk.
+- The release baseline is now the highest final tag merged into `origin/main`; a final-looking tag pushed anywhere else no longer moves the version.
+
 ## [2.38.1] - 2026-10-15
 
 ### Fixed

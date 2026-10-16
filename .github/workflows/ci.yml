@@ -5,8 +5,8 @@ on:
   push:
     branches:
       - main
-      # Required for nightly-tag.yml, which triggers on this workflow completing
-      # for nightly-dev. Without it, pushes to nightly-dev run no CI at all.
+      # Required for the `tag` job below, which cuts nightly candidates. Without
+      # this, pushes to nightly-dev run no CI at all and nothing is tagged.
       - nightly-dev
 
 permissions:
@@ -14,7 +14,9 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Cancel superseded PR runs only. On a push to main or nightly-dev the run
+  # carries the tag job, and cancelling it would leave that commit untagged.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   checks:
@@ -98,3 +100,97 @@ jobs:
         run: >-
           uv run --with pip-audit==2.10.0 pip-audit
           --progress-spinner off --ignore-vuln PYSEC-2026-2447
+
+  tag:
+    name: Tag release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Every other job in this file. `needs` treats a failed or skipped
+    # dependency as not-success, so a commit that failed anything is never
+    # tagged. This replaces auto-tag.yml / nightly-tag.yml, which used the
+    # workflow_run trigger (zizmor: dangerous-triggers) to get the same gate.
+    needs: [checks, bandit, pip-audit]
+    if: >-
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/nightly-dev')
+    # The workflow is contents: read. Only this job may write: it pushes a tag
+    # and, on main, creates the GitHub release.
+    permissions:
+      contents: write
+    # Queue rather than cancel: the baseline is the highest tag already in the
+    # repo, not a per-run cursor, so a coalesced run still tags every commit
+    # since the last release.
+    concurrency:
+      group: tag-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # tools/next_version.py reads every tag and origin/main. A shallow
+          # clone has neither and would compute from 0.0.0.
+          fetch-depth: 0
+          # Deliberate exception to persist-credentials: false everywhere else
+          # in this repo: this job pushes a tag. Pinned by
+          # tests/test_release_versioning.py.
+          persist-credentials: true
+
+      - name: Configure git identity
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+      - name: Compute tag
+        id: bump
+        run: |
+          set -euo pipefail
+          # main cuts the final; nightly-dev cuts a candidate for the same
+          # target. tools/next_version.py owns the decision entirely.
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            channel=stable
+          else
+            channel=nightly
+          fi
+          new_tag=$(python3 tools/next_version.py --channel "$channel")
+          echo "Channel: $channel; tag: ${new_tag:-<nothing to tag>}"
+          echo "new_tag=$new_tag" >> "$GITHUB_OUTPUT"
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+
+      - name: Create tag
+        env:
+          NEW_TAG: ${{ steps.bump.outputs.new_tag }}
+        run: |
+          set -euo pipefail
+          # Empty means no commits since the last release (a re-run). Not an
+          # error. A docs- or chore-only batch is still a release; only a
+          # genuinely empty batch lands here.
+          if [ -z "$NEW_TAG" ]; then
+            echo "No commits since the last release; nothing to tag"
+            exit 0
+          fi
+          # Idempotent: a re-run must not fail the job.
+          if git rev-parse -q --verify "refs/tags/$NEW_TAG" >/dev/null; then
+            echo "Tag $NEW_TAG already exists, nothing to push"
+          else
+            git tag "$NEW_TAG"
+            git push origin "refs/tags/$NEW_TAG"
+          fi
+
+      # GitHub never dispatches workflow events for refs pushed with
+      # GITHUB_TOKEN, so release.yml does not fire for the tag above; main's
+      # release is created here. Nightly candidates are addressable tags only.
+      - name: Create GitHub release
+        if: steps.bump.outputs.channel == 'stable'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEW_TAG: ${{ steps.bump.outputs.new_tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "$NEW_TAG" ]; then
+            echo "No tag was created; no release to publish"
+            exit 0
+          fi
+          if gh release view "$NEW_TAG" >/dev/null 2>&1; then
+            echo "Release $NEW_TAG already exists, nothing to do"
+            exit 0
+          fi
+          gh release create "$NEW_TAG" --verify-tag --generate-notes

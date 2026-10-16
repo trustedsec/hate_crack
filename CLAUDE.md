@@ -349,7 +349,7 @@ Before merging that PR:
 1. Rename the `[Unreleased]` CHANGELOG section to the version being cut. Ask the
    policy rather than guessing — from a `main` checkout of the merge candidate,
    `python3 tools/next_version.py --channel stable` prints the exact tag
-   `auto-tag.yml` will create.
+   the `tag` job in `ci.yml` will create.
 2. **Collect the issue references out of the `[Unreleased]` entries and put a
    `Closes #NNN` line in the PR body for each one.** GitHub acts on a closing
    keyword only when it reaches the **default branch**, which is `main` — so a
@@ -385,7 +385,8 @@ the SHAs are identical. If the fast-forward refuses, `main` has commits
 `nightly-dev` lacks (a workflow change or a hotfix): merge `main` down into
 `nightly-dev` first, re-verify, then fast-forward.
 
-Merging to `main` triggers `.github/workflows/auto-tag.yml`, which cuts exactly
+Pushing to `main` runs `ci.yml`, whose `tag` job (gated on every other job
+passing) cuts exactly
 ONE release for the whole batch — never one per change. Which component moves
 depends on what the batch contains: any `feat` in it lands on `X.(Y+1).0`, a
 batch of only fixes, docs and chores lands on `X.Y.(Z+1)` (see Tagging below).
@@ -405,10 +406,10 @@ merge -> `2.20.1`. The first `feat` to land mid-cycle moves the target from
 target — intended, because the number always names what the batch would ship as
 today.
 
-| Branch | Workflow | Tag | GitHub release |
-|--------|----------|-----|----------------|
-| `main` | `auto-tag.yml` | `v2.20.1` / `v2.21.0` (final) | yes |
-| `nightly-dev` | `nightly-tag.yml` | `v2.20.1rc1` (candidate) | no |
+| Branch | Workflow job | Tag | GitHub release |
+|--------|--------------|-----|----------------|
+| `main` | `ci.yml` `tag` | `v2.20.1` / `v2.21.0` (final) | yes |
+| `nightly-dev` | `ci.yml` `tag` | `v2.20.1rc1` (candidate) | no |
 
 **`main` is not pinned to `X.Y.0`, and the bump is not forced per branch.** Both
 were true until 2026-07-31 and both were bugs: every merge cut a minor
@@ -460,18 +461,21 @@ repo's tags have always been `v`-prefixed; commitizen's bare default would break
 continuity with every existing tag and with `setuptools-scm`).
 
 **After landing a change to these workflows on `main`, merge `main` down into
-`nightly-dev` immediately.** `nightly-tag.yml` checks out the validated commit
-and runs `tools/next_version.py` *from that checkout*, so until the module and
+`nightly-dev` immediately.** The `tag` job checks out the pushed commit and runs `tools/next_version.py` *from that checkout*, so until the module and
 any change to it reach `nightly-dev`, the nightly tag is computed by whatever
 version of the policy that branch happens to carry — or fails outright if the
 file is missing there.
 
-**`nightly-tag.yml` must exist on `main`**, even though it only tags
-`nightly-dev`. GitHub dispatches `workflow_run` only for workflows present on
-the default branch; a copy living solely on `nightly-dev` never fires, silently
-— CI passes and no tag appears. Both branches carry byte-identical copies. If
-you edit one, edit the other, or the integration merge will conflict on it.
-Workflow changes are the one category that legitimately PRs straight to `main`.
+**Tagging is a job in `ci.yml`, not a separate workflow.** The `tag` job lists
+every other job in `needs:`, so a commit that failed or skipped any of them is
+never tagged, and it runs only on pushes to `main` and `nightly-dev`. It is the
+only job with `contents: write`, and its checkout is the one deliberate
+`persist-credentials: true`. Add any new CI job to its `needs:`;
+`tests/test_release_versioning.py` fails if the two drift. **Do not reintroduce
+`workflow_run`** — zizmor rates it an error-level dangerous trigger — and do not
+reintroduce version math in YAML. `ci.yml` must keep `nightly-dev` in its push
+branches, or no candidate is ever cut. Workflow changes are the one category
+that legitimately PRs straight to `main`.
 
 `release.yml` is unchanged and remains the path for human-pushed tags: refs
 pushed with `GITHUB_TOKEN` do not dispatch workflow events, so it never fires

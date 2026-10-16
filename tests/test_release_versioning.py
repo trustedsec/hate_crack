@@ -50,12 +50,11 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
-AUTO_TAG = WORKFLOWS / "auto-tag.yml"
-NIGHTLY_TAG = WORKFLOWS / "nightly-tag.yml"
-
-BOTH_WORKFLOWS = [
-    pytest.param(AUTO_TAG, id="auto-tag"),
-    pytest.param(NIGHTLY_TAG, id="nightly-tag"),
+CI = WORKFLOWS / "ci.yml"
+TAG_JOB = "tag"
+CHANNELS = [
+    pytest.param("refs/heads/main", id="main"),
+    pytest.param("refs/heads/nightly-dev", id="nightly-dev"),
 ]
 
 # --- parsing helpers ---------------------------------------------------------
@@ -79,15 +78,13 @@ def _pyproject() -> dict[str, Any]:
         return tomllib.load(fh)
 
 
-def _run_steps(path: Path) -> list[dict[str, Any]]:
-    """Every step of every job in a workflow, as dicts."""
-    workflow = _load_yaml(path)
-    steps: list[dict[str, Any]] = []
-    for job in workflow["jobs"].values():
-        for step in job.get("steps", []):
-            if isinstance(step, dict):
-                steps.append(step)
-    return steps
+def _tag_job() -> dict[str, Any]:
+    return _load_yaml(CI)["jobs"][TAG_JOB]
+
+
+def _run_steps(path: Path = CI) -> list[dict[str, Any]]:
+    """Every step of the ci.yml `tag` job, as dicts."""
+    return [s for s in _tag_job().get("steps", []) if isinstance(s, dict)]
 
 
 def _shell_body(path: Path) -> str:
@@ -131,7 +128,7 @@ def _tag_step_name(path: Path) -> str:
 
 
 def _compute_step_name(path: Path) -> str:
-    return "Compute release tag" if path == AUTO_TAG else "Compute nightly tag"
+    return "Compute tag"
 
 
 # --- commitizen configuration ------------------------------------------------
@@ -178,7 +175,7 @@ def test_commitizen_pin_is_still_coherent() -> None:
         f"dev group commitizen must be pinned exactly (commitizen==X.Y.Z), got {pins[0]!r}"
     )
 
-    for path in (AUTO_TAG, NIGHTLY_TAG):
+    for path in (CI,):
         body = _shell_body(path)
         assert "cz bump" not in body, (
             f"{path.name} computes a version with commitizen again; the policy "
@@ -189,16 +186,7 @@ def test_commitizen_pin_is_still_coherent() -> None:
 # --- the anti-hand-rolling invariant ----------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("path", "channel"),
-    [
-        pytest.param(NIGHTLY_TAG, "nightly", id="nightly-dev-cuts-candidates"),
-        pytest.param(AUTO_TAG, "stable", id="main-cuts-the-final"),
-    ],
-)
-def test_the_policy_module_is_the_only_thing_that_produces_a_version(
-    path: Path, channel: str
-) -> None:
+def test_the_policy_module_is_the_only_thing_that_produces_a_version() -> None:
     """The user's hard constraint: do not hand-roll a versioning scheme.
 
     Stated as a POSITIVE invariant -- exactly one command computes the version,
@@ -212,15 +200,19 @@ def test_the_policy_module_is_the_only_thing_that_produces_a_version(
 
     The denials below are a second line of defence, not the primary one.
     """
+    path = CI
     lines = _code_lines(path)
 
     calls = [ln for ln in lines if "next_version.py" in ln]
     assert len(calls) == 1, (
         f"{path.name} must call tools/next_version.py exactly once, found {len(calls)}"
     )
-    assert f"--channel {channel}" in calls[0], (
-        f"{path.name} must ask for the {channel!r} channel; got: {calls[0].strip()}"
+    assert '--channel "$channel"' in calls[0], (
+        f"{path.name} must pass the branch's channel; got: {calls[0].strip()}"
     )
+    body = "\n".join(lines)
+    assert "channel=stable" in body
+    assert "channel=nightly" in body
 
     # The tag that gets pushed must come from that call, not be assembled here.
     assignments = [ln for ln in lines if re.match(r"\s*new_tag=", ln)]
@@ -303,8 +295,7 @@ def _run_script(
     )
 
 
-@pytest.mark.parametrize("path", BOTH_WORKFLOWS)
-def test_tag_creation_is_actually_idempotent(path: Path, tmp_path: Path) -> None:
+def test_tag_creation_is_actually_idempotent(tmp_path: Path) -> None:
     """Re-running the workflow must not fail on an already-existing tag.
 
     Behavioural, not textual: the real "Create tag" script runs twice against a
@@ -314,7 +305,7 @@ def test_tag_creation_is_actually_idempotent(path: Path, tmp_path: Path) -> None
     the second run would then die on "tag already exists".
     """
     work, remote = _init_repo_with_remote(tmp_path)
-    script = _script(path, _tag_step_name(path))
+    script = _script(CI, _tag_step_name(CI))
     env = {
         "NEW_TAG": "v9.9.9",
         "GIT_AUTHOR_NAME": "t",
@@ -395,34 +386,42 @@ def _policy_repo(tmp_path: Path, subjects: list[str]) -> Path:
     return repo
 
 
-def _run_compute(path: Path, repo: Path, tmp_path: Path) -> tuple[str, object]:
+def _run_compute(ref: str, repo: Path, tmp_path: Path) -> tuple[str, Any]:
     gh_output = tmp_path / "gh_output"
     gh_output.write_text("")
     result = _run_script(
-        _script(path, _compute_step_name(path)),
+        _script(CI, _compute_step_name(CI)),
         repo,
-        {"GITHUB_OUTPUT": str(gh_output), **_git_env()},
+        {"GITHUB_REF": ref, "GITHUB_OUTPUT": str(gh_output), **_git_env()},
     )
     return gh_output.read_text(), result
 
 
 @pytest.mark.parametrize(
-    ("path", "subjects", "expected"),
+    ("ref", "subjects", "expected"),
     [
-        pytest.param(AUTO_TAG, ["fix: a", "docs: b"], "v2.20.1", id="main-fixes-patch"),
         pytest.param(
-            AUTO_TAG, ["fix: a", "feat: b"], "v2.21.0", id="main-feature-minor"
+            "refs/heads/main", ["fix: a", "docs: b"], "v2.20.1", id="main-fixes-patch"
         ),
         pytest.param(
-            NIGHTLY_TAG, ["fix: a"], "v2.20.1rc1", id="nightly-fixes-patch-candidate"
+            "refs/heads/main", ["fix: a", "feat: b"], "v2.21.0", id="main-feature-minor"
         ),
         pytest.param(
-            NIGHTLY_TAG, ["feat: a"], "v2.21.0rc1", id="nightly-feature-candidate"
+            "refs/heads/nightly-dev",
+            ["fix: a"],
+            "v2.20.1rc1",
+            id="nightly-fixes-patch-candidate",
+        ),
+        pytest.param(
+            "refs/heads/nightly-dev",
+            ["feat: a"],
+            "v2.21.0rc1",
+            id="nightly-feature-candidate",
         ),
     ],
 )
 def test_compute_step_emits_the_tag_the_policy_dictates(
-    path: Path, subjects: list[str], expected: str, tmp_path: Path
+    ref: str, subjects: list[str], expected: str, tmp_path: Path
 ) -> None:
     """End to end through the real step script and the real policy module.
 
@@ -432,16 +431,16 @@ def test_compute_step_emits_the_tag_the_policy_dictates(
     is caught by the ``main-fixes-patch`` case.
     """
     repo = _policy_repo(tmp_path, subjects)
-    written, result = _run_compute(path, repo, tmp_path)
+    written, result = _run_compute(ref, repo, tmp_path)
     assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
     assert f"new_tag={expected}" in written, (
-        f"{path.name} would tag {written.strip()!r}, expected new_tag={expected}"
+        f"{ref} would tag {written.strip()!r}, expected new_tag={expected}"
     )
 
 
-@pytest.mark.parametrize("path", BOTH_WORKFLOWS)
+@pytest.mark.parametrize("ref", CHANNELS)
 def test_compute_step_emits_an_empty_tag_for_an_empty_batch(
-    path: Path, tmp_path: Path
+    ref: str, tmp_path: Path
 ) -> None:
     """A re-run on an already-released commit has nothing to tag.
 
@@ -449,7 +448,7 @@ def test_compute_step_emits_an_empty_tag_for_an_empty_batch(
     old shape failed the job here, which turned every workflow re-run red.
     """
     repo = _policy_repo(tmp_path, [])
-    written, result = _run_compute(path, repo, tmp_path)
+    written, result = _run_compute(ref, repo, tmp_path)
     assert result.returncode == 0, (
         f"an empty batch must not fail the job:\n{result.stdout}\n{result.stderr}"
     )
@@ -458,9 +457,9 @@ def test_compute_step_emits_an_empty_tag_for_an_empty_batch(
     )
 
 
-@pytest.mark.parametrize("path", BOTH_WORKFLOWS)
+@pytest.mark.parametrize("ref", CHANNELS)
 def test_create_tag_step_tags_nothing_when_the_tag_is_empty(
-    path: Path, tmp_path: Path
+    ref: str, tmp_path: Path
 ) -> None:
     """The other half of the empty-batch path: never run `git tag ""`.
 
@@ -469,7 +468,9 @@ def test_create_tag_step_tags_nothing_when_the_tag_is_empty(
     """
     repo, _remote = _init_repo_with_remote(tmp_path)
     result = _run_script(
-        _script(path, _tag_step_name(path)), repo, {"NEW_TAG": "", **_git_env()}
+        _script(CI, _tag_step_name(CI)),
+        repo,
+        {"GITHUB_REF": ref, "NEW_TAG": "", **_git_env()},
     )
     assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
     assert _git_cmd("tag", cwd=repo).strip() == "", "created a tag from an empty name"
@@ -478,59 +479,95 @@ def test_create_tag_step_tags_nothing_when_the_tag_is_empty(
 # --- wiring that has no behaviour to execute --------------------------------
 
 
-@pytest.mark.parametrize("path", BOTH_WORKFLOWS)
-def test_workflow_checks_out_the_validated_commit_with_full_history(path: Path) -> None:
-    """``workflow_run`` defaults to the default-branch tip, not the tested commit.
+# --- the tag job's wiring ----------------------------------------------------
 
-    ``fetch-depth: 0`` is equally load-bearing: tools/next_version.py derives the
-    baseline from the repository's tags, and a shallow clone has none.
-    """
-    checkouts = [
-        s for s in _run_steps(path) if "actions/checkout" in str(s.get("uses"))
-    ]
-    assert len(checkouts) == 1, f"{path.name} should have exactly one checkout step"
-    with_ = checkouts[0].get("with", {})
-    assert with_.get("ref") == "${{ github.event.workflow_run.head_sha }}"
-    assert with_.get("fetch-depth") == 0
+VALIDATING_JOBS = {"checks", "bandit", "pip-audit"}
 
 
-def test_auto_tag_creates_a_github_release() -> None:
-    """Tags pushed with GITHUB_TOKEN do not dispatch release.yml, so main's
-    release has to be created here."""
-    assert "gh release create" in _shell_body(AUTO_TAG)
+def test_no_workflow_uses_workflow_run() -> None:
+    """workflow_run is zizmor's error-level dangerous trigger. The tag job is a
+    `needs` dependent instead; do not reintroduce a workflow_run tagger."""
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        on = _load_yaml(path).get(True) or _load_yaml(path).get("on")
+        assert "workflow_run" not in (on or {}), f"{path.name} uses workflow_run"
 
 
-def test_nightly_tag_creates_no_github_release() -> None:
-    """Nightlies are addressable tags only; releases are cut on main."""
-    body = _shell_body(NIGHTLY_TAG)
-    assert "gh release create" not in body
-    assert "softprops/action-gh-release" not in str(_run_steps(NIGHTLY_TAG))
+def test_the_old_tag_workflows_are_gone() -> None:
+    assert not (WORKFLOWS / "auto-tag.yml").exists()
+    assert not (WORKFLOWS / "nightly-tag.yml").exists()
 
 
-def test_auto_tag_does_not_skip_chore_only_merges() -> None:
-    """A merge into main is an explicit release event.
-
-    The old workflow exited early when it found no feat/fix/perf commits. Both
-    halves of that mechanism are checked: no step may be gated on a `skip`
-    output, and no shell may emit one -- a reintroduced in-shell
-    ``echo skip=true >> "$GITHUB_OUTPUT"; exit 0`` would otherwise pass.
-    """
-    for step in _run_steps(AUTO_TAG):
-        condition = str(step.get("if", ""))
-        assert "skip" not in condition, f"unexpected skip gate on step {step!r}"
-    for line in _code_lines(AUTO_TAG):
-        assert "skip=" not in line, f"auto-tag emits a skip output: {line.strip()}"
+def test_tag_job_needs_every_validating_job() -> None:
+    """Drop one and a tag can land on a commit that failed it. Every job in
+    ci.yml other than `tag` itself must be listed."""
+    jobs = set(_load_yaml(CI)["jobs"])
+    needs = set(_tag_job()["needs"])
+    assert needs == jobs - {TAG_JOB}
+    assert VALIDATING_JOBS <= needs
 
 
-@pytest.mark.parametrize(
-    ("path", "group"),
-    [
-        pytest.param(AUTO_TAG, "auto-tag", id="auto-tag"),
-        pytest.param(NIGHTLY_TAG, "nightly-tag", id="nightly-tag"),
-    ],
-)
-def test_workflow_serializes_instead_of_cancelling(path: Path, group: str) -> None:
-    """Back-to-back merges must queue, not cancel, or one goes untagged."""
-    concurrency = _load_yaml(path)["concurrency"]
-    assert concurrency["group"] == group
+def test_tag_job_runs_only_on_pushes_to_the_two_release_branches() -> None:
+    cond = " ".join(str(_tag_job()["if"]).split())
+    assert "github.event_name == 'push'" in cond
+    assert "github.ref == 'refs/heads/main'" in cond
+    assert "github.ref == 'refs/heads/nightly-dev'" in cond
+
+
+def test_ci_still_runs_on_pushes_to_nightly_dev() -> None:
+    """Without this, the tag job never runs on nightly-dev and no candidate is
+    ever cut -- with no error anywhere."""
+    branches = _load_yaml(CI)[True]["push"]["branches"]
+    assert {"main", "nightly-dev"} <= set(branches)
+
+
+def test_only_the_tag_job_can_write() -> None:
+    ci = _load_yaml(CI)
+    assert ci["permissions"] == {"contents": "read"}
+    for name, job in ci["jobs"].items():
+        perms = job.get("permissions")
+        if name == TAG_JOB:
+            assert perms == {"contents": "write"}
+        else:
+            assert perms is None, f"job {name} declares its own permissions"
+
+
+def test_tag_job_checkout_has_full_history_and_explicit_credentials() -> None:
+    """fetch-depth 0: the baseline is derived from tags and origin/main, and a
+    shallow clone has neither. persist-credentials true is the one deliberate
+    exception in this repo -- the job pushes a tag."""
+    checkouts = [s for s in _run_steps() if "actions/checkout" in str(s.get("uses"))]
+    assert len(checkouts) == 1
+    with_ = checkouts[0]["with"]
+    assert with_["fetch-depth"] == 0
+    assert with_["persist-credentials"] is True
+    assert "ref" not in with_, "a push-triggered job tags the commit it was run for"
+
+
+def test_tag_job_serializes_per_branch_instead_of_cancelling() -> None:
+    concurrency = _tag_job()["concurrency"]
+    assert concurrency["group"] == "tag-${{ github.ref }}"
     assert concurrency["cancel-in-progress"] is False
+
+
+def test_workflow_level_cancellation_is_scoped_to_pull_requests() -> None:
+    """A workflow-level cancel-in-progress: true would cancel an in-flight tag
+    job the moment a second push to the same branch arrives -- that push's
+    commit would never be tagged."""
+    cancel = _load_yaml(CI)["concurrency"]["cancel-in-progress"]
+    assert cancel == "${{ github.event_name == 'pull_request' }}"
+
+
+def test_only_main_creates_a_github_release() -> None:
+    steps = [s for s in _run_steps() if s.get("name") == "Create GitHub release"]
+    assert len(steps) == 1
+    assert steps[0]["if"] == "steps.bump.outputs.channel == 'stable'"
+    assert "gh release create" in steps[0]["run"]
+    assert "--verify-tag" in steps[0]["run"]
+
+
+def test_release_step_has_no_skip_gate() -> None:
+    """A docs- or chore-only merge to main is still a release (a patch)."""
+    for step in _run_steps():
+        assert "skip" not in str(step.get("if", ""))
+    for line in _code_lines(CI):
+        assert "skip=" not in line, f"tag job emits a skip output: {line.strip()}"
