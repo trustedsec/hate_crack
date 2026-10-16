@@ -438,7 +438,7 @@ def test_merge_commit_promotion_does_not_recount_released_commits(tmp_path):
     )
 
 
-def test_rc_numbering_still_sees_candidates_that_are_not_on_main(tmp_path):
+def test_rc_numbering_still_sees_candidates_that_are_not_on_main():
     """Candidates live on nightly-dev. Numbering must count them even though the
     baseline ignores everything off main, or rc numbers would be reissued."""
     tags = ["v2.20.0", "v2.20.1rc1", "v2.20.1rc2"]
@@ -465,3 +465,25 @@ def test_cli_fails_loudly_without_the_release_ref(tmp_path, capsys):
     rc = main(["--channel", "stable", "--repo-dir", str(repo)])
     assert rc == 2
     assert "origin/main" in capsys.readouterr().err
+
+
+def test_cli_uses_the_merged_tag_baseline_not_a_stray_tag(tmp_path, capsys):
+    """End to end through main(): a stray final on a side branch must not move
+    the baseline the CLI actually prints from."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git("init", "-q", "-b", "main", cwd=repo)
+    _commit(repo, "a\n", "fix: base")
+    _git("tag", "v2.20.0", cwd=repo)
+
+    _git("checkout", "-q", "-b", "scratch", cwd=repo)
+    _commit(repo, "scratch\n", "chore: experiment")
+    _git("tag", "v3.0.0", cwd=repo)
+
+    _git("checkout", "-q", "main", cwd=repo)
+    _commit(repo, "b\n", "fix: real work")
+    _git("update-ref", "refs/remotes/origin/main", "main", cwd=repo)
+
+    rc = main(["--channel", "stable", "--repo-dir", str(repo)])
+    assert rc == 0
+    assert capsys.readouterr().out == "v2.20.1\n"
