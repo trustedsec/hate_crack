@@ -175,12 +175,10 @@ def test_commitizen_pin_is_still_coherent() -> None:
         f"dev group commitizen must be pinned exactly (commitizen==X.Y.Z), got {pins[0]!r}"
     )
 
-    for path in (CI,):
-        body = _shell_body(path)
-        assert "cz bump" not in body, (
-            f"{path.name} computes a version with commitizen again; the policy "
-            "belongs in tools/next_version.py where it can be unit-tested"
-        )
+    assert "cz bump" not in _shell_body(CI), (
+        f"{CI.name} computes a version with commitizen again; the policy "
+        "belongs in tools/next_version.py where it can be unit-tested"
+    )
 
 
 # --- the anti-hand-rolling invariant ----------------------------------------
@@ -436,6 +434,12 @@ def test_compute_step_emits_the_tag_the_policy_dictates(
     assert f"new_tag={expected}" in written, (
         f"{ref} would tag {written.strip()!r}, expected new_tag={expected}"
     )
+    # The Create GitHub release step is gated on this output: only main may
+    # publish a release.
+    channel = "stable" if ref == "refs/heads/main" else "nightly"
+    assert f"channel={channel}\n" in written, (
+        f"{ref} must write channel={channel}, got {written!r}"
+    )
 
 
 @pytest.mark.parametrize("ref", CHANNELS)
@@ -457,10 +461,7 @@ def test_compute_step_emits_an_empty_tag_for_an_empty_batch(
     )
 
 
-@pytest.mark.parametrize("ref", CHANNELS)
-def test_create_tag_step_tags_nothing_when_the_tag_is_empty(
-    ref: str, tmp_path: Path
-) -> None:
+def test_create_tag_step_tags_nothing_when_the_tag_is_empty(tmp_path: Path) -> None:
     """The other half of the empty-batch path: never run `git tag ""`.
 
     Without this guard the create step tags the empty string, and the failure
@@ -470,7 +471,7 @@ def test_create_tag_step_tags_nothing_when_the_tag_is_empty(
     result = _run_script(
         _script(CI, _tag_step_name(CI)),
         repo,
-        {"GITHUB_REF": ref, "NEW_TAG": "", **_git_env()},
+        {"NEW_TAG": "", **_git_env()},
     )
     assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
     assert _git_cmd("tag", cwd=repo).strip() == "", "created a tag from an empty name"
@@ -487,8 +488,9 @@ VALIDATING_JOBS = {"checks", "bandit", "pip-audit"}
 def test_no_workflow_uses_workflow_run() -> None:
     """workflow_run is zizmor's error-level dangerous trigger. The tag job is a
     `needs` dependent instead; do not reintroduce a workflow_run tagger."""
-    for path in sorted(WORKFLOWS.glob("*.yml")):
-        on = _load_yaml(path).get(True) or _load_yaml(path).get("on")
+    for path in sorted([*WORKFLOWS.glob("*.yml"), *WORKFLOWS.glob("*.yaml")]):
+        workflow = _load_yaml(path)
+        on = workflow.get(True) or workflow.get("on")
         assert "workflow_run" not in (on or {}), f"{path.name} uses workflow_run"
 
 

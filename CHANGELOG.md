@@ -10,8 +10,8 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 ## [Unreleased]
 
 ### Security
-- Tagging and release creation moved from two `workflow_run`-triggered workflows into a `tag` job in `ci.yml` gated on `needs:`. The old workflows ran `tools/next_version.py` from the pushed commit with a write token persisted on disk.
-- The release baseline is now the highest final tag merged into `origin/main`; a final-looking tag pushed anywhere else no longer moves the version.
+- **Tagging no longer uses the `workflow_run` trigger.** Tag and release creation moved from two `workflow_run`-triggered workflows into a `tag` job in `ci.yml` gated on `needs:` for every other job, so a commit that failed CI is still never tagged. zizmor rates `workflow_run` an error-level dangerous trigger. The workflow token is now read-only; only the `tag` job is granted `contents: write`.
+- **The release baseline is now the highest final tag merged into `origin/main`.** A final-looking tag pushed anywhere else no longer moves the version, and the tool exits non-zero if that ref is missing.
 
 ## [2.38.1] - 2026-10-15
 

@@ -808,7 +808,7 @@ class TestNightlyFlagWiring:
 
     def test_startup_check_never_offers_nightly(self, hc_module):
         """check_for_updates() reads /releases/latest, which excludes
-        pre-releases -- and nightly-tag.yml publishes no release at all, so the
+        pre-releases -- and nightly candidates are tags with no GitHub release, so the
         nightly channel is invisible to the startup nag by construction."""
         import inspect
 

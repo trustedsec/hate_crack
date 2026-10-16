@@ -323,9 +323,8 @@ then open a PR against `nightly-dev`. `CONTRIBUTING.md` says so directly, since
 this file is published and read by people who cannot push here. Keep the two in
 step if this section changes.
 
-Two exceptions still PR directly to `main`, as documented below: workflow file
-changes (they must exist on the default branch to fire) and a security fix that
-must ship immediately.
+One exception still PRs directly to `main`, as documented below: a security fix
+that must ship immediately.
 
 Verify before merging, not after pushing. The full suite and the lint, type, and
 security gates all run locally — see the Commands section — so a broken
@@ -417,20 +416,22 @@ regardless of content, so two bugfix merges took the project from 2.20.0 to
 2.22.0 in an hour with no feature between them. Earlier revisions of this file
 described that behaviour as deliberate. It was not.
 
-**No workflow computes a version number, and neither calls `cz`.** Both run
-`python3 tools/next_version.py --channel {stable,nightly}` and push whatever tag
-it prints. That module is the single home of the policy — pure above a thin git
+**No workflow computes a version number, and none calls `cz`.** The `tag` job in
+`ci.yml` runs `python3 tools/next_version.py --channel {stable,nightly}` and
+pushes whatever tag it prints. That module is the single home of the policy — pure above a thin git
 boundary, unit-tested in `tests/test_next_version.py`. Add to it rather than to
 YAML; `tests/test_release_versioning.py` fails if version arithmetic *or* a
-`cz bump` call reappears in either workflow, and it enforces that by extracting
+`cz bump` call reappears in the `tag` job, and it enforces that by extracting
 the step scripts and running them against a real repo, not by substring match.
 
 Two details of that module worth knowing before touching it:
 
-- Its baseline is the highest **final** (`vX.Y.Z`) tag in the repo, deliberately
-  not restricted to tags reachable from HEAD. `main`'s release tag can sit on a
-  commit `nightly-dev`'s tip does not contain, and a reachability-restricted
-  lookup would compute the next nightly from a stale baseline.
+- Its baseline is the highest **final** (`vX.Y.Z`) tag merged into
+  `origin/main` (`--release-ref`; it exits 2 if that ref is missing), so a
+  final-looking tag pushed anywhere else cannot move the version. It is
+  deliberately not relative to HEAD: `main`'s release tag can sit on a commit
+  `nightly-dev`'s tip does not contain, and a HEAD-reachability lookup would
+  compute the next nightly from a stale baseline.
 - The rc number is counted from existing tags, not a stored counter, so a
   deleted or re-pushed tag cannot make it hand out a number already taken.
 
@@ -461,10 +462,11 @@ repo's tags have always been `v`-prefixed; commitizen's bare default would break
 continuity with every existing tag and with `setuptools-scm`).
 
 **After landing a change to these workflows on `main`, merge `main` down into
-`nightly-dev` immediately.** The `tag` job checks out the pushed commit and runs `tools/next_version.py` *from that checkout*, so until the module and
-any change to it reach `nightly-dev`, the nightly tag is computed by whatever
-version of the policy that branch happens to carry — or fails outright if the
-file is missing there.
+`nightly-dev` immediately.** The `tag` job checks out the pushed commit and runs
+`tools/next_version.py` *from that checkout*, so until the module and any change
+to it reach `nightly-dev`, the nightly tag is computed by whatever version of
+the policy that branch happens to carry — or fails outright if the file is
+missing there.
 
 **Tagging is a job in `ci.yml`, not a separate workflow.** The `tag` job lists
 every other job in `needs:`, so a commit that failed or skipped any of them is
@@ -474,8 +476,7 @@ only job with `contents: write`, and its checkout is the one deliberate
 `tests/test_release_versioning.py` fails if the two drift. **Do not reintroduce
 `workflow_run`** — zizmor rates it an error-level dangerous trigger — and do not
 reintroduce version math in YAML. `ci.yml` must keep `nightly-dev` in its push
-branches, or no candidate is ever cut. Workflow changes are the one category
-that legitimately PRs straight to `main`.
+branches, or no candidate is ever cut.
 
 `release.yml` is unchanged and remains the path for human-pushed tags: refs
 pushed with `GITHUB_TOKEN` do not dispatch workflow events, so it never fires
