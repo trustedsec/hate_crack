@@ -478,9 +478,12 @@ only job with `contents: write`, and its checkout is the one deliberate
 reintroduce version math in YAML. `ci.yml` must keep `nightly-dev` in its push
 branches, or no candidate is ever cut.
 
-`release.yml` is unchanged and remains the path for human-pushed tags: refs
-pushed with `GITHUB_TOKEN` do not dispatch workflow events, so it never fires
-for the bot tags above.
+`release.yml` remains the path for human-pushed tags: refs pushed with
+`GITHUB_TOKEN` do not dispatch workflow events, so it never fires for the bot
+tags above. It refuses a final `vX.Y.Z` tag that `origin/main` does not contain,
+and it creates the GitHub release with `gh release create` (no third-party
+action). A candidate (`vX.Y.ZrcN`) is published as a prerelease with
+`--latest=false`, so it never becomes "latest".
 
 Two further consequences to keep in mind:
 

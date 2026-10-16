@@ -573,3 +573,69 @@ def test_release_step_has_no_skip_gate() -> None:
         assert "skip" not in str(step.get("if", ""))
     for line in _code_lines(CI):
         assert "skip=" not in line, f"tag job emits a skip output: {line.strip()}"
+
+
+# --- the human-pushed tag path: release.yml ----------------------------------
+
+RELEASE = WORKFLOWS / "release.yml"
+
+
+def _release_steps() -> list[dict[str, Any]]:
+    return [
+        s
+        for s in _load_yaml(RELEASE)["jobs"]["release"]["steps"]
+        if isinstance(s, dict)
+    ]
+
+
+def _release_script(name: str) -> str:
+    matches = [s["run"] for s in _release_steps() if s.get("name") == name]
+    assert len(matches) == 1, f"expected one step named {name!r}"
+    return matches[0]
+
+
+def test_release_uses_no_third_party_action() -> None:
+    uses = [str(s.get("uses", "")) for s in _release_steps() if s.get("uses")]
+    assert all(u.startswith("actions/checkout@") for u in uses), uses
+
+
+def test_release_checkout_has_history_and_no_credentials() -> None:
+    (checkout,) = [
+        s for s in _release_steps() if "actions/checkout" in str(s.get("uses"))
+    ]
+    assert checkout["with"]["fetch-depth"] == 0
+    assert checkout["with"]["persist-credentials"] is False
+
+
+@pytest.mark.parametrize(
+    ("tag", "on_main", "ok"),
+    [
+        pytest.param("v9.0.0", True, True, id="final-on-main"),
+        pytest.param("v9.0.0", False, False, id="final-off-main"),
+        pytest.param("v9.0.0rc1", False, True, id="candidate-off-main"),
+    ],
+)
+def test_main_containment_guard(
+    tag: str, on_main: bool, ok: bool, tmp_path: Path
+) -> None:
+    """Behavioural, like the tag-step tests: run the real step script."""
+    repo, _remote = _init_repo_with_remote(tmp_path)
+    _git_cmd("update-ref", "refs/remotes/origin/main", "HEAD", cwd=repo)
+    if not on_main:
+        _git_cmd("checkout", "-qb", "side", cwd=repo)
+        (repo / "f.txt").write_text("side\n")
+        _git_cmd("commit", "-qam", "chore: side", cwd=repo)
+    _git_cmd("tag", tag, cwd=repo)
+    result = _run_script(
+        _release_script("Refuse a final tag that main does not contain"),
+        repo,
+        {"GITHUB_REF_NAME": tag, **_git_env()},
+    )
+    assert (result.returncode == 0) is ok, f"{result.stdout}\n{result.stderr}"
+
+
+def test_release_marks_candidates_as_prereleases_and_never_latest() -> None:
+    script = _release_script("Create GitHub release")
+    assert "--prerelease" in script
+    assert "--latest=false" in script
+    assert "--verify-tag" in script
