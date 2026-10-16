@@ -386,6 +386,9 @@ def _policy_repo(tmp_path: Path, subjects: list[str]) -> Path:
     _git_cmd("add", "-A", cwd=repo)
     _git_cmd("commit", "-qm", "chore: add the policy module", cwd=repo)
     _git_cmd("tag", "v2.20.0", cwd=repo)
+    # tools/next_version.py draws the baseline from tags merged into
+    # origin/main and fails loudly without that ref.
+    _git_cmd("update-ref", "refs/remotes/origin/main", "HEAD", cwd=repo)
     for subject in subjects:
         (repo / "f.txt").write_text(subject + "\n")
         _git_cmd("commit", "-qam", subject, cwd=repo)

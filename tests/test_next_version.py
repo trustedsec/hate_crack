@@ -31,10 +31,13 @@ from packaging.version import parse
 from tools.next_version import (
     commit_messages,
     compute,
+    git_merged_tags,
     has_feature,
     latest_final,
+    main,
     next_rc_number,
     parse_final,
+    release_ref_exists,
     target_version,
 )
 
@@ -343,3 +346,122 @@ def test_baseline_need_not_be_reachable_from_head(tmp_path):
         f"the next nightly must sort above the release that already shipped, got {got}"
     )
     assert parse("2.20.1") < parse(got.lstrip("v"))
+
+
+def _commit(repo, content, subject):
+    (repo / "f.txt").write_text(content)
+    _git("add", "-A", cwd=repo)
+    _git("commit", "-qm", subject, cwd=repo)
+
+
+def test_a_stray_final_tag_off_main_does_not_move_the_baseline(tmp_path):
+    """A `vX.Y.Z` pushed on a side branch is not a release.
+
+    Taking the max over every tag let one stray `v3.0.0` turn the next release
+    into v3.0.1 -- an automatic major, which this policy forbids.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git("init", "-q", "-b", "main", cwd=repo)
+    _commit(repo, "a\n", "fix: base")
+    _git("tag", "v2.20.0", cwd=repo)
+
+    _git("checkout", "-q", "-b", "scratch", cwd=repo)
+    _commit(repo, "scratch\n", "chore: experiment")
+    _git("tag", "v3.0.0", cwd=repo)
+
+    _git("checkout", "-q", "main", cwd=repo)
+    _commit(repo, "b\n", "fix: real work")
+    _git("update-ref", "refs/remotes/origin/main", "main", cwd=repo)
+
+    baseline = git_merged_tags(str(repo), "origin/main")
+    assert "v3.0.0" not in baseline
+    assert latest_final(baseline) == (2, 20, 0)
+
+    messages = commit_messages(str(repo), latest_final(baseline))
+    all_tags = [t for t in _git("tag", cwd=repo).splitlines() if t.strip()]
+    assert compute("stable", all_tags, messages, baseline_tags=baseline) == "v2.20.1"
+
+
+def test_main_release_still_counts_when_head_does_not_contain_it(tmp_path):
+    """The case test_baseline_need_not_be_reachable_from_head protects, via the
+    real merged-tag lookup rather than a hand-built tag list."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git("init", "-q", "-b", "main", cwd=repo)
+    _commit(repo, "a\n", "fix: base")
+    _git("tag", "v2.20.0", cwd=repo)
+    _commit(repo, "released\n", "fix: released on main")
+    _git("tag", "v2.20.1", cwd=repo)
+    _git("update-ref", "refs/remotes/origin/main", "main", cwd=repo)
+
+    _git("checkout", "-q", "-b", "nightly-dev", "v2.20.0", cwd=repo)
+    _commit(repo, "nightly\n", "fix: on the nightly branch")
+
+    baseline = git_merged_tags(str(repo), "origin/main")
+    assert latest_final(baseline) == (2, 20, 1)
+
+
+def test_merge_commit_promotion_does_not_recount_released_commits(tmp_path):
+    """main is promoted by a merge-commit PR (Task 9). The release tag sits on
+    the merge commit, which nightly-dev never contains -- but every released
+    nightly-dev commit is its ancestor, so the next batch must see only new
+    work. A squash or rebase promotion would fail this: the old `feat` would be
+    re-counted and every later batch would cut a minor."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git("init", "-q", "-b", "main", cwd=repo)
+    _commit(repo, "a\n", "fix: base")
+    _git("tag", "v2.38.1", cwd=repo)
+    _git("checkout", "-q", "-b", "nightly-dev", cwd=repo)
+    _commit(repo, "b\n", "feat: shipped in 2.39")
+    _git("checkout", "-q", "main", cwd=repo)
+    _git(
+        "merge",
+        "-q",
+        "--no-ff",
+        "nightly-dev",
+        "-m",
+        "chore(release): promote",
+        cwd=repo,
+    )
+    _git("tag", "v2.39.0", cwd=repo)
+    _git("update-ref", "refs/remotes/origin/main", "main", cwd=repo)
+    _git("checkout", "-q", "nightly-dev", cwd=repo)
+    _commit(repo, "c\n", "fix: after the release")
+
+    baseline = git_merged_tags(str(repo), "origin/main")
+    messages = commit_messages(str(repo), latest_final(baseline))
+    all_tags = [t for t in _git("tag", cwd=repo).splitlines() if t.strip()]
+    assert (
+        compute("nightly", all_tags, messages, baseline_tags=baseline) == "v2.39.1rc1"
+    )
+
+
+def test_rc_numbering_still_sees_candidates_that_are_not_on_main(tmp_path):
+    """Candidates live on nightly-dev. Numbering must count them even though the
+    baseline ignores everything off main, or rc numbers would be reissued."""
+    tags = ["v2.20.0", "v2.20.1rc1", "v2.20.1rc2"]
+    got = compute("nightly", tags, ["fix: x"], baseline_tags=["v2.20.0"])
+    assert got == "v2.20.1rc3"
+
+
+def test_release_ref_exists_is_false_for_a_missing_ref(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git("init", "-q", "-b", "main", cwd=repo)
+    _commit(repo, "a\n", "fix: base")
+    assert release_ref_exists(str(repo), "main")
+    assert not release_ref_exists(str(repo), "origin/main")
+
+
+def test_cli_fails_loudly_without_the_release_ref(tmp_path, capsys):
+    """Falling back to every tag would silently restore the stray-tag bug; a
+    shallow or branch-only checkout must fail the job instead."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git("init", "-q", "-b", "main", cwd=repo)
+    _commit(repo, "a\n", "fix: base")
+    rc = main(["--channel", "stable", "--repo-dir", str(repo)])
+    assert rc == 2
+    assert "origin/main" in capsys.readouterr().err

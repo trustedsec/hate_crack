@@ -27,11 +27,13 @@ The major component is never bumped automatically. A ``!`` subject or a
 major is an irreversible published mistake waiting for one mistyped subject
 line; a major release stays an explicit human act (tag and push it by hand).
 
-Baseline is the highest final tag in the repository, deliberately NOT restricted
-to tags reachable from HEAD. ``main``'s release tag can sit on a commit that the
-``nightly-dev`` tip does not contain, and a reachability-restricted lookup would
-then compute the next nightly from a stale baseline and hand out a version below
-the release that already shipped.
+Baseline is the highest final tag **merged into ``origin/main``**, deliberately
+NOT restricted to tags reachable from HEAD. ``main``'s release tag can sit on a
+commit that the ``nightly-dev`` tip does not contain, and a HEAD-restricted
+lookup would then compute the next nightly from a stale baseline and hand out a
+version below the release that already shipped. Restricting to ``origin/main``
+instead ignores a final-looking tag pushed anywhere else: before that, one stray
+``v3.0.0`` on a scratch branch would have made every later release a 3.x.
 
 Everything above the git boundary is pure and unit-tested in
 tests/test_next_version.py. Both tagging workflows call this so the policy lives
@@ -138,16 +140,27 @@ def format_version(version: Version) -> str:
     return f"v{version[0]}.{version[1]}.{version[2]}"
 
 
-def compute(channel: str, tags: list[str], messages: list[str]) -> str | None:
+def compute(
+    channel: str,
+    tags: list[str],
+    messages: list[str],
+    *,
+    baseline_tags: list[str] | None = None,
+) -> str | None:
     """The tag to create for *channel*, or ``None`` when there is nothing to tag.
 
     Pure: every input is passed in, so the whole policy is testable without a
     repository. ``stable`` is ``main``'s final release; ``nightly`` is the
     candidate heading for the same target.
+
+    *baseline_tags* are the tags eligible to be the last release (by default,
+    *tags*). Candidate numbering always counts every tag in *tags*, because
+    candidates live on ``nightly-dev`` and are never eligible as a baseline.
     """
     if channel not in ("stable", "nightly"):
         raise ValueError(f"unknown channel {channel!r}")
-    target = target_version(latest_final(tags), messages)
+    base = latest_final(tags if baseline_tags is None else baseline_tags)
+    target = target_version(base, messages)
     if target is None:
         return None
     if channel == "stable":
@@ -180,6 +193,29 @@ def git_tags(repo_dir: str) -> list[str]:
     return [line for line in _git(["tag"], repo_dir).splitlines() if line.strip()]
 
 
+def git_merged_tags(repo_dir: str, ref: str) -> list[str]:
+    """Tags whose commit is an ancestor of (or equal to) *ref*.
+
+    The release baseline is drawn from these, with *ref* = ``origin/main``:
+    finals are only ever cut on main, so a final-looking tag that main does not
+    contain is not a release. Not HEAD-relative -- see the module docstring.
+    """
+    out = _git(["tag", "--merged", ref], repo_dir)
+    return [line for line in out.splitlines() if line.strip()]
+
+
+def release_ref_exists(repo_dir: str, ref: str) -> bool:
+    """Does *ref* resolve to a commit in *repo_dir*?"""
+    result = subprocess.run(
+        ["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
+        cwd=repo_dir,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.returncode == 0
+
+
 def commit_messages(repo_dir: str, base: Version) -> list[str]:
     """Whole commit messages on HEAD since the *base* release, newest first.
 
@@ -196,11 +232,25 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--channel", required=True, choices=["stable", "nightly"])
     parser.add_argument("--repo-dir", default=".")
+    parser.add_argument(
+        "--release-ref",
+        default="origin/main",
+        help="ref whose merged final tags are eligible as the release baseline",
+    )
     args = parser.parse_args(argv)
 
+    if not release_ref_exists(args.repo_dir, args.release_ref):
+        print(
+            f"next_version: release ref {args.release_ref!r} does not resolve. "
+            "Check out with fetch-depth: 0 so remote branches are fetched.",
+            file=sys.stderr,
+        )
+        return 2
+
     tags = git_tags(args.repo_dir)
-    messages = commit_messages(args.repo_dir, latest_final(tags))
-    tag = compute(args.channel, tags, messages)
+    baseline_tags = git_merged_tags(args.repo_dir, args.release_ref)
+    messages = commit_messages(args.repo_dir, latest_final(baseline_tags))
+    tag = compute(args.channel, tags, messages, baseline_tags=baseline_tags)
     if tag is None:
         return 0
     print(tag)
