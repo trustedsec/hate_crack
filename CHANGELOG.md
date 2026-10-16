@@ -12,6 +12,10 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 ### Security
 - **Tagging no longer uses the `workflow_run` trigger.** Tag and release creation moved from two `workflow_run`-triggered workflows into a `tag` job in `ci.yml` gated on `needs:` for every other job, so a commit that failed CI is still never tagged. zizmor rates `workflow_run` an error-level dangerous trigger. The workflow token is now read-only; only the `tag` job is granted `contents: write`.
 - **The release baseline is now the highest final tag merged into `origin/main`.** A final-looking tag pushed anywhere else no longer moves the version, and the tool exits non-zero if that ref is missing.
+- **`release.yml` refuses to publish a final `vX.Y.Z` tag that `origin/main` does not contain.** The release is now created with `gh release create` rather than a third-party action, and candidates (`vX.Y.ZrcN`) are published as prereleases with `--latest=false`, so a candidate can never become "latest".
+
+### Added
+- **A `workflow-lint` CI job runs actionlint and zizmor on `.github/workflows/`, and the `tag` job now waits for it.** Both tools are version-pinned, so a new lint rule cannot silently change what a green run means. Workflow invariants are pinned by tests in `tests/test_workflow_hygiene.py`, so a change that breaks one fails the suite rather than the next release.
 
 ## [2.38.1] - 2026-10-15
 

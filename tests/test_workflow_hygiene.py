@@ -1,7 +1,8 @@
 """Repo-wide invariants over .github/workflows/.
 
-Each of these is a property that GitHub settings (Task 6 of the 2026-10-15
-hardening) or zizmor rely on, and each fails silently when broken.
+Each of these is a property that the repo settings (`sha_pinning_required`
+and a read-only default workflow token) or zizmor rely on, and each fails
+silently when broken.
 """
 
 from __future__ import annotations

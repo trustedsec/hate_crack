@@ -295,7 +295,7 @@ git merge --ff-only nightly-dev
 
 This keeps `main` and `nightly-dev` sharing identical commit SHAs, which is what
 makes the next merge-down trivial. It works as long as every direct-to-`main`
-commit (workflow changes, security hotfixes) is merged down into `nightly-dev`
+commit (a security hotfix) is merged down into `nightly-dev`
 before the next integration. **If the fast-forward refuses, merge `main` down
 into `nightly-dev` first and try again** — do not reach for a merge commit, and
 do not use GitHub's "Rebase and merge" button on the integration PR: it rewrites
@@ -363,7 +363,7 @@ Before merging that PR:
    premise is gone — see Branching Policy — but the conclusion is unchanged and
    the reason is now stated directly: it is about the default branch, not about
    whether a PR exists.)
-3. Confirm the full suite and all three CI checks pass on the merge.
+3. Confirm the full suite and every CI job pass on the merge, including Workflow lint.
 
 **Merge it with a local fast-forward, not with GitHub's merge button.** The PR
 exists for the CI run, the review, and the `Closes #NNN` refs — not for the merge
@@ -461,12 +461,12 @@ string to rewrite and no bump commit) and `tag_format = "v$version"` (this
 repo's tags have always been `v`-prefixed; commitizen's bare default would break
 continuity with every existing tag and with `setuptools-scm`).
 
-**After landing a change to these workflows on `main`, merge `main` down into
-`nightly-dev` immediately.** The `tag` job checks out the pushed commit and runs
-`tools/next_version.py` *from that checkout*, so until the module and any change
-to it reach `nightly-dev`, the nightly tag is computed by whatever version of
-the policy that branch happens to carry — or fails outright if the file is
-missing there.
+**Merge a direct-to-`main` security hotfix down into `nightly-dev` immediately.**
+Each branch runs its own `ci.yml` and computes its tag from its own checkout of
+`tools/next_version.py`, so a change to that module reaches nightly tags only
+once `nightly-dev` carries it. Until then, the nightly tag is computed by
+whatever version of the policy that branch happens to carry, or fails outright
+if the file is missing there.
 
 **Tagging is a job in `ci.yml`, not a separate workflow.** The `tag` job lists
 every other job in `needs:`, so a commit that failed or skipped any of them is
