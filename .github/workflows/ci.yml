@@ -101,6 +101,28 @@ jobs:
           uv run --with pip-audit==2.10.0 pip-audit
           --progress-spinner off --ignore-vuln PYSEC-2026-2447
 
+  # actionlint (YAML/expression errors) and zizmor (Actions security: dangerous
+  # triggers, credential persistence, unpinned actions, injection) over the
+  # whole directory, so a new workflow file is covered without editing this.
+  # No ignore comments: fix the finding instead.
+  workflow-lint:
+    name: Workflow lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      # uv is not preinstalled on the runner; both tools run via uvx.
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4  # v10.1.0
+
+      - name: actionlint
+        run: uvx --from actionlint-py==1.7.12.25 actionlint .github/workflows/*.yml
+
+      - name: zizmor
+        run: uvx zizmor==1.31.1 --offline .github/workflows
+
   tag:
     name: Tag release
     runs-on: ubuntu-latest
@@ -109,7 +131,7 @@ jobs:
     # dependency as not-success, so a commit that failed anything is never
     # tagged. This replaces auto-tag.yml / nightly-tag.yml, which used the
     # workflow_run trigger (zizmor: dangerous-triggers) to get the same gate.
-    needs: [checks, bandit, pip-audit]
+    needs: [checks, bandit, pip-audit, workflow-lint]
     if: >-
       github.event_name == 'push' &&
       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/nightly-dev')

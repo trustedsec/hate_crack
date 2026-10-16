@@ -478,6 +478,18 @@ only job with `contents: write`, and its checkout is the one deliberate
 reintroduce version math in YAML. `ci.yml` must keep `nightly-dev` in its push
 branches, or no candidate is ever cut.
 
+**`workflow-lint` guards the workflow files themselves.** It runs `actionlint`
+(YAML and expression errors) and `zizmor --offline` (Actions security findings:
+dangerous triggers, credential persistence, unpinned actions, injection) over
+all of `.github/workflows`, each pinned to an exact version via `uvx`, so a new
+workflow file is covered without editing the job. It is in `tag.needs`, so a
+commit with a workflow finding is never tagged, and it becomes a required status
+check on `main` once the branch ruleset is applied. Findings are fixed, never
+silenced with ignore comments. `tests/test_workflow_hygiene.py` pins the
+repo-wide invariants the linters and repo settings rely on: every action
+SHA-pinned, top-level `permissions` on every workflow, and
+`persist-credentials` off everywhere except the `tag` job.
+
 `release.yml` remains the path for human-pushed tags: refs pushed with
 `GITHUB_TOKEN` do not dispatch workflow events, so it never fires for the bot
 tags above. It refuses a final `vX.Y.Z` tag that `origin/main` does not contain,

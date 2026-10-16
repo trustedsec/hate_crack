@@ -482,7 +482,7 @@ def test_create_tag_step_tags_nothing_when_the_tag_is_empty(tmp_path: Path) -> N
 
 # --- the tag job's wiring ----------------------------------------------------
 
-VALIDATING_JOBS = {"checks", "bandit", "pip-audit"}
+VALIDATING_JOBS = {"checks", "bandit", "pip-audit", "workflow-lint"}
 
 
 def test_no_workflow_uses_workflow_run() -> None:
