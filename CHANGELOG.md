@@ -17,6 +17,9 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 ### Added
 - **A `workflow-lint` CI job runs actionlint and zizmor on `.github/workflows/`, and the `tag` job now waits for it.** Both tools are version-pinned, so a new lint rule cannot silently change what a green run means. Workflow invariants are pinned by tests in `tests/test_workflow_hygiene.py`, so a change that breaks one fails the suite rather than the next release.
 
+### Changed
+- **Promotion to `main` is now a reviewed merge-commit pull request, enforced by a repository ruleset.** Direct pushes to `main` are rejected; the only way in is a pull request from `nightly-dev` with one approving review from someone other than the last pusher, passing Lint, type-check, and tests, Bandit SAST, pip-audit and Workflow lint, merged with a merge commit (squash and rebase are blocked, so released commits are never re-counted by `tools/next_version.py`). `nightly-dev` is protected against deletion and force-push and requires linear history, and `v*` tags can no longer be moved or deleted. `CLAUDE.md` and `CONTRIBUTING.md` no longer describe fast-forwarding `main`, merging `main` down, or direct-to-`main` hotfixes.
+
 ## [2.38.1] - 2026-10-15
 
 ### Fixed
