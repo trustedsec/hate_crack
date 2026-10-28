@@ -2122,10 +2122,6 @@ class TestHashviewAPI:
 
     def test_create_job_workflow(self, api, test_hashfile):
         """Test creating a job in Hashview (option 2 complete workflow)"""
-        print("\n" + "=" * 60)
-        print("Testing Option 2: Create Job Workflow")
-        print("=" * 60)
-
         # Mock responses for different endpoints - API returns 'users' as a JSON string
         mock_customers_response = Mock()
         mock_customers_response.json.return_value = {
