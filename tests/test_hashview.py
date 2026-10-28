@@ -46,6 +46,12 @@ def _synth_digest(hash_type, plaintext):
         raise ValueError(f"no client-side digest available for mode {hash_type}")
     return digest
 
+def _post_body(mock_post):
+    """Corpo da requisição de um session.post mockado (kwargs 'data' ou posicional)."""
+    call = mock_post.call_args
+    body = call.kwargs.get("data")
+    return body if body is not None else call.args[1]
+
 
 # NTLM (mode 1000) and MD5 (mode 0) digests of the synthetic plaintexts.
 NTLM_A = _synth_digest(1000, SYNTH_PLAIN_A)
@@ -994,9 +1000,7 @@ class TestHashviewAPI:
         result = api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
         assert result["imported"] == 1
         # Only the valid NTLM line should have been sent (body is bytes)
-        sent = api.session.post.call_args.kwargs.get("data")
-        if sent is None:
-            sent = api.session.post.call_args.args[1]
+        sent = _post_body(api.session.post)
         assert isinstance(sent, bytes)
         assert f"{NTLM_A}:{SYNTH_PLAIN_A}".encode() in sent
         assert MD5_A.encode() not in sent
