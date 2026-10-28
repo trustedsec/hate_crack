@@ -2144,14 +2144,11 @@ class TestHashviewAPI:
         api.session.post.side_effect = [mock_upload_response, mock_job_response]
 
         # Step 1: Get test customer
-        print("\n[Step 1] Getting test customer...")
         customers_result = api.list_customers()
         test_customer = customers_result["customers"][0]
         customer_id = test_customer["id"]
-        print(f"  ✓ Using customer ID: {customer_id} ({test_customer['name']})")
 
         # Step 2: Upload hashfile
-        print("\n[Step 2] Uploading hashfile...")
         hash_type = 1000  # NTLM
         file_format = 5  # hash_only
         hashfile_name = "test_hashfile_automated"
@@ -2161,25 +2158,14 @@ class TestHashviewAPI:
         )
 
         hashfile_id = upload_result["hashfile_id"]
-        print(f"  ✓ Hashfile ID: {hashfile_id}")
 
         # Step 3: Create job
-        print("\n[Step 3] Creating job...")
         job_name = "test_job_automated"
-
         job_result = api.create_job(
             name=job_name, hashfile_id=hashfile_id, customer_id=customer_id
         )
 
         assert job_result is not None, "No job result returned"
-        print("  ✓ Job created successfully")
-
-        if "job_id" in job_result:
-            print(f"  ✓ Job ID: {job_result['job_id']}")
-
-        print("\n" + "=" * 60)
-        print("✓ Option 2 (Create Job) is READY and WORKING!")
-        print("=" * 60)
 
     def test_start_job_uses_post(self, api):
         """start_job must POST to /v1/jobs/start/<id> (the route is POST-only)."""
