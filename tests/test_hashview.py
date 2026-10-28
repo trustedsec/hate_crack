@@ -11,6 +11,7 @@ import json
 import tempfile
 import uuid
 from unittest.mock import Mock, patch, MagicMock
+from types import SimpleNamespace
 
 
 # Add the parent directory to the path to import hate_crack
@@ -2324,15 +2325,16 @@ class TestHashviewAPI:
         assert detect_format(hashonly_file) == 5, "Should detect hash_only format"
         assert detect_format(hexhash_file) == 5, "hex:hash should default to hash_only"
 
-    def test_download_left_with_auto_merge(self, api, tmp_path, monkeypatch):
-        """Test that download_left automatically downloads and splits found hashes for hashcat"""
-        # Use a different CWD than the output directory to ensure merging uses
-        # output_file's directory (not os.getcwd()).
+    @pytest.fixture
+    def left_auto_merge(self, api, tmp_path, monkeypatch):
+        """Executa download_left_hashes com auto-merge de hashes encontradas,
+        uma vez, e expõe o resultado e os caminhos que os testes inspecionam."""
+        # CWD diferente do diretório de saída, pra garantir que o merge usa a
+        # pasta do output_file (e não os.getcwd()).
         other_cwd = tmp_path / "other_cwd"
         other_cwd.mkdir()
         monkeypatch.chdir(other_cwd)
 
-        # Mock left hashes download
         mock_left_response = Mock()
         mock_left_response.content = b"uncracked_hash1\nuncracked_hash2\n"
         mock_left_response.raise_for_status = Mock()
@@ -2343,7 +2345,6 @@ class TestHashviewAPI:
 
         mock_left_response.iter_content = iter_content_left
 
-        # Mock found hashes download
         mock_found_response = Mock()
         mock_found_response.content = (
             b"found_hash1:found_password1\nfound_hash2:found_password2\n"
@@ -2356,55 +2357,41 @@ class TestHashviewAPI:
 
         mock_found_response.iter_content = iter_content_found
 
-        # Set up session.get to return different responses
         api.session.get.side_effect = [mock_left_response, mock_found_response]
 
-        # Mock potfile path so cleanup isn't blocked by missing ~/.hashcat dir
         potfile = str(tmp_path / "hashcat.potfile")
         monkeypatch.setattr("hate_crack.api.get_hcat_potfile_path", lambda: potfile)
 
-        # Download left hashes (should auto-download and split found for hashcat)
         left_file = tmp_path / "left_1_2.txt"
         result = api.download_left_hashes(1, 2, output_file=str(left_file))
 
-        # Verify left file was created
-        assert os.path.exists(result["output_file"])
+        return SimpleNamespace(result=result, tmp_path=tmp_path, potfile=potfile)
 
-        # Verify left file contains the full original hashlist (left + found)
-        with open(result["output_file"], "r") as f:
-            left_contents = f.read()
-        assert "found_hash1\n" in left_contents, (
-            "Found hashes must be appended as hash-only lines"
-        )
-        assert "found_password1" not in left_contents, (
-            "Plaintext passwords must not appear in the left file"
-        )
-        assert "found_hash2\n" in left_contents, (
-            "Found hashes must be appended as hash-only lines"
-        )
-        assert "found_password2" not in left_contents, (
-            "Plaintext passwords must not appear in the left file"
-        )
-        assert "uncracked_hash1" in left_contents
-        assert "uncracked_hash2" in left_contents
+    def test_download_left_creates_output_file(self, left_auto_merge):
+        """O arquivo 'left' é criado."""
+        assert os.path.exists(left_auto_merge.result["output_file"])
 
-        # Verify found files are cleaned up after merge
-        found_file = tmp_path / "found_1_2.txt"
-        assert not os.path.exists(found_file), (
-            "Found file should be deleted after merge"
-        )
+    def test_download_left_appends_found_hashes_without_plaintext(self, left_auto_merge):
+        """O 'left' recebe as hashes encontradas (só hash, sem senha) e as originais."""
+        with open(left_auto_merge.result["output_file"], "r") as f:
+            contents = f.read()
+        assert "found_hash1\n" in contents
+        assert "found_hash2\n" in contents
+        assert "found_password1" not in contents
+        assert "found_password2" not in contents
+        assert "uncracked_hash1" in contents
+        assert "uncracked_hash2" in contents
 
-        found_hashes_file = tmp_path / "found_hashes_1_2.txt"
-        found_clears_file = tmp_path / "found_clears_1_2.txt"
-        assert not os.path.exists(str(found_hashes_file)), (
-            "Split hashes file should be deleted after merge"
-        )
-        assert not os.path.exists(str(found_clears_file)), (
-            "Split clears file should be deleted after merge"
-        )
+    def test_download_left_cleans_up_found_files(self, left_auto_merge):
+        """Os arquivos 'found' intermediários são apagados após o merge."""
+        tmp_path = left_auto_merge.tmp_path
+        assert not os.path.exists(tmp_path / "found_1_2.txt")
+        assert not os.path.exists(str(tmp_path / "found_hashes_1_2.txt"))
+        assert not os.path.exists(str(tmp_path / "found_clears_1_2.txt"))
 
-        # Verify potfile received the found hash:plaintext pairs
-        with open(potfile, "r") as f:
+    def test_download_left_writes_pairs_to_potfile(self, left_auto_merge):
+        """O potfile recebe os pares hash:senha encontrados."""
+        with open(left_auto_merge.potfile, "r") as f:
             potfile_contents = f.read()
         assert "found_hash1:found_password1" in potfile_contents
         assert "found_hash2:found_password2" in potfile_contents
