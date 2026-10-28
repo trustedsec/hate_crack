@@ -1060,9 +1060,7 @@ class TestHashviewAPI:
         assert result["uploaded"] == 1
         assert result["skipped"] == 0
 
-        sent = api.session.post.call_args.kwargs.get("data")
-        if sent is None:
-            sent = api.session.post.call_args.args[1]
+        sent = _post_body(api.session.post)
         assert sent == f"{ntlm}".encode() + b":" + plain_utf8
 
     def test_upload_retries_batch_after_server_rejects_one_plaintext(
