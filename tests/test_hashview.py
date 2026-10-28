@@ -1064,20 +1064,10 @@ class TestHashviewAPI:
         sent = _post_body(api.session.post)
         assert sent == f"{ntlm}".encode() + b":" + plain_utf8
 
-    def test_upload_retries_batch_after_server_rejects_one_plaintext(
-        self, api, tmp_path, capsys
-    ):
-        """A Hashview that rejects one $HEX-fallback plaintext (embedded CR/LF,
-        server doesn't decode $HEX[...] on import) shouldn't sink the whole
-        batch -- retry without that line so the rest still uploads.
-
-        Regression for a live report: hate_crack correctly falls back to
-        sending $HEX[...] verbatim for a plaintext with an embedded newline
-        (inlining the raw bytes would corrupt this line-based upload), but a
-        Hashview that hashes that literal wrapper string instead of decoding
-        it rejects the line and rolls back its entire atomic import --
-        taking every other valid hash in the batch down with it.
-        """
+    @pytest.fixture
+    def retry_after_reject(self, api, tmp_path, capsys):
+        """Sobe um lote em que o servidor rejeita 1 plaintext e re-tenta sem ela.
+        Expõe o resultado, o corpo do retry, a saída capturada e o ntlm rejeitado."""
         newline_plain_bytes = SYNTH_PLAIN_A.encode("utf-8") + b"\n"
         ntlm_newline = _digest_for_type("1000", newline_plain_bytes)
         hex_wrapped = "$HEX[" + newline_plain_bytes.hex() + "]"
@@ -1110,18 +1100,34 @@ class TestHashviewAPI:
         api.session.post.side_effect = [error_response, success_response]
 
         result = api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
-
-        assert api.session.post.call_count == 2
-        retry_body = _post_body(api.session.post)
-        assert ntlm_newline.encode() not in retry_body
-        assert NTLM_B.encode() in retry_body
-
-        assert result["uploaded"] == 1
-        assert result["skipped"] == 1
-
         out = capsys.readouterr().out
-        assert "Hashview rejected 1 plaintext" in out
-        assert ntlm_newline in out
+
+        return SimpleNamespace(
+            result=result,
+            retry_body=_post_body(api.session.post),
+            out=out,
+            ntlm_newline=ntlm_newline,
+            post=api.session.post,
+        )
+
+    def test_retry_makes_two_posts(self, retry_after_reject):
+        """Houve a tentativa original + o retry: dois POSTs."""
+        assert retry_after_reject.post.call_count == 2
+
+    def test_retry_excludes_rejected_keeps_rest(self, retry_after_reject):
+        """O retry reenvia sem a linha rejeitada, mas mantém as válidas."""
+        assert retry_after_reject.ntlm_newline.encode() not in retry_after_reject.retry_body
+        assert NTLM_B.encode() in retry_after_reject.retry_body
+
+    def test_retry_reports_counts(self, retry_after_reject):
+        """O resultado contabiliza 1 enviada e 1 pulada."""
+        assert retry_after_reject.result["uploaded"] == 1
+        assert retry_after_reject.result["skipped"] == 1
+
+    def test_retry_announces_rejection(self, retry_after_reject):
+        """A rejeição é informada na saída, citando o hash rejeitado."""
+        assert "Hashview rejected 1 plaintext" in retry_after_reject.out
+        assert retry_after_reject.ntlm_newline in retry_after_reject.out
 
     def test_upload_surfaces_client_counts(self, api, tmp_path):
         """upload_cracked_hashes reports uploaded/skipped even when the server
