@@ -1026,9 +1026,7 @@ class TestHashviewAPI:
 
         api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
 
-        sent = api.session.post.call_args.kwargs.get("data")
-        if sent is None:
-            sent = api.session.post.call_args.args[1]
+        sent = _post_body(api.session.post)
         # mode 1000: $HEX[...] is inlined as the latin-1 code points re-encoded
         # as UTF-8, which is what the server re-hashes.
         assert sent == b"fec45000e0d53e0e103cb66c1fa7fc45:" + plain_bytes.decode(
