@@ -1,0 +1,833 @@
+{
+  "hate_crack/__init__.py": {
+    "mi": 100.0,
+    "rank": "A"
+  },
+  "hate_crack/__main__.py": {
+    "mi": 96.17368815601037,
+    "rank": "A"
+  },
+  "hate_crack/api.py": {
+    "mi": 0.0,
+    "rank": "C"
+  },
+  "hate_crack/attack_coverage.py": {
+    "mi": 32.22711156005598,
+    "rank": "A"
+  },
+  "hate_crack/attacks.py": {
+    "mi": 0.0,
+    "rank": "C"
+  },
+  "hate_crack/brain.py": {
+    "mi": 49.67171758850671,
+    "rank": "A"
+  },
+  "hate_crack/cli.py": {
+    "mi": 64.76382311120734,
+    "rank": "A"
+  },
+  "hate_crack/config_loader.py": {
+    "mi": 50.82862796262247,
+    "rank": "A"
+  },
+  "hate_crack/config_schema.py": {
+    "mi": 63.6579110736551,
+    "rank": "A"
+  },
+  "hate_crack/config_writer.py": {
+    "mi": 47.20471765099394,
+    "rank": "A"
+  },
+  "hate_crack/corpus_stats.py": {
+    "mi": 45.24260181249751,
+    "rank": "A"
+  },
+  "hate_crack/formatting.py": {
+    "mi": 63.06949024841464,
+    "rank": "A"
+  },
+  "hate_crack/hashcat_paths.py": {
+    "mi": 52.27630930537369,
+    "rank": "A"
+  },
+  "hate_crack/hashview_cache.py": {
+    "mi": 84.4122517450045,
+    "rank": "A"
+  },
+  "hate_crack/llm.py": {
+    "mi": 44.02886116374597,
+    "rank": "A"
+  },
+  "hate_crack/main.py": {
+    "mi": 0.0,
+    "rank": "C"
+  },
+  "hate_crack/menu.py": {
+    "mi": 78.30291680611505,
+    "rank": "A"
+  },
+  "hate_crack/menu_registry.py": {
+    "mi": 77.95967035234933,
+    "rank": "A"
+  },
+  "hate_crack/noninteractive.py": {
+    "mi": 41.10740805578793,
+    "rank": "A"
+  },
+  "hate_crack/plaintext.py": {
+    "mi": 52.02410752864852,
+    "rank": "A"
+  },
+  "hate_crack/progress.py": {
+    "mi": 77.9213908517159,
+    "rank": "A"
+  },
+  "hate_crack/rulegen.py": {
+    "mi": 16.934463620986513,
+    "rank": "B"
+  },
+  "hate_crack/username_detect.py": {
+    "mi": 82.37453338256829,
+    "rank": "A"
+  },
+  "hate_crack/notify/__init__.py": {
+    "mi": 60.10300185742367,
+    "rank": "A"
+  },
+  "hate_crack/notify/_suppress.py": {
+    "mi": 95.19880497687085,
+    "rank": "A"
+  },
+  "hate_crack/notify/pushover.py": {
+    "mi": 83.16732488381678,
+    "rank": "A"
+  },
+  "hate_crack/notify/settings.py": {
+    "mi": 67.50737084356888,
+    "rank": "A"
+  },
+  "hate_crack/notify/tailer.py": {
+    "mi": 60.67612944852658,
+    "rank": "A"
+  },
+  "hate_crack/ui/__init__.py": {
+    "mi": 65.49850233890469,
+    "rank": "A"
+  },
+  "hate_crack/ui/plain.py": {
+    "mi": 68.45018927053088,
+    "rank": "A"
+  },
+  "hate_crack/ui/rich_ui.py": {
+    "mi": 48.916720357016125,
+    "rank": "A"
+  },
+  "tests/__init__.py": {
+    "mi": 100.0,
+    "rank": "A"
+  },
+  "tests/_hashcat_oracle.py": {
+    "mi": 75.50933199282433,
+    "rank": "A"
+  },
+  "tests/_hashview_local.py": {
+    "mi": 60.604873517836715,
+    "rank": "A"
+  },
+  "tests/_json_strict.py": {
+    "mi": 87.75043909879535,
+    "rank": "A"
+  },
+  "tests/conftest.py": {
+    "mi": 60.650453294613975,
+    "rank": "A"
+  },
+  "tests/hashview_local_seed.py": {
+    "mi": 68.31914806533256,
+    "rank": "A"
+  },
+  "tests/run_checks.py": {
+    "mi": 89.60703065596877,
+    "rank": "A"
+  },
+  "tests/test_adhoc_mask.py": {
+    "mi": 27.898244470916023,
+    "rank": "A"
+  },
+  "tests/test_agent_instruction_integrity.py": {
+    "mi": 56.67207865423085,
+    "rank": "A"
+  },
+  "tests/test_api.py": {
+    "mi": 61.04543778118722,
+    "rank": "A"
+  },
+  "tests/test_api_downloads.py": {
+    "mi": 0.0,
+    "rank": "C"
+  },
+  "tests/test_asset_path_separation.py": {
+    "mi": 81.62562910394512,
+    "rank": "A"
+  },
+  "tests/test_attack_coverage.py": {
+    "error": "SyntaxError at line: 377"
+  },
+  "tests/test_attack_coverage_plan.py": {
+    "mi": 35.97315099615936,
+    "rank": "A"
+  },
+  "tests/test_attacks_behavior.py": {
+    "mi": 17.02867579404721,
+    "rank": "B"
+  },
+  "tests/test_attacks_pcfg.py": {
+    "mi": 100.0,
+    "rank": "A"
+  },
+  "tests/test_bandrel_company_arg.py": {
+    "mi": 72.36479669073842,
+    "rank": "A"
+  },
+  "tests/test_bare_hash_detection.py": {
+    "mi": 37.448606740094164,
+    "rank": "A"
+  },
+  "tests/test_brain_cli.py": {
+    "mi": 79.43689157773575,
+    "rank": "A"
+  },
+  "tests/test_brain_config.py": {
+    "mi": 61.16622414227741,
+    "rank": "A"
+  },
+  "tests/test_brain_flags.py": {
+    "mi": 70.52129072531399,
+    "rank": "A"
+  },
+  "tests/test_brain_oracle.py": {
+    "mi": 59.05230898966513,
+    "rank": "A"
+  },
+  "tests/test_brain_policy.py": {
+    "mi": 61.56359033293342,
+    "rank": "A"
+  },
+  "tests/test_brain_server.py": {
+    "mi": 44.8703711102541,
+    "rank": "A"
+  },
+  "tests/test_brain_wiring.py": {
+    "mi": 59.48676004129307,
+    "rank": "A"
+  },
+  "tests/test_cli_flags.py": {
+    "mi": 33.59152373105683,
+    "rank": "A"
+  },
+  "tests/test_cli_menus.py": {
+    "mi": 60.45402113060961,
+    "rank": "A"
+  },
+  "tests/test_cli_weakpass.py": {
+    "mi": 67.71863498617193,
+    "rank": "A"
+  },
+  "tests/test_combinator3_combinatorX.py": {
+    "mi": 34.85680076976897,
+    "rank": "A"
+  },
+  "tests/test_combinator_wrappers.py": {
+    "mi": 25.38718357425206,
+    "rank": "A"
+  },
+  "tests/test_combine_callers.py": {
+    "mi": 58.8877930176879,
+    "rank": "A"
+  },
+  "tests/test_combine_ntlm_output.py": {
+    "mi": 45.62643608546293,
+    "rank": "A"
+  },
+  "tests/test_combipow_attack.py": {
+    "mi": 40.233801942604885,
+    "rank": "A"
+  },
+  "tests/test_commit_guards.py": {
+    "mi": 51.74023858720936,
+    "rank": "A"
+  },
+  "tests/test_config_defaults_load.py": {
+    "mi": 64.79327047877418,
+    "rank": "A"
+  },
+  "tests/test_config_json_example.py": {
+    "mi": 56.3340605421823,
+    "rank": "A"
+  },
+  "tests/test_config_loader.py": {
+    "mi": 29.298566630911967,
+    "rank": "A"
+  },
+  "tests/test_config_schema.py": {
+    "mi": 43.26023683208913,
+    "rank": "A"
+  },
+  "tests/test_config_startup_wiring.py": {
+    "mi": 21.90084634914193,
+    "rank": "A"
+  },
+  "tests/test_config_writer.py": {
+    "mi": 28.91482551256392,
+    "rank": "A"
+  },
+  "tests/test_corporate_masks.py": {
+    "mi": 42.960074481601,
+    "rank": "A"
+  },
+  "tests/test_corpus_stats.py": {
+    "mi": 22.97246266442231,
+    "rank": "A"
+  },
+  "tests/test_coverage_cli.py": {
+    "mi": 43.880423668321626,
+    "rank": "A"
+  },
+  "tests/test_coverage_wiring.py": {
+    "mi": 24.690465334430254,
+    "rank": "A"
+  },
+  "tests/test_coverage_wordlist_scope.py": {
+    "mi": 42.99830337985913,
+    "rank": "A"
+  },
+  "tests/test_custom_path_autocomplete.py": {
+    "mi": 69.9648938438955,
+    "rank": "A"
+  },
+  "tests/test_debug_log_coverage.py": {
+    "mi": 65.88319791544248,
+    "rank": "A"
+  },
+  "tests/test_dependencies.py": {
+    "mi": 64.99322587873401,
+    "rank": "A"
+  },
+  "tests/test_doc_audit_hook.py": {
+    "mi": 81.02974651686895,
+    "rank": "A"
+  },
+  "tests/test_doc_audit_parity.py": {
+    "mi": 69.15303250462738,
+    "rank": "A"
+  },
+  "tests/test_docker_script_install.py": {
+    "mi": 52.57126837837343,
+    "rank": "A"
+  },
+  "tests/test_e2e_local_install.py": {
+    "mi": 50.796266571263295,
+    "rank": "A"
+  },
+  "tests/test_e2e_output_path.py": {
+    "mi": 52.08431457652123,
+    "rank": "A"
+  },
+  "tests/test_env_example.py": {
+    "mi": 78.47966167964522,
+    "rank": "A"
+  },
+  "tests/test_fingerprint_expander_and_hybrid.py": {
+    "mi": 30.661781317381642,
+    "rank": "A"
+  },
+  "tests/test_flag_overrides.py": {
+    "mi": 40.6081828092443,
+    "rank": "A"
+  },
+  "tests/test_formatting_colour.py": {
+    "mi": 74.72435035996351,
+    "rank": "A"
+  },
+  "tests/test_gzip_magic_byte_sweep.py": {
+    "mi": 55.44918712235183,
+    "rank": "A"
+  },
+  "tests/test_hashcat_oracle_helper.py": {
+    "mi": 36.5126118991092,
+    "rank": "A"
+  },
+  "tests/test_hashcat_paths.py": {
+    "mi": 39.21260634532716,
+    "rank": "A"
+  },
+  "tests/test_hashcat_rules.py": {
+    "mi": 56.902207914673845,
+    "rank": "A"
+  },
+  "tests/test_hashcat_wrappers.py": {
+    "mi": 10.441250083935598,
+    "rank": "B"
+  },
+  "tests/test_hashfile_orig_tracking.py": {
+    "mi": 58.5384339745251,
+    "rank": "A"
+  },
+  "tests/test_hashmob_connectivity.py": {
+    "mi": 47.629148671421994,
+    "rank": "A"
+  },
+  "tests/test_hashmob_downloads.py": {
+    "mi": 27.490044233328796,
+    "rank": "A"
+  },
+  "tests/test_hashview.py": {
+    "mi": 0.0,
+    "rank": "C"
+  },
+  "tests/test_hashview_cache.py": {
+    "mi": 65.66138524073631,
+    "rank": "A"
+  },
+  "tests/test_hashview_cli_subcommands.py": {
+    "mi": 43.78140799214643,
+    "rank": "A"
+  },
+  "tests/test_hashview_cli_subcommands_subprocess.py": {
+    "mi": 33.323641380858085,
+    "rank": "A"
+  },
+  "tests/test_hashview_customer_listing.py": {
+    "mi": 44.65727000365958,
+    "rank": "A"
+  },
+  "tests/test_hashview_download_all_rules_menu.py": {
+    "mi": 64.98125739799625,
+    "rank": "A"
+  },
+  "tests/test_hashview_download_rule_all_shortcut.py": {
+    "mi": 41.79239113233481,
+    "rank": "A"
+  },
+  "tests/test_hashview_hash_type_prompt.py": {
+    "mi": 73.33499248428828,
+    "rank": "A"
+  },
+  "tests/test_hashview_local_harness.py": {
+    "mi": 81.94109256422233,
+    "rank": "A"
+  },
+  "tests/test_hashview_tls.py": {
+    "mi": 67.03541062392634,
+    "rank": "A"
+  },
+  "tests/test_hcat_ollama.py": {
+    "mi": 36.110420709161666,
+    "rank": "A"
+  },
+  "tests/test_hcat_rosetta_mask.py": {
+    "mi": 49.059346650236975,
+    "rank": "A"
+  },
+  "tests/test_help_before_build.py": {
+    "mi": 75.77157060905448,
+    "rank": "A"
+  },
+  "tests/test_hybrid_attack.py": {
+    "mi": 16.645063199163513,
+    "rank": "B"
+  },
+  "tests/test_installed_tool_execution.py": {
+    "mi": 54.689467198631824,
+    "rank": "A"
+  },
+  "tests/test_invalid_hcatpath.py": {
+    "mi": 83.39026367976567,
+    "rank": "A"
+  },
+  "tests/test_lima_vm_install.py": {
+    "mi": 50.671736828538506,
+    "rank": "A"
+  },
+  "tests/test_lint_scope.py": {
+    "mi": 64.3777350876149,
+    "rank": "A"
+  },
+  "tests/test_llm.py": {
+    "mi": 26.679364678512595,
+    "rank": "A"
+  },
+  "tests/test_llm_pattern_rules.py": {
+    "mi": 37.51789700194714,
+    "rank": "A"
+  },
+  "tests/test_main_pcfg.py": {
+    "mi": 40.75294940721686,
+    "rank": "A"
+  },
+  "tests/test_main_rosetta.py": {
+    "mi": 21.553367938310075,
+    "rank": "A"
+  },
+  "tests/test_main_rosetta_import_guard.py": {
+    "mi": 57.77355179519066,
+    "rank": "A"
+  },
+  "tests/test_main_spoonman.py": {
+    "mi": 0.0,
+    "rank": "C"
+  },
+  "tests/test_main_utils.py": {
+    "mi": 5.933071926668449,
+    "rank": "C"
+  },
+  "tests/test_markov_e2e.py": {
+    "mi": 54.867571135464075,
+    "rank": "A"
+  },
+  "tests/test_mask_download_parallel.py": {
+    "mi": 30.43133777473093,
+    "rank": "A"
+  },
+  "tests/test_mask_oracle.py": {
+    "mi": 66.87264389387116,
+    "rank": "A"
+  },
+  "tests/test_menu.py": {
+    "mi": 41.415812294089754,
+    "rank": "A"
+  },
+  "tests/test_next_version.py": {
+    "mi": 42.88316709575641,
+    "rank": "A"
+  },
+  "tests/test_ngram_gzip.py": {
+    "mi": 34.25630820262218,
+    "rank": "A"
+  },
+  "tests/test_no_cloud_destination.py": {
+    "mi": 60.004386845706726,
+    "rank": "A"
+  },
+  "tests/test_no_cloud_destination_main.py": {
+    "mi": 48.81594166796277,
+    "rank": "A"
+  },
+  "tests/test_no_cloud_guard.py": {
+    "mi": 69.78209272381649,
+    "rank": "A"
+  },
+  "tests/test_no_optimized_kernel_flag.py": {
+    "mi": 60.21233566801161,
+    "rank": "A"
+  },
+  "tests/test_noninteractive.py": {
+    "mi": 32.61382684989747,
+    "rank": "A"
+  },
+  "tests/test_noninteractive_attacks.py": {
+    "mi": 14.60135158693827,
+    "rank": "B"
+  },
+  "tests/test_notifications_submenu.py": {
+    "mi": 58.34946841974098,
+    "rank": "A"
+  },
+  "tests/test_notify_integration.py": {
+    "mi": 38.77034455166512,
+    "rank": "A"
+  },
+  "tests/test_notify_name_alignment.py": {
+    "mi": 42.85578961630797,
+    "rank": "A"
+  },
+  "tests/test_notify_per_crack_toggle.py": {
+    "mi": 52.75328396300972,
+    "rank": "A"
+  },
+  "tests/test_notify_pushover.py": {
+    "mi": 55.382310511064965,
+    "rank": "A"
+  },
+  "tests/test_notify_settings.py": {
+    "mi": 35.89942910887168,
+    "rank": "A"
+  },
+  "tests/test_notify_suppression.py": {
+    "mi": 53.77266244470655,
+    "rank": "A"
+  },
+  "tests/test_notify_tailer.py": {
+    "mi": 37.42030208529452,
+    "rank": "A"
+  },
+  "tests/test_ntlm_preprocessing.py": {
+    "mi": 6.853437969478538,
+    "rank": "C"
+  },
+  "tests/test_ntlm_preprocessing_edge_cases.py": {
+    "mi": 32.89207259096053,
+    "rank": "A"
+  },
+  "tests/test_ollama_target_research.py": {
+    "mi": 36.1447019190506,
+    "rank": "A"
+  },
+  "tests/test_ollama_url_normalization.py": {
+    "mi": 70.00673962370979,
+    "rank": "A"
+  },
+  "tests/test_ollama_wordlist_sampling.py": {
+    "mi": 44.477914216099144,
+    "rank": "A"
+  },
+  "tests/test_omen_attack.py": {
+    "mi": 10.069586225369179,
+    "rank": "B"
+  },
+  "tests/test_optimized_kernel.py": {
+    "mi": 46.33944131838669,
+    "rank": "A"
+  },
+  "tests/test_optimized_kernel_drift.py": {
+    "mi": 60.52905773589895,
+    "rank": "A"
+  },
+  "tests/test_permute_attack.py": {
+    "mi": 47.620419493448196,
+    "rank": "A"
+  },
+  "tests/test_permute_wrapper.py": {
+    "mi": 41.625945866467816,
+    "rank": "A"
+  },
+  "tests/test_pipal.py": {
+    "mi": 53.182603511894406,
+    "rank": "A"
+  },
+  "tests/test_pipal_e2e.py": {
+    "mi": 60.29770572685827,
+    "rank": "A"
+  },
+  "tests/test_pipal_integration.py": {
+    "mi": 64.0114000310983,
+    "rank": "A"
+  },
+  "tests/test_plaintext.py": {
+    "mi": 60.44863520125704,
+    "rank": "A"
+  },
+  "tests/test_potfile_restore.py": {
+    "mi": 44.308617065451884,
+    "rank": "A"
+  },
+  "tests/test_progress_spinner.py": {
+    "mi": 64.53099520953538,
+    "rank": "A"
+  },
+  "tests/test_prompt_int.py": {
+    "mi": 62.11340121372164,
+    "rank": "A"
+  },
+  "tests/test_proxy.py": {
+    "mi": 59.25907225512657,
+    "rank": "A"
+  },
+  "tests/test_pwdump_format_default.py": {
+    "mi": 87.86981560259773,
+    "rank": "A"
+  },
+  "tests/test_pypi_placeholder.py": {
+    "mi": 47.531149483628624,
+    "rank": "A"
+  },
+  "tests/test_quick_crack_arrow_choices.py": {
+    "mi": 51.15393201831479,
+    "rank": "A"
+  },
+  "tests/test_random_rules_attack.py": {
+    "mi": 71.77724425333045,
+    "rank": "A"
+  },
+  "tests/test_random_rules_wrapper.py": {
+    "mi": 44.19517331194541,
+    "rank": "A"
+  },
+  "tests/test_readline_choice_history.py": {
+    "mi": 43.95636142726367,
+    "rank": "A"
+  },
+  "tests/test_readline_completion.py": {
+    "mi": 53.085070200346024,
+    "rank": "A"
+  },
+  "tests/test_release_versioning.py": {
+    "mi": 35.328828451970146,
+    "rank": "A"
+  },
+  "tests/test_repo_hygiene.py": {
+    "mi": 61.02880070897918,
+    "rank": "A"
+  },
+  "tests/test_rich_prompt_readline.py": {
+    "mi": 67.15703879182601,
+    "rank": "A"
+  },
+  "tests/test_rule_download_parallel.py": {
+    "mi": 30.515400995163073,
+    "rank": "A"
+  },
+  "tests/test_rule_oracle.py": {
+    "mi": 63.81675877234659,
+    "rank": "A"
+  },
+  "tests/test_rule_tools.py": {
+    "mi": 24.01609926058587,
+    "rank": "A"
+  },
+  "tests/test_rule_wrappers.py": {
+    "mi": 42.78334705650726,
+    "rank": "A"
+  },
+  "tests/test_rulegen.py": {
+    "mi": 0.0,
+    "rank": "C"
+  },
+  "tests/test_run_hcat_cmd.py": {
+    "mi": 35.186404303132306,
+    "rank": "A"
+  },
+  "tests/test_smart_mask.py": {
+    "mi": 15.505200770158005,
+    "rank": "B"
+  },
+  "tests/test_sort_locale.py": {
+    "mi": 56.24433004933523,
+    "rank": "A"
+  },
+  "tests/test_submodule_hashcat_utils.py": {
+    "mi": 87.24005571016401,
+    "rank": "A"
+  },
+  "tests/test_submodule_identity_guard.py": {
+    "mi": 69.34126778213226,
+    "rank": "A"
+  },
+  "tests/test_ui_backend_resolution.py": {
+    "mi": 77.70451914080675,
+    "rank": "A"
+  },
+  "tests/test_ui_config_key.py": {
+    "mi": 76.29428167922956,
+    "rank": "A"
+  },
+  "tests/test_ui_menu_options.py": {
+    "mi": 53.733701609400455,
+    "rank": "A"
+  },
+  "tests/test_ui_protocol_conformance.py": {
+    "mi": 34.09187511492057,
+    "rank": "A"
+  },
+  "tests/test_ui_rich_backend.py": {
+    "mi": 44.912759263338394,
+    "rank": "A"
+  },
+  "tests/test_ui_startup_wiring.py": {
+    "mi": 62.21408738012691,
+    "rank": "A"
+  },
+  "tests/test_ui_test_pushover.py": {
+    "mi": 70.56832571751822,
+    "rank": "A"
+  },
+  "tests/test_ui_wiring_precedes_output.py": {
+    "mi": 70.35032734230684,
+    "rank": "A"
+  },
+  "tests/test_upgrade_convergence.py": {
+    "mi": 66.94194551553976,
+    "rank": "A"
+  },
+  "tests/test_upgrade_real_git.py": {
+    "mi": 46.97071529270216,
+    "rank": "A"
+  },
+  "tests/test_upload_cracked_hashes.py": {
+    "mi": 55.99948540524558,
+    "rank": "A"
+  },
+  "tests/test_upload_wordlist.py": {
+    "mi": 49.69385992195295,
+    "rank": "A"
+  },
+  "tests/test_username_detect.py": {
+    "mi": 32.36823566882472,
+    "rank": "A"
+  },
+  "tests/test_utils.py": {
+    "mi": 40.02036604147305,
+    "rank": "A"
+  },
+  "tests/test_uv_tool_install_dryrun.py": {
+    "mi": 60.81730593650128,
+    "rank": "A"
+  },
+  "tests/test_valid_hcmask.py": {
+    "mi": 64.11111930158687,
+    "rank": "A"
+  },
+  "tests/test_version_check.py": {
+    "mi": 20.964911519120786,
+    "rank": "A"
+  },
+  "tests/test_wordlist_filtering.py": {
+    "mi": 37.695627893760395,
+    "rank": "A"
+  },
+  "tests/test_wordlist_listing.py": {
+    "mi": 36.64194278740762,
+    "rank": "A"
+  },
+  "tests/test_wordlist_stdin_decompression.py": {
+    "mi": 60.4729966428325,
+    "rank": "A"
+  },
+  "tests/test_wordlist_tools.py": {
+    "mi": 20.411385224915833,
+    "rank": "A"
+  },
+  "tests/test_wordlist_wrappers.py": {
+    "mi": 29.425476531501015,
+    "rank": "A"
+  },
+  "tests/test_workflow_hygiene.py": {
+    "mi": 67.75793242481703,
+    "rank": "A"
+  },
+  "tests/e2e/__init__.py": {
+    "mi": 100.0,
+    "rank": "A"
+  },
+  "tests/e2e/conftest.py": {
+    "mi": 44.053284211284314,
+    "rank": "A"
+  },
+  "tests/e2e/noninteractive_harness.py": {
+    "mi": 96.56018506735367,
+    "rank": "A"
+  },
+  "tests/e2e/test_brain_e2e.py": {
+    "mi": 70.19668019369517,
+    "rank": "A"
+  },
+  "tests/e2e/test_e2e_noninteractive.py": {
+    "mi": 71.60730637881852,
+    "rank": "A"
+  },
+  "tests/e2e/test_ntlm_helper.py": {
+    "mi": 80.23158689472791,
+    "rank": "A"
+  }
+}

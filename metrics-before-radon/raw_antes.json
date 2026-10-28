@@ -1,0 +1,1868 @@
+{
+  "hate_crack/__init__.py": {
+    "loc": 17,
+    "lloc": 10,
+    "sloc": 10,
+    "comments": 4,
+    "multi": 0,
+    "blank": 3,
+    "single_comments": 4
+  },
+  "hate_crack/__main__.py": {
+    "loc": 12,
+    "lloc": 6,
+    "sloc": 6,
+    "comments": 1,
+    "multi": 0,
+    "blank": 5,
+    "single_comments": 1
+  },
+  "hate_crack/api.py": {
+    "loc": 4433,
+    "lloc": 2759,
+    "sloc": 3304,
+    "comments": 297,
+    "multi": 353,
+    "blank": 486,
+    "single_comments": 290
+  },
+  "hate_crack/attack_coverage.py": {
+    "loc": 1050,
+    "lloc": 422,
+    "sloc": 623,
+    "comments": 80,
+    "multi": 198,
+    "blank": 144,
+    "single_comments": 85
+  },
+  "hate_crack/attacks.py": {
+    "loc": 2397,
+    "lloc": 1491,
+    "sloc": 1934,
+    "comments": 112,
+    "multi": 73,
+    "blank": 261,
+    "single_comments": 129
+  },
+  "hate_crack/brain.py": {
+    "loc": 455,
+    "lloc": 220,
+    "sloc": 248,
+    "comments": 74,
+    "multi": 68,
+    "blank": 64,
+    "single_comments": 75
+  },
+  "hate_crack/cli.py": {
+    "loc": 185,
+    "lloc": 97,
+    "sloc": 107,
+    "comments": 19,
+    "multi": 36,
+    "blank": 24,
+    "single_comments": 18
+  },
+  "hate_crack/config_loader.py": {
+    "loc": 532,
+    "lloc": 195,
+    "sloc": 233,
+    "comments": 36,
+    "multi": 183,
+    "blank": 79,
+    "single_comments": 37
+  },
+  "hate_crack/config_schema.py": {
+    "loc": 530,
+    "lloc": 102,
+    "sloc": 399,
+    "comments": 94,
+    "multi": 60,
+    "blank": 48,
+    "single_comments": 23
+  },
+  "hate_crack/config_writer.py": {
+    "loc": 638,
+    "lloc": 250,
+    "sloc": 357,
+    "comments": 32,
+    "multi": 149,
+    "blank": 99,
+    "single_comments": 33
+  },
+  "hate_crack/corpus_stats.py": {
+    "loc": 459,
+    "lloc": 224,
+    "sloc": 257,
+    "comments": 53,
+    "multi": 87,
+    "blank": 62,
+    "single_comments": 53
+  },
+  "hate_crack/formatting.py": {
+    "loc": 75,
+    "lloc": 58,
+    "sloc": 57,
+    "comments": 10,
+    "multi": 0,
+    "blank": 8,
+    "single_comments": 10
+  },
+  "hate_crack/hashcat_paths.py": {
+    "loc": 327,
+    "lloc": 190,
+    "sloc": 186,
+    "comments": 11,
+    "multi": 61,
+    "blank": 62,
+    "single_comments": 18
+  },
+  "hate_crack/hashview_cache.py": {
+    "loc": 59,
+    "lloc": 25,
+    "sloc": 24,
+    "comments": 4,
+    "multi": 17,
+    "blank": 14,
+    "single_comments": 4
+  },
+  "hate_crack/llm.py": {
+    "loc": 1158,
+    "lloc": 314,
+    "sloc": 643,
+    "comments": 85,
+    "multi": 288,
+    "blank": 146,
+    "single_comments": 81
+  },
+  "hate_crack/main.py": {
+    "loc": 10622,
+    "lloc": 4906,
+    "sloc": 7203,
+    "comments": 996,
+    "multi": 1261,
+    "blank": 1184,
+    "single_comments": 974
+  },
+  "hate_crack/menu.py": {
+    "loc": 101,
+    "lloc": 44,
+    "sloc": 55,
+    "comments": 6,
+    "multi": 23,
+    "blank": 17,
+    "single_comments": 6
+  },
+  "hate_crack/menu_registry.py": {
+    "loc": 126,
+    "lloc": 46,
+    "sloc": 78,
+    "comments": 0,
+    "multi": 16,
+    "blank": 29,
+    "single_comments": 3
+  },
+  "hate_crack/noninteractive.py": {
+    "loc": 846,
+    "lloc": 302,
+    "sloc": 567,
+    "comments": 56,
+    "multi": 76,
+    "blank": 146,
+    "single_comments": 57
+  },
+  "hate_crack/plaintext.py": {
+    "loc": 220,
+    "lloc": 80,
+    "sloc": 70,
+    "comments": 14,
+    "multi": 95,
+    "blank": 41,
+    "single_comments": 14
+  },
+  "hate_crack/progress.py": {
+    "loc": 110,
+    "lloc": 50,
+    "sloc": 46,
+    "comments": 10,
+    "multi": 31,
+    "blank": 23,
+    "single_comments": 10
+  },
+  "hate_crack/rulegen.py": {
+    "loc": 1375,
+    "lloc": 550,
+    "sloc": 714,
+    "comments": 230,
+    "multi": 288,
+    "blank": 141,
+    "single_comments": 232
+  },
+  "hate_crack/username_detect.py": {
+    "loc": 109,
+    "lloc": 32,
+    "sloc": 80,
+    "comments": 29,
+    "multi": 12,
+    "blank": 12,
+    "single_comments": 5
+  },
+  "hate_crack/notify/__init__.py": {
+    "loc": 325,
+    "lloc": 150,
+    "sloc": 182,
+    "comments": 13,
+    "multi": 68,
+    "blank": 56,
+    "single_comments": 19
+  },
+  "hate_crack/notify/_suppress.py": {
+    "loc": 49,
+    "lloc": 21,
+    "sloc": 18,
+    "comments": 0,
+    "multi": 17,
+    "blank": 13,
+    "single_comments": 1
+  },
+  "hate_crack/notify/pushover.py": {
+    "loc": 69,
+    "lloc": 29,
+    "sloc": 31,
+    "comments": 5,
+    "multi": 21,
+    "blank": 15,
+    "single_comments": 2
+  },
+  "hate_crack/notify/settings.py": {
+    "loc": 218,
+    "lloc": 112,
+    "sloc": 120,
+    "comments": 1,
+    "multi": 52,
+    "blank": 43,
+    "single_comments": 3
+  },
+  "hate_crack/notify/tailer.py": {
+    "loc": 225,
+    "lloc": 118,
+    "sloc": 119,
+    "comments": 19,
+    "multi": 49,
+    "blank": 39,
+    "single_comments": 18
+  },
+  "hate_crack/ui/__init__.py": {
+    "loc": 134,
+    "lloc": 59,
+    "sloc": 85,
+    "comments": 3,
+    "multi": 11,
+    "blank": 33,
+    "single_comments": 5
+  },
+  "hate_crack/ui/plain.py": {
+    "loc": 88,
+    "lloc": 37,
+    "sloc": 68,
+    "comments": 0,
+    "multi": 5,
+    "blank": 15,
+    "single_comments": 0
+  },
+  "hate_crack/ui/rich_ui.py": {
+    "loc": 213,
+    "lloc": 120,
+    "sloc": 163,
+    "comments": 13,
+    "multi": 5,
+    "blank": 31,
+    "single_comments": 14
+  },
+  "tests/__init__.py": {
+    "loc": 1,
+    "lloc": 0,
+    "sloc": 0,
+    "comments": 1,
+    "multi": 0,
+    "blank": 0,
+    "single_comments": 1
+  },
+  "tests/_hashcat_oracle.py": {
+    "loc": 116,
+    "lloc": 34,
+    "sloc": 46,
+    "comments": 7,
+    "multi": 40,
+    "blank": 23,
+    "single_comments": 7
+  },
+  "tests/_hashview_local.py": {
+    "loc": 281,
+    "lloc": 123,
+    "sloc": 174,
+    "comments": 13,
+    "multi": 44,
+    "blank": 48,
+    "single_comments": 15
+  },
+  "tests/_json_strict.py": {
+    "loc": 55,
+    "lloc": 26,
+    "sloc": 21,
+    "comments": 0,
+    "multi": 18,
+    "blank": 13,
+    "single_comments": 3
+  },
+  "tests/conftest.py": {
+    "loc": 360,
+    "lloc": 129,
+    "sloc": 189,
+    "comments": 32,
+    "multi": 87,
+    "blank": 51,
+    "single_comments": 33
+  },
+  "tests/hashview_local_seed.py": {
+    "loc": 155,
+    "lloc": 58,
+    "sloc": 111,
+    "comments": 4,
+    "multi": 17,
+    "blank": 23,
+    "single_comments": 4
+  },
+  "tests/run_checks.py": {
+    "loc": 20,
+    "lloc": 12,
+    "sloc": 12,
+    "comments": 2,
+    "multi": 0,
+    "blank": 6,
+    "single_comments": 2
+  },
+  "tests/test_adhoc_mask.py": {
+    "loc": 368,
+    "lloc": 247,
+    "sloc": 249,
+    "comments": 3,
+    "multi": 7,
+    "blank": 90,
+    "single_comments": 22
+  },
+  "tests/test_agent_instruction_integrity.py": {
+    "loc": 291,
+    "lloc": 104,
+    "sloc": 182,
+    "comments": 14,
+    "multi": 40,
+    "blank": 50,
+    "single_comments": 19
+  },
+  "tests/test_api.py": {
+    "loc": 109,
+    "lloc": 78,
+    "sloc": 79,
+    "comments": 10,
+    "multi": 0,
+    "blank": 21,
+    "single_comments": 9
+  },
+  "tests/test_api_downloads.py": {
+    "loc": 4056,
+    "lloc": 2234,
+    "sloc": 3420,
+    "comments": 86,
+    "multi": 38,
+    "blank": 473,
+    "single_comments": 125
+  },
+  "tests/test_asset_path_separation.py": {
+    "loc": 97,
+    "lloc": 34,
+    "sloc": 45,
+    "comments": 17,
+    "multi": 14,
+    "blank": 21,
+    "single_comments": 17
+  },
+  "tests/test_attack_coverage.py": {
+    "error": "SyntaxError at line: 377"
+  },
+  "tests/test_attack_coverage_plan.py": {
+    "loc": 298,
+    "lloc": 179,
+    "sloc": 205,
+    "comments": 10,
+    "multi": 4,
+    "blank": 72,
+    "single_comments": 17
+  },
+  "tests/test_attacks_behavior.py": {
+    "loc": 897,
+    "lloc": 522,
+    "sloc": 659,
+    "comments": 28,
+    "multi": 16,
+    "blank": 187,
+    "single_comments": 35
+  },
+  "tests/test_attacks_pcfg.py": {
+    "loc": 22,
+    "lloc": 15,
+    "sloc": 15,
+    "comments": 0,
+    "multi": 0,
+    "blank": 7,
+    "single_comments": 0
+  },
+  "tests/test_bandrel_company_arg.py": {
+    "loc": 125,
+    "lloc": 70,
+    "sloc": 64,
+    "comments": 9,
+    "multi": 20,
+    "blank": 30,
+    "single_comments": 11
+  },
+  "tests/test_bare_hash_detection.py": {
+    "loc": 195,
+    "lloc": 149,
+    "sloc": 146,
+    "comments": 0,
+    "multi": 5,
+    "blank": 38,
+    "single_comments": 6
+  },
+  "tests/test_brain_cli.py": {
+    "loc": 101,
+    "lloc": 40,
+    "sloc": 59,
+    "comments": 13,
+    "multi": 10,
+    "blank": 19,
+    "single_comments": 13
+  },
+  "tests/test_brain_config.py": {
+    "loc": 29,
+    "lloc": 13,
+    "sloc": 21,
+    "comments": 0,
+    "multi": 0,
+    "blank": 8,
+    "single_comments": 0
+  },
+  "tests/test_brain_flags.py": {
+    "loc": 87,
+    "lloc": 35,
+    "sloc": 58,
+    "comments": 11,
+    "multi": 0,
+    "blank": 18,
+    "single_comments": 11
+  },
+  "tests/test_brain_oracle.py": {
+    "loc": 106,
+    "lloc": 63,
+    "sloc": 69,
+    "comments": 6,
+    "multi": 0,
+    "blank": 27,
+    "single_comments": 10
+  },
+  "tests/test_brain_policy.py": {
+    "loc": 87,
+    "lloc": 60,
+    "sloc": 51,
+    "comments": 5,
+    "multi": 0,
+    "blank": 27,
+    "single_comments": 9
+  },
+  "tests/test_brain_server.py": {
+    "loc": 370,
+    "lloc": 238,
+    "sloc": 246,
+    "comments": 51,
+    "multi": 0,
+    "blank": 75,
+    "single_comments": 49
+  },
+  "tests/test_brain_wiring.py": {
+    "loc": 191,
+    "lloc": 107,
+    "sloc": 123,
+    "comments": 32,
+    "multi": 0,
+    "blank": 36,
+    "single_comments": 32
+  },
+  "tests/test_cli_flags.py": {
+    "loc": 577,
+    "lloc": 343,
+    "sloc": 426,
+    "comments": 41,
+    "multi": 18,
+    "blank": 87,
+    "single_comments": 46
+  },
+  "tests/test_cli_menus.py": {
+    "loc": 66,
+    "lloc": 30,
+    "sloc": 58,
+    "comments": 3,
+    "multi": 0,
+    "blank": 5,
+    "single_comments": 3
+  },
+  "tests/test_cli_weakpass.py": {
+    "loc": 18,
+    "lloc": 12,
+    "sloc": 15,
+    "comments": 0,
+    "multi": 0,
+    "blank": 3,
+    "single_comments": 0
+  },
+  "tests/test_combinator3_combinatorX.py": {
+    "loc": 169,
+    "lloc": 126,
+    "sloc": 150,
+    "comments": 0,
+    "multi": 0,
+    "blank": 18,
+    "single_comments": 1
+  },
+  "tests/test_combinator_wrappers.py": {
+    "loc": 312,
+    "lloc": 182,
+    "sloc": 257,
+    "comments": 0,
+    "multi": 0,
+    "blank": 54,
+    "single_comments": 1
+  },
+  "tests/test_combine_callers.py": {
+    "loc": 98,
+    "lloc": 65,
+    "sloc": 70,
+    "comments": 0,
+    "multi": 8,
+    "blank": 18,
+    "single_comments": 2
+  },
+  "tests/test_combine_ntlm_output.py": {
+    "loc": 221,
+    "lloc": 133,
+    "sloc": 148,
+    "comments": 2,
+    "multi": 12,
+    "blank": 53,
+    "single_comments": 8
+  },
+  "tests/test_combipow_attack.py": {
+    "loc": 229,
+    "lloc": 162,
+    "sloc": 178,
+    "comments": 9,
+    "multi": 0,
+    "blank": 42,
+    "single_comments": 9
+  },
+  "tests/test_commit_guards.py": {
+    "loc": 392,
+    "lloc": 175,
+    "sloc": 237,
+    "comments": 35,
+    "multi": 37,
+    "blank": 82,
+    "single_comments": 36
+  },
+  "tests/test_config_defaults_load.py": {
+    "loc": 140,
+    "lloc": 84,
+    "sloc": 77,
+    "comments": 1,
+    "multi": 31,
+    "blank": 30,
+    "single_comments": 2
+  },
+  "tests/test_config_json_example.py": {
+    "loc": 357,
+    "lloc": 146,
+    "sloc": 197,
+    "comments": 25,
+    "multi": 69,
+    "blank": 64,
+    "single_comments": 27
+  },
+  "tests/test_config_loader.py": {
+    "loc": 772,
+    "lloc": 433,
+    "sloc": 464,
+    "comments": 96,
+    "multi": 66,
+    "blank": 154,
+    "single_comments": 88
+  },
+  "tests/test_config_schema.py": {
+    "loc": 489,
+    "lloc": 206,
+    "sloc": 262,
+    "comments": 44,
+    "multi": 54,
+    "blank": 129,
+    "single_comments": 44
+  },
+  "tests/test_config_startup_wiring.py": {
+    "loc": 1056,
+    "lloc": 486,
+    "sloc": 636,
+    "comments": 75,
+    "multi": 125,
+    "blank": 214,
+    "single_comments": 81
+  },
+  "tests/test_config_writer.py": {
+    "loc": 717,
+    "lloc": 391,
+    "sloc": 444,
+    "comments": 37,
+    "multi": 74,
+    "blank": 162,
+    "single_comments": 37
+  },
+  "tests/test_corporate_masks.py": {
+    "loc": 278,
+    "lloc": 143,
+    "sloc": 196,
+    "comments": 2,
+    "multi": 13,
+    "blank": 54,
+    "single_comments": 15
+  },
+  "tests/test_corpus_stats.py": {
+    "loc": 805,
+    "lloc": 423,
+    "sloc": 452,
+    "comments": 79,
+    "multi": 59,
+    "blank": 203,
+    "single_comments": 91
+  },
+  "tests/test_coverage_cli.py": {
+    "loc": 231,
+    "lloc": 122,
+    "sloc": 164,
+    "comments": 2,
+    "multi": 6,
+    "blank": 56,
+    "single_comments": 5
+  },
+  "tests/test_coverage_wiring.py": {
+    "loc": 942,
+    "lloc": 455,
+    "sloc": 663,
+    "comments": 22,
+    "multi": 54,
+    "blank": 205,
+    "single_comments": 20
+  },
+  "tests/test_coverage_wordlist_scope.py": {
+    "loc": 567,
+    "lloc": 236,
+    "sloc": 369,
+    "comments": 5,
+    "multi": 69,
+    "blank": 123,
+    "single_comments": 6
+  },
+  "tests/test_custom_path_autocomplete.py": {
+    "loc": 80,
+    "lloc": 57,
+    "sloc": 55,
+    "comments": 3,
+    "multi": 7,
+    "blank": 17,
+    "single_comments": 1
+  },
+  "tests/test_debug_log_coverage.py": {
+    "loc": 82,
+    "lloc": 51,
+    "sloc": 62,
+    "comments": 2,
+    "multi": 6,
+    "blank": 13,
+    "single_comments": 1
+  },
+  "tests/test_dependencies.py": {
+    "loc": 29,
+    "lloc": 16,
+    "sloc": 20,
+    "comments": 0,
+    "multi": 0,
+    "blank": 9,
+    "single_comments": 0
+  },
+  "tests/test_doc_audit_hook.py": {
+    "loc": 100,
+    "lloc": 32,
+    "sloc": 45,
+    "comments": 3,
+    "multi": 29,
+    "blank": 22,
+    "single_comments": 4
+  },
+  "tests/test_doc_audit_parity.py": {
+    "loc": 171,
+    "lloc": 67,
+    "sloc": 96,
+    "comments": 7,
+    "multi": 35,
+    "blank": 31,
+    "single_comments": 9
+  },
+  "tests/test_docker_script_install.py": {
+    "loc": 146,
+    "lloc": 58,
+    "sloc": 122,
+    "comments": 3,
+    "multi": 0,
+    "blank": 21,
+    "single_comments": 3
+  },
+  "tests/test_e2e_local_install.py": {
+    "loc": 88,
+    "lloc": 30,
+    "sloc": 78,
+    "comments": 0,
+    "multi": 0,
+    "blank": 10,
+    "single_comments": 0
+  },
+  "tests/test_e2e_output_path.py": {
+    "loc": 196,
+    "lloc": 110,
+    "sloc": 139,
+    "comments": 8,
+    "multi": 9,
+    "blank": 31,
+    "single_comments": 17
+  },
+  "tests/test_env_example.py": {
+    "loc": 71,
+    "lloc": 29,
+    "sloc": 42,
+    "comments": 0,
+    "multi": 9,
+    "blank": 19,
+    "single_comments": 1
+  },
+  "tests/test_fingerprint_expander_and_hybrid.py": {
+    "loc": 659,
+    "lloc": 352,
+    "sloc": 453,
+    "comments": 21,
+    "multi": 23,
+    "blank": 162,
+    "single_comments": 21
+  },
+  "tests/test_flag_overrides.py": {
+    "loc": 598,
+    "lloc": 282,
+    "sloc": 332,
+    "comments": 36,
+    "multi": 76,
+    "blank": 152,
+    "single_comments": 38
+  },
+  "tests/test_formatting_colour.py": {
+    "loc": 78,
+    "lloc": 34,
+    "sloc": 49,
+    "comments": 4,
+    "multi": 6,
+    "blank": 19,
+    "single_comments": 4
+  },
+  "tests/test_gzip_magic_byte_sweep.py": {
+    "loc": 235,
+    "lloc": 123,
+    "sloc": 149,
+    "comments": 2,
+    "multi": 26,
+    "blank": 54,
+    "single_comments": 6
+  },
+  "tests/test_hashcat_oracle_helper.py": {
+    "loc": 310,
+    "lloc": 201,
+    "sloc": 185,
+    "comments": 12,
+    "multi": 5,
+    "blank": 75,
+    "single_comments": 45
+  },
+  "tests/test_hashcat_paths.py": {
+    "loc": 351,
+    "lloc": 203,
+    "sloc": 217,
+    "comments": 7,
+    "multi": 28,
+    "blank": 97,
+    "single_comments": 9
+  },
+  "tests/test_hashcat_rules.py": {
+    "loc": 222,
+    "lloc": 90,
+    "sloc": 155,
+    "comments": 17,
+    "multi": 16,
+    "blank": 34,
+    "single_comments": 17
+  },
+  "tests/test_hashcat_wrappers.py": {
+    "loc": 882,
+    "lloc": 367,
+    "sloc": 748,
+    "comments": 1,
+    "multi": 3,
+    "blank": 126,
+    "single_comments": 5
+  },
+  "tests/test_hashfile_orig_tracking.py": {
+    "loc": 134,
+    "lloc": 81,
+    "sloc": 91,
+    "comments": 6,
+    "multi": 5,
+    "blank": 27,
+    "single_comments": 11
+  },
+  "tests/test_hashmob_connectivity.py": {
+    "loc": 88,
+    "lloc": 68,
+    "sloc": 75,
+    "comments": 2,
+    "multi": 0,
+    "blank": 11,
+    "single_comments": 2
+  },
+  "tests/test_hashmob_downloads.py": {
+    "loc": 342,
+    "lloc": 196,
+    "sloc": 307,
+    "comments": 1,
+    "multi": 0,
+    "blank": 34,
+    "single_comments": 1
+  },
+  "tests/test_hashview.py": {
+    "loc": 2683,
+    "lloc": 1673,
+    "sloc": 1855,
+    "comments": 122,
+    "multi": 199,
+    "blank": 464,
+    "single_comments": 165
+  },
+  "tests/test_hashview_cache.py": {
+    "loc": 65,
+    "lloc": 34,
+    "sloc": 40,
+    "comments": 0,
+    "multi": 3,
+    "blank": 22,
+    "single_comments": 0
+  },
+  "tests/test_hashview_cli_subcommands.py": {
+    "loc": 278,
+    "lloc": 110,
+    "sloc": 234,
+    "comments": 4,
+    "multi": 5,
+    "blank": 35,
+    "single_comments": 4
+  },
+  "tests/test_hashview_cli_subcommands_subprocess.py": {
+    "loc": 537,
+    "lloc": 257,
+    "sloc": 417,
+    "comments": 48,
+    "multi": 23,
+    "blank": 49,
+    "single_comments": 48
+  },
+  "tests/test_hashview_customer_listing.py": {
+    "loc": 307,
+    "lloc": 198,
+    "sloc": 165,
+    "comments": 3,
+    "multi": 33,
+    "blank": 94,
+    "single_comments": 15
+  },
+  "tests/test_hashview_download_all_rules_menu.py": {
+    "loc": 110,
+    "lloc": 46,
+    "sloc": 77,
+    "comments": 0,
+    "multi": 5,
+    "blank": 27,
+    "single_comments": 1
+  },
+  "tests/test_hashview_download_rule_all_shortcut.py": {
+    "loc": 133,
+    "lloc": 86,
+    "sloc": 100,
+    "comments": 0,
+    "multi": 0,
+    "blank": 31,
+    "single_comments": 2
+  },
+  "tests/test_hashview_hash_type_prompt.py": {
+    "loc": 85,
+    "lloc": 40,
+    "sloc": 58,
+    "comments": 2,
+    "multi": 7,
+    "blank": 17,
+    "single_comments": 3
+  },
+  "tests/test_hashview_local_harness.py": {
+    "loc": 72,
+    "lloc": 28,
+    "sloc": 36,
+    "comments": 3,
+    "multi": 15,
+    "blank": 16,
+    "single_comments": 5
+  },
+  "tests/test_hashview_tls.py": {
+    "loc": 120,
+    "lloc": 70,
+    "sloc": 73,
+    "comments": 0,
+    "multi": 16,
+    "blank": 30,
+    "single_comments": 1
+  },
+  "tests/test_hcat_ollama.py": {
+    "loc": 463,
+    "lloc": 207,
+    "sloc": 371,
+    "comments": 13,
+    "multi": 7,
+    "blank": 67,
+    "single_comments": 18
+  },
+  "tests/test_hcat_rosetta_mask.py": {
+    "loc": 276,
+    "lloc": 114,
+    "sloc": 211,
+    "comments": 3,
+    "multi": 15,
+    "blank": 48,
+    "single_comments": 2
+  },
+  "tests/test_help_before_build.py": {
+    "loc": 63,
+    "lloc": 36,
+    "sloc": 39,
+    "comments": 0,
+    "multi": 10,
+    "blank": 13,
+    "single_comments": 1
+  },
+  "tests/test_hybrid_attack.py": {
+    "loc": 794,
+    "lloc": 408,
+    "sloc": 572,
+    "comments": 4,
+    "multi": 49,
+    "blank": 141,
+    "single_comments": 32
+  },
+  "tests/test_installed_tool_execution.py": {
+    "loc": 184,
+    "lloc": 75,
+    "sloc": 138,
+    "comments": 8,
+    "multi": 9,
+    "blank": 20,
+    "single_comments": 17
+  },
+  "tests/test_invalid_hcatpath.py": {
+    "loc": 41,
+    "lloc": 25,
+    "sloc": 22,
+    "comments": 6,
+    "multi": 3,
+    "blank": 9,
+    "single_comments": 7
+  },
+  "tests/test_lima_vm_install.py": {
+    "loc": 215,
+    "lloc": 91,
+    "sloc": 179,
+    "comments": 12,
+    "multi": 0,
+    "blank": 30,
+    "single_comments": 6
+  },
+  "tests/test_lint_scope.py": {
+    "loc": 192,
+    "lloc": 67,
+    "sloc": 121,
+    "comments": 11,
+    "multi": 29,
+    "blank": 30,
+    "single_comments": 12
+  },
+  "tests/test_llm.py": {
+    "loc": 1054,
+    "lloc": 387,
+    "sloc": 791,
+    "comments": 41,
+    "multi": 42,
+    "blank": 175,
+    "single_comments": 46
+  },
+  "tests/test_llm_pattern_rules.py": {
+    "loc": 559,
+    "lloc": 240,
+    "sloc": 410,
+    "comments": 27,
+    "multi": 12,
+    "blank": 110,
+    "single_comments": 27
+  },
+  "tests/test_main_pcfg.py": {
+    "loc": 400,
+    "lloc": 225,
+    "sloc": 275,
+    "comments": 41,
+    "multi": 8,
+    "blank": 73,
+    "single_comments": 44
+  },
+  "tests/test_main_rosetta.py": {
+    "loc": 537,
+    "lloc": 307,
+    "sloc": 412,
+    "comments": 14,
+    "multi": 17,
+    "blank": 92,
+    "single_comments": 16
+  },
+  "tests/test_main_rosetta_import_guard.py": {
+    "loc": 164,
+    "lloc": 70,
+    "sloc": 120,
+    "comments": 7,
+    "multi": 10,
+    "blank": 25,
+    "single_comments": 9
+  },
+  "tests/test_main_spoonman.py": {
+    "loc": 1926,
+    "lloc": 1026,
+    "sloc": 1343,
+    "comments": 93,
+    "multi": 182,
+    "blank": 307,
+    "single_comments": 94
+  },
+  "tests/test_main_utils.py": {
+    "loc": 716,
+    "lloc": 434,
+    "sloc": 537,
+    "comments": 7,
+    "multi": 14,
+    "blank": 150,
+    "single_comments": 15
+  },
+  "tests/test_markov_e2e.py": {
+    "loc": 278,
+    "lloc": 162,
+    "sloc": 167,
+    "comments": 59,
+    "multi": 0,
+    "blank": 51,
+    "single_comments": 60
+  },
+  "tests/test_mask_download_parallel.py": {
+    "loc": 254,
+    "lloc": 123,
+    "sloc": 204,
+    "comments": 0,
+    "multi": 0,
+    "blank": 50,
+    "single_comments": 0
+  },
+  "tests/test_mask_oracle.py": {
+    "loc": 225,
+    "lloc": 84,
+    "sloc": 129,
+    "comments": 24,
+    "multi": 38,
+    "blank": 37,
+    "single_comments": 21
+  },
+  "tests/test_menu.py": {
+    "loc": 142,
+    "lloc": 101,
+    "sloc": 115,
+    "comments": 1,
+    "multi": 0,
+    "blank": 27,
+    "single_comments": 0
+  },
+  "tests/test_next_version.py": {
+    "loc": 489,
+    "lloc": 243,
+    "sloc": 305,
+    "comments": 10,
+    "multi": 64,
+    "blank": 112,
+    "single_comments": 8
+  },
+  "tests/test_ngram_gzip.py": {
+    "loc": 149,
+    "lloc": 101,
+    "sloc": 103,
+    "comments": 0,
+    "multi": 0,
+    "blank": 46,
+    "single_comments": 0
+  },
+  "tests/test_no_cloud_destination.py": {
+    "loc": 347,
+    "lloc": 117,
+    "sloc": 196,
+    "comments": 18,
+    "multi": 50,
+    "blank": 86,
+    "single_comments": 15
+  },
+  "tests/test_no_cloud_destination_main.py": {
+    "loc": 407,
+    "lloc": 163,
+    "sloc": 298,
+    "comments": 32,
+    "multi": 21,
+    "blank": 57,
+    "single_comments": 31
+  },
+  "tests/test_no_cloud_guard.py": {
+    "loc": 158,
+    "lloc": 65,
+    "sloc": 90,
+    "comments": 10,
+    "multi": 19,
+    "blank": 42,
+    "single_comments": 7
+  },
+  "tests/test_no_optimized_kernel_flag.py": {
+    "loc": 112,
+    "lloc": 61,
+    "sloc": 79,
+    "comments": 1,
+    "multi": 8,
+    "blank": 23,
+    "single_comments": 2
+  },
+  "tests/test_noninteractive.py": {
+    "loc": 260,
+    "lloc": 177,
+    "sloc": 204,
+    "comments": 5,
+    "multi": 0,
+    "blank": 51,
+    "single_comments": 5
+  },
+  "tests/test_noninteractive_attacks.py": {
+    "loc": 984,
+    "lloc": 502,
+    "sloc": 714,
+    "comments": 34,
+    "multi": 61,
+    "blank": 173,
+    "single_comments": 36
+  },
+  "tests/test_notifications_submenu.py": {
+    "loc": 136,
+    "lloc": 90,
+    "sloc": 94,
+    "comments": 2,
+    "multi": 11,
+    "blank": 29,
+    "single_comments": 2
+  },
+  "tests/test_notify_integration.py": {
+    "loc": 257,
+    "lloc": 169,
+    "sloc": 202,
+    "comments": 9,
+    "multi": 6,
+    "blank": 38,
+    "single_comments": 11
+  },
+  "tests/test_notify_name_alignment.py": {
+    "loc": 315,
+    "lloc": 209,
+    "sloc": 251,
+    "comments": 3,
+    "multi": 27,
+    "blank": 34,
+    "single_comments": 3
+  },
+  "tests/test_notify_per_crack_toggle.py": {
+    "loc": 141,
+    "lloc": 101,
+    "sloc": 104,
+    "comments": 6,
+    "multi": 4,
+    "blank": 25,
+    "single_comments": 8
+  },
+  "tests/test_notify_pushover.py": {
+    "loc": 89,
+    "lloc": 68,
+    "sloc": 67,
+    "comments": 5,
+    "multi": 0,
+    "blank": 16,
+    "single_comments": 6
+  },
+  "tests/test_notify_settings.py": {
+    "loc": 273,
+    "lloc": 177,
+    "sloc": 204,
+    "comments": 4,
+    "multi": 16,
+    "blank": 46,
+    "single_comments": 7
+  },
+  "tests/test_notify_suppression.py": {
+    "loc": 108,
+    "lloc": 80,
+    "sloc": 75,
+    "comments": 6,
+    "multi": 0,
+    "blank": 25,
+    "single_comments": 8
+  },
+  "tests/test_notify_tailer.py": {
+    "loc": 376,
+    "lloc": 256,
+    "sloc": 262,
+    "comments": 24,
+    "multi": 24,
+    "blank": 61,
+    "single_comments": 29
+  },
+  "tests/test_ntlm_preprocessing.py": {
+    "loc": 996,
+    "lloc": 518,
+    "sloc": 717,
+    "comments": 85,
+    "multi": 37,
+    "blank": 149,
+    "single_comments": 93
+  },
+  "tests/test_ntlm_preprocessing_edge_cases.py": {
+    "loc": 325,
+    "lloc": 189,
+    "sloc": 258,
+    "comments": 15,
+    "multi": 0,
+    "blank": 31,
+    "single_comments": 36
+  },
+  "tests/test_ollama_target_research.py": {
+    "loc": 372,
+    "lloc": 171,
+    "sloc": 286,
+    "comments": 10,
+    "multi": 5,
+    "blank": 72,
+    "single_comments": 9
+  },
+  "tests/test_ollama_url_normalization.py": {
+    "loc": 113,
+    "lloc": 51,
+    "sloc": 74,
+    "comments": 5,
+    "multi": 13,
+    "blank": 22,
+    "single_comments": 4
+  },
+  "tests/test_ollama_wordlist_sampling.py": {
+    "loc": 480,
+    "lloc": 220,
+    "sloc": 269,
+    "comments": 39,
+    "multi": 31,
+    "blank": 121,
+    "single_comments": 59
+  },
+  "tests/test_omen_attack.py": {
+    "loc": 719,
+    "lloc": 458,
+    "sloc": 608,
+    "comments": 8,
+    "multi": 0,
+    "blank": 97,
+    "single_comments": 14
+  },
+  "tests/test_optimized_kernel.py": {
+    "loc": 200,
+    "lloc": 101,
+    "sloc": 156,
+    "comments": 3,
+    "multi": 5,
+    "blank": 32,
+    "single_comments": 7
+  },
+  "tests/test_optimized_kernel_drift.py": {
+    "loc": 81,
+    "lloc": 46,
+    "sloc": 50,
+    "comments": 0,
+    "multi": 4,
+    "blank": 22,
+    "single_comments": 5
+  },
+  "tests/test_permute_attack.py": {
+    "loc": 69,
+    "lloc": 46,
+    "sloc": 59,
+    "comments": 0,
+    "multi": 0,
+    "blank": 10,
+    "single_comments": 0
+  },
+  "tests/test_permute_wrapper.py": {
+    "loc": 169,
+    "lloc": 101,
+    "sloc": 136,
+    "comments": 2,
+    "multi": 0,
+    "blank": 30,
+    "single_comments": 3
+  },
+  "tests/test_pipal.py": {
+    "loc": 191,
+    "lloc": 94,
+    "sloc": 138,
+    "comments": 1,
+    "multi": 12,
+    "blank": 40,
+    "single_comments": 1
+  },
+  "tests/test_pipal_e2e.py": {
+    "loc": 211,
+    "lloc": 91,
+    "sloc": 145,
+    "comments": 13,
+    "multi": 20,
+    "blank": 36,
+    "single_comments": 10
+  },
+  "tests/test_pipal_integration.py": {
+    "loc": 46,
+    "lloc": 25,
+    "sloc": 37,
+    "comments": 1,
+    "multi": 0,
+    "blank": 8,
+    "single_comments": 1
+  },
+  "tests/test_plaintext.py": {
+    "loc": 291,
+    "lloc": 90,
+    "sloc": 186,
+    "comments": 47,
+    "multi": 4,
+    "blank": 69,
+    "single_comments": 32
+  },
+  "tests/test_potfile_restore.py": {
+    "loc": 188,
+    "lloc": 132,
+    "sloc": 123,
+    "comments": 0,
+    "multi": 8,
+    "blank": 55,
+    "single_comments": 2
+  },
+  "tests/test_progress_spinner.py": {
+    "loc": 214,
+    "lloc": 117,
+    "sloc": 114,
+    "comments": 27,
+    "multi": 18,
+    "blank": 58,
+    "single_comments": 24
+  },
+  "tests/test_prompt_int.py": {
+    "loc": 69,
+    "lloc": 48,
+    "sloc": 45,
+    "comments": 0,
+    "multi": 6,
+    "blank": 16,
+    "single_comments": 2
+  },
+  "tests/test_proxy.py": {
+    "loc": 206,
+    "lloc": 107,
+    "sloc": 126,
+    "comments": 0,
+    "multi": 31,
+    "blank": 35,
+    "single_comments": 14
+  },
+  "tests/test_pwdump_format_default.py": {
+    "loc": 40,
+    "lloc": 19,
+    "sloc": 19,
+    "comments": 4,
+    "multi": 6,
+    "blank": 11,
+    "single_comments": 4
+  },
+  "tests/test_pypi_placeholder.py": {
+    "loc": 201,
+    "lloc": 103,
+    "sloc": 155,
+    "comments": 6,
+    "multi": 7,
+    "blank": 35,
+    "single_comments": 4
+  },
+  "tests/test_quick_crack_arrow_choices.py": {
+    "loc": 167,
+    "lloc": 100,
+    "sloc": 116,
+    "comments": 1,
+    "multi": 8,
+    "blank": 43,
+    "single_comments": 0
+  },
+  "tests/test_random_rules_attack.py": {
+    "loc": 123,
+    "lloc": 48,
+    "sloc": 47,
+    "comments": 0,
+    "multi": 54,
+    "blank": 21,
+    "single_comments": 1
+  },
+  "tests/test_random_rules_wrapper.py": {
+    "loc": 195,
+    "lloc": 91,
+    "sloc": 167,
+    "comments": 2,
+    "multi": 0,
+    "blank": 27,
+    "single_comments": 1
+  },
+  "tests/test_readline_choice_history.py": {
+    "loc": 207,
+    "lloc": 145,
+    "sloc": 160,
+    "comments": 5,
+    "multi": 5,
+    "blank": 40,
+    "single_comments": 2
+  },
+  "tests/test_readline_completion.py": {
+    "loc": 231,
+    "lloc": 119,
+    "sloc": 162,
+    "comments": 14,
+    "multi": 12,
+    "blank": 48,
+    "single_comments": 9
+  },
+  "tests/test_release_versioning.py": {
+    "loc": 698,
+    "lloc": 285,
+    "sloc": 424,
+    "comments": 24,
+    "multi": 124,
+    "blank": 130,
+    "single_comments": 20
+  },
+  "tests/test_repo_hygiene.py": {
+    "loc": 395,
+    "lloc": 98,
+    "sloc": 250,
+    "comments": 67,
+    "multi": 56,
+    "blank": 53,
+    "single_comments": 36
+  },
+  "tests/test_rich_prompt_readline.py": {
+    "loc": 82,
+    "lloc": 47,
+    "sloc": 63,
+    "comments": 2,
+    "multi": 7,
+    "blank": 12,
+    "single_comments": 0
+  },
+  "tests/test_rule_download_parallel.py": {
+    "loc": 231,
+    "lloc": 121,
+    "sloc": 186,
+    "comments": 0,
+    "multi": 0,
+    "blank": 45,
+    "single_comments": 0
+  },
+  "tests/test_rule_oracle.py": {
+    "loc": 245,
+    "lloc": 69,
+    "sloc": 126,
+    "comments": 51,
+    "multi": 56,
+    "blank": 33,
+    "single_comments": 30
+  },
+  "tests/test_rule_tools.py": {
+    "loc": 299,
+    "lloc": 224,
+    "sloc": 257,
+    "comments": 0,
+    "multi": 0,
+    "blank": 42,
+    "single_comments": 0
+  },
+  "tests/test_rule_wrappers.py": {
+    "loc": 135,
+    "lloc": 96,
+    "sloc": 99,
+    "comments": 1,
+    "multi": 0,
+    "blank": 34,
+    "single_comments": 2
+  },
+  "tests/test_rulegen.py": {
+    "loc": 2467,
+    "lloc": 1422,
+    "sloc": 1677,
+    "comments": 175,
+    "multi": 290,
+    "blank": 317,
+    "single_comments": 183
+  },
+  "tests/test_run_hcat_cmd.py": {
+    "loc": 624,
+    "lloc": 289,
+    "sloc": 497,
+    "comments": 44,
+    "multi": 0,
+    "blank": 82,
+    "single_comments": 45
+  },
+  "tests/test_smart_mask.py": {
+    "loc": 1435,
+    "lloc": 670,
+    "sloc": 899,
+    "comments": 43,
+    "multi": 156,
+    "blank": 347,
+    "single_comments": 33
+  },
+  "tests/test_sort_locale.py": {
+    "loc": 165,
+    "lloc": 105,
+    "sloc": 113,
+    "comments": 8,
+    "multi": 16,
+    "blank": 28,
+    "single_comments": 8
+  },
+  "tests/test_submodule_hashcat_utils.py": {
+    "loc": 45,
+    "lloc": 19,
+    "sloc": 22,
+    "comments": 3,
+    "multi": 9,
+    "blank": 11,
+    "single_comments": 3
+  },
+  "tests/test_submodule_identity_guard.py": {
+    "loc": 146,
+    "lloc": 57,
+    "sloc": 59,
+    "comments": 4,
+    "multi": 54,
+    "blank": 29,
+    "single_comments": 4
+  },
+  "tests/test_ui_backend_resolution.py": {
+    "loc": 34,
+    "lloc": 15,
+    "sloc": 25,
+    "comments": 1,
+    "multi": 0,
+    "blank": 9,
+    "single_comments": 0
+  },
+  "tests/test_ui_config_key.py": {
+    "loc": 32,
+    "lloc": 22,
+    "sloc": 19,
+    "comments": 1,
+    "multi": 2,
+    "blank": 10,
+    "single_comments": 1
+  },
+  "tests/test_ui_menu_options.py": {
+    "loc": 247,
+    "lloc": 117,
+    "sloc": 169,
+    "comments": 3,
+    "multi": 39,
+    "blank": 36,
+    "single_comments": 3
+  },
+  "tests/test_ui_protocol_conformance.py": {
+    "loc": 214,
+    "lloc": 154,
+    "sloc": 161,
+    "comments": 2,
+    "multi": 0,
+    "blank": 52,
+    "single_comments": 1
+  },
+  "tests/test_ui_rich_backend.py": {
+    "loc": 210,
+    "lloc": 141,
+    "sloc": 149,
+    "comments": 6,
+    "multi": 7,
+    "blank": 49,
+    "single_comments": 5
+  },
+  "tests/test_ui_startup_wiring.py": {
+    "loc": 166,
+    "lloc": 75,
+    "sloc": 114,
+    "comments": 14,
+    "multi": 5,
+    "blank": 33,
+    "single_comments": 14
+  },
+  "tests/test_ui_test_pushover.py": {
+    "loc": 81,
+    "lloc": 53,
+    "sloc": 53,
+    "comments": 1,
+    "multi": 14,
+    "blank": 12,
+    "single_comments": 2
+  },
+  "tests/test_ui_wiring_precedes_output.py": {
+    "loc": 70,
+    "lloc": 41,
+    "sloc": 43,
+    "comments": 0,
+    "multi": 8,
+    "blank": 16,
+    "single_comments": 3
+  },
+  "tests/test_upgrade_convergence.py": {
+    "loc": 254,
+    "lloc": 90,
+    "sloc": 147,
+    "comments": 7,
+    "multi": 49,
+    "blank": 50,
+    "single_comments": 8
+  },
+  "tests/test_upgrade_real_git.py": {
+    "loc": 493,
+    "lloc": 217,
+    "sloc": 294,
+    "comments": 29,
+    "multi": 78,
+    "blank": 90,
+    "single_comments": 31
+  },
+  "tests/test_upload_cracked_hashes.py": {
+    "loc": 258,
+    "lloc": 124,
+    "sloc": 174,
+    "comments": 9,
+    "multi": 28,
+    "blank": 48,
+    "single_comments": 8
+  },
+  "tests/test_upload_wordlist.py": {
+    "loc": 83,
+    "lloc": 60,
+    "sloc": 65,
+    "comments": 1,
+    "multi": 0,
+    "blank": 15,
+    "single_comments": 3
+  },
+  "tests/test_username_detect.py": {
+    "loc": 371,
+    "lloc": 214,
+    "sloc": 264,
+    "comments": 12,
+    "multi": 7,
+    "blank": 73,
+    "single_comments": 27
+  },
+  "tests/test_utils.py": {
+    "loc": 378,
+    "lloc": 228,
+    "sloc": 240,
+    "comments": 2,
+    "multi": 30,
+    "blank": 101,
+    "single_comments": 7
+  },
+  "tests/test_uv_tool_install_dryrun.py": {
+    "loc": 23,
+    "lloc": 15,
+    "sloc": 17,
+    "comments": 0,
+    "multi": 0,
+    "blank": 6,
+    "single_comments": 0
+  },
+  "tests/test_valid_hcmask.py": {
+    "loc": 116,
+    "lloc": 54,
+    "sloc": 53,
+    "comments": 12,
+    "multi": 0,
+    "blank": 52,
+    "single_comments": 11
+  },
+  "tests/test_version_check.py": {
+    "loc": 918,
+    "lloc": 439,
+    "sloc": 662,
+    "comments": 49,
+    "multi": 65,
+    "blank": 138,
+    "single_comments": 53
+  },
+  "tests/test_wordlist_filtering.py": {
+    "loc": 86,
+    "lloc": 62,
+    "sloc": 70,
+    "comments": 0,
+    "multi": 0,
+    "blank": 16,
+    "single_comments": 0
+  },
+  "tests/test_wordlist_listing.py": {
+    "loc": 668,
+    "lloc": 369,
+    "sloc": 426,
+    "comments": 11,
+    "multi": 94,
+    "blank": 138,
+    "single_comments": 10
+  },
+  "tests/test_wordlist_stdin_decompression.py": {
+    "loc": 202,
+    "lloc": 100,
+    "sloc": 131,
+    "comments": 2,
+    "multi": 31,
+    "blank": 38,
+    "single_comments": 2
+  },
+  "tests/test_wordlist_tools.py": {
+    "loc": 743,
+    "lloc": 503,
+    "sloc": 603,
+    "comments": 31,
+    "multi": 8,
+    "blank": 101,
+    "single_comments": 31
+  },
+  "tests/test_wordlist_wrappers.py": {
+    "loc": 179,
+    "lloc": 150,
+    "sloc": 156,
+    "comments": 1,
+    "multi": 0,
+    "blank": 23,
+    "single_comments": 0
+  },
+  "tests/test_workflow_hygiene.py": {
+    "loc": 61,
+    "lloc": 44,
+    "sloc": 38,
+    "comments": 0,
+    "multi": 7,
+    "blank": 15,
+    "single_comments": 1
+  },
+  "tests/e2e/__init__.py": {
+    "loc": 0,
+    "lloc": 0,
+    "sloc": 0,
+    "comments": 0,
+    "multi": 0,
+    "blank": 0,
+    "single_comments": 0
+  },
+  "tests/e2e/conftest.py": {
+    "loc": 263,
+    "lloc": 153,
+    "sloc": 197,
+    "comments": 5,
+    "multi": 18,
+    "blank": 43,
+    "single_comments": 5
+  },
+  "tests/e2e/noninteractive_harness.py": {
+    "loc": 43,
+    "lloc": 18,
+    "sloc": 22,
+    "comments": 0,
+    "multi": 15,
+    "blank": 6,
+    "single_comments": 0
+  },
+  "tests/e2e/test_brain_e2e.py": {
+    "loc": 108,
+    "lloc": 37,
+    "sloc": 83,
+    "comments": 6,
+    "multi": 6,
+    "blank": 13,
+    "single_comments": 6
+  },
+  "tests/e2e/test_e2e_noninteractive.py": {
+    "loc": 150,
+    "lloc": 55,
+    "sloc": 84,
+    "comments": 20,
+    "multi": 23,
+    "blank": 24,
+    "single_comments": 19
+  },
+  "tests/e2e/test_ntlm_helper.py": {
+    "loc": 40,
+    "lloc": 18,
+    "sloc": 29,
+    "comments": 0,
+    "multi": 5,
+    "blank": 6,
+    "single_comments": 0
+  }
+}
