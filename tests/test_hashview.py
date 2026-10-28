@@ -1111,9 +1111,7 @@ class TestHashviewAPI:
         result = api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
 
         assert api.session.post.call_count == 2
-        retry_body = api.session.post.call_args_list[1].kwargs.get("data")
-        if retry_body is None:
-            retry_body = api.session.post.call_args_list[1].args[1]
+        retry_body = _post_body(api.session.post)
         assert ntlm_newline.encode() not in retry_body
         assert NTLM_B.encode() in retry_body
 
