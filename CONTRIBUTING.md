@@ -39,8 +39,11 @@ own — two such gaps were found and closed in August 2026, so more may exist.
 
 `main` is the default branch, so GitHub will preselect it — **change the base to
 `nightly-dev`.** `main` holds the last released state and receives work only
-through a reviewed promotion pull request from `nightly-dev`, and a ruleset
-rejects anything else, so a pull request targeting it directly cannot land.
+through a reviewed promotion pull request from `nightly-dev`. A required check,
+`Promotion source`, fails any pull request into `main` whose head is not this
+repository's `nightly-dev`, so a pull request targeting `main` directly cannot
+land. If you opened one by mistake, edit it and change the base; you do not need
+to open a new one.
 
 ```bash
 git clone https://github.com/<you>/hate_crack

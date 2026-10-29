@@ -334,9 +334,23 @@ default branch to `nightly-dev`.
 rejected; **the only way to change `main` is a pull request from `nightly-dev`**
 that has one approving review from someone other than the last pusher (a new
 push dismisses earlier approvals), passes the required checks (Lint, type-check,
-and tests; Bandit SAST; pip-audit; Workflow lint), and is merged with a **merge
-commit** — the only allowed method. Squash and rebase are blocked, and nobody,
-admins included, can bypass it. `git push origin main` is rejected; do not try.
+and tests; Bandit SAST; pip-audit; Workflow lint; Promotion source), and is
+merged with a **merge commit** — the only allowed method. Squash and rebase are
+blocked, and nobody, admins included, can bypass it. `git push origin main` is
+rejected; do not try.
+
+**The ruleset itself cannot say "from `nightly-dev`".** GitHub rulesets have no
+rule for a PR's head branch, so until 2026-10-29 a fork PR aimed at `main` could
+land with one approval and green checks, and the claim above was enforced only
+by a reviewer noticing the base. `.github/workflows/promotion-source.yml` closes
+that gap: it fails any PR into `main` whose head is not this repo's
+`nightly-dev` (a fork's `nightly-dev` fails too). It is a separate workflow, not
+a `ci.yml` job, because it must also run on `edited` — retargeting a PR from
+`nightly-dev` to `main` fires only that event, and without it the green result
+from the old base would carry over. **It is enforcing only while `Promotion
+source` is listed as a required status check in the ruleset**; renaming the job
+silently leaves `main` requiring a check that never reports, which
+`tests/test_promotion_source.py` pins against.
 
 Once a batch of `nightly-dev` work has accumulated, open the promotion PR:
 
