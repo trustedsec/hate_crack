@@ -22,6 +22,14 @@ dependencies = [
     "openai>=2.54.0",
     "pydantic>=2.13.5",
     "python-dotenv>=1.2.3",
+    # Security floors on transitive deps, not imported by hate_crack. Without
+    # them the resolver prefers openai 3.x and backtracks litellm (via
+    # atomic-agents) to 1.83.0, the last release not capping openai<3, which
+    # carries a dozen advisories; that in turn pulls huggingface-hub 1.x and a
+    # vulnerable filelock 3.x. Drop each floor once a fresh resolve no longer
+    # lands below it.
+    "litellm>=1.96.2",
+    "filelock>=4.2.1",
 ]
 
 [project.scripts]
