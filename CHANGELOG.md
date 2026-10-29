@@ -10,6 +10,7 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 ## [Unreleased]
 
 ### Security
+- **`litellm` and `filelock` now have minimum versions (`>=1.96.2`, `>=4.2.1`), clearing the pip-audit failure.** Neither is imported by hate_crack; both arrive through `atomic-agents`. With no floor, a fresh resolve picked openai 3.x and fell back to `litellm` 1.83.0, the last release that does not cap `openai<3`, which carries over a dozen advisories. Bumping `litellm` alone then pulled in a vulnerable `filelock` 3.x through `huggingface-hub`. openai now resolves to 2.x, as it did before openai 3 shipped.
 - **Tagging no longer uses the `workflow_run` trigger.** Tag and release creation moved from two `workflow_run`-triggered workflows into a `tag` job in `ci.yml` gated on `needs:` for every other job, so a commit that failed CI is still never tagged. zizmor rates `workflow_run` an error-level dangerous trigger. The workflow token is now read-only; only the `tag` job is granted `contents: write`.
 - **The release baseline is now the highest final tag merged into `origin/main`.** A final-looking tag pushed anywhere else no longer moves the version, and the tool exits non-zero if that ref is missing.
 - **`release.yml` refuses to publish a final `vX.Y.Z` tag that `origin/main` does not contain.** The release is now created with `gh release create` rather than a third-party action, and candidates (`vX.Y.ZrcN`) are published as prereleases with `--latest=false`, so a candidate can never become "latest".
