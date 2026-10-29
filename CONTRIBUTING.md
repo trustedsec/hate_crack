@@ -86,7 +86,9 @@ hooks rewrite files in place, so re-stage and re-commit after they fire.
 ## Before you open a pull request
 
 Run everything below and make sure it passes. These are the same gates CI runs,
-so running them locally is faster than waiting.
+so running them locally is faster than waiting. The pull request template
+(`.github/PULL_REQUEST_TEMPLATE.md`) repeats this list, together with the
+engagement-data and changelog rules, as a checklist.
 
 ```bash
 # Tests
