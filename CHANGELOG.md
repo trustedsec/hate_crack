@@ -17,6 +17,9 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 ### Added
 - **A `workflow-lint` CI job runs actionlint and zizmor on `.github/workflows/`, and the `tag` job now waits for it.** Both tools are version-pinned, so a new lint rule cannot silently change what a green run means. Workflow invariants are pinned by tests in `tests/test_workflow_hygiene.py`, so a change that breaks one fails the suite rather than the next release.
 
+### Fixed
+- **Bandrel's pipal feedback pass now runs (#357).** After the company-name masks, Bandrel builds a mask from each baseword pipal finds in the cracked passwords, but the code that launched hashcat had ended up under an `else` instead of inside the loop. So when pipal found basewords, none of them were attacked, and when it found none, Bandrel ran a stray 12-character mask built from the last company name. Each pipal baseword now gets its own run, and nothing runs when pipal finds none. The pipal masks also passed `-1=xX`, and because hashcat reads everything after `-1` as the charset, every first-position candidate included a literal `=`. That `=` is gone. Thanks to @Mojo8898 for the loop fix.
+
 ### Changed
 - **Promotion to `main` is now a reviewed merge-commit pull request, enforced by a repository ruleset.** Direct pushes to `main` are rejected; the only way in is a pull request from `nightly-dev` with one approving review from someone other than the last pusher, passing Lint, type-check, and tests, Bandit SAST, pip-audit and Workflow lint, merged with a merge commit (squash and rebase are blocked, so released commits are never re-counted by `tools/next_version.py`). `nightly-dev` is protected against deletion and force-push and requires linear history, and `v*` tags can no longer be moved or deleted. `CLAUDE.md` and `CONTRIBUTING.md` no longer describe fast-forwarding `main`, merging `main` down, or direct-to-`main` hotfixes.
 

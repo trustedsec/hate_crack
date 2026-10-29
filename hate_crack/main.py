@@ -5396,7 +5396,7 @@ def hcatBandrel(hcatHashType, hcatHashFile, company_name=None):
     for word in pipal_basewords:
         if not word:
             continue
-        mask1 = "-1={0}{1}".format(word[0].lower(), word[0].upper())
+        mask1 = "-1{0}{1}".format(word[0].lower(), word[0].upper())
         mask2 = " ?1{0}".format(word[1:])
         for x in range(6):
             mask2 += "?a"
