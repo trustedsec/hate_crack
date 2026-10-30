@@ -1,6 +1,7 @@
 import gzip
 import json
 from unittest.mock import MagicMock, patch
+from types import SimpleNamespace
 
 import pytest
 
@@ -14,7 +15,9 @@ def main_module(hc_module):
 
 
 class TestHcatOmenTrain:
-    def test_builds_correct_command(self, main_module, tmp_path):
+    @pytest.fixture
+    def omen_train_cmd(self, main_module, tmp_path):
+        """Executa hcatOmenTrain mockado e devolve o comando montado + caminhos."""
         training_file = tmp_path / "passwords.txt"
         training_file.write_text("password123\nletmein\n")
         omen_dir = tmp_path / "omen"
@@ -41,21 +44,29 @@ class TestHcatOmenTrain:
 
             mock_popen.assert_called_once()
             cmd = mock_popen.call_args[0][0]
-            assert cmd[0] == str(create_bin)
-            assert "--iPwdList" in cmd
-            assert str(training_file) in cmd
-            # Verify explicit output paths are passed
-            assert "-C" in cmd
-            assert str(model_dir / "createConfig") in cmd
-            assert "-c" in cmd
-            assert str(model_dir / "CP") in cmd
-            assert "-i" in cmd
-            assert str(model_dir / "IP") in cmd
-            assert "-e" in cmd
-            assert str(model_dir / "EP") in cmd
-            assert "-l" in cmd
-            assert str(model_dir / "LN") in cmd
 
+        return SimpleNamespace(
+            cmd=cmd, model_dir=model_dir,
+            training_file=training_file, create_bin=create_bin,
+        )
+
+    def test_builds_correct_command(self, omen_train_cmd):
+        cmd = omen_train_cmd.cmd
+        model_dir = omen_train_cmd.model_dir
+        assert cmd[0] == str(omen_train_cmd.create_bin)
+        assert "--iPwdList" in cmd
+        assert str(omen_train_cmd.training_file) in cmd
+        assert "-C" in cmd
+        assert str(model_dir / "createConfig") in cmd
+        assert "-c" in cmd
+        assert str(model_dir / "CP") in cmd
+        assert "-i" in cmd
+        assert str(model_dir / "IP") in cmd
+        assert "-e" in cmd
+        assert str(model_dir / "EP") in cmd
+        assert "-l" in cmd
+        assert str(model_dir / "LN") in cmd
+    
     def test_returns_true_and_writes_metadata_on_success(self, main_module, tmp_path):
         training_file = tmp_path / "passwords.txt"
         training_file.write_text("password123\nletmein\n")
