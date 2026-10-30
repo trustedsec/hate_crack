@@ -803,12 +803,10 @@ class TestNightlyFlagWiring:
 
         monkeypatch.setattr(hc_module, "_run_upgrade", fake_upgrade)
         monkeypatch.setattr(sys, "argv", ["hate_crack.py", *argv])
-        try:
+        with pytest.raises(SystemExit):
             hc_module.main()
-        except SystemExit:
-            pass
         assert calls == [expected_branch]
-
+        
     def test_startup_check_never_offers_nightly(self, hc_module):
         """check_for_updates() reads /releases/latest, which excludes
         pre-releases -- and nightly candidates are tags with no GitHub release, so the
