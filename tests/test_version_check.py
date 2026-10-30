@@ -3,6 +3,7 @@
 import subprocess
 import sys
 from unittest.mock import MagicMock, patch
+from types import SimpleNamespace
 
 import pytest
 
@@ -445,9 +446,9 @@ class TestRunUpgrade:
     # first, with safety guards.
     # ------------------------------------------------------------------
 
-    def test_run_upgrade_switches_from_dev_to_main_then_upgrades(
-        self, hc_module, capsys
-    ):
+    @pytest.fixture
+    def upgrade_dev_to_main(self, hc_module, capsys):
+        """Roda _run_upgrade partindo do branch 'dev' e devolve o mock, o exit e a saída."""
         git_root_proc = MagicMock(returncode=0, stdout="/fake/repo\n")
         fetch_proc = MagicMock(returncode=0, stdout="", stderr="")
         branch_proc = MagicMock(returncode=0, stdout="dev\n")
@@ -460,46 +461,48 @@ class TestRunUpgrade:
             patch(
                 "subprocess.run",
                 side_effect=[
-                    git_root_proc,
-                    fetch_proc,
-                    branch_proc,
-                    status_proc,
-                    checkout_proc,
-                    upstream_proc,
-                    make_proc,
+                    git_root_proc, fetch_proc, branch_proc, status_proc,
+                    checkout_proc, upstream_proc, make_proc,
                 ],
             ) as mock_run,
             pytest.raises(SystemExit) as exc,
         ):
             hc_module._run_upgrade()
 
-        assert exc.value.code == 0
-        assert mock_run.call_count == 7
-        # Fetch happens before the checkout.
-        assert mock_run.call_args_list[1][0][0] == [
-            "git",
-            "fetch",
-            "--tags",
-            "--force",
-            "origin",
+        return SimpleNamespace(
+            mock_run=mock_run,
+            exit_code=exc.value.code,
+            calls=mock_run.call_args_list,
+            out=capsys.readouterr().out,
+        )
+
+    def test_upgrade_exits_cleanly_after_seven_calls(self, upgrade_dev_to_main):
+        assert upgrade_dev_to_main.exit_code == 0
+        assert upgrade_dev_to_main.mock_run.call_count == 7
+
+    def test_upgrade_fetches_before_checkout(self, upgrade_dev_to_main):
+        assert upgrade_dev_to_main.calls[1][0][0] == [
+            "git", "fetch", "--tags", "--force", "origin",
         ]
-        # The checkout creates/resets main from origin/main.
-        checkout_call = mock_run.call_args_list[4]
-        assert checkout_call[0][0] == ["git", "checkout", "-B", "main", "origin/main"]
-        # Upstream is repaired to origin/main.
-        assert mock_run.call_args_list[5][0][0] == [
-            "git",
-            "branch",
-            "--set-upstream-to=origin/main",
-            "main",
+
+    def test_upgrade_checks_out_main_from_origin(self, upgrade_dev_to_main):
+        assert upgrade_dev_to_main.calls[4][0][0] == [
+            "git", "checkout", "-B", "main", "origin/main",
         ]
-        # Final call is the shell upgrade -- install only, no pull.
-        upgrade_cmd = mock_run.call_args_list[6][0][0]
+
+    def test_upgrade_repairs_upstream_to_origin_main(self, upgrade_dev_to_main):
+        assert upgrade_dev_to_main.calls[5][0][0] == [
+            "git", "branch", "--set-upstream-to=origin/main", "main",
+        ]
+
+    def test_upgrade_installs_without_pulling(self, upgrade_dev_to_main):
+        upgrade_cmd = upgrade_dev_to_main.calls[6][0][0]
         assert "make install" in upgrade_cmd
         assert "git pull" not in upgrade_cmd
-        output = capsys.readouterr().out
-        assert "Switching from 'dev' to 'main'" in output
 
+    def test_upgrade_announces_branch_switch(self, upgrade_dev_to_main):
+        assert "Switching from 'dev' to 'main'" in upgrade_dev_to_main.out
+    
     def test_run_upgrade_migrates_master_only_renamed_clone(self, hc_module, capsys):
         """An old clone still sitting on `master` (default branch renamed
         master -> main upstream) must be migrated: fetch BEFORE checkout,
