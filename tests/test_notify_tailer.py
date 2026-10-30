@@ -104,10 +104,14 @@ class TestCrackTailerStart:
         tailer, notify, aggregate = _make_tailer(out)
         tailer.start()
         try:
-            # Allow at least one poll interval; no new lines were added, so
-            # no notifications should fire.
-            time.sleep(0.2)
-            assert notify.call_count == 0
+            # Escreve uma linha DEPOIS do start: quando ela dispara, sabemos que
+            # uma varredura rodou -- então as linhas pré-existentes já tiveram sua
+            # chance e foram ignoradas (seek para o fim do arquivo no start).
+            with open(out, "a") as f:
+                f.write("carol:hash:plain\n")
+            assert _wait_until(lambda: notify.call_count >= 1)
+            labels = [call.args[0] for call in notify.call_args_list]
+            assert labels == ["carol"]  # só a nova; alice/bob não notificaram
             assert aggregate.call_count == 0
         finally:
             tailer.stop()
