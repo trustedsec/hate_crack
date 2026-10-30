@@ -4,6 +4,7 @@ import os
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+from types import SimpleNamespace
 
 import pytest
 
@@ -15,15 +16,12 @@ def main_module(hc_module):
 
 
 class TestHcatPCFG:
-    def test_builds_expected_subprocess(self, main_module, tmp_path):
+    @pytest.fixture
+    def pcfg_run(self, main_module, tmp_path):
+        """Roda hcatPCFG com tudo mockado e devolve as chamadas capturadas."""
         hash_file = str(tmp_path / "hashes.txt")
         Path(hash_file).write_text("dummy")
 
-        # hcatPCFG resolves pcfg_guesser.py under the module global hate_path
-        # and bails early if it's missing. Pin hate_path to a tmp dir with a
-        # stub script so the test is hermetic — independent of the real
-        # pcfg_cracker submodule being checked out and of any hate_path value
-        # leaked by an earlier test (hate_crack.main is shared session-wide).
         pcfg_dir = tmp_path / "pcfg_cracker"
         pcfg_dir.mkdir()
         (pcfg_dir / "pcfg_guesser.py").write_text("# stub")
@@ -45,42 +43,45 @@ class TestHcatPCFG:
             patch.object(main_module, "hcatBin", "hashcat"),
             patch.object(main_module, "hcatTuning", ""),
             patch.object(main_module, "hcatPotfilePath", ""),
-            patch.object(
-                main_module, "generate_session_id", return_value="test_session"
-            ),
+            patch.object(main_module, "generate_session_id", return_value="test_session"),
         ):
             main_module.hcatPCFG("0", hash_file)
 
-        # First Popen call is the pcfg_guesser producer
-        producer_args, producer_kwargs = captured_calls[0]
+        return SimpleNamespace(
+            hash_file=hash_file, captured_calls=captured_calls, mock_run=mock_run,
+        )
+
+    def test_pcfg_producer_command_is_correct(self, main_module, pcfg_run):
+        """O comando produtor (pcfg_guesser) tem rule e limit corretos."""
+        producer_args, _ = pcfg_run.captured_calls[0]
         producer_cmd = producer_args[0]
         assert producer_cmd[0] == sys.executable
         assert any("pcfg_guesser.py" in part for part in producer_cmd)
         assert "--rule" in producer_cmd
         assert producer_cmd[producer_cmd.index("--rule") + 1] == main_module.pcfgRuleset
         assert "--limit" in producer_cmd
-        assert producer_cmd[producer_cmd.index("--limit") + 1] == str(
-            main_module.pcfgMaxCandidates
-        )
+        assert producer_cmd[producer_cmd.index("--limit") + 1] == str(main_module.pcfgMaxCandidates)
 
-        # _run_hcat_cmd was called with attack_name='PCFG' and the hashcat command
+    def test_pcfg_hashcat_command_is_correct(self, pcfg_run):
+        """O hashcat roda em modo stdin, sem --limit nem -a, com -m 0."""
+        mock_run = pcfg_run.mock_run
         assert mock_run.called
         kwargs = mock_run.call_args.kwargs
         hashcat_cmd = mock_run.call_args.args[0]
         assert kwargs["attack_name"] == "PCFG"
-        assert kwargs["hash_file"] == hash_file
-        # Hashcat does NOT carry --limit (cap is producer-side)
+        assert kwargs["hash_file"] == pcfg_run.hash_file
         assert "--limit" not in hashcat_cmd
-        # Hashcat is in stdin mode (no -a flag)
         assert "-a" not in hashcat_cmd
         assert "-m" in hashcat_cmd
         assert hashcat_cmd[hashcat_cmd.index("-m") + 1] == "0"
 
-        # Verify the producer is wired into hashcat's stdin via _run_hcat_cmd
+    def test_pcfg_producer_is_wired_into_hashcat_stdin(self, pcfg_run):
+        """O produtor é ligado ao stdin do hashcat via _run_hcat_cmd."""
+        kwargs = pcfg_run.mock_run.call_args.kwargs
         assert kwargs["stdin"] is not None
         assert kwargs["companion_procs"] is not None
         assert len(kwargs["companion_procs"]) == 1
-
+    
     def test_pcfg_child_stdin_stays_open(self, main_module, tmp_path):
         hash_file = str(tmp_path / "hashes.txt")
         Path(hash_file).write_text("dummy")
