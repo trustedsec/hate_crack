@@ -1,5 +1,8 @@
 version: 2
 
+# Open uv PRs are batched weekly by .github/workflows/dependabot-batch.yml into
+# deps/dependabot-batch plus a tracking issue; Actions bumps are landed by hand.
+
 updates:
   # Python dependencies (PEP 621 pyproject.toml + uv.lock).
   # The native "uv" ecosystem is used instead of "pip" because it reads

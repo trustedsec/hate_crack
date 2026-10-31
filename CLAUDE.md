@@ -541,6 +541,19 @@ Two further consequences to keep in mind:
     pre-2026-07-31 bump-pattern scheme; they now say the same thing this bullet
     does, so if the two ever disagree again, `tools/next_version.py` is the
     arbiter.
+  - **`.github/workflows/dependabot-batch.yml` batches the `uv` PRs weekly.**
+    It applies each open Dependabot `uv` bump to `nightly-dev`, keeps the ones
+    that pass the local gates, force-pushes `deps/dependabot-batch`, and
+    rewrites a tracking issue (label `dependabot-batch`) whose link opens the PR.
+    You still review and fast-forward it — the gates catch breakage, not a
+    malicious upstream release, and a `GITHUB_TOKEN` push to `nightly-dev`
+    would trigger neither `ci.yml` nor the rc tag. It deliberately does **not**
+    open the PR (that needs "Allow GitHub Actions to create and approve pull
+    requests", which would let a workflow approve a promotion PR into `main`)
+    and does **not** apply Actions bumps (`GITHUB_TOKEN` has no `workflows`
+    permission, and that power stays out of automation). Triggers are only
+    `schedule` and `workflow_dispatch`; it runs from `main`'s copy, so changes
+    take effect after promotion. Logic and trust model: `tools/dependabot_batch.py`.
 - **A security fix that must ship immediately** goes through `nightly-dev` and
   the promotion PR like everything else, and can be promoted as soon as it
   lands. There is no direct-to-`main` path.
