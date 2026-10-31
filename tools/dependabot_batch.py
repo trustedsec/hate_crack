@@ -29,6 +29,7 @@ import os
 import re
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 DEPENDABOT_ID = 49699333
@@ -361,6 +362,132 @@ def fetch_candidates(repo: str) -> list[dict]:
     return out
 
 
+_BUNDLE_SIGNATURES = (b"# v2 git bundle\n", b"# v3 git bundle\n")
+
+
+def bundle_header(path: Path) -> tuple[list[str], dict[str, str]]:
+    """Parse a bundle's header without trusting git to interpret it for us."""
+    prereqs: list[str] = []
+    heads: dict[str, str] = {}
+    try:
+        with path.open("rb") as handle:
+            if handle.readline() not in _BUNDLE_SIGNATURES:
+                raise BatchError("not a git bundle")
+            for raw in handle:
+                line = raw.decode("ascii").rstrip("\n")
+                if line == "":
+                    break
+                if line.startswith("@"):  # v3 capability line
+                    continue
+                if line.startswith("-"):
+                    prereqs.append(line[1:].split(" ", 1)[0])
+                else:
+                    sha, ref = line.split(" ", 1)
+                    heads[ref] = sha
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        raise BatchError(f"unreadable bundle header: {exc}") from exc
+    return prereqs, heads
+
+
+def _diff_args(a: str, b: str) -> list[str]:
+    return [
+        "diff",
+        "--no-color",
+        "--no-ext-diff",
+        "--src-prefix=a/",
+        "--dst-prefix=b/",
+        a,
+        b,
+    ]
+
+
+def verify_bundle(
+    repo_dir: Path,
+    bundle: Path,
+    report: dict,
+    live_diff: Callable[[int], str],
+    against: str = "HEAD",
+) -> str:
+    """Return the bundle's tip SHA only if every check passes; else raise.
+
+    Run by ``publish``, which holds the write token, against output from
+    ``combine``, which ran third-party code. So nothing from ``combine`` is
+    trusted: each commit must be a Dependabot-authored, linear, pyproject-only
+    change whose line replacements equal the *live* diff of the PR its trailer
+    names. A compromised ``combine`` can at most re-propose what Dependabot
+    already proposed.
+    """
+    base = report["base"]
+    prereqs, heads = bundle_header(bundle)
+    if prereqs != [base]:
+        raise BatchError(f"bundle prerequisite {prereqs} is not the report base {base}")
+    if set(heads) != {BUNDLE_REF}:
+        raise BatchError(f"bundle must carry only {BUNDLE_REF}, got {sorted(heads)}")
+    tip = heads[BUNDLE_REF]
+    try:
+        git(repo_dir, "bundle", "verify", "-q", str(bundle))
+        git(
+            repo_dir,
+            "fetch",
+            "-q",
+            "--no-tags",
+            str(bundle),
+            f"{BUNDLE_REF}:refs/batch/tip",
+        )
+    except subprocess.CalledProcessError as exc:
+        raise BatchError(f"bundle rejected by git: {exc.stderr.strip()}") from exc
+    if git(repo_dir, "rev-parse", "refs/batch/tip").strip() != tip:
+        raise BatchError("fetched tip does not match the bundle header")
+    ancestor = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", base, against], cwd=repo_dir
+    ).returncode
+    if ancestor != 0:
+        raise BatchError(f"base {base} is not an ancestor of {against} ({BASE_BRANCH})")
+    if git(repo_dir, "rev-list", "--min-parents=2", f"{base}..{tip}").strip():
+        raise BatchError("the batch contains a merge commit")
+    changed = git(repo_dir, *_diff_args(base, tip), "--name-only").split()
+    if changed != [TARGET_FILE]:
+        raise BatchError(f"the batch must change only {TARGET_FILE}, got {changed}")
+    included = {entry["pr"] for entry in report["included"]}
+    seen: set[int] = set()
+    for sha in git(repo_dir, "rev-list", "--reverse", f"{base}..{tip}").split():
+        author = git(repo_dir, "log", "-1", "--format=%an <%ae>", sha).strip()
+        if author != DEPENDABOT_AUTHOR:
+            raise BatchError(f"{sha[:12]}: author {author!r} is not Dependabot")
+        found = TRAILER_RE.findall(git(repo_dir, "log", "-1", "--format=%B", sha))
+        if len(found) != 1:
+            raise BatchError(f"{sha[:12]}: needs exactly one Dependabot-PR trailer")
+        number = int(found[0])
+        if number not in included or number in seen:
+            raise BatchError(
+                f"{sha[:12]}: trailer #{number} is not an included, unique PR"
+            )
+        seen.add(number)
+        got = parse_bump(git(repo_dir, *_diff_args(f"{sha}^", sha)))
+        if got != parse_bump(live_diff(number)):
+            raise BatchError(
+                f"{sha[:12]}: change does not match PR #{number}'s live diff"
+            )
+    if seen != included:
+        raise BatchError(
+            f"report includes PRs with no commit: {sorted(included - seen)}"
+        )
+    return tip
+
+
+def _cmd_verify(args) -> int:
+    report = json.loads(Path(args.report).read_text(encoding="utf-8"))
+    try:
+        tip = verify_bundle(
+            Path.cwd(), Path(args.bundle), report, lambda n: pr_diff(args.repo, n)
+        )
+    except BatchError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(tip)
+    return 0
+
+
 def _cmd_fetch(args) -> int:
     Path(args.out).write_text(
         json.dumps(fetch_candidates(args.repo), indent=2), encoding="utf-8"
@@ -398,6 +525,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--candidates", required=True)
     p.add_argument("--out", required=True)
     p.set_defaults(func=_cmd_combine)
+    p = sub.add_parser("verify", help="fail-closed bundle check; prints the tip SHA")
+    p.add_argument("--repo", required=True)
+    p.add_argument("--report", required=True)
+    p.add_argument("--bundle", required=True)
+    p.set_defaults(func=_cmd_verify)
     args = parser.parse_args(argv)
     return args.func(args)
 

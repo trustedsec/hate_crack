@@ -12,6 +12,7 @@ hand-written.
 from __future__ import annotations
 
 import ast
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -482,3 +483,200 @@ class TestRunGates:
             )
         ]
         assert db.run_gates(tmp_path, gates) is None
+
+
+def _batch(tmp_path, cands):
+    """combine in one repo (the combine job); a clone of its base plays publish."""
+    work = _repo(tmp_path, "work")
+    publish = tmp_path / "publish"
+    _git(tmp_path, "clone", "-q", "-b", "nightly-dev", str(work), str(publish))
+    # A clone does not inherit repo-local identity, and CI has no global one.
+    _git(publish, "config", "user.name", "Test")
+    _git(publish, "config", "user.email", "test@example.com")
+    _git(publish, "config", "commit.gpgsign", "false")
+    report = db.combine(work, cands, [], _green)
+    bundle = tmp_path / "batch.bundle"
+    assert db.write_bundle(work, report, bundle)
+    return work, publish, report, bundle
+
+
+LIVE = {352: RUFF_DIFF, 353: TY_DIFF, 347: ATOMIC_DIFF}
+
+
+def _live(n):
+    return LIVE[n]
+
+
+def _forge(work, tmp_path, report, mutate):
+    """Rebuild deps-batch with one commit altered by ``mutate(work)``, re-bundle."""
+    _git(work, "checkout", "-q", "-B", "deps-batch", report["base"])
+    mutate(work)
+    bundle = tmp_path / "forged.bundle"
+    _git(
+        work,
+        "bundle",
+        "create",
+        str(bundle),
+        f"{report['base']}..refs/heads/deps-batch",
+    )
+    return bundle
+
+
+def _commit(work, message, author=db.DEPENDABOT_AUTHOR):
+    _git(work, "add", "-A")
+    _git(work, "commit", "-q", "--author", author, "-m", message)
+
+
+def _bump_ty(work):
+    path = work / "pyproject.toml"
+    path.write_text(path.read_text().replace("ty==0.0.82", "ty==0.0.93"))
+
+
+class TestVerifyBundle:
+    def test_genuine_batch_verifies_and_returns_tip(self, tmp_path):
+        work, publish, report, bundle = _batch(
+            tmp_path, [_cand(352, RUFF_DIFF), _cand(353, TY_DIFF)]
+        )
+        tip = db.verify_bundle(publish, bundle, report, _live)
+        assert tip == _git(work, "rev-parse", "deps-batch").strip()
+
+    def test_header_lists_prerequisite_and_ref(self, tmp_path):
+        _, _, report, bundle = _batch(tmp_path, [_cand(353, TY_DIFF)])
+        prereqs, heads = db.bundle_header(bundle)
+        assert prereqs == [report["base"]]
+        assert list(heads) == [db.BUNDLE_REF]
+
+    def test_rejects_a_base_that_is_not_on_nightly_dev(self, tmp_path):
+        work, publish, report, bundle = _batch(tmp_path, [_cand(353, TY_DIFF)])
+        # HEAD moves to an unrelated root; the base object is still present.
+        _git(publish, "checkout", "-q", "--orphan", "elsewhere")
+        _git(publish, "commit", "-q", "--allow-empty", "-m", "unrelated")
+        with pytest.raises(db.BatchError, match="ancestor"):
+            db.verify_bundle(publish, bundle, report, _live)
+
+    def test_rejects_a_report_base_that_differs_from_the_bundle(self, tmp_path):
+        _, publish, report, bundle = _batch(tmp_path, [_cand(353, TY_DIFF)])
+        with pytest.raises(db.BatchError, match="prerequisite"):
+            db.verify_bundle(publish, bundle, {**report, "base": "0" * 40}, _live)
+
+    def test_rejects_a_second_file(self, tmp_path):
+        work, publish, report, _ = _batch(tmp_path, [_cand(353, TY_DIFF)])
+
+        def evil(w):
+            _bump_ty(w)
+            (w / "hate_crack.py").write_text("print('pwned')\n")
+            _commit(w, "chore(deps): bump ty\n\nDependabot-PR: #353")
+
+        bundle = _forge(work, tmp_path, report, evil)
+        with pytest.raises(db.BatchError, match="pyproject.toml"):
+            db.verify_bundle(publish, bundle, report, _live)
+
+    def test_rejects_a_non_dependabot_author(self, tmp_path):
+        work, publish, report, _ = _batch(tmp_path, [_cand(353, TY_DIFF)])
+
+        def human(w):
+            _bump_ty(w)
+            _commit(
+                w,
+                "chore(deps): bump ty\n\nDependabot-PR: #353",
+                author="Eve <eve@example.com>",
+            )
+
+        bundle = _forge(work, tmp_path, report, human)
+        with pytest.raises(db.BatchError, match="author"):
+            db.verify_bundle(publish, bundle, report, _live)
+
+    def test_rejects_a_missing_trailer(self, tmp_path):
+        work, publish, report, _ = _batch(tmp_path, [_cand(353, TY_DIFF)])
+
+        def untagged(w):
+            _bump_ty(w)
+            _commit(w, "chore(deps): bump ty")
+
+        bundle = _forge(work, tmp_path, report, untagged)
+        with pytest.raises(db.BatchError, match="trailer"):
+            db.verify_bundle(publish, bundle, report, _live)
+
+    def test_rejects_a_trailer_for_a_pr_the_report_did_not_include(self, tmp_path):
+        work, publish, report, _ = _batch(tmp_path, [_cand(353, TY_DIFF)])
+
+        def other(w):
+            _bump_ty(w)
+            _commit(w, "chore(deps): bump ty\n\nDependabot-PR: #352")
+
+        bundle = _forge(work, tmp_path, report, other)
+        with pytest.raises(db.BatchError, match="#352"):
+            db.verify_bundle(publish, bundle, report, _live)
+
+    def test_rejects_a_version_dependabot_did_not_propose(self, tmp_path):
+        # The decisive check: a compromised combine job picks its own version.
+        work, publish, report, _ = _batch(tmp_path, [_cand(353, TY_DIFF)])
+
+        def wrong_version(w):
+            path = w / "pyproject.toml"
+            path.write_text(path.read_text().replace("ty==0.0.82", "ty==0.0.99"))
+            _commit(w, "chore(deps): bump ty\n\nDependabot-PR: #353")
+
+        bundle = _forge(work, tmp_path, report, wrong_version)
+        with pytest.raises(db.BatchError, match="does not match"):
+            db.verify_bundle(publish, bundle, report, _live)
+
+    def test_rejects_an_included_pr_with_no_commit(self, tmp_path):
+        _, publish, report, bundle = _batch(tmp_path, [_cand(353, TY_DIFF)])
+        padded = {
+            **report,
+            "included": report["included"] + [{"pr": 347, "title": "x", "changes": []}],
+        }
+        with pytest.raises(db.BatchError, match="no commit"):
+            db.verify_bundle(publish, bundle, padded, _live)
+
+    def test_rejects_a_merge_commit(self, tmp_path):
+        work, publish, report, _ = _batch(tmp_path, [_cand(353, TY_DIFF)])
+
+        def merged(w):
+            _git(w, "checkout", "-q", "-b", "side", report["base"])
+            _bump_ty(w)
+            _commit(w, "chore(deps): bump ty\n\nDependabot-PR: #353")
+            _git(w, "checkout", "-q", "deps-batch")
+            _git(
+                w,
+                "merge",
+                "-q",
+                "--no-ff",
+                "-m",
+                "merge\n\nDependabot-PR: #353",
+                "side",
+            )
+
+        bundle = _forge(work, tmp_path, report, merged)
+        with pytest.raises(db.BatchError, match="merge"):
+            db.verify_bundle(publish, bundle, report, _live)
+
+    def test_rejects_garbage_instead_of_a_bundle(self, tmp_path):
+        _, publish, report, _ = _batch(tmp_path, [_cand(353, TY_DIFF)])
+        junk = tmp_path / "junk.bundle"
+        junk.write_bytes(b"\xff\xfenot a bundle\n")
+        with pytest.raises(db.BatchError):
+            db.verify_bundle(publish, junk, report, _live)
+
+    def test_cli_exits_nonzero_without_printing_a_sha(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        _, publish, report, bundle = _batch(tmp_path, [_cand(353, TY_DIFF)])
+        report_path = tmp_path / "report.json"
+        report_path.write_text(json.dumps({**report, "base": "0" * 40}))
+        monkeypatch.chdir(publish)
+        monkeypatch.setattr(db, "pr_diff", lambda repo, n: LIVE[n])
+        rc = db.main(
+            [
+                "verify",
+                "--repo",
+                REPO,
+                "--report",
+                str(report_path),
+                "--bundle",
+                str(bundle),
+            ]
+        )
+        out = capsys.readouterr()
+        assert rc == 1 and out.out == "" and "error:" in out.err
