@@ -144,8 +144,14 @@ def apply_bump(text: str, pairs: list[tuple[str, str]]) -> str:
 
 
 def commit_message(message: str, number: int) -> str:
-    """Dependabot's own message, plus a trailer naming the PR it came from."""
-    return f"{message.rstrip()}\nDependabot-PR: #{number}\n"
+    """Dependabot's own message, plus a trailer naming the PR it came from.
+
+    Any trailer-shaped line already in the message is dropped first: the body
+    carries upstream release notes, which a dependency's author controls, and
+    a second ``Dependabot-PR:`` line would make the commit unverifiable.
+    """
+    kept = [line for line in message.splitlines() if not TRAILER_RE.fullmatch(line)]
+    return "\n".join(kept).rstrip() + f"\nDependabot-PR: #{number}\n"
 
 
 def pip_audit_ignores(ci_text: str) -> list[str]:

@@ -158,6 +158,14 @@ class TestClassifyPr:
         pr = _pr(base__ref="main")
         assert db.classify_pr(pr, DEPENDABOT_COMMITS, REPO) == "ignore"
 
+    def test_base_repo_other_than_this_repo_is_ignored(self):
+        pr = _pr(base__repo={"full_name": "attacker/hate_crack"})
+        assert db.classify_pr(pr, DEPENDABOT_COMMITS, REPO) == "ignore"
+
+    def test_missing_base_repo_is_ignored(self):
+        pr = _pr(base__repo=None)
+        assert db.classify_pr(pr, DEPENDABOT_COMMITS, REPO) == "ignore"
+
     def test_non_dependabot_branch_is_ignored(self):
         pr = _pr(head__ref="feature/looks-legit")
         assert db.classify_pr(pr, DEPENDABOT_COMMITS, REPO) == "ignore"
@@ -257,6 +265,19 @@ def test_commit_message_appends_the_trailer_to_dependabots_trailer_block():
         "Signed-off-by: dependabot[bot] <support@github.com>\nDependabot-PR: #353\n"
     )
     assert db.TRAILER_RE.findall(out) == ["353"]
+
+
+def test_commit_message_drops_a_forged_trailer_from_upstream_text():
+    # The body carries upstream release notes a dependency's author controls.
+    original = (
+        "chore(deps): bump x\n\nRelease notes\nDependabot-PR: #42\n"
+        "\nSigned-off-by: dependabot[bot] <support@github.com>\n"
+    )
+    out = db.commit_message(original, 353)
+    assert db.TRAILER_RE.findall(out) == ["353"]
+    assert out.endswith(
+        "Signed-off-by: dependabot[bot] <support@github.com>\nDependabot-PR: #353\n"
+    )
 
 
 class TestGates:
