@@ -332,12 +332,22 @@ default branch to `nightly-dev`.
 
 `main` sits behind the `main-reviewed-promotion` ruleset. Direct pushes are
 rejected; **the only way to change `main` is a pull request from `nightly-dev`**
-that has one approving review from someone other than the last pusher (a new
-push dismisses earlier approvals), passes the required checks (Lint, type-check,
-and tests; Bandit SAST; pip-audit; Workflow lint; Promotion source), and is
-merged with a **merge commit** — the only allowed method. Squash and rebase are
-blocked, and nobody, admins included, can bypass it. `git push origin main` is
-rejected; do not try.
+that passes the required checks (Lint, type-check, and tests; Bandit SAST;
+pip-audit; Workflow lint; Promotion source) and is merged with a **merge
+commit** — the only allowed method. Squash and rebase are blocked, and nobody,
+admins included, can bypass it. `git push origin main` is rejected; do not try.
+
+**No approving review is required (since 2026-10-31).** The ruleset used to
+require one approval from someone other than the last pusher. GitHub never lets
+a pull request's author approve it, and the maintainer who opens a promotion PR
+has usually also pushed its head commit, so in practice every release waited on
+the second maintainer. That requirement was dropped deliberately so one
+maintainer can release; the ruleset name still says "reviewed" for continuity.
+The same change made `Promotion source` a **required** check — it had been
+listed in this section as required while the ruleset did not actually list it,
+so it was advisory until then. Restoring the two-person rule means setting
+`required_approving_review_count` back to 1 and `require_last_push_approval`
+to true on that ruleset, and updating this section.
 
 **The ruleset itself cannot say "from `nightly-dev`".** GitHub rulesets have no
 rule for a PR's head branch, so until 2026-10-29 a fork PR aimed at `main` could
@@ -374,8 +384,9 @@ Before merging that PR:
    otherwise stays open until somebody notices. Entries carry their issue
    inline as `(#NNN)` for exactly this reason; grep the section rather than
    trusting memory.
-3. Confirm the full suite and every CI job pass on the PR, including Workflow lint.
-4. Get the other maintainer's approval. Every release needs it.
+3. Confirm the full suite and every CI job pass on the PR, including Workflow
+   lint and Promotion source. No approval is required (see above), so these
+   checks and your own read of the batch are the whole gate.
 
 Then merge with **"Create a merge commit"** in the GitHub UI, or
 `gh pr merge --merge`. This is the one place in the repo where a merge commit is
@@ -394,8 +405,9 @@ other change, then through a promotion PR, and can be promoted immediately. Say
 so in the PR body.
 
 **Emergency path.** An admin can set the `main-reviewed-promotion` ruleset
-enforcement to `disabled`; that is audit-logged. It is not a way around review
-in normal use: every release needs the other maintainer's approval.
+enforcement to `disabled`; that is audit-logged. It is not for normal use: it
+also lifts the required checks and the from-`nightly-dev`-only rule, which the
+normal path keeps.
 
 **Release tags are immutable.** A separate tag ruleset stops `v*` tags from being
 moved or deleted.
