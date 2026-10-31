@@ -571,6 +571,22 @@ class TestVerifyBundle:
         with pytest.raises(db.BatchError, match="pyproject.toml"):
             db.verify_bundle(publish, bundle, report, _live)
 
+    def test_batch_level_check_refuses_a_second_file_before_any_commit_is_read(
+        self, tmp_path
+    ):
+        # Pins the batch-wide guard itself: the per-commit parse also names
+        # pyproject.toml, so the message alone is what proves this check ran.
+        work, publish, report, _ = _batch(tmp_path, [_cand(353, TY_DIFF)])
+
+        def evil(w):
+            _bump_ty(w)
+            (w / "hate_crack.py").write_text("print('pwned')\n")
+            _commit(w, "chore(deps): bump ty\n\nDependabot-PR: #353")
+
+        bundle = _forge(work, tmp_path, report, evil)
+        with pytest.raises(db.BatchError, match="must change only pyproject.toml"):
+            db.verify_bundle(publish, bundle, report, _live)
+
     def test_rejects_a_non_dependabot_author(self, tmp_path):
         work, publish, report, _ = _batch(tmp_path, [_cand(353, TY_DIFF)])
 
