@@ -105,3 +105,15 @@ def test_scripts_run_with_isolated_system_python():
         for run in _runs(job):
             if "dependabot_batch.py" in run:
                 assert "python3 -I tools/dependabot_batch.py" in run
+
+
+def test_branch_delete_is_skipped_while_a_pr_from_it_is_open():
+    # Deleting a PR's head branch closes the PR, so the no-bundle path must
+    # check for an open PR before it deletes last week's branch.
+    (run,) = [r for r in _runs("publish") if "--delete" in r]
+    assert "gh pr list" in run
+    assert "--head deps/dependabot-batch" in run
+    lines = run.splitlines()
+    list_line = next(i for i, line in enumerate(lines) if "gh pr list" in line)
+    delete_line = next(i for i, line in enumerate(lines) if "--delete" in line)
+    assert list_line < delete_line

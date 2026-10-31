@@ -101,8 +101,12 @@ jobs:
           remote="https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
           if [ ! -f "$batch/batch.bundle" ]; then
             # Nothing kept this week: remove last week's branch so it cannot be
-            # mistaken for current.
-            if git ls-remote --exit-code --heads "$remote" refs/heads/deps/dependabot-batch >/dev/null; then
+            # mistaken for current -- unless a PR from it is still open, since
+            # deleting a PR's head branch closes the PR.
+            open_prs=$(gh pr list --repo "$REPO" --head deps/dependabot-batch --state open --json number --jq 'length')
+            if [ "$open_prs" != "0" ]; then
+              echo "::notice::Nothing kept this week, but a pull request from deps/dependabot-batch is still open; leaving the branch in place."
+            elif git ls-remote --exit-code --heads "$remote" refs/heads/deps/dependabot-batch >/dev/null; then
               git push "$remote" --delete refs/heads/deps/dependabot-batch
             fi
             echo "pushed=false" >> "$GITHUB_OUTPUT"
