@@ -152,7 +152,7 @@ testpaths = [
 
 [dependency-groups]
 dev = [
-    "ty==0.0.82",
+    "ty==0.0.93",
     "ruff==0.16.8",
     "pytest==9.1.1",
     "pytest-cov==7.1.0",
