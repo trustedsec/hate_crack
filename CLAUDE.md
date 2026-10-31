@@ -555,9 +555,12 @@ Two further consequences to keep in mind:
     rebased branch — the batch was only gated against its old base. A bump
     that fails any gate — including on a flaky test — is dropped until the
     next run with no retry, so read the issue's Skipped table before assuming
-    a bump is bad. A week in which no bump survives deletes
-    `deps/dependabot-batch`, and a week with no open Dependabot PRs closes the
-    issue. It deliberately does **not** open the PR (that needs "Allow GitHub
+    a bump is bad. If no bump survives, the job re-gates the untouched
+    `nightly-dev` once, and if that fails too the issue says `nightly-dev`
+    itself is broken rather than blaming the bumps. A week in which no bump
+    survives deletes `deps/dependabot-batch`, unless a pull request from it is
+    still open (deleting a PR's head branch closes the PR), and a week with no
+    eligible Dependabot PRs closes the issue. It deliberately does **not** open the PR (that needs "Allow GitHub
     Actions to create and approve pull requests", which would let a workflow
     approve a promotion PR into `main`) and does **not** apply Actions bumps
     (`GITHUB_TOKEN` has no `workflows` permission, and that power stays out of
