@@ -547,13 +547,23 @@ Two further consequences to keep in mind:
     rewrites a tracking issue (label `dependabot-batch`) whose link opens the PR.
     You still review and fast-forward it — the gates catch breakage, not a
     malicious upstream release, and a `GITHUB_TOKEN` push to `nightly-dev`
-    would trigger neither `ci.yml` nor the rc tag. It deliberately does **not**
-    open the PR (that needs "Allow GitHub Actions to create and approve pull
-    requests", which would let a workflow approve a promotion PR into `main`)
-    and does **not** apply Actions bumps (`GITHUB_TOKEN` has no `workflows`
-    permission, and that power stays out of automation). Triggers are only
-    `schedule` and `workflow_dispatch`; it runs from `main`'s copy, so changes
-    take effect after promotion. Logic and trust model: `tools/dependabot_batch.py`.
+    would trigger neither `ci.yml` nor the rc tag. If `nightly-dev` moved
+    before you got to it and `--ff-only` refuses, re-run the workflow
+    (`gh workflow run dependabot-batch.yml`); never rebase the branch by hand,
+    which re-authors the commits and fails the Dependabot-author check. A bump
+    that fails any gate — including on a flaky test — is dropped until the
+    next run with no retry, so read the issue's Skipped table before assuming
+    a bump is bad. A week in which no bump survives deletes
+    `deps/dependabot-batch`, and a week with no open Dependabot PRs closes the
+    issue. It deliberately does **not** open the PR (that needs "Allow GitHub
+    Actions to create and approve pull requests", which would let a workflow
+    approve a promotion PR into `main`) and does **not** apply Actions bumps
+    (`GITHUB_TOKEN` has no `workflows` permission, and that power stays out of
+    automation). Triggers are only `schedule` and `workflow_dispatch`. The
+    workflow file runs from `main`'s copy, so edits to it take effect only after
+    promotion, but both jobs check out `nightly-dev`, so
+    `tools/dependabot_batch.py` takes effect as soon as it lands there. Logic
+    and trust model: `tools/dependabot_batch.py`.
 - **A security fix that must ship immediately** goes through `nightly-dev` and
   the promotion PR like everything else, and can be promoted as soon as it
   lands. There is no direct-to-`main` path.
