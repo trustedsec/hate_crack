@@ -184,6 +184,40 @@ class TestRosettaDerive:
         with pytest.raises(RuntimeError, match="submodule update"):
             main_module.rosetta_derive([debug_log], str(tmp_path / "out"))
 
+    def test_replay_rules_survive_both_rule_field_framings(self, main_module, tmp_path):
+        """A mined rule must be written back in a form hashcat will load (#338).
+
+        hashcat 836f11de1 (2026-09-20) began $HEX-wrapping the debug file's rule
+        field, and ebcbf7fcf6 (2026-09-27) stopped again, so logs from that
+        window carry ``$HEX[3a]`` where every other build writes ``:``. hashcat
+        decodes $HEX in a wordlist but not in a rule file: a wrapped rule in
+        rules.rule is dropped with exit 0 and no message.
+
+        Every line is captured from ``hashcat -m 0 --debug-mode 5``, never
+        hand-written. The wrapped pair is from v7.1.2-754-g61d346f11, the raw
+        pair from v7.1.2-907-ge2bcc3af4. Each pair is the ``:`` no-op cracking
+        md5("abc") and ``$\\x0a`` cracking md5("abc\\n").
+        """
+        wrapped = tmp_path / "754.log"
+        wrapped.write_bytes(
+            b"abc:$HEX[3a]:abc:w.txt\nabc:$HEX[240a]:$HEX[6162630a]:w.txt\n"
+        )
+        raw = tmp_path / "907.log"
+        raw.write_bytes(b"abc:::abc:w.txt\nabc:$\\x0a:$HEX[6162630a]:w.txt\n")
+
+        result = main_module.rosetta_derive(
+            [str(wrapped), str(raw)], str(tmp_path / "out")
+        )
+
+        # Both framings must collapse onto the same two rules, or a rule's
+        # frequency is split between its wrapped and raw spellings.
+        assert result["total_rules"] == 2
+        with open(result["rules"], "rb") as handle:
+            written = handle.read()
+        assert sorted(written.split(b"\n")[:-1]) == [b"$\\x0a", b":"]
+        # A literal LF operand would split the rule across two lines.
+        assert written.count(b"\n") == 2
+
 
 class TestRosettaDebugLogs:
     def test_lists_newest_first(self, main_module, tmp_path, monkeypatch):
