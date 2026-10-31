@@ -587,6 +587,60 @@ class TestVerifyBundle:
         with pytest.raises(db.BatchError, match="must change only pyproject.toml"):
             db.verify_bundle(publish, bundle, report, _live)
 
+    def test_rejects_a_chain_rooted_below_base_with_a_forged_prerequisite(
+        self, tmp_path
+    ):
+        # A compromised combine roots its chain at an older ancestor and
+        # rewrites the bundle header to claim base. Without an explicit
+        # base->tip ancestry check the push would silently revert every
+        # pyproject line changed since that ancestor.
+        work = _repo(tmp_path, "work")
+        older = _git(work, "rev-parse", "HEAD").strip()
+        path = work / "pyproject.toml"
+        path.write_text(path.read_text().replace("pytest==9.1.1", "pytest==9.2.0"))
+        _git(work, "commit", "-qam", "a later pyproject change on nightly-dev")
+        base = _git(work, "rev-parse", "HEAD").strip()
+        publish = tmp_path / "publish"
+        _git(tmp_path, "clone", "-q", "-b", "nightly-dev", str(work), str(publish))
+        _git(work, "checkout", "-q", "-B", "deps-batch", older)
+        _bump_ty(work)
+        _commit(work, "chore(deps): bump ty\n\nDependabot-PR: #353")
+        honest = tmp_path / "honest.bundle"
+        _git(work, "bundle", "create", str(honest), f"{older}..refs/heads/deps-batch")
+        forged = tmp_path / "forged.bundle"
+        forged.write_bytes(
+            honest.read_bytes().replace(older.encode(), base.encode(), 1)
+        )
+        report = {
+            "base": base,
+            "included": [{"pr": 353, "title": "t", "changes": []}],
+            "skipped": [],
+        }
+        with pytest.raises(db.BatchError, match="descend"):
+            db.verify_bundle(publish, forged, report, _live)
+
+    def test_rejects_a_bundle_carrying_an_extra_ref(self, tmp_path):
+        _, publish, report, bundle = _batch(tmp_path, [_cand(353, TY_DIFF)])
+        _, heads = db.bundle_header(bundle)
+        tip = heads[db.BUNDLE_REF].encode()
+        header, rest = bundle.read_bytes().split(b"\n\n", 1)
+        evil = tmp_path / "evil.bundle"
+        evil.write_bytes(header + b"\n" + tip + b" refs/heads/evil\n\n" + rest)
+        with pytest.raises(db.BatchError, match="only refs/heads/deps-batch"):
+            db.verify_bundle(publish, evil, report, _live)
+
+    def test_rejects_a_header_whose_tip_disagrees_with_the_pack(self, tmp_path):
+        work, publish, report, bundle = _batch(
+            tmp_path, [_cand(352, RUFF_DIFF), _cand(353, TY_DIFF)]
+        )
+        first = _git(work, "rev-parse", "deps-batch~1").strip().encode()
+        real_tip = _git(work, "rev-parse", "deps-batch").strip().encode()
+        header, rest = bundle.read_bytes().split(b"\n\n", 1)
+        lying = tmp_path / "lying.bundle"
+        lying.write_bytes(header.replace(real_tip, first, 1) + b"\n\n" + rest)
+        with pytest.raises(db.BatchError):
+            db.verify_bundle(publish, lying, report, _live)
+
     def test_rejects_a_non_dependabot_author(self, tmp_path):
         work, publish, report, _ = _batch(tmp_path, [_cand(353, TY_DIFF)])
 
@@ -674,6 +728,27 @@ class TestVerifyBundle:
         junk.write_bytes(b"\xff\xfenot a bundle\n")
         with pytest.raises(db.BatchError):
             db.verify_bundle(publish, junk, report, _live)
+
+    def test_cli_reports_a_malformed_report_as_an_error(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        _, publish, _, bundle = _batch(tmp_path, [_cand(353, TY_DIFF)])
+        report_path = tmp_path / "report.json"
+        report_path.write_text("not json")
+        monkeypatch.chdir(publish)
+        rc = db.main(
+            [
+                "verify",
+                "--repo",
+                REPO,
+                "--report",
+                str(report_path),
+                "--bundle",
+                str(bundle),
+            ]
+        )
+        out = capsys.readouterr()
+        assert rc == 1 and out.out == "" and "error:" in out.err
 
     def test_cli_exits_nonzero_without_printing_a_sha(
         self, tmp_path, monkeypatch, capsys

@@ -438,6 +438,16 @@ def verify_bundle(
         raise BatchError(f"bundle rejected by git: {exc.stderr.strip()}") from exc
     if git(repo_dir, "rev-parse", "refs/batch/tip").strip() != tip:
         raise BatchError("fetched tip does not match the bundle header")
+    # The header's prerequisite line is attacker-controlled. Without this, a
+    # chain rooted at an older ancestor, relabelled as base, would verify and
+    # silently revert every pyproject line changed since that ancestor.
+    descends = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", base, "refs/batch/tip"],
+        cwd=repo_dir,
+        capture_output=True,
+    ).returncode
+    if descends != 0:
+        raise BatchError(f"bundle tip does not descend from base {base}")
     ancestor = subprocess.run(
         ["git", "merge-base", "--is-ancestor", base, against], cwd=repo_dir
     ).returncode
@@ -476,12 +486,16 @@ def verify_bundle(
 
 
 def _cmd_verify(args) -> int:
-    report = json.loads(Path(args.report).read_text(encoding="utf-8"))
     try:
+        report = json.loads(Path(args.report).read_text(encoding="utf-8"))
         tip = verify_bundle(
             Path.cwd(), Path(args.bundle), report, lambda n: pr_diff(args.repo, n)
         )
-    except BatchError as exc:
+    except subprocess.CalledProcessError as exc:
+        detail = exc.stderr.strip() if exc.stderr else exc
+        print(f"error: git failed: {detail}", file=sys.stderr)
+        return 1
+    except (BatchError, OSError, ValueError, KeyError, TypeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     print(tip)
