@@ -549,8 +549,10 @@ Two further consequences to keep in mind:
     malicious upstream release, and a `GITHUB_TOKEN` push to `nightly-dev`
     would trigger neither `ci.yml` nor the rc tag. If `nightly-dev` moved
     before you got to it and `--ff-only` refuses, re-run the workflow
-    (`gh workflow run dependabot-batch.yml`); never rebase the branch by hand,
-    which re-authors the commits and fails the Dependabot-author check. A bump
+    (`gh workflow run dependabot-batch.yml`), which re-applies and re-gates
+    every bump against the current `nightly-dev`. Rebasing it by hand also
+    works, but then run the full gates yourself before merging, as for any
+    rebased branch — the batch was only gated against its old base. A bump
     that fails any gate — including on a flaky test — is dropped until the
     next run with no retry, so read the issue's Skipped table before assuming
     a bump is bad. A week in which no bump survives deletes
