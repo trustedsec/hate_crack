@@ -267,10 +267,11 @@ git branch -d <branch>
 git push origin --delete <branch>            # only if it was pushed
 ```
 
-### History stays linear — always rebase, never a merge commit
+### History on nightly-dev stays linear — always rebase, never a merge commit
 
-**Every integration in this repo is a rebase plus a fast-forward. Nothing
-creates a merge commit.** A history full of merge bubbles arcing off and back is
+**Every integration into `nightly-dev` is a rebase plus a fast-forward. Nothing
+creates a merge commit there.** (The one merge commit is the promotion into
+`main`, below.) A history full of merge bubbles arcing off and back is
 hard to read, hard to bisect, and hides which commit actually introduced a
 change.
 
@@ -286,21 +287,13 @@ Two rules follow, and they are not optional:
 Re-run the gates *after* rebasing. A branch that passed before the rebase has
 not been tested against the code it is about to land on.
 
-For the batch integration into `main`, use a fast-forward too:
+`nightly-dev` is protected by a ruleset: no deletion, no force-push, and linear
+history is required, so a merge commit can never land there. The rebase plus
+`--ff-only` rule above is now enforced, not just policy.
 
-```bash
-git checkout main
-git merge --ff-only nightly-dev
-```
-
-This keeps `main` and `nightly-dev` sharing identical commit SHAs, which is what
-makes the next merge-down trivial. It works as long as every direct-to-`main`
-commit (a security hotfix) is merged down into `nightly-dev`
-before the next integration. **If the fast-forward refuses, merge `main` down
-into `nightly-dev` first and try again** — do not reach for a merge commit, and
-do not use GitHub's "Rebase and merge" button on the integration PR: it rewrites
-SHAs, which would leave `main` and `nightly-dev` with no commits in common and
-turn every subsequent merge-down into a conflict.
+`main` is different, and is covered under Batch integration below: it takes
+exactly one kind of change, a reviewed promotion pull request merged with a
+**merge commit**. Nothing is ever pushed to `main` directly.
 
 Note that history before 2026-07-30 contains merge commits. They stay. This
 policy applies going forward; shared history is not rewritten.
@@ -323,8 +316,9 @@ then open a PR against `nightly-dev`. `CONTRIBUTING.md` says so directly, since
 this file is published and read by people who cannot push here. Keep the two in
 step if this section changes.
 
-One exception still PRs directly to `main`, as documented below: a security fix
-that must ship immediately.
+There is no exception that goes straight to `main`: not a security fix, not a
+workflow change. A hotfix goes through `nightly-dev` and the same promotion PR,
+and can be promoted the moment it lands.
 
 Verify before merging, not after pushing. The full suite and the lint, type, and
 security gates all run locally — see the Commands section — so a broken
@@ -336,11 +330,33 @@ default branch to `nightly-dev`.
 
 ### Batch integration into main
 
-Once a batch of `nightly-dev` work has accumulated, merge it into `main`:
+`main` sits behind the `main-reviewed-promotion` ruleset. Direct pushes are
+rejected; **the only way to change `main` is a pull request from `nightly-dev`**
+that has one approving review from someone other than the last pusher (a new
+push dismisses earlier approvals), passes the required checks (Lint, type-check,
+and tests; Bandit SAST; pip-audit; Workflow lint; Promotion source), and is
+merged with a **merge commit** — the only allowed method. Squash and rebase are
+blocked, and nobody, admins included, can bypass it. `git push origin main` is
+rejected; do not try.
+
+**The ruleset itself cannot say "from `nightly-dev`".** GitHub rulesets have no
+rule for a PR's head branch, so until 2026-10-29 a fork PR aimed at `main` could
+land with one approval and green checks, and the claim above was enforced only
+by a reviewer noticing the base. `.github/workflows/promotion-source.yml` closes
+that gap: it fails any PR into `main` whose head is not this repo's
+`nightly-dev` (a fork's `nightly-dev` fails too). It is a separate workflow, not
+a `ci.yml` job, because it must also run on `edited` — retargeting a PR from
+`nightly-dev` to `main` fires only that event, and without it the green result
+from the old base would carry over. **It is enforcing only while `Promotion
+source` is listed as a required status check in the ruleset**; renaming the job
+silently leaves `main` requiring a check that never reports, which
+`tests/test_promotion_source.py` pins against.
+
+Once a batch of `nightly-dev` work has accumulated, open the promotion PR:
 
 ```bash
 gh pr create --base main --head nightly-dev \
-  --title "release: integrate nightly-dev batch of <YYYY-MM-DD>"
+  --title "chore(release): promote nightly-dev"
 ```
 
 Before merging that PR:
@@ -353,38 +369,38 @@ Before merging that PR:
    `Closes #NNN` line in the PR body for each one.** GitHub acts on a closing
    keyword only when it reaches the **default branch**, which is `main` — so a
    `Closes` in a work-branch commit closes nothing, and neither does one in a
-   work-branch PR, because those target `nightly-dev`. The batch PR is the
+   work-branch PR, because those target `nightly-dev`. The promotion PR is the
    single place a closing keyword actually fires. An issue fixed weeks ago
    otherwise stays open until somebody notices. Entries carry their issue
    inline as `(#NNN)` for exactly this reason; grep the section rather than
    trusting memory.
+3. Confirm the full suite and every CI job pass on the PR, including Workflow lint.
+4. Get the other maintainer's approval. Every release needs it.
 
-   (This used to be justified by "work branches never get their own PR." That
-   premise is gone — see Branching Policy — but the conclusion is unchanged and
-   the reason is now stated directly: it is about the default branch, not about
-   whether a PR exists.)
-3. Confirm the full suite and every CI job pass on the merge, including Workflow lint.
+Then merge with **"Create a merge commit"** in the GitHub UI, or
+`gh pr merge --merge`. This is the one place in the repo where a merge commit is
+correct and required, and the reason is the release tag. The tag lands on the
+promotion merge commit, which `nightly-dev` never contains, but every
+already-released `nightly-dev` commit is an ancestor of it. So
+`git log <last release tag>..nightly-dev` lists only new work, which is exactly
+what `tools/next_version.py` needs: its baseline is the highest final tag merged
+into `origin/main`. Squash and rebase both rewrite SHAs, so already-released
+commits would be re-counted in every later batch, and one old `feat` would keep
+forcing minor bumps forever. The merge commit's tree equals the `nightly-dev` tip
+it merged, so no merge-down step is needed afterwards.
 
-**Merge it with a local fast-forward, not with GitHub's merge button.** The PR
-exists for the CI run, the review, and the `Closes #NNN` refs — not for the merge
-mechanics. All three of GitHub's buttons break the linear-history rule: "Create a
-merge commit" adds the bubble, "Squash and merge" collapses the batch into one
-opaque commit, and "Rebase and merge" rewrites SHAs so `main` and `nightly-dev`
-end up with no commits in common.
+**Hotfixes use the same path.** A security fix goes onto `nightly-dev` like any
+other change, then through a promotion PR, and can be promoted immediately. Say
+so in the PR body.
 
-```bash
-git fetch origin
-git checkout main
-git merge --ff-only origin/nightly-dev
-git push origin main
-```
+**Emergency path.** An admin can set the `main-reviewed-promotion` ruleset
+enforcement to `disabled`; that is audit-logged. It is not a way around review
+in normal use: every release needs the other maintainer's approval.
 
-GitHub marks the PR merged automatically once its commits reach `main`, because
-the SHAs are identical. If the fast-forward refuses, `main` has commits
-`nightly-dev` lacks (a workflow change or a hotfix): merge `main` down into
-`nightly-dev` first, re-verify, then fast-forward.
+**Release tags are immutable.** A separate tag ruleset stops `v*` tags from being
+moved or deleted.
 
-Pushing to `main` runs `ci.yml`, whose `tag` job (gated on every other job
+Merging the promotion PR runs `ci.yml` on `main`, whose `tag` job (gated on every other job
 passing) cuts exactly
 ONE release for the whole batch — never one per change. Which component moves
 depends on what the batch contains: any `feat` in it lands on `X.(Y+1).0`, a
@@ -394,7 +410,7 @@ batch of only fixes, docs and chores lands on `X.Y.(Z+1)` (see Tagging below).
 
 Versions are ordinary semver, and the bump is derived from the commits in the
 batch. `nightly-dev` publishes **release candidates for the version the batch is
-heading toward**; merging down to `main` promotes that same target to its final
+heading toward**; promoting to `main` promotes that same target to its final
 release.
 
     2.20.0  <  2.20.1rc1  <  2.20.1rc2  <  2.20.1  <  2.21.0rc1  <  2.21.0
@@ -461,12 +477,12 @@ string to rewrite and no bump commit) and `tag_format = "v$version"` (this
 repo's tags have always been `v`-prefixed; commitizen's bare default would break
 continuity with every existing tag and with `setuptools-scm`).
 
-**Merge a direct-to-`main` security hotfix down into `nightly-dev` immediately.**
-Each branch runs its own `ci.yml` and computes its tag from its own checkout of
-`tools/next_version.py`, so a change to that module reaches nightly tags only
-once `nightly-dev` carries it. Until then, the nightly tag is computed by
-whatever version of the policy that branch happens to carry, or fails outright
-if the file is missing there.
+**A change to `tools/next_version.py` reaches nightly tags only once
+`nightly-dev` carries it.** Each branch runs its own `ci.yml` and computes its tag
+from its own checkout of that module, so until `nightly-dev` has it, the nightly
+tag is computed by whatever version of the policy that branch happens to carry,
+or fails outright if the file is missing there. Hotfixes land on `nightly-dev`
+first, so this does not arise from the promotion path.
 
 **Tagging is a job in `ci.yml`, not a separate workflow.** The `tag` job lists
 every other job in `needs:`, so a commit that failed or skipped any of them is
@@ -509,14 +525,14 @@ Two further consequences to keep in mind:
 
   Two things follow that are easy to get wrong:
 
-  - **Its PRs land by local fast-forward too, not with the merge button.** A
+  - **Its PRs land on `nightly-dev` by local fast-forward too, not with the merge button.** A
     Dependabot branch is almost always based on an older `nightly-dev`, so
     `--ff-only` refuses. Comment `@dependabot rebase` on the PR and wait for it
     to force-push, rather than force-pushing its branch yourself or falling back
     to a merge commit. Because each fast-forward moves `nightly-dev`, a batch of
     them is inherently serial: merge one, push, then re-request a rebase on the
     rest.
-  - **A `chore(deps)` merge to `main` does cut a release** — a patch.
+  - **Promoting a `chore(deps)` batch to `main` does cut a release** — a patch.
     `tools/next_version.py:106` returns `patch + 1` for any non-empty batch
     without a `feat`; it never returns "no bump". What the `chore(deps)` /
     `chore(ci)` prefix buys is that the batch stays a *patch* instead of being
@@ -525,9 +541,37 @@ Two further consequences to keep in mind:
     pre-2026-07-31 bump-pattern scheme; they now say the same thing this bullet
     does, so if the two ever disagree again, `tools/next_version.py` is the
     arbiter.
-- **A security fix that must ship immediately** can go straight to `main` as
-  its own PR, then be merged down into `nightly-dev` to keep the branches from
-  diverging. Say so explicitly in the PR body when doing this.
+  - **`.github/workflows/dependabot-batch.yml` batches the `uv` PRs weekly.**
+    It applies each open Dependabot `uv` bump to `nightly-dev`, keeps the ones
+    that pass the local gates, force-pushes `deps/dependabot-batch`, and
+    rewrites a tracking issue (label `dependabot-batch`) whose link opens the PR.
+    You still review and fast-forward it — the gates catch breakage, not a
+    malicious upstream release, and a `GITHUB_TOKEN` push to `nightly-dev`
+    would trigger neither `ci.yml` nor the rc tag. If `nightly-dev` moved
+    before you got to it and `--ff-only` refuses, re-run the workflow
+    (`gh workflow run dependabot-batch.yml`), which re-applies and re-gates
+    every bump against the current `nightly-dev`. Rebasing it by hand also
+    works, but then run the full gates yourself before merging, as for any
+    rebased branch — the batch was only gated against its old base. A bump
+    that fails any gate — including on a flaky test — is dropped until the
+    next run with no retry, so read the issue's Skipped table before assuming
+    a bump is bad. If no bump survives, the job re-gates the untouched
+    `nightly-dev` once, and if that fails too the issue says `nightly-dev`
+    itself is broken rather than blaming the bumps. A week in which no bump
+    survives deletes `deps/dependabot-batch`, unless a pull request from it is
+    still open (deleting a PR's head branch closes the PR), and a week with no
+    eligible Dependabot PRs closes the issue. It deliberately does **not** open the PR (that needs "Allow GitHub
+    Actions to create and approve pull requests", which would let a workflow
+    approve a promotion PR into `main`) and does **not** apply Actions bumps
+    (`GITHUB_TOKEN` has no `workflows` permission, and that power stays out of
+    automation). Triggers are only `schedule` and `workflow_dispatch`. The
+    workflow file runs from `main`'s copy, so edits to it take effect only after
+    promotion, but both jobs check out `nightly-dev`, so
+    `tools/dependabot_batch.py` takes effect as soon as it lands there. Logic
+    and trust model: `tools/dependabot_batch.py`.
+- **A security fix that must ship immediately** goes through `nightly-dev` and
+  the promotion PR like everything else, and can be promoted as soon as it
+  lands. There is no direct-to-`main` path.
 
 ## Worktree Policy
 

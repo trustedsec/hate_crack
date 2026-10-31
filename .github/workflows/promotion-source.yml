@@ -1,0 +1,41 @@
+name: Promotion source
+
+# main changes only through a promotion PR from this repo's nightly-dev. The
+# main-reviewed-promotion ruleset enforces review, checks and merge method, but
+# GitHub rulesets cannot restrict a PR's head branch, so this check does. It is
+# a required status check on main; without that, a failure here is advisory.
+#
+# A separate workflow rather than a ci.yml job because it must also run on
+# `edited`: retargeting a PR from nightly-dev to main fires only that event, and
+# re-running the whole of ci.yml on every title or body edit is wasteful.
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened, edited]
+
+permissions: {}
+
+jobs:
+  promotion-source:
+    name: Promotion source
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require head to be this repo's nightly-dev
+        # Passed through env, never interpolated into the script: head_ref is
+        # chosen by whoever opened the PR.
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # A fork's branch can also be called nightly-dev, so the repo is
+          # checked as well as the branch name.
+          if [ "$HEAD_REPO" = "$BASE_REPO" ] && [ "$HEAD_REF" = "nightly-dev" ]; then
+            echo "Promotion from $BASE_REPO:nightly-dev"
+            exit 0
+          fi
+          echo "::error::main accepts pull requests only from $BASE_REPO:nightly-dev, not $HEAD_REPO:$HEAD_REF. Retarget this pull request to nightly-dev; see CONTRIBUTING.md."
+          exit 1

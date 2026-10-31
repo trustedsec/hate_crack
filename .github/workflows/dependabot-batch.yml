@@ -1,0 +1,125 @@
+name: Dependabot batch
+
+# Weekly: apply every open Dependabot uv PR onto one branch off nightly-dev,
+# keep only the bumps that pass the local gates, push deps/dependabot-batch and
+# describe the result in a tracking issue. A human opens the PR from the issue's
+# link, reviews it, and fast-forwards it per CLAUDE.md. Trust model and
+# rationale: tools/dependabot_batch.py.
+#
+# Deliberately no pull_request, pull_request_target, issue_comment, push or
+# workflow_run trigger: nothing anyone outside the repo does can start this.
+# GitHub permits workflow_dispatch only to users with write access.
+# tests/test_dependabot_batch_workflow.py pins all of this.
+on:
+  schedule:
+    # Tuesday 10:00 UTC, the morning after Dependabot's Monday weekly run.
+    - cron: "0 10 * * 2"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: dependabot-batch
+  cancel-in-progress: false
+
+jobs:
+  combine:
+    name: Combine and gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # A scheduled run starts from main's copy of this file; the base is
+          # nightly-dev.
+          ref: nightly-dev
+          persist-credentials: false
+          # tests/test_main_pcfg.py needs pcfg_cracker/pcfg_guesser.py on disk
+          submodules: true
+
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4  # v10.1.0
+        with:
+          python-version: "3.13"
+          # This job's output feeds a push; never restore a shared cache into it.
+          enable-cache: false
+
+      - name: List eligible Dependabot PRs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: python3 -I tools/dependabot_batch.py fetch --repo "$REPO" --out "$RUNNER_TEMP/candidates.json"
+
+      # No token in this step's environment: it executes the bumped
+      # third-party code (the test suite runs against it).
+      - name: Apply and gate each bump
+        run: |
+          mkdir -p "$RUNNER_TEMP/batch"
+          python3 -I tools/dependabot_batch.py combine --candidates "$RUNNER_TEMP/candidates.json" --out "$RUNNER_TEMP/batch"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: dependabot-batch
+          path: ${{ runner.temp }}/batch/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Push branch and update issue
+    needs: combine
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: nightly-dev
+          persist-credentials: false
+          # verify needs the bundle's prerequisite and the ancestry check.
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: dependabot-batch
+          path: ${{ runner.temp }}/batch
+
+      # Never installs or runs the project. The verifier is stdlib-only and
+      # trusts nothing combine produced; see verify_bundle().
+      - name: Verify and push
+        id: push
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          batch="$RUNNER_TEMP/batch"
+          remote="https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+          if [ ! -f "$batch/batch.bundle" ]; then
+            # Nothing kept this week: remove last week's branch so it cannot be
+            # mistaken for current -- unless a PR from it is still open, since
+            # deleting a PR's head branch closes the PR.
+            open_prs=$(gh pr list --repo "$REPO" --head deps/dependabot-batch --state open --json number --jq 'length')
+            if [ "$open_prs" != "0" ]; then
+              echo "::notice::Nothing kept this week, but a pull request from deps/dependabot-batch is still open; leaving the branch in place."
+            elif git ls-remote --exit-code --heads "$remote" refs/heads/deps/dependabot-batch >/dev/null; then
+              git push "$remote" --delete refs/heads/deps/dependabot-batch
+            fi
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          tip=$(python3 -I tools/dependabot_batch.py verify --repo "$REPO" --report "$batch/report.json" --bundle "$batch/batch.bundle")
+          git push --force "$remote" "${tip}:refs/heads/deps/dependabot-batch"
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Update tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          PUSHED: ${{ steps.push.outputs.pushed }}
+        run: python3 -I tools/dependabot_batch.py issue --repo "$REPO" --report "$RUNNER_TEMP/batch/report.json" --run-url "$RUN_URL" --pushed "$PUSHED"

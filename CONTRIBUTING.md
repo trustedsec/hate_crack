@@ -39,8 +39,11 @@ own — two such gaps were found and closed in August 2026, so more may exist.
 
 `main` is the default branch, so GitHub will preselect it — **change the base to
 `nightly-dev`.** `main` holds the last released state and receives work only
-through a batch integration merge, so a pull request landing there directly
-breaks that and creates cleanup for the maintainers.
+through a reviewed promotion pull request from `nightly-dev`. A required check,
+`Promotion source`, fails any pull request into `main` whose head is not this
+repository's `nightly-dev`, so a pull request targeting `main` directly cannot
+land. If you opened one by mistake, edit it and change the base; you do not need
+to open a new one.
 
 ```bash
 git clone https://github.com/<you>/hate_crack
@@ -50,17 +53,17 @@ git checkout -b my-change origin/nightly-dev
 git push -u origin my-change     # then open a PR with base: nightly-dev
 ```
 
-Two exceptions go straight to `main`: a change to a file in
-`.github/workflows/`, because GitHub only dispatches a workflow that exists on
-the default branch, and a security fix that must ship immediately. Say which one
-applies in the PR body.
+There are no exceptions: a workflow change or a security fix also goes through
+`nightly-dev`, and maintainers can promote it immediately. Say so in the PR body
+if it is urgent.
 
 `CLAUDE.md` describes the same flow from the maintainer side, so it is worth a
 read if you want the reasoning. One difference in mechanics, and it is not
 something you need to do anything about: maintainers merge an approved branch
-with a local fast-forward rather than with GitHub's merge button, because every
-button leaves either a merge commit or rewritten SHAs and this repository keeps
-its history linear. GitHub marks your pull request merged either way.
+into `nightly-dev` with a local fast-forward rather than with GitHub's merge
+button, because `nightly-dev` requires linear history. GitHub marks your pull
+request merged either way. Releases are separate: `nightly-dev` is promoted to
+`main` by a reviewed pull request merged with a merge commit.
 
 ## Setting up
 
@@ -83,7 +86,9 @@ hooks rewrite files in place, so re-stage and re-commit after they fire.
 ## Before you open a pull request
 
 Run everything below and make sure it passes. These are the same gates CI runs,
-so running them locally is faster than waiting.
+so running them locally is faster than waiting. The pull request template
+(`.github/PULL_REQUEST_TEMPLATE.md`) repeats this list, together with the
+engagement-data and changelog rules, as a checklist.
 
 ```bash
 # Tests
