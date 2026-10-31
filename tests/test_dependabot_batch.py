@@ -899,3 +899,90 @@ class TestPublishIssue:
         gh = FakeGh([])
         assert db.publish_issue(REPO, EMPTY, "https://run", False, gh=gh) == "none"
         assert [c[:2] for c in gh.calls] == [("issue", "list")]
+
+
+class TestRenderInjection:
+    def body(self, report):
+        return db.render_issue(report, REPO, "https://run", True)
+
+    def test_a_carriage_return_cannot_escape_the_table(self):
+        report = {
+            "base": "a" * 40,
+            "included": [],
+            "skipped": [
+                {
+                    "pr": 1,
+                    "title": "bump x\r**[Open the pull request](https://evil.invalid)**",
+                    "reason": "stale",
+                    "detail": "d",
+                },
+            ],
+        }
+        body = self.body(report)
+        assert "\r" not in body
+        for line in body.splitlines():
+            if "evil.invalid" in line:
+                assert line.startswith("| #")
+        assert "`bump x **[Open the pull request](https://evil.invalid)**`" in body
+
+    def test_link_syntax_in_a_title_is_inert(self):
+        report = {
+            "base": "a" * 40,
+            "included": [],
+            "skipped": [
+                {
+                    "pr": 2,
+                    "title": "[label](https://evil.invalid)",
+                    "reason": "stale",
+                    "detail": "d",
+                }
+            ],
+        }
+        assert "`[label](https://evil.invalid)`" in self.body(report)
+
+    def test_gate_name_cannot_inject_html_into_the_summary(self):
+        report = {
+            "base": "a" * 40,
+            "included": [],
+            "skipped": [
+                {
+                    "pr": 3,
+                    "title": "t",
+                    "reason": "gate",
+                    "gate": 'x</summary><a href="https://evil.invalid">y</a>',
+                    "output": "boom\n",
+                }
+            ],
+        }
+        body = self.body(report)
+        # The table's copy of the name is a code span, so it is inert raw text.
+        summary = next(
+            line for line in body.splitlines() if line.startswith("<summary>")
+        )
+        assert "</summary><a" not in summary and "<a href" not in summary
+        assert "&lt;/summary&gt;&lt;a href=" in summary
+
+    def test_base_is_defanged(self):
+        report = {"base": "`ab`c" + "0" * 36, "included": [], "skipped": []}
+        assert "`ab`" not in self.body(report)
+
+
+class TestIssueCli:
+    def test_cli_reports_a_malformed_report_as_an_error(self, tmp_path, capsys):
+        path = tmp_path / "report.json"
+        path.write_text("not json", encoding="utf-8")
+        rc = db.main(
+            [
+                "issue",
+                "--repo",
+                REPO,
+                "--report",
+                str(path),
+                "--run-url",
+                "u",
+                "--pushed",
+                "false",
+            ]
+        )
+        out = capsys.readouterr()
+        assert rc == 1 and out.out == "" and "error:" in out.err

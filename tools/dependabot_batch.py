@@ -24,6 +24,7 @@ runner's system ``python3``. tests/test_dependabot_batch.py enforces both.
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import os
 import re
@@ -493,7 +494,7 @@ _REASONS = {
     "actions": "GitHub Actions bump: land by hand (`GITHUB_TOKEN` cannot push workflow changes)",
     "stale": "stale: {detail}",
     "unparseable": "not a plain pyproject.toml bump: {detail}",
-    "gate": "failed `{gate}`",
+    "gate": "failed {gate}",
 }
 
 
@@ -502,15 +503,27 @@ def _defang(text: str) -> str:
     return text.replace("`", "\u02cb").replace("@", "@\u200b")
 
 
-def _cell(text: str) -> str:
-    return _defang(text).replace("\n", " ").replace("|", "\\|")
+def _oneline(text: str) -> str:
+    """Collapse every CommonMark line ending; a lone CR ends a line too."""
+    return text.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+
+
+def _code(text: str) -> str:
+    """Untrusted text as one inline code span, safe inside a table cell.
+
+    Nothing renders inside a code span -- no links, images, HTML or
+    emphasis -- and _defang leaves no backtick that could close it early.
+    A pipe still needs escaping, because GFM splits table cells first.
+    """
+    text = _oneline(_defang(text)).replace("|", "\\|")
+    return f"`{text}`" if text.strip() else "(none)"
 
 
 def render_issue(report: dict, repo: str, run_url: str, pushed: bool) -> str:
     lines = [
         "Written by `.github/workflows/dependabot-batch.yml`; each run rewrites this body.",
         "",
-        f"- Base: `{report['base'][:12]}` on `{BASE_BRANCH}`",
+        f"- Base: {_code(report['base'][:12])} on `{BASE_BRANCH}`",
         f"- Run: {run_url}",
         "",
     ]
@@ -530,7 +543,7 @@ def render_issue(report: dict, repo: str, run_url: str, pushed: bool) -> str:
         ]
         for entry in report["included"]:
             change = "<br>".join(
-                f"`{_cell(old.strip())}` → `{_cell(new.strip())}`"
+                f"{_code(old.strip())} → {_code(new.strip())}"
                 for old, new in entry["changes"]
             )
             lines.append(f"| #{entry['pr']} | {change} |")
@@ -541,15 +554,16 @@ def render_issue(report: dict, repo: str, run_url: str, pushed: bool) -> str:
         lines += ["## Skipped", "", "| PR | Title | Reason |", "|---|---|---|"]
         for entry in report["skipped"]:
             reason = _REASONS[entry["reason"]].format(
-                detail=_cell(entry.get("detail", "")), gate=_cell(entry.get("gate", ""))
+                detail=_code(entry.get("detail", "")), gate=_code(entry.get("gate", ""))
             )
-            lines.append(f"| #{entry['pr']} | {_cell(entry['title'])} | {reason} |")
+            lines.append(f"| #{entry['pr']} | {_code(entry['title'])} | {reason} |")
         lines.append("")
         for entry in report["skipped"]:
             if entry["reason"] == "gate":
                 lines += [
                     "<details>",
-                    f"<summary>#{entry['pr']}: {_cell(entry['gate'])} output</summary>",
+                    f"<summary>#{entry['pr']}: "
+                    f"{html.escape(_oneline(_defang(entry['gate'])))} output</summary>",
                     "",
                     "```",
                     _defang(entry["output"]).rstrip("\n"),
@@ -688,8 +702,17 @@ def _cmd_combine(args) -> int:
 
 
 def _cmd_issue(args) -> int:
-    report = json.loads(Path(args.report).read_text(encoding="utf-8"))
-    print(publish_issue(args.repo, report, args.run_url, args.pushed == "true"))
+    try:
+        report = json.loads(Path(args.report).read_text(encoding="utf-8"))
+        verb = publish_issue(args.repo, report, args.run_url, args.pushed == "true")
+    except subprocess.CalledProcessError as exc:
+        detail = exc.stderr.strip() if exc.stderr else str(exc)
+        print(f"error: gh failed: {detail}", file=sys.stderr)
+        return 1
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(verb)
     return 0
 
 
