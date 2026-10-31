@@ -23,7 +23,13 @@ runner's system ``python3``. tests/test_dependabot_batch.py enforces both.
 
 from __future__ import annotations
 
+import argparse
+import json
+import os
 import re
+import subprocess
+import sys
+from pathlib import Path
 
 DEPENDABOT_ID = 49699333
 DEPENDABOT_LOGIN = "dependabot[bot]"
@@ -203,3 +209,198 @@ def gate_commands(ci_text: str) -> list[tuple[str, list[str], dict[str, str]]]:
             {"HATE_CRACK_SKIP_INIT": "1"},
         ),
     ]
+
+
+SYNC_COMMAND = ["uv", "sync", "--dev"]
+_TAIL_LINES = 60
+
+
+def git(cwd: Path, *args: str, input: str | None = None) -> str:
+    """Run git in ``cwd``; raise on failure. Config that could alter output is pinned."""
+    return subprocess.run(
+        ["git", "-c", "core.quotepath=off", *args],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        text=True,
+        input=input,
+    ).stdout
+
+
+def _tail(text: str) -> str:
+    lines = text.splitlines(keepends=True)
+    return "".join(lines[-_TAIL_LINES:])
+
+
+def run_gates(cwd: Path, gates) -> tuple[str, str] | None:
+    """Sync, then run each gate; stop at the first non-zero exit.
+
+    Exit codes are read from the process itself -- never through a pipe, which
+    would report the pipe's last command instead.
+    """
+    for name, argv, extra in [("uv-sync", SYNC_COMMAND, {}), *gates]:
+        proc = subprocess.run(
+            argv,
+            cwd=cwd,
+            env={**os.environ, **extra},
+            capture_output=True,
+            text=True,
+            errors="replace",
+        )
+        if proc.returncode != 0:
+            return name, _tail(proc.stdout + proc.stderr)
+    return None
+
+
+def combine(
+    repo_dir: Path, candidates: list[dict], gates, gate_runner=run_gates
+) -> dict:
+    """Apply each candidate onto HEAD, oldest PR first, keeping only green ones.
+
+    Each kept bump is one commit under Dependabot's author and message, so the
+    ``chore(deps)`` prefix -- and with it the patch-only release bump -- survives.
+    """
+    base = git(repo_dir, "rev-parse", "HEAD").strip()
+    git(repo_dir, "checkout", "-q", "-B", BUNDLE_REF.removeprefix("refs/heads/"))
+    report: dict = {"base": base, "included": [], "skipped": []}
+    target = repo_dir / TARGET_FILE
+    for cand in sorted(candidates, key=lambda c: c["number"]):
+        entry = {"pr": cand["number"], "title": cand["title"]}
+        if cand["kind"] == "actions":
+            report["skipped"].append({**entry, "reason": "actions"})
+            continue
+        try:
+            pairs = parse_bump(cand["diff"])
+            updated = apply_bump(target.read_text(encoding="utf-8"), pairs)
+        except StaleBump as exc:
+            report["skipped"].append({**entry, "reason": "stale", "detail": str(exc)})
+            continue
+        except BatchError as exc:
+            report["skipped"].append(
+                {**entry, "reason": "unparseable", "detail": str(exc)}
+            )
+            continue
+        target.write_text(updated, encoding="utf-8")
+        git(repo_dir, "add", TARGET_FILE)
+        git(
+            repo_dir,
+            "-c",
+            f"user.name={COMMITTER_NAME}",
+            "-c",
+            f"user.email={COMMITTER_EMAIL}",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-q",
+            "--no-verify",
+            "--author",
+            DEPENDABOT_AUTHOR,
+            "-F",
+            "-",
+            input=commit_message(cand["message"], cand["number"]),
+        )
+        failure = gate_runner(repo_dir, gates)
+        if failure is None:
+            report["included"].append({**entry, "changes": [list(p) for p in pairs]})
+        else:
+            git(repo_dir, "reset", "-q", "--hard", "HEAD~1")
+            report["skipped"].append(
+                {**entry, "reason": "gate", "gate": failure[0], "output": failure[1]}
+            )
+    return report
+
+
+def write_bundle(repo_dir: Path, report: dict, path: Path) -> bool:
+    """Bundle ``base..deps-batch``; return False (writing nothing) if empty."""
+    if not report["included"]:
+        return False
+    git(repo_dir, "bundle", "create", str(path), f"{report['base']}..{BUNDLE_REF}")
+    return True
+
+
+def _gh(*args: str) -> str:
+    return subprocess.run(
+        ["gh", *args], check=True, capture_output=True, text=True
+    ).stdout
+
+
+def _gh_pages(path: str) -> list:
+    pages = json.loads(_gh("api", "--paginate", "--slurp", path))
+    return [item for page in pages for item in page]
+
+
+def pr_diff(repo: str, number: int) -> str:
+    return _gh(
+        "api",
+        "-H",
+        "Accept: application/vnd.github.diff",
+        f"repos/{repo}/pulls/{number}",
+    )
+
+
+def fetch_candidates(repo: str) -> list[dict]:
+    """Open PRs against nightly-dev that ``classify_pr`` accepts."""
+    out = []
+    for pr in _gh_pages(
+        f"repos/{repo}/pulls?state=open&base={BASE_BRANCH}&per_page=100"
+    ):
+        commits = _gh_pages(f"repos/{repo}/pulls/{pr['number']}/commits?per_page=100")
+        authors = [(c.get("author") or {}).get("login") for c in commits]
+        kind = classify_pr(pr, authors, repo)
+        if kind == "ignore":
+            continue
+        out.append(
+            {
+                "number": pr["number"],
+                "title": pr["title"],
+                "kind": kind,
+                "diff": pr_diff(repo, pr["number"]) if kind == "uv" else "",
+                "message": commits[-1]["commit"]["message"],
+            }
+        )
+    return out
+
+
+def _cmd_fetch(args) -> int:
+    Path(args.out).write_text(
+        json.dumps(fetch_candidates(args.repo), indent=2), encoding="utf-8"
+    )
+    return 0
+
+
+def _cmd_combine(args) -> int:
+    repo_dir = Path.cwd()
+    candidates = json.loads(Path(args.candidates).read_text(encoding="utf-8"))
+    ci_text = (repo_dir / ".github" / "workflows" / "ci.yml").read_text(
+        encoding="utf-8"
+    )
+    report = combine(repo_dir, candidates, gate_commands(ci_text))
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    kept = write_bundle(repo_dir, report, out / "batch.bundle")
+    print(
+        f"kept {len(report['included'])}, skipped {len(report['skipped'])}, bundle={kept}"
+    )
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    sub = parser.add_subparsers(dest="command", required=True)
+    p = sub.add_parser("fetch", help="list eligible Dependabot PRs (needs GH_TOKEN)")
+    p.add_argument("--repo", required=True)
+    p.add_argument("--out", required=True)
+    p.set_defaults(func=_cmd_fetch)
+    p = sub.add_parser(
+        "combine", help="apply and gate bumps in the cwd checkout (no token)"
+    )
+    p.add_argument("--candidates", required=True)
+    p.add_argument("--out", required=True)
+    p.set_defaults(func=_cmd_combine)
+    args = parser.parse_args(argv)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

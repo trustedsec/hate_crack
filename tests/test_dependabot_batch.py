@@ -12,6 +12,7 @@ hand-written.
 from __future__ import annotations
 
 import ast
+import subprocess
 import sys
 from pathlib import Path
 
@@ -323,3 +324,161 @@ class TestGates:
             "pip-audit",
             "pytest",
         ]
+
+
+def _git(cwd, *args):
+    return subprocess.run(
+        ["git", *args], cwd=cwd, check=True, capture_output=True, text=True
+    ).stdout
+
+
+def _repo(tmp_path: Path, name: str = "repo") -> Path:
+    repo = tmp_path / name
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "nightly-dev")
+    _git(repo, "config", "user.name", "Test")
+    _git(repo, "config", "user.email", "test@example.com")
+    _git(repo, "config", "commit.gpgsign", "false")
+    (repo / "pyproject.toml").write_text(PYPROJECT)
+    _git(repo, "add", "pyproject.toml")
+    _git(repo, "commit", "-q", "-m", "base")
+    return repo
+
+
+def _cand(number, diff, kind="uv"):
+    return {
+        "number": number,
+        "title": f"bump #{number}",
+        "kind": kind,
+        "diff": diff,
+        "message": f"chore(deps): bump #{number}\n\nSigned-off-by: dependabot[bot] <support@github.com>\n",
+    }
+
+
+def _green(cwd, gates):
+    return None
+
+
+class TestCombine:
+    def test_applies_every_green_bump_as_its_own_commit(self, tmp_path):
+        repo = _repo(tmp_path)
+        base = _git(repo, "rev-parse", "HEAD").strip()
+        report = db.combine(
+            repo, [_cand(352, RUFF_DIFF), _cand(353, TY_DIFF)], [], _green
+        )
+        assert report["base"] == base
+        assert [e["pr"] for e in report["included"]] == [352, 353]
+        assert report["skipped"] == []
+        log = _git(repo, "log", "--format=%an <%ae>|%cn|%B%x1e", f"{base}..HEAD")
+        entries = [e.strip() for e in log.split("\x1e") if e.strip()]
+        assert len(entries) == 2
+        for entry in entries:
+            assert entry.startswith(
+                db.DEPENDABOT_AUTHOR + "|" + db.COMMITTER_NAME + "|"
+            )
+        assert sorted(db.TRAILER_RE.findall(log)) == ["352", "353"]
+        text = (repo / "pyproject.toml").read_text()
+        assert '"ty==0.0.93"' in text and '"ruff==0.17.0"' in text
+
+    def test_processes_oldest_pr_first(self, tmp_path):
+        repo = _repo(tmp_path)
+        report = db.combine(
+            repo, [_cand(353, TY_DIFF), _cand(347, ATOMIC_DIFF)], [], _green
+        )
+        assert [e["pr"] for e in report["included"]] == [347, 353]
+
+    def test_red_bump_is_dropped_and_later_bumps_still_land(self, tmp_path):
+        repo = _repo(tmp_path)
+
+        def red_on_ruff(cwd, gates):
+            if '"ruff==0.17.0"' in (cwd / "pyproject.toml").read_text():
+                return ("ruff", "E999 new rule\n")
+            return None
+
+        report = db.combine(
+            repo, [_cand(352, RUFF_DIFF), _cand(353, TY_DIFF)], [], red_on_ruff
+        )
+        assert [e["pr"] for e in report["included"]] == [353]
+        (skip,) = report["skipped"]
+        assert skip == {
+            "pr": 352,
+            "title": "bump #352",
+            "reason": "gate",
+            "gate": "ruff",
+            "output": "E999 new rule\n",
+        }
+        assert '"ruff==0.16.8"' in (repo / "pyproject.toml").read_text()
+
+    def test_actions_pr_is_reported_not_applied(self, tmp_path):
+        repo = _repo(tmp_path)
+        report = db.combine(repo, [_cand(360, "", kind="actions")], [], _green)
+        assert report["included"] == []
+        assert report["skipped"][0]["reason"] == "actions"
+
+    def test_stale_and_unparseable_are_reported(self, tmp_path):
+        repo = _repo(tmp_path)
+        stale = TY_DIFF.replace("ty==0.0.82", "ty==0.0.50")
+        bad = TY_DIFF.replace("pyproject.toml", "setup.py")
+        report = db.combine(repo, [_cand(1, stale), _cand(2, bad)], [], _green)
+        reasons = {s["pr"]: s["reason"] for s in report["skipped"]}
+        assert reasons == {1: "stale", 2: "unparseable"}
+        assert all(s["detail"] for s in report["skipped"])
+
+    def test_bundle_holds_only_kept_commits(self, tmp_path):
+        repo = _repo(tmp_path)
+        report = db.combine(repo, [_cand(353, TY_DIFF)], [], _green)
+        bundle = tmp_path / "batch.bundle"
+        assert db.write_bundle(repo, report, bundle) is True
+        head = bundle.read_bytes().split(b"\n\n", 1)[0].decode()
+        assert f"-{report['base']}" in head
+        assert db.BUNDLE_REF in head
+
+    def test_no_bundle_when_nothing_kept(self, tmp_path):
+        repo = _repo(tmp_path)
+        report = db.combine(repo, [_cand(360, "", kind="actions")], [], _green)
+        bundle = tmp_path / "batch.bundle"
+        assert db.write_bundle(repo, report, bundle) is False
+        assert not bundle.exists()
+
+
+class TestRunGates:
+    def test_first_failure_wins_and_reports_its_tail(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(db, "SYNC_COMMAND", ["true"])
+        gates = [
+            ("ok", ["true"], {}),
+            (
+                "bad",
+                ["sh", "-c", 'for i in $(seq 1 100); do echo "line $i"; done; exit 3'],
+                {},
+            ),
+            ("never", ["sh", "-c", "touch never-ran"], {}),
+        ]
+        name, tail = db.run_gates(tmp_path, gates)
+        assert name == "bad"
+        assert tail.splitlines()[-1] == "line 100"
+        assert len(tail.splitlines()) == 60
+        assert not (tmp_path / "never-ran").exists()
+
+    def test_all_green_returns_none(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(db, "SYNC_COMMAND", ["true"])
+        assert db.run_gates(tmp_path, [("ok", ["true"], {})]) is None
+
+    def test_failed_sync_is_reported_as_a_gate(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            db, "SYNC_COMMAND", ["sh", "-c", "echo unsatisfiable; exit 1"]
+        )
+        assert db.run_gates(tmp_path, [("ok", ["true"], {})]) == (
+            "uv-sync",
+            "unsatisfiable\n",
+        )
+
+    def test_extra_env_reaches_the_gate(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(db, "SYNC_COMMAND", ["true"])
+        gates = [
+            (
+                "env",
+                ["sh", "-c", 'test "$HATE_CRACK_SKIP_INIT" = 1'],
+                {"HATE_CRACK_SKIP_INIT": "1"},
+            )
+        ]
+        assert db.run_gates(tmp_path, gates) is None
