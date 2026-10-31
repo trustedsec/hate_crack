@@ -29,6 +29,8 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
+import urllib.parse
 from collections.abc import Callable
 from pathlib import Path
 
@@ -485,6 +487,165 @@ def verify_bundle(
     return tip
 
 
+PR_TITLE = "chore(deps): batch Dependabot updates"
+ISSUE_TITLE = "Dependabot batch"
+_REASONS = {
+    "actions": "GitHub Actions bump: land by hand (`GITHUB_TOKEN` cannot push workflow changes)",
+    "stale": "stale: {detail}",
+    "unparseable": "not a plain pyproject.toml bump: {detail}",
+    "gate": "failed `{gate}`",
+}
+
+
+def _defang(text: str) -> str:
+    """Neutralise text from PR titles or tool output before it reaches markdown."""
+    return text.replace("`", "\u02cb").replace("@", "@\u200b")
+
+
+def _cell(text: str) -> str:
+    return _defang(text).replace("\n", " ").replace("|", "\\|")
+
+
+def render_issue(report: dict, repo: str, run_url: str, pushed: bool) -> str:
+    lines = [
+        "Written by `.github/workflows/dependabot-batch.yml`; each run rewrites this body.",
+        "",
+        f"- Base: `{report['base'][:12]}` on `{BASE_BRANCH}`",
+        f"- Run: {run_url}",
+        "",
+    ]
+    if pushed and report["included"]:
+        url = (
+            f"https://github.com/{repo}/compare/{BASE_BRANCH}...{BATCH_BRANCH}"
+            f"?expand=1&title={urllib.parse.quote(PR_TITLE)}"
+        )
+        lines += [
+            f"**[Open the pull request]({url})** against `{BASE_BRANCH}`, review the bumps,",
+            "then fast-forward it locally per the Branching Policy in CLAUDE.md.",
+            "",
+            "## Included",
+            "",
+            "| PR | Change |",
+            "|---|---|",
+        ]
+        for entry in report["included"]:
+            change = "<br>".join(
+                f"`{_cell(old.strip())}` → `{_cell(new.strip())}`"
+                for old, new in entry["changes"]
+            )
+            lines.append(f"| #{entry['pr']} | {change} |")
+        lines.append("")
+    else:
+        lines += ["No bump passed the gates, so nothing was pushed.", ""]
+    if report["skipped"]:
+        lines += ["## Skipped", "", "| PR | Title | Reason |", "|---|---|---|"]
+        for entry in report["skipped"]:
+            reason = _REASONS[entry["reason"]].format(
+                detail=_cell(entry.get("detail", "")), gate=_cell(entry.get("gate", ""))
+            )
+            lines.append(f"| #{entry['pr']} | {_cell(entry['title'])} | {reason} |")
+        lines.append("")
+        for entry in report["skipped"]:
+            if entry["reason"] == "gate":
+                lines += [
+                    "<details>",
+                    f"<summary>#{entry['pr']}: {_cell(entry['gate'])} output</summary>",
+                    "",
+                    "```",
+                    _defang(entry["output"]).rstrip("\n"),
+                    "```",
+                    "",
+                    "</details>",
+                    "",
+                ]
+    return "\n".join(lines)
+
+
+def pick_issue(issues: list[dict]) -> int | None:
+    """The oldest open tracking issue opened by GitHub Actions itself.
+
+    The label alone is not trusted: anyone can open an issue, and a maintainer
+    may label it by mistake. Only an issue this workflow created is rewritten.
+    """
+    ours = [
+        issue["number"]
+        for issue in issues
+        if (issue.get("author") or {}).get("login") == "app/github-actions"
+        and (issue.get("author") or {}).get("is_bot")
+    ]
+    return min(ours) if ours else None
+
+
+def publish_issue(repo: str, report: dict, run_url: str, pushed: bool, gh=_gh) -> str:
+    existing = pick_issue(
+        json.loads(
+            gh(
+                "issue",
+                "list",
+                "--repo",
+                repo,
+                "--label",
+                LABEL,
+                "--state",
+                "open",
+                "--json",
+                "number,author",
+                "--limit",
+                "100",
+            )
+        )
+    )
+    if not report["included"] and not report["skipped"]:
+        if existing is None:
+            return "none"
+        gh(
+            "issue",
+            "close",
+            str(existing),
+            "--repo",
+            repo,
+            "--comment",
+            "No open Dependabot updates remain.",
+        )
+        return "closed"
+    with tempfile.NamedTemporaryFile(
+        "w", suffix=".md", delete=False, encoding="utf-8"
+    ) as fh:
+        fh.write(render_issue(report, repo, run_url, pushed))
+        body_file = fh.name
+    try:
+        if existing is not None:
+            gh("issue", "edit", str(existing), "--repo", repo, "--body-file", body_file)
+            return "updated"
+        gh(
+            "label",
+            "create",
+            LABEL,
+            "--repo",
+            repo,
+            "--force",
+            "--color",
+            "0366d6",
+            "--description",
+            "Weekly Dependabot batch tracking issue",
+        )
+        gh(
+            "issue",
+            "create",
+            "--repo",
+            repo,
+            "--title",
+            ISSUE_TITLE,
+            "--label",
+            LABEL,
+            "--body-file",
+            body_file,
+        )
+        return "created"
+    finally:
+        os.unlink(body_file)
+
+
 def _cmd_verify(args) -> int:
     try:
         report = json.loads(Path(args.report).read_text(encoding="utf-8"))
@@ -526,6 +687,12 @@ def _cmd_combine(args) -> int:
     return 0
 
 
+def _cmd_issue(args) -> int:
+    report = json.loads(Path(args.report).read_text(encoding="utf-8"))
+    print(publish_issue(args.repo, report, args.run_url, args.pushed == "true"))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -544,6 +711,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--report", required=True)
     p.add_argument("--bundle", required=True)
     p.set_defaults(func=_cmd_verify)
+    p = sub.add_parser("issue", help="create, update or close the tracking issue")
+    p.add_argument("--repo", required=True)
+    p.add_argument("--report", required=True)
+    p.add_argument("--run-url", required=True)
+    p.add_argument("--pushed", required=True, choices=["true", "false"])
+    p.set_defaults(func=_cmd_issue)
     args = parser.parse_args(argv)
     return args.func(args)
 

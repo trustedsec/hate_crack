@@ -771,3 +771,131 @@ class TestVerifyBundle:
         )
         out = capsys.readouterr()
         assert rc == 1 and out.out == "" and "error:" in out.err
+
+
+REPORT = {
+    "base": "a" * 40,
+    "included": [
+        {
+            "pr": 353,
+            "title": "bump ty",
+            "changes": [['    "ty==0.0.82",', '    "ty==0.0.93",']],
+        }
+    ],
+    "skipped": [
+        {"pr": 360, "title": "bump setup-uv", "reason": "actions"},
+        {
+            "pr": 352,
+            "title": "bump | ruff",
+            "reason": "gate",
+            "gate": "ruff",
+            "output": "```\nE999 @someone `x`\n",
+        },
+        {
+            "pr": 343,
+            "title": "bump scm",
+            "reason": "stale",
+            "detail": "expected exactly one line",
+        },
+    ],
+}
+
+
+class TestRenderIssue:
+    def body(self, **kw):
+        args = {
+            "report": REPORT,
+            "repo": REPO,
+            "run_url": "https://run",
+            "pushed": True,
+            **kw,
+        }
+        return db.render_issue(**args)
+
+    def test_compare_link_targets_the_batch_branch_with_a_title(self):
+        assert (
+            f"https://github.com/{REPO}/compare/nightly-dev...deps/dependabot-batch?expand=1"
+            "&title=chore%28deps%29%3A%20batch%20Dependabot%20updates"
+        ) in self.body()
+
+    def test_lists_included_changes(self):
+        assert '`"ty==0.0.82",` → `"ty==0.0.93",`' in self.body()
+
+    def test_lists_every_skip_reason(self):
+        body = self.body()
+        assert "#360" in body and "land by hand" in body
+        assert "#352" in body and "failed `ruff`" in body
+        assert "#343" in body and "stale" in body
+
+    def test_gate_output_cannot_break_out_of_its_fence_or_ping(self):
+        body = self.body()
+        section = body.split("<details>", 1)[1]
+        assert section.count("```") == 2  # only our own fence
+        assert "@someone" not in body and "@\u200bsomeone" in body
+
+    def test_titles_cannot_break_the_table(self):
+        assert "bump \\| ruff" in self.body()
+
+    def test_no_link_when_nothing_was_pushed(self):
+        body = self.body(pushed=False)
+        assert "compare/" not in body and "nothing was pushed" in body
+
+
+class TestPickIssue:
+    def test_picks_only_issues_opened_by_github_actions(self):
+        issues = [
+            {"number": 5, "author": {"login": "someone", "is_bot": False}},
+            {"number": 9, "author": {"login": "app/github-actions", "is_bot": True}},
+            {"number": 7, "author": {"login": "app/github-actions", "is_bot": True}},
+        ]
+        assert db.pick_issue(issues) == 7
+
+    def test_a_human_issue_with_the_label_is_ignored(self):
+        assert (
+            db.pick_issue(
+                [{"number": 5, "author": {"login": "someone", "is_bot": False}}]
+            )
+            is None
+        )
+
+
+class FakeGh:
+    def __init__(self, existing):
+        self.existing = existing
+        self.calls = []
+
+    def __call__(self, *args):
+        self.calls.append(args)
+        if args[:2] == ("issue", "list"):
+            return json.dumps(self.existing)
+        return ""
+
+
+BOT_ISSUE = [{"number": 7, "author": {"login": "app/github-actions", "is_bot": True}}]
+EMPTY = {"base": "a" * 40, "included": [], "skipped": []}
+
+
+class TestPublishIssue:
+    def test_creates_issue_and_label_when_none_exists(self):
+        gh = FakeGh([])
+        assert db.publish_issue(REPO, REPORT, "https://run", True, gh=gh) == "created"
+        verbs = [c[:2] for c in gh.calls]
+        assert ("label", "create") in verbs and ("issue", "create") in verbs
+        create = next(c for c in gh.calls if c[:2] == ("issue", "create"))
+        assert "--body-file" in create and "--body" not in create
+
+    def test_updates_the_existing_bot_issue(self):
+        gh = FakeGh(BOT_ISSUE)
+        assert db.publish_issue(REPO, REPORT, "https://run", True, gh=gh) == "updated"
+        edit = next(c for c in gh.calls if c[:2] == ("issue", "edit"))
+        assert edit[2] == "7" and "--body-file" in edit
+
+    def test_closes_when_there_is_nothing_to_report(self):
+        gh = FakeGh(BOT_ISSUE)
+        assert db.publish_issue(REPO, EMPTY, "https://run", False, gh=gh) == "closed"
+        assert any(c[:3] == ("issue", "close", "7") for c in gh.calls)
+
+    def test_nothing_to_report_and_no_issue_does_nothing(self):
+        gh = FakeGh([])
+        assert db.publish_issue(REPO, EMPTY, "https://run", False, gh=gh) == "none"
+        assert [c[:2] for c in gh.calls] == [("issue", "list")]
