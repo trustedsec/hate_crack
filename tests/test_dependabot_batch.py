@@ -425,6 +425,49 @@ class TestCombine:
         assert reasons == {1: "stale", 2: "unparseable"}
         assert all(s["detail"] for s in report["skipped"])
 
+    def test_red_baseline_is_reported_instead_of_blaming_every_bump(self, tmp_path):
+        repo = _repo(tmp_path)
+        seen: list[str] = []
+
+        def always_red(cwd, gates):
+            seen.append((cwd / "pyproject.toml").read_text())
+            return ("pytest", "base is broken\n")
+
+        report = db.combine(
+            repo, [_cand(352, RUFF_DIFF), _cand(353, TY_DIFF)], [], always_red
+        )
+        assert report["included"] == []
+        assert report["baseline"] == {"gate": "pytest", "output": "base is broken\n"}
+        assert seen[-1] == PYPROJECT
+
+    def test_green_baseline_adds_no_baseline_entry(self, tmp_path):
+        repo = _repo(tmp_path)
+
+        def red_on_ruff(cwd, gates):
+            if '"ruff==0.17.0"' in (cwd / "pyproject.toml").read_text():
+                return ("ruff", "E999\n")
+            return None
+
+        report = db.combine(repo, [_cand(352, RUFF_DIFF)], [], red_on_ruff)
+        assert report["included"] == []
+        assert "baseline" not in report
+
+    def test_no_baseline_run_when_a_bump_was_kept(self, tmp_path):
+        repo = _repo(tmp_path)
+        calls: list[int] = []
+
+        def red_on_ruff(cwd, gates):
+            calls.append(1)
+            if '"ruff==0.17.0"' in (cwd / "pyproject.toml").read_text():
+                return ("ruff", "E999\n")
+            return None
+
+        report = db.combine(
+            repo, [_cand(352, RUFF_DIFF), _cand(353, TY_DIFF)], [], red_on_ruff
+        )
+        assert len(calls) == 2
+        assert "baseline" not in report
+
     def test_bundle_holds_only_kept_commits(self, tmp_path):
         repo = _repo(tmp_path)
         report = db.combine(repo, [_cand(353, TY_DIFF)], [], _green)
@@ -629,7 +672,12 @@ class TestVerifyBundle:
         with pytest.raises(db.BatchError, match="only refs/heads/deps-batch"):
             db.verify_bundle(publish, evil, report, _live)
 
-    def test_rejects_a_header_whose_tip_disagrees_with_the_pack(self, tmp_path):
+    def test_rejects_a_header_whose_tip_names_an_earlier_commit(self, tmp_path):
+        # Caught by the report-vs-trailer ("no commit") check, not by the
+        # rev-parse refs/batch/tip != tip check: git's fetch resolves the ref
+        # from the same forged header, so both agree on the earlier commit.
+        # The rev-parse check guards a header carrying two refs/heads/deps-batch
+        # lines with different SHAs; see the duplicate-ref test below.
         work, publish, report, bundle = _batch(
             tmp_path, [_cand(352, RUFF_DIFF), _cand(353, TY_DIFF)]
         )
@@ -640,6 +688,28 @@ class TestVerifyBundle:
         lying.write_bytes(header.replace(real_tip, first, 1) + b"\n\n" + rest)
         with pytest.raises(db.BatchError):
             db.verify_bundle(publish, lying, report, _live)
+
+    def test_a_duplicate_ref_line_cannot_redirect_the_tip(self, tmp_path):
+        # Two refs/heads/deps-batch lines, the first naming an earlier commit.
+        # Observed with this git: `git fetch` resolves the LAST line, the real
+        # tip, which is also what bundle_header's dict keeps, so the rev-parse
+        # check agrees and verification passes on the real tip. If a git ever
+        # resolved the first line instead, the rev-parse check raises BatchError
+        # here, so this test would fail loudly rather than pass silently.
+        work, publish, report, bundle = _batch(
+            tmp_path, [_cand(352, RUFF_DIFF), _cand(353, TY_DIFF)]
+        )
+        first = _git(work, "rev-parse", "deps-batch~1").strip().encode()
+        real_tip = _git(work, "rev-parse", "deps-batch").strip().encode()
+        header, rest = bundle.read_bytes().split(b"\n\n", 1)
+        real_line = real_tip + b" " + db.BUNDLE_REF.encode()
+        assert header.count(real_line) == 1
+        doubled = header.replace(
+            real_line, first + b" " + db.BUNDLE_REF.encode() + b"\n" + real_line, 1
+        )
+        dup = tmp_path / "dup.bundle"
+        dup.write_bytes(doubled + b"\n\n" + rest)
+        assert db.verify_bundle(publish, dup, report, _live) == real_tip.decode()
 
     def test_rejects_a_non_dependabot_author(self, tmp_path):
         work, publish, report, _ = _batch(tmp_path, [_cand(353, TY_DIFF)])
@@ -836,6 +906,26 @@ class TestRenderIssue:
     def test_titles_cannot_break_the_table(self):
         assert "bump \\| ruff" in self.body()
 
+    def test_red_baseline_is_shown_above_the_skipped_table(self):
+        report = {
+            "base": "a" * 40,
+            "included": [],
+            "skipped": [
+                {
+                    "pr": 5,
+                    "title": "t",
+                    "reason": "gate",
+                    "gate": "ruff",
+                    "output": "x\n",
+                }
+            ],
+            "baseline": {"gate": "pytest", "output": "boom @x"},
+        }
+        body = self.body(report=report)
+        assert "itself fails `pytest`" in body
+        assert body.index("itself fails") < body.index("## Skipped")
+        assert "@x" not in body
+
     def test_no_link_when_nothing_was_pushed(self):
         body = self.body(pushed=False)
         assert "compare/" not in body and "nothing was pushed" in body
@@ -961,6 +1051,38 @@ class TestRenderInjection:
         )
         assert "</summary><a" not in summary and "<a href" not in summary
         assert "&lt;/summary&gt;&lt;a href=" in summary
+
+    def test_a_non_integer_pr_number_is_refused(self):
+        report = {
+            "base": "a" * 40,
+            "included": [],
+            "skipped": [
+                {
+                    "pr": '1 <a href="https://evil.invalid">x</a>',
+                    "title": "t",
+                    "reason": "gate",
+                    "gate": "g",
+                    "output": "o",
+                }
+            ],
+        }
+        with pytest.raises(ValueError):
+            self.body(report)
+
+    def test_an_included_non_integer_pr_number_is_refused(self):
+        report = {
+            "base": "a" * 40,
+            "included": [
+                {
+                    "pr": '1 <a href="https://evil.invalid">x</a>',
+                    "title": "t",
+                    "changes": [['"ty==0.0.82",', '"ty==0.0.93",']],
+                }
+            ],
+            "skipped": [],
+        }
+        with pytest.raises(ValueError):
+            self.body(report)
 
     def test_base_is_defanged(self):
         report = {"base": "`ab`c" + "0" * 36, "included": [], "skipped": []}

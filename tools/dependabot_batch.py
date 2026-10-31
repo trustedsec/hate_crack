@@ -311,6 +311,14 @@ def combine(
             report["skipped"].append(
                 {**entry, "reason": "gate", "gate": failure[0], "output": failure[1]}
             )
+    gate_failures = [s for s in report["skipped"] if s["reason"] == "gate"]
+    if not report["included"] and gate_failures:
+        # Every bump that reached the gates failed them. Before blaming
+        # Dependabot, check whether nightly-dev fails on its own: HEAD is back
+        # at base here, because each red bump was reset away.
+        baseline = gate_runner(repo_dir, gates)
+        if baseline is not None:
+            report["baseline"] = {"gate": baseline[0], "output": baseline[1]}
     return report
 
 
@@ -546,23 +554,47 @@ def render_issue(report: dict, repo: str, run_url: str, pushed: bool) -> str:
                 f"{_code(old.strip())} → {_code(new.strip())}"
                 for old, new in entry["changes"]
             )
-            lines.append(f"| #{entry['pr']} | {change} |")
+            lines.append(f"| #{int(entry['pr'])} | {change} |")
         lines.append("")
     else:
         lines += ["No bump passed the gates, so nothing was pushed.", ""]
+    baseline = report.get("baseline")
+    if baseline:
+        lines += [
+            f"**`{BASE_BRANCH}` itself fails {_code(baseline['gate'])} with no bump applied**, "
+            "so the gate failures below say nothing about the bumps. Fix "
+            f"`{BASE_BRANCH}` first; the next run re-tests every bump.",
+            "",
+            # No blank line between <details> and <summary>: the pair then stays one
+            # CommonMark HTML block, so markdown inside <summary> is never parsed.
+            "<details>",
+            f"<summary>{html.escape(_oneline(_defang(baseline['gate'])))} output on "
+            f"{BASE_BRANCH}</summary>",
+            "",
+            "```",
+            _defang(baseline["output"]).rstrip("\n"),
+            "```",
+            "",
+            "</details>",
+            "",
+        ]
     if report["skipped"]:
         lines += ["## Skipped", "", "| PR | Title | Reason |", "|---|---|---|"]
         for entry in report["skipped"]:
             reason = _REASONS[entry["reason"]].format(
                 detail=_code(entry.get("detail", "")), gate=_code(entry.get("gate", ""))
             )
-            lines.append(f"| #{entry['pr']} | {_code(entry['title'])} | {reason} |")
+            lines.append(
+                f"| #{int(entry['pr'])} | {_code(entry['title'])} | {reason} |"
+            )
         lines.append("")
         for entry in report["skipped"]:
             if entry["reason"] == "gate":
                 lines += [
+                    # No blank line between <details> and <summary>: the pair then stays one
+                    # CommonMark HTML block, so markdown inside <summary> is never parsed.
                     "<details>",
-                    f"<summary>#{entry['pr']}: "
+                    f"<summary>#{int(entry['pr'])}: "
                     f"{html.escape(_oneline(_defang(entry['gate'])))} output</summary>",
                     "",
                     "```",
