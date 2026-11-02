@@ -1,6 +1,7 @@
 import gzip
 import json
 from unittest.mock import MagicMock, patch
+from types import SimpleNamespace
 
 import pytest
 
@@ -14,7 +15,9 @@ def main_module(hc_module):
 
 
 class TestHcatOmenTrain:
-    def test_builds_correct_command(self, main_module, tmp_path):
+    @pytest.fixture
+    def omen_train_cmd(self, main_module, tmp_path):
+        """Executa hcatOmenTrain mockado e devolve o comando montado + caminhos."""
         training_file = tmp_path / "passwords.txt"
         training_file.write_text("password123\nletmein\n")
         omen_dir = tmp_path / "omen"
@@ -41,21 +44,29 @@ class TestHcatOmenTrain:
 
             mock_popen.assert_called_once()
             cmd = mock_popen.call_args[0][0]
-            assert cmd[0] == str(create_bin)
-            assert "--iPwdList" in cmd
-            assert str(training_file) in cmd
-            # Verify explicit output paths are passed
-            assert "-C" in cmd
-            assert str(model_dir / "createConfig") in cmd
-            assert "-c" in cmd
-            assert str(model_dir / "CP") in cmd
-            assert "-i" in cmd
-            assert str(model_dir / "IP") in cmd
-            assert "-e" in cmd
-            assert str(model_dir / "EP") in cmd
-            assert "-l" in cmd
-            assert str(model_dir / "LN") in cmd
 
+        return SimpleNamespace(
+            cmd=cmd, model_dir=model_dir,
+            training_file=training_file, create_bin=create_bin,
+        )
+
+    def test_builds_correct_command(self, omen_train_cmd):
+        cmd = omen_train_cmd.cmd
+        model_dir = omen_train_cmd.model_dir
+        assert cmd[0] == str(omen_train_cmd.create_bin)
+        assert "--iPwdList" in cmd
+        assert str(omen_train_cmd.training_file) in cmd
+        assert "-C" in cmd
+        assert str(model_dir / "createConfig") in cmd
+        assert "-c" in cmd
+        assert str(model_dir / "CP") in cmd
+        assert "-i" in cmd
+        assert str(model_dir / "IP") in cmd
+        assert "-e" in cmd
+        assert str(model_dir / "EP") in cmd
+        assert "-l" in cmd
+        assert str(model_dir / "LN") in cmd
+    
     def test_returns_true_and_writes_metadata_on_success(self, main_module, tmp_path):
         training_file = tmp_path / "passwords.txt"
         training_file.write_text("password123\nletmein\n")
@@ -180,7 +191,9 @@ class TestHcatOmenTrain:
 
 
 class TestHcatOmen:
-    def test_builds_correct_pipe_commands(self, main_module, tmp_path):
+    @pytest.fixture
+    def omen_pipe(self, main_module, tmp_path):
+        """Executa hcatOmen mockado e devolve os dois comandos montados (enum + hashcat)."""
         omen_dir = tmp_path / "omen"
         omen_dir.mkdir()
         enum_bin = omen_dir / "enumNG"
@@ -211,22 +224,37 @@ class TestHcatOmen:
 
             main_module.hcatOmen("1000", "/tmp/hashes.txt", 500000)
 
-            assert mock_popen.call_count == 2
-            # First call: enumNG
-            enum_cmd = mock_popen.call_args_list[0][0][0]
-            assert enum_cmd[0] == str(enum_bin)
-            assert "-p" in enum_cmd
-            assert "-m" in enum_cmd
-            assert "500000" in enum_cmd
-            assert "-C" in enum_cmd
-            assert str(model_dir / "createConfig") in enum_cmd
-            # cwd should be model_dir
-            assert mock_popen.call_args_list[0][1]["cwd"] == str(model_dir)
-            # Second call: hashcat
-            hashcat_cmd = mock_popen.call_args_list[1][0][0]
-            assert hashcat_cmd[0] == "hashcat"
-            assert "1000" in hashcat_cmd
-            assert "/tmp/hashes.txt" in hashcat_cmd
+            calls = mock_popen.call_args_list
+            return SimpleNamespace(
+                call_count=mock_popen.call_count,
+                enum_cmd=calls[0][0][0],
+                enum_cwd=calls[0][1]["cwd"],
+                hashcat_cmd=calls[1][0][0],
+                enum_bin=enum_bin,
+                model_dir=model_dir,
+            )
+
+    def test_omen_makes_enum_then_hashcat_calls(self, omen_pipe):
+        """Dois Popen: primeiro o enumNG, depois o hashcat."""
+        assert omen_pipe.call_count == 2
+
+    def test_omen_enum_command_is_correct(self, omen_pipe):
+        """O comando do enumNG tem o binário, os flags e o cwd corretos."""
+        enum_cmd = omen_pipe.enum_cmd
+        assert enum_cmd[0] == str(omen_pipe.enum_bin)
+        assert "-p" in enum_cmd
+        assert "-m" in enum_cmd
+        assert "500000" in enum_cmd
+        assert "-C" in enum_cmd
+        assert str(omen_pipe.model_dir / "createConfig") in enum_cmd
+        assert omen_pipe.enum_cwd == str(omen_pipe.model_dir)
+
+    def test_omen_hashcat_command_is_correct(self, omen_pipe):
+        """O comando do hashcat recebe o modo e o arquivo de hashes."""
+        hashcat_cmd = omen_pipe.hashcat_cmd
+        assert hashcat_cmd[0] == "hashcat"
+        assert "1000" in hashcat_cmd
+        assert "/tmp/hashes.txt" in hashcat_cmd
 
     def test_missing_binary(self, main_module, tmp_path, capsys):
         with (

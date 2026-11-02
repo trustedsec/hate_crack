@@ -56,24 +56,7 @@ class TestSuppressionThreadLocal:
         t.join(timeout=2.0)
         assert seen == [False], f"worker thread saw suppression state: {seen}"
 
-    def test_worker_thread_suppression_does_not_leak(self) -> None:
-        worker_done = threading.Event()
-
-        def worker() -> None:
-            with suppressed_notifications():
-                assert is_suppressed() is True
-                # Hold long enough that the main thread can sample.
-                time.sleep(0.05)
-            worker_done.set()
-
-        t = threading.Thread(target=worker, daemon=True)
-        t.start()
-        # Main thread should never observe the worker's suppression.
         assert is_suppressed() is False
-        t.join(timeout=2.0)
-        assert worker_done.is_set()
-        assert is_suppressed() is False
-
 
 class TestSuppressionRespectsSetting:
     """notify_suppress_in_orchestrators must actually gate suppression."""

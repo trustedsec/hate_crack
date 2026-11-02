@@ -41,6 +41,31 @@ import requests as req_lib
 
 from hate_crack.config_writer import write_env
 
+def _weakpass_entry(id, name="list", rank="S", size=100, count=10, rate=1.0,
+                    slug=None, torrent_url="url"):
+    """Build a single Weakpass wordlist entry for tests."""
+    return {"id": id, "name": name, "rank": rank, "size": size, "count": count,
+            "rate": rate, "slug": slug or name, "torrent_url": torrent_url}
+
+def _json_response(data, last_page=1):
+    """Mock a paged Weakpass API JSON response."""
+    resp = MagicMock()
+    resp.json.return_value = {"data": data, "meta": {"last_page": last_page}}
+    resp.raise_for_status.return_value = None
+    return resp
+
+def _failing_resp(error):
+    """Mock a response whose raise_for_status raises the given error."""
+    resp = MagicMock()
+    resp.raise_for_status.side_effect = error
+    return resp
+
+def _json_decode_error_resp():
+    """Mock a response whose .json() raises ValueError (malformed JSON)."""
+    resp = MagicMock()
+    resp.json.side_effect = ValueError("Expecting value")
+    resp.raise_for_status.return_value = None
+    return resp
 
 class TestSanitizeFilename:
     def test_normal_filename_unchanged(self):
@@ -126,17 +151,17 @@ class TestTransmissionSession:
             try:
                 # Popen called with transmission-daemon and key flags
                 args = popen.call_args[0][0]
-                assert args[0] == "transmission-daemon"
-                assert "-f" in args
-                assert "--port" in args
-                assert "12345" in args
-                assert "--no-auth" in args
-                assert "--download-dir" in args
-                assert str(tmp_path) in args
+                assert args[0] == "transmission-daemon", "daemon binary is invoked"
+                assert "-f" in args, "daemon runs in foreground"
+                assert "--port" in args, "RPC port flag is passed"
+                assert "12345" in args, "chosen free port is used"
+                assert "--no-auth" in args, "auth is disabled for the local daemon"
+                assert "--download-dir" in args, "download dir flag is passed"
+                assert str(tmp_path) in args, "download dir points to the session path"
                 # Probe used transmission-remote with -l
                 probe_args = run_mock.call_args[0][0]
-                assert probe_args[0] == "transmission-remote"
-                assert probe_args[-1] == "-l"
+                assert probe_args[0] == "transmission-remote", "probe uses transmission-remote"
+                assert probe_args[-1] == "-l", "probe lists torrents with -l"
             finally:
                 ts._stopped = True  # avoid running real cleanup
 
@@ -152,8 +177,9 @@ class TestTransmissionSession:
             patch("atexit.register"),
         ):
             ts = TransmissionSession(str(tmp_path), startup_timeout=1.0)
-            with pytest.raises(RuntimeError, match="Transmission daemon failed"):
+            with pytest.raises(RuntimeError, match="Transmission daemon failed") as exc_info:
                 ts.__enter__()
+        assert "Transmission daemon failed" in str(exc_info.value), "startup timeout surfaces a clear error"
 
     def test_add_uses_transmission_remote_and_returns_new_id(self, tmp_path):
         ts = TransmissionSession(str(tmp_path))
@@ -198,8 +224,9 @@ class TestTransmissionSession:
             patch("subprocess.run", return_value=run_result),
             patch.object(ts, "list", return_value=[{"id": 1}]),
         ):
-            with pytest.raises(RuntimeError):
+            with pytest.raises(RuntimeError) as exc_info:
                 ts.add("/tmp/foo.torrent")
+        assert isinstance(exc_info.value, RuntimeError), "add raises RuntimeError when no new torrent id appears"
 
     def test_list_parses_rows(self, tmp_path):
         ts = TransmissionSession(str(tmp_path))
@@ -213,11 +240,11 @@ class TestTransmissionSession:
         result = MagicMock(returncode=0, stdout=stdout, stderr="")
         with patch("subprocess.run", return_value=result):
             entries = ts.list()
-        assert len(entries) == 2
-        assert entries[0]["id"] == 1
-        assert entries[0]["percent_done"] == 100.0
-        assert entries[1]["id"] == 2
-        assert entries[1]["percent_done"] == 45.0
+        assert len(entries) == 2, "should parse two torrent rows"
+        assert entries[0]["id"] == 1, "first torrent should have id 1"
+        assert entries[0]["percent_done"] == 100.0, "first torrent is fully downloaded"
+        assert entries[1]["id"] == 2, "second torrent should have id 2"
+        assert entries[1]["percent_done"] == 45.0, "second torrent is 45% done"
 
     def _list_with(self, tmp_path, stdout):
         ts = TransmissionSession(str(tmp_path))
@@ -235,24 +262,24 @@ class TestTransmissionSession:
             "Sum:                 None                  0.0       0.0\n"
         )
         [entry] = self._list_with(tmp_path, stdout)
-        assert entry["id"] == 1
-        assert entry["percent_done"] == 0.0
-        assert entry["have"] == "None"
-        assert entry["eta"] == "Unknown"
-        assert entry["status"] == "Idle"
-        assert entry["name"] == "f.bin"
+        assert entry["id"] == 1, "row id is parsed"
+        assert entry["percent_done"] == 0.0, "decimal Done is parsed to float"
+        assert entry["have"] == "None", "single-token 'None' Have is preserved"
+        assert entry["eta"] == "Unknown", "ETA column is parsed"
+        assert entry["status"] == "Idle", "status column is parsed"
+        assert entry["name"] == "f.bin", "name column is parsed"
 
     def test_list_parses_two_token_have_and_eta(self, tmp_path):
         """'Have' and 'ETA' are each two tokens here, which used to shift the
         status and name columns."""
         stdout = "  2    45%  500 MB   3 hours        0.0   200.0   0.1  Downloading  another list.7z\n"
         [entry] = self._list_with(tmp_path, stdout)
-        assert entry["percent_done"] == 45.0
-        assert entry["have"] == "500 MB"
-        assert entry["eta"] == "3 hours"
-        assert entry["down"] == 200.0
-        assert entry["status"] == "Downloading"
-        assert entry["name"] == "another list.7z"
+        assert entry["percent_done"] == 45.0, "percent is parsed"
+        assert entry["have"] == "500 MB", "two-token Have is kept together"
+        assert entry["eta"] == "3 hours", "two-token ETA is kept together"
+        assert entry["down"] == 200.0, "download rate is parsed"
+        assert entry["status"] == "Downloading", "status is not shifted by multi-token columns"
+        assert entry["name"] == "another list.7z", "name with a space is preserved"
 
     def test_list_parses_multi_word_status(self, tmp_path):
         stdout = "  3    12.5%  1.20 GB  2 min      10.0   900.0   0.1  Up & Down    big.7z\n"
@@ -382,12 +409,12 @@ class TestTransmissionSession:
         polls = [[self._entry(1, 45.0)], [self._entry(1, 100.0)], []]
         self._run_wait(tmp_path, polls, stream)
         out = stream.getvalue()
-        assert "big.7z" in out
-        assert "45.0%" in out
-        assert "500 MB" in out
-        assert "ETA 3 hours" in out
-        assert "200.0 kB/s" in out
-        assert "0/1 complete" in out
+        assert "big.7z" in out, "torrent name is reported"
+        assert "45.0%" in out, "progress percent is reported"
+        assert "500 MB" in out, "downloaded size is reported"
+        assert "ETA 3 hours" in out, "ETA is reported"
+        assert "200.0 kB/s" in out, "download speed is reported"
+        assert "0/1 complete" in out, "completion count is reported"
 
     def test_wait_for_all_progress_counts_completed_torrents(self, tmp_path):
         import io
@@ -446,8 +473,9 @@ class TestTransmissionSession:
             patch.object(ts, "list", side_effect=KeyboardInterrupt),
             patch("time.sleep"),
         ):
-            with pytest.raises(KeyboardInterrupt):
+            with pytest.raises(KeyboardInterrupt) as exc_info:
                 ts.wait_for_all(on_complete=lambda *a: None)
+        assert isinstance(exc_info.value, KeyboardInterrupt), "KeyboardInterrupt propagates out of wait_for_all"
 
     def test_exit_calls_stop_and_cleans_cfg_dir(self, tmp_path):
         proc_mock = MagicMock()
@@ -525,8 +553,9 @@ class TestRunTorrentSession:
             patch("hate_crack.api.check_7z", return_value=True),
             patch("hate_crack.api.TransmissionSession", ts_cls),
         ):
-            with pytest.raises(KeyboardInterrupt):
+            with pytest.raises(KeyboardInterrupt) as exc_info:
                 run_torrent_session(["a.torrent"], "/tmp/save")
+        assert isinstance(exc_info.value, KeyboardInterrupt), "KeyboardInterrupt propagates out of run_torrent_session"
 
 
 class TestGetHcatPotfilePath:
@@ -728,31 +757,27 @@ class TestResolveWeakpassTorrentUrl:
         """example-list.txt.7z.torrent 404s twice then resolves on example-list.txt."""
         calls = []
 
+        def _not_found():
+            err = req_lib.HTTPError()
+            err.response = MagicMock(status_code=404)
+            return MagicMock(raise_for_status=MagicMock(side_effect=err))
+
+        def _resolved():
+            return MagicMock(
+                json=MagicMock(return_value={
+                    "data": {"torrent_url": "https://weakpass.com/download/1/example-list.txt.torrent"}
+                }),
+                raise_for_status=MagicMock(),
+            )
+
         def mock_get(url, params=None, headers=None, timeout=None):
             calls.append(url)
-            resp = MagicMock()
-            if "example-list.txt.7z.torrent" in url:
-                err = req_lib.HTTPError()
-                err.response = MagicMock(status_code=404)
-                resp.raise_for_status = MagicMock(side_effect=err)
-            elif "example-list.txt.7z" in url:
-                err = req_lib.HTTPError()
-                err.response = MagicMock(status_code=404)
-                resp.raise_for_status = MagicMock(side_effect=err)
-            else:
-                resp.json.return_value = {
-                    "data": {
-                        "torrent_url": "https://weakpass.com/download/1/example-list.txt.torrent"
-                    }
-                }
-                resp.raise_for_status = MagicMock()
-            return resp
+            return {True: _not_found(), False: _resolved()}[".7z" in url]
 
         monkeypatch.setattr(api.requests, "get", mock_get)
         result = api._resolve_weakpass_torrent_url("example-list.txt.7z.torrent")
-        assert result == "https://weakpass.com/download/1/example-list.txt.torrent"
-        # Should have tried all three candidates
-        assert len(calls) == 3
+        assert result == "https://weakpass.com/download/1/example-list.txt.torrent", "resolves on the bare name after the .7z candidates 404"
+        assert len(calls) == 3, "all three candidates are tried"
 
     def test_path_with_space_and_slash_is_quoted(self, monkeypatch):
         """Names containing space and / are quoted (%20, %2F) in request path."""
@@ -963,29 +988,24 @@ class TestFetchTorrentMetadataUpdated:
 
         seen_urls = []
 
-        def mock_get(
-            url, params=None, headers=None, stream=False, timeout=None, **kwargs
-        ):
+        def _empty():
+            return MagicMock(json=MagicMock(return_value={"data": []}), raise_for_status=MagicMock())
+
+        def _not_found():
+            err = req_lib.HTTPError()
+            err.response = MagicMock(status_code=404)
+            return MagicMock(raise_for_status=MagicMock(side_effect=err))
+
+        def mock_get(url, params=None, headers=None, stream=False, timeout=None, **kwargs):
             seen_urls.append(url)
-            resp = MagicMock()
-            if params and "name" in params:
-                resp.json.return_value = {"data": []}
-                resp.raise_for_status = MagicMock()
-            else:
-                err = req_lib.HTTPError()
-                err.response = MagicMock(status_code=404)
-                resp.raise_for_status = MagicMock(side_effect=err)
-            return resp
+            return {True: _empty(), False: _not_found()}[bool(params and "name" in params)]
 
         monkeypatch.setattr(api.requests, "get", mock_get)
         result = api.fetch_torrent_metadata("nonexistent.txt")
-        assert result is None
+        assert result is None, "an unresolvable name returns None"
         captured = capsys.readouterr()
-        # F2: Updated error message
-        assert "Could not resolve a Weakpass torrent for" in captured.out
-        # Assert no URL contains the old /files/ fallback
-        for url in seen_urls:
-            assert "weakpass.com/files/" not in url
+        assert "Could not resolve a Weakpass torrent for" in captured.out, "prints the not-found message"
+        assert "weakpass.com/files/" not in "\n".join(seen_urls), "no legacy /files/ fallback URL is used"
 
     def test_torrent_download_gets_timeout(self, monkeypatch, tmp_path):
         """The torrent GET is passed timeout=WEAKPASS_TIMEOUT."""
@@ -1287,9 +1307,9 @@ class TestDownloadHashmobWordlist:
             patch("hate_crack.api.time.sleep"),
         ):
             result = download_hashmob_wordlist("test.txt", str(out))
-        assert result is True
-        assert out.exists()
-        assert out.read_bytes() == b"wordlist data"
+        assert result is True, "download reports success"
+        assert out.exists(), "output file is created"
+        assert out.read_bytes() == b"wordlist data", "downloaded content is written"
 
     def test_404_returns_false(self, tmp_path):
         import requests as req
@@ -1373,18 +1393,18 @@ class TestDownloadHashmobRule:
             patch("hate_crack.api._hashmob_limiter.wait"),
         ):
             result = download_hashmob_rule("some.rule", str(out), resource_type="rule")
-        assert result is True
-        assert mock_get.call_count == 2
+        assert result is True, "download succeeds via the fallback URL"
+        assert mock_get.call_count == 2, "primary then fallback are both tried"
         first_url = mock_get.call_args_list[0].args[0]
         second_url = mock_get.call_args_list[1].args[0]
         assert (
             first_url
-            == "https://www.hashmob.net/api/v2/downloads/research/rules/some.rule"
-        )
+                == "https://www.hashmob.net/api/v2/downloads/research/rules/some.rule"
+        ), "primary URL tried first"
         assert (
             second_url
-            == "https://hashmob.net/api/v2/downloads/research/official/hashmob_rules/some.rule"
-        )
+                == "https://hashmob.net/api/v2/downloads/research/official/hashmob_rules/some.rule"
+        ), "official alternate URL tried second"
 
     def test_missing_resource_type_falls_back_to_public_prefix(self, tmp_path):
         mock_response = self._make_mock_response()
@@ -1529,13 +1549,13 @@ class TestDownloadHashmobMask:
             patch("hate_crack.api._hashmob_limiter.wait"),
         ):
             result = download_hashmob_mask("test.hcmask", str(out))
-        assert result is True
-        assert out.exists()
-        assert out.read_bytes() == b"mask data"
+        assert result is True, "download reports success"
+        assert out.exists(), "output file is created"
+        assert out.read_bytes() == b"mask data", "downloaded mask content is written"
         called_url = mock_get.call_args.args[0]
         assert (
             called_url
-            == "https://hashmob.net/api/v2/downloads/research/masks/test.hcmask"
+            == "https://hashmob.net/api/v2/downloads/research/masks/test.hcmask", "mask download URL is correct"
         )
 
     def test_sends_api_key_header_when_configured(self, tmp_path):
@@ -1846,13 +1866,13 @@ class TestDownloadHashmobArchive:
             self._patch_stdin_tty(),
         ):
             result = download_hashmob_archive(entry)
-        assert result is True
+        assert result is True, "download succeeds"
         # The api-key header must never reach the untrusted host: the request
         # actually made must target the constructed hashmob.net fallback URL.
         called_url = mock_get.call_args.args[0]
-        assert called_url == "https://hashmob.net/api/v2/archive/evil.7z"
-        assert mock_get.call_args.kwargs["headers"] == {"api-key": "secret-key"}
-        assert mock_get.call_count == 1
+        assert called_url == "https://hashmob.net/api/v2/archive/evil.7z", "request targets the trusted hashmob host, not the untrusted url"
+        assert mock_get.call_args.kwargs["headers"] == {"api-key": "secret-key"}, "api-key is sent only to the trusted host"
+        assert mock_get.call_count == 1, "exactly one request is made"
 
     def test_trusted_www_host_is_kept(self, tmp_path):
         entry = {
@@ -2019,8 +2039,9 @@ class TestDownloadHashmobCombinedLeft:
 
     def test_invalid_variant_raises_value_error(self, tmp_path):
         with patch("hate_crack.api.get_hcat_wordlists_dir", return_value=str(tmp_path)):
-            with pytest.raises(ValueError):
+            with pytest.raises(ValueError) as exc_info:
                 download_hashmob_combined_left(0, variant="bogus")
+        assert isinstance(exc_info.value, ValueError), "an invalid variant raises ValueError"
 
     def test_defaults_to_wordlists_dir(self, tmp_path):
         mock_response = self._make_mock_response()
@@ -2120,10 +2141,10 @@ class TestDownloadOfficialWordlist:
             patch("hate_crack.api._hashmob_limiter.wait"),
         ):
             result = download_official_wordlist("official.txt", str(out))
-        assert result is True
-        assert mock_get.call_count == 2
-        assert mock_sleep.call_count == 1
-        assert out.exists()
+        assert result is True, "download eventually succeeds after retry"
+        assert mock_get.call_count == 2, "retries once after the 429"
+        assert mock_sleep.call_count == 1, "backoff sleeps once between attempts"
+        assert out.exists(), "output file is created on success"
 
     def test_meta_refresh_redirect_uses_verbatim_url(self, tmp_path):
         real_url = "https://real-server.example.com/actual_official_file.7z"
@@ -2264,12 +2285,12 @@ class TestStreamedDownload:
         out = tmp_path / "out.txt"
         with patch("hate_crack.api.requests.get", return_value=mock_resp) as mock_get:
             result = _streamed_download("https://example.com/file.txt", str(out))
-        assert result is True
-        assert out.exists()
-        assert out.read_bytes() == content
-        assert not (tmp_path / "out.txt.part").exists()
+        assert result is True, "download reports success"
+        assert out.exists(), "output file is created"
+        assert out.read_bytes() == content, "full content is written"
+        assert not (tmp_path / "out.txt.part").exists(), "temporary .part file is cleaned up"
         mock_get.assert_called_once()
-        assert mock_get.call_args.args[0] == "https://example.com/file.txt"
+        assert mock_get.call_args.args[0] == "https://example.com/file.txt", "correct URL is requested"
 
     def test_partial_cleanup_on_error(self, tmp_path):
         mock_resp = _make_mock_response(status_code=200, content=b"some data")
@@ -2287,14 +2308,10 @@ class TestStreamedDownload:
         mock_resp = _make_mock_response(status_code=200, content=b"some data")
         mock_resp.iter_content.side_effect = KeyboardInterrupt
         out = tmp_path / "out.txt"
-        ki_raised = False
         with patch("hate_crack.api.requests.get", return_value=mock_resp):
-            try:
+            with pytest.raises(KeyboardInterrupt):
                 _streamed_download("https://example.com/file.txt", str(out))
-            except KeyboardInterrupt:
-                ki_raised = True
-        assert ki_raised
-        assert not (tmp_path / "out.txt.part").exists()
+        assert not (tmp_path / "out.txt.part").exists(), "partial .part file must be removed on interrupt"
 
     def test_skip_existing(self, tmp_path):
         out = tmp_path / "out.txt"
@@ -2317,12 +2334,12 @@ class TestHashmobBackoff:
             result = _with_hashmob_backoff(
                 fn, max_attempts=3, base_delay=1, step=1, max_delay=10
             )
-        assert result is False
-        assert fn.call_count == 3
+        assert result is False, "returns failure after exhausting attempts"
+        assert fn.call_count == 3, "function is tried max_attempts times"
         # sleep called between attempts, but NOT after the last attempt
-        assert mock_sleep.call_count == 2
+        assert mock_sleep.call_count == 2, "sleeps between attempts but not after the last"
         captured = capsys.readouterr()
-        assert "gave up after 3 attempts" in captured.out
+        assert "gave up after 3 attempts" in captured.out, "gives a clear give-up message"
 
     def test_succeeds_on_first_try(self):
         fn = MagicMock(return_value=True)
@@ -2346,8 +2363,9 @@ class TestHashmobBackoff:
 
     def test_non_429_exception_reraises(self):
         fn = MagicMock(side_effect=ValueError("not a 429"))
-        with pytest.raises(ValueError, match="not a 429"):
+        with pytest.raises(ValueError, match="not a 429") as exc_info:
             _with_hashmob_backoff(fn)
+        assert "not a 429" in str(exc_info.value), "a non-429 error is re-raised unchanged"
 
     def test_respects_retry_after_over_default_ladder_step(self):
         """A 429 carrying Retry-After: 5 should sleep ~5s, not the default
@@ -2469,12 +2487,12 @@ class TestListAndDownloadOfficialWordlistsSkipExisting:
         ):
             list_and_download_official_wordlists()
 
-        assert mock_dl.call_count == 1
+        assert mock_dl.call_count == 1, "only the missing file is downloaded"
         called_filename = mock_dl.call_args.args[0]
-        assert called_filename == "new.txt"
-        assert mock_get.call_args.kwargs["headers"] == {}
+        assert called_filename == "new.txt", "the new file is the one downloaded"
+        assert mock_get.call_args.kwargs["headers"] == {}, "no auth header on the public listing"
         captured = capsys.readouterr()
-        assert "Skipping existing.txt" in captured.out
+        assert "Skipping existing.txt" in captured.out, "existing file is reported as skipped"
 
     def test_sends_api_key_header_on_listing_request(self, tmp_path, capsys):
         wordlists_dir = tmp_path / "wordlists"
@@ -2588,60 +2606,13 @@ class TestWeakpassApiListing:
         """Test that all pages are fetched and results are in page order."""
 
         def mock_get_impl(url, **kwargs):
-            mock_resp = MagicMock()
             page = kwargs.get("params", {}).get("page", 1)
-            if page == 1:
-                mock_resp.json.return_value = {
-                    "data": [
-                        {
-                            "id": 1,
-                            "name": "list1",
-                            "rank": "S",
-                            "size": 100,
-                            "count": 10,
-                            "rate": 1.0,
-                            "slug": "list1",
-                            "torrent_url": "url1",
-                        }
-                    ],
-                    "meta": {"last_page": 3},
-                }
-            elif page == 2:
-                mock_resp.json.return_value = {
-                    "data": [
-                        {
-                            "id": 2,
-                            "name": "list2",
-                            "rank": "A",
-                            "size": 200,
-                            "count": 20,
-                            "rate": 2.0,
-                            "slug": "list2",
-                            "torrent_url": "url2",
-                        }
-                    ],
-                    "meta": {"last_page": 3},
-                }
-            elif page == 3:
-                mock_resp.json.return_value = {
-                    "data": [
-                        {
-                            "id": 3,
-                            "name": "list3",
-                            "rank": "B",
-                            "size": 300,
-                            "count": 30,
-                            "rate": 3.0,
-                            "slug": "list3",
-                            "torrent_url": "url3",
-                        }
-                    ],
-                    "meta": {"last_page": 3},
-                }
-            else:
-                mock_resp.json.return_value = {"data": [], "meta": {"last_page": 3}}
-            mock_resp.raise_for_status.return_value = None
-            return mock_resp
+            pages = {
+                1: _json_response([_weakpass_entry(1, "list1", "S")], last_page=3),
+                2: _json_response([_weakpass_entry(2, "list2", "A", 200, 20, 2.0, "list2", "url2")], last_page=3),
+                3: _json_response([_weakpass_entry(3, "list3", "B", 300, 30, 3.0, "list3", "url3")], last_page=3),
+            }
+            return pages.get(page, _json_response([], last_page=3))
 
         with patch("hate_crack.api.requests.get", side_effect=mock_get_impl):
             result = _api_mod.fetch_all_weakpass_wordlists_multithreaded()
@@ -2653,83 +2624,26 @@ class TestWeakpassApiListing:
 
     def test_two_entries_same_name_different_id_both_kept(self):
         """Test that two entries with same name but different id are both kept."""
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = {
-            "data": [
-                {
-                    "id": 1,
-                    "name": "example-list.txt",
-                    "rank": "S",
-                    "size": 100,
-                    "count": 10,
-                    "rate": 1.0,
-                    "slug": "example-list-txt",
-                    "torrent_url": "url1",
-                },
-                {
-                    "id": 2,
-                    "name": "example-list.txt",
-                    "rank": "A",
-                    "size": 200,
-                    "count": 20,
-                    "rate": 2.0,
-                    "slug": "example-list-txt-2",
-                    "torrent_url": "url2",
-                },
-            ],
-            "meta": {"last_page": 1},
-        }
-        mock_resp.raise_for_status.return_value = None
-
+        mock_resp = _json_response([
+            _weakpass_entry(1, "example-list.txt", "S", slug="example-list-txt"),
+            _weakpass_entry(2, "example-list.txt", "A", 200, 20, 2.0, "example-list-txt-2", "url2"),
+        ])
         with patch("hate_crack.api.requests.get", return_value=mock_resp):
             result = _api_mod.fetch_all_weakpass_wordlists_multithreaded()
-
-        assert len(result) == 2
-        assert result[0]["id"] == 1
-        assert result[1]["id"] == 2
+        assert len(result) == 2, "both entries with same name but different id are kept"
+        assert result[0]["id"] == 1, "first entry preserved"
+        assert result[1]["id"] == 2, "second entry preserved"
 
     def test_same_id_on_two_pages_kept_once(self):
         """Test that the same id on two pages is kept only once (first occurrence)."""
 
         def mock_get_impl(url, **kwargs):
-            mock_resp = MagicMock()
             page = kwargs.get("params", {}).get("page", 1)
-            if page == 1:
-                mock_resp.json.return_value = {
-                    "data": [
-                        {
-                            "id": 1,
-                            "name": "list1",
-                            "rank": "S",
-                            "size": 100,
-                            "count": 10,
-                            "rate": 1.0,
-                            "slug": "list1",
-                            "torrent_url": "url1",
-                        }
-                    ],
-                    "meta": {"last_page": 2},
-                }
-            elif page == 2:
-                mock_resp.json.return_value = {
-                    "data": [
-                        {
-                            "id": 1,
-                            "name": "list1_dup",
-                            "rank": "B",
-                            "size": 150,
-                            "count": 15,
-                            "rate": 1.5,
-                            "slug": "list1_dup",
-                            "torrent_url": "url1_dup",
-                        }
-                    ],
-                    "meta": {"last_page": 2},
-                }
-            else:
-                mock_resp.json.return_value = {"data": [], "meta": {"last_page": 2}}
-            mock_resp.raise_for_status.return_value = None
-            return mock_resp
+            pages = {
+                1: _json_response([_weakpass_entry(1, "list1", "S")], last_page=2),
+                2: _json_response([_weakpass_entry(1, "list1_dup", "B", 150, 15, 1.5, "list1_dup", "url1_dup")], last_page=2),
+            }
+            return pages.get(page, _json_response([], last_page=2))
 
         with patch("hate_crack.api.requests.get", side_effect=mock_get_impl):
             result = _api_mod.fetch_all_weakpass_wordlists_multithreaded()
@@ -2740,44 +2654,11 @@ class TestWeakpassApiListing:
 
     def test_tier_mapping(self):
         """Test tier to rank mapping: S=7, b(lowercase)=5, None=0."""
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = {
-            "data": [
-                {
-                    "id": 1,
-                    "name": "s-tier",
-                    "rank": "S",
-                    "size": 100,
-                    "count": 10,
-                    "rate": 1.0,
-                    "slug": "s-tier",
-                    "torrent_url": "url1",
-                },
-                {
-                    "id": 2,
-                    "name": "b-tier",
-                    "rank": "b",
-                    "size": 200,
-                    "count": 20,
-                    "rate": 2.0,
-                    "slug": "b-tier",
-                    "torrent_url": "url2",
-                },
-                {
-                    "id": 3,
-                    "name": "no-tier",
-                    "rank": None,
-                    "size": 300,
-                    "count": 30,
-                    "rate": 3.0,
-                    "slug": "no-tier",
-                    "torrent_url": "url3",
-                },
-            ],
-            "meta": {"last_page": 1},
-        }
-        mock_resp.raise_for_status.return_value = None
-
+        mock_resp = _json_response([
+            _weakpass_entry(1, "s-tier", "S"),
+            _weakpass_entry(2, "b-tier", "b", 200, 20, 2.0, "b-tier", "url2"),
+            _weakpass_entry(3, "no-tier", None, 300, 30, 3.0, "no-tier", "url3"),
+        ])
         with patch("hate_crack.api.requests.get", return_value=mock_resp):
             result = _api_mod.fetch_all_weakpass_wordlists_multithreaded()
 
@@ -2804,50 +2685,13 @@ class TestWeakpassApiListing:
         """Test that a failed page 2 of 3 still returns pages 1 and 3, and prints error."""
 
         def mock_get_impl(url, **kwargs):
-            mock_resp = MagicMock()
             page = kwargs.get("params", {}).get("page", 1)
-            if page == 1:
-                mock_resp.json.return_value = {
-                    "data": [
-                        {
-                            "id": 1,
-                            "name": "list1",
-                            "rank": "S",
-                            "size": 100,
-                            "count": 10,
-                            "rate": 1.0,
-                            "slug": "list1",
-                            "torrent_url": "url1",
-                        }
-                    ],
-                    "meta": {"last_page": 3},
-                }
-                mock_resp.raise_for_status.return_value = None
-            elif page == 2:
-                mock_resp.raise_for_status.side_effect = req_lib.HTTPError(
-                    "500 Server Error"
-                )
-            elif page == 3:
-                mock_resp.json.return_value = {
-                    "data": [
-                        {
-                            "id": 3,
-                            "name": "list3",
-                            "rank": "B",
-                            "size": 300,
-                            "count": 30,
-                            "rate": 3.0,
-                            "slug": "list3",
-                            "torrent_url": "url3",
-                        }
-                    ],
-                    "meta": {"last_page": 3},
-                }
-                mock_resp.raise_for_status.return_value = None
-            else:
-                mock_resp.json.return_value = {"data": [], "meta": {"last_page": 3}}
-                mock_resp.raise_for_status.return_value = None
-            return mock_resp
+            pages = {
+                1: _json_response([_weakpass_entry(1, "list1", "S")], last_page=3),
+                2: _failing_resp(req_lib.HTTPError("500 Server Error")),
+                3: _json_response([_weakpass_entry(3, "list3", "B", 300, 30, 3.0, "list3", "url3")], last_page=3),
+            }
+            return pages.get(page, _json_response([], last_page=3))
 
         with patch("hate_crack.api.requests.get", side_effect=mock_get_impl):
             result = _api_mod.fetch_all_weakpass_wordlists_multithreaded()
@@ -2862,29 +2706,15 @@ class TestWeakpassApiListing:
         """Test that total_pages=2 with last_page=5 fetches exactly pages 1 and 2."""
 
         def mock_get_impl(url, **kwargs):
-            mock_resp = MagicMock()
             page = kwargs.get("params", {}).get("page", 1)
-            if page in [1, 2]:
-                mock_resp.json.return_value = {
-                    "data": [
-                        {
-                            "id": page,
-                            "name": f"list{page}",
-                            "rank": "S",
-                            "size": 100 * page,
-                            "count": 10 * page,
-                            "rate": 1.0 * page,
-                            "slug": f"list{page}",
-                            "torrent_url": f"url{page}",
-                        }
-                    ],
-                    "meta": {"last_page": 5},
-                }
-                mock_resp.raise_for_status.return_value = None
-            else:
-                mock_resp.json.return_value = {"data": [], "meta": {"last_page": 5}}
-                mock_resp.raise_for_status.return_value = None
-            return mock_resp
+            pages = {
+                p: _json_response(
+                    [_weakpass_entry(p, f"list{p}", "S", 100 * p, 10 * p, 1.0 * p, f"list{p}", f"url{p}")],
+                    last_page=5,
+                )
+                for p in (1, 2)
+            }
+            return pages.get(page, _json_response([], last_page=5))
 
         with patch(
             "hate_crack.api.requests.get", side_effect=mock_get_impl
@@ -2892,13 +2722,10 @@ class TestWeakpassApiListing:
             result = _api_mod.fetch_all_weakpass_wordlists_multithreaded(total_pages=2)
 
         # Should only call pages 1 and 2, not 3-5
-        pages_called = set()
-        for call_args in mock_get.call_args_list:
-            params = call_args[1].get("params", {})
-            if "page" in params:
-                pages_called.add(params["page"])
-
-        assert pages_called == {1, 2}
+        pages_called = {
+            c.kwargs.get("params", {}).get("page") for c in mock_get.call_args_list
+        } - {None}
+        assert pages_called == {1, 2}, "only pages 1 and 2 are requested"
         assert len(result) == 2
 
     def test_page1_malformed_json_response_returns_empty_and_prints_error(self, capsys):
@@ -2918,50 +2745,13 @@ class TestWeakpassApiListing:
         """Test page 2 with .json() raising ValueError still returns pages 1 and 3."""
 
         def mock_get_impl(url, **kwargs):
-            mock_resp = MagicMock()
             page = kwargs.get("params", {}).get("page", 1)
-            if page == 1:
-                mock_resp.json.return_value = {
-                    "data": [
-                        {
-                            "id": 1,
-                            "name": "list1",
-                            "rank": "S",
-                            "size": 100,
-                            "count": 10,
-                            "rate": 1.0,
-                            "slug": "list1",
-                            "torrent_url": "url1",
-                        }
-                    ],
-                    "meta": {"last_page": 3},
-                }
-                mock_resp.raise_for_status.return_value = None
-            elif page == 2:
-                # Simulate malformed JSON by raising ValueError on json() call
-                mock_resp.json.side_effect = ValueError("Expecting value")
-                mock_resp.raise_for_status.return_value = None
-            elif page == 3:
-                mock_resp.json.return_value = {
-                    "data": [
-                        {
-                            "id": 3,
-                            "name": "list3",
-                            "rank": "B",
-                            "size": 300,
-                            "count": 30,
-                            "rate": 3.0,
-                            "slug": "list3",
-                            "torrent_url": "url3",
-                        }
-                    ],
-                    "meta": {"last_page": 3},
-                }
-                mock_resp.raise_for_status.return_value = None
-            else:
-                mock_resp.json.return_value = {"data": [], "meta": {"last_page": 3}}
-                mock_resp.raise_for_status.return_value = None
-            return mock_resp
+            pages = {
+                1: _json_response([_weakpass_entry(1, "list1", "S")], last_page=3),
+                2: _json_decode_error_resp(),
+                3: _json_response([_weakpass_entry(3, "list3", "B", 300, 30, 3.0, "list3", "url3")], last_page=3),
+            }
+            return pages.get(page, _json_response([], last_page=3))
 
         with patch("hate_crack.api.requests.get", side_effect=mock_get_impl):
             result = _api_mod.fetch_all_weakpass_wordlists_multithreaded()
@@ -3001,111 +2791,33 @@ class TestWeakpassApiListing:
 
     def test_rate_coerced_to_float(self):
         """F4: Test that rate is coerced to float, defaulting to 0.0 on failure."""
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = {
-            "data": [
-                {
-                    "id": 1,
-                    "name": "valid-rate",
-                    "rank": "A",
-                    "size": 100,
-                    "count": 10,
-                    "rate": "2.5",  # string instead of float
-                    "slug": "valid-rate",
-                    "torrent_url": "url1",
-                },
-                {
-                    "id": 2,
-                    "name": "invalid-rate",
-                    "rank": "B",
-                    "size": 200,
-                    "count": 20,
-                    "rate": "not-a-number",  # invalid
-                    "slug": "invalid-rate",
-                    "torrent_url": "url2",
-                },
-                {
-                    "id": 3,
-                    "name": "missing-rate",
-                    "rank": "C",
-                    "size": 300,
-                    "count": 30,
-                    "rate": None,  # missing
-                    "slug": "missing-rate",
-                    "torrent_url": "url3",
-                },
-            ],
-            "meta": {"last_page": 1},
-        }
-        mock_resp.raise_for_status.return_value = None
-
+        mock_resp = _json_response([
+            _weakpass_entry(1, "valid-rate", "A", rate="2.5"),
+            _weakpass_entry(2, "invalid-rate", "B", 200, 20, "not-a-number", "invalid-rate", "url2"),
+            _weakpass_entry(3, "missing-rate", "C", 300, 30, None, "missing-rate", "url3"),
+        ])
         with patch("hate_crack.api.requests.get", return_value=mock_resp):
             result = _api_mod.fetch_all_weakpass_wordlists_multithreaded()
-
-        assert len(result) == 3
-        assert result[0]["rate"] == 2.5
-        assert result[1]["rate"] == 0.0
-        assert result[2]["rate"] == 0.0
+        assert len(result) == 3, "all three entries are kept"
+        assert result[0]["rate"] == 2.5, "numeric string rate is coerced to float"
+        assert result[1]["rate"] == 0.0, "invalid rate defaults to 0.0"
+        assert result[2]["rate"] == 0.0, "missing rate defaults to 0.0"
 
     def test_falsy_ids_not_deduplicated(self):
         """F5: Test that entries with falsy ids are kept, not de-duplicated."""
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = {
-            "data": [
-                {
-                    "id": 1,
-                    "name": "list1",
-                    "rank": "A",
-                    "size": 100,
-                    "count": 10,
-                    "rate": 1.0,
-                    "slug": "list1",
-                    "torrent_url": "url1",
-                },
-                {
-                    "id": None,  # falsy id
-                    "name": "no-id-1",
-                    "rank": "B",
-                    "size": 200,
-                    "count": 20,
-                    "rate": 2.0,
-                    "slug": "no-id-1",
-                    "torrent_url": "url2",
-                },
-                {
-                    "id": None,  # another falsy id
-                    "name": "no-id-2",
-                    "rank": "C",
-                    "size": 300,
-                    "count": 30,
-                    "rate": 3.0,
-                    "slug": "no-id-2",
-                    "torrent_url": "url3",
-                },
-                {
-                    "id": "",  # empty string, also falsy
-                    "name": "empty-id",
-                    "rank": "D",
-                    "size": 400,
-                    "count": 40,
-                    "rate": 4.0,
-                    "slug": "empty-id",
-                    "torrent_url": "url4",
-                },
-            ],
-            "meta": {"last_page": 1},
-        }
-        mock_resp.raise_for_status.return_value = None
-
+        mock_resp = _json_response([
+            _weakpass_entry(1, "list1", "A"),
+            _weakpass_entry(None, "no-id-1", "B", 200, 20, 2.0, "no-id-1", "url2"),
+            _weakpass_entry(None, "no-id-2", "C", 300, 30, 3.0, "no-id-2", "url3"),
+            _weakpass_entry("", "empty-id", "D", 400, 40, 4.0, "empty-id", "url4"),
+        ])
         with patch("hate_crack.api.requests.get", return_value=mock_resp):
             result = _api_mod.fetch_all_weakpass_wordlists_multithreaded()
-
-        # All 4 entries should be kept, even with repeated falsy ids
-        assert len(result) == 4
-        assert result[0]["name"] == "list1"
-        assert result[1]["name"] == "no-id-1"
-        assert result[2]["name"] == "no-id-2"
-        assert result[3]["name"] == "empty-id"
+        assert len(result) == 4, "entries with falsy ids are all kept"
+        assert result[0]["name"] == "list1", "entry 1 kept"
+        assert result[1]["name"] == "no-id-1", "falsy-id entry kept"
+        assert result[2]["name"] == "no-id-2", "second falsy-id entry kept"
+        assert result[3]["name"] == "empty-id", "empty-string-id entry kept"
 
 
 class TestWeakpassWordlistMenu:
@@ -3275,12 +2987,12 @@ class TestDownloadAllWeakpassTorrents:
         )
 
         # Cache should have been written
-        assert cache_file.exists()
+        assert cache_file.exists(), "cache file is created"
         with open(cache_file) as f:
             cached = json.load(f)
-        assert len(cached) == 2
-        assert cached[0]["id"] == 1
-        assert cached[1]["id"] == 2
+        assert len(cached) == 2, "both wordlists are cached"
+        assert cached[0]["id"] == 1, "first cached entry id"
+        assert cached[1]["id"] == 2, "second cached entry id"
 
     def test_prints_error_and_returns_when_fetch_empty(self, tmp_path, capsys):
         """When fetch returns [], prints error and doesn't write cache."""
@@ -3545,44 +3257,12 @@ class TestDownloadAllWeakpassTorrents:
         cache_file = tmp_path / "wordlists.json"
 
         def mock_get_impl(url, **kwargs):
-            mock_resp = MagicMock()
             page = kwargs.get("params", {}).get("page", 1)
-            if page == 1:
-                mock_resp.json.return_value = {
-                    "data": [
-                        {
-                            "id": 1,
-                            "name": "list1",
-                            "rank": "A",
-                            "size": 100,
-                            "count": 10,
-                            "rate": 1.0,
-                            "slug": "list1",
-                            "torrent_url": "url1",
-                        }
-                    ],
-                    "meta": {"last_page": 2},
-                }
-            elif page == 2:
-                mock_resp.json.return_value = {
-                    "data": [
-                        {
-                            "id": 2,
-                            "name": "list2",
-                            "rank": "B",
-                            "size": 200,
-                            "count": 20,
-                            "rate": 2.0,
-                            "slug": "list2",
-                            "torrent_url": "url2",
-                        }
-                    ],
-                    "meta": {"last_page": 2},
-                }
-            else:
-                mock_resp.json.return_value = {"data": [], "meta": {"last_page": 2}}
-            mock_resp.raise_for_status.return_value = None
-            return mock_resp
+            pages = {
+                1: _json_response([_weakpass_entry(1, "list1", "A")], last_page=2),
+                2: _json_response([_weakpass_entry(2, "list2", "B", 200, 20, 2.0, "list2", "url2")], last_page=2),
+            }
+            return pages.get(page, _json_response([], last_page=2))
 
         download_calls = []
 
@@ -3618,48 +3298,13 @@ class TestDownloadAllWeakpassTorrents:
         cache_file = tmp_path / "wordlists.json"
 
         def mock_get_impl(url, **kwargs):
-            mock_resp = MagicMock()
             page = kwargs.get("params", {}).get("page", 1)
-            if page == 1:
-                mock_resp.json.return_value = {
-                    "data": [
-                        {
-                            "id": 1,
-                            "name": "list1",
-                            "rank": "A",
-                            "size": 100,
-                            "count": 10,
-                            "rate": 1.0,
-                            "slug": "list1",
-                            "torrent_url": "url1",
-                        }
-                    ],
-                    "meta": {"last_page": 3},
-                }
-                mock_resp.raise_for_status.return_value = None
-            elif page == 2:
-                mock_resp.raise_for_status.side_effect = req_lib.HTTPError("500")
-            elif page == 3:
-                mock_resp.json.return_value = {
-                    "data": [
-                        {
-                            "id": 3,
-                            "name": "list3",
-                            "rank": "C",
-                            "size": 300,
-                            "count": 30,
-                            "rate": 3.0,
-                            "slug": "list3",
-                            "torrent_url": "url3",
-                        }
-                    ],
-                    "meta": {"last_page": 3},
-                }
-                mock_resp.raise_for_status.return_value = None
-            else:
-                mock_resp.json.return_value = {"data": [], "meta": {"last_page": 3}}
-                mock_resp.raise_for_status.return_value = None
-            return mock_resp
+            pages = {
+                1: _json_response([_weakpass_entry(1, "list1", "A")], last_page=3),
+                2: _failing_resp(req_lib.HTTPError("500")),
+                3: _json_response([_weakpass_entry(3, "list3", "C", 300, 30, 3.0, "list3", "url3")], last_page=3),
+            }
+            return pages.get(page, _json_response([], last_page=3))
 
         download_calls = []
 
