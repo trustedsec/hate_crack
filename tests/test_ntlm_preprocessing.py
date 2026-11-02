@@ -2,6 +2,7 @@
 
 import sys
 import importlib
+from types import SimpleNamespace
 
 import pytest
 
@@ -350,9 +351,9 @@ class TestWriteFieldSortedUnique:
 class TestPwdumpFilterPipeline:
     """Full pipeline tests: filter -> extract NT/LM -> verify output."""
 
-    def test_full_pipeline_with_filtering(self, tmp_path, main_module):
-        """Test complete flow: filter computer accounts, extract NT/LM hashes."""
-        # Step 1: Create pwdump file with mixed accounts
+    @pytest.fixture
+    def ntlm_pipeline(self, tmp_path, main_module):
+        """Roda o pipeline (contar, filtrar, extrair NT e LM) e devolve os resultados."""
         pwdump_file = tmp_path / "dump.txt"
         pwdump_file.write_text(
             "Administrator:500:aad3b435b51404eeaad3b435b51404ee:31d6cfe0d16ae931b73c59d7e0c089c0:::\n"
@@ -363,58 +364,60 @@ class TestPwdumpFilterPipeline:
             "alice:1004:aad3b435b51404eeaad3b435b51404ee:6cb75f652a9b52798eb6cf2201057c73:::\n"
         )
 
-        # Step 2: Count computer accounts
         count = main_module._count_computer_accounts(str(pwdump_file))
-        assert count == 2
 
-        # Step 3: Filter computer accounts
         filtered_file = tmp_path / "dump.txt.filtered"
-        removed = main_module._filter_computer_accounts(
-            str(pwdump_file), str(filtered_file)
-        )
-        assert removed == 2
-
-        # Step 4: Verify filtered file preserves complete pwdump format
+        removed = main_module._filter_computer_accounts(str(pwdump_file), str(filtered_file))
         filtered_lines = filtered_file.read_text().strip().split("\n")
-        assert len(filtered_lines) == 4
-        for line in filtered_lines:
-            # Each line should have pwdump format: user:uid:LM:NT:::
-            parts = line.split(":")
-            assert len(parts) == 7  # 7 fields total (6 colons)
-            assert not parts[0].endswith("$")  # No computer accounts
 
-        # Step 5: Extract NT hashes from filtered file
         nt_file = tmp_path / "dump.txt.filtered.nt"
-        result = main_module._write_field_sorted_unique(
-            str(filtered_file), str(nt_file), 4, ":"
-        )
-        assert result is True
-
-        # Step 6: Verify NT hashes are correct and don't include computer account hashes
+        nt_ok = main_module._write_field_sorted_unique(str(filtered_file), str(nt_file), 4, ":")
         nt_hashes = nt_file.read_text().strip().split("\n")
-        assert len(nt_hashes) == 3  # Three unique NT hashes from non-computer accounts
-        assert "31d6cfe0d16ae931b73c59d7e0c089c0" in nt_hashes  # Admin/Guest empty hash
-        assert "5f4dcc3b5aa765d61d8327deb882cf99" in nt_hashes  # john's hash
-        assert "6cb75f652a9b52798eb6cf2201057c73" in nt_hashes  # alice's hash
-        # Computer account hashes should NOT be present
-        assert "8846f7eaee8fb117ad06bdd830b7586c" not in nt_hashes
-        assert "deadbeefcafebabe1234567890abcdef" not in nt_hashes
 
-        # Step 7: Extract LM hashes from filtered file
         lm_file = tmp_path / "dump.txt.filtered.lm"
-        result = main_module._write_field_sorted_unique(
-            str(filtered_file), str(lm_file), 3, ":"
-        )
-        assert result is True
-
-        # Step 8: Verify LM hashes are correct
+        lm_ok = main_module._write_field_sorted_unique(str(filtered_file), str(lm_file), 3, ":")
         lm_hashes = lm_file.read_text().strip().split("\n")
-        assert len(lm_hashes) == 2  # Two unique LM hashes
-        assert (
-            "aad3b435b51404eeaad3b435b51404ee" in lm_hashes
-        )  # Empty LM (Admin/Guest/alice)
-        assert "e52cac67419a9a224a3b108f3fa6cb6d" in lm_hashes  # john's LM
 
+        return SimpleNamespace(
+            count=count, removed=removed, filtered_lines=filtered_lines,
+            nt_ok=nt_ok, nt_hashes=nt_hashes, lm_ok=lm_ok, lm_hashes=lm_hashes,
+        )
+
+    def test_counts_computer_accounts(self, ntlm_pipeline):
+        """Conta 2 contas de computador no dump."""
+        assert ntlm_pipeline.count == 2
+
+    def test_filters_out_computer_accounts(self, ntlm_pipeline):
+        """A filtragem remove as 2 contas de computador."""
+        assert ntlm_pipeline.removed == 2
+
+    def test_filtered_file_preserves_pwdump_format(self, ntlm_pipeline):
+        """O arquivo filtrado mantém o formato pwdump e não tem contas de computador."""
+        assert len(ntlm_pipeline.filtered_lines) == 4
+        for line in ntlm_pipeline.filtered_lines:
+            parts = line.split(":")
+            assert len(parts) == 7
+            assert not parts[0].endswith("$")
+
+    def test_extracts_nt_hashes_excluding_computer_accounts(self, ntlm_pipeline):
+        """Extrai 3 NT hashes únicos, sem os das contas de computador."""
+        assert ntlm_pipeline.nt_ok is True
+        nt = ntlm_pipeline.nt_hashes
+        assert len(nt) == 3
+        assert "31d6cfe0d16ae931b73c59d7e0c089c0" in nt
+        assert "5f4dcc3b5aa765d61d8327deb882cf99" in nt
+        assert "6cb75f652a9b52798eb6cf2201057c73" in nt
+        assert "8846f7eaee8fb117ad06bdd830b7586c" not in nt
+        assert "deadbeefcafebabe1234567890abcdef" not in nt
+
+    def test_extracts_lm_hashes(self, ntlm_pipeline):
+        """Extrai 2 LM hashes únicos."""
+        assert ntlm_pipeline.lm_ok is True
+        lm = ntlm_pipeline.lm_hashes
+        assert len(lm) == 2
+        assert "aad3b435b51404eeaad3b435b51404ee" in lm
+        assert "e52cac67419a9a224a3b108f3fa6cb6d" in lm
+    
     def test_pipeline_without_filtering(self, tmp_path, main_module):
         """Test pipeline when no computer accounts exist."""
         pwdump_file = tmp_path / "dump.txt"

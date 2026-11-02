@@ -11,6 +11,7 @@ import json
 import tempfile
 import uuid
 from unittest.mock import Mock, patch, MagicMock
+from types import SimpleNamespace
 
 
 # Add the parent directory to the path to import hate_crack
@@ -45,6 +46,12 @@ def _synth_digest(hash_type, plaintext):
     if digest is None:
         raise ValueError(f"no client-side digest available for mode {hash_type}")
     return digest
+
+def _post_body(mock_post):
+    """Corpo da requisição de um session.post mockado (kwargs 'data' ou posicional)."""
+    call = mock_post.call_args
+    body = call.kwargs.get("data")
+    return body if body is not None else call.args[1]
 
 
 # NTLM (mode 1000) and MD5 (mode 0) digests of the synthetic plaintexts.
@@ -994,9 +1001,7 @@ class TestHashviewAPI:
         result = api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
         assert result["imported"] == 1
         # Only the valid NTLM line should have been sent (body is bytes)
-        sent = api.session.post.call_args.kwargs.get("data")
-        if sent is None:
-            sent = api.session.post.call_args.args[1]
+        sent = _post_body(api.session.post)
         assert isinstance(sent, bytes)
         assert f"{NTLM_A}:{SYNTH_PLAIN_A}".encode() in sent
         assert MD5_A.encode() not in sent
@@ -1022,9 +1027,7 @@ class TestHashviewAPI:
 
         api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
 
-        sent = api.session.post.call_args.kwargs.get("data")
-        if sent is None:
-            sent = api.session.post.call_args.args[1]
+        sent = _post_body(api.session.post)
         # mode 1000: $HEX[...] is inlined as the latin-1 code points re-encoded
         # as UTF-8, which is what the server re-hashes.
         assert sent == b"fec45000e0d53e0e103cb66c1fa7fc45:" + plain_bytes.decode(
@@ -1058,25 +1061,13 @@ class TestHashviewAPI:
         assert result["uploaded"] == 1
         assert result["skipped"] == 0
 
-        sent = api.session.post.call_args.kwargs.get("data")
-        if sent is None:
-            sent = api.session.post.call_args.args[1]
+        sent = _post_body(api.session.post)
         assert sent == f"{ntlm}".encode() + b":" + plain_utf8
 
-    def test_upload_retries_batch_after_server_rejects_one_plaintext(
-        self, api, tmp_path, capsys
-    ):
-        """A Hashview that rejects one $HEX-fallback plaintext (embedded CR/LF,
-        server doesn't decode $HEX[...] on import) shouldn't sink the whole
-        batch -- retry without that line so the rest still uploads.
-
-        Regression for a live report: hate_crack correctly falls back to
-        sending $HEX[...] verbatim for a plaintext with an embedded newline
-        (inlining the raw bytes would corrupt this line-based upload), but a
-        Hashview that hashes that literal wrapper string instead of decoding
-        it rejects the line and rolls back its entire atomic import --
-        taking every other valid hash in the batch down with it.
-        """
+    @pytest.fixture
+    def retry_after_reject(self, api, tmp_path, capsys):
+        """Sobe um lote em que o servidor rejeita 1 plaintext e re-tenta sem ela.
+        Expõe o resultado, o corpo do retry, a saída capturada e o ntlm rejeitado."""
         newline_plain_bytes = SYNTH_PLAIN_A.encode("utf-8") + b"\n"
         ntlm_newline = _digest_for_type("1000", newline_plain_bytes)
         hex_wrapped = "$HEX[" + newline_plain_bytes.hex() + "]"
@@ -1109,20 +1100,34 @@ class TestHashviewAPI:
         api.session.post.side_effect = [error_response, success_response]
 
         result = api.upload_cracked_hashes(str(cracked_file), hash_type="1000")
-
-        assert api.session.post.call_count == 2
-        retry_body = api.session.post.call_args_list[1].kwargs.get("data")
-        if retry_body is None:
-            retry_body = api.session.post.call_args_list[1].args[1]
-        assert ntlm_newline.encode() not in retry_body
-        assert NTLM_B.encode() in retry_body
-
-        assert result["uploaded"] == 1
-        assert result["skipped"] == 1
-
         out = capsys.readouterr().out
-        assert "Hashview rejected 1 plaintext" in out
-        assert ntlm_newline in out
+
+        return SimpleNamespace(
+            result=result,
+            retry_body=_post_body(api.session.post),
+            out=out,
+            ntlm_newline=ntlm_newline,
+            post=api.session.post,
+        )
+
+    def test_retry_makes_two_posts(self, retry_after_reject):
+        """Houve a tentativa original + o retry: dois POSTs."""
+        assert retry_after_reject.post.call_count == 2
+
+    def test_retry_excludes_rejected_keeps_rest(self, retry_after_reject):
+        """O retry reenvia sem a linha rejeitada, mas mantém as válidas."""
+        assert retry_after_reject.ntlm_newline.encode() not in retry_after_reject.retry_body
+        assert NTLM_B.encode() in retry_after_reject.retry_body
+
+    def test_retry_reports_counts(self, retry_after_reject):
+        """O resultado contabiliza 1 enviada e 1 pulada."""
+        assert retry_after_reject.result["uploaded"] == 1
+        assert retry_after_reject.result["skipped"] == 1
+
+    def test_retry_announces_rejection(self, retry_after_reject):
+        """A rejeição é informada na saída, citando o hash rejeitado."""
+        assert "Hashview rejected 1 plaintext" in retry_after_reject.out
+        assert retry_after_reject.ntlm_newline in retry_after_reject.out
 
     def test_upload_surfaces_client_counts(self, api, tmp_path):
         """upload_cracked_hashes reports uploaded/skipped even when the server
@@ -2117,10 +2122,6 @@ class TestHashviewAPI:
 
     def test_create_job_workflow(self, api, test_hashfile):
         """Test creating a job in Hashview (option 2 complete workflow)"""
-        print("\n" + "=" * 60)
-        print("Testing Option 2: Create Job Workflow")
-        print("=" * 60)
-
         # Mock responses for different endpoints - API returns 'users' as a JSON string
         mock_customers_response = Mock()
         mock_customers_response.json.return_value = {
@@ -2144,14 +2145,11 @@ class TestHashviewAPI:
         api.session.post.side_effect = [mock_upload_response, mock_job_response]
 
         # Step 1: Get test customer
-        print("\n[Step 1] Getting test customer...")
         customers_result = api.list_customers()
         test_customer = customers_result["customers"][0]
         customer_id = test_customer["id"]
-        print(f"  ✓ Using customer ID: {customer_id} ({test_customer['name']})")
 
         # Step 2: Upload hashfile
-        print("\n[Step 2] Uploading hashfile...")
         hash_type = 1000  # NTLM
         file_format = 5  # hash_only
         hashfile_name = "test_hashfile_automated"
@@ -2161,25 +2159,14 @@ class TestHashviewAPI:
         )
 
         hashfile_id = upload_result["hashfile_id"]
-        print(f"  ✓ Hashfile ID: {hashfile_id}")
 
         # Step 3: Create job
-        print("\n[Step 3] Creating job...")
         job_name = "test_job_automated"
-
         job_result = api.create_job(
             name=job_name, hashfile_id=hashfile_id, customer_id=customer_id
         )
 
         assert job_result is not None, "No job result returned"
-        print("  ✓ Job created successfully")
-
-        if "job_id" in job_result:
-            print(f"  ✓ Job ID: {job_result['job_id']}")
-
-        print("\n" + "=" * 60)
-        print("✓ Option 2 (Create Job) is READY and WORKING!")
-        print("=" * 60)
 
     def test_start_job_uses_post(self, api):
         """start_job must POST to /v1/jobs/start/<id> (the route is POST-only)."""
@@ -2340,15 +2327,16 @@ class TestHashviewAPI:
         assert detect_format(hashonly_file) == 5, "Should detect hash_only format"
         assert detect_format(hexhash_file) == 5, "hex:hash should default to hash_only"
 
-    def test_download_left_with_auto_merge(self, api, tmp_path, monkeypatch):
-        """Test that download_left automatically downloads and splits found hashes for hashcat"""
-        # Use a different CWD than the output directory to ensure merging uses
-        # output_file's directory (not os.getcwd()).
+    @pytest.fixture
+    def left_auto_merge(self, api, tmp_path, monkeypatch):
+        """Executa download_left_hashes com auto-merge de hashes encontradas,
+        uma vez, e expõe o resultado e os caminhos que os testes inspecionam."""
+        # CWD diferente do diretório de saída, pra garantir que o merge usa a
+        # pasta do output_file (e não os.getcwd()).
         other_cwd = tmp_path / "other_cwd"
         other_cwd.mkdir()
         monkeypatch.chdir(other_cwd)
 
-        # Mock left hashes download
         mock_left_response = Mock()
         mock_left_response.content = b"uncracked_hash1\nuncracked_hash2\n"
         mock_left_response.raise_for_status = Mock()
@@ -2359,7 +2347,6 @@ class TestHashviewAPI:
 
         mock_left_response.iter_content = iter_content_left
 
-        # Mock found hashes download
         mock_found_response = Mock()
         mock_found_response.content = (
             b"found_hash1:found_password1\nfound_hash2:found_password2\n"
@@ -2372,55 +2359,41 @@ class TestHashviewAPI:
 
         mock_found_response.iter_content = iter_content_found
 
-        # Set up session.get to return different responses
         api.session.get.side_effect = [mock_left_response, mock_found_response]
 
-        # Mock potfile path so cleanup isn't blocked by missing ~/.hashcat dir
         potfile = str(tmp_path / "hashcat.potfile")
         monkeypatch.setattr("hate_crack.api.get_hcat_potfile_path", lambda: potfile)
 
-        # Download left hashes (should auto-download and split found for hashcat)
         left_file = tmp_path / "left_1_2.txt"
         result = api.download_left_hashes(1, 2, output_file=str(left_file))
 
-        # Verify left file was created
-        assert os.path.exists(result["output_file"])
+        return SimpleNamespace(result=result, tmp_path=tmp_path, potfile=potfile)
 
-        # Verify left file contains the full original hashlist (left + found)
-        with open(result["output_file"], "r") as f:
-            left_contents = f.read()
-        assert "found_hash1\n" in left_contents, (
-            "Found hashes must be appended as hash-only lines"
-        )
-        assert "found_password1" not in left_contents, (
-            "Plaintext passwords must not appear in the left file"
-        )
-        assert "found_hash2\n" in left_contents, (
-            "Found hashes must be appended as hash-only lines"
-        )
-        assert "found_password2" not in left_contents, (
-            "Plaintext passwords must not appear in the left file"
-        )
-        assert "uncracked_hash1" in left_contents
-        assert "uncracked_hash2" in left_contents
+    def test_download_left_creates_output_file(self, left_auto_merge):
+        """O arquivo 'left' é criado."""
+        assert os.path.exists(left_auto_merge.result["output_file"])
 
-        # Verify found files are cleaned up after merge
-        found_file = tmp_path / "found_1_2.txt"
-        assert not os.path.exists(found_file), (
-            "Found file should be deleted after merge"
-        )
+    def test_download_left_appends_found_hashes_without_plaintext(self, left_auto_merge):
+        """O 'left' recebe as hashes encontradas (só hash, sem senha) e as originais."""
+        with open(left_auto_merge.result["output_file"], "r") as f:
+            contents = f.read()
+        assert "found_hash1\n" in contents
+        assert "found_hash2\n" in contents
+        assert "found_password1" not in contents
+        assert "found_password2" not in contents
+        assert "uncracked_hash1" in contents
+        assert "uncracked_hash2" in contents
 
-        found_hashes_file = tmp_path / "found_hashes_1_2.txt"
-        found_clears_file = tmp_path / "found_clears_1_2.txt"
-        assert not os.path.exists(str(found_hashes_file)), (
-            "Split hashes file should be deleted after merge"
-        )
-        assert not os.path.exists(str(found_clears_file)), (
-            "Split clears file should be deleted after merge"
-        )
+    def test_download_left_cleans_up_found_files(self, left_auto_merge):
+        """Os arquivos 'found' intermediários são apagados após o merge."""
+        tmp_path = left_auto_merge.tmp_path
+        assert not os.path.exists(tmp_path / "found_1_2.txt")
+        assert not os.path.exists(str(tmp_path / "found_hashes_1_2.txt"))
+        assert not os.path.exists(str(tmp_path / "found_clears_1_2.txt"))
 
-        # Verify potfile received the found hash:plaintext pairs
-        with open(potfile, "r") as f:
+    def test_download_left_writes_pairs_to_potfile(self, left_auto_merge):
+        """O potfile recebe os pares hash:senha encontrados."""
+        with open(left_auto_merge.potfile, "r") as f:
             potfile_contents = f.read()
         assert "found_hash1:found_password1" in potfile_contents
         assert "found_hash2:found_password2" in potfile_contents

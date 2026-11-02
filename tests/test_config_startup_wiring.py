@@ -15,6 +15,7 @@ import logging
 import os
 import stat
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -68,10 +69,9 @@ def bootstrap(monkeypatch, tmp_path):
 # Case 1 -- config.json holds integration keys, .env absent -> migrate
 # ---------------------------------------------------------------------------
 
-
-def test_case1_migrates_integration_keys_and_prunes_config_json(
-    bootstrap, tmp_path, capsys
-):
+@pytest.fixture
+def case1_migration(bootstrap, tmp_path, capsys):
+    """Migra um config.json legado e devolve caminhos, saída e o config recarregado."""
     legacy_path = tmp_path / "config.json"
     legacy_body = _pre_split_config(
         hcatBin="hashcat-6.2.6",
@@ -84,44 +84,58 @@ def test_case1_migrates_integration_keys_and_prunes_config_json(
     legacy_bytes = legacy_path.read_bytes()
 
     env_path_result, json_path_result = bootstrap(None, str(legacy_path))
+    out = capsys.readouterr().out
 
-    env_path = tmp_path / ".env"
-    assert env_path_result == str(env_path)
-    assert json_path_result == str(legacy_path)
-    assert env_path.is_file()
-    assert _mode(env_path) == 0o600
+    return SimpleNamespace(
+        env_path=tmp_path / ".env",
+        env_path_result=env_path_result,
+        json_path_result=json_path_result,
+        legacy_path=legacy_path,
+        legacy_bytes=legacy_bytes,
+        tmp_path=tmp_path,
+        out=out,
+    )
 
-    # The keys that moved are gone from config.json; the other 35 stay, and the
-    # pre-migration file is recoverable.
-    remaining = json.loads(legacy_path.read_text())
+
+def test_case1_creates_env_file(case1_migration):
+    c = case1_migration
+    assert c.env_path_result == str(c.env_path)
+    assert c.json_path_result == str(c.legacy_path)
+    assert c.env_path.is_file()
+    assert _mode(c.env_path) == 0o600
+
+
+def test_case1_prunes_migrated_keys_from_config_json(case1_migration):
+    c = case1_migration
+    remaining = json.loads(c.legacy_path.read_text())
     assert not ({entry.legacy for entry in ENV_KEYS} & set(remaining))
     assert {entry.legacy for entry in JSON_KEYS} <= set(remaining)
-    assert (tmp_path / "config.json.pre-split.bak").read_bytes() == legacy_bytes
+    assert (c.tmp_path / "config.json.pre-split.bak").read_bytes() == c.legacy_bytes
 
-    out = capsys.readouterr().out
-    assert str(legacy_path) in out
-    assert str(env_path) in out
+
+def test_case1_reports_migration_without_leaking_values(case1_migration):
+    out = case1_migration.out
+    assert str(case1_migration.legacy_path) in out
+    assert str(case1_migration.env_path) in out
     assert "ollamaModel" in out
     assert "hashmob_api_key" in out
     assert "Removed them from" in out
-    # The bootstrap no longer prints its own "Config source/destination" block:
-    # that is _print_config_sources()'s job now (#227).
     assert "Config source:" not in out
     assert "Config destination:" not in out
-    # Never the values.
     assert "synthetic-sentinel" not in out
     assert "synthetic-model" not in out
 
-    # And loading the resulting pair reproduces what the old file produced.
+
+def test_case1_reloaded_config_matches_original(case1_migration):
+    c = case1_migration
     config = load_config(
-        env_path=str(env_path), legacy_json_path=str(legacy_path), environ={}
+        env_path=str(c.env_path), legacy_json_path=str(c.legacy_path), environ={}
     ).config
     assert config["ollamaModel"] == "synthetic-model"
     assert config["hashmob_api_key"] == "synthetic-sentinel"
     assert config["hcatBin"] == "hashcat-6.2.6"
     assert config["notify_enabled"] is True
     assert config["hcatPotfilePath"] == ""
-
 
 def test_first_migration_preserves_real_nonsecret_path_values(
     bootstrap, tmp_path, capsys

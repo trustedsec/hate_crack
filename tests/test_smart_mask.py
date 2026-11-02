@@ -1,4 +1,5 @@
 import importlib
+from types import SimpleNamespace
 
 import pytest
 
@@ -1319,30 +1320,14 @@ def test_smart_mask_crack_rejects_negative_then_accepts_blank(monkeypatch):
     assert seen["keyspace_limit"] is None
 
 
-def test_hcatSmartMask_reports_a_slot_exhausted_template_instead_of_dropping_it_quietly(
-    monkeypatch, tmp_path, capsys
-):
-    """Nine runs of nine *different* charsets cannot be expressed at all.
-
-    Before the guard this surfaced as an opaque "unbuildable template" from the
-    mask parser, with nothing naming the cause; the whole cluster went missing
-    for a reason the operator could not act on.
-    """
+@pytest.fixture
+def slot_exhausted_run(monkeypatch, tmp_path, capsys):
+    """Monta 9 charsets distintos (inexprimíveis), roda hcatSmartMask e devolve
+    a saída e as chamadas de Popen."""
     import hate_crack.main as hc_main
 
     importlib.reload(hc_main)
 
-    # Nine varying runs, each drawing on a different alphabet, separated by
-    # fixed letter runs so the shape signature stays stable across members.
-    #
-    # Each alphabet deliberately mixes a digit with a symbol. A same-class pair
-    # like "01" no longer reaches the slot allocator at all: _infer_charset
-    # widens it to ?d, a builtin that costs no slot. Only a set that is a
-    # subset of no known alphabet -- and, once widened, of nothing narrower
-    # than ?a -- still needs a slot of its own.
-    # No ':' -- these go through a hash:plaintext .out file. No ',' or '\'
-    # either: those are hcmask field escapes, and no '?', which is the mask
-    # token marker.
     alphabets = ["-_", "=+", "[]", "{}", ";'", '"<', ">/", "~`", "|."]
     members = []
     for pick in range(2):
@@ -1365,11 +1350,21 @@ def test_hcatSmartMask_reports_a_slot_exhausted_template_instead_of_dropping_it_
 
     hc_main.hcatSmartMask("1000", str(hashfile))
 
-    out = capsys.readouterr().out
+    return SimpleNamespace(out=capsys.readouterr().out, popen_calls=popen_calls)
+
+
+def test_hcatSmartMask_reports_slot_exhaustion(slot_exhausted_run):
+    """A saída nomeia os slots de charset e os 9 charsets distintos."""
+    out = slot_exhausted_run.out
     assert "charset slots" in out, out
     assert "9 distinct charsets" in out, out
-    assert popen_calls == [], "an inexpressible template must not launch hashcat"
 
+
+def test_hcatSmartMask_does_not_launch_hashcat_when_inexpressible(slot_exhausted_run):
+    """Um template inexprimível não dispara o hashcat."""
+    assert slot_exhausted_run.popen_calls == [], (
+        "an inexpressible template must not launch hashcat"
+    )
 
 def test_assign_mask_tokens_escapes_a_question_mark_in_a_charset_definition():
     r"""A charset *definition* is tokenized by mp_expand too, so a bare '?' in

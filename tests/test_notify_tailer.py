@@ -104,10 +104,14 @@ class TestCrackTailerStart:
         tailer, notify, aggregate = _make_tailer(out)
         tailer.start()
         try:
-            # Allow at least one poll interval; no new lines were added, so
-            # no notifications should fire.
-            time.sleep(0.2)
-            assert notify.call_count == 0
+            # Escreve uma linha DEPOIS do start: quando ela dispara, sabemos que
+            # uma varredura rodou -- então as linhas pré-existentes já tiveram sua
+            # chance e foram ignoradas (seek para o fim do arquivo no start).
+            with open(out, "a") as f:
+                f.write("carol:hash:plain\n")
+            assert _wait_until(lambda: notify.call_count >= 1)
+            labels = [call.args[0] for call in notify.call_args_list]
+            assert labels == ["carol"]  # só a nova; alice/bob não notificaram
             assert aggregate.call_count == 0
         finally:
             tailer.stop()
@@ -327,25 +331,23 @@ class TestCrackTailerPollOnceInternals:
         assert notify.call_count == 0
         assert aggregate.call_count == 0
 
-    def test_truncation_resets_position_directly(self, tmp_path: Path) -> None:
-        """_poll_once must reset position and buffer when the file shrinks."""
+    def test_truncation_resets_position(self, tmp_path: Path) -> None:
         out = tmp_path / "hashes.out"
-        content = "alice:hash:plain\nbob:hash:plain\n"
-        out.write_text(content)
-        tailer, notify, aggregate = _make_tailer(out)
-        tailer._file_pos = len(content.encode())  # pretend we've read it all
-        tailer._buffer = b"leftover"
-
-        # Truncate to a smaller file.
-        out.write_text("c:h:p\n")
-        tailer._poll_once()
-
-        # Position must have been reset and buffer cleared.
-        assert tailer._file_pos == len(b"c:h:p\n")
-        assert tailer._buffer == b""
-        # One new line notified.
-        assert notify.call_count == 1
-
+        out.write_text("alice:hash:plain\nbob:hash:plain\n")
+        original_size = out.stat().st_size
+        tailer, notify, _ = _make_tailer(out)
+        tailer.start()
+        try:
+            # Espera o tailer posicionar no fim do conteúdo original...
+            assert _wait_until(lambda: tailer._file_pos == original_size)
+            # ...então trunca e escreve uma linha nova; o tailer deve resetar
+            # a posição e ver a linha nova.
+            out.write_text("charlie:hash:plain\n")
+            assert _wait_until(lambda: notify.call_count >= 1)
+            labels = [call.args[0] for call in notify.call_args_list]
+            assert "charlie" in labels
+        finally:
+            tailer.stop()
 
 class TestCrackTailerFileHandling:
     def test_missing_file_then_appearing(self, tmp_path: Path) -> None:

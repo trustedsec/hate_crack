@@ -5,6 +5,7 @@ import json
 import os
 import tracemalloc
 from unittest.mock import MagicMock, patch
+from types import SimpleNamespace
 
 import pytest
 
@@ -617,55 +618,47 @@ class TestSpoonmanExtraWordlists:
         passed = _wordlists(quick)
         assert passed == [passed[0], other]
 
-    @pytest.mark.parametrize(
-        "style", ["symlink", "dot_prefix", "parent_traversal", "case_differing"]
-    )
-    def test_the_corpus_is_recognized_through_a_symlink_or_a_relative_form(
-        self, main_module, tmp_path, monkeypatch, style
-    ):
-        """identity, not a string compare: the two paths arrive separately.
-
-        One is typed or picked by the operator, the other is joined onto a
-        directory listing, so the same file reaching the two sides spelled two
-        ways is ordinary -- including, on a case-insensitive filesystem, two
-        spellings differing only in case (#291).
-        """
+    @pytest.fixture
+    def corpus_setup(self, tmp_path):
+        """Cria o diretório wordlists com o corpus derivado."""
         wordlists = tmp_path / "wordlists"
         wordlists.mkdir()
         corpus = wordlists / "prev_engagement_cracked.txt"
         corpus.write_text("quibblefox\nQuibblefox1\n", encoding="latin-1")
+        return SimpleNamespace(wordlists=wordlists, corpus=corpus)
 
-        if style == "symlink":
-            alias = wordlists / "corpus_link.txt"
-            alias.symlink_to(corpus)
-            spelling = str(alias)
-        elif style == "dot_prefix":
-            monkeypatch.chdir(wordlists)
-            spelling = os.path.join(".", "prev_engagement_cracked.txt")
-        elif style == "case_differing":
-            # A real filesystem probe, not sys.platform: skip cleanly on a
-            # case-sensitive filesystem (Linux CI, a case-sensitive macOS
-            # volume) rather than asserting something the filesystem itself
-            # does not do.
-            alt = wordlists / "Prev_Engagement_Cracked.txt"
-            if not (alt.exists() and os.path.samefile(str(corpus), str(alt))):
-                pytest.skip("filesystem is case-sensitive")
-            spelling = str(alt)
-        else:
-            # A form that really does exist, so the existence check cannot be
-            # what makes this pass.
-            spelling = os.path.join(
-                str(wordlists), "..", "wordlists", "prev_engagement_cracked.txt"
-            )
+    def _assert_alias_recognized(self, main_module, tmp_path, corpus, spelling):
+        """A mesma asserção dos 4 casos: a grafia alternativa é reconhecida."""
         assert os.path.exists(spelling)
-
-        quick = self._run(
-            main_module, tmp_path, str(corpus), extra_wordlists=[spelling]
-        )
-
+        quick = self._run(main_module, tmp_path, str(corpus), extra_wordlists=[spelling])
         # Nothing but the derived basewords: the alias was recognized.
         assert len(_wordlists(quick)) == 1
 
+    def test_corpus_recognized_through_symlink(self, main_module, tmp_path, corpus_setup):
+        alias = corpus_setup.wordlists / "corpus_link.txt"
+        alias.symlink_to(corpus_setup.corpus)
+        self._assert_alias_recognized(main_module, tmp_path, corpus_setup.corpus, str(alias))
+
+    def test_corpus_recognized_through_dot_prefix(
+        self, main_module, tmp_path, corpus_setup, monkeypatch
+    ):
+        monkeypatch.chdir(corpus_setup.wordlists)
+        spelling = os.path.join(".", "prev_engagement_cracked.txt")
+        self._assert_alias_recognized(main_module, tmp_path, corpus_setup.corpus, spelling)
+
+    def test_corpus_recognized_through_parent_traversal(self, main_module, tmp_path, corpus_setup):
+        spelling = os.path.join(
+            str(corpus_setup.wordlists), "..", "wordlists", "prev_engagement_cracked.txt"
+        )
+        self._assert_alias_recognized(main_module, tmp_path, corpus_setup.corpus, spelling)
+
+    def test_corpus_recognized_through_case_differing(self, main_module, tmp_path, corpus_setup):
+        # Sonda real do filesystem: pula se for case-sensitive (Linux CI etc.).
+        alt = corpus_setup.wordlists / "Prev_Engagement_Cracked.txt"
+        if not (alt.exists() and os.path.samefile(str(corpus_setup.corpus), str(alt))):
+            pytest.skip("filesystem is case-sensitive")
+        self._assert_alias_recognized(main_module, tmp_path, corpus_setup.corpus, str(alt))
+    
     def test_a_different_file_in_the_corpus_directory_is_not_skipped(
         self, main_module, tmp_path, capsys
     ):

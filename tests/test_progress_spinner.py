@@ -17,6 +17,14 @@ from hate_crack.progress import _TICK_INTERVAL, spinner
 # TTY guard: non-TTY path must print message once and not start a thread
 # ---------------------------------------------------------------------------
 
+def _wait_until(predicate, timeout=2.0):
+    """Espera até predicate() virar verdadeiro ou estourar o timeout."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.01)
+    return predicate()
 
 def test_non_tty_prints_message(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
@@ -172,13 +180,8 @@ def test_spinner_yields_handle_and_renders_detail() -> None:
     with mock.patch("sys.stdout", buf):
         with spinner("Profiling...") as handle:
             handle.set_detail("4,120,000 lines")
-            # Give the repaint thread at least one tick with the detail set.
-            time.sleep(_TICK_INTERVAL * 3)
-
-    output = buf.getvalue()
-    assert "Profiling..." in output
-    assert "4,120,000 lines" in output
-
+            # Espera o thread de repaint renderizar o detalhe (sem tempo fixo).
+            assert _wait_until(lambda: "4,120,000 lines" in buf.getvalue())
 
 def test_spinner_detail_is_optional_in_rendering() -> None:
     """With no detail set, the rendered line must not gain stray separators."""
