@@ -10,7 +10,7 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 ## [Unreleased]
 
 ### Fixed
-- **PCFG no longer shares one save file between runs.** `pcfg_guesser.py` was started without `--session`, so every run wrote `pcfg_cracker/default_run.sav`; two runs at once overwrote each other's state and the file dirtied the submodule. Each hash file now gets its own session name, the same one hashcat uses.
+- **PCFG no longer shares one save file between runs.** `pcfg_guesser.py` was started without `--session`, so every run wrote `pcfg_cracker/default_run.sav`; two runs at once overwrote each other's state. Each hash file now gets its own session name, the same one hashcat uses.
 - **PCFG refuses a ruleset that does not exist** instead of launching a guesser that exits immediately, matching PRINCE-LING.
 
 ### Added

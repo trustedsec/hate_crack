@@ -1548,7 +1548,7 @@ Uses [pcfg_cracker](https://github.com/lakiw/pcfg_cracker) to generate candidate
 Uses pcfg_cracker's `prince_ling.py` to derive an optimized PRINCE base wordlist from a trained grammar, then hands it to the existing PRINCE attack. PRINCE-LING picks base words the grammar says are actually productive, so the PRINCE combination space is far less wasteful than pointing PRINCE at a generic wordlist.
 
 * Requires the `pcfg_cracker` submodule and a trained ruleset directory, same as the PCFG attack
-* The generated wordlist is cached at `<hcatOptimizedWordlists>/pcfg_prince_ling_<ruleset>.txt` and reused across sessions
+* The generated wordlist is cached at `<hcatOptimizedWordlists>/pcfg_prince_ling_<ruleset>_<pcfgPrinceLingMaxCandidates>.txt` and reused across sessions
 * Regenerates only when the ruleset directory is newer than the cached wordlist, so retraining a grammar invalidates the cache automatically
 * Generation is written to a temporary file and atomically moved into place; a failed or interrupted run cleans up its partial file and leaves any existing cache intact
 * Base wordlist size is capped by `pcfgPrinceLingMaxCandidates` (default 10,000,000)
