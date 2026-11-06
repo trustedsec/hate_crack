@@ -9115,6 +9115,10 @@ def smart_mask_crack():
     return _attacks.smart_mask_crack(_attack_ctx())
 
 
+def pcfg_hints_attack():
+    return _attacks.pcfg_hints_attack(_attack_ctx())
+
+
 def combinator_crack():
     return _attacks.combinator_crack(_attack_ctx())
 

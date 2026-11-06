@@ -1269,6 +1269,7 @@ All tests use mocked API calls, so they can run without connectivity to a Hashvi
   (23) Rosetta Attack
   (24) Corporate Masks Brute Force
   (25) Smart Mask Attack
+  (26) PCFG Hints
 
   (80) Wordlist Tools
   (81) Rule File Tools

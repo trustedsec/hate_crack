@@ -674,12 +674,83 @@ def prince_attack(ctx: Any) -> None:
     ctx.hcatPrince(ctx.hcatHashType, ctx.hcatHashFile)
 
 
+def _prompt_pcfg_constraints(ctx: Any) -> dict[str, Any] | None:
+    """Ask for optional PCFG shape constraints; return only the filled keys.
+
+    ``mask`` and ``contains`` are alternatives (hashcat refuses both), so
+    contains is not asked once a mask is given. Returns None, after showing
+    an error, when pwmin/pwmax is not a positive integer.
+    """
+    ui = get_ui()
+    out: dict[str, Any] = {}
+    mask = ui.ask("Mask to constrain guesses (e.g. ?u?l?l?l?d?d, blank to skip): ")
+    mask = mask.strip()
+    if mask:
+        out["mask"] = mask
+    else:
+        raw = ui.ask(
+            "Substrings guesses must contain (comma separated, blank to skip): "
+        )
+        contains = [part.strip() for part in raw.split(",") if part.strip()]
+        if contains:
+            out["contains"] = contains
+    for key, label in (("pwmin", "Minimum"), ("pwmax", "Maximum")):
+        raw = ui.ask(f"{label} password length (blank to skip): ").strip()
+        if not raw:
+            continue
+        try:
+            value = int(raw)
+        except ValueError:
+            value = 0
+        if value <= 0:
+            ui.error(f"[!] {label} password length must be a positive integer.")
+            return None
+        out[key] = value
+    return out
+
+
 def pcfg_attack(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("PCFG")
     if ctx.pcfg_engine() == "native":
-        ctx.hcatPCFGNative(ctx.hcatHashType, ctx.hcatHashFile)
+        constraints = _prompt_pcfg_constraints(ctx)
+        if constraints is None:
+            return
+        ctx.hcatPCFGNative(ctx.hcatHashType, ctx.hcatHashFile, **constraints)
     else:
         ctx.hcatPCFG(ctx.hcatHashType, ctx.hcatHashFile)
+
+
+def pcfg_hints_attack(ctx: Any) -> None:
+    _notify.prompt_notify_for_attack("PCFG Hints")
+    ui = get_ui()
+    if ctx.pcfg_engine() != "native":
+        ui.error(
+            "[!] PCFG Hints needs hashcat's built-in PCFG (-a 4), which this "
+            "hashcat build does not provide."
+        )
+        return
+    answer = ui.ask("Hint words (comma separated) or path to a file: ").strip()
+    if not answer:
+        return
+    hintfile = None
+    hintwords = None
+    candidate = os.path.expanduser(answer)
+    if os.path.isfile(candidate):
+        hintfile = candidate
+    else:
+        hintwords = [w.strip() for w in answer.split(",") if w.strip()]
+        if not hintwords:
+            return
+    constraints = _prompt_pcfg_constraints(ctx)
+    if constraints is None:
+        return
+    ctx.hcatPCFGHints(
+        ctx.hcatHashType,
+        ctx.hcatHashFile,
+        hintwords=hintwords,
+        hintfile=hintfile,
+        **constraints,
+    )
 
 
 def prince_ling_attack(ctx: Any) -> None:

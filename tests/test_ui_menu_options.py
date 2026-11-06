@@ -36,6 +36,7 @@ MENU_OPTION_TEST_CASES = [
     ("23", CLI_MODULE._attacks, "rosetta_attack", "rosetta"),
     ("24", CLI_MODULE._attacks, "corporate_masks_crack", "corporate-masks"),
     ("25", CLI_MODULE._attacks, "smart_mask_crack", "smart-mask"),
+    ("26", CLI_MODULE._attacks, "pcfg_hints_attack", "pcfg-hints"),
     ("80", CLI_MODULE._attacks, "wordlist_tools_submenu", "wordlist-tools"),
     ("81", CLI_MODULE._attacks, "rule_tools_submenu", "rule-tools"),
     ("82", CLI_MODULE, "notifications_submenu", "notifications-submenu"),

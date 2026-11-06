@@ -91,6 +91,7 @@ MAIN_MENU: tuple[MenuAction, ...] = (
     MenuAction("23", "Rosetta Attack", _late("rosetta_attack")),
     MenuAction("24", "Corporate Masks Brute Force", _late("corporate_masks_crack")),
     MenuAction("25", "Smart Mask Attack", _late("smart_mask_crack")),
+    MenuAction("26", "PCFG Hints", _late("pcfg_hints_attack")),
     MenuAction("80", "Wordlist Tools", _late("wordlist_tools_submenu")),
     MenuAction("81", "Rule File Tools", _late("rule_tools_submenu")),
     MenuAction("82", "Notifications", _late("notifications_submenu")),
