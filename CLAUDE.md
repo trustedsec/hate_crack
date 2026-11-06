@@ -731,7 +731,7 @@ later silently ignores `ui_backend` and nothing else fails.
 
 Alongside the interactive menu, `main.py` exposes scripted entry points:
 
-- **Scripted attacks** — 21 subcommands covering all but five of the menu
+- **Scripted attacks** — 22 subcommands covering all but five of the menu
   attacks (#340). Every one is a row in `hate_crack/noninteractive.py`'s
   **`ATTACK_SPECS`**, which is the source of truth: `ATTACK_COMMANDS` is
   derived from it, and both `add_attack_subparsers` and `_dispatch` iterate

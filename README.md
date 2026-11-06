@@ -224,6 +224,9 @@ hate_crack pathwell    hashes.txt 1000
 hate_crack prince      hashes.txt 1000
 hate_crack pcfg        hashes.txt 1000
 hate_crack pcfg        hashes.txt 1000 --ruleset default-passwords --costmax 48
+hate_crack pcfg        hashes.txt 1000 --mask '?u?l?l?l?l?d?d?d'
+hate_crack pcfg        hashes.txt 1000 --contains alpha --contains beta --pwmin 8 --pwmax 14
+hate_crack pcfghints   hashes.txt 1000 --hintwords alpha,beta
 hate_crack princeling  hashes.txt 1000
 hate_crack smartmask   hashes.txt 1000
 hate_crack corporate   hashes.txt 1000
@@ -1559,7 +1562,19 @@ Fallback (pipe) path, used when the build has no `-a 4` or `pcfgEngine` is `lega
 * Candidate count is capped by `pcfgMaxCandidates` (default 50,000,000)
 * hate_crack does not wrap grammar training. To build a grammar from a target-specific password set, run pcfg_cracker's own `trainer.py` and point `pcfgRuleset` at the resulting ruleset name
 
-Non-interactively, `hate_crack pcfg <hashfile> <hashtype> [--ruleset NAME_OR_PATH ...] [--costmax N]` accepts `--ruleset` (repeatable, rulesets are merged) and `--costmax`. Both work only on the native engine and exit 1 with a message on the pipe.
+On the native engine, option 20 also asks for optional shape constraints (blank skips each): a `mask` in hashcat mask syntax, which fixes the length, else `contains` (comma-separated substrings that must all appear), then a minimum and a maximum length. A mask and `contains` are alternatives, since hashcat refuses both together, and a mask drops the OMEN escape. After the constraints, if any `keyboard-walks-<layout>` rulesets are installed, an optional picker merges the chosen one with the default ruleset at weights 9:1. See hashcat's own `docs/hashcat-pcfg.md` for what these settings do.
+
+Non-interactively, `hate_crack pcfg <hashfile> <hashtype> [--ruleset NAME_OR_PATH ...] [--costmax N] [--mask M] [--contains S ...] [--pwmin N] [--pwmax N] [--weights A:B[:C...]]` accepts `--ruleset` (repeatable, rulesets are merged), `--costmax`, the shape flags `--mask`, `--contains` (repeatable), `--pwmin` and `--pwmax`, and `--weights` (one value per ruleset). All of them work only on the native engine; the command exits 1 with a message on the pipe or when hashcat refuses the settings.
+
+#### PCFG Hints Attack
+Menu option 26. Runs hashcat's bundled `hints` ruleset, which models structure only: every candidate contains at least one of the words you supply, and each hint word appears at most once per candidate unless `hintrepeat` is set. It needs the native `-a 4` engine and refuses with an error on the pipe.
+
+* Prompts for `Hint words (comma separated) or path to a file:`. An existing file path is read as a hint file, one word per line; anything else is a comma-separated list (for example `alpha,beta`)
+* Then asks for the same optional shape constraints as the PCFG attack (mask or contains, minimum and maximum length)
+* `hintrank` controls how hint words are weighted: `zipf` (default), `linear` or `flat`
+* See hashcat's `docs/hashcat-pcfg.md` for the ruleset's behaviour
+
+Non-interactively: `hate_crack pcfghints <hashfile> <hashtype> (--hintwords a,b | --hintfile FILE) [--hintrank zipf|linear|flat] [--hintrepeat] [--mask M] [--contains S ...] [--pwmin N] [--pwmax N] [--costmax N]`. Native engine only; exits 1 otherwise or when hashcat refuses the run.
 
 #### PRINCE-LING Attack
 Uses pcfg_cracker's `prince_ling.py` to derive an optimized PRINCE base wordlist from a trained grammar, then hands it to the existing PRINCE attack. PRINCE-LING picks base words the grammar says are actually productive, so the PRINCE combination space is far less wasteful than pointing PRINCE at a generic wordlist.
