@@ -55,6 +55,7 @@ def test_issue_340_attacks_are_all_present():
         "pathwell",
         "prince",
         "pcfg",
+        "pcfghints",
         "princeling",
         "smartmask",
         "corporate",
@@ -122,6 +123,7 @@ def _spy_ctx(tmp_path, **overrides):
         "hcatPrince",
         "hcatPCFG",
         "hcatPCFGNative",
+        "hcatPCFGHints",
         "hcatPrinceLing",
         "hcatSmartMask",
         "hcatCorporateMasks",
@@ -660,6 +662,227 @@ def test_pcfg_legacy_bare_calls_hcatPCFG(tmp_path):
     args = _parse(["pcfg", ctx.hcatHashFile, "1000"])
     assert ni.run_noninteractive(ctx, args) == 0
     assert ctx.calls == [("hcatPCFG", ("1000", ctx.hcatHashFile), {})]
+
+
+def _native(tmp_path):
+    return _spy_ctx(tmp_path, pcfg_engine=lambda: "native")
+
+
+def test_pcfg_native_with_mask(tmp_path):
+    ctx = _native(tmp_path)
+    args = _parse(["pcfg", ctx.hcatHashFile, "1000", "--mask", "?u?l?l?d"])
+    assert ni.run_noninteractive(ctx, args) == 0
+    assert ctx.calls == [
+        ("hcatPCFGNative", ("1000", ctx.hcatHashFile), {"mask": "?u?l?l?d"})
+    ]
+
+
+def test_pcfg_native_with_repeated_contains(tmp_path):
+    ctx = _native(tmp_path)
+    args = _parse(
+        ["pcfg", ctx.hcatHashFile, "1000", "--contains", "a", "--contains", "b"]
+    )
+    assert ni.run_noninteractive(ctx, args) == 0
+    assert ctx.calls == [
+        ("hcatPCFGNative", ("1000", ctx.hcatHashFile), {"contains": ["a", "b"]})
+    ]
+
+
+def test_pcfg_native_with_pwmin_pwmax(tmp_path):
+    ctx = _native(tmp_path)
+    args = _parse(["pcfg", ctx.hcatHashFile, "1000", "--pwmin", "6", "--pwmax", "12"])
+    assert ni.run_noninteractive(ctx, args) == 0
+    assert ctx.calls == [
+        ("hcatPCFGNative", ("1000", ctx.hcatHashFile), {"pwmin": 6, "pwmax": 12})
+    ]
+
+
+def test_pcfg_native_with_rulesets_and_weights(tmp_path):
+    ctx = _native(tmp_path)
+    args = _parse(
+        [
+            "pcfg",
+            ctx.hcatHashFile,
+            "1000",
+            "--ruleset",
+            "a",
+            "--ruleset",
+            "b",
+            "--weights",
+            "9:1",
+        ]
+    )
+    assert ni.run_noninteractive(ctx, args) == 0
+    assert ctx.calls == [
+        (
+            "hcatPCFGNative",
+            ("1000", ctx.hcatHashFile),
+            {"rulesets": ["a", "b"], "weights": [9, 1]},
+        )
+    ]
+
+
+@pytest.mark.parametrize("bad", ["9", "9:x", "9::1", "", "9:1:"])
+def test_pcfg_native_malformed_weights_exit_1(tmp_path, bad):
+    ctx = _native(tmp_path)
+    args = _parse(["pcfg", ctx.hcatHashFile, "1000", "--weights", bad])
+    assert ni.run_noninteractive(ctx, args) == 1
+    assert ctx.calls == []
+
+
+@pytest.mark.parametrize("flag", ["--pwmin", "--pwmax"])
+def test_pcfg_native_rejects_zero_length_bound(tmp_path, flag):
+    ctx = _native(tmp_path)
+    args = _parse(["pcfg", ctx.hcatHashFile, "1000", flag, "0"])
+    assert ni.run_noninteractive(ctx, args) == 1
+    assert ctx.calls == []
+
+
+def test_pcfg_native_invalid_combination_refused_exits_1(tmp_path):
+    ctx = _native(tmp_path)
+    seen = []
+
+    def refuse(*a, **k):
+        seen.append((a, k))
+        return False
+
+    ctx.hcatPCFGNative = refuse
+    args = _parse(
+        ["pcfg", ctx.hcatHashFile, "1000", "--mask", "?l?l", "--contains", "a"]
+    )
+    assert ni.run_noninteractive(ctx, args) == 1
+    assert seen == [(("1000", ctx.hcatHashFile), {"mask": "?l?l", "contains": ["a"]})]
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        ["--mask", "?l?l"],
+        ["--contains", "a"],
+        ["--pwmin", "6"],
+        ["--pwmax", "12"],
+        ["--weights", "9:1"],
+    ],
+)
+def test_pcfg_legacy_rejects_each_native_only_flag(tmp_path, extra):
+    ctx = _spy_ctx(tmp_path, pcfg_engine=lambda: "legacy")
+    args = _parse(["pcfg", ctx.hcatHashFile, "1000", *extra])
+    assert ni.run_noninteractive(ctx, args) == 1
+    assert ctx.calls == []
+
+
+# --------------------------------------------------------------------------
+# PCFG hints (native only)
+# --------------------------------------------------------------------------
+
+
+def test_pcfghints_with_hintwords_and_pwmax(tmp_path):
+    ctx = _native(tmp_path)
+    args = _parse(
+        [
+            "pcfghints",
+            ctx.hcatHashFile,
+            "1000",
+            "--hintwords",
+            "alpha, beta,,",
+            "--pwmax",
+            "12",
+        ]
+    )
+    assert ni.run_noninteractive(ctx, args) == 0
+    assert ctx.calls == [
+        (
+            "hcatPCFGHints",
+            ("1000", ctx.hcatHashFile),
+            {"hintwords": ["alpha", "beta"], "pwmax": 12},
+        )
+    ]
+
+
+def test_pcfghints_with_hintfile(tmp_path):
+    ctx = _native(tmp_path)
+    args = _parse(["pcfghints", ctx.hcatHashFile, "1000", "--hintfile", "hints.txt"])
+    assert ni.run_noninteractive(ctx, args) == 0
+    assert ctx.calls == [
+        ("hcatPCFGHints", ("1000", ctx.hcatHashFile), {"hintfile": "hints.txt"})
+    ]
+
+
+def test_pcfghints_rank_and_repeat(tmp_path):
+    ctx = _native(tmp_path)
+    args = _parse(
+        [
+            "pcfghints",
+            ctx.hcatHashFile,
+            "1000",
+            "--hintwords",
+            "alpha",
+            "--hintrank",
+            "flat",
+            "--hintrepeat",
+        ]
+    )
+    assert ni.run_noninteractive(ctx, args) == 0
+    assert ctx.calls == [
+        (
+            "hcatPCFGHints",
+            ("1000", ctx.hcatHashFile),
+            {"hintwords": ["alpha"], "hintrank": "flat", "hintrepeat": True},
+        )
+    ]
+
+
+def test_pcfghints_without_hint_source_exits_1(tmp_path):
+    ctx = _native(tmp_path)
+    args = _parse(["pcfghints", ctx.hcatHashFile, "1000", "--pwmax", "12"])
+    assert ni.run_noninteractive(ctx, args) == 1
+    assert ctx.calls == []
+
+
+def test_pcfghints_empty_hintwords_counts_as_no_source(tmp_path):
+    ctx = _native(tmp_path)
+    args = _parse(["pcfghints", ctx.hcatHashFile, "1000", "--hintwords", " , "])
+    assert ni.run_noninteractive(ctx, args) == 1
+    assert ctx.calls == []
+
+
+def test_pcfghints_legacy_engine_exits_1(tmp_path):
+    ctx = _spy_ctx(tmp_path, pcfg_engine=lambda: "legacy")
+    args = _parse(["pcfghints", ctx.hcatHashFile, "1000", "--hintwords", "alpha"])
+    assert ni.run_noninteractive(ctx, args) == 1
+    assert ctx.calls == []
+
+
+def test_pcfghints_refused_exits_1(tmp_path):
+    ctx = _native(tmp_path)
+    ctx.hcatPCFGHints = lambda *a, **k: False
+    args = _parse(
+        [
+            "pcfghints",
+            ctx.hcatHashFile,
+            "1000",
+            "--hintwords",
+            "alpha",
+            "--hintfile",
+            "hints.txt",
+        ]
+    )
+    assert ni.run_noninteractive(ctx, args) == 1
+
+
+def test_pcfghints_rejects_unknown_hintrank():
+    with pytest.raises(SystemExit):
+        _parse(
+            [
+                "pcfghints",
+                "h.txt",
+                "1000",
+                "--hintwords",
+                "alpha",
+                "--hintrank",
+                "bogus",
+            ]
+        )
 
 
 # --------------------------------------------------------------------------
