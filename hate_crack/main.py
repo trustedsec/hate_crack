@@ -6640,7 +6640,7 @@ def _resolve_pcfg_ruleset_dir(pcfg_root, ruleset_name):
 
 
 def hcatPCFG(hcatHashType, hcatHashFile):
-    """Mode A: pipe pcfg_guesser.py output into hashcat in stdin mode."""
+    """Pipe pcfg_guesser.py output into hashcat in stdin mode."""
     pcfg_guesser_script = os.path.join(hate_path, "pcfg_cracker", "pcfg_guesser.py")
     if not os.path.isfile(pcfg_guesser_script):
         get_ui().say(f"pcfg_guesser.py not found at {pcfg_guesser_script}")
@@ -6699,7 +6699,7 @@ def hcatPCFG(hcatHashType, hcatHashFile):
 
 
 def hcatPrinceLing(hcatHashType, hcatHashFile):
-    """Mode B: prince_ling generates a wordlist (with cache+staleness check),
+    """prince_ling generates a wordlist (with cache+staleness check),
     then we delegate to the existing hcatPrince attack with hcatPrinceBaseList
     temporarily rebound to the cached wordlist.
     """

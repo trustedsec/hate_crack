@@ -753,15 +753,21 @@ The PCFG Attack (option 20) and PRINCE-LING Attack (option 21) use the `pcfg_cra
 
 ```json
 {
-  "pcfgRuleset": "DEFAULT",
+  "pcfgRuleset": "Default",
   "pcfgMaxCandidates": 50000000,
-  "pcfgPrinceLingMaxCandidates": 10000000
+  "pcfgPrinceLingMaxCandidates": 10000000,
+  "pcfgMode": "true_prob_order",
+  "pcfgSkipBrute": false,
+  "pcfgAllLower": false
 }
 ```
 
-- **`pcfgRuleset`** — Name of the trained grammar to use (default: `DEFAULT`), resolved to `pcfg_cracker/Rules/<name>/`. Train your own with pcfg_cracker's `trainer.py` and set this to the ruleset name.
+- **`pcfgRuleset`** — Name of the trained grammar to use (default: `Default`), resolved to `pcfg_cracker/Rules/<name>/`. Train your own with pcfg_cracker's `trainer.py` and set this to the ruleset name.
 - **`pcfgMaxCandidates`** — Maximum candidates `pcfg_guesser.py` emits for the PCFG attack (default: `50000000`).
 - **`pcfgPrinceLingMaxCandidates`** — Maximum base words `prince_ling.py` writes into the cached PRINCE base wordlist (default: `10000000`).
+- **`pcfgMode`** — How `pcfg_guesser.py` orders guesses: `true_prob_order` (default, strict probability order) or `random_walk` (samples from the grammar).
+- **`pcfgSkipBrute`** — Skip the guesser's built-in OMEN/Markov tail (default: `false`). Use it when you already run a dedicated Markov attack.
+- **`pcfgAllLower`** — Emit lowercase guesses only, with no case mangling (default: `false`).
 
 ### Optimized kernels (`optimizedKernelAttacks`)
 
@@ -1534,7 +1540,7 @@ Generates all unique non-empty subset combinations from a short wordlist using `
 Uses [pcfg_cracker](https://github.com/lakiw/pcfg_cracker) to generate candidates from a Probabilistic Context-Free Grammar, piping `pcfg_guesser.py` output directly into hashcat's stdin mode. A PCFG models password *structure* (baseword + digits + symbol, capitalization habits, keyboard walks) with learned probabilities, so candidates come out roughly in descending likelihood order.
 
 * Requires the `pcfg_cracker` submodule. Presence is checked at startup and reported non-fatally: if it is missing, the PCFG attacks are simply unavailable. Run `make` to fetch it.
-* Uses the trained grammar named by `pcfgRuleset` in `config.json` (default `DEFAULT`), read from `pcfg_cracker/Rules/<name>/`
+* Uses the trained grammar named by `pcfgRuleset` in `config.json` (default `Default`), read from `pcfg_cracker/Rules/<name>/`
 * Candidate count is capped by `pcfgMaxCandidates` (default 50,000,000)
 * hate_crack does not wrap grammar training. To build a grammar from a target-specific password set, run pcfg_cracker's own `trainer.py` and point `pcfgRuleset` at the resulting ruleset name
 
