@@ -6645,11 +6645,14 @@ def hcatPCFG(hcatHashType, hcatHashFile):
     pcfg_root = os.path.join(hate_path, "pcfg_cracker")
     resolved_ruleset_dir = _resolve_pcfg_ruleset_dir(pcfg_root, pcfgRuleset)
     resolved_ruleset_name = os.path.basename(resolved_ruleset_dir)
+    session_id = generate_session_id(hcatHashFile, "PCFG")
     pcfg_cmd = [
         sys.executable,
         pcfg_guesser_script,
         "--rule",
         resolved_ruleset_name,
+        "--session",
+        session_id,
         "--limit",
         str(pcfgMaxCandidates),
     ]
@@ -6659,7 +6662,7 @@ def hcatPCFG(hcatHashType, hcatHashFile):
         hcatHashType,
         hcatHashFile,
         "--session",
-        generate_session_id(hcatHashFile, "PCFG"),
+        session_id,
         "-o",
         f"{hcatHashFile}.out",
     ]

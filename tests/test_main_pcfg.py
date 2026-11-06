@@ -118,6 +118,39 @@ class TestHcatPCFG:
         fake_proc = mock_run.call_args.kwargs["companion_procs"][0]
         assert fake_proc.stdin.close.called
 
+    def test_guesser_gets_per_hashfile_session(self, main_module, tmp_path):
+        """Without --session the guesser saves to <script dir>/default_run.sav."""
+        hash_file = str(tmp_path / "hashes.txt")
+        Path(hash_file).write_text("dummy")
+        pcfg_dir = tmp_path / "pcfg_cracker"
+        pcfg_dir.mkdir()
+        (pcfg_dir / "pcfg_guesser.py").write_text("# stub")
+        (pcfg_dir / "Rules" / "Default").mkdir(parents=True)
+
+        captured = []
+
+        class FakeProc:
+            def __init__(self, *args, **kwargs):
+                captured.append(args)
+                self.stdout = MagicMock()
+                self.stdin = MagicMock()
+
+        with (
+            patch("hate_crack.main.subprocess.Popen", side_effect=FakeProc),
+            patch("hate_crack.main._run_hcat_cmd"),
+            patch.object(main_module, "hate_path", str(tmp_path)),
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "pcfgRuleset", "Default"),
+        ):
+            main_module.hcatPCFG("0", hash_file)
+
+        producer_cmd = captured[0][0]
+        session = producer_cmd[producer_cmd.index("--session") + 1]
+        assert session == "hashes_PCFG"
+        assert session != "default_run"
+
 
 class TestHcatPrinceLing:
     def _cache_name(self, main_module, ruleset="Default"):
