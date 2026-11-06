@@ -676,7 +676,10 @@ def prince_attack(ctx: Any) -> None:
 
 def pcfg_attack(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("PCFG")
-    ctx.hcatPCFG(ctx.hcatHashType, ctx.hcatHashFile)
+    if ctx.pcfg_engine() == "native":
+        ctx.hcatPCFGNative(ctx.hcatHashType, ctx.hcatHashFile)
+    else:
+        ctx.hcatPCFG(ctx.hcatHashType, ctx.hcatHashFile)
 
 
 def prince_ling_attack(ctx: Any) -> None:

@@ -112,6 +112,7 @@ def _spy_ctx(tmp_path, **overrides):
         _omen_model_dir=lambda: str(tmp_path / "omen-model"),
         _omen_model_is_valid=lambda d: True,
         _open_wordlist=lambda p: open(p),
+        pcfg_engine=lambda: "legacy",
     )
     for name in (
         "hcatFingerprint",
@@ -120,6 +121,7 @@ def _spy_ctx(tmp_path, **overrides):
         "hcatPathwellBruteForce",
         "hcatPrince",
         "hcatPCFG",
+        "hcatPCFGNative",
         "hcatPrinceLing",
         "hcatSmartMask",
         "hcatCorporateMasks",
@@ -588,6 +590,64 @@ def test_omen_rejects_non_positive_max_candidates(tmp_path):
 
 
 # --------------------------------------------------------------------------
+# PCFG -- engine chosen by ctx.pcfg_engine(): native (-a 4) or legacy pipe
+# --------------------------------------------------------------------------
+
+
+def test_pcfg_native_with_rulesets_and_costmax(tmp_path):
+    ctx = _spy_ctx(tmp_path, pcfg_engine=lambda: "native")
+    args = _parse(
+        [
+            "pcfg",
+            ctx.hcatHashFile,
+            "1000",
+            "--ruleset",
+            "alpha",
+            "--ruleset",
+            "beta",
+            "--costmax",
+            "40",
+        ]
+    )
+    assert ni.run_noninteractive(ctx, args) == 0
+    assert ctx.calls == [
+        (
+            "hcatPCFGNative",
+            ("1000", ctx.hcatHashFile),
+            {"rulesets": ["alpha", "beta"], "costmax": 40},
+        )
+    ]
+
+
+def test_pcfg_native_bare_passes_no_kwargs(tmp_path):
+    ctx = _spy_ctx(tmp_path, pcfg_engine=lambda: "native")
+    args = _parse(["pcfg", ctx.hcatHashFile, "1000"])
+    assert ni.run_noninteractive(ctx, args) == 0
+    assert ctx.calls == [("hcatPCFGNative", ("1000", ctx.hcatHashFile), {})]
+
+
+def test_pcfg_legacy_rejects_costmax_with_exit_1(tmp_path):
+    ctx = _spy_ctx(tmp_path, pcfg_engine=lambda: "legacy")
+    args = _parse(["pcfg", ctx.hcatHashFile, "1000", "--costmax", "40"])
+    assert ni.run_noninteractive(ctx, args) == 1
+    assert ctx.calls == []
+
+
+def test_pcfg_legacy_rejects_ruleset_with_exit_1(tmp_path):
+    ctx = _spy_ctx(tmp_path, pcfg_engine=lambda: "legacy")
+    args = _parse(["pcfg", ctx.hcatHashFile, "1000", "--ruleset", "alpha"])
+    assert ni.run_noninteractive(ctx, args) == 1
+    assert ctx.calls == []
+
+
+def test_pcfg_legacy_bare_calls_hcatPCFG(tmp_path):
+    ctx = _spy_ctx(tmp_path, pcfg_engine=lambda: "legacy")
+    args = _parse(["pcfg", ctx.hcatHashFile, "1000"])
+    assert ni.run_noninteractive(ctx, args) == 0
+    assert ctx.calls == [("hcatPCFG", ("1000", ctx.hcatHashFile), {})]
+
+
+# --------------------------------------------------------------------------
 # Loopback -- mirrors attacks.loopback_attack, NOT hcatRecycle
 # --------------------------------------------------------------------------
 
@@ -752,6 +812,9 @@ def test_main_dispatches_new_commands_without_prompting(
         "builtins.input",
         lambda *a, **k: (_ for _ in ()).throw(AssertionError("prompted")),
     )
+    # pcfg_engine() probes the installed hashcat for -a 4; pin the legacy
+    # engine so this test does not depend on the machine it runs on.
+    monkeypatch.setattr(hc_main, "pcfg_engine", lambda: "legacy")
     assert _run_main(monkeypatch, [command, str(hf), "1000"]) == 0
     assert len(calls) == 1
 

@@ -710,6 +710,42 @@ def _spoonman_args(p) -> None:
     )
 
 
+def _add_pcfg_arguments(p) -> None:
+    p.add_argument(
+        "--ruleset",
+        action="append",
+        default=None,
+        help="hashcat PCFG ruleset name or path; repeat to merge (native engine only)",
+    )
+    p.add_argument(
+        "--costmax",
+        type=int,
+        default=None,
+        help="how deep to enumerate, in bits (native engine only)",
+    )
+
+
+@_validated
+def _run_pcfg(ctx: Any, args: Any) -> int:
+    if ctx.pcfg_engine() == "native":
+        kwargs: dict[str, Any] = {}
+        if args.ruleset:
+            kwargs["rulesets"] = args.ruleset
+        if args.costmax is not None:
+            kwargs["costmax"] = args.costmax
+        ctx.hcatPCFGNative(*_target(ctx), **kwargs)
+        return 0
+    # The legacy pipe has no ruleset or cost-depth knob, so refuse rather than
+    # silently ignoring a flag the caller asked for.
+    if args.ruleset or args.costmax is not None:
+        raise _BadInput(
+            "--ruleset and --costmax need hashcat's built-in PCFG (-a 4); "
+            "this run is using the pcfg_guesser.py pipe"
+        )
+    ctx.hcatPCFG(*_target(ctx))
+    return 0
+
+
 def _omen_args(p) -> None:
     p.add_argument(
         "--max-candidates",
@@ -769,7 +805,7 @@ ATTACK_SPECS: tuple[AttackSpec, ...] = (
         _run_bare("hcatPathwellBruteForce"),
     ),
     AttackSpec("prince", "PRINCE attack", None, _run_bare("hcatPrince")),
-    AttackSpec("pcfg", "PCFG attack", None, _run_bare("hcatPCFG")),
+    AttackSpec("pcfg", "PCFG attack", _add_pcfg_arguments, _run_pcfg),
     AttackSpec("princeling", "PRINCE-LING attack", None, _run_bare("hcatPrinceLing")),
     AttackSpec(
         "smartmask",
