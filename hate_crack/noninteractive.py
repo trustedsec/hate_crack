@@ -732,8 +732,12 @@ def _run_pcfg(ctx: Any, args: Any) -> int:
         if args.ruleset:
             kwargs["rulesets"] = args.ruleset
         if args.costmax is not None:
-            kwargs["costmax"] = args.costmax
-        ctx.hcatPCFGNative(*_target(ctx), **kwargs)
+            kwargs["costmax"] = _positive_int(args.costmax, "--costmax")
+        # ``is False``: a recorder that returns None must still exit 0.
+        if ctx.hcatPCFGNative(*_target(ctx), **kwargs) is False:
+            raise _BadInput(
+                "hashcat did not start the PCFG attack; see the message above"
+            )
         return 0
     # The legacy pipe has no ruleset or cost-depth knob, so refuse rather than
     # silently ignoring a flag the caller asked for.

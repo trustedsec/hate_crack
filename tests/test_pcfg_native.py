@@ -19,6 +19,10 @@ HELP_WITHOUT_PCFG = HELP_WITH_PCFG.replace(
 )
 
 
+def teardown_function(_):
+    pcfg_native.supports_pcfg.cache_clear()
+
+
 def _completed(stdout):
     return subprocess.CompletedProcess(args=[], returncode=0, stdout=stdout, stderr="")
 

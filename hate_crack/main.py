@@ -1407,7 +1407,11 @@ if not SKIP_INIT and not _argv_requests_help_or_version():
             print(
                 "pcfg_cracker not found at " + os.path.join(hate_path, "pcfg_cracker")
             )
-            print("PCFG attacks will not be available. Run 'make' to fetch submodules.")
+            print(
+                "The pcfg_guesser.py pipe and PRINCE-LING will not be available. "
+                "Run 'make' to fetch submodules. PCFG still runs on hashcat's "
+                "built-in -a 4 when the build has it."
+            )
 
     except Exception as e:
         print(f"Module initialization error: {e}")
@@ -6707,7 +6711,13 @@ def pcfg_engine():
         return "legacy"
     if pcfgEngine == "native":
         return "native"
-    return "native" if pcfg_native.supports_pcfg(hcatBin) else "legacy"
+    if pcfg_native.supports_pcfg(hcatBin):
+        return "native"
+    get_ui().say(
+        "[*] PCFG: this hashcat build has no attack mode 4 (or could not be "
+        "probed); using the pcfg_guesser.py pipe."
+    )
+    return "legacy"
 
 
 def hcatPCFGNative(hcatHashType, hcatHashFile, rulesets=None, **settings):
@@ -6717,18 +6727,22 @@ def hcatPCFGNative(hcatHashType, hcatHashFile, rulesets=None, **settings):
     ``key=value`` options of :func:`pcfg_native.build_settings`. No ``-O``: the
     engine refuses it on modes with only a pure kernel. No ``coverage=``: PCFG
     is a dynamic generator and is never filtered.
+
+    Returns ``True`` when hashcat was launched and ``False`` when the run was
+    refused (the build has no ``-a 4``, or a setting is invalid); the refusal
+    reason has already been shown.
     """
     if not pcfg_native.supports_pcfg(hcatBin):
         get_ui().error(
             f"[!] {hcatBin} does not support attack mode 4 (PCFG). "
             'Set "pcfgEngine" to "auto" or "legacy" to use pcfg_guesser.py.'
         )
-        return
+        return False
     try:
         setting_args = pcfg_native.build_settings(**settings)
     except ValueError as exc:
         get_ui().error(f"[!] {exc}")
-        return
+        return False
     cmd = [
         hcatBin,
         "-m",
@@ -6743,9 +6757,11 @@ def hcatPCFGNative(hcatHashType, hcatHashFile, rulesets=None, **settings):
     ]
     cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(cmd)
-    cmd.extend(rulesets or [pcfgNativeRuleset])
+    # An empty default adds no positional; hashcat then uses its own ruleset.
+    cmd.extend(rulesets or ([pcfgNativeRuleset] if pcfgNativeRuleset else []))
     cmd.extend(setting_args)
     _run_hcat_cmd(cmd, attack_name="PCFG", hash_file=hcatHashFile)
+    return True
 
 
 def hcatPrinceLing(hcatHashType, hcatHashFile):

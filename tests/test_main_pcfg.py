@@ -541,6 +541,7 @@ class TestHcatPCFGNative:
         assert cmd[cmd.index("-a") + 1] == "4"
         assert "-O" not in cmd
         assert cmd[-2:] == ["default-passwords", "costmax=48"]
+        assert cmd.index("-w") < cmd.index("default-passwords")
         assert cmd[cmd.index("--session") + 1] == "hashes_PCFG_native"
         assert run.call_args.kwargs["attack_name"] == "PCFG"
         assert "coverage" not in run.call_args.kwargs
@@ -551,15 +552,60 @@ class TestHcatPCFGNative:
         assert cmd[-2:] == ["alpha", "beta"]
         assert "default-passwords" not in cmd
 
+    def test_returns_true_on_a_normal_run(self, main_module, tmp_path):
+        hash_file = str(tmp_path / "hashes.txt")
+        Path(hash_file).write_text("dummy")
+        with (
+            patch("hate_crack.main._run_hcat_cmd"),
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", "-w 3"),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch("hate_crack.main.pcfg_native.supports_pcfg", return_value=True),
+        ):
+            assert main_module.hcatPCFGNative("0", hash_file) is True
+
     def test_refuses_when_unsupported(self, main_module, tmp_path):
         hash_file = str(tmp_path / "hashes.txt")
         Path(hash_file).write_text("dummy")
         with (
             patch("hate_crack.main._run_hcat_cmd") as run,
+            patch("hate_crack.main.get_ui") as get_ui,
             patch("hate_crack.main.pcfg_native.supports_pcfg", return_value=False),
         ):
-            main_module.hcatPCFGNative("0", hash_file)
+            result = main_module.hcatPCFGNative("0", hash_file)
+        assert result is False
         run.assert_not_called()
+        msg = get_ui.return_value.error.call_args.args[0]
+        assert "does not support attack mode 4" in msg
+
+    def test_refuses_an_invalid_setting(self, main_module, tmp_path):
+        hash_file = str(tmp_path / "hashes.txt")
+        Path(hash_file).write_text("dummy")
+        with (
+            patch("hate_crack.main._run_hcat_cmd") as run,
+            patch("hate_crack.main.get_ui") as get_ui,
+            patch("hate_crack.main.pcfg_native.supports_pcfg", return_value=True),
+        ):
+            result = main_module.hcatPCFGNative("0", hash_file, costmax=0)
+        assert result is False
+        run.assert_not_called()
+        assert "costmax" in get_ui.return_value.error.call_args.args[0]
+
+    def test_empty_default_ruleset_passes_no_positional(self, main_module, tmp_path):
+        hash_file = str(tmp_path / "hashes.txt")
+        Path(hash_file).write_text("dummy")
+        with (
+            patch("hate_crack.main._run_hcat_cmd") as run,
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", "-w 3"),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "pcfgNativeRuleset", ""),
+            patch("hate_crack.main.pcfg_native.supports_pcfg", return_value=True),
+        ):
+            main_module.hcatPCFGNative("0", hash_file, costmax=48)
+        cmd = run.call_args.args[0]
+        assert "" not in cmd
+        assert cmd[-1] == "costmax=48"
 
 
 class TestPcfgEngine:
@@ -578,3 +624,29 @@ class TestPcfgEngine:
             patch("hate_crack.main.pcfg_native.supports_pcfg", return_value=supported),
         ):
             assert main_module.pcfg_engine() == expected
+
+    @pytest.mark.parametrize(
+        ("configured", "supported", "expect_message"),
+        [
+            ("auto", False, True),
+            ("auto", True, False),
+            ("legacy", False, False),
+            ("legacy", True, False),
+            ("native", False, False),
+            ("native", True, False),
+        ],
+    )
+    def test_only_auto_to_legacy_is_announced(
+        self, main_module, configured, supported, expect_message
+    ):
+        with (
+            patch.object(main_module, "pcfgEngine", configured),
+            patch("hate_crack.main.pcfg_native.supports_pcfg", return_value=supported),
+            patch("hate_crack.main.get_ui") as get_ui,
+        ):
+            main_module.pcfg_engine()
+        if expect_message:
+            msg = get_ui.return_value.say.call_args.args[0]
+            assert "pcfg_guesser.py" in msg
+        else:
+            get_ui.return_value.say.assert_not_called()

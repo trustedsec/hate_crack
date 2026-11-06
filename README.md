@@ -783,7 +783,10 @@ but cap candidate length (roughly 31 characters, lower for some modes) and
 silently skip anything longer. `optimizedKernelAttacks` in `config.json` lists
 the attacks that run with `-O`; omit an attack from the list to run it with
 full-length kernels. The list in `config.json.example` matches the built-in
-default that applies when no `config.json` exists.
+default that applies when no `config.json` exists. The native PCFG engine
+(`-a 4`) never receives `-O` regardless of this setting, because hashcat refuses
+`-O` on modes whose only PCFG kernel is the pure one; the `hcatPCFG` list entry
+governs the pipe only.
 
 Four attacks honour the setting but are **not** optimized by default, because
 they feed candidates that can exceed the `-O` ceiling — add them to the list to
@@ -1550,7 +1553,7 @@ When the hashcat build supports attack mode 4 (checked by probing `hashcat --hel
 
 Fallback (pipe) path, used when the build has no `-a 4` or `pcfgEngine` is `legacy`: uses [pcfg_cracker](https://github.com/lakiw/pcfg_cracker), piping `pcfg_guesser.py` output directly into hashcat's stdin mode.
 
-* Requires the `pcfg_cracker` submodule. Presence is checked at startup and reported non-fatally: if it is missing, the PCFG attacks are simply unavailable. Run `make` to fetch it.
+* Requires the `pcfg_cracker` submodule, but only for this pipe fallback and for PRINCE-LING (option 21). The native engine needs no submodule. Presence is checked at startup and reported non-fatally; run `make` to fetch it.
 * Uses the trained grammar named by `pcfgRuleset` in `config.json` (default `Default`), read from `pcfg_cracker/Rules/<name>/`
 * Candidate count is capped by `pcfgMaxCandidates` (default 50,000,000)
 * hate_crack does not wrap grammar training. To build a grammar from a target-specific password set, run pcfg_cracker's own `trainer.py` and point `pcfgRuleset` at the resulting ruleset name

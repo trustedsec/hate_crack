@@ -626,6 +626,21 @@ def test_pcfg_native_bare_passes_no_kwargs(tmp_path):
     assert ctx.calls == [("hcatPCFGNative", ("1000", ctx.hcatHashFile), {})]
 
 
+@pytest.mark.parametrize("bad", ["0", "-5"])
+def test_pcfg_native_rejects_nonpositive_costmax_with_exit_1(tmp_path, bad):
+    ctx = _spy_ctx(tmp_path, pcfg_engine=lambda: "native")
+    args = _parse(["pcfg", ctx.hcatHashFile, "1000", "--costmax", bad])
+    assert ni.run_noninteractive(ctx, args) == 1
+    assert ctx.calls == []
+
+
+def test_pcfg_native_refused_run_exits_1(tmp_path):
+    ctx = _spy_ctx(tmp_path, pcfg_engine=lambda: "native")
+    ctx.hcatPCFGNative = lambda *a, **k: False
+    args = _parse(["pcfg", ctx.hcatHashFile, "1000"])
+    assert ni.run_noninteractive(ctx, args) == 1
+
+
 def test_pcfg_legacy_rejects_costmax_with_exit_1(tmp_path):
     ctx = _spy_ctx(tmp_path, pcfg_engine=lambda: "legacy")
     args = _parse(["pcfg", ctx.hcatHashFile, "1000", "--costmax", "40"])
