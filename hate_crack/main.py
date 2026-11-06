@@ -9709,7 +9709,7 @@ def pipal():
             get_ui().say("Pipal file is at " + hcatHashFilePipal + ".pipal\n")
             import sys
 
-            if not sys.stdin.isatty():
+            if not sys.stdin.isatty() or non_interactive:
                 view_choice = "y"
             else:
                 view_choice = (

@@ -1341,3 +1341,35 @@ def test_bandrel_rejects_a_company_that_yields_no_basewords(tmp_path, blank):
     args = _parse(["bandrel", ctx.hcatHashFile, "1000", "--company", blank])
     assert ni.run_noninteractive(ctx, args) == 1
     assert ctx.calls == []
+
+
+def test_pcfghints_from_pipal_merges_with_hintwords(tmp_path):
+    ctx = _native(tmp_path)
+    ctx.pipal = lambda: ["beta", "gamma"]
+    args = _parse(
+        [
+            "pcfghints",
+            ctx.hcatHashFile,
+            "1000",
+            "--hintwords",
+            "alpha,beta",
+            "--from-pipal",
+        ]
+    )
+    assert ni.run_noninteractive(ctx, args) == 0
+    assert ctx.calls == [
+        (
+            "hcatPCFGHints",
+            ("1000", ctx.hcatHashFile),
+            {"hintwords": ["alpha", "beta", "gamma"]},
+        )
+    ]
+
+
+@pytest.mark.parametrize("pipal_result", [None, []])
+def test_pcfghints_from_pipal_without_basewords_exits_1(tmp_path, pipal_result):
+    ctx = _native(tmp_path)
+    ctx.pipal = lambda: pipal_result
+    args = _parse(["pcfghints", ctx.hcatHashFile, "1000", "--from-pipal"])
+    assert ni.run_noninteractive(ctx, args) == 1
+    assert ctx.calls == []

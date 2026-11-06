@@ -756,13 +756,25 @@ def pcfg_hints_attack(ctx: Any) -> None:
         )
         return
     _notify.prompt_notify_for_attack("PCFG Hints")
-    answer = ui.ask("Hint words (comma separated) or path to a file: ").strip()
+    answer = ui.ask(
+        "Hint words (comma separated), path to a file, or 'pipal' to use "
+        "the top basewords Pipal finds in the cracked passwords: "
+    ).strip()
     if not answer:
         return
     hintfile = None
     hintwords = None
     candidate = os.path.expanduser(answer)
-    if os.path.isfile(candidate):
+    if answer.lower() == "pipal":
+        hintwords = ctx.pipal()
+        if not hintwords:
+            ui.error(
+                "[!] Pipal produced no basewords (is PIPAL_PATH set, and has "
+                "anything been cracked yet?)."
+            )
+            return
+        ui.say("[*] Using Pipal basewords as hints: " + ", ".join(hintwords))
+    elif os.path.isfile(candidate):
         hintfile = candidate
     else:
         hintwords = [w.strip() for w in answer.split(",") if w.strip()]

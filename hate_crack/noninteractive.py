@@ -833,6 +833,13 @@ def _add_pcfghints_arguments(p) -> None:
         help="file of hint words, one per line",
     )
     p.add_argument(
+        "--from-pipal",
+        action="store_true",
+        dest="from_pipal",
+        help="add the top basewords Pipal finds in the cracked passwords "
+        "(needs PIPAL_PATH); combines with --hintwords",
+    )
+    p.add_argument(
         "--hintrank",
         choices=("zipf", "linear", "flat"),
         default=None,
@@ -864,13 +871,23 @@ def _run_pcfghints(ctx: Any, args: Any) -> int:
         words = [w.strip() for w in args.hintwords.split(",") if w.strip()]
         if words:
             kwargs["hintwords"] = words
+    if args.from_pipal:
+        pipal_words = ctx.pipal() or []
+        if not pipal_words:
+            raise _BadInput(
+                "--from-pipal found no basewords (is PIPAL_PATH set, and has "
+                "anything been cracked yet?)"
+            )
+        kwargs["hintwords"] = list(
+            dict.fromkeys([*kwargs.get("hintwords", []), *pipal_words])
+        )
     if args.hintfile is not None:
         hintfile = os.path.expanduser(args.hintfile)
         if not os.path.isfile(hintfile):
             raise _BadInput(f"--hintfile {hintfile!r} is not a file")
         kwargs["hintfile"] = hintfile
     if not kwargs:
-        raise _BadInput("pcfghints needs --hintwords or --hintfile")
+        raise _BadInput("pcfghints needs --hintwords, --hintfile or --from-pipal")
     if args.hintrank is not None:
         kwargs["hintrank"] = args.hintrank
     if args.hintrepeat:

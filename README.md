@@ -1572,7 +1572,8 @@ Non-interactively, `hate_crack pcfg <hashfile> <hashtype> [--ruleset NAME_OR_PAT
 #### PCFG Hints Attack
 Menu option 26. Runs hashcat's bundled `hints` ruleset, which models structure only: every candidate contains at least one of the words you supply, and each hint word appears at most once per candidate unless `hintrepeat` is set. It needs the native `-a 4` engine and refuses with an error on the pipe.
 
-* Prompts for `Hint words (comma separated) or path to a file:`. An existing file path is read as a hint file, one word per line; anything else is a comma-separated list (for example `alpha,beta`)
+* Prompts for hint words, a file path, or the keyword `pipal`. An existing file path is read as a hint file, one word per line; `pipal` runs Pipal over the passwords cracked so far and uses its top basewords (`PIPAL_COUNT`, default 10; needs `PIPAL_PATH` set and at least one crack); anything else is a comma-separated list (for example `alpha,beta`)
+* Scripted runs use `--from-pipal` for the same thing; it combines with `--hintwords` and `--hintfile`
 * Then asks for the same optional shape constraints as the PCFG attack (mask or contains, then minimum and maximum length; a mask fixes the length, so the length prompts are skipped after one; `contains` has the same hashcat build requirement described under the PCFG Attack)
 * `hintrank` and `hintrepeat` are not asked by the menu; they are scripted-flag-only (`--hintrank zipf|linear|flat`, default `zipf`, and `--hintrepeat`)
 * See hashcat's `docs/hashcat-pcfg.md` for the ruleset's behaviour
