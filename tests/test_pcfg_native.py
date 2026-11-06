@@ -1,6 +1,8 @@
 import subprocess
 from unittest.mock import patch
 
+import pytest
+
 from hate_crack import pcfg_native
 
 HELP_WITH_PCFG = """- [ Attack Modes ] -
@@ -68,3 +70,17 @@ def test_list_rulesets_merges_dirs_and_strips_suffix(tmp_path):
 
 def test_list_rulesets_skips_missing_dirs(tmp_path):
     assert pcfg_native.list_rulesets([str(tmp_path / "absent")]) == []
+
+
+def test_build_settings_empty_by_default():
+    assert pcfg_native.build_settings() == []
+
+
+def test_build_settings_costmax():
+    assert pcfg_native.build_settings(costmax=48) == ["costmax=48"]
+
+
+@pytest.mark.parametrize("bad", [0, -1])
+def test_build_settings_rejects_nonpositive_costmax(bad):
+    with pytest.raises(ValueError, match="costmax"):
+        pcfg_native.build_settings(costmax=bad)

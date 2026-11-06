@@ -60,3 +60,17 @@ def list_rulesets(dirs: list[str] | None = None) -> list[str]:
             if name not in seen:
                 seen.append(name)
     return seen
+
+
+def build_settings(*, costmax: int | None = None) -> list[str]:
+    """``key=value`` settings positionals for ``hashcat -a 4``.
+
+    Raises ValueError for a value hashcat would reject, so the user sees the
+    reason before a GPU context is created.
+    """
+    settings: list[str] = []
+    if costmax is not None:
+        if costmax < 1:
+            raise ValueError("costmax must be at least 1")
+        settings.append(f"costmax={costmax}")
+    return settings
