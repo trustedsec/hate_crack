@@ -273,21 +273,24 @@ def test_prince_ling_attack_invokes_hcatPrinceLing():
     ctx.hcatPrinceLing.assert_called_once_with("1000", "/tmp/hashes.txt")
 
 
-def test_hints_pipal_keyword_uses_pipal_basewords():
+def test_hints_pipal_keyword_uses_pipal_basewords(tmp_path):
     ctx = _hints_ctx()
+    ctx.hcatHashFile = str(tmp_path / "hashes.txt")
     ctx.pipal.return_value = ["alpha", "beta"]
     ui, p = _ui(["pipal", "", "", "", ""])
     with p:
         pcfg_hints_attack(ctx)
     ctx.pipal.assert_called_once_with()
     ctx.hcatPCFGHints.assert_called_once_with(
-        "1000", "/tmp/hashes.txt", hintwords=["alpha", "beta"], hintfile=None
+        "1000", ctx.hcatHashFile, hintwords=["alpha", "beta"], hintfile=None
     )
+    assert (tmp_path / "hashes.txt.hints").read_text() == "alpha\nbeta\n"
 
 
 @pytest.mark.parametrize("pipal_result", [None, []])
-def test_hints_pipal_without_basewords_aborts(pipal_result):
+def test_hints_pipal_without_basewords_aborts(tmp_path, pipal_result):
     ctx = _hints_ctx()
+    ctx.hcatHashFile = str(tmp_path / "hashes.txt")
     ctx.pipal.return_value = pipal_result
     ui, p = _ui(["PIPAL"])
     with p:

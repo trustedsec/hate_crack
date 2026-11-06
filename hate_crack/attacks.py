@@ -6,6 +6,7 @@ from typing import Any
 
 from hate_crack import notify as _notify
 from hate_crack import pcfg_native
+from hate_crack.pipal_hints import pipal_hint_words
 from hate_crack.ui import get_ui
 from hate_crack.api import (
     download_all_hashmob_archives,
@@ -294,6 +295,20 @@ def loopback_attack(ctx: Any) -> None:
         )
 
 
+def _extensive_pipal_hints(ctx: Any) -> None:
+    """Optional Extensive stage: PCFG Hints seeded from Pipal's basewords.
+
+    Runs only where it can work unattended -- hashcat's native PCFG engine and a
+    configured Pipal -- and is skipped silently otherwise, so it never changes
+    what Extensive does on an install without them.
+    """
+    if ctx.pcfg_engine() != "native" or not os.path.isfile(ctx.pipalPath or ""):
+        return
+    words = pipal_hint_words(ctx)
+    if words:
+        ctx.hcatPCFGHints(ctx.hcatHashType, ctx.hcatHashFile, hintwords=words)
+
+
 def extensive_crack(ctx: Any) -> None:
     # Orchestrator attack: chains ~14 primitives. We suppress each primitive's
     # own notifications and fire exactly one "Extensive Crack complete" at the
@@ -323,6 +338,7 @@ def extensive_crack(ctx: Any) -> None:
         ctx.hcatRecycle(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatCombinationCount)
         ctx.hcatHybrid(ctx.hcatHashType, ctx.hcatHashFile)
         ctx.hcatRecycle(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatHybridCount)
+        _extensive_pipal_hints(ctx)
         ctx.hcatGoodMeasure(ctx.hcatHashType, ctx.hcatHashFile)
         ctx.hcatRecycle(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatExtraCount)
     cracked_after = ctx.lineCount(out_path) if os.path.exists(out_path) else 0
@@ -766,7 +782,7 @@ def pcfg_hints_attack(ctx: Any) -> None:
     hintwords = None
     candidate = os.path.expanduser(answer)
     if answer.lower() == "pipal":
-        hintwords = ctx.pipal()
+        hintwords = pipal_hint_words(ctx)
         if not hintwords:
             ui.error(
                 "[!] Pipal produced no basewords (is PIPAL_PATH set, and has "

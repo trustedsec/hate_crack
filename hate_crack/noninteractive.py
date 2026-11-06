@@ -15,6 +15,7 @@ interactive prompt still live, waiting on a stdin nobody is attached to.
 
 import os
 from typing import Any, Callable, NamedTuple
+from hate_crack.pipal_hints import pipal_hint_words
 from hate_crack.ui import get_ui
 
 
@@ -872,7 +873,7 @@ def _run_pcfghints(ctx: Any, args: Any) -> int:
         if words:
             kwargs["hintwords"] = words
     if args.from_pipal:
-        pipal_words = ctx.pipal() or []
+        pipal_words = pipal_hint_words(ctx)
         if not pipal_words:
             raise _BadInput(
                 "--from-pipal found no basewords (is PIPAL_PATH set, and has "

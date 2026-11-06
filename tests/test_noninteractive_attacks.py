@@ -1364,6 +1364,7 @@ def test_pcfghints_from_pipal_merges_with_hintwords(tmp_path):
             {"hintwords": ["alpha", "beta", "gamma"]},
         )
     ]
+    assert os.path.isfile(ctx.hcatHashFile + ".hints")
 
 
 @pytest.mark.parametrize("pipal_result", [None, []])
