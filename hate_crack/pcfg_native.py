@@ -136,10 +136,12 @@ def build_settings(
     if mask:
         settings.append(f"mask={mask}")
     if contains:
+        if any(not piece.strip() for piece in contains):
+            raise ValueError("a contains piece cannot be empty")
         if any("," in piece for piece in contains):
-            raise ValueError(
-                "a contains piece cannot hold a comma; use a charset such as -1 , in the mask syntax"
-            )
+            raise ValueError("a contains piece cannot hold a comma")
+        if len(set(contains)) != len(contains):
+            raise ValueError("a contains piece cannot be named twice")
         settings.append("contains=" + ",".join(contains))
     if hintwords:
         settings.append("hintwords=" + ",".join(_check_hint_word(w) for w in hintwords))

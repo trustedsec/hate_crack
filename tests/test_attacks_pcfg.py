@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from hate_crack.attacks import (
     _prompt_pcfg_constraints,
     pcfg_attack,
@@ -18,7 +20,9 @@ class _ScriptedUI:
 
     def ask(self, prompt="", **_kwargs):
         self.prompts.append(prompt)
-        return self.answers.pop(0) if self.answers else ""
+        if not self.answers:
+            raise AssertionError(f"unexpected prompt: {prompt!r}")
+        return self.answers.pop(0)
 
     def error(self, msg):
         self.errors.append(msg)
@@ -71,12 +75,13 @@ def test_pcfg_attack_uses_native_when_engine_native():
 def test_pcfg_attack_native_passes_mask():
     ctx = _make_ctx()
     ctx.pcfg_engine.return_value = "native"
-    ui, p = _ui(["?u?l?l?l?d?d", "", ""])
-    with p:
+    ui, p = _ui(["?u?l?l?l?d?d"])
+    with p, _no_rulesets():
         pcfg_attack(ctx)
     ctx.hcatPCFGNative.assert_called_once_with(
         "1000", "/tmp/hashes.txt", mask="?u?l?l?l?d?d"
     )
+    assert not any("ontain" in pr or "length" in pr for pr in ui.prompts)
 
 
 def test_pcfg_attack_native_aborts_on_bad_constraint():
@@ -135,11 +140,11 @@ def test_keyboard_walk_not_offered_when_none_installed():
     ctx.hcatPCFGNative.assert_called_once_with("1000", "/tmp/hashes.txt")
 
 
-def test_keyboard_walk_invalid_selection_aborts():
-    for bad in ("9", "abc", "0"):
-        ctx, ui = _kw_run(["", "", "", "", bad])
-        ctx.hcatPCFGNative.assert_not_called()
-        assert ui.errors
+@pytest.mark.parametrize("bad", ["9", "abc", "0"])
+def test_keyboard_walk_invalid_selection_aborts(bad):
+    ctx, ui = _kw_run(["", "", "", "", bad])
+    ctx.hcatPCFGNative.assert_not_called()
+    assert ui.errors
 
 
 def test_keyboard_walk_empty_default_ruleset_falls_back():
@@ -153,7 +158,7 @@ def test_keyboard_walk_empty_default_ruleset_falls_back():
 
 
 def test_keyboard_walk_keeps_constraints():
-    ctx, _ = _kw_run(["?u?l?l?l?d?d", "", "", "1"])
+    ctx, _ = _kw_run(["?u?l?l?l?d?d", "1"])
     kw = ctx.hcatPCFGNative.call_args.kwargs
     assert kw["mask"] == "?u?l?l?l?d?d"
     assert kw["weights"] == [9, 1]
@@ -189,7 +194,7 @@ def test_hints_existing_file_becomes_hintfile(tmp_path):
 
 def test_hints_mask_skips_contains_prompt():
     ctx = _hints_ctx()
-    ui, p = _ui(["alpha", "?u?l?l?l?d?d", "", ""])
+    ui, p = _ui(["alpha", "?u?l?l?l?d?d"])
     with p:
         pcfg_hints_attack(ctx)
     ctx.hcatPCFGHints.assert_called_once_with(
@@ -200,6 +205,14 @@ def test_hints_mask_skips_contains_prompt():
         mask="?u?l?l?l?d?d",
     )
     assert not any("ontain" in pr for pr in ui.prompts)
+
+
+def test_mask_skips_length_prompts():
+    ui, p = _ui(["?u?l?l?l?d?d"])
+    with p:
+        assert _prompt_pcfg_constraints(MagicMock()) == {"mask": "?u?l?l?l?d?d"}
+    assert len(ui.prompts) == 1
+    assert not any("length" in pr for pr in ui.prompts)
 
 
 def test_hints_contains_list_and_lengths():
@@ -245,11 +258,13 @@ def test_hints_empty_answer_calls_nothing():
 def test_hints_legacy_engine_errors():
     ctx = _make_ctx()
     ctx.pcfg_engine.return_value = "legacy"
-    ui, p = _ui(["alpha"])
-    with p:
+    ui, p = _ui([])
+    with p, patch("hate_crack.attacks._notify.prompt_notify_for_attack") as notify:
         pcfg_hints_attack(ctx)
     ctx.hcatPCFGHints.assert_not_called()
     assert ui.errors
+    assert ui.prompts == []
+    notify.assert_not_called()
 
 
 def test_prince_ling_attack_invokes_hcatPrinceLing():

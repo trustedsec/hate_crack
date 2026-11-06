@@ -678,8 +678,9 @@ def prince_attack(ctx: Any) -> None:
 def _prompt_pcfg_constraints(ctx: Any) -> dict[str, Any] | None:
     """Ask for optional PCFG shape constraints; return only the filled keys.
 
-    ``mask`` and ``contains`` are alternatives (hashcat refuses both), so
-    contains is not asked once a mask is given. Returns None, after showing
+    ``mask`` and ``contains`` are alternatives (hashcat refuses both), and a
+    mask fixes the length, so neither contains nor pwmin/pwmax is asked once a
+    mask is given. Returns None, after showing
     an error, when pwmin/pwmax is not a positive integer.
     """
     ui = get_ui()
@@ -687,14 +688,14 @@ def _prompt_pcfg_constraints(ctx: Any) -> dict[str, Any] | None:
     mask = ui.ask("Mask to constrain guesses (e.g. ?u?l?l?l?d?d, blank to skip): ")
     mask = mask.strip()
     if mask:
+        # A mask fixes the length, and hashcat refuses a pwmin/pwmax that
+        # contradicts it, so neither the contains nor the length prompts follow.
         out["mask"] = mask
-    else:
-        raw = ui.ask(
-            "Substrings guesses must contain (comma separated, blank to skip): "
-        )
-        contains = [part.strip() for part in raw.split(",") if part.strip()]
-        if contains:
-            out["contains"] = contains
+        return out
+    raw = ui.ask("Substrings guesses must contain (comma separated, blank to skip): ")
+    contains = [part.strip() for part in raw.split(",") if part.strip()]
+    if contains:
+        out["contains"] = contains
     for key, label in (("pwmin", "Minimum"), ("pwmax", "Maximum")):
         raw = ui.ask(f"{label} password length (blank to skip): ").strip()
         if not raw:
@@ -747,7 +748,6 @@ def pcfg_attack(ctx: Any) -> None:
 
 
 def pcfg_hints_attack(ctx: Any) -> None:
-    _notify.prompt_notify_for_attack("PCFG Hints")
     ui = get_ui()
     if ctx.pcfg_engine() != "native":
         ui.error(
@@ -755,6 +755,7 @@ def pcfg_hints_attack(ctx: Any) -> None:
             "hashcat build does not provide."
         )
         return
+    _notify.prompt_notify_for_attack("PCFG Hints")
     answer = ui.ask("Hint words (comma separated) or path to a file: ").strip()
     if not answer:
         return

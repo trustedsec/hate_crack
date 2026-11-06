@@ -672,6 +672,7 @@ class TestHcatPCFGHints:
             "0",
             "/tmp/h.txt",
             rulesets=["hints"],
+            attack_name="PCFG Hints",
             hintwords=["alpha", "beta"],
             hintfile=None,
             pwmax=12,
@@ -697,10 +698,10 @@ class TestHcatPCFGHints:
         native.assert_not_called()
         assert "hint" in get_ui.return_value.error.call_args.args[0]
 
-    def test_refuses_when_hints_ruleset_missing(self, main_module):
+    def test_warns_but_proceeds_when_hints_ruleset_missing(self, main_module):
         dirs = ["/data/one", "/data/two"]
         with (
-            patch("hate_crack.main.hcatPCFGNative") as native,
+            patch("hate_crack.main.hcatPCFGNative", return_value=True) as native,
             patch("hate_crack.main.get_ui") as get_ui,
             patch(
                 "hate_crack.main.pcfg_native.list_rulesets",
@@ -709,10 +710,11 @@ class TestHcatPCFGHints:
             patch("hate_crack.main.pcfg_native.ruleset_search_dirs", return_value=dirs),
         ):
             result = main_module.hcatPCFGHints("0", "/tmp/h.txt", hintwords=["alpha"])
-        assert result is False
-        native.assert_not_called()
-        msg = get_ui.return_value.error.call_args.args[0]
+        assert result is True
+        native.assert_called_once()
+        msg = get_ui.return_value.warn.call_args.args[0]
         assert "/data/one" in msg and "/data/two" in msg
+        get_ui.return_value.error.assert_not_called()
 
 
 class TestPcfgEngine:

@@ -134,6 +134,23 @@ def test_contains_pieces_comma_joined():
     ]
 
 
+def test_contains_duplicate_piece_rejected():
+    with pytest.raises(ValueError, match="twice"):
+        pcfg_native.build_settings(contains=["ab", "cd", "ab"])
+
+
+@pytest.mark.parametrize("piece", ["", "   "])
+def test_contains_empty_piece_rejected(piece):
+    with pytest.raises(ValueError, match="empty"):
+        pcfg_native.build_settings(contains=["ab", piece])
+
+
+def test_contains_comma_message_has_no_charset_advice():
+    with pytest.raises(ValueError) as info:
+        pcfg_native.build_settings(contains=["a,b"])
+    assert str(info.value) == "a contains piece cannot hold a comma"
+
+
 def test_contains_piece_with_comma_rejected():
     with pytest.raises(ValueError, match="comma"):
         pcfg_native.build_settings(contains=["a,b"])

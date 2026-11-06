@@ -722,12 +722,49 @@ def test_pcfg_native_with_rulesets_and_weights(tmp_path):
     ]
 
 
-@pytest.mark.parametrize("bad", ["9", "9:x", "9::1", "", "9:1:"])
+@pytest.mark.parametrize("bad", ["9:x", "9::1", "", "9:1:"])
 def test_pcfg_native_malformed_weights_exit_1(tmp_path, bad):
     ctx = _native(tmp_path)
     args = _parse(["pcfg", ctx.hcatHashFile, "1000", "--weights", bad])
     assert ni.run_noninteractive(ctx, args) == 1
     assert ctx.calls == []
+
+
+def test_pcfg_native_lone_weight_is_forwarded(tmp_path):
+    ctx = _native(tmp_path)
+    args = _parse(["pcfg", ctx.hcatHashFile, "1000", "--weights", "9"])
+    assert ni.run_noninteractive(ctx, args) == 0
+    assert ctx.calls == [
+        ("hcatPCFGNative", ("1000", ctx.hcatHashFile), {"weights": [9]})
+    ]
+
+
+def test_pcfg_native_weight_ruleset_mismatch_refused_exits_1(tmp_path):
+    ctx = _native(tmp_path)
+    seen = []
+
+    def refuse(*a, **k):
+        seen.append((a, k))
+        return False
+
+    ctx.hcatPCFGNative = refuse
+    args = _parse(
+        [
+            "pcfg",
+            ctx.hcatHashFile,
+            "1000",
+            "--ruleset",
+            "a",
+            "--ruleset",
+            "b",
+            "--weights",
+            "9",
+        ]
+    )
+    assert ni.run_noninteractive(ctx, args) == 1
+    assert seen == [
+        (("1000", ctx.hcatHashFile), {"rulesets": ["a", "b"], "weights": [9]})
+    ]
 
 
 @pytest.mark.parametrize("flag", ["--pwmin", "--pwmax"])
@@ -762,6 +799,7 @@ def test_pcfg_native_invalid_combination_refused_exits_1(tmp_path):
         ["--pwmin", "6"],
         ["--pwmax", "12"],
         ["--weights", "9:1"],
+        ["--costmax", "40"],
     ],
 )
 def test_pcfg_legacy_rejects_each_native_only_flag(tmp_path, extra):
@@ -796,15 +834,6 @@ def test_pcfghints_with_hintwords_and_pwmax(tmp_path):
             ("1000", ctx.hcatHashFile),
             {"hintwords": ["alpha", "beta"], "pwmax": 12},
         )
-    ]
-
-
-def test_pcfghints_with_hintfile(tmp_path):
-    ctx = _native(tmp_path)
-    args = _parse(["pcfghints", ctx.hcatHashFile, "1000", "--hintfile", "hints.txt"])
-    assert ni.run_noninteractive(ctx, args) == 0
-    assert ctx.calls == [
-        ("hcatPCFGHints", ("1000", ctx.hcatHashFile), {"hintfile": "hints.txt"})
     ]
 
 
@@ -853,9 +882,38 @@ def test_pcfghints_legacy_engine_exits_1(tmp_path):
     assert ctx.calls == []
 
 
+def test_pcfghints_hintfile_must_be_a_file(tmp_path):
+    ctx = _native(tmp_path)
+    missing = str(tmp_path / "nope.txt")
+    args = _parse(["pcfghints", ctx.hcatHashFile, "1000", "--hintfile", missing])
+    assert ni.run_noninteractive(ctx, args) == 1
+    assert ctx.calls == []
+
+
+def test_pcfghints_hintfile_existing_is_forwarded(tmp_path):
+    ctx = _native(tmp_path)
+    hints = tmp_path / "hints.txt"
+    hints.write_text("alpha\n")
+    args = _parse(["pcfghints", ctx.hcatHashFile, "1000", "--hintfile", str(hints)])
+    assert ni.run_noninteractive(ctx, args) == 0
+    assert ctx.calls == [
+        ("hcatPCFGHints", ("1000", ctx.hcatHashFile), {"hintfile": str(hints)})
+    ]
+
+
+def test_pcfghints_hintfile_expands_user(tmp_path, monkeypatch):
+    ctx = _native(tmp_path)
+    (tmp_path / "hints.txt").write_text("alpha\n")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    args = _parse(["pcfghints", ctx.hcatHashFile, "1000", "--hintfile", "~/hints.txt"])
+    assert ni.run_noninteractive(ctx, args) == 0
+    assert ctx.calls[0][2] == {"hintfile": str(tmp_path / "hints.txt")}
+
+
 def test_pcfghints_refused_exits_1(tmp_path):
     ctx = _native(tmp_path)
     ctx.hcatPCFGHints = lambda *a, **k: False
+    (tmp_path / "hints.txt").write_text("alpha\n")
     args = _parse(
         [
             "pcfghints",
@@ -864,7 +922,7 @@ def test_pcfghints_refused_exits_1(tmp_path):
             "--hintwords",
             "alpha",
             "--hintfile",
-            "hints.txt",
+            str(tmp_path / "hints.txt"),
         ]
     )
     assert ni.run_noninteractive(ctx, args) == 1

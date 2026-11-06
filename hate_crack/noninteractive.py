@@ -753,14 +753,12 @@ def _pcfg_shape_kwargs(args: Any) -> dict[str, Any]:
 
 
 def _parse_weights(value: str) -> list[int]:
-    parts = value.split(":")
     try:
-        weights = [int(part) for part in parts]
+        return [int(part) for part in value.split(":")]
     except ValueError:
-        weights = []
-    if len(weights) < 2:
-        raise _BadInput(f"--weights must be colon-separated integers, got {value!r}")
-    return weights
+        raise _BadInput(
+            f"--weights must be colon-separated integers, got {value!r}"
+        ) from None
 
 
 def _add_pcfg_arguments(p) -> None:
@@ -780,7 +778,7 @@ def _add_pcfg_arguments(p) -> None:
     p.add_argument(
         "--weights",
         default=None,
-        help="colon-separated merge weights for the rulesets, e.g. 9:1 "
+        help="colon-separated merge weights, one value per ruleset, e.g. 9:1 "
         "(native engine only)",
     )
 
@@ -867,7 +865,10 @@ def _run_pcfghints(ctx: Any, args: Any) -> int:
         if words:
             kwargs["hintwords"] = words
     if args.hintfile is not None:
-        kwargs["hintfile"] = args.hintfile
+        hintfile = os.path.expanduser(args.hintfile)
+        if not os.path.isfile(hintfile):
+            raise _BadInput(f"--hintfile {hintfile!r} is not a file")
+        kwargs["hintfile"] = hintfile
     if not kwargs:
         raise _BadInput("pcfghints needs --hintwords or --hintfile")
     if args.hintrank is not None:

@@ -6720,11 +6720,14 @@ def pcfg_engine():
     return "legacy"
 
 
-def hcatPCFGNative(hcatHashType, hcatHashFile, rulesets=None, **settings):
+def hcatPCFGNative(
+    hcatHashType, hcatHashFile, rulesets=None, *, attack_name="PCFG", **settings
+):
     """Attack mode 4: hashcat's built-in PCFG engine.
 
     ``rulesets`` are positional (names or paths); ``settings`` are the
-    ``key=value`` options of :func:`pcfg_native.build_settings`. No ``-O``: the
+    ``key=value`` options of :func:`pcfg_native.build_settings`. ``attack_name``
+    is the label the notification consent and history row use. No ``-O``: the
     engine refuses it on modes with only a pure kernel. No ``coverage=``: PCFG
     is a dynamic generator and is never filtered.
 
@@ -6763,7 +6766,7 @@ def hcatPCFGNative(hcatHashType, hcatHashFile, rulesets=None, **settings):
     # An empty default adds no positional; hashcat then uses its own ruleset.
     cmd.extend(rulesets or ([pcfgNativeRuleset] if pcfgNativeRuleset else []))
     cmd.extend(setting_args)
-    _run_hcat_cmd(cmd, attack_name="PCFG", hash_file=hcatHashFile)
+    _run_hcat_cmd(cmd, attack_name=attack_name, hash_file=hcatHashFile)
     return True
 
 
@@ -6775,21 +6778,26 @@ def hcatPCFGHints(
     The ruleset supplies structure (digits, years, symbols, capitalization);
     every candidate contains at least one supplied word.
 
-    Returns what :func:`hcatPCFGNative` returns, or ``False`` when refused here.
+    Returns what :func:`hcatPCFGNative` returns, or ``False`` when no hint source
+    was given.
     """
     if not hintwords and not hintfile:
         get_ui().error("[!] PCFG hints needs hint words or a hint file.")
         return False
     if "hints" not in pcfg_native.list_rulesets():
-        get_ui().error(
+        # Advisory only: list_rulesets knows just a few directories, so an
+        # install elsewhere would be refused wrongly, and native mode cannot
+        # be pointed at a ruleset path to work around that.
+        get_ui().warn(
             "[!] The 'hints' ruleset was not found in "
             + ", ".join(pcfg_native.ruleset_search_dirs())
+            + "; continuing, hashcat will report it if it is missing."
         )
-        return False
     return hcatPCFGNative(
         hcatHashType,
         hcatHashFile,
         rulesets=["hints"],
+        attack_name="PCFG Hints",
         hintwords=hintwords,
         hintfile=hintfile,
         **settings,
