@@ -62,15 +62,88 @@ def list_rulesets(dirs: list[str] | None = None) -> list[str]:
     return seen
 
 
-def build_settings(*, costmax: int | None = None) -> list[str]:
+_HINT_RANKS = ("zipf", "linear", "flat")
+
+
+def _check_hint_word(word: str) -> str:
+    word = word.strip()
+    if not word or "," in word or any(ch.isspace() for ch in word):
+        raise ValueError(
+            f"hint words must be non-empty with no comma or whitespace: {word!r}"
+        )
+    return word
+
+
+def build_settings(
+    *,
+    costmax: int | None = None,
+    pwmin: int | None = None,
+    pwmax: int | None = None,
+    mask: str | None = None,
+    contains: list[str] | None = None,
+    hintwords: list[str] | None = None,
+    hintfile: str | None = None,
+    hintrank: str | None = None,
+    hintrepeat: bool = False,
+    weights: list[int] | None = None,
+    ruleset_count: int = 1,
+    omen: bool | None = None,
+) -> list[str]:
     """``key=value`` settings positionals for ``hashcat -a 4``.
 
-    Raises ValueError for a value hashcat would reject, so the user sees the
-    reason before a GPU context is created.
+    Raises ValueError for any combination hashcat would refuse, so the user
+    sees the reason before a GPU context is created.
     """
+    if mask and contains:
+        raise ValueError(
+            "mask and contains cannot be combined; write the piece into the mask"
+        )
+    if omen and (mask or contains):
+        raise ValueError(
+            "omen=1 cannot be combined with mask or contains (the escape has no terminals to filter)"
+        )
+    if hintwords and hintfile:
+        raise ValueError("hintwords and hintfile are exclusive")
+    if pwmin is not None and pwmax is not None and pwmin > pwmax:
+        raise ValueError("pwmin must not exceed pwmax")
+    if costmax is not None and costmax < 1:
+        raise ValueError("costmax must be at least 1")
+    if hintrank is not None and hintrank not in _HINT_RANKS:
+        raise ValueError(f"hintrank must be one of {', '.join(_HINT_RANKS)}")
+
     settings: list[str] = []
+    if weights is not None:
+        if (
+            len(weights) != ruleset_count
+            or any(w < 0 for w in weights)
+            or sum(weights) == 0
+        ):
+            raise ValueError(
+                f"weights needs {ruleset_count} non-negative values that are not all zero"
+            )
+        settings.append("weights=" + ":".join(str(w) for w in weights))
     if costmax is not None:
-        if costmax < 1:
-            raise ValueError("costmax must be at least 1")
         settings.append(f"costmax={costmax}")
+    if pwmin is not None:
+        settings.append(f"pwmin={pwmin}")
+    if pwmax is not None:
+        settings.append(f"pwmax={pwmax}")
+    if mask:
+        settings.append(f"mask={mask}")
+    if contains:
+        if any("," in piece for piece in contains):
+            raise ValueError(
+                "a contains piece cannot hold a comma; use a charset such as -1 , in the mask syntax"
+            )
+        settings.append("contains=" + ",".join(contains))
+    if hintwords:
+        settings.append("hintwords=" + ",".join(_check_hint_word(w) for w in hintwords))
+    if hintfile:
+        settings.append(f"hintfile={hintfile}")
+    if hintrank:
+        settings.append(f"hintrank={hintrank}")
+    if hintrepeat:
+        settings.append("hintrepeat=1")
+    if omen is not None:
+        settings.append(f"omen={1 if omen else 0}")
     return settings

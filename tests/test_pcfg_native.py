@@ -88,3 +88,72 @@ def test_build_settings_costmax():
 def test_build_settings_rejects_nonpositive_costmax(bad):
     with pytest.raises(ValueError, match="costmax"):
         pcfg_native.build_settings(costmax=bad)
+
+
+def test_mask_and_contains_exclusive():
+    with pytest.raises(ValueError, match="mask.*contains"):
+        pcfg_native.build_settings(mask="?l?l?d", contains=["ab"])
+
+
+@pytest.mark.parametrize("kw", [{"mask": "?l?l"}, {"contains": ["ab"]}])
+def test_omen_on_conflicts_with_shape_filters(kw):
+    with pytest.raises(ValueError, match="omen"):
+        pcfg_native.build_settings(omen=True, **kw)
+
+
+def test_omen_off_is_allowed_with_mask():
+    out = pcfg_native.build_settings(mask="?l?l", omen=False)
+    assert out == ["mask=?l?l", "omen=0"]
+
+
+def test_pwmin_above_pwmax_rejected():
+    with pytest.raises(ValueError, match="pwmin"):
+        pcfg_native.build_settings(pwmin=12, pwmax=8)
+
+
+def test_contains_pieces_comma_joined():
+    assert pcfg_native.build_settings(contains=["alpha", "?d?d"]) == [
+        "contains=alpha,?d?d"
+    ]
+
+
+def test_contains_piece_with_comma_rejected():
+    with pytest.raises(ValueError, match="comma"):
+        pcfg_native.build_settings(contains=["a,b"])
+
+
+def test_hintwords_joined_and_trimmed():
+    assert pcfg_native.build_settings(hintwords=[" alpha ", "beta"]) == [
+        "hintwords=alpha,beta"
+    ]
+
+
+@pytest.mark.parametrize("bad", ["", "a,b", "a b"])
+def test_hintword_validation(bad):
+    with pytest.raises(ValueError, match="hint"):
+        pcfg_native.build_settings(hintwords=["ok", bad])
+
+
+def test_hintwords_and_hintfile_are_exclusive():
+    with pytest.raises(ValueError, match="hintwords.*hintfile"):
+        pcfg_native.build_settings(hintwords=["a"], hintfile="/tmp/f")
+
+
+def test_hintrank_choices():
+    assert pcfg_native.build_settings(hintrank="flat") == ["hintrank=flat"]
+    with pytest.raises(ValueError, match="hintrank"):
+        pcfg_native.build_settings(hintrank="nope")
+
+
+def test_hintrepeat_flag():
+    assert pcfg_native.build_settings(hintrepeat=True) == ["hintrepeat=1"]
+
+
+def test_weights_must_match_ruleset_count():
+    assert pcfg_native.build_settings(weights=[9, 1], ruleset_count=2) == [
+        "weights=9:1"
+    ]
+    with pytest.raises(ValueError, match="weights"):
+        pcfg_native.build_settings(weights=[9, 1], ruleset_count=3)
+    with pytest.raises(ValueError, match="weights"):
+        pcfg_native.build_settings(weights=[0, 0], ruleset_count=2)
