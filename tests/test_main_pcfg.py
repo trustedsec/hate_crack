@@ -27,6 +27,7 @@ class TestHcatPCFG:
         pcfg_dir = tmp_path / "pcfg_cracker"
         pcfg_dir.mkdir()
         (pcfg_dir / "pcfg_guesser.py").write_text("# stub")
+        (pcfg_dir / "Rules" / "Default").mkdir(parents=True)
 
         captured_calls = []
 
@@ -45,6 +46,7 @@ class TestHcatPCFG:
             patch.object(main_module, "hcatBin", "hashcat"),
             patch.object(main_module, "hcatTuning", ""),
             patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "pcfgRuleset", "Default"),
             patch.object(
                 main_module, "generate_session_id", return_value="test_session"
             ),
@@ -88,6 +90,7 @@ class TestHcatPCFG:
         pcfg_dir = tmp_path / "pcfg_cracker"
         pcfg_dir.mkdir()
         (pcfg_dir / "pcfg_guesser.py").write_text("# stub")
+        (pcfg_dir / "Rules" / "Default").mkdir(parents=True)
 
         captured_calls = []
 
@@ -106,6 +109,7 @@ class TestHcatPCFG:
             patch.object(main_module, "hcatBin", "hashcat"),
             patch.object(main_module, "hcatTuning", ""),
             patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "pcfgRuleset", "Default"),
             patch.object(
                 main_module, "generate_session_id", return_value="test_session"
             ),
@@ -150,6 +154,25 @@ class TestHcatPCFG:
         session = producer_cmd[producer_cmd.index("--session") + 1]
         assert session == "hashes_PCFG"
         assert session != "default_run"
+
+    def test_missing_ruleset_launches_nothing(self, main_module, tmp_path):
+        hash_file = str(tmp_path / "hashes.txt")
+        Path(hash_file).write_text("dummy")
+        pcfg_dir = tmp_path / "pcfg_cracker"
+        pcfg_dir.mkdir()
+        (pcfg_dir / "pcfg_guesser.py").write_text("# stub")
+        (pcfg_dir / "Rules").mkdir()  # no ruleset inside
+
+        with (
+            patch("hate_crack.main.subprocess.Popen") as popen,
+            patch("hate_crack.main._run_hcat_cmd") as run,
+            patch.object(main_module, "hate_path", str(tmp_path)),
+            patch.object(main_module, "pcfgRuleset", "Nope"),
+        ):
+            main_module.hcatPCFG("0", hash_file)
+
+        popen.assert_not_called()
+        run.assert_not_called()
 
 
 class TestHcatPrinceLing:

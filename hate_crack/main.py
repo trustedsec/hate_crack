@@ -6644,6 +6644,9 @@ def hcatPCFG(hcatHashType, hcatHashFile):
         return
     pcfg_root = os.path.join(hate_path, "pcfg_cracker")
     resolved_ruleset_dir = _resolve_pcfg_ruleset_dir(pcfg_root, pcfgRuleset)
+    if not os.path.isdir(resolved_ruleset_dir):
+        get_ui().say(f"PCFG ruleset not found: {resolved_ruleset_dir}")
+        return
     resolved_ruleset_name = os.path.basename(resolved_ruleset_dir)
     session_id = generate_session_id(hcatHashFile, "PCFG")
     pcfg_cmd = [
