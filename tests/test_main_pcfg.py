@@ -607,6 +607,113 @@ class TestHcatPCFGNative:
         assert "" not in cmd
         assert cmd[-1] == "costmax=48"
 
+    def test_weights_match_named_ruleset_count(self, main_module, tmp_path):
+        hash_file = str(tmp_path / "hashes.txt")
+        Path(hash_file).write_text("dummy")
+        with (
+            patch("hate_crack.main._run_hcat_cmd") as run,
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", "-w 3"),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch("hate_crack.main.pcfg_native.supports_pcfg", return_value=True),
+        ):
+            result = main_module.hcatPCFGNative(
+                "0", hash_file, rulesets=["alpha", "beta"], weights=[9, 1]
+            )
+        assert result is True
+        cmd = run.call_args.args[0]
+        assert cmd[-3:] == ["alpha", "beta", "weights=9:1"]
+
+    def test_weights_mismatch_with_named_rulesets_is_refused(
+        self, main_module, tmp_path
+    ):
+        hash_file = str(tmp_path / "hashes.txt")
+        Path(hash_file).write_text("dummy")
+        with (
+            patch("hate_crack.main._run_hcat_cmd") as run,
+            patch("hate_crack.main.get_ui") as get_ui,
+            patch("hate_crack.main.pcfg_native.supports_pcfg", return_value=True),
+        ):
+            result = main_module.hcatPCFGNative(
+                "0", hash_file, rulesets=["alpha"], weights=[9, 1]
+            )
+        assert result is False
+        run.assert_not_called()
+        assert "weights" in get_ui.return_value.error.call_args.args[0]
+
+    def test_weights_default_ruleset_counts_as_one(self, main_module, tmp_path):
+        hash_file = str(tmp_path / "hashes.txt")
+        Path(hash_file).write_text("dummy")
+        with (
+            patch("hate_crack.main._run_hcat_cmd") as run,
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", "-w 3"),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "pcfgNativeRuleset", "default-passwords"),
+            patch("hate_crack.main.pcfg_native.supports_pcfg", return_value=True),
+        ):
+            result = main_module.hcatPCFGNative("0", hash_file, weights=[1])
+        assert result is True
+        cmd = run.call_args.args[0]
+        assert cmd[-2:] == ["default-passwords", "weights=1"]
+
+
+class TestHcatPCFGHints:
+    def test_delegates_with_hints_ruleset(self, main_module):
+        with (
+            patch("hate_crack.main.hcatPCFGNative", return_value=True) as native,
+            patch("hate_crack.main.pcfg_native.list_rulesets", return_value=["hints"]),
+        ):
+            result = main_module.hcatPCFGHints(
+                "0", "/tmp/h.txt", hintwords=["alpha", "beta"], pwmax=12
+            )
+        assert result is True
+        native.assert_called_once_with(
+            "0",
+            "/tmp/h.txt",
+            rulesets=["hints"],
+            hintwords=["alpha", "beta"],
+            hintfile=None,
+            pwmax=12,
+        )
+
+    def test_passes_through_a_refused_run(self, main_module):
+        with (
+            patch("hate_crack.main.hcatPCFGNative", return_value=False),
+            patch("hate_crack.main.pcfg_native.list_rulesets", return_value=["hints"]),
+        ):
+            assert (
+                main_module.hcatPCFGHints("0", "/tmp/h.txt", hintwords=["alpha"])
+                is False
+            )
+
+    def test_requires_a_hint_source(self, main_module):
+        with (
+            patch("hate_crack.main.hcatPCFGNative") as native,
+            patch("hate_crack.main.get_ui") as get_ui,
+        ):
+            result = main_module.hcatPCFGHints("0", "/tmp/h.txt")
+        assert result is False
+        native.assert_not_called()
+        assert "hint" in get_ui.return_value.error.call_args.args[0]
+
+    def test_refuses_when_hints_ruleset_missing(self, main_module):
+        dirs = ["/data/one", "/data/two"]
+        with (
+            patch("hate_crack.main.hcatPCFGNative") as native,
+            patch("hate_crack.main.get_ui") as get_ui,
+            patch(
+                "hate_crack.main.pcfg_native.list_rulesets",
+                return_value=["default-passwords"],
+            ),
+            patch("hate_crack.main.pcfg_native.ruleset_search_dirs", return_value=dirs),
+        ):
+            result = main_module.hcatPCFGHints("0", "/tmp/h.txt", hintwords=["alpha"])
+        assert result is False
+        native.assert_not_called()
+        msg = get_ui.return_value.error.call_args.args[0]
+        assert "/data/one" in msg and "/data/two" in msg
+
 
 class TestPcfgEngine:
     @pytest.mark.parametrize(

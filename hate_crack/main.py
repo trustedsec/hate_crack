@@ -6738,6 +6738,9 @@ def hcatPCFGNative(hcatHashType, hcatHashFile, rulesets=None, **settings):
             'Set "pcfgEngine" to "auto" or "legacy" to use pcfg_guesser.py.'
         )
         return False
+    # weights is validated against the ruleset count, which only this layer
+    # knows; callers never pass ruleset_count themselves.
+    settings.setdefault("ruleset_count", len(rulesets) if rulesets else 1)
     try:
         setting_args = pcfg_native.build_settings(**settings)
     except ValueError as exc:
@@ -6762,6 +6765,35 @@ def hcatPCFGNative(hcatHashType, hcatHashFile, rulesets=None, **settings):
     cmd.extend(setting_args)
     _run_hcat_cmd(cmd, attack_name="PCFG", hash_file=hcatHashFile)
     return True
+
+
+def hcatPCFGHints(
+    hcatHashType, hcatHashFile, hintwords=None, hintfile=None, **settings
+):
+    """Attack mode 4 with the bundled ``hints`` ruleset and known words.
+
+    The ruleset supplies structure (digits, years, symbols, capitalization);
+    every candidate contains at least one supplied word.
+
+    Returns what :func:`hcatPCFGNative` returns, or ``False`` when refused here.
+    """
+    if not hintwords and not hintfile:
+        get_ui().error("[!] PCFG hints needs hint words or a hint file.")
+        return False
+    if "hints" not in pcfg_native.list_rulesets():
+        get_ui().error(
+            "[!] The 'hints' ruleset was not found in "
+            + ", ".join(pcfg_native.ruleset_search_dirs())
+        )
+        return False
+    return hcatPCFGNative(
+        hcatHashType,
+        hcatHashFile,
+        rulesets=["hints"],
+        hintwords=hintwords,
+        hintfile=hintfile,
+        **settings,
+    )
 
 
 def hcatPrinceLing(hcatHashType, hcatHashFile):

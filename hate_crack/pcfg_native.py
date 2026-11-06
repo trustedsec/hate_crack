@@ -49,7 +49,12 @@ def list_rulesets(dirs: list[str] | None = None) -> list[str]:
     for directory in dirs if dirs is not None else ruleset_search_dirs():
         if not os.path.isdir(directory):
             continue
-        for entry in sorted(os.listdir(directory)):
+        try:
+            entries = sorted(os.listdir(directory))
+        except OSError:
+            # An unreadable shared directory must not break menu discovery.
+            continue
+        for entry in entries:
             path = os.path.join(directory, entry)
             if os.path.isdir(path):
                 name = entry

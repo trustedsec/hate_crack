@@ -1,3 +1,4 @@
+import os
 import subprocess
 from unittest.mock import patch
 
@@ -74,6 +75,22 @@ def test_list_rulesets_merges_dirs_and_strips_suffix(tmp_path):
 
 def test_list_rulesets_skips_missing_dirs(tmp_path):
     assert pcfg_native.list_rulesets([str(tmp_path / "absent")]) == []
+
+
+def test_list_rulesets_skips_unreadable_dir(tmp_path, monkeypatch):
+    locked = tmp_path / "locked"
+    readable = tmp_path / "readable"
+    locked.mkdir()
+    (readable / "hints").mkdir(parents=True)
+    real_listdir = pcfg_native.os.listdir
+
+    def listdir(path):
+        if os.path.abspath(path) == str(locked):
+            raise PermissionError(13, "Permission denied", path)
+        return real_listdir(path)
+
+    monkeypatch.setattr(pcfg_native.os, "listdir", listdir)
+    assert pcfg_native.list_rulesets([str(locked), str(readable)]) == ["hints"]
 
 
 def test_build_settings_empty_by_default():
