@@ -174,6 +174,68 @@ class TestHcatPCFG:
         popen.assert_not_called()
         run.assert_not_called()
 
+    def test_guesser_flags_follow_config(self, main_module, tmp_path):
+        hash_file = str(tmp_path / "hashes.txt")
+        Path(hash_file).write_text("dummy")
+        pcfg_dir = tmp_path / "pcfg_cracker"
+        pcfg_dir.mkdir()
+        (pcfg_dir / "pcfg_guesser.py").write_text("# stub")
+        (pcfg_dir / "Rules" / "Default").mkdir(parents=True)
+        captured = []
+
+        class FakeProc:
+            def __init__(self, *args, **kwargs):
+                captured.append(args)
+                self.stdout = MagicMock()
+                self.stdin = MagicMock()
+
+        with (
+            patch("hate_crack.main.subprocess.Popen", side_effect=FakeProc),
+            patch("hate_crack.main._run_hcat_cmd"),
+            patch.object(main_module, "hate_path", str(tmp_path)),
+            patch.object(main_module, "pcfgRuleset", "Default"),
+            patch.object(main_module, "pcfgMode", "random_walk"),
+            patch.object(main_module, "pcfgSkipBrute", True),
+            patch.object(main_module, "pcfgAllLower", True),
+        ):
+            main_module.hcatPCFG("0", hash_file)
+
+        cmd = captured[0][0]
+        assert cmd[cmd.index("--mode") + 1] == "random_walk"
+        assert "--skip_brute" in cmd
+        assert "--all_lower" in cmd
+
+    def test_guesser_flags_absent_by_default(self, main_module, tmp_path):
+        hash_file = str(tmp_path / "hashes.txt")
+        Path(hash_file).write_text("dummy")
+        pcfg_dir = tmp_path / "pcfg_cracker"
+        pcfg_dir.mkdir()
+        (pcfg_dir / "pcfg_guesser.py").write_text("# stub")
+        (pcfg_dir / "Rules" / "Default").mkdir(parents=True)
+        captured = []
+
+        class FakeProc:
+            def __init__(self, *args, **kwargs):
+                captured.append(args)
+                self.stdout = MagicMock()
+                self.stdin = MagicMock()
+
+        with (
+            patch("hate_crack.main.subprocess.Popen", side_effect=FakeProc),
+            patch("hate_crack.main._run_hcat_cmd"),
+            patch.object(main_module, "hate_path", str(tmp_path)),
+            patch.object(main_module, "pcfgRuleset", "Default"),
+            patch.object(main_module, "pcfgMode", "true_prob_order"),
+            patch.object(main_module, "pcfgSkipBrute", False),
+            patch.object(main_module, "pcfgAllLower", False),
+        ):
+            main_module.hcatPCFG("0", hash_file)
+
+        cmd = captured[0][0]
+        assert "--skip_brute" not in cmd
+        assert "--all_lower" not in cmd
+        assert "--mode" not in cmd
+
 
 class TestHcatPrinceLing:
     def _cache_name(self, main_module, ruleset="Default"):

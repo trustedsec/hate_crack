@@ -328,6 +328,18 @@ CONFIG_SCHEMA: tuple[ConfigKey, ...] = (
     ConfigKey("OMEN_MAX_CANDIDATES", "omenMaxCandidates", "int", 100000000),
     ConfigKey("PCFG_RULESET", "pcfgRuleset", "str", "Default"),
     ConfigKey("PCFG_MAX_CANDIDATES", "pcfgMaxCandidates", "int", 50000000),
+    # pcfg_guesser.py options hate_crack used to leave at the guesser's own
+    # defaults. "honeywords" is deliberately not a choice: it generates decoys
+    # for defenders and is useless for cracking.
+    ConfigKey(
+        "PCFG_MODE",
+        "pcfgMode",
+        "str",
+        "true_prob_order",
+        choices=("true_prob_order", "random_walk"),
+    ),
+    ConfigKey("PCFG_SKIP_BRUTE", "pcfgSkipBrute", "bool", False),
+    ConfigKey("PCFG_ALL_LOWER", "pcfgAllLower", "bool", False),
     ConfigKey(
         "PCFG_PRINCE_LING_MAX_CANDIDATES",
         "pcfgPrinceLingMaxCandidates",

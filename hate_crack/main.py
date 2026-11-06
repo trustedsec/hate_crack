@@ -1106,6 +1106,9 @@ hcatCorpusProfileMaxLines = int(config_parser.get("hcatCorpusProfileMaxLines", 5
 omenMaxCandidates = int(config_parser.get("omenMaxCandidates", 100000000))
 pcfgRuleset = config_parser.get("pcfgRuleset", "Default")
 pcfgMaxCandidates = int(config_parser.get("pcfgMaxCandidates", 50000000))
+pcfgMode = config_parser.get("pcfgMode", "true_prob_order")
+pcfgSkipBrute = config_parser.get("pcfgSkipBrute", False)
+pcfgAllLower = config_parser.get("pcfgAllLower", False)
 pcfgPrinceLingMaxCandidates = int(
     config_parser.get("pcfgPrinceLingMaxCandidates", 10000000)
 )
@@ -6659,6 +6662,12 @@ def hcatPCFG(hcatHashType, hcatHashFile):
         "--limit",
         str(pcfgMaxCandidates),
     ]
+    if pcfgMode != "true_prob_order":
+        pcfg_cmd.extend(["--mode", pcfgMode])
+    if pcfgSkipBrute:
+        pcfg_cmd.append("--skip_brute")
+    if pcfgAllLower:
+        pcfg_cmd.append("--all_lower")
     hashcat_cmd = [
         hcatBin,
         "-m",
