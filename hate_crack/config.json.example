@@ -22,6 +22,8 @@
   "hcatCorpusProfileMaxLines": 5000000,
   "omenMaxCandidates": 100000000,
   "pcfgRuleset": "Default",
+  "pcfgEngine": "auto",
+  "pcfgNativeRuleset": "default-passwords",
   "pcfgMaxCandidates": 50000000,
   "pcfgMode": "true_prob_order",
   "pcfgSkipBrute": false,

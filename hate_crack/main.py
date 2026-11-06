@@ -69,6 +69,7 @@ from hate_crack import attacks as _attacks  # noqa: E402
 from hate_crack.menu_registry import menu_items, menu_options  # noqa: E402
 from hate_crack import config_loader as _config_loader  # noqa: E402
 from hate_crack import config_schema as _config_schema  # noqa: E402
+from hate_crack import pcfg_native  # noqa: E402
 from hate_crack import hashcat_paths as _hashcat_paths  # noqa: E402
 from hate_crack import config_writer as _config_writer  # noqa: E402
 from hate_crack import llm  # noqa: E402
@@ -1107,6 +1108,8 @@ omenMaxCandidates = int(config_parser.get("omenMaxCandidates", 100000000))
 pcfgRuleset = config_parser.get("pcfgRuleset", "Default")
 pcfgMaxCandidates = int(config_parser.get("pcfgMaxCandidates", 50000000))
 pcfgMode = config_parser.get("pcfgMode", "true_prob_order")
+pcfgEngine = config_parser.get("pcfgEngine", "auto")
+pcfgNativeRuleset = config_parser.get("pcfgNativeRuleset", "default-passwords")
 pcfgSkipBrute = config_parser.get("pcfgSkipBrute", False)
 pcfgAllLower = config_parser.get("pcfgAllLower", False)
 pcfgPrinceLingMaxCandidates = int(
@@ -6696,6 +6699,53 @@ def hcatPCFG(hcatHashType, hcatHashFile):
         pcfg_proc.stdout.close()
     if pcfg_proc.stdin:
         pcfg_proc.stdin.close()
+
+
+def pcfg_engine():
+    """Which PCFG implementation menu 20 should use: ``native`` or ``legacy``."""
+    if pcfgEngine == "legacy":
+        return "legacy"
+    if pcfgEngine == "native":
+        return "native"
+    return "native" if pcfg_native.supports_pcfg(hcatBin) else "legacy"
+
+
+def hcatPCFGNative(hcatHashType, hcatHashFile, rulesets=None, **settings):
+    """Attack mode 4: hashcat's built-in PCFG engine.
+
+    ``rulesets`` are positional (names or paths); ``settings`` are the
+    ``key=value`` options of :func:`pcfg_native.build_settings`. No ``-O``: the
+    engine refuses it on modes with only a pure kernel. No ``coverage=``: PCFG
+    is a dynamic generator and is never filtered.
+    """
+    if not pcfg_native.supports_pcfg(hcatBin):
+        get_ui().error(
+            f"[!] {hcatBin} does not support attack mode 4 (PCFG). "
+            'Set "pcfgEngine" to "auto" or "legacy" to use pcfg_guesser.py.'
+        )
+        return
+    try:
+        setting_args = pcfg_native.build_settings(**settings)
+    except ValueError as exc:
+        get_ui().error(f"[!] {exc}")
+        return
+    cmd = [
+        hcatBin,
+        "-m",
+        hcatHashType,
+        hcatHashFile,
+        "-a",
+        "4",
+        "--session",
+        generate_session_id(hcatHashFile, "PCFG_native"),
+        "-o",
+        f"{hcatHashFile}.out",
+    ]
+    cmd.extend(shlex.split(hcatTuning))
+    _append_potfile_arg(cmd)
+    cmd.extend(rulesets or [pcfgNativeRuleset])
+    cmd.extend(setting_args)
+    _run_hcat_cmd(cmd, attack_name="PCFG", hash_file=hcatHashFile)
 
 
 def hcatPrinceLing(hcatHashType, hcatHashFile):

@@ -346,6 +346,18 @@ CONFIG_SCHEMA: tuple[ConfigKey, ...] = (
         "int",
         10000000,
     ),
+    # "auto" uses hashcat's built-in PCFG (-a 4) when the build has it and the
+    # pcfg_guesser.py pipe otherwise. pcfgRuleset names a pcfg_cracker directory
+    # for the pipe; pcfgNativeRuleset names a hashcat ruleset (directory or
+    # .tar.xz) for -a 4.
+    ConfigKey(
+        "PCFG_ENGINE",
+        "pcfgEngine",
+        "str",
+        "auto",
+        choices=("auto", "native", "legacy"),
+    ),
+    ConfigKey("PCFG_NATIVE_RULESET", "pcfgNativeRuleset", "str", "default-passwords"),
     ConfigKey(
         "HCAT_SMART_MASK_MIN_CLUSTER_SIZE", "hcatSmartMaskMinClusterSize", "int", 3
     ),

@@ -516,3 +516,65 @@ class TestHcatPrinceLing:
         assert cmd[cmd.index("--rule") + 1] == "Default"
         assert cache.exists()
         assert mock_prince.called
+
+
+class TestHcatPCFGNative:
+    def _run(self, main_module, tmp_path, **kwargs):
+        hash_file = str(tmp_path / "hashes.txt")
+        Path(hash_file).write_text("dummy")
+        with (
+            patch("hate_crack.main._run_hcat_cmd") as run,
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", "-w 3"),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "pcfgNativeRuleset", "default-passwords"),
+            patch.object(main_module, "pcfgEngine", "auto"),
+            patch("hate_crack.main.pcfg_native.supports_pcfg", return_value=True),
+        ):
+            main_module.hcatPCFGNative("0", hash_file, **kwargs)
+        return run, hash_file
+
+    def test_command_shape(self, main_module, tmp_path):
+        run, hash_file = self._run(main_module, tmp_path, costmax=48)
+        cmd = run.call_args.args[0]
+        assert cmd[:2] == ["hashcat", "-m"]
+        assert cmd[cmd.index("-a") + 1] == "4"
+        assert "-O" not in cmd
+        assert cmd[-2:] == ["default-passwords", "costmax=48"]
+        assert cmd[cmd.index("--session") + 1] == "hashes_PCFG_native"
+        assert run.call_args.kwargs["attack_name"] == "PCFG"
+        assert "coverage" not in run.call_args.kwargs
+
+    def test_named_rulesets_replace_default(self, main_module, tmp_path):
+        run, _ = self._run(main_module, tmp_path, rulesets=["alpha", "beta"])
+        cmd = run.call_args.args[0]
+        assert cmd[-2:] == ["alpha", "beta"]
+        assert "default-passwords" not in cmd
+
+    def test_refuses_when_unsupported(self, main_module, tmp_path):
+        hash_file = str(tmp_path / "hashes.txt")
+        Path(hash_file).write_text("dummy")
+        with (
+            patch("hate_crack.main._run_hcat_cmd") as run,
+            patch("hate_crack.main.pcfg_native.supports_pcfg", return_value=False),
+        ):
+            main_module.hcatPCFGNative("0", hash_file)
+        run.assert_not_called()
+
+
+class TestPcfgEngine:
+    @pytest.mark.parametrize(
+        ("configured", "supported", "expected"),
+        [
+            ("auto", True, "native"),
+            ("auto", False, "legacy"),
+            ("legacy", True, "legacy"),
+            ("native", False, "native"),
+        ],
+    )
+    def test_engine_choice(self, main_module, configured, supported, expected):
+        with (
+            patch.object(main_module, "pcfgEngine", configured),
+            patch("hate_crack.main.pcfg_native.supports_pcfg", return_value=supported),
+        ):
+            assert main_module.pcfg_engine() == expected

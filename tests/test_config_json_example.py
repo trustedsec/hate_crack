@@ -46,6 +46,8 @@ EXPECTED_KEYS = {
     "hcatCorpusProfileMaxLines",
     "omenMaxCandidates",
     "pcfgRuleset",
+    "pcfgEngine",
+    "pcfgNativeRuleset",
     "pcfgMaxCandidates",
     "pcfgMode",
     "pcfgSkipBrute",
