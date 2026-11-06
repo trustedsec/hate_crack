@@ -35,6 +35,14 @@ def _ui(answers):
     return ui, patch("hate_crack.attacks.get_ui", return_value=ui)
 
 
+def _no_rulesets():
+    return _rulesets([])
+
+
+def _rulesets(names):
+    return patch("hate_crack.attacks.pcfg_native.list_rulesets", return_value=names)
+
+
 def _make_ctx(hash_type: str = "1000", hash_file: str = "/tmp/hashes.txt") -> MagicMock:
     ctx = MagicMock()
     ctx.hcatHashType = hash_type
@@ -54,7 +62,7 @@ def test_pcfg_attack_uses_native_when_engine_native():
     ctx = _make_ctx()
     ctx.pcfg_engine.return_value = "native"
     ui, p = _ui(["", "", "", ""])
-    with p:
+    with p, _no_rulesets():
         pcfg_attack(ctx)
     ctx.hcatPCFGNative.assert_called_once_with("1000", "/tmp/hashes.txt")
     ctx.hcatPCFG.assert_not_called()
@@ -75,7 +83,7 @@ def test_pcfg_attack_native_aborts_on_bad_constraint():
     ctx = _make_ctx()
     ctx.pcfg_engine.return_value = "native"
     ui, p = _ui(["", "", "abc"])
-    with p:
+    with p, _no_rulesets():
         pcfg_attack(ctx)
     ctx.hcatPCFGNative.assert_not_called()
     assert ui.errors
@@ -89,6 +97,66 @@ def test_pcfg_attack_legacy_asks_nothing():
         pcfg_attack(ctx)
     assert ui.prompts == []
     ctx.hcatPCFG.assert_called_once_with("1000", "/tmp/hashes.txt")
+
+
+_TWO = ["default-passwords", "keyboard-walks-russian", "keyboard-walks-thai"]
+
+
+def _kw_run(answers, installed=_TWO, ruleset="default-passwords"):
+    ctx = _make_ctx()
+    ctx.pcfg_engine.return_value = "native"
+    ctx.pcfgNativeRuleset = ruleset
+    ui, p = _ui(answers)
+    with p, _rulesets(installed):
+        pcfg_attack(ctx)
+    return ctx, ui
+
+
+def test_keyboard_walk_choice_merges_rulesets():
+    ctx, _ = _kw_run(["", "", "", "", "1"])
+    ctx.hcatPCFGNative.assert_called_once_with(
+        "1000",
+        "/tmp/hashes.txt",
+        rulesets=["default-passwords", "keyboard-walks-russian"],
+        weights=[9, 1],
+    )
+
+
+def test_keyboard_walk_blank_skips():
+    ctx, ui = _kw_run(["", "", "", "", ""])
+    ctx.hcatPCFGNative.assert_called_once_with("1000", "/tmp/hashes.txt")
+    assert any("keyboard-walk" in p for p in ui.prompts)
+
+
+def test_keyboard_walk_not_offered_when_none_installed():
+    ctx, ui = _kw_run(["", "", "", "", "1"], installed=["default-passwords"])
+    assert not any("keyboard-walk" in p for p in ui.prompts)
+    assert ui.answers == ["1"]
+    ctx.hcatPCFGNative.assert_called_once_with("1000", "/tmp/hashes.txt")
+
+
+def test_keyboard_walk_invalid_selection_aborts():
+    for bad in ("9", "abc", "0"):
+        ctx, ui = _kw_run(["", "", "", "", bad])
+        ctx.hcatPCFGNative.assert_not_called()
+        assert ui.errors
+
+
+def test_keyboard_walk_empty_default_ruleset_falls_back():
+    ctx, _ = _kw_run(["", "", "", "", "2"], ruleset="")
+    ctx.hcatPCFGNative.assert_called_once_with(
+        "1000",
+        "/tmp/hashes.txt",
+        rulesets=["default-passwords", "keyboard-walks-thai"],
+        weights=[9, 1],
+    )
+
+
+def test_keyboard_walk_keeps_constraints():
+    ctx, _ = _kw_run(["?u?l?l?l?d?d", "", "", "1"])
+    kw = ctx.hcatPCFGNative.call_args.kwargs
+    assert kw["mask"] == "?u?l?l?l?d?d"
+    assert kw["weights"] == [9, 1]
 
 
 def _hints_ctx():

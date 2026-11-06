@@ -5,6 +5,7 @@ from collections.abc import Callable
 from typing import Any
 
 from hate_crack import notify as _notify
+from hate_crack import pcfg_native
 from hate_crack.ui import get_ui
 from hate_crack.api import (
     download_all_hashmob_archives,
@@ -715,7 +716,32 @@ def pcfg_attack(ctx: Any) -> None:
         constraints = _prompt_pcfg_constraints(ctx)
         if constraints is None:
             return
-        ctx.hcatPCFGNative(ctx.hcatHashType, ctx.hcatHashFile, **constraints)
+        extra: dict[str, Any] = {}
+        layouts = [
+            n for n in pcfg_native.list_rulesets() if n.startswith("keyboard-walks-")
+        ]
+        if layouts:
+            ui = get_ui()
+            for i, name in enumerate(layouts, start=1):
+                ui.say(f"\t({i}) {name}")
+            answer = ui.ask(
+                "Add a keyboard-walk ruleset? (blank to skip): ",
+                choices=[(str(i), n) for i, n in enumerate(layouts, start=1)],
+            ).strip()
+            if answer:
+                try:
+                    idx = int(answer)
+                    if not 1 <= idx <= len(layouts):
+                        raise ValueError(answer)
+                except ValueError:
+                    ui.error(f"[!] Invalid keyboard-walk selection: {answer}")
+                    return
+                extra["rulesets"] = [
+                    ctx.pcfgNativeRuleset or "default-passwords",
+                    layouts[idx - 1],
+                ]
+                extra["weights"] = [9, 1]
+        ctx.hcatPCFGNative(ctx.hcatHashType, ctx.hcatHashFile, **constraints, **extra)
     else:
         ctx.hcatPCFG(ctx.hcatHashType, ctx.hcatHashFile)
 
