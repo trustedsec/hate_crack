@@ -14,6 +14,7 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 - **PCFG refuses a ruleset that does not exist** instead of launching a guesser that exits immediately, matching PRINCE-LING.
 
 ### Added
+- **PCFG runs on hashcat's built-in `-a 4` engine when the build has it.** Menu 20 and `hate_crack pcfg` now probe `hashcat --help` for attack mode 4 and, when present, generate candidates on the GPU with no pipe, with hashcat's own restore and skip. Native runs pass no `-O`, skip coverage filtering and use the session label `PCFG_native`. Builds without it fall back to the `pcfg_guesser.py` pipe. `pcfgEngine` (`auto`, `native`, `legacy`; default `auto`) selects the engine and `pcfgNativeRuleset` (default `default-passwords`) names the native ruleset; `pcfgRuleset` and the other `pcfg*` pipe keys still apply to the pipe and PRINCE-LING only. `hate_crack pcfg` gains `--ruleset` (repeatable, merges) and `--costmax`, which exit 1 on the pipe.
 - **`pcfgMode`, `pcfgSkipBrute`, `pcfgAllLower`** expose the guesser's `--mode`, `--skip_brute` and `--all_lower`.
 
 ## [2.39.0] - 2026-10-31

@@ -223,6 +223,7 @@ hate_crack fingerprint hashes.txt 1000
 hate_crack pathwell    hashes.txt 1000
 hate_crack prince      hashes.txt 1000
 hate_crack pcfg        hashes.txt 1000
+hate_crack pcfg        hashes.txt 1000 --ruleset default-passwords --costmax 48
 hate_crack princeling  hashes.txt 1000
 hate_crack smartmask   hashes.txt 1000
 hate_crack corporate   hashes.txt 1000
@@ -749,10 +750,12 @@ The attack offers three generation modes:
 
 #### PCFG Configuration
 
-The PCFG Attack (option 20) and PRINCE-LING Attack (option 21) use the `pcfg_cracker` submodule. Configure them in `config.json`:
+The PCFG Attack (option 20) uses hashcat's built-in attack mode 4 when the hashcat build supports it, and the `pcfg_cracker` submodule otherwise. The PRINCE-LING Attack (option 21) always uses the submodule. Configure them in `config.json`:
 
 ```json
 {
+  "pcfgEngine": "auto",
+  "pcfgNativeRuleset": "default-passwords",
   "pcfgRuleset": "Default",
   "pcfgMaxCandidates": 50000000,
   "pcfgPrinceLingMaxCandidates": 10000000,
@@ -762,12 +765,16 @@ The PCFG Attack (option 20) and PRINCE-LING Attack (option 21) use the `pcfg_cra
 }
 ```
 
-- **`pcfgRuleset`** — Name of the trained grammar to use (default: `Default`), resolved to `pcfg_cracker/Rules/<name>/`. Train your own with pcfg_cracker's `trainer.py` and set this to the ruleset name.
+- **`pcfgEngine`** — Which engine menu 20 uses: `auto` (default: native `-a 4` when the hashcat build has it, otherwise the `pcfg_guesser.py` pipe), `native` or `legacy` (always the pipe).
+- **`pcfgNativeRuleset`** — Ruleset for the native engine (default: `default-passwords`): a hashcat ruleset name, a ruleset directory, or a `.tar.xz`. Rulesets are looked up in `~/.local/share/hashcat/pcfg/` or the shared hashcat install directory; hashcat ships `default-passwords` and `hints`.
+- **`pcfgRuleset`** — Pipe only (and PRINCE-LING). Name of the trained grammar to use (default: `Default`), resolved to `pcfg_cracker/Rules/<name>/`. Train your own with pcfg_cracker's `trainer.py` and set this to the ruleset name.
 - **`pcfgMaxCandidates`** — Maximum candidates `pcfg_guesser.py` emits for the PCFG attack (default: `50000000`).
 - **`pcfgPrinceLingMaxCandidates`** — Maximum base words `prince_ling.py` writes into the cached PRINCE base wordlist (default: `10000000`).
 - **`pcfgMode`** — How `pcfg_guesser.py` orders guesses: `true_prob_order` (default, strict probability order) or `random_walk` (samples from the grammar).
 - **`pcfgSkipBrute`** — Skip the guesser's built-in OMEN/Markov tail (default: `false`). Use it when you already run a dedicated Markov attack.
 - **`pcfgAllLower`** — Emit lowercase guesses only, with no case mangling (default: `false`).
+
+`pcfgRuleset`, `pcfgMaxCandidates`, `pcfgMode`, `pcfgSkipBrute` and `pcfgAllLower` apply to the `pcfg_guesser.py` pipe only; the native engine ignores them.
 
 ### Optimized kernels (`optimizedKernelAttacks`)
 
@@ -1537,12 +1544,18 @@ Generates all unique non-empty subset combinations from a short wordlist using `
 * Candidates are piped directly to hashcat stdin
 
 #### PCFG Attack
-Uses [pcfg_cracker](https://github.com/lakiw/pcfg_cracker) to generate candidates from a Probabilistic Context-Free Grammar, piping `pcfg_guesser.py` output directly into hashcat's stdin mode. A PCFG models password *structure* (baseword + digits + symbol, capitalization habits, keyboard walks) with learned probabilities, so candidates come out roughly in descending likelihood order.
+Generates candidates from a Probabilistic Context-Free Grammar. A PCFG models password *structure* (baseword + digits + symbol, capitalization habits, keyboard walks) with learned probabilities, so candidates come out roughly in descending likelihood order.
+
+When the hashcat build supports attack mode 4 (checked by probing `hashcat --help`), hate_crack runs hashcat's built-in PCFG engine: candidates are generated on the GPU with no pipe, and hashcat's own restore and skip work. Native runs pass no `-O`, are not filtered by attack coverage, and use the hashcat session label `PCFG_native`. The ruleset comes from `pcfgNativeRuleset` (default `default-passwords`). Set `pcfgEngine` to `legacy` to force the pipe, or `native` to require the built-in engine.
+
+Fallback (pipe) path, used when the build has no `-a 4` or `pcfgEngine` is `legacy`: uses [pcfg_cracker](https://github.com/lakiw/pcfg_cracker), piping `pcfg_guesser.py` output directly into hashcat's stdin mode.
 
 * Requires the `pcfg_cracker` submodule. Presence is checked at startup and reported non-fatally: if it is missing, the PCFG attacks are simply unavailable. Run `make` to fetch it.
 * Uses the trained grammar named by `pcfgRuleset` in `config.json` (default `Default`), read from `pcfg_cracker/Rules/<name>/`
 * Candidate count is capped by `pcfgMaxCandidates` (default 50,000,000)
 * hate_crack does not wrap grammar training. To build a grammar from a target-specific password set, run pcfg_cracker's own `trainer.py` and point `pcfgRuleset` at the resulting ruleset name
+
+Non-interactively, `hate_crack pcfg <hashfile> <hashtype> [--ruleset NAME_OR_PATH ...] [--costmax N]` accepts `--ruleset` (repeatable, rulesets are merged) and `--costmax`. Both work only on the native engine and exit 1 with a message on the pipe.
 
 #### PRINCE-LING Attack
 Uses pcfg_cracker's `prince_ling.py` to derive an optimized PRINCE base wordlist from a trained grammar, then hands it to the existing PRINCE attack. PRINCE-LING picks base words the grammar says are actually productive, so the PRINCE combination space is far less wasteful than pointing PRINCE at a generic wordlist.
