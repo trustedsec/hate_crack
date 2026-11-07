@@ -31,6 +31,10 @@ from hate_crack.notify.settings import NotifySettings
 logger = logging.getLogger(__name__)
 
 
+def _is_hex(value: str, length: int) -> bool:
+    return len(value) == length and all(c in "0123456789abcdefABCDEF" for c in value)
+
+
 def extract_username_from_out_line(line: str) -> str | None:
     """Extract a username from a single hashcat ``.out`` line, if present.
 
@@ -54,8 +58,23 @@ def extract_username_from_out_line(line: str) -> str | None:
     if not stripped:
         return None
 
+    # WPA (22000/22001) lines are ``WPA*01*<fields>***:<plain>``: no username,
+    # and a plaintext containing ``:`` must not make the hash token look like one.
+    if stripped.startswith("WPA*"):
+        return None
+
     parts = stripped.split(":")
     if len(parts) < 2:
+        return None
+
+    # Legacy WPA layout ``mic:apmac:stamac:essid:plain``: the leading 32-hex
+    # field is a MIC, not a username.
+    if (
+        len(parts) >= 5
+        and _is_hex(parts[0], 32)
+        and _is_hex(parts[1], 12)
+        and _is_hex(parts[2], 12)
+    ):
         return None
 
     # Bare hash (hash:plain): exactly two colons-separated fields and the

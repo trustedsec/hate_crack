@@ -79,6 +79,22 @@ class TestExtractUsername:
     def test_line_with_trailing_newline(self) -> None:
         assert extract_username_from_out_line("alice:hash:plain\n") == "alice"
 
+    def test_wpa_hash_line_returns_none(self) -> None:
+        wpa = (
+            "WPA*01*4d4fe7aac3a2cecab195321ceb99a7d0*fc690c158264*f4747f87f9f4"
+            "*686173686361742d6573736964***"
+        )
+        assert extract_username_from_out_line(f"{wpa}:testpass1") is None
+        # A plaintext containing a colon must not promote the hash to a username.
+        assert extract_username_from_out_line(f"{wpa}:pass:word") is None
+
+    def test_legacy_wpa_layout_does_not_return_the_mic(self) -> None:
+        line = (
+            "4d4fe7aac3a2cecab195321ceb99a7d0:fc690c158264:f4747f87f9f4"
+            ":686173686361742d6573736964:testpass1"
+        )
+        assert extract_username_from_out_line(line) is None
+
     def test_does_not_leak_plaintext(self) -> None:
         # No matter the format, the return value must never equal the
         # plaintext password. Paranoid test; relies on us knowing where

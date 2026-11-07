@@ -117,6 +117,11 @@ def strip_hash_prefix(line):
     """
     if ":" not in line:
         return line
+    # hashcat --show prints a WPA (22000/22001) line as the original hash line,
+    # ``WPA*01*<fields>***:<plaintext>``, whose own fields are ``*``-separated.
+    # Only the first colon splits it, so a plaintext containing ``:`` survives.
+    if line.startswith("WPA*"):
+        return line.split(":", 1)[1]
     fields = line.split(":")
     idx = 0
     while idx < len(fields) - 1 and is_hash_token(fields[idx]):

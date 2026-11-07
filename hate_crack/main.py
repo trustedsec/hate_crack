@@ -5132,14 +5132,17 @@ _HYBRID_MASK_LENGTHS = (1, 2, 3, 4)
 # It comes second because it is the same ground plus more, at 24x the cost.
 #
 # Run as one invocation per length rather than as a single `--increment 1-4`,
-# for two reasons verified against hashcat 7.1.2 and not documented anywhere
-# obvious. The candidates are identical either way -- `--increment` queues each
-# length as its own job (`Guess.Queue.Mod: 2/6`) -- but:
+# for reasons verified against hashcat and not documented anywhere obvious. The
+# candidates are identical either way -- `--increment` queues each length as its
+# own job (`Guess.Queue.Mod: 2/6`) -- but:
 #
-#   * `--runtime` is applied per queued length, not to the invocation, so one
-#     `--increment` pass under a one-hour cap can spend four hours. Separate
-#     invocations let one deadline govern the attack as a whole.
-#   * a length cut short inside an `--increment` run still exits 1, the code
+#   * on hashcat 7.1.2, `--runtime` was applied per queued length, so one
+#     `--increment` pass under a one-hour cap could spend four hours. On
+#     8.0.0-73 it is a shared whole-run deadline across the increment lengths
+#     instead. Separate invocations are kept either way so each length is
+#     governed (and banked) on its own.
+#   * a length cut short inside an `--increment` run still exits 1 (on 7.1.2
+#     and on 8.0.0-73 alike), the code
 #     _run_hcat_cmd_uncovered reads as "keyspace exhausted", so coverage would
 #     record ground that was never enumerated. A standalone mask cut short by
 #     `--runtime` exits 4 instead, which is not recorded -- so each length that
