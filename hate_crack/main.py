@@ -2952,6 +2952,84 @@ def lineCount(file):
         return 0
 
 
+def _as_positive_int(value):
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return None
+    return n if n > 0 else None
+
+
+_STDIN_FLUSH_SECONDS = 10
+
+
+def _stdin_progress_flags(hcat_bin, count=None):
+    """Flags that give a piped (stdin-mode) hashcat run progress and an ETA.
+
+    ``--stdin-count N`` tells hashcat how many candidates to expect, so the
+    status screen can show a percentage; an overstated N is harmless (the run
+    just ends short of 100%). ``--stdin-timeout-flush`` makes hashcat process a
+    partial buffer after a quiet spell so a slow generator still shows
+    progress. Each flag is gated on ``hashcat --help`` mentioning it, so older
+    builds (7.x) get neither and the command is unchanged.
+    """
+    flags = []
+    if count and count > 0 and _hashcat_paths.help_mentions(hcat_bin, r"--stdin-count"):
+        flags += ["--stdin-count", str(int(count))]
+    if _hashcat_paths.help_mentions(hcat_bin, r"--stdin-timeout-flush"):
+        flags += ["--stdin-timeout-flush", str(_STDIN_FLUSH_SECONDS)]
+    return flags
+
+
+def _wordlist_line_total(path):
+    """Candidate-line count of *path*, counting an unterminated last line."""
+    n = lineCount(path)
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            if f.tell() > 0:
+                f.seek(-1, os.SEEK_END)
+                if f.read(1) != b"\n":
+                    n += 1
+    except OSError:
+        return 0
+    return n
+
+
+def _product_count(paths):
+    """Exact combinator output size, or None if any list is empty/unreadable."""
+    total = 1
+    for path in paths:
+        n = _wordlist_line_total(path)
+        if n <= 0:
+            return None
+        total *= n
+    return total
+
+
+def _combipow_count(path):
+    """``2**n - 1`` for *n* non-empty lines, or None when combipow would refuse.
+
+    combipow.bin emits every non-empty subset of the input lines (verified
+    against the bundled binary). It aborts above 63 lines and splits lines
+    longer than its 64-byte buffer, so those cases return None.
+    """
+    n = 0
+    try:
+        with open(path, "rb") as f:
+            for line in f:
+                stripped = line.rstrip(b"\r\n")
+                if len(line) > 62:
+                    return None
+                if stripped:
+                    n += 1
+                    if n > 63:
+                        return None
+    except OSError:
+        return None
+    return (2**n) - 1 if n else None
+
+
 def _write_delimited_field(
     input_path, output_path, field_index, delimiter=":", last_field=False
 ):
@@ -5020,6 +5098,7 @@ def hcatCombinator3(hcatHashType, hcatHashFile, wordlists):
             _insert_optimized_flag(hashcat_cmd)
         hashcat_cmd.extend(shlex.split(hcatTuning))
         _append_potfile_arg(hashcat_cmd)
+        hashcat_cmd.extend(_stdin_progress_flags(hcatBin, _product_count(resolved)))
         generator_proc = subprocess.Popen(generator_cmd, stdout=subprocess.PIPE)
         assert generator_proc.stdout is not None
         _run_hcat_cmd(
@@ -5066,6 +5145,7 @@ def hcatCombinatorX(hcatHashType, hcatHashFile, wordlists, separator=None):
             _insert_optimized_flag(hashcat_cmd)
         hashcat_cmd.extend(shlex.split(hcatTuning))
         _append_potfile_arg(hashcat_cmd)
+        hashcat_cmd.extend(_stdin_progress_flags(hcatBin, _product_count(resolved)))
         generator_proc = subprocess.Popen(generator_cmd, stdout=subprocess.PIPE)
         assert generator_proc.stdout is not None
         _run_hcat_cmd(
@@ -5103,6 +5183,7 @@ def hcatNgramX(hcatHashType, hcatHashFile, corpus, group_size=3):
             _insert_optimized_flag(hashcat_cmd)
         hashcat_cmd.extend(shlex.split(hcatTuning))
         _append_potfile_arg(hashcat_cmd)
+        hashcat_cmd.extend(_stdin_progress_flags(hcatBin))
         generator_proc = subprocess.Popen(generator_cmd, stdout=subprocess.PIPE)
         assert generator_proc.stdout is not None
         _run_hcat_cmd(
@@ -6619,6 +6700,9 @@ def hcatCombipow(hcatHashType, hcatHashFile, wordlist, use_space_sep=True):
             _insert_optimized_flag(hashcat_cmd)
         hashcat_cmd.extend(shlex.split(hcatTuning))
         _append_potfile_arg(hashcat_cmd)
+        hashcat_cmd.extend(
+            _stdin_progress_flags(hcatBin, _combipow_count(wordlist_path))
+        )
         generator_proc = subprocess.Popen(generator_cmd, stdout=subprocess.PIPE)
         _run_hcat_cmd(
             hashcat_cmd,
@@ -6668,6 +6752,7 @@ def hcatPrince(hcatHashType, hcatHashFile, attack_name="PRINCE"):
     hashcat_cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(hashcat_cmd)
     hashcat_cmd = _add_debug_mode_for_rules(hashcat_cmd)
+    hashcat_cmd.extend(_stdin_progress_flags(hcatBin))
     with (
         _wordlist_path(prince_base) as resolved_base,
         open(resolved_base, "rb") as base,
@@ -6751,6 +6836,10 @@ def hcatPCFG(hcatHashType, hcatHashFile):
         _insert_optimized_flag(hashcat_cmd)
     hashcat_cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(hashcat_cmd)
+    # pcfgMaxCandidates is an upper bound (--limit); hashcat tolerates that.
+    hashcat_cmd.extend(
+        _stdin_progress_flags(hcatBin, _as_positive_int(pcfgMaxCandidates))
+    )
     pcfg_proc = subprocess.Popen(
         pcfg_cmd, stdout=subprocess.PIPE, stdin=subprocess.PIPE
     )
@@ -7612,6 +7701,7 @@ def hcatPermute(hcatHashType, hcatHashFile, wordlist):
         _insert_optimized_flag(hashcat_cmd)
     hashcat_cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(hashcat_cmd)
+    hashcat_cmd.extend(_stdin_progress_flags(hcatBin))
     with (
         _wordlist_path(wordlist) as resolved_wordlist,
         open(resolved_wordlist, "rb") as wl_file,
@@ -7762,6 +7852,8 @@ def hcatOmen(hcatHashType, hcatHashFile, max_candidates, hcatChains=""):
     hashcat_cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(hashcat_cmd)
     hashcat_cmd = _add_debug_mode_for_rules(hashcat_cmd)
+    # max_candidates is an upper bound (enumNG -m); hashcat tolerates that.
+    hashcat_cmd.extend(_stdin_progress_flags(hcatBin, _as_positive_int(max_candidates)))
     get_ui().say(f"[*] Running: {_format_cmd(enum_cmd)} | {_format_cmd(hashcat_cmd)}")
     _debug_cmd(hashcat_cmd)
     enum_proc = subprocess.Popen(
