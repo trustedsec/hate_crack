@@ -34,27 +34,30 @@ def setup_function(_):
 
 def test_supports_pcfg_true_when_mode_listed():
     with patch(
-        "hate_crack.pcfg_native.subprocess.run", return_value=_completed(HELP_WITH_PCFG)
+        "hate_crack.hashcat_paths.subprocess.run",
+        return_value=_completed(HELP_WITH_PCFG),
     ):
         assert pcfg_native.supports_pcfg("hashcat") is True
 
 
 def test_supports_pcfg_false_on_stock_help():
     with patch(
-        "hate_crack.pcfg_native.subprocess.run",
+        "hate_crack.hashcat_paths.subprocess.run",
         return_value=_completed(HELP_WITHOUT_PCFG),
     ):
         assert pcfg_native.supports_pcfg("hashcat") is False
 
 
 def test_supports_pcfg_false_when_binary_missing():
-    with patch("hate_crack.pcfg_native.subprocess.run", side_effect=FileNotFoundError):
+    with patch(
+        "hate_crack.hashcat_paths.subprocess.run", side_effect=FileNotFoundError
+    ):
         assert pcfg_native.supports_pcfg("nope") is False
 
 
 def test_supports_pcfg_false_on_timeout():
     err = subprocess.TimeoutExpired(cmd="hashcat", timeout=30)
-    with patch("hate_crack.pcfg_native.subprocess.run", side_effect=err):
+    with patch("hate_crack.hashcat_paths.subprocess.run", side_effect=err):
         assert pcfg_native.supports_pcfg("hashcat") is False
 
 

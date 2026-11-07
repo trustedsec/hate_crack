@@ -921,8 +921,11 @@ automatically, with no menu step required: whenever it is about to launch an
 attack against a hash mode hashcat reports as slow (bcrypt, scrypt, and other
 KDF-backed modes, where the hash itself is the bottleneck rather than
 candidate generation), it starts or reuses a local brain server and adds the
-`--brain-*` flags to the hashcat invocation for you. A fast mode is left
-alone, unless its mode number is listed in `brain_modes_force`, and a mode
+`--brain-*` flags to the hashcat invocation for you. On hashcat 8 or newer a fast mode
+also gets brain, with `--brain-client-features=2` (attack positions only, which
+keeps hashcat's device generator and does not force `-S`); set
+`brain_fast_hashes` to `false` to leave fast modes alone. On older hashcat a
+fast mode is left alone, unless its mode number is listed in `brain_modes_force`, and a mode
 listed in `brain_modes_exclude` never engages brain regardless of hashcat's
 own verdict — exclude always wins.
 
@@ -938,11 +941,11 @@ different wordlists within the same run, and — as the round trip in
 second, separate hashcat run against the same target. Both can be enabled at
 once with no conflict.
 
-Seven keys in `config.json` control it, all under the `brain_*` prefix:
+Eight keys in `config.json` control it, all under the `brain_*` prefix:
 `brain_enabled` (master switch, default on), `brain_host` (empty means
 hate_crack manages a local server on loopback; a value means connect to that
 host only — hate_crack never spawns a server it wasn't told to manage),
-`brain_port` (default `6863`), `brain_client_features` (`1` hashed passwords,
+`brain_fast_hashes` (default on; hashcat 8+ only, see above), `brain_port` (default `6863`), `brain_client_features` (`1` hashed passwords,
 `2` attack positions, `3` both — `3` de-duplicates the most but costs the
 server roughly 12 bytes of RAM per candidate seen), `brain_server_timer`
 (hashcat's own setting for how often the server writes its `.ldmp`/`.admp`
@@ -957,7 +960,7 @@ reused across every attack in the session. At the default of `300`, that
 means a dump write to `~/.hate_crack/brain/` every five minutes for as long
 as hate_crack is running.
 
-An eighth key, `BRAIN_PASSWORD`, lives in `.env` instead of `config.json`
+A ninth key, `BRAIN_PASSWORD`, lives in `.env` instead of `config.json`
 because it is a shared secret, not because brain is a third-party
 integration — it is used only when connecting to a remote brain server you
 already run; the auto-spawned local server generates its own random password

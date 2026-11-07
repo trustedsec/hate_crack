@@ -6,7 +6,9 @@ from hate_crack import brain
 
 
 @pytest.fixture(autouse=True)
-def _reset():
+def _reset(monkeypatch):
+    # Never probe a real hashcat --help; individual tests override this.
+    monkeypatch.setattr(brain.hashcat_paths, "help_mentions", lambda _b, _p: False)
     brain.shutdown()
     yield
     brain.shutdown()
@@ -368,3 +370,45 @@ def test_keyboard_interrupt_during_spawn_kills_the_child_and_yields_no_brain(
 
     assert result is None
     assert proc.killed is True
+
+
+def _capture_spawn(monkeypatch, tmp_path):
+    captured = {}
+
+    class _Listening:
+        def poll(self):
+            return None
+
+    def _fake_popen(argv, **kwargs):
+        captured["argv"] = argv
+        captured["kwargs"] = kwargs
+        return _Listening()
+
+    monkeypatch.setattr(brain, "brain_dir", lambda: tmp_path)
+    monkeypatch.setattr(brain.subprocess, "Popen", _fake_popen)
+    monkeypatch.setattr(brain, "_port_is_open", lambda host, port: True)
+    return captured
+
+
+def test_spawn_passes_the_dump_dir_when_hashcat_supports_it(monkeypatch, tmp_path):
+    seen = {}
+
+    def _mentions(hcat_bin, pattern):
+        seen["args"] = (hcat_bin, pattern)
+        return True
+
+    monkeypatch.setattr(brain.hashcat_paths, "help_mentions", _mentions)
+    captured = _capture_spawn(monkeypatch, tmp_path)
+    assert brain._spawn_server("hashcat", 6863, "pw", 300) is not None
+    argv = captured["argv"]
+    assert argv[argv.index("--brain-server-dump-dir") + 1] == str(tmp_path)
+    assert "--brain-server-dump-dir" in seen["args"][1]
+    # cwd stays set for builds that ignore the flag.
+    assert captured["kwargs"]["cwd"] == str(tmp_path)
+
+
+def test_spawn_omits_the_dump_dir_when_hashcat_lacks_it(monkeypatch, tmp_path):
+    captured = _capture_spawn(monkeypatch, tmp_path)
+    assert brain._spawn_server("hashcat", 6863, "pw", 300) is not None
+    assert "--brain-server-dump-dir" not in captured["argv"]
+    assert captured["kwargs"]["cwd"] == str(tmp_path)

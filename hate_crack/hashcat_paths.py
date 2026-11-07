@@ -25,6 +25,7 @@ import os
 import re
 import shutil
 import subprocess
+from functools import lru_cache
 from typing import NamedTuple, Optional
 
 # The config value that means "ask the installed hashcat where its data lives".
@@ -41,6 +42,38 @@ _version_cache: dict[str, Optional[int]] = {}
 def reset_version_cache() -> None:
     """Drop the memoized ``hashcat --version`` lookups (used by tests)."""
     _version_cache.clear()
+
+
+@lru_cache(maxsize=32)
+def help_mentions(hcat_bin: str, pattern: str) -> bool:
+    """True when ``hashcat --help`` stdout matches the regex *pattern*.
+
+    This is the one capability probe for flags and menu entries that exist
+    only on some builds (``--brain-server-dump-dir``, ``--stdin-timeout-flush``,
+    the ``4 | PCFG`` attack mode). *pattern* is searched with ``re.MULTILINE``,
+    so ``^`` and ``$`` anchor per help line. Cached per ``(hcat_bin, pattern)``
+    because the answer cannot change for a given binary within a session; call
+    ``reset_help_cache()`` to drop it.
+
+    Any failure to ask (missing binary, timeout, an invalid pattern) returns False: an unknown build is assumed not to
+    have the capability.
+    """
+    try:
+        proc = subprocess.run(  # nosec B603 - hcat_bin is the configured hashcat
+            [hcat_bin, "--help"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        return bool(re.search(pattern, proc.stdout or "", re.MULTILINE))
+    except (OSError, subprocess.SubprocessError, re.error):
+        return False
+
+
+def reset_help_cache() -> None:
+    """Drop the memoized ``hashcat --help`` probes (used by tests)."""
+    help_mentions.cache_clear()
 
 
 def hashcat_major_version(hcat_bin: str = "hashcat") -> Optional[int]:

@@ -1465,6 +1465,11 @@ _DEBUG_MODE_UNSUPPORTED_MSG = b"Invalid --debug-mode value specified."
 # reachable: <reason>", "... rejected the password", and "... rejected our
 # link version".
 _BRAIN_FAILURE_PREFIX = b"Brain server"
+# A server that was reachable and authenticated but then failed during the run
+# ("Brain server <host>:<port> stopped answering ...", "... refused the
+# commit ..."). Unlike a connect/auth rejection, the server is not known to be
+# bad for later attacks, so only the current invocation falls back.
+_BRAIN_MIDRUN_MARKERS = (b"stopped answering", b"refused the commit")
 
 # Set from ``flags.rule_debug_mode_enabled`` in main(); --no-rule-debug-mode
 # (or ``rule_debug_mode_enabled: false`` in config.json) stops
@@ -1981,7 +1986,20 @@ def _maybe_add_brain(cmd, hash_file, stdin):
     except (TypeError, ValueError):
         return cmd
 
-    if not _brain.is_slow(mode, config_parser, hcat_bin=hcatBin):
+    # is_slow picks the features value rather than gating brain outright. A
+    # slow mode always gets brain_client_features. On hashcat >= 8 a fast mode
+    # also gets brain, with features=2: that keeps the Device Generator and
+    # needs no -S, unlike features 1/3 which imply host generation. Verified on
+    # hashcat 8.0.0-73. Older hashcat has no such mode, so fast modes get none.
+    if _brain.is_slow(mode, config_parser, hcat_bin=hcatBin):
+        features = config_parser.get("brain_client_features", 3)
+        fast = False
+    elif (config_parser.get("brain_fast_hashes", True) is not False) and (
+        (_hashcat_paths.hashcat_major_version(hcatBin) or 0) >= 8
+    ):
+        features = 2
+        fast = True
+    else:
         return cmd
 
     session = _brain.session_id(hash_file)
@@ -1992,21 +2010,40 @@ def _maybe_add_brain(cmd, hash_file, stdin):
     if server is None:
         if not _brain_notice_fail_printed:
             get_ui().warn(
-                "[!] Hash mode {0} is slow, but no brain server could be "
-                "reached; running without candidate de-duplication.".format(mode)
+                "[!] Hash mode {0} qualifies for brain, but no brain server "
+                "could be reached; running without candidate de-duplication.".format(
+                    mode
+                )
             )
             _brain_notice_fail_printed = True
             _brain_notice_ok_printed = False
         return cmd
 
     if not _brain_notice_ok_printed:
-        get_ui().say(
-            "[*] Brain enabled for slow mode {0} (session {1}, server {2}:{3}). "
-            "The server holds roughly 12 bytes per candidate in RAM; set "
-            "brain_client_features to 2 in config.json if that is too much.".format(
-                mode, session, server.host, server.port
+        if fast:
+            get_ui().say(
+                "[*] Brain enabled for fast mode {0} with client features 2 "
+                "(session {1}, server {2}:{3}); the device generator is kept. "
+                "Set brain_fast_hashes to false in config.json to turn this "
+                "off.".format(mode, session, server.host, server.port)
             )
-        )
+        elif features in (2, 2.0, "2"):
+            # features=2 never implies -S, so the -S warning would be false.
+            get_ui().say(
+                "[*] Brain enabled for slow mode {0} with client features 2 "
+                "(session {1}, server {2}:{3}).".format(
+                    mode, session, server.host, server.port
+                )
+            )
+        else:
+            get_ui().say(
+                "[*] Brain enabled for slow mode {0} (session {1}, server "
+                "{2}:{3}). Brain forces -S and the server holds roughly 12 "
+                "bytes per candidate in RAM; set brain_client_features to 2 "
+                "in config.json if that is too much.".format(
+                    mode, session, server.host, server.port
+                )
+            )
         _brain_notice_ok_printed = True
         _brain_notice_fail_printed = False
 
@@ -2014,7 +2051,7 @@ def _maybe_add_brain(cmd, hash_file, stdin):
         host=server.host,
         port=server.port,
         password=server.password,
-        features=config_parser.get("brain_client_features", 3),
+        features=features,
         session=session,
     )
 
@@ -2042,6 +2079,18 @@ def _is_brain_failure(stderr: bytes) -> bool:
     looser match even though it is not exact.
     """
     return _BRAIN_FAILURE_PREFIX in stderr
+
+
+def _is_brain_midrun_failure(stderr: bytes) -> bool:
+    """Whether a brain failure happened mid-run rather than at connect/auth.
+
+    Still requires the ``"Brain server"`` prefix, so an unrelated message that
+    happens to contain one of the markers is not mistaken for one. Callers
+    check ``_is_brain_failure`` first; this only refines which recovery to use.
+    """
+    return _BRAIN_FAILURE_PREFIX in stderr and any(
+        marker in stderr for marker in _BRAIN_MIDRUN_MARKERS
+    )
 
 
 _BRAIN_VALUELESS_FLAGS = frozenset({"-z", "--brain-client", "--brain-server"})
@@ -2311,11 +2360,20 @@ def _run_hcat_cmd_uncovered(
             # rather than being retried per attack. Never on a plain
             # KeyboardInterrupt (``interrupted`` guards that), and at most
             # once per invocation (``_brain_retry`` guards that).
-            get_ui().warn(
-                "[!] hashcat rejected the brain connection; disabling brain "
-                "for the rest of this run and retrying without it."
-            )
-            _brain_enabled = False
+            if _is_brain_midrun_failure(captured_stderr):
+                # The server was fine at connect time and failed during the
+                # run, so brain stays on for later attacks; only this
+                # invocation retries without it.
+                get_ui().warn(
+                    "[!] The brain server failed mid-run; retrying this attack "
+                    "without brain (brain stays enabled for later attacks)."
+                )
+            else:
+                get_ui().warn(
+                    "[!] hashcat rejected the brain connection; disabling "
+                    "brain for the rest of this run and retrying without it."
+                )
+                _brain_enabled = False
             fallback_cmd = _strip_brain_flags(cmd)
             # Re-enter the inner runner, not the coverage wrapper: coverage
             # has already been applied to this cmd, and applying it twice

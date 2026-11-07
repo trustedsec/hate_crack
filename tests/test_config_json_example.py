@@ -74,6 +74,7 @@ EXPECTED_KEYS = {
     "brain_host",
     "brain_port",
     "brain_client_features",
+    "brain_fast_hashes",
     "brain_server_timer",
     "brain_modes_force",
     "brain_modes_exclude",

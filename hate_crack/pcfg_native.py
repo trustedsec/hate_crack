@@ -5,32 +5,26 @@ the probe, discovery and settings rules are testable without a hashcat build.
 """
 
 import os
-import re
-import subprocess  # nosec B404 - hashcat is an expected local binary
-from functools import lru_cache
 
-_MODE4_LINE = re.compile(r"^\s*4 \| PCFG\b", re.MULTILINE)
+from hate_crack import hashcat_paths
+
+_MODE4_PATTERN = r"^\s*4 \| PCFG\b"
 _ARCHIVE_SUFFIX = ".tar.xz"
 
 
-@lru_cache(maxsize=8)
 def supports_pcfg(hcat_bin: str) -> bool:
     """True when *hcat_bin* lists attack mode 4 (PCFG) in ``--help``.
 
-    Any failure to ask (missing binary, timeout) is False: an unknown build
-    takes the legacy pipe path rather than a hashcat error.
+    A thin wrapper over ``hashcat_paths.help_mentions``: any failure to ask
+    (missing binary, timeout) is False, so an unknown build takes the legacy
+    pipe path rather than a hashcat error.
     """
-    try:
-        proc = subprocess.run(  # nosec B603 - hcat_bin is the configured hashcat
-            [hcat_bin, "--help"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return bool(_MODE4_LINE.search(proc.stdout or ""))
+    return hashcat_paths.help_mentions(hcat_bin, _MODE4_PATTERN)
+
+
+# Preserve the lru_cache-style interface existing callers and tests rely on;
+# the cache itself lives in hashcat_paths.
+setattr(supports_pcfg, "cache_clear", hashcat_paths.reset_help_cache)
 
 
 def ruleset_search_dirs() -> list[str]:

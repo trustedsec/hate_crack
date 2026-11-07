@@ -104,3 +104,97 @@ def test_slow_modes_ignores_empty_cache_and_requeries(tmp_path, monkeypatch):
     # Verify it actually queried (called --hash-info)
     info_calls = [c for c in runner.calls if "--hash-info" in c]
     assert len(info_calls) == 1
+
+
+# --- hashcat 8 renumbered recipes -------------------------------------------
+
+LIST_8 = json.dumps(
+    {
+        "0": {"name": "MD5", "slow_hash": False},
+        "3200": {"name": "bcrypt", "slow_hash": True},
+    }
+)
+PER_MODE_12100 = json.dumps(
+    {"12100": {"name": "PBKDF2-HMAC-SHA512", "slow_hash": True}}
+)
+
+
+def _per_mode_runner(version="v8.0.0", listing=LIST_8, per_mode=None):
+    per_mode = per_mode or {}
+    calls = []
+
+    def run(args):
+        calls.append(args)
+        if "--version" in args:
+            return 0, version
+        if "-m" in args:
+            mode = args[args.index("-m") + 1]
+            return (0, "banner\n" + per_mode[mode]) if mode in per_mode else (1, "")
+        return 0, listing
+
+    run.calls = calls
+    return run
+
+
+def _per_mode_calls(runner):
+    return [c for c in runner.calls if "-m" in c]
+
+
+def test_unlisted_mode_is_resolved_with_a_per_mode_query(tmp_path, monkeypatch):
+    runner = _per_mode_runner(per_mode={"12100": PER_MODE_12100})
+    monkeypatch.setattr(brain, "_run_hashcat", runner)
+    monkeypatch.setattr(brain, "brain_dir", lambda: tmp_path)
+    assert brain.is_slow(12100, {}, hcat_bin="hashcat") is True
+    assert _per_mode_calls(runner) == [
+        ["hashcat", "-m", "12100", "--hash-info", "--machine-readable"]
+    ]
+
+
+def test_per_mode_result_is_memoized(tmp_path, monkeypatch):
+    runner = _per_mode_runner(per_mode={"12100": PER_MODE_12100})
+    monkeypatch.setattr(brain, "_run_hashcat", runner)
+    monkeypatch.setattr(brain, "brain_dir", lambda: tmp_path)
+    brain.is_slow(12100, {}, hcat_bin="hashcat")
+    brain.is_slow(12100, {}, hcat_bin="hashcat")
+    assert len(_per_mode_calls(runner)) == 1
+
+
+def test_listed_fast_mode_never_triggers_a_per_mode_query(tmp_path, monkeypatch):
+    runner = _per_mode_runner()
+    monkeypatch.setattr(brain, "_run_hashcat", runner)
+    monkeypatch.setattr(brain, "brain_dir", lambda: tmp_path)
+    assert brain.is_slow(0, {}, hcat_bin="hashcat") is False
+    assert _per_mode_calls(runner) == []
+
+
+def test_failed_per_mode_query_is_not_slow_and_never_raises(tmp_path, monkeypatch):
+    runner = _per_mode_runner()
+    monkeypatch.setattr(brain, "_run_hashcat", runner)
+    monkeypatch.setattr(brain, "brain_dir", lambda: tmp_path)
+    assert brain.is_slow(99999, {}, hcat_bin="hashcat") is False
+
+
+def test_cache_records_all_modes(tmp_path, monkeypatch):
+    monkeypatch.setattr(brain, "_run_hashcat", _per_mode_runner())
+    brain.slow_modes("hashcat", cache_dir=tmp_path)
+    cached = json.loads((tmp_path / brain.CACHE_FILENAME).read_text())
+    assert cached["all_modes"] == [0, 3200]
+
+
+def test_old_cache_without_all_modes_requeries_once(tmp_path, monkeypatch):
+    (tmp_path / brain.CACHE_FILENAME).write_text(
+        json.dumps({"version": "v8.0.0", "modes": [3200]})
+    )
+    runner = _per_mode_runner()
+    monkeypatch.setattr(brain, "_run_hashcat", runner)
+    assert brain.slow_modes("hashcat", cache_dir=tmp_path) == frozenset({3200})
+    assert any("--hash-info" in c and "-m" not in c for c in runner.calls)
+    assert "all_modes" in json.loads((tmp_path / brain.CACHE_FILENAME).read_text())
+
+
+def test_old_cache_is_kept_as_fallback_when_requery_fails(tmp_path, monkeypatch):
+    (tmp_path / brain.CACHE_FILENAME).write_text(
+        json.dumps({"version": "v8.0.0", "modes": [3200]})
+    )
+    monkeypatch.setattr(brain, "_run_hashcat", _per_mode_runner(listing="garbage"))
+    assert brain.slow_modes("hashcat", cache_dir=tmp_path) == frozenset({3200})

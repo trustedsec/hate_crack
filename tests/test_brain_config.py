@@ -15,6 +15,7 @@ def test_brain_tuning_keys_live_in_config_json():
         "brain_host",
         "brain_port",
         "brain_client_features",
+        "brain_fast_hashes",
         "brain_server_timer",
         "brain_modes_force",
         "brain_modes_exclude",
@@ -27,3 +28,4 @@ def test_brain_defaults_match_the_design():
     assert config_schema.BY_LEGACY["brain_client_features"].default == 3
     assert config_schema.BY_LEGACY["brain_enabled"].default is True
     assert config_schema.BY_LEGACY["brain_host"].default == ""
+    assert config_schema.BY_LEGACY["brain_fast_hashes"].default is True

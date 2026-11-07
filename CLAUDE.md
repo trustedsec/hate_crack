@@ -831,11 +831,11 @@ file is ignored, with a warning naming the key and its real home.
   gitignored. Home is chosen per key by "is this a secret", not by "is this
   bundled vs. third-party"; those two questions usually agree, and
   `BRAIN_PASSWORD` is the key where they don't.
-- **`config.json`** owns the other 54 settings — wordlists, masks, rules,
+- **`config.json`** owns the other 55 settings — wordlists, masks, rules,
   tuning, potfile, hashcat path and binary, pcfg/omen/prince limits, notify
   toggles, the seven other `brain_*` keys, and five preferences promoted from
   CLI flags. It is **first-class forever**; it was never deprecated and there
-  is no removal timeline. `ui_backend` is one of the 54; its `choices` is
+  is no removal timeline. `ui_backend` is one of the 55; its `choices` is
   pinned to `ui.BACKENDS` plus `ui.RETIRED_BACKENDS` by
   `tests/test_ui_config_key.py`, so adding a backend without offering it as a
   config value fails the suite.

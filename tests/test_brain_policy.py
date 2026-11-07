@@ -9,6 +9,8 @@ BASE = {
 
 def _patch_oracle(monkeypatch, modes=frozenset({3200})):
     monkeypatch.setattr(brain, "slow_modes", lambda _bin, **kw: modes)
+    # No real hashcat: a mode outside `modes` must not reach the per-mode query.
+    monkeypatch.setattr(brain, "_hashcat_version", lambda _bin: "")
 
 
 def test_slow_mode_is_slow(monkeypatch):

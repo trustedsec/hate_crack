@@ -5,11 +5,26 @@ Brain de-duplicates individual password candidates, which is the dimension
 line to the wordlist fingerprint it ran against, so two different
 (wordlist, rule) pairs that generate the same candidate are invisible to it.
 
-Brain is not free. ``--brain-client`` forces ``-S`` and the server holds
-roughly 12 bytes of RAM per candidate, so it is worth paying for only where
-the hash itself, not the lookup, is the bottleneck. That is why every entry
-point here is gated on hashcat's own ``slow_hash`` verdict rather than on a
-hand-maintained mode list that would drift as hashcat adds modes.
+Brain is not free. ``--brain-client`` with features 1 or 3 forces ``-S``
+(host candidate generation) and the server holds roughly 12 bytes of RAM per
+candidate, so on a slow hash it is worth paying for only where the hash
+itself, not the lookup, is the bottleneck. That is why the policy is keyed to
+hashcat's own ``slow_hash`` verdict rather than on a hand-maintained mode
+list that would drift as hashcat adds modes. ``is_slow`` stays a bool; the
+caller (``main._maybe_add_brain``) uses it to pick the features value.
+
+hashcat 8 adds a cheaper option: ``--brain-client-features=2`` (attack
+positions only) keeps the Device Generator and needs no ``-S``. On hashcat
+>= 8, fast hashes therefore also get brain with features 2, unless
+``brain_fast_hashes`` is false; slow hashes keep ``brain_client_features``
+(default 3). On older hashcat a fast hash gets no brain. (Verified on hashcat
+8.0.0-73.)
+
+The oracle also copes with hashcat 8 recipe renumbering: modes such as 12100,
+10900 and 7900 are absent from the unfiltered ``--hash-info`` list but still
+answer a per-mode ``-m N --hash-info --machine-readable`` query, so a mode in
+neither the slow set nor the full list is resolved that way and memoized per
+(version, mode).
 
 Every failure returns "no brain" rather than raising. A missing optimization
 costs time; an attack that refuses to start costs the operator their session.
@@ -30,7 +45,9 @@ empirically on 2026-09-18 by running a real server with ``cwd`` set to a
 scratch directory and a real ``--brain-client`` attack against it: the
 resulting ``brain.<attack>.admp`` landed in that directory, not in the
 client's cwd or any hashcat profile directory. That is why ``_spawn_server``
-below passes ``cwd=str(brain_dir())``.
+below passes ``cwd=str(brain_dir())`` always, and additionally passes
+``--brain-server-dump-dir`` on builds whose ``--help`` lists it (not 8.0.0 or
+7.x).
 """
 
 from __future__ import annotations
@@ -46,11 +63,19 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from hate_crack import attack_coverage as _coverage
+from hate_crack import hashcat_paths
 
 CACHE_FILENAME = "slow_modes.json"
 
 # Process-local memo so repeated attacks in one session skip even the file read.
 _MEMO: dict[str, frozenset[int] | None] = {}
+
+# Derived from the same ``--hash-info`` load as ``_MEMO``: every mode hashcat
+# lists (slow or not), and per-mode lookups for modes it does not list. Both
+# are rebuilt whenever ``slow_modes`` loads fresh data rather than hitting
+# ``_MEMO``, so they cannot outlive the version they were read for.
+_ALL_MODES: dict[str, frozenset[int] | None] = {}
+_MODE_MEMO: dict[tuple[str, int], bool] = {}
 
 _QUERY_TIMEOUT = 60
 
@@ -81,21 +106,93 @@ def _hashcat_version(hcat_bin: str) -> str:
     return out.strip() if rc == 0 else ""
 
 
-def _parse_slow_modes(payload: str) -> frozenset[int] | None:
+def _parse_hash_info(payload: str) -> tuple[frozenset[int], frozenset[int]] | None:
+    """Parse ``--hash-info --machine-readable`` into (slow modes, all modes)."""
     try:
         data = json.loads(payload)
     except (ValueError, TypeError):
         return None
     if not isinstance(data, dict):
         return None
-    modes = set()
+    slow = set()
+    every = set()
     for key, entry in data.items():
+        try:
+            number = int(key)
+        except (TypeError, ValueError):
+            continue
+        every.add(number)
         if isinstance(entry, dict) and entry.get("slow_hash") is True:
-            try:
-                modes.add(int(key))
-            except (TypeError, ValueError):
-                continue
-    return frozenset(modes)
+            slow.add(number)
+    return frozenset(slow), frozenset(every)
+
+
+def _parse_slow_modes(payload: str) -> frozenset[int] | None:
+    parsed = _parse_hash_info(payload)
+    return None if parsed is None else parsed[0]
+
+
+def _load_slow_modes(
+    hcat_bin: str, cache_dir: Path | None
+) -> tuple[str, frozenset[int] | None]:
+    """Resolve (hashcat version, slow modes) with a single ``--version`` call."""
+    version = _hashcat_version(hcat_bin)
+    if not version:
+        return "", None
+    if version in _MEMO:
+        return version, _MEMO[version]
+
+    # Anything below is a fresh load for this version, so drop derived memos.
+    _ALL_MODES.pop(version, None)
+    for key in [k for k in _MODE_MEMO if k[0] == version]:
+        del _MODE_MEMO[key]
+
+    directory = cache_dir if cache_dir is not None else brain_dir()
+    cache_path = directory / CACHE_FILENAME
+    cached_slow: frozenset[int] | None = None
+    try:
+        cached = json.loads(cache_path.read_text())
+        if cached.get("version") == version:
+            result = frozenset(int(m) for m in cached["modes"])
+            if result:  # Only use non-empty results; empty is unknown
+                if "all_modes" in cached:
+                    # Current cache format: nothing more to learn.
+                    _ALL_MODES[version] = frozenset(int(m) for m in cached["all_modes"])
+                    _MEMO[version] = result
+                    return version, result
+                # Pre-8 cache without the full mode list: re-query once to
+                # learn it, keeping this as the fallback if that fails.
+                cached_slow = result
+            # Empty result from cache: fall through to fresh query
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+
+    rc, out = _run_hashcat([hcat_bin, "--hash-info", "--machine-readable"])
+    # hashcat prints a banner line before the JSON; start at the first brace.
+    brace = out.find("{")
+    info = _parse_hash_info(out[brace:]) if brace >= 0 and rc == 0 else None
+    # Don't cache empty results; treat them as unknown for future queries.
+    if info is None or len(info[0]) == 0:
+        _MEMO[version] = cached_slow
+        return version, cached_slow
+
+    parsed, every = info
+    _MEMO[version] = parsed
+    _ALL_MODES[version] = every
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(
+            json.dumps(
+                {
+                    "version": version,
+                    "modes": sorted(parsed),
+                    "all_modes": sorted(every),
+                }
+            )
+        )
+    except OSError:
+        pass
+    return version, parsed
 
 
 def slow_modes(
@@ -106,41 +203,28 @@ def slow_modes(
     Cached on disk keyed by the hashcat version string, so upgrading hashcat
     re-queries instead of serving a map that predates new modes.
     """
-    version = _hashcat_version(hcat_bin)
-    if not version:
-        return None
-    if version in _MEMO:
-        return _MEMO[version]
+    return _load_slow_modes(hcat_bin, cache_dir)[1]
 
-    directory = cache_dir if cache_dir is not None else brain_dir()
-    cache_path = directory / CACHE_FILENAME
-    try:
-        cached = json.loads(cache_path.read_text())
-        if cached.get("version") == version:
-            result = frozenset(int(m) for m in cached["modes"])
-            if result:  # Only use non-empty results; empty is unknown
-                _MEMO[version] = result
-                return result
-            # Empty result from cache: fall through to fresh query
-    except (OSError, ValueError, KeyError, TypeError):
-        pass
 
-    rc, out = _run_hashcat([hcat_bin, "--hash-info", "--machine-readable"])
-    # hashcat prints a banner line before the JSON; start at the first brace.
+def _query_single_mode(hcat_bin: str, version: str, mode: int) -> bool:
+    """Ask hashcat about one mode it did not list in the full ``--hash-info``.
+
+    hashcat 8 renumbered some recipes (12100, 10900, 7900 are absent from the
+    unfiltered list) but still answers a per-mode query for the old number.
+    Memoized per ``(version, mode)``; any failure is False and is memoized too,
+    so a mode hashcat does not know costs one subprocess per session.
+    """
+    key = (version, mode)
+    if key in _MODE_MEMO:
+        return _MODE_MEMO[key]
+    rc, out = _run_hashcat(
+        [hcat_bin, "-m", str(mode), "--hash-info", "--machine-readable"]
+    )
     brace = out.find("{")
-    parsed = _parse_slow_modes(out[brace:]) if brace >= 0 and rc == 0 else None
-    # Don't cache empty results; treat them as unknown for future queries.
-    if parsed is None or len(parsed) == 0:
-        _MEMO[version] = None
-        return None
-
-    _MEMO[version] = parsed
-    try:
-        directory.mkdir(parents=True, exist_ok=True)
-        cache_path.write_text(json.dumps({"version": version, "modes": sorted(parsed)}))
-    except OSError:
-        pass
-    return parsed
+    info = _parse_hash_info(out[brace:]) if brace >= 0 and rc == 0 else None
+    slow = info is not None and mode in info[0]
+    _MODE_MEMO[key] = slow
+    return slow
 
 
 def _mode_set(raw) -> set[int]:
@@ -186,7 +270,13 @@ def is_slow(mode: int, config: dict, *, hcat_bin: str) -> bool:
     known = slow_modes(hcat_bin)
     if known is None:
         return False
-    return mode in known
+    if mode in known:
+        return True
+    version = _hashcat_version(hcat_bin)
+    every = _ALL_MODES.get(version)
+    if not version or (every is not None and mode in every):
+        return False
+    return _query_single_mode(hcat_bin, version, mode)
 
 
 _VALID_FEATURES = (1, 2, 3)
@@ -298,21 +388,26 @@ def _spawn_server(hcat_bin: str, port: int, password: str, timer: int):
     no such handling, taking brain down for the rest of the session.
     """
     directory = brain_dir()
+    argv = [
+        hcat_bin,
+        "--brain-server",
+        "--brain-host",
+        "127.0.0.1",
+        "--brain-port",
+        str(port),
+        "--brain-password",
+        password,
+        "--brain-server-timer",
+        str(max(60, int(timer))),
+    ]
+    # Builds that have it take the dump directory explicitly; 8.0.0 and 7.x
+    # write into the working directory, which is why cwd stays set below.
+    if hashcat_paths.help_mentions(hcat_bin, r"--brain-server-dump-dir"):
+        argv += ["--brain-server-dump-dir", str(directory)]
     try:
         directory.mkdir(parents=True, exist_ok=True)
         proc = subprocess.Popen(  # nosec B603 - fixed argv, no shell
-            [
-                hcat_bin,
-                "--brain-server",
-                "--brain-host",
-                "127.0.0.1",
-                "--brain-port",
-                str(port),
-                "--brain-password",
-                password,
-                "--brain-server-timer",
-                str(max(60, int(timer))),
-            ],
+            argv,
             cwd=str(directory),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,

@@ -435,6 +435,9 @@ CONFIG_SCHEMA: tuple[ConfigKey, ...] = (
     # 1 hashed passwords, 2 attack positions, 3 both. 3 is what de-duplicates
     # across differing attacks; 2 is the low-memory escape hatch.
     ConfigKey("BRAIN_CLIENT_FEATURES", "brain_client_features", "int", 3),
+    # hashcat >= 8 only: put brain on fast hashes too, with features=2 (attack
+    # positions only, device generator kept). Off means fast hashes get none.
+    ConfigKey("BRAIN_FAST_HASHES", "brain_fast_hashes", "bool", True),
     ConfigKey("BRAIN_SERVER_TIMER", "brain_server_timer", "int", 300),
     ConfigKey("BRAIN_MODES_FORCE", "brain_modes_force", "csv_list", []),
     ConfigKey("BRAIN_MODES_EXCLUDE", "brain_modes_exclude", "csv_list", []),

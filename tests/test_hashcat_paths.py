@@ -349,3 +349,70 @@ def test_default_potfile_path_sits_in_the_data_dir(monkeypatch, _clean_env):
     assert hashcat_paths.default_potfile_path() == os.path.join(
         hashcat_paths.hashcat_data_dir(), "hashcat.potfile"
     )
+
+
+# --- help_mentions capability probe -----------------------------------------
+
+
+def _help(stdout):
+    import subprocess
+
+    return subprocess.CompletedProcess(args=[], returncode=0, stdout=stdout, stderr="")
+
+
+@pytest.fixture
+def _help_cache():
+    hashcat_paths.reset_help_cache()
+    yield
+    hashcat_paths.reset_help_cache()
+
+
+def test_help_mentions_matches_a_flag(monkeypatch, _help_cache):
+    from unittest.mock import patch
+
+    text = "  --brain-server-dump-dir | Dir | /tmp\n"
+    with patch("hate_crack.hashcat_paths.subprocess.run", return_value=_help(text)):
+        assert hashcat_paths.help_mentions("hc", r"--brain-server-dump-dir") is True
+        assert hashcat_paths.help_mentions("hc", r"--stdin-timeout-flush") is False
+
+
+def test_help_mentions_is_multiline(_help_cache):
+    from unittest.mock import patch
+
+    with patch(
+        "hate_crack.hashcat_paths.subprocess.run",
+        return_value=_help("x\n  4 | PCFG | Mode\n"),
+    ):
+        assert hashcat_paths.help_mentions("hc", r"^\s*4 \| PCFG\b") is True
+
+
+def test_help_mentions_caches_per_binary_and_pattern(_help_cache):
+    from unittest.mock import patch
+
+    with patch(
+        "hate_crack.hashcat_paths.subprocess.run", return_value=_help("--a\n")
+    ) as run:
+        hashcat_paths.help_mentions("hc", "--a")
+        hashcat_paths.help_mentions("hc", "--a")
+        assert run.call_count == 1
+        hashcat_paths.help_mentions("hc", "--b")
+        hashcat_paths.help_mentions("other", "--a")
+        assert run.call_count == 3
+        hashcat_paths.reset_help_cache()
+        hashcat_paths.help_mentions("hc", "--a")
+        assert run.call_count == 4
+
+
+@pytest.mark.parametrize("exc", [FileNotFoundError, OSError])
+def test_help_mentions_false_on_error(exc, _help_cache):
+    from unittest.mock import patch
+
+    with patch("hate_crack.hashcat_paths.subprocess.run", side_effect=exc):
+        assert hashcat_paths.help_mentions("hc", "x") is False
+
+
+def test_help_mentions_false_on_bad_pattern(_help_cache):
+    from unittest.mock import patch
+
+    with patch("hate_crack.hashcat_paths.subprocess.run", return_value=_help("x")):
+        assert hashcat_paths.help_mentions("hc", "(") is False
