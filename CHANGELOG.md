@@ -10,6 +10,7 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 ## [Unreleased]
 
 ### Fixed
+- **Ctrl-C out of hashcat no longer leaves the terminal broken.** hashcat switches the tty to no-echo, non-canonical mode for its keypress menu and restores it only on a clean exit; hate_crack kills it on Ctrl-C, so the next menu prompt came back with Backspace and echo not working. The terminal mode is now saved before hashcat starts and restored on every exit path, and keys typed while hashcat owned the terminal are discarded rather than leaking into the next prompt.
 - **PCFG no longer shares one save file between runs.** `pcfg_guesser.py` was started without `--session`, so every run wrote `pcfg_cracker/default_run.sav`; two runs at once overwrote each other's state. Each hash file now gets its own session name, the same one hashcat uses.
 - **PCFG refuses a ruleset that does not exist** instead of launching a guesser that exits immediately, matching PRINCE-LING.
 

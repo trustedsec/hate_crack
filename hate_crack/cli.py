@@ -3,6 +3,7 @@ import logging
 import os
 import readline
 import sys
+import termios
 from collections.abc import Iterator
 from typing import Optional
 
@@ -183,3 +184,38 @@ def choice_history(choices: list[tuple[str, str]] | None) -> Iterator[None]:
         for item in saved:
             if item is not None:
                 readline.add_history(item)
+
+
+@contextlib.contextmanager
+def preserve_tty(fd: int | None = None) -> Iterator[None]:
+    """Restore the terminal mode on exit, whatever the child did to it.
+
+    hashcat switches the tty to non-canonical, no-echo mode for its keypress
+    menu and puts it back only on a clean exit. Ctrl-C kills it with SIGKILL,
+    so the next prompt came back with Backspace and echo broken. Snapshotting
+    here and restoring in ``finally`` fixes that for every exit path.
+
+    ``TCSAFLUSH`` also discards anything typed while the child owned the tty
+    (its ``q``/``s``/``p`` menu keys), which would otherwise land in the next
+    prompt. Quietly does nothing when ``fd`` is not a terminal, and a failed
+    restore never masks the body's own exception.
+    """
+    saved = None
+    if fd is None:
+        try:
+            fd = sys.stdin.fileno()
+        except (AttributeError, OSError, ValueError):
+            fd = None
+    if fd is not None:
+        try:
+            saved = termios.tcgetattr(fd)
+        except (termios.error, OSError, ValueError):
+            saved = None
+    try:
+        yield
+    finally:
+        if saved is not None and fd is not None:
+            try:
+                termios.tcsetattr(fd, termios.TCSAFLUSH, saved)
+            except (termios.error, OSError, ValueError):
+                pass

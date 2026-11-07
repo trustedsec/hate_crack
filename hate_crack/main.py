@@ -61,6 +61,7 @@ from hate_crack.api import (  # noqa: E402
 )
 from hate_crack.cli import (  # noqa: E402
     configure_completion,
+    preserve_tty,
     prompt_int,
     resolve_path,
     setup_logging,
@@ -2287,26 +2288,29 @@ def _run_hcat_cmd_uncovered(
     def _run_hashcat() -> "tuple[subprocess.Popen[Any], bool]":
         """Spawn and await hashcat; returns (process, was_interrupted)."""
         global hcatProcess
-        hcatProcess = subprocess.Popen(cmd, **popen_kwargs)
         interrupted = False
-        try:
-            hcatProcess.wait()
-            for gen in companions:
-                try:
-                    gen.wait()
-                except Exception:
-                    pass
-        except KeyboardInterrupt:
-            interrupted = True
-            get_ui().say("Killing PID {0}...".format(str(hcatProcess.pid)))
-            hcatProcess.kill()
-            for gen in companions:
-                try:
-                    gen.kill()
-                except Exception:
-                    pass
-        finally:
-            _notify.stop_tailer(tailer)
+        # hashcat leaves the tty in no-echo/non-canonical mode when killed, so
+        # restore it however this block exits.
+        with preserve_tty():
+            hcatProcess = subprocess.Popen(cmd, **popen_kwargs)
+            try:
+                hcatProcess.wait()
+                for gen in companions:
+                    try:
+                        gen.wait()
+                    except Exception:
+                        pass
+            except KeyboardInterrupt:
+                interrupted = True
+                get_ui().say("Killing PID {0}...".format(str(hcatProcess.pid)))
+                hcatProcess.kill()
+                for gen in companions:
+                    try:
+                        gen.kill()
+                    except Exception:
+                        pass
+            finally:
+                _notify.stop_tailer(tailer)
         return hcatProcess, interrupted
 
     finished_process, interrupted = _run_hashcat()
