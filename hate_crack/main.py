@@ -1466,8 +1466,9 @@ _DEBUG_MODE_UNSUPPORTED_MSG = b"Invalid --debug-mode value specified."
 # link version".
 _BRAIN_FAILURE_PREFIX = b"Brain server"
 # A server that was reachable and authenticated but then failed during the run
-# ("Brain server <host>:<port> stopped answering ...", "... refused the
-# commit ..."). Unlike a connect/auth rejection, the server is not known to be
+# (hashcat src/brain.c: "Brain server stopped answering after N candidates.
+# Nothing since the last commit was stored." and "Brain server refused the
+# commit after N candidates." -- no host:port). Unlike a connect/auth rejection, the server is not known to be
 # bad for later attacks, so only the current invocation falls back.
 _BRAIN_MIDRUN_MARKERS = (b"stopped answering", b"refused the commit")
 

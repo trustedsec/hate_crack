@@ -267,12 +267,13 @@ def is_slow(mode: int, config: dict, *, hcat_bin: str) -> bool:
         return False
     if mode in _mode_set(config.get("brain_modes_force")):
         return True
-    known = slow_modes(hcat_bin)
+    # One resolution gives both the verdict and the version; a second
+    # `--version` spawn per fast-mode attack is what this avoids.
+    version, known = _load_slow_modes(hcat_bin, None)
     if known is None:
         return False
     if mode in known:
         return True
-    version = _hashcat_version(hcat_bin)
     every = _ALL_MODES.get(version)
     if not version or (every is not None and mode in every):
         return False

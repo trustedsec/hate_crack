@@ -833,7 +833,7 @@ file is ignored, with a warning naming the key and its real home.
   `BRAIN_PASSWORD` is the key where they don't.
 - **`config.json`** owns the other 55 settings — wordlists, masks, rules,
   tuning, potfile, hashcat path and binary, pcfg/omen/prince limits, notify
-  toggles, the seven other `brain_*` keys, and five preferences promoted from
+  toggles, the eight other `brain_*` keys, and five preferences promoted from
   CLI flags. It is **first-class forever**; it was never deprecated and there
   is no removal timeline. `ui_backend` is one of the 55; its `choices` is
   pinned to `ui.BACKENDS` plus `ui.RETIRED_BACKENDS` by

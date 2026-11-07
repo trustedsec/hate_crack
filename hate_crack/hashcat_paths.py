@@ -55,7 +55,8 @@ def help_mentions(hcat_bin: str, pattern: str) -> bool:
     because the answer cannot change for a given binary within a session; call
     ``reset_help_cache()`` to drop it.
 
-    Any failure to ask (missing binary, timeout, an invalid pattern) returns False: an unknown build is assumed not to
+    Any failure to ask (missing binary, timeout, an invalid pattern) returns
+    False: an unknown build is assumed not to
     have the capability.
     """
     try:

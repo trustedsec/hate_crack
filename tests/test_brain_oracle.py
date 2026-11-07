@@ -198,3 +198,15 @@ def test_old_cache_is_kept_as_fallback_when_requery_fails(tmp_path, monkeypatch)
     )
     monkeypatch.setattr(brain, "_run_hashcat", _per_mode_runner(listing="garbage"))
     assert brain.slow_modes("hashcat", cache_dir=tmp_path) == frozenset({3200})
+
+
+def test_version_is_spawned_at_most_once_across_fast_mode_checks(tmp_path, monkeypatch):
+    runner = _per_mode_runner()
+    monkeypatch.setattr(brain, "_run_hashcat", runner)
+    monkeypatch.setattr(brain, "brain_dir", lambda: tmp_path)
+    for _ in range(3):
+        assert brain.is_slow(0, {}, hcat_bin="hashcat") is False
+    # slow_modes itself re-reads the version per call, so the invariant is one
+    # spawn per is_slow call, never two.
+    version_calls = [c for c in runner.calls if "--version" in c]
+    assert len(version_calls) == 3

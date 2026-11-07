@@ -418,12 +418,18 @@ class TestRunHcatCmd:
             mock_notify.is_suppressed.return_value = False
             mock_notify.get_settings.return_value = MagicMock(enabled=False)
             mock_notify.start_tailer.return_value = None
-            main_module._run_hcat_cmd(
-                list(self._BRAIN_CMD),
-                attack_name="Dictionary",
-                hash_file=hash_file,
-            )
+            with patch.object(main_module, "get_ui") as get_ui:
+                main_module._run_hcat_cmd(
+                    list(self._BRAIN_CMD),
+                    attack_name="Dictionary",
+                    hash_file=hash_file,
+                )
 
+        warnings = " ".join(
+            str(c.args[0]) for c in get_ui.return_value.warn.call_args_list
+        )
+        assert "failed mid-run" in warnings
+        assert "rejected the brain connection" not in warnings
         assert len(popen_calls) == 2
         assert "-z" in popen_calls[0]
         assert not any(str(a).startswith("--brain-") for a in popen_calls[1])
