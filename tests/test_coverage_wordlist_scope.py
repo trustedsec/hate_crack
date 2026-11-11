@@ -32,14 +32,6 @@ def main_module(hc_module):
 
 
 @pytest.fixture
-def store(tmp_path, monkeypatch):
-    s = ac.CoverageStore(tmp_path / "cov.sqlite3")
-    monkeypatch.setattr(ac, "get_store", lambda: s)
-    yield s
-    s.close()
-
-
-@pytest.fixture
 def env(tmp_path):
     hashes = tmp_path / "target.txt"
     hashes.write_text("aad3b435b51404eeaad3b435b51404ee\n")
@@ -58,6 +50,16 @@ def env(tmp_path):
         "fresh": str(fresh),
         "tmp": tmp_path,
     }
+
+
+@pytest.fixture
+def store(env):
+    ac.reset_store()
+    ac.clear_target_memo()
+    s = ac.get_store(env["hashes"])
+    yield s
+    ac.reset_store()
+    ac.clear_target_memo()
 
 
 class FakePopen:
@@ -275,19 +277,31 @@ def test_a_directory_wordlist_run_is_recorded_not_inert(main_module, store, env)
         wordlists=tuple(main_module._expand_wordlist_dirs(env["lists"])),
         rule_files=(env["rules"],),
     )
-    plan = ac.plan_run(spec, store.covered, store=store)
+    plan = ac.plan_run(spec)
     assert plan.skip is True, "the same directory and rules is a full repeat"
 
 
 # --- the store's wordlist-scoped prior-run question ----------------------
 
 
+def _record_rows(store, target, wl_id, kind="rule", attack="Quick Crack"):
+    """Record one covered entry against one wordlist."""
+    store.record(
+        target=target,
+        kind=kind,
+        variant="",
+        attack=attack,
+        wordlist_ids=[wl_id],
+        rows=[(wl_id, ac.entry_hash(kind, "k1"))],
+    )
+
+
 def test_has_prior_run_is_scoped_to_the_wordlists(store, env):
     target = ac.target_id(env["hashes"])
-    fp_a = store.wordlist_fingerprint(os.path.join(env["lists"], "a.txt"))
-    fp_fresh = store.wordlist_fingerprint(env["fresh"])
+    fp_a = store.wordlist_id(os.path.join(env["lists"], "a.txt"))
+    fp_fresh = store.wordlist_id(env["fresh"])
 
-    store.record(["k1"], target=target, attack="Quick Crack", wordlist_fps=[fp_a])
+    _record_rows(store, target, fp_a)
 
     assert store.has_prior_run(target, "Quick Crack", [fp_a]) is True
     assert store.has_prior_run(target, "Quick Crack", [fp_fresh]) is False
@@ -301,15 +315,9 @@ def test_has_prior_run_is_scoped_to_the_dimension_being_filtered(store, env):
     has run before" for a rule run on the strength of a wordlist-only run
     produces a prompt whose only possible answer is a no-op."""
     target = ac.target_id(env["hashes"])
-    fp_a = store.wordlist_fingerprint(os.path.join(env["lists"], "a.txt"))
+    fp_a = store.wordlist_id(os.path.join(env["lists"], "a.txt"))
 
-    store.record(
-        ["k1"],
-        target=target,
-        kind="wordlist",
-        attack="Quick Crack",
-        wordlist_fps=[fp_a],
-    )
+    _record_rows(store, target, fp_a, kind="wordlist")
 
     assert store.has_prior_run(target, "Quick Crack", [fp_a], kind="wordlist") is True
     assert store.has_prior_run(target, "Quick Crack", [fp_a], kind="rule") is False
@@ -331,10 +339,10 @@ def test_has_prior_run_matches_any_one_of_several_wordlists(store, env):
     """One overlapping corpus is enough for filtering to have something to do,
     so the question is "any", not "all"."""
     target = ac.target_id(env["hashes"])
-    fp_a = store.wordlist_fingerprint(os.path.join(env["lists"], "a.txt"))
-    fp_fresh = store.wordlist_fingerprint(env["fresh"])
+    fp_a = store.wordlist_id(os.path.join(env["lists"], "a.txt"))
+    fp_fresh = store.wordlist_id(env["fresh"])
 
-    store.record(["k1"], target=target, attack="Quick Crack", wordlist_fps=[fp_a])
+    _record_rows(store, target, fp_a)
 
     assert store.has_prior_run(target, "Quick Crack", [fp_fresh, fp_a]) is True
 
@@ -349,21 +357,19 @@ def test_has_prior_run_falls_back_to_the_attack_name_without_wordlists(store, en
     assert store.has_prior_run(target, "Quick Crack", []) is False
 
 
-def test_has_prior_run_survives_a_pre_existing_store(tmp_path, env):
-    """An existing engagement's database predates run_wordlists. It must open,
-    gain the table, and answer "no" rather than raising or prompting."""
-    path = tmp_path / "old.sqlite3"
-    old = ac.CoverageStore(path)
+def test_has_prior_run_survives_reopening_the_store(store, env):
+    """A run recorded before the store is closed and reopened (a new session)
+    must still be found, so the prior-run prompt does not vanish between
+    sessions."""
     target = ac.target_id(env["hashes"])
-    old.log_run(target, attack="Quick Crack", kind="history")
-    old.close()
+    fp = store.wordlist_id(env["fresh"])
+    _record_rows(store, target, fp)
 
-    new = ac.CoverageStore(path)
-    fp = new.wordlist_fingerprint(env["fresh"])
-    try:
-        assert new.has_prior_run(target, "Quick Crack", [fp]) is False
-    finally:
-        new.close()
+    ac.reset_store()
+    reopened = ac.get_store(env["hashes"])
+
+    assert reopened is not store
+    assert reopened.has_prior_run(target, "Quick Crack", [fp]) is True
 
 
 # --- the up-front batch prompt -------------------------------------------
@@ -493,9 +499,7 @@ def test_prime_still_prompts_for_a_wordlist_that_has_run_before(
     assert "has run against this hash file before" in capsys.readouterr().out
 
 
-def test_prime_stays_quiet_when_no_wordlist_can_be_fingerprinted(
-    main_module, store, env
-):
+def test_prime_stays_quiet_when_no_wordlist_can_be_identified(main_module, store, env):
     """Nothing here can be fingerprinted, so every chain's plan will be inert
     and no filtering is possible. Asking anyway is the noise that made this
     prompt appear on every single run."""

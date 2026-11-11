@@ -35,6 +35,30 @@ def env(tmp_path):
     }
 
 
+@pytest.fixture
+def store(env):
+    ac.reset_store()
+    ac.clear_target_memo()
+    s = ac.get_store(env["hashes"])
+    yield s
+    ac.reset_store()
+    ac.clear_target_memo()
+
+
+def _run_and_record(spec, attack="Hybrid"):
+    plan = ac.plan_run(spec)
+    assert not plan.is_inert
+    ac.get_store(spec.hash_file).record(
+        target=plan.target,
+        kind=plan.kind,
+        variant=plan.variant,
+        attack=attack,
+        wordlist_ids=plan.wordlist_ids,
+        rows=plan.record_rows,
+    )
+    return plan
+
+
 @contextmanager
 def _patched(main_module, tmp_path, max_runtime=0):
     """Patch the module globals hcatHybrid reads.
@@ -183,7 +207,7 @@ class TestInterrupt:
             assert call.kwargs["reraise_interrupt"] is True
 
     def test_interrupt_through_the_real_funnel_stops_after_one_pass(
-        self, main_module, env, tmp_path, monkeypatch
+        self, main_module, env, store
     ):
         """End-to-end: a killed hashcat tears down hybrid, not just the pass.
 
@@ -191,8 +215,6 @@ class TestInterrupt:
         fails if either hcatHybrid stops asking for the re-raise or the funnel
         stops honouring it.
         """
-        store = ac.CoverageStore(tmp_path / "cov.sqlite3")
-        monkeypatch.setattr(ac, "get_store", lambda: store)
 
         class InterruptingPopen:
             calls = 0
@@ -208,14 +230,11 @@ class TestInterrupt:
             def kill(self):
                 pass
 
-        try:
-            with (
-                _patched(main_module, env["tmp"]),
-                patch("hate_crack.main.subprocess.Popen", InterruptingPopen),
-            ):
-                main_module.hcatHybrid("1000", env["hashes"], [env["wordlist"]])
-        finally:
-            store.close()
+        with (
+            _patched(main_module, env["tmp"]),
+            patch("hate_crack.main.subprocess.Popen", InterruptingPopen),
+        ):
+            main_module.hcatHybrid("1000", env["hashes"], [env["wordlist"]])
 
         assert InterruptingPopen.calls == 1
 
@@ -509,7 +528,7 @@ class TestCoverageSpec:
             spec = main_module._hybrid_coverage(
                 env["hashes"], env["wordlist"], "6", mask, charset
             )
-            keys.add(ac.entry_key(target, "mask", "fp", spec.masks[0], spec.variant))
+            keys.add((spec.variant, ac.entry_hash("mask", spec.masks[0])))
         assert len(keys) == 2
 
     def test_append_and_prepend_do_not_share_a_key(self, main_module, env):
@@ -525,36 +544,18 @@ class TestCoverageSpec:
         target = ac.target_id(env["hashes"])
         assert target is not None
         keys = {
-            ac.entry_key(target, "mask", "fp", spec.masks[0], spec.variant)
+            (spec.variant, ac.entry_hash("mask", spec.masks[0]))
             for spec in (append, prepend)
         }
         assert len(keys) == 2
 
-    def test_a_repeat_run_is_recognised_as_covered(
-        self, main_module, env, tmp_path, monkeypatch
-    ):
+    def test_a_repeat_run_is_recognised_as_covered(self, main_module, env, store):
         """The whole point: the second hybrid over the same target is a repeat."""
-        store = ac.CoverageStore(tmp_path / "cov.sqlite3")
-        monkeypatch.setattr(ac, "get_store", lambda: store)
-        try:
-            spec = main_module._hybrid_coverage(
-                env["hashes"], env["wordlist"], "6", "?1?1"
-            )
-            first = ac.plan_run(spec, ac.set_lookup(set()), store=store)
-            assert not first.is_inert
-            assert not first.skip
+        spec = main_module._hybrid_coverage(env["hashes"], env["wordlist"], "6", "?1?1")
+        first = _run_and_record(spec)
+        assert not first.skip
 
-            store.record(
-                first.record_keys,
-                target=first.target,
-                kind=first.kind,
-                attack="Hybrid",
-            )
-            covered = store.covered(first.record_keys)
-            second = ac.plan_run(spec, ac.set_lookup(covered), store=store)
-            assert second.skip
-        finally:
-            store.close()
+        assert ac.plan_run(spec).skip
 
 
 class TestFullCharsetSweep:
@@ -738,13 +739,9 @@ class TestTimeBudget:
         first_long = next(i for i, p in enumerate(fixed) if p[1] != "?1")
         assert {p[2] for p in fixed[:first_long]} == {env["wordlist"], str(second)}
 
-    def test_a_truncated_pass_records_no_coverage(
-        self, main_module, env, tmp_path, monkeypatch
-    ):
+    def test_a_truncated_pass_records_no_coverage(self, main_module, env, store):
         """hashcat exits 4 when --runtime cuts a mask short, and only exit 1
         may be recorded -- otherwise the store would claim ground never tried."""
-        store = ac.CoverageStore(tmp_path / "cov.sqlite3")
-        monkeypatch.setattr(ac, "get_store", lambda: store)
 
         class RuntimeAbortedPopen:
             def __init__(self, cmd, **kwargs):
@@ -757,26 +754,28 @@ class TestTimeBudget:
             def kill(self):
                 pass
 
-        try:
-            with (
-                _patched(main_module, env["tmp"], max_runtime=3600),
-                patch("hate_crack.main.subprocess.Popen", RuntimeAbortedPopen),
-            ):
-                main_module.hcatHybrid("1000", env["hashes"], [env["wordlist"]])
-            target = ac.target_id(env["hashes"])
-            spec = main_module._hybrid_coverage(
-                env["hashes"], env["wordlist"], "6", "?a?a?a?a"
-            )
-            key = ac.entry_key(
+        with (
+            _patched(main_module, env["tmp"], max_runtime=3600),
+            patch("hate_crack.main.subprocess.Popen", RuntimeAbortedPopen),
+        ):
+            main_module.hcatHybrid("1000", env["hashes"], [env["wordlist"]])
+        target = ac.target_id(env["hashes"])
+        spec = main_module._hybrid_coverage(
+            env["hashes"], env["wordlist"], "6", "?a?a?a?a"
+        )
+        wl_id = store.wordlist_id(env["wordlist"])
+        assert wl_id is not None
+        assert (
+            store.covered(
                 target,
-                "mask",
-                store.wordlist_fingerprint(env["wordlist"]),
-                spec.masks[0],
+                wl_id,
                 spec.variant,
+                "mask",
+                [ac.entry_hash("mask", spec.masks[0])],
             )
-            assert store.covered([key]) == set()
-        finally:
-            store.close()
+            == set()
+        )
+        assert not ac.plan_run(spec).has_overlap
 
 
 def test_expanded_fingerprint_candidates_still_reach_hybrid(main_module, env):
