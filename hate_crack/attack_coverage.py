@@ -43,7 +43,12 @@ import sys
 from dataclasses import dataclass
 from typing import Callable
 
-from hate_crack.coverage_store import NO_WORDLIST, CoverageStore, store_path_for
+from hate_crack.coverage_store import (
+    NO_WORDLIST,
+    CoverageStore,
+    remove_legacy_store,
+    store_path_for,
+)
 
 # Import HashcatRosetta for mask canonicalization. Like hate_crack.llm, this
 # module needs its own path setup rather than relying on main.py's: main.py
@@ -76,6 +81,7 @@ __all__ = [
     "get_store",
     "plan_run",
     "read_entries",
+    "remove_legacy_store",
     "reset_store",
     "target_id",
 ]

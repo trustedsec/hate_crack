@@ -621,3 +621,57 @@ class CoverageStore:
             self._disable(str(exc))
             return 0
         return max(deleted, 0)
+
+
+# --- legacy store ------------------------------------------------------------
+
+LEGACY_STORE_NAME = "attack_coverage.sqlite3"
+
+
+def _human_size(size: int) -> str:
+    for unit, scale in (("GB", 1024**3), ("MB", 1024**2), ("KB", 1024)):
+        if size >= scale:
+            return f"{size / scale:.1f} {unit}"
+    return f"{size} bytes"
+
+
+def remove_legacy_store(home: str | None = None) -> None:
+    """Delete the central store that predates per-hash-file coverage.
+
+    Its content-hashed keys cannot be converted without the rule files and
+    variants it never recorded, so it is removed rather than migrated. Runs at
+    every startup and costs one ``stat()`` once the file is gone. Never raises:
+    a failure warns and startup continues.
+    """
+    base = Path(home if home is not None else os.path.expanduser("~"))
+    base = base / ".hate_crack" / "coverage"
+    legacy = base / LEGACY_STORE_NAME
+    if not legacy.exists():
+        return
+    files = [
+        legacy,
+        base / (LEGACY_STORE_NAME + "-wal"),
+        base / (LEGACY_STORE_NAME + "-shm"),
+    ]
+    size = 0
+    for path in files:
+        try:
+            size += path.stat().st_size
+        except OSError:
+            pass
+    for path in files:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as exc:
+            get_ui().warn(
+                f"[!] Could not remove the legacy coverage store {legacy}: {exc}"
+            )
+            return
+    try:
+        base.rmdir()
+    except OSError:
+        pass  # not empty: leave whatever else is in there alone
+    get_ui().say(
+        f"[*] Removed the legacy coverage store ({_human_size(size)}); "
+        "coverage now lives beside each hash file."
+    )

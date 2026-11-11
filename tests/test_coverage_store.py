@@ -379,3 +379,62 @@ def test_reads_on_a_disabled_store_answer_unknown(tmp_path):
         assert s.forget_target(T1) == 0
     finally:
         locked.chmod(0o700)
+
+
+# -- legacy store removal ----------------------------------------------------
+
+
+def _legacy(home, size=2048):
+    base = home / ".hate_crack" / "coverage"
+    base.mkdir(parents=True)
+    db = base / cs.LEGACY_STORE_NAME
+    db.write_bytes(b"\0" * size)
+    (base / (cs.LEGACY_STORE_NAME + "-wal")).write_bytes(b"")
+    (base / (cs.LEGACY_STORE_NAME + "-shm")).write_bytes(b"\0" * 1024)
+    db.chmod(0o444)
+    return base
+
+
+def test_legacy_store_is_removed_with_a_notice(tmp_path, capsys):
+    base = _legacy(tmp_path)
+    cs.remove_legacy_store(home=str(tmp_path))
+    assert not base.exists()
+    out = capsys.readouterr().out
+    assert (
+        "[*] Removed the legacy coverage store (3.0 KB); coverage now lives beside each hash file."
+        in out
+    )
+
+
+def test_legacy_removal_keeps_a_directory_that_holds_other_files(tmp_path):
+    base = _legacy(tmp_path)
+    (base / "keep.txt").write_text("x")
+    cs.remove_legacy_store(home=str(tmp_path))
+    assert (base / "keep.txt").exists()
+    assert not (base / cs.LEGACY_STORE_NAME).exists()
+
+
+def test_legacy_removal_is_a_silent_no_op_when_absent(tmp_path, capsys):
+    cs.remove_legacy_store(home=str(tmp_path))
+    cs.remove_legacy_store(home=str(tmp_path))
+    assert capsys.readouterr().out == ""
+
+
+def test_legacy_removal_failure_warns_and_continues(tmp_path, capsys):
+    base = _legacy(tmp_path)
+    base.chmod(0o500)
+    try:
+        cs.remove_legacy_store(home=str(tmp_path))
+    finally:
+        base.chmod(0o700)
+    assert (base / cs.LEGACY_STORE_NAME).exists()
+    assert "[!] Could not remove the legacy coverage store" in capsys.readouterr().out
+
+
+def test_main_removes_the_legacy_store_only_outside_skip_init():
+    import inspect
+    from hate_crack import main as main_module
+
+    source = inspect.getsource(main_module.main)
+    call = source.index("remove_legacy_store()")
+    assert source.rindex("if not SKIP_INIT", 0, call) > source.index("_ui.set_ui(")

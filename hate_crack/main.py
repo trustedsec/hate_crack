@@ -10378,6 +10378,8 @@ def main():
             f"[!] ui_backend '{_ui_config}' was removed; using "
             f"'{_ui.RETIRED_BACKENDS[_ui_config]}'. Update ui_backend in config.json."
         )
+    if not SKIP_INIT:
+        _coverage.remove_legacy_store()
     if _ui_name != "plain":
         get_ui().say(f"[*] UI backend: {_ui_name}")
 
