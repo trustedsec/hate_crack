@@ -438,3 +438,28 @@ def test_main_removes_the_legacy_store_only_outside_skip_init():
     source = inspect.getsource(main_module.main)
     call = source.index("remove_legacy_store()")
     assert source.rindex("if not SKIP_INIT", 0, call) > source.index("_ui.set_ui(")
+
+
+def test_legacy_removal_never_raises_when_the_directory_is_unsearchable(
+    tmp_path, capsys
+):
+    base = _legacy(tmp_path)
+    hc = tmp_path / ".hate_crack"
+    hc.chmod(0o000)
+    try:
+        cs.remove_legacy_store(home=str(tmp_path))
+    finally:
+        hc.chmod(0o700)
+    assert "[!] Could not remove the legacy coverage store" in capsys.readouterr().out
+    assert (base / cs.LEGACY_STORE_NAME).exists()
+
+
+def test_legacy_removal_keeps_the_db_when_a_sibling_cannot_be_removed(tmp_path, capsys):
+    base = _legacy(tmp_path)
+    shm = base / (cs.LEGACY_STORE_NAME + "-shm")
+    shm.unlink()
+    shm.mkdir()
+    (shm / "x").write_text("x")
+    cs.remove_legacy_store(home=str(tmp_path))
+    assert (base / cs.LEGACY_STORE_NAME).exists()
+    assert "[!] Could not remove the legacy coverage store" in capsys.readouterr().out

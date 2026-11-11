@@ -646,12 +646,19 @@ def remove_legacy_store(home: str | None = None) -> None:
     base = Path(home if home is not None else os.path.expanduser("~"))
     base = base / ".hate_crack" / "coverage"
     legacy = base / LEGACY_STORE_NAME
-    if not legacy.exists():
+    try:
+        legacy.stat()
+    except (FileNotFoundError, NotADirectoryError):
         return
+    except OSError as exc:
+        get_ui().warn(f"[!] Could not remove the legacy coverage store {legacy}: {exc}")
+        return
+    # The main db goes LAST: if anything fails part-way it is still there, so
+    # the next start retries instead of orphaning the -wal/-shm siblings.
     files = [
-        legacy,
         base / (LEGACY_STORE_NAME + "-wal"),
         base / (LEGACY_STORE_NAME + "-shm"),
+        legacy,
     ]
     size = 0
     for path in files:
