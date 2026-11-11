@@ -653,7 +653,8 @@ small single-purpose ones:
 | `config_loader.py` | 467 | the one config loader (see Config System) |
 | `config_schema.py` | 434 | `CONFIG_SCHEMA` source of truth (see Config System) |
 | `corpus_stats.py` | 322 | Pipal-adjacent corpus stats |
-| `attack_coverage.py` | ~470 | per-target rule/mask/wordlist coverage store — see below |
+| `attack_coverage.py` | ~560 | planning: target identity, entry parsing, mask canonicalization, skip/filter decision — see below |
+| `coverage_store.py` | ~680 | the per-hash-file SQLite coverage store — see below |
 | `brain.py` | 388 | hashcat brain oracle, slow/fast policy, session identity, client flags, local server lifecycle — see below |
 | `plaintext.py`, `noninteractive.py`, `username_detect.py`, `menu.py`, `formatting.py`, `progress.py`, `cli.py`, `hashview_cache.py` | 60–165 each | small, single-purpose helpers |
 | `ui/` | 434 total | UI backend seam: a `UI` Protocol with `PlainUI` and `RichUI` implementations, `resolve_backend_name`/`build_ui`, and `get_ui`/`set_ui`/`reset_ui` — see Config System for `ui_backend` |
@@ -661,12 +662,19 @@ small single-purpose ones:
 
 **`attack_coverage.py`** (#273) records which rule lines, mask lines and
 wordlists have already run against a hash file, so `_run_hcat_cmd` can offer to
-skip the overlap. Backed by SQLite at
-`~/.hate_crack/coverage/attack_coverage.sqlite3` — deliberately *not* the
-append-only key file `hashview_cache.py` uses, because that cache is bounded by
-hash-list size while this one is bounded by rules x wordlists (~191k keys from
-one Dictionary attack, where an append-only file grows on every repeat).
-Two invariants to preserve when touching it: **every failure to establish
+skip the overlap. The store (`coverage_store.py`) is a SQLite file **beside the
+hash file**, `<hashfile>.coverage.sqlite3`, so coverage moves and is deleted
+with the engagement. It is all integers: targets (content sha256), wordlists
+and variants are interned, and a covered rule or mask line is a signed 64-bit
+blake2b. **Wordlists are identified by `(realpath, size, mtime_ns)` from one
+`stat()` and are never read** — the central store this replaced content-hashed
+them, so the first plan against a 40 GB corpus was a multi-minute read, and a
+read-only store made that happen every session without a word. A store that
+cannot be opened or written now prints `[!] Coverage disabled for ...` once and
+goes inert. The old central `~/.hate_crack/coverage/attack_coverage.sqlite3`
+is deleted on first start of the new version (`remove_legacy_store`); its keys
+were not convertible. Network filesystems get a rollback journal instead of
+WAL. Two invariants to preserve when touching it: **every failure to establish
 identity returns an inert plan** (never filter on a guess — a wrongly filtered
 run silently skips untried candidates), and **coverage is recorded only on clean
 completion** (hashcat exit 0 or 1, not interrupted). Chained `-r a -r b` runs are

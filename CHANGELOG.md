@@ -13,6 +13,8 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 - **Ctrl-C out of hashcat no longer leaves the terminal broken.** hashcat switches the tty to no-echo, non-canonical mode for its keypress menu and restores it only on a clean exit; hate_crack kills it on Ctrl-C, so the next menu prompt came back with Backspace and echo not working. The terminal mode is now saved before hashcat starts and restored on every exit path, and keys typed while hashcat owned the terminal are discarded rather than leaking into the next prompt.
 - **PCFG no longer shares one save file between runs.** `pcfg_guesser.py` was started without `--session`, so every run wrote `pcfg_cracker/default_run.sav`; two runs at once overwrote each other's state. Each hash file now gets its own session name, the same one hashcat uses.
 - **PCFG refuses a ruleset that does not exist** instead of launching a guesser that exits immediately, matching PRINCE-LING.
+- **A new hash file no longer waits minutes before hashcat starts.** Coverage identified each wordlist by a content hash of the whole file, so the first attack with a large corpus read all of it first, and a read-only coverage store (which failed silently) made that happen every session. Wordlists are now identified by path, size and modification time, and nothing is read.
+- **A coverage store that cannot be written now says so** (`[!] Coverage disabled for ...`) instead of silently recording nothing.
 
 ### Added
 - **Piped attacks show progress and an ETA on hashcat 8.** PRINCE, PCFG (pipe mode), OMEN, Combinator3, CombinatorX, N-gram, Combipow and Permute feed hashcat over stdin, which gave it no way to know the total. They now pass `--stdin-count` (exact for the combinators and Combipow, the configured candidate limit for OMEN and PCFG) and, on builds that have it, `--stdin-timeout-flush 10` so a slow generator still updates the status screen. Older hashcat builds get neither flag.
@@ -22,6 +24,9 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 - **`hate_crack pcfg` gains `--mask`, `--contains`, `--pwmin`, `--pwmax` and `--weights`.** Native engine only; they exit 1 on the pipe or when hashcat refuses the settings.
 - **PCFG runs on hashcat's built-in `-a 4` engine when the build has it.** Menu 20 and `hate_crack pcfg` now probe `hashcat --help` for attack mode 4 and, when present, generate candidates on the GPU with no pipe, with hashcat's own restore and skip. Native runs pass no `-O`, skip coverage filtering and use the session label `PCFG_native`. Builds without it fall back to the `pcfg_guesser.py` pipe. `pcfgEngine` (`auto`, `native`, `legacy`; default `auto`) selects the engine and `pcfgNativeRuleset` (default `default-passwords`) names the native ruleset; `pcfgRuleset` and the other `pcfg*` pipe keys still apply to the pipe and PRINCE-LING only. `hate_crack pcfg` gains `--ruleset` (repeatable, merges) and `--costmax`, which exit 1 on the pipe.
 - **`pcfgMode`, `pcfgSkipBrute`, `pcfgAllLower`** expose the guesser's `--mode`, `--skip_brute` and `--all_lower`.
+
+### Changed
+- **Coverage now lives beside each hash file** as `<hashfile>.coverage.sqlite3`, and the central `~/.hate_crack/coverage/attack_coverage.sqlite3` is deleted the first time the new version starts. Existing coverage is not carried over: the first run of each attack against an existing engagement runs in full and is recorded from then on. One Quick Crack pass of a 1,420,542-line rule file produced a 26.7 MB store.
 
 ## [2.39.0] - 2026-10-31
 
