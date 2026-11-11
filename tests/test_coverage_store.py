@@ -287,6 +287,112 @@ def test_scope_kind(store):
     assert store.covered(T1, cs.NO_WORDLIST, "", "rule", [7]) == set()
 
 
+def _hold_write_lock(path, mode="IMMEDIATE"):
+    holder = sqlite3.connect(str(path), isolation_level=None)
+    holder.execute(f"BEGIN {mode}")
+    return holder
+
+
+def test_locked_store_skips_the_record_without_disabling(
+    store, tmp_path, capsys, monkeypatch
+):
+    monkeypatch.setattr(cs, "_BUSY_TIMEOUT_S", 0.1)
+    wl = store.wordlist_id(str(_wordlist(tmp_path)))
+    holder = _hold_write_lock(store._path)
+    try:
+        assert _record(store, [(wl, 1)], wordlist_ids=[wl]) == 0
+        assert store.disabled_reason is None
+        assert "[!] Coverage store for left.txt is locked" in capsys.readouterr().out
+    finally:
+        holder.rollback()
+        holder.close()
+    assert _record(store, [(wl, 1)], wordlist_ids=[wl]) == 1
+    assert store.covered(T1, wl, "", "rule", [1]) == {1}
+
+
+def test_locked_warning_prints_once_per_store(store, tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(cs, "_BUSY_TIMEOUT_S", 0.1)
+    wl = store.wordlist_id(str(_wordlist(tmp_path)))
+    holder = _hold_write_lock(store._path)
+    try:
+        _record(store, [(wl, 1)], wordlist_ids=[wl])
+        _record(store, [(wl, 2)], wordlist_ids=[wl])
+    finally:
+        holder.rollback()
+        holder.close()
+    assert capsys.readouterr().out.count("[!] Coverage store for") == 1
+
+
+def test_locked_wordlist_id_and_forget_do_not_disable(
+    store, tmp_path, capsys, monkeypatch
+):
+    monkeypatch.setattr(cs, "_BUSY_TIMEOUT_S", 0.1)
+    assert store.available()
+    _record(store, [(cs.NO_WORDLIST, 1)], kind="mask")
+    wl_path = str(_wordlist(tmp_path))
+    holder = _hold_write_lock(store._path)
+    try:
+        assert store.wordlist_id(wl_path) is None
+        assert store.forget_target(T1) == 0
+        assert store.disabled_reason is None
+    finally:
+        holder.rollback()
+        holder.close()
+    assert store.wordlist_id(wl_path) is not None
+    assert store.forget_target(T1) == 1
+
+
+def test_locked_covered_on_a_rollback_journal_answers_nothing_covered(
+    store, capsys, monkeypatch
+):
+    monkeypatch.setattr(cs, "_BUSY_TIMEOUT_S", 0.1)
+    monkeypatch.setattr(cs, "is_network_fs", lambda _d: True)
+    _record(store, [(cs.NO_WORDLIST, 5)], kind="mask")
+    holder = _hold_write_lock(store._path, "EXCLUSIVE")
+    try:
+        assert store.covered(T1, cs.NO_WORDLIST, "", "mask", [5]) == set()
+        assert store.disabled_reason is None
+        assert "[!] Coverage store for left.txt is locked" in capsys.readouterr().out
+        assert store._conn is not None and store._conn.in_transaction is False
+    finally:
+        holder.rollback()
+        holder.close()
+    assert store.covered(T1, cs.NO_WORDLIST, "", "mask", [5]) == {5}
+
+
+def test_a_lock_error_does_not_take_the_probe_table_fallback(store, monkeypatch):
+    monkeypatch.setattr(cs, "_BUSY_TIMEOUT_S", 0.1)
+    monkeypatch.setattr(cs, "is_network_fs", lambda _d: True)
+    _record(store, [(cs.NO_WORDLIST, 5)], kind="mask")
+    # Let the id lookups pass so the lock is first hit by the membership query.
+    monkeypatch.setattr(cs.CoverageStore, "_existing_target_id", lambda *a: 1)
+    monkeypatch.setattr(cs.CoverageStore, "_existing_variant_id", lambda *a: 1)
+    called = []
+    monkeypatch.setattr(
+        cs.CoverageStore,
+        "_covered_via_probe_table",
+        lambda *a, **k: called.append(1) or [],
+    )
+    holder = _hold_write_lock(store._path, "EXCLUSIVE")
+    try:
+        assert store.covered(T1, cs.NO_WORDLIST, "", "mask", [5]) == set()
+    finally:
+        holder.rollback()
+        holder.close()
+    assert called == []
+    assert store.disabled_reason is None
+
+
+def test_probe_table_fallback_leaves_no_transaction_open(store, monkeypatch):
+    _record(store, [(cs.NO_WORDLIST, 5)], kind="mask")
+    monkeypatch.setattr(
+        cs, "_COVERED_IN_JSON", "SELECT value FROM no_such_table_json_each(?)"
+    )
+    assert store.covered(T1, cs.NO_WORDLIST, "", "mask", [5, 6]) == {5}
+    assert store._conn is not None
+    assert store._conn.in_transaction is False
+
+
 def test_failed_record_rolls_back_the_whole_run(store, tmp_path, capsys, monkeypatch):
     wl = store.wordlist_id(str(_wordlist(tmp_path)))
     monkeypatch.setattr(

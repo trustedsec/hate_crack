@@ -10,6 +10,7 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 ## [Unreleased]
 
 ### Fixed
+- **Two hate_crack sessions on the same hash file no longer turn coverage off.** A store briefly locked by the other session skips recording that one run instead of disabling coverage for the rest of the session.
 - **Ctrl-C out of hashcat no longer leaves the terminal broken.** hashcat switches the tty to no-echo, non-canonical mode for its keypress menu and restores it only on a clean exit; hate_crack kills it on Ctrl-C, so the next menu prompt came back with Backspace and echo not working. The terminal mode is now saved before hashcat starts and restored on every exit path, and keys typed while hashcat owned the terminal are discarded rather than leaking into the next prompt.
 - **PCFG no longer shares one save file between runs.** `pcfg_guesser.py` was started without `--session`, so every run wrote `pcfg_cracker/default_run.sav`; two runs at once overwrote each other's state. Each hash file now gets its own session name, the same one hashcat uses.
 - **PCFG refuses a ruleset that does not exist** instead of launching a guesser that exits immediately, matching PRINCE-LING.
@@ -26,7 +27,7 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 - **`pcfgMode`, `pcfgSkipBrute`, `pcfgAllLower`** expose the guesser's `--mode`, `--skip_brute` and `--all_lower`.
 
 ### Changed
-- **Coverage now lives beside each hash file** as `<hashfile>.coverage.sqlite3`, and the central `~/.hate_crack/coverage/attack_coverage.sqlite3` is deleted the first time the new version starts. Existing coverage is not carried over: the first run of each attack against an existing engagement runs in full and is recorded from then on. One Quick Crack pass of a 1,420,542-line rule file produced a 26.7 MB store.
+- **Coverage now lives beside each hash file** as `<hashfile>.coverage.sqlite3`, and the central `~/.hate_crack/coverage/attack_coverage.sqlite3` is deleted the first time the new version starts. Existing coverage is not carried over: the first run of each attack against an existing engagement runs in full and is recorded from then on. Recording one 1.4-million-line rule file against one wordlist produced a 26.7 MB store.
 
 ## [2.39.0] - 2026-10-31
 

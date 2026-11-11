@@ -45,6 +45,9 @@ KINDS = {"history": 0, "rule": 1, "mask": 2, "wordlist": 3}
 # wl_id for a run with no wordlist (a mask attack). Real ids start at 1.
 NO_WORDLIST = 0
 
+# How long a connection waits on a lock held by another process.
+_BUSY_TIMEOUT_S = 30.0
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS targets (
     id     INTEGER PRIMARY KEY,
@@ -230,16 +233,19 @@ def is_network_fs(directory: str) -> bool:
 class CoverageStore:
     """One hash file's coverage store.
 
-    No method raises :class:`sqlite3.Error`. The first failure disables the
-    store for the rest of the process with one visible warning, and every
-    later call answers "unknown" -- an unfiltered run costs time, a crash
-    costs the operator their session.
+    No method raises :class:`sqlite3.Error`. The first non-transient failure
+    disables the store for the rest of the process with one visible warning,
+    and every later call answers "unknown" -- an unfiltered run costs time, a
+    crash costs the operator their session. A lock held by another process is
+    transient: that one call answers "unknown", the store stays usable, and
+    the warning prints once.
     """
 
     def __init__(self, path: Path | str):
         self._path = Path(path)
         self._conn: sqlite3.Connection | None = None
         self._disabled: str | None = None
+        self._lock_warned = False
         self._ids: dict[tuple[str, object], int] = {}
 
     # -- connection ------------------------------------------------------
@@ -259,6 +265,49 @@ class CoverageStore:
         get_ui().warn(f"[!] Coverage disabled for {self._label()}: {reason}")
         self.close()
 
+    @staticmethod
+    def _is_transient(exc: BaseException) -> bool:
+        """Is this a lock another process will release, not a broken store?"""
+        if not isinstance(exc, sqlite3.OperationalError):
+            return False
+        code = getattr(exc, "sqlite_errorcode", None)
+        if code is not None and (code & 0xFF) in (
+            sqlite3.SQLITE_BUSY,
+            sqlite3.SQLITE_LOCKED,
+        ):
+            return True
+        text = str(exc).lower()
+        return "locked" in text or "busy" in text
+
+    @staticmethod
+    def _is_missing_json(exc: BaseException) -> bool:
+        """Did the membership query fail because JSON1 is not available?"""
+        if not isinstance(exc, sqlite3.OperationalError):
+            return False
+        text = str(exc).lower()
+        return "no such function" in text or "no such table" in text
+
+    def _fail(self, exc: sqlite3.Error, what: str) -> None:
+        """One handler for every sqlite3.Error: skip on a lock, else disable.
+
+        A lock is transient, so the store stays usable; the caller still
+        answers "not covered" for this one call.
+        """
+        if not self._is_transient(exc):
+            self._disable(f"{what}: {exc}" if what else str(exc))
+            return
+        if self._conn is not None:
+            try:
+                self._conn.rollback()
+            except sqlite3.Error:
+                pass
+        if not self._lock_warned:
+            self._lock_warned = True
+            get_ui().warn(
+                f"[!] Coverage store for {self._label()} is locked by another "
+                "process; this run is not recorded."
+            )
+
     def _connect(self) -> sqlite3.Connection | None:
         if self._conn is not None:
             return self._conn
@@ -266,7 +315,7 @@ class CoverageStore:
             return None
         conn = None
         try:
-            conn = sqlite3.connect(str(self._path), timeout=30.0)
+            conn = sqlite3.connect(str(self._path), timeout=_BUSY_TIMEOUT_S)
             version = conn.execute("PRAGMA user_version").fetchone()[0]
             if version not in (0, SCHEMA_VERSION):
                 conn.close()
@@ -285,7 +334,10 @@ class CoverageStore:
         except (sqlite3.Error, OSError) as exc:
             if conn is not None:
                 conn.close()
-            self._disable(str(exc))
+            if isinstance(exc, sqlite3.Error):
+                self._fail(exc, "")
+            else:
+                self._disable(str(exc))
             return None
         self._conn = conn
         return conn
@@ -373,7 +425,7 @@ class CoverageStore:
                     stamp,
                 ).fetchone()
         except sqlite3.Error as exc:
-            self._disable(str(exc))
+            self._fail(exc, "")
             return None
         self._ids[key] = row[0]
         return row[0]
@@ -408,12 +460,16 @@ class CoverageStore:
                 rows = conn.execute(
                     _COVERED_IN_JSON, (*scope, json.dumps(list(hashes)))
                 ).fetchall()
-            except (sqlite3.Error, OverflowError):
-                # No JSON1, or a payload over the C binding's INT_MAX limit
-                # (OverflowError is not a sqlite3.Error subclass).
+            except OverflowError:
+                # A payload over the C binding's INT_MAX limit (not a
+                # sqlite3.Error subclass).
+                rows = self._covered_via_probe_table(conn, scope, hashes)
+            except sqlite3.Error as exc:
+                if not self._is_missing_json(exc):
+                    raise
                 rows = self._covered_via_probe_table(conn, scope, hashes)
         except sqlite3.Error as exc:
-            self._disable(str(exc))
+            self._fail(exc, "")
             return set()
         return {row[0] for row in rows}
 
@@ -423,16 +479,19 @@ class CoverageStore:
         scope: tuple[int, int, int, int],
         hashes: Sequence[int],
     ) -> list[tuple[int]]:
-        conn.execute(
-            "CREATE TEMP TABLE IF NOT EXISTS coverage_probe "
-            "(h INTEGER PRIMARY KEY) WITHOUT ROWID"
-        )
-        conn.execute("DELETE FROM coverage_probe")
-        conn.executemany(
-            "INSERT OR IGNORE INTO coverage_probe (h) VALUES (?)",
-            [(h,) for h in hashes],
-        )
-        return conn.execute(_COVERED_VIA_PROBE, scope).fetchall()
+        # ``with conn`` ends the implicit transaction the DELETE/INSERT open,
+        # so no lock outlives the call.
+        with conn:
+            conn.execute(
+                "CREATE TEMP TABLE IF NOT EXISTS coverage_probe "
+                "(h INTEGER PRIMARY KEY) WITHOUT ROWID"
+            )
+            conn.execute("DELETE FROM coverage_probe")
+            conn.executemany(
+                "INSERT OR IGNORE INTO coverage_probe (h) VALUES (?)",
+                [(h,) for h in hashes],
+            )
+            return conn.execute(_COVERED_VIA_PROBE, scope).fetchall()
 
     def record(
         self,
@@ -485,7 +544,7 @@ class CoverageStore:
         except sqlite3.Error as exc:
             # The interned ids may have been rolled back with the run.
             self._ids.clear()
-            self._disable(f"could not record coverage: {exc}")
+            self._fail(exc, "could not record coverage")
             return 0
         return added
 
@@ -618,7 +677,7 @@ class CoverageStore:
                 )
                 conn.execute("DELETE FROM runs WHERE target_id = ?", (target_id,))
         except sqlite3.Error as exc:
-            self._disable(str(exc))
+            self._fail(exc, "")
             return 0
         return max(deleted, 0)
 
