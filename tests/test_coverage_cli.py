@@ -124,19 +124,29 @@ def test_forget_yes_skips_the_prompt_and_clears(main_module, store, hashes, caps
 
 
 def test_forget_only_touches_the_named_target(main_module, store, hashes, tmp_path):
-    other = tmp_path / "other.txt"
-    other.write_text("31d6cfe0d16ae931b73c59d7e0c089c0\n")
-    other_store = ac.get_store(str(other))
-    target = ac.target_id(hashes)
-    other_target = ac.target_id(str(other))
-    _record(store, target, ["a"])
-    _record(other_store, other_target, ["b"])
+    """Both targets live in ONE store: rewriting a hash file in place gives it a
+    new content sha256 (a new target) but the same <hashfile>.coverage.sqlite3."""
+    old_target = ac.target_id(hashes)
+    _record(store, old_target, ["a"], attack="Old Attack")
+
+    with open(hashes, "w") as handle:
+        handle.write("31d6cfe0d16ae931b73c59d7e0c089c0\n")
+    ac.clear_target_memo()
+    new_target = ac.target_id(hashes)
+    assert new_target != old_target
+    assert ac.get_store(hashes) is store
+    _record(store, new_target, ["b"], attack="New Attack")
 
     main_module._run_coverage_command(
         _args(coverage_command="forget", hashfile=hashes, yes=True)
     )
-    assert _covered(store, target, ["a"]) == set()
-    assert _covered(other_store, other_target, ["b"]) == {"b"}
+
+    assert _covered(store, new_target, ["b"]) == set()
+    assert store.summary(new_target)["runs"] == 0
+    assert store.history(new_target) == []
+    assert _covered(store, old_target, ["a"]) == {"a"}
+    assert store.summary(old_target)["entries"] == 1
+    assert [row[0] for row in store.history(old_target)] == ["Old Attack"]
 
 
 def test_a_missing_hash_file_is_an_error(main_module, store, tmp_path, capsys):
