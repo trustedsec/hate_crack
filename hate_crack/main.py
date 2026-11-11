@@ -1546,8 +1546,8 @@ def _debug_cmd(cmd):
         get_ui().say(f"[DEBUG] hashcat cmd: {_format_cmd(cmd)}")
 
 
-def _coverage_store():
-    return _coverage.get_store()
+def _coverage_store(hash_file):
+    return _coverage.get_store(hash_file)
 
 
 def _write_filtered_entries(entries, suffix):
@@ -1733,8 +1733,8 @@ def _apply_coverage(cmd, spec, attack_name: str, decision_cache: dict | None = N
     the shared dict; every later call sharing that same dict reuses it
     without prompting again, even though each has its own, different plan.
     """
-    store = _coverage_store()
-    plan = _coverage.plan_run(spec, store.covered, store=store)
+    store = _coverage_store(spec.hash_file)
+    plan = _coverage.plan_run(spec, store)
     if plan.is_inert:
         return cmd, None, []
 
@@ -1798,7 +1798,7 @@ def _coverage_report(hash_file: str) -> str:
     if target is None:
         return f"[!] Cannot read {hash_file}."
 
-    summary = _coverage_store().summary(target)
+    summary = _coverage_store(hash_file).summary(target)
     if not summary["runs"]:
         return f"No attacks recorded against {os.path.basename(hash_file)} yet."
 
@@ -1827,7 +1827,7 @@ def _coverage_history_report(hash_file: str) -> str:
     target = _coverage.target_id(hash_file)
     if target is None:
         return f"[!] Cannot read {hash_file}."
-    rows = _coverage_store().history(target)
+    rows = _coverage_store(hash_file).history(target)
     if not rows:
         return f"No attacks recorded against {os.path.basename(hash_file)} yet."
     lines = [f"Run history for {os.path.basename(hash_file)}", ""]
@@ -1841,7 +1841,7 @@ def _coverage_forget(hash_file: str) -> str:
     target = _coverage.target_id(hash_file)
     if target is None:
         return f"[!] Cannot read {hash_file}."
-    dropped = _coverage_store().forget_target(target)
+    dropped = _coverage_store(hash_file).forget_target(target)
     return (
         f"Dropped {dropped} covered entr{'y' if dropped == 1 else 'ies'} and the "
         f"run history for {os.path.basename(hash_file)}. It will be attacked as "
@@ -2195,12 +2195,13 @@ def _run_hcat_cmd(
                 os.unlink(path)
 
     if plan is not None and completed:
-        _coverage_store().record(
-            plan.record_keys,
+        _coverage_store(coverage.hash_file).record(
             target=plan.target,
             kind=plan.kind,
+            variant=plan.variant,
             attack=attack_name,
-            wordlist_fps=plan.wordlist_fps,
+            wordlist_ids=plan.wordlist_ids,
+            rows=plan.record_rows,
         )
     elif completed and _coverage_enabled and attack_name and hash_file:
         # Attacks that carry no spec are never filtered, but the issue asks for
@@ -2209,7 +2210,7 @@ def _run_hcat_cmd(
         # no fixed keyspace to diff. One row, no keys.
         target = _coverage.target_id(hash_file)
         if target:
-            _coverage_store().log_run(target, attack=attack_name, kind="history")
+            _coverage_store(hash_file).log_run(target, attack=attack_name)
 
 
 def _run_hcat_cmd_uncovered(
@@ -3595,9 +3596,8 @@ def _prime_coverage_decision(
     name had ever touched this hash file -- so selecting a brand-new corpus
     produced the "has run before" prompt with nothing recorded that could
     possibly be skipped, because a rule counts as covered only for the
-    wordlist it ran against. Fingerprinting the wordlists costs nothing extra
-    overall: ``plan_run`` computes the same fingerprints moments later for the
-    first chain, and they are memoized.
+    wordlist it ran against. Identifying the wordlists is one ``stat()`` each and
+    reads nothing.
 
     Returns an empty dict when there is nothing to ask about: coverage is
     disabled, the batch is empty, it is a record-only (loopback) run that
@@ -3612,15 +3612,15 @@ def _prime_coverage_decision(
     if target is None:
         return {}
 
-    store = _coverage_store()
+    store = _coverage_store(hash_file)
     selection = _expand_wordlist_dirs(wordlists)
-    fingerprints = [
-        fingerprint
-        for fingerprint in (store.wordlist_fingerprint(path) for path in selection)
-        if fingerprint is not None
+    wordlist_ids = [
+        wl_id
+        for wl_id in (store.wordlist_id(path) for path in selection)
+        if wl_id is not None
     ]
-    if wordlists and not fingerprints:
-        # Wordlists were named but none can be fingerprinted -- they vanished,
+    if wordlists and not wordlist_ids:
+        # Wordlists were named but none can be identified -- they vanished,
         # or a directory expanded to nothing. Either way plan_run will go inert
         # for every chain and no filtering is possible, so asking whether to
         # filter would be noise; this is the shape that used to prompt on every
@@ -3641,7 +3641,7 @@ def _prime_coverage_decision(
     kinds = {"rule" if "-r" in shlex.split(chain) else "wordlist" for chain in chains}
     asked = [kind for kind in ("rule", "wordlist") if kind in kinds]
     if not any(
-        store.has_prior_run(target, attack_name, fingerprints, kind=kind)
+        store.has_prior_run(target, attack_name, wordlist_ids, kind=kind)
         for kind in asked
     ):
         return {}
@@ -10202,7 +10202,7 @@ def main():
 
         coverage_parser = subparsers.add_parser(
             "coverage",
-            help="Inspect or reset per-target attack coverage",
+            help="Inspect or reset attack coverage (stored beside the hash file as <hashfile>.coverage.sqlite3)",
         )
         coverage_subparsers = coverage_parser.add_subparsers(dest="coverage_command")
         for name, blurb in (
