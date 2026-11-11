@@ -25,12 +25,14 @@ unnoticed for six weeks.
 
 import ctypes
 import ctypes.util
+import json
 import os
 import sqlite3
 import stat as stat_module
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Iterable, Sequence
 
 from hate_crack.ui import get_ui
 
@@ -90,6 +92,39 @@ CREATE TABLE IF NOT EXISTS covered (
     PRIMARY KEY (target_id, wl_id, variant_id, kind, entry_h)
 ) WITHOUT ROWID;
 """
+
+# Membership inside one probe scope, as one static statement with one bound
+# JSON array: json_each sidesteps SQLite's parameter limit without building
+# placeholders by interpolation.
+_COVERED_IN_JSON = (
+    "SELECT entry_h FROM covered "
+    "WHERE target_id = ? AND wl_id = ? AND variant_id = ? AND kind = ? "
+    "AND entry_h IN (SELECT value FROM json_each(?))"
+)
+_COVERED_VIA_PROBE = (
+    "SELECT covered.entry_h FROM covered "
+    "JOIN coverage_probe ON covered.entry_h = coverage_probe.h "
+    "WHERE covered.target_id = ? AND covered.wl_id = ? "
+    "AND covered.variant_id = ? AND covered.kind = ?"
+)
+_INSERT_COVERED = (
+    "INSERT OR IGNORE INTO covered "
+    "(target_id, wl_id, variant_id, kind, entry_h) VALUES (?, ?, ?, ?, ?)"
+)
+_PRIOR_RUN = "SELECT 1 FROM runs WHERE target_id = ? AND attack = ? LIMIT 1"
+_PRIOR_RUN_KIND = (
+    "SELECT 1 FROM runs WHERE target_id = ? AND attack = ? AND kind = ? LIMIT 1"
+)
+_PRIOR_RUN_WORDLISTS = (
+    "SELECT 1 FROM runs JOIN run_wordlists ON run_wordlists.run_id = runs.id "
+    "WHERE runs.target_id = ? AND runs.attack = ? "
+    "AND run_wordlists.wl_id IN (SELECT value FROM json_each(?)) LIMIT 1"
+)
+_PRIOR_RUN_WORDLISTS_KIND = (
+    "SELECT 1 FROM runs JOIN run_wordlists ON run_wordlists.run_id = runs.id "
+    "WHERE runs.target_id = ? AND runs.attack = ? AND runs.kind = ? "
+    "AND run_wordlists.wl_id IN (SELECT value FROM json_each(?)) LIMIT 1"
+)
 
 # --- location ----------------------------------------------------------------
 
@@ -342,3 +377,247 @@ class CoverageStore:
             return None
         self._ids[key] = row[0]
         return row[0]
+
+    # -- coverage --------------------------------------------------------
+
+    def covered(
+        self,
+        target: str,
+        wl_id: int,
+        variant: str,
+        kind: str,
+        hashes: Sequence[int],
+    ) -> set[int]:
+        """The subset of ``hashes`` already covered in this exact scope.
+
+        Read-only: an unknown target or variant covers nothing and creates no
+        row. Any failure answers "nothing covered" -- the run proceeds in full.
+        """
+        if not hashes:
+            return set()
+        conn = self._connect()
+        if conn is None:
+            return set()
+        try:
+            target_id = self._existing_target_id(conn, target)
+            variant_id = self._existing_variant_id(conn, variant)
+            if target_id is None or variant_id is None:
+                return set()
+            scope = (target_id, wl_id, variant_id, KINDS[kind])
+            try:
+                rows = conn.execute(
+                    _COVERED_IN_JSON, (*scope, json.dumps(list(hashes)))
+                ).fetchall()
+            except (sqlite3.Error, OverflowError):
+                # No JSON1, or a payload over the C binding's INT_MAX limit
+                # (OverflowError is not a sqlite3.Error subclass).
+                rows = self._covered_via_probe_table(conn, scope, hashes)
+        except sqlite3.Error as exc:
+            self._disable(str(exc))
+            return set()
+        return {row[0] for row in rows}
+
+    def _covered_via_probe_table(
+        self,
+        conn: sqlite3.Connection,
+        scope: tuple[int, int, int, int],
+        hashes: Sequence[int],
+    ) -> list[tuple[int]]:
+        conn.execute(
+            "CREATE TEMP TABLE IF NOT EXISTS coverage_probe "
+            "(h INTEGER PRIMARY KEY) WITHOUT ROWID"
+        )
+        conn.execute("DELETE FROM coverage_probe")
+        conn.executemany(
+            "INSERT OR IGNORE INTO coverage_probe (h) VALUES (?)",
+            [(h,) for h in hashes],
+        )
+        return conn.execute(_COVERED_VIA_PROBE, scope).fetchall()
+
+    def record(
+        self,
+        *,
+        target: str,
+        kind: str,
+        variant: str,
+        attack: str,
+        wordlist_ids: Sequence[int],
+        rows: Iterable[tuple[int, int]],
+        detail: str = "",
+    ) -> int:
+        """Log one completed run and its coverage, atomically.
+
+        ``rows`` are ``(wl_id, entry_h)``. Returns how many were new. A repeat
+        adds no rows (``INSERT OR IGNORE``) but still logs the run, because a
+        run that added nothing still establishes that this attack has seen
+        these wordlists. Any failure rolls the whole run back.
+        """
+        kind_id = KINDS[kind]
+        rows = list(rows)
+        conn = self._connect()
+        if conn is None:
+            return 0
+        try:
+            with conn:
+                target_id = self._intern_target(conn, target)
+                variant_id = self._intern_variant(conn, variant)
+                run_id = conn.execute(
+                    "INSERT INTO runs (target_id, attack, kind, detail, ran_at) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (target_id, attack, kind_id, detail, _now()),
+                ).lastrowid
+                conn.executemany(
+                    "INSERT OR IGNORE INTO run_wordlists (run_id, wl_id) VALUES (?, ?)",
+                    [(run_id, wl_id) for wl_id in wordlist_ids],
+                )
+                before = conn.total_changes
+                conn.executemany(
+                    _INSERT_COVERED,
+                    [
+                        (target_id, wl_id, variant_id, kind_id, entry_h)
+                        for wl_id, entry_h in rows
+                    ],
+                )
+                added = conn.total_changes - before
+                conn.execute(
+                    "UPDATE runs SET new_entries = ? WHERE id = ?", (added, run_id)
+                )
+        except sqlite3.Error as exc:
+            # The interned ids may have been rolled back with the run.
+            self._ids.clear()
+            self._disable(f"could not record coverage: {exc}")
+            return 0
+        return added
+
+    def log_run(
+        self, target: str, attack: str, kind: str = "history", detail: str = ""
+    ) -> None:
+        """Log a run that covers nothing filterable (a dynamic generator)."""
+        self.record(
+            target=target,
+            kind=kind,
+            variant="",
+            attack=attack,
+            wordlist_ids=(),
+            rows=(),
+            detail=detail,
+        )
+
+    def has_prior_run(
+        self,
+        target: str,
+        attack: str,
+        wordlist_ids: Sequence[int],
+        kind: str = "",
+    ) -> bool:
+        """Has ``attack`` run against ``target`` with any of these wordlists?
+
+        Same semantics as the store this replaced: "any", not "all"; ``kind``
+        narrows to one coverage dimension; with no wordlists, falls back to
+        whether the attack ran against the target at all. Never writes.
+        """
+        conn = self._connect()
+        if conn is None:
+            return False
+        try:
+            target_id = self._existing_target_id(conn, target)
+            if target_id is None:
+                return False
+            if not wordlist_ids:
+                if kind:
+                    row = conn.execute(
+                        _PRIOR_RUN_KIND, (target_id, attack, KINDS[kind])
+                    ).fetchone()
+                else:
+                    row = conn.execute(_PRIOR_RUN, (target_id, attack)).fetchone()
+            elif kind:
+                row = conn.execute(
+                    _PRIOR_RUN_WORDLISTS_KIND,
+                    (target_id, attack, KINDS[kind], json.dumps(list(wordlist_ids))),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    _PRIOR_RUN_WORDLISTS,
+                    (target_id, attack, json.dumps(list(wordlist_ids))),
+                ).fetchone()
+        except sqlite3.Error:
+            # No JSON1 answers "no prior run": one absent prompt, never a skip.
+            return False
+        return row is not None
+
+    # -- history ---------------------------------------------------------
+
+    def summary(self, target: str) -> dict:
+        """Totals for one target, plus ``(attack, entries, runs)`` per attack."""
+        empty = {"entries": 0, "runs": 0, "by_attack": [], "last_run": None}
+        conn = self._connect()
+        if conn is None:
+            return empty
+        try:
+            target_id = self._existing_target_id(conn, target)
+            if target_id is None:
+                return empty
+            entries = conn.execute(
+                "SELECT COUNT(*) FROM covered WHERE target_id = ?", (target_id,)
+            ).fetchone()[0]
+            runs, last_run = conn.execute(
+                "SELECT COUNT(*), MAX(ran_at) FROM runs WHERE target_id = ?",
+                (target_id,),
+            ).fetchone()
+            by_attack = conn.execute(
+                "SELECT attack, SUM(new_entries), COUNT(*) FROM runs "
+                "WHERE target_id = ? GROUP BY attack ORDER BY attack",
+                (target_id,),
+            ).fetchall()
+        except sqlite3.Error:
+            return empty
+        return {
+            "entries": entries,
+            "runs": runs,
+            "by_attack": [(row[0], row[1], row[2]) for row in by_attack],
+            "last_run": last_run,
+        }
+
+    def history(self, target: str) -> list[tuple[str, str, str]]:
+        """``(attack, detail, ran_at)`` for a target, oldest first."""
+        conn = self._connect()
+        if conn is None:
+            return []
+        try:
+            target_id = self._existing_target_id(conn, target)
+            if target_id is None:
+                return []
+            return [
+                (row[0], row[1], row[2])
+                for row in conn.execute(
+                    "SELECT attack, detail, ran_at FROM runs "
+                    "WHERE target_id = ? ORDER BY id",
+                    (target_id,),
+                ).fetchall()
+            ]
+        except sqlite3.Error:
+            return []
+
+    def forget_target(self, target: str) -> int:
+        """Drop one target's coverage and history. Returns covered rows deleted."""
+        conn = self._connect()
+        if conn is None:
+            return 0
+        try:
+            target_id = self._existing_target_id(conn, target)
+            if target_id is None:
+                return 0
+            with conn:
+                deleted = conn.execute(
+                    "DELETE FROM covered WHERE target_id = ?", (target_id,)
+                ).rowcount
+                conn.execute(
+                    "DELETE FROM run_wordlists WHERE run_id IN "
+                    "(SELECT id FROM runs WHERE target_id = ?)",
+                    (target_id,),
+                )
+                conn.execute("DELETE FROM runs WHERE target_id = ?", (target_id,))
+        except sqlite3.Error as exc:
+            self._disable(str(exc))
+            return 0
+        return max(deleted, 0)

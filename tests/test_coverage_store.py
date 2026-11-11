@@ -192,3 +192,190 @@ def test_missing_wordlist_has_no_identity(tmp_path, store):
 
 def test_a_directory_has_no_wordlist_identity(tmp_path, store):
     assert store.wordlist_id(str(tmp_path)) is None
+
+
+# -- membership and record ---------------------------------------------------
+
+T1 = "a" * 64
+T2 = "b" * 64
+
+
+def _record(
+    store,
+    rows,
+    *,
+    target=T1,
+    kind="rule",
+    variant="",
+    attack="Quick Crack",
+    wordlist_ids=(),
+):
+    return store.record(
+        target=target,
+        kind=kind,
+        variant=variant,
+        attack=attack,
+        wordlist_ids=wordlist_ids,
+        rows=rows,
+    )
+
+
+def test_recorded_rows_are_covered(store, tmp_path):
+    wl = store.wordlist_id(str(_wordlist(tmp_path)))
+    assert _record(store, [(wl, 11), (wl, -22)], wordlist_ids=[wl]) == 2
+    assert store.covered(T1, wl, "", "rule", [11, -22, 33]) == {11, -22}
+
+
+def test_record_is_idempotent(store, tmp_path):
+    wl = store.wordlist_id(str(_wordlist(tmp_path)))
+    _record(store, [(wl, 1)])
+    assert _record(store, [(wl, 1)]) == 0
+
+
+def test_extreme_hash_values_round_trip(store):
+    extremes = [-(2**63), 2**63 - 1, 0, -1]
+    _record(store, [(cs.NO_WORDLIST, h) for h in extremes], kind="mask")
+    assert store.covered(T1, cs.NO_WORDLIST, "", "mask", extremes) == set(extremes)
+
+
+def test_membership_handles_more_than_the_parameter_limit(store):
+    hashes = list(range(5000))
+    _record(store, [(cs.NO_WORDLIST, h) for h in hashes], kind="mask")
+    assert store.covered(T1, cs.NO_WORDLIST, "", "mask", hashes) == set(hashes)
+
+
+def test_membership_falls_back_without_json1(store, monkeypatch):
+    _record(store, [(cs.NO_WORDLIST, 5)], kind="mask")
+    monkeypatch.setattr(cs, "_COVERED_IN_JSON", "SELECT no_such_function(?)")
+    assert store.covered(T1, cs.NO_WORDLIST, "", "mask", [5, 6]) == {5}
+
+
+def test_unknown_target_or_variant_covers_nothing_and_writes_nothing(store, hash_file):
+    assert store.covered(T2, 1, "never-seen", "rule", [1]) == set()
+    conn = sqlite3.connect(cs.store_path_for(str(hash_file)))
+    assert conn.execute("SELECT COUNT(*) FROM targets").fetchone()[0] == 0
+    conn.close()
+
+
+# Each scope column must be part of the probe. Removing any one of them from
+# _COVERED_IN_JSON has to turn one of these red: they are the guards against
+# false-covered, which drops untried candidates silently.
+
+
+def test_scope_target(store):
+    _record(store, [(cs.NO_WORDLIST, 7)], target=T1, kind="mask")
+    _record(store, [(cs.NO_WORDLIST, 8)], target=T2, kind="mask")
+    assert store.covered(T2, cs.NO_WORDLIST, "", "mask", [7]) == set()
+
+
+def test_scope_wordlist(store, tmp_path):
+    a = store.wordlist_id(str(_wordlist(tmp_path, "a.txt")))
+    b = store.wordlist_id(str(_wordlist(tmp_path, "b.txt")))
+    _record(store, [(a, 7)])
+    assert store.covered(T1, b, "", "rule", [7]) == set()
+
+
+def test_scope_variant(store):
+    _record(store, [(cs.NO_WORDLIST, 7)], kind="mask", variant="hybrid:a6")
+    _record(store, [(cs.NO_WORDLIST, 8)], kind="mask", variant="hybrid:a7")
+    assert store.covered(T1, cs.NO_WORDLIST, "hybrid:a7", "mask", [7]) == set()
+
+
+def test_scope_kind(store):
+    _record(store, [(cs.NO_WORDLIST, 7)], kind="mask")
+    _record(store, [(cs.NO_WORDLIST, 8)], kind="rule")
+    assert store.covered(T1, cs.NO_WORDLIST, "", "rule", [7]) == set()
+
+
+def test_failed_record_rolls_back_the_whole_run(store, tmp_path, capsys, monkeypatch):
+    wl = store.wordlist_id(str(_wordlist(tmp_path)))
+    monkeypatch.setattr(
+        cs, "_INSERT_COVERED", "INSERT INTO no_such_table VALUES (?, ?, ?, ?, ?)"
+    )
+    assert _record(store, [(wl, 1)], wordlist_ids=[wl]) == 0
+    assert "[!] Coverage disabled for left.txt:" in capsys.readouterr().out
+    reopened = cs.CoverageStore(store._path)
+    assert reopened.history(T1) == []
+
+
+# -- history / summary / prior runs / forget ---------------------------------
+
+
+def test_log_run_appears_in_history(store):
+    store.log_run(T1, attack="PRINCE")
+    store.log_run(T1, attack="OMEN")
+    assert [row[0] for row in store.history(T1)] == ["PRINCE", "OMEN"]
+
+
+def test_summary_counts_entries_and_runs_per_attack(store, tmp_path):
+    wl = store.wordlist_id(str(_wordlist(tmp_path)))
+    _record(store, [(wl, 1), (wl, 2)], attack="Quick Crack")
+    _record(store, [(wl, 2), (wl, 3)], attack="Dictionary")
+    store.log_run(T1, attack="PRINCE")
+    summary = store.summary(T1)
+    assert summary["entries"] == 3
+    assert summary["runs"] == 3
+    assert summary["by_attack"] == [
+        ("Dictionary", 1, 1),
+        ("PRINCE", 0, 1),
+        ("Quick Crack", 2, 1),
+    ]
+    assert summary["last_run"]
+
+
+def test_summary_of_unknown_target_is_empty(store):
+    assert store.summary(T2) == {
+        "entries": 0,
+        "runs": 0,
+        "by_attack": [],
+        "last_run": None,
+    }
+
+
+def test_has_prior_run_scopes(store, tmp_path):
+    a = store.wordlist_id(str(_wordlist(tmp_path, "a.txt")))
+    b = store.wordlist_id(str(_wordlist(tmp_path, "b.txt")))
+    _record(store, [(a, 1)], attack="Quick Crack", kind="rule", wordlist_ids=[a])
+    assert store.has_prior_run(T1, "Quick Crack", [a], kind="rule")
+    assert store.has_prior_run(T1, "Quick Crack", [b, a])
+    assert not store.has_prior_run(T1, "Quick Crack", [b], kind="rule")
+    assert not store.has_prior_run(T1, "Quick Crack", [a], kind="wordlist")
+    assert not store.has_prior_run(T1, "Dictionary", [a])
+    assert store.has_prior_run(T1, "Quick Crack", [])
+    assert store.has_prior_run(T1, "Quick Crack", [], kind="rule")
+    assert not store.has_prior_run(T1, "Quick Crack", [], kind="mask")
+    assert not store.has_prior_run(T2, "Quick Crack", [a])
+
+
+def test_forget_target_clears_only_that_target(store):
+    _record(store, [(cs.NO_WORDLIST, 1), (cs.NO_WORDLIST, 2)], target=T1, kind="mask")
+    _record(store, [(cs.NO_WORDLIST, 1)], target=T2, kind="mask")
+    assert store.forget_target(T1) == 2
+    assert store.history(T1) == []
+    assert store.covered(T2, cs.NO_WORDLIST, "", "mask", [1]) == {1}
+
+
+def test_reads_on_a_disabled_store_answer_unknown(tmp_path):
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    (locked / "h.txt").write_text("x\n")
+    locked.chmod(0o500)
+    try:
+        s = cs.CoverageStore(cs.store_path_for(str(locked / "h.txt")))
+        assert s.covered(T1, 0, "", "mask", [1]) == set()
+        assert (
+            s.record(
+                target=T1,
+                kind="mask",
+                variant="",
+                attack="x",
+                wordlist_ids=(),
+                rows=[(0, 1)],
+            )
+            == 0
+        )
+        assert s.history(T1) == []
+        assert not s.has_prior_run(T1, "x", [])
+        assert s.forget_target(T1) == 0
+    finally:
+        locked.chmod(0o700)
