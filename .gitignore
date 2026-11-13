@@ -62,6 +62,18 @@ ntds.dit
 # Hash lists written with an explicit extension. Narrow on purpose, for the same
 # reason: `*hashes*` matches a tracked test file.
 *.hashes
+# princeprocessor's keyspace-position file. hcatPrince passes `-c`, which makes
+# pp64.bin checkpoint into a relative "pp.save", so it lands wherever the tool
+# was launched from -- the repo root on any run started from a checkout, the
+# same relative-default reasoning as hashcat_debug/ and wordlists/ below.
+# Unlike those it is NOT a disclosure risk: the file is a single keyspace
+# offset, no hashes and no plaintext, which is why it is not in
+# SECRET_ARTIFACT_PATTERNS. It is ignored so a `git add -A` cannot stage tool
+# scratch and so `git status` stays readable after a PRINCE run. Note this
+# does not affect `--update`: _run_upgrade's dirty check passes
+# --untracked-files=no, so an untracked pp.save never blocked self-upgrade.
+# No tracked file is named pp.save.
+pp.save
 # Per-attack scratch directories (basewords, candidate lists, LLM patterns),
 # removed by cleanup() but left behind by a crash or a hard interrupt.
 *.rosetta/

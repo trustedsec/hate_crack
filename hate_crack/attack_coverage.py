@@ -17,9 +17,9 @@ Three identity decisions carry the design:
   fail to recognise that a later custom file re-runs ground ``best64.rule``
   already covered.
 - **Wordlists are tracked per file**, because per-word tracking is not viable
-  at wordlist scale. The fingerprint is a content sha256 memoized on
-  ``(size, mtime)``, so a multi-gigabyte corpus is hashed once rather than on
-  every attack.
+  at wordlist scale. A wordlist is identified by ``(realpath, size,
+  mtime_ns)`` from one ``stat()`` and is never read, so a 40 GB corpus costs
+  nothing to identify. Any rewrite changes size or mtime and so starts fresh.
 
 A key combines all of those dimensions: a rule counts as covered only for the
 specific wordlist it ran against, because ``best64.rule`` over one corpus tries
@@ -33,22 +33,22 @@ hash list, in the thousands. This one is bounded by rules times wordlists.
 attack over five wordlists produces ~191k keys. An append-only file would grow
 by that much on every repeat run even when coverage did not change, and
 membership testing would mean loading the whole thing into a set before every
-attack. A primary key gives deduplication for free, membership becomes a query
-over just the entries this run cares about, and there is somewhere to put the
-run history the issue asks for. ``sqlite3`` is in the standard library, so none
-of this costs a dependency.
+attack. The store itself lives in :mod:`hate_crack.coverage_store`, one file beside each
+hash file.
 """
 
 import hashlib
-import json
 import os
-import sqlite3
 import sys
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Callable, Iterable, Sequence
-from hate_crack.ui import get_ui
+from dataclasses import dataclass
+from typing import Callable
+
+from hate_crack.coverage_store import (
+    NO_WORDLIST,
+    CoverageStore,
+    remove_legacy_store,
+    store_path_for,
+)
 
 # Import HashcatRosetta for mask canonicalization. Like hate_crack.llm, this
 # module needs its own path setup rather than relying on main.py's: main.py
@@ -70,122 +70,23 @@ except ImportError as _rosetta_mask_import_error:
     _rosetta_expand_charsets = None
     _rosetta_parse_hcmask_line = None
 
-COVERAGE_DIRNAME = "coverage"
-DB_FILENAME = "attack_coverage.sqlite3"
+
+__all__ = [
+    "CoverageSpec",
+    "CoverageStore",
+    "RunPlan",
+    "canonical_mask_entry",
+    "clear_target_memo",
+    "entry_hash",
+    "get_store",
+    "plan_run",
+    "read_entries",
+    "remove_legacy_store",
+    "reset_store",
+    "target_id",
+]
 
 _READ_CHUNK = 1024 * 1024
-
-# Above this, say so before spending minutes reading a corpus.
-_LARGE_FILE_NOTICE_BYTES = 1024 * 1024 * 1024
-
-# Membership test for an arbitrarily large key set, as one static statement
-# with a single bound parameter. json_each sidesteps SQLite's 999-parameter
-# limit without interpolating anything into the SQL.
-_COVERED_IN_JSON = (
-    "SELECT key FROM covered WHERE key IN (SELECT value FROM json_each(?))"
-)
-
-# "Has this attack run against this target with any of these wordlists?", as
-# one static statement. See CoverageStore.has_prior_run.
-_PRIOR_RUN_WITH_WORDLIST = (
-    "SELECT 1 FROM runs "
-    "JOIN run_wordlists ON run_wordlists.run_id = runs.id "
-    "WHERE runs.target = ? AND runs.attack = ? "
-    "AND run_wordlists.wordlist IN (SELECT value FROM json_each(?)) LIMIT 1"
-)
-
-# The same question narrowed to one coverage dimension. Separate constants
-# rather than a conditional fragment so both stay static SQL.
-_PRIOR_RUN_WITH_WORDLIST_AND_KIND = (
-    "SELECT 1 FROM runs "
-    "JOIN run_wordlists ON run_wordlists.run_id = runs.id "
-    "WHERE runs.target = ? AND runs.attack = ? AND runs.kind = ? "
-    "AND run_wordlists.wordlist IN (SELECT value FROM json_each(?)) LIMIT 1"
-)
-
-# Schema notes, all measured at the realistic scale of ~191k keys (the
-# d3ad0ne+T0XlC pair over five wordlists, which is one Dictionary attack):
-#
-# - `covered` is normalized down to (key, run_id) rather than carrying the
-#   target/attack/timestamp on every row. Denormalized it cost 39.6 MB for one
-#   run; normalized it is 27.5 MB, because "Dictionary" and a timestamp were
-#   being stored 191,000 times instead of once.
-# - `covered` is WITHOUT ROWID *because* it is now narrow. A wide WITHOUT ROWID
-#   table is a pessimization -- it puts the whole row in the key B-tree and
-#   measured slower to insert with no size win. Narrow, it earns its keep.
-# - Lookup speed was never the deciding factor: a 38k-key membership test runs
-#   in ~57 ms, and every schema variant tried landed within 10 ms of that,
-#   because the primary key index serves them all. What the primary key really
-#   buys is INSERT OR IGNORE deduplication, which is why the store stays at
-#   27.5 MB after ten identical runs where an append-only file reached 124 MB.
-_SCHEMA = """
--- One row per hashcat invocation. This is also the run history: a dynamic
--- candidate generator (PRINCE, PCFG, OMEN, Markov, LLM) has no fixed set to
--- diff, so it is never filtered -- it just lands here with no linked keys,
--- which is what lets an operator answer "did I already run PRINCE on this?".
-CREATE TABLE IF NOT EXISTS runs (
-    id      INTEGER PRIMARY KEY AUTOINCREMENT,
-    target  TEXT NOT NULL,
-    kind    TEXT NOT NULL DEFAULT '',
-    attack  TEXT NOT NULL DEFAULT '',
-    detail  TEXT NOT NULL DEFAULT '',
-    ran_at  TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS runs_target ON runs (target);
-
-CREATE TABLE IF NOT EXISTS covered (
-    key    TEXT PRIMARY KEY,
-    run_id INTEGER NOT NULL REFERENCES runs (id)
-) WITHOUT ROWID;
-
--- Justified by forget_target(), which otherwise full-scans every engagement's
--- keys. It is the only secondary index here: each one is write amplification
--- on a bulk insert of ~191k rows.
-CREATE INDEX IF NOT EXISTS covered_run ON covered (run_id);
-
--- Which wordlists a run declared, by fingerprint. "Declared", not "enumerated":
--- a wordlist-kind plan links every wordlist in the spec, including one that
--- filtering then dropped from the command. That is deliberate -- a dropped
--- wordlist was dropped for being covered already, so it has a row regardless --
--- but it means a row here is not proof that this particular invocation read
--- that file. Nothing keys coverage off these rows; only has_prior_run reads
--- them, and only to decide whether to ask a question.
---
--- This exists so that "has
--- this attack run against this target with this corpus before?" can be
--- answered without reading a single rule file -- the question the up-front
--- batch prompt asks, where diffing a YOLO-sized batch of rule files first is
--- exactly the slow silent wait it was written to avoid. It cannot be answered
--- from `covered`, whose keys hash the fingerprint in beyond recovery.
---
--- CREATE TABLE IF NOT EXISTS is the whole migration story for an engagement
--- whose store predates this table: it appears on the next connect, empty, and
--- an empty answer is "no prior run", which is the safe direction.
-CREATE TABLE IF NOT EXISTS run_wordlists (
-    run_id   INTEGER NOT NULL REFERENCES runs (id),
-    wordlist TEXT NOT NULL,
-    PRIMARY KEY (run_id, wordlist)
-) WITHOUT ROWID;
-CREATE INDEX IF NOT EXISTS run_wordlists_fp ON run_wordlists (wordlist);
-
-CREATE TABLE IF NOT EXISTS wordlist_fingerprints (
-    path     TEXT PRIMARY KEY,
-    size     INTEGER NOT NULL,
-    mtime_ns INTEGER NOT NULL,
-    sha256   TEXT NOT NULL
-) WITHOUT ROWID;
-"""
-
-
-def _coverage_dir() -> Path:
-    # Mirrors hashview_cache._cache_path()'s ~/.hate_crack construction, with
-    # its own subdirectory so the store sits beside the potfile and
-    # hashcat_debug rather than among them.
-    return Path(os.path.expanduser("~")) / ".hate_crack" / COVERAGE_DIRNAME
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def _sha256_file(path: str) -> str:
@@ -196,429 +97,27 @@ def _sha256_file(path: str) -> str:
     return digest.hexdigest()
 
 
-# --- store -----------------------------------------------------------------
+_stores: dict[str, CoverageStore] = {}
 
 
-class CoverageStore:
-    """SQLite-backed coverage store.
+def get_store(hash_file: str) -> CoverageStore:
+    """The store for one hash file, shared for the life of the process.
 
-    Every method swallows :class:`sqlite3.Error` and degrades to "we know
-    nothing", because a broken or read-only store must never take an attack
-    down with it. Losing a record costs one redundant run later; raising here
-    costs the operator their session.
+    Cached by resolved store path, so a symlink and its target share one
+    connection and one disable-and-warn state.
     """
-
-    def __init__(self, path: Path | str | None = None):
-        self._path = Path(path) if path is not None else _coverage_dir() / DB_FILENAME
-        self._conn: sqlite3.Connection | None = None
-        # In-process fingerprint memo, so repeated attacks in one session skip
-        # even the database round trip.
-        self._fingerprints: dict[str, tuple[int, int, str]] = {}
-
-    # -- connection --------------------------------------------------------
-
-    def _connect(self) -> sqlite3.Connection | None:
-        if self._conn is not None:
-            return self._conn
-        try:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            conn = sqlite3.connect(str(self._path), timeout=30.0)
-            # WAL plus a busy timeout so two hate_crack instances in the same
-            # engagement directory do not lock each other out.
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA synchronous=NORMAL")
-            conn.executescript(_SCHEMA)
-            conn.commit()
-        except (sqlite3.Error, OSError):
-            return None
-        self._conn = conn
-        return conn
-
-    def close(self) -> None:
-        if self._conn is not None:
-            try:
-                self._conn.close()
-            except sqlite3.Error:
-                pass
-            self._conn = None
-
-    # -- coverage ----------------------------------------------------------
-
-    def covered(self, keys: Sequence[str]) -> set[str]:
-        """Return the subset of ``keys`` already recorded.
-
-        Queried rather than loaded wholesale: a Dictionary attack asks about
-        ~191k keys, and only those matter.
-
-        The whole key set goes over as one JSON parameter. The obvious
-        alternative -- an ``IN (?,?,?...)`` clause -- would have to be built by
-        string interpolation and chunked under SQLite's 999-parameter limit;
-        this is a single static statement with one bound value, and measured
-        slightly faster besides (57 ms against 65 ms for the chunked form).
-        """
-        if not keys:
-            return set()
-        conn = self._connect()
-        if conn is None:
-            return set()
-        payload = json.dumps(list(keys))
-        try:
-            rows = conn.execute(_COVERED_IN_JSON, (payload,)).fetchall()
-        except (sqlite3.Error, OverflowError):
-            # OverflowError: CPython's sqlite3 module cannot bind a single
-            # parameter longer than INT_MAX bytes, which a big rule file run
-            # against many large wordlists can reach -- it is raised at the
-            # C binding layer before SQLite itself is involved, so it is not
-            # a sqlite3.Error subclass.
-            return self._covered_via_temp_table(conn, keys)
-        return {row[0] for row in rows}
-
-    def _covered_via_temp_table(
-        self, conn: sqlite3.Connection, keys: Sequence[str]
-    ) -> set[str]:
-        """Fallback for a SQLite built without the JSON1 extension.
-
-        Correct but slower: the planner joins from ``covered``, so this scales
-        with the size of the store rather than the size of the probe. Still
-        static SQL, which is the point -- the alternative fallback would mean
-        interpolating placeholders after all.
-        """
-        try:
-            conn.execute(
-                "CREATE TEMP TABLE IF NOT EXISTS coverage_probe "
-                "(key TEXT PRIMARY KEY) WITHOUT ROWID"
-            )
-            conn.execute("DELETE FROM coverage_probe")
-            conn.executemany(
-                "INSERT OR IGNORE INTO coverage_probe (key) VALUES (?)",
-                [(key,) for key in keys],
-            )
-            rows = conn.execute(
-                "SELECT covered.key FROM covered "
-                "JOIN coverage_probe ON covered.key = coverage_probe.key"
-            ).fetchall()
-        except sqlite3.Error:
-            return set()
-        return {row[0] for row in rows}
-
-    def covered_lookup(self) -> Callable[[Sequence[str]], set[str]]:
-        return self.covered
-
-    def log_run(
-        self,
-        target: str,
-        attack: str = "",
-        kind: str = "",
-        detail: str = "",
-    ) -> int | None:
-        """Record that an attack ran. Returns its run id, or None on failure.
-
-        Every invocation gets a row, filterable or not -- that is what makes
-        this table the run history as well as the parent of ``covered``.
-        """
-        conn = self._connect()
-        if conn is None:
-            return None
-        try:
-            cursor = conn.execute(
-                "INSERT INTO runs (target, kind, attack, detail, ran_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (target, kind, attack, detail, _now()),
-            )
-            conn.commit()
-        except sqlite3.Error:
-            return None
-        return cursor.lastrowid
-
-    def has_prior_run(
-        self,
-        target: str,
-        attack: str,
-        wordlist_fps: Sequence[str],
-        kind: str = "",
-    ) -> bool:
-        """Has ``attack`` already run against ``target`` using any of these
-        wordlists?
-
-        "Any", not "all": one overlapping corpus is enough for per-entry
-        filtering to have something to skip, which is what the caller is really
-        asking about.
-
-        ``kind`` narrows the question to one coverage dimension, and a caller
-        that is about to diff a dimension must pass it. Keys are keyed *by*
-        kind (see :func:`entry_key`), so a ``"wordlist"``-kind run -- a
-        rule-less dictionary pass -- can never cover a single ``"rule"``-kind
-        key. Answering the unscoped question let one rule-less Quick Crack make
-        every later rules run announce "has run against this hash file before"
-        and offer to skip rule lines of which none were covered: a prompt whose
-        only possible answer was a no-op. Left empty, the older cross-dimension
-        answer is unchanged.
-
-        With no fingerprints -- a mask-only attack, or a caller that cannot
-        establish them -- this falls back to the coarser question of whether the
-        attack has run against the target at all, because that is the only one
-        the store can answer. Callers that *do* have wordlists must pass them:
-        the coarse answer is what made a brand-new corpus look like a repeat.
-
-        The fingerprints go over as one JSON parameter, the same static-SQL
-        shape :meth:`covered` uses and for the same reason -- an ``IN (?,?,?)``
-        clause would have to be built by interpolation and chunked under
-        SQLite's 999-parameter limit, and a Weakpass directory really can hold
-        hundreds of lists. Unlike :meth:`covered` this one has no JSON1
-        fallback: a SQLite built without it answers "no prior run", which costs
-        an operator one absent prompt rather than a wrong skip, because the
-        per-entry diff in ``plan_run`` still asks about any genuine overlap.
-        """
-        conn = self._connect()
-        if conn is None:
-            return False
-        try:
-            if not wordlist_fps:
-                if kind:
-                    row = conn.execute(
-                        "SELECT 1 FROM runs WHERE target = ? AND attack = ? "
-                        "AND kind = ? LIMIT 1",
-                        (target, attack, kind),
-                    ).fetchone()
-                else:
-                    row = conn.execute(
-                        "SELECT 1 FROM runs WHERE target = ? AND attack = ? LIMIT 1",
-                        (target, attack),
-                    ).fetchone()
-            elif kind:
-                row = conn.execute(
-                    _PRIOR_RUN_WITH_WORDLIST_AND_KIND,
-                    (target, attack, kind, json.dumps(list(wordlist_fps))),
-                ).fetchone()
-            else:
-                row = conn.execute(
-                    _PRIOR_RUN_WITH_WORDLIST,
-                    (target, attack, json.dumps(list(wordlist_fps))),
-                ).fetchone()
-        except sqlite3.Error:
-            return False
-        return row is not None
-
-    def record(
-        self,
-        keys: Iterable[str],
-        target: str = "",
-        kind: str = "",
-        attack: str = "",
-        detail: str = "",
-        wordlist_fps: Sequence[str] = (),
-    ) -> int:
-        """Log a run and link its coverage. Returns newly-inserted key count.
-
-        ``INSERT OR IGNORE`` means a repeat adds no keys and leaves the original
-        run's link in place, so a key records when it was *first* covered and
-        the store does not grow on repeats.
-
-        ``wordlist_fps`` are linked to the run so :meth:`has_prior_run` can
-        scope its answer to a corpus. They are recorded even when ``keys`` is
-        empty, because a run that added no new keys still establishes that this
-        attack has seen this corpus.
-        """
-        keys = list(keys)
-        conn = self._connect()
-        if conn is None:
-            return 0
-        run_id = self.log_run(target, attack=attack, kind=kind, detail=detail)
-        if run_id is None:
-            return 0
-        if wordlist_fps:
-            try:
-                conn.executemany(
-                    "INSERT OR IGNORE INTO run_wordlists (run_id, wordlist) "
-                    "VALUES (?, ?)",
-                    [(run_id, fingerprint) for fingerprint in wordlist_fps],
-                )
-                conn.commit()
-            except sqlite3.Error:
-                pass
-        if not keys:
-            return 0
-        try:
-            cursor = conn.executemany(
-                "INSERT OR IGNORE INTO covered (key, run_id) VALUES (?, ?)",
-                [(key, run_id) for key in keys],
-            )
-            conn.commit()
-        except sqlite3.Error:
-            return 0
-        return cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
-
-    def forget_target(self, target: str) -> int:
-        """Drop all coverage and history for one target, so it can be re-attacked.
-
-        The ``covered_run`` index is what keeps this from full-scanning every
-        engagement's keys.
-        """
-        conn = self._connect()
-        if conn is None:
-            return 0
-        try:
-            cursor = conn.execute(
-                "DELETE FROM covered WHERE run_id IN "
-                "(SELECT id FROM runs WHERE target = ?)",
-                (target,),
-            )
-            conn.execute(
-                "DELETE FROM run_wordlists WHERE run_id IN "
-                "(SELECT id FROM runs WHERE target = ?)",
-                (target,),
-            )
-            conn.execute("DELETE FROM runs WHERE target = ?", (target,))
-            conn.commit()
-        except sqlite3.Error:
-            return 0
-        return cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
-
-    # -- history -----------------------------------------------------------
-
-    def summary(self, target: str) -> dict:
-        """Counts for one target: total entries, runs, and a per-attack split.
-
-        ``by_attack`` rows are ``(attack, entries, runs)``. An attack with zero
-        entries but a nonzero run count is one that was logged rather than
-        filtered -- a dynamic generator, or a repeat that added no new keys.
-        """
-        empty = {"entries": 0, "runs": 0, "by_attack": [], "last_run": None}
-        conn = self._connect()
-        if conn is None:
-            return empty
-        try:
-            entries = conn.execute(
-                "SELECT COUNT(*) FROM covered WHERE run_id IN "
-                "(SELECT id FROM runs WHERE target = ?)",
-                (target,),
-            ).fetchone()[0]
-            runs, last_run = conn.execute(
-                "SELECT COUNT(*), MAX(ran_at) FROM runs WHERE target = ?",
-                (target,),
-            ).fetchone()
-            by_attack = conn.execute(
-                "SELECT runs.attack, "
-                "       COUNT(covered.key), "
-                "       COUNT(DISTINCT runs.id) "
-                "FROM runs LEFT JOIN covered ON covered.run_id = runs.id "
-                "WHERE runs.target = ? "
-                "GROUP BY runs.attack ORDER BY runs.attack",
-                (target,),
-            ).fetchall()
-        except sqlite3.Error:
-            return empty
-        return {
-            "entries": entries,
-            "runs": runs,
-            "by_attack": [(row[0], row[1], row[2]) for row in by_attack],
-            "last_run": last_run,
-        }
-
-    def history(self, target: str) -> list[tuple[str, str, str]]:
-        """(attack, detail, ran_at) rows for a target, oldest first."""
-        conn = self._connect()
-        if conn is None:
-            return []
-        try:
-            return [
-                (row[0], row[1], row[2])
-                for row in conn.execute(
-                    "SELECT attack, detail, ran_at FROM runs "
-                    "WHERE target = ? ORDER BY id",
-                    (target,),
-                ).fetchall()
-            ]
-        except sqlite3.Error:
-            return []
-
-    # -- wordlist fingerprints --------------------------------------------
-
-    def clear_fingerprint_memo(self) -> None:
-        """Drop the in-process memo. The persisted memo is untouched."""
-        self._fingerprints.clear()
-
-    def wordlist_fingerprint(self, path: str) -> str | None:
-        """Content sha256 of a wordlist, memoized on (size, mtime).
-
-        The memo is what makes a content hash affordable: rehashing a 31 GB
-        corpus on every attack would cost minutes of I/O per run, so the digest
-        is recomputed only when size or mtime says the file actually changed.
-        """
-        try:
-            real = os.path.realpath(path)
-            stat = os.stat(real)
-        except OSError:
-            return None
-
-        stamp = (stat.st_size, stat.st_mtime_ns)
-
-        cached = self._fingerprints.get(real)
-        if cached is not None and cached[:2] == stamp:
-            return cached[2]
-
-        conn = self._connect()
-        if conn is not None:
-            try:
-                row = conn.execute(
-                    "SELECT size, mtime_ns, sha256 FROM wordlist_fingerprints "
-                    "WHERE path = ?",
-                    (real,),
-                ).fetchone()
-            except sqlite3.Error:
-                row = None
-            if row is not None and (row[0], row[1]) == stamp:
-                self._fingerprints[real] = (stamp[0], stamp[1], row[2])
-                return row[2]
-
-        if stat.st_size >= _LARGE_FILE_NOTICE_BYTES:
-            # Otherwise this is minutes of dead silence before hashcat even
-            # starts: the first fingerprint of a multi-gigabyte corpus is a
-            # full sequential read, and it happens inside plan_run.
-            get_ui().say(
-                f"[*] Coverage: fingerprinting {os.path.basename(real)} "
-                f"({stat.st_size / 1e9:.1f} GB) for the first time; "
-                "subsequent runs reuse it."
-            )
-        try:
-            digest = _sha256_file(real)
-        except OSError:
-            return None
-
-        self._fingerprints[real] = (stamp[0], stamp[1], digest)
-        if conn is not None:
-            try:
-                conn.execute(
-                    "INSERT INTO wordlist_fingerprints "
-                    "(path, size, mtime_ns, sha256) VALUES (?, ?, ?, ?) "
-                    "ON CONFLICT(path) DO UPDATE SET "
-                    "size=excluded.size, mtime_ns=excluded.mtime_ns, "
-                    "sha256=excluded.sha256",
-                    (real, stat.st_size, stat.st_mtime_ns, digest),
-                )
-                conn.commit()
-            except sqlite3.Error:
-                pass
-        return digest
-
-
-_default_store: CoverageStore | None = None
-
-
-def get_store() -> CoverageStore:
-    """The process-wide store. Created lazily so importing costs no I/O."""
-    global _default_store
-    if _default_store is None:
-        _default_store = CoverageStore()
-    return _default_store
+    path = store_path_for(hash_file)
+    key = str(path)
+    if key not in _stores:
+        _stores[key] = CoverageStore(path)
+    return _stores[key]
 
 
 def reset_store() -> None:
-    """Drop the process-wide store (used by tests and by config reloads)."""
-    global _default_store
-    if _default_store is not None:
-        _default_store.close()
-    _default_store = None
+    """Close and forget every open store (tests, config reloads)."""
+    for store in _stores.values():
+        store.close()
+    _stores.clear()
 
 
 # --- target identity -------------------------------------------------------
@@ -686,7 +185,7 @@ def read_entries(path: str) -> list[str]:
     Entries stay verbatim here even for .hcmask files, because the return value
     is also what gets written back out as a filtered file for hashcat to run.
     Mask normalization belongs in the key, not the content:
-    :func:`canonical_mask_entry` does it at :func:`entry_key` time.
+    :func:`canonical_mask_entry` does it at :func:`entry_hash` time.
     """
     try:
         with open(path, "rb") as handle:
@@ -757,37 +256,28 @@ def canonical_mask_entry(entry: str) -> str:
     return "\x00".join(normalized) + "\x00" + parsed.mask
 
 
-def entry_key(
-    target: str,
-    kind: str,
-    wordlist_fp: str,
-    entry: str,
-    variant: str = "",
-) -> str:
-    """Key one (target, kind, wordlist, entry, variant) tuple.
+def entry_hash(kind: str, entry: str) -> int:
+    """64-bit identity of one rule line, mask line, or chained-rule unit.
 
-    ``variant`` carries the run modifiers that change what an entry actually
-    tries -- an ``--increment 1-8`` mask run covers different candidates than
-    the same mask without it -- so the two are never conflated.
+    Masks are hashed in canonical form (see :func:`canonical_mask_entry`), so
+    two spellings of one charset are one entry. Rules are hashed verbatim:
+    their whitespace is significant and they have no normalization.
 
-    Mask entries are keyed on their canonical form (see
-    :func:`canonical_mask_entry`) so two spellings of the same charset are not
-    recorded as two separate masks. Rule entries are keyed on raw text: a rule
-    has no equivalent normalization, and its whitespace is significant.
+    The encode must be injective. ``surrogatepass`` keeps rules that differ
+    only in non-UTF-8 bytes distinct -- ``errors="replace"`` once collapsed 154
+    distinct Spoonman rules into shared keys -- and cannot raise on a lone
+    surrogate the way ``surrogateescape`` can.
 
-    The encode must be *injective*, which ``errors="replace"`` is not: it maps
-    every byte ``read_entries`` could not decode to the same U+FFFD, so rules
-    differing only in non-UTF-8 bytes -- ``$\\xc3$\\xa1`` and ``$\\xc3$\\xa9``,
-    say -- shared a key, and running one marked the other covered. Bandrel's
-    Spoonman rule file alone collapsed 154 distinct rules that way.
-    ``surrogatepass`` distinguishes them and, unlike ``surrogateescape``, cannot
-    raise on a surrogate outside the ``\\udc80``-``\\udcff`` range -- an encode
-    error here would take down an attack the store exists only to speed up.
+    Signed, because SQLite integers are signed 64-bit. A collision inside one
+    (target, wordlist, variant, kind) scope would mark an untried entry
+    covered; at 10M rows in a scope that is about 5e-13 per entry, accepted.
     """
     if kind == "mask":
         entry = canonical_mask_entry(entry)
-    payload = f"{target}\x00{kind}\x00{wordlist_fp}\x00{variant}\x00{entry}"
-    return hashlib.sha256(payload.encode("utf-8", errors="surrogatepass")).hexdigest()
+    digest = hashlib.blake2b(
+        entry.encode("utf-8", errors="surrogatepass"), digest_size=8
+    ).digest()
+    return int.from_bytes(digest, "big", signed=True)
 
 
 # --- planning --------------------------------------------------------------
@@ -828,7 +318,11 @@ class RunPlan:
     apply ``filtered_entries``: rewrite ``source_path``'s file for ``"rule"``
     and ``"mask"``, or drop positional arguments for ``"wordlist"``. An inert
     plan (``kind == ""``) means coverage could not be established, so the run
-    must proceed untouched.
+    must proceed untouched and nothing is recorded.
+
+    ``record_rows`` are the ``(wl_id, entry_h)`` pairs to record if the run
+    completes; ``wordlist_ids`` are linked to the run row for
+    ``has_prior_run``. Both are ids in the store for ``target``'s hash file.
     """
 
     kind: str = ""
@@ -837,12 +331,10 @@ class RunPlan:
     total_count: int = 0
     filtered_entries: list[str] | None = None
     source_path: str | None = None
-    record_keys: list[str] = field(default_factory=list)
     target: str = ""
-    # Fingerprints of the wordlists this run enumerates, for the store to link
-    # to the run row. Carried separately from the keys because a "wordlist"-kind
-    # plan keys *on* them, so they cannot be recovered from the keying slots.
-    wordlist_fps: tuple[str, ...] = ()
+    variant: str = ""
+    record_rows: tuple[tuple[int, int], ...] = ()
+    wordlist_ids: tuple[int, ...] = ()
 
     @property
     def has_overlap(self) -> bool:
@@ -854,16 +346,6 @@ class RunPlan:
 
 
 _INERT = RunPlan()
-
-
-def set_lookup(covered: set) -> Callable[[Sequence[str]], set[str]]:
-    """Adapt a plain set to the lookup callable ``plan_run`` expects."""
-    return lambda keys: {key for key in keys if key in covered}
-
-
-def _NOTHING_COVERED(keys: Sequence[str]) -> set[str]:  # noqa: N802
-    """Lookup used by record-only runs: report no overlap, so nothing filters."""
-    return set()
 
 
 def _chain_entry(rule_files: tuple[str, ...]) -> str | None:
@@ -883,11 +365,7 @@ def _chain_entry(rule_files: tuple[str, ...]) -> str | None:
     return "chain:" + ":".join(parts)
 
 
-def plan_run(
-    spec: CoverageSpec,
-    lookup: Callable[[Sequence[str]], set[str]],
-    store: CoverageStore | None = None,
-) -> RunPlan:
+def plan_run(spec: CoverageSpec, store: CoverageStore | None = None) -> RunPlan:
     """Decide what of ``spec`` still needs running, given what is covered.
 
     Every failure to establish identity returns an inert plan, so the run
@@ -898,22 +376,31 @@ def plan_run(
     if target is None:
         return _INERT
 
-    store = store if store is not None else get_store()
+    store = store if store is not None else get_store(spec.hash_file)
+    if not store.available():
+        return _INERT
 
-    if spec.record_only:
-        # Answering "nothing is covered" makes _plan_entries treat every entry
-        # as novel: no overlap to report, so no prompt and no filtering, while
-        # record_keys still covers the whole declared set.
-        lookup = _NOTHING_COVERED
-
-    wordlist_fps: list[str] = []
+    wordlist_ids: list[int] = []
     for path in spec.wordlists:
-        fingerprint = store.wordlist_fingerprint(path)
-        if fingerprint is None:
-            # A glob that matched nothing, or a list that vanished. Either way
-            # we cannot say what this run covers.
+        wl_id = store.wordlist_id(path)
+        if wl_id is None:
+            # Vanished, not a regular file, or the store just failed.
             return _INERT
-        wordlist_fps.append(fingerprint)
+        wordlist_ids.append(wl_id)
+
+    def lookup(kind: str, wl_id: int, hashes: list[int]) -> set[int]:
+        if spec.record_only:
+            # A record-only run (loopback) never filters: report no overlap,
+            # so every entry is novel and the whole declared set is recorded.
+            return set()
+        return store.covered(target, wl_id, spec.variant, kind, hashes)
+
+    common = {
+        "target": target,
+        "variant": spec.variant,
+        "lookup": lookup,
+        "wordlist_ids": tuple(wordlist_ids),
+    }
 
     if spec.rule_files:
         if len(spec.rule_files) > 1:
@@ -923,13 +410,9 @@ def plan_run(
             return _plan_entries(
                 kind="rule",
                 entries=[entry],
-                wordlist_fps=wordlist_fps,
-                target=target,
-                variant=spec.variant,
-                lookup=lookup,
                 source_path=None,
                 filterable=False,
-                run_wordlist_fps=wordlist_fps,
+                **common,
             )
         entries = read_entries(spec.rule_files[0])
         if not entries:
@@ -937,13 +420,9 @@ def plan_run(
         return _plan_entries(
             kind="rule",
             entries=entries,
-            wordlist_fps=wordlist_fps,
-            target=target,
-            variant=spec.variant,
-            lookup=lookup,
             source_path=spec.rule_files[0],
             filterable=True,
-            run_wordlist_fps=wordlist_fps,
+            **common,
         )
 
     if spec.mask_files or spec.masks:
@@ -961,29 +440,13 @@ def plan_run(
         return _plan_entries(
             kind="mask",
             entries=mask_entries,
-            wordlist_fps=wordlist_fps,
-            target=target,
-            variant=spec.variant,
-            lookup=lookup,
             source_path=single_file,
             filterable=single_file is not None,
-            run_wordlist_fps=wordlist_fps,
+            **common,
         )
 
     if spec.wordlists:
-        # A rule-less dictionary attack: the wordlist itself is the unit.
-        return _plan_entries(
-            kind="wordlist",
-            entries=wordlist_fps,
-            wordlist_fps=[""],
-            target=target,
-            variant=spec.variant,
-            lookup=lookup,
-            source_path=None,
-            filterable=True,
-            display=list(spec.wordlists),
-            run_wordlist_fps=wordlist_fps,
-        )
+        return _plan_wordlists(spec, **common)
 
     return _INERT
 
@@ -992,59 +455,110 @@ def _plan_entries(
     *,
     kind: str,
     entries: list[str],
-    wordlist_fps: list[str],
-    target: str,
-    variant: str,
-    lookup: Callable[[Sequence[str]], set[str]],
     source_path: str | None,
     filterable: bool,
-    display: list[str] | None = None,
-    run_wordlist_fps: Sequence[str] = (),
+    target: str,
+    variant: str,
+    lookup: Callable[[str, int, list[int]], set[int]],
+    wordlist_ids: tuple[int, ...],
 ) -> RunPlan:
     # A mask run has no wordlist, but still needs one slot to key against.
-    slots = wordlist_fps or [""]
-
-    keys_by_entry = [
-        [entry_key(target, kind, fp, entry, variant) for fp in slots]
-        for entry in entries
-    ]
-    all_keys = [key for keys in keys_by_entry for key in keys]
-    already = lookup(all_keys)
+    slots = list(wordlist_ids) or [NO_WORDLIST]
+    hashes = [entry_hash(kind, entry) for entry in entries]
+    distinct = list(dict.fromkeys(hashes))
+    covered_by_slot = {wl_id: lookup(kind, wl_id, distinct) for wl_id in slots}
 
     novel: list[str] = []
-    novel_display: list[str] = []
-    record_keys: list[str] = []
-
-    for index, keys in enumerate(keys_by_entry):
+    record_rows: list[tuple[int, int]] = []
+    for entry, entry_h in zip(entries, hashes):
         # Only fully-covered entries are dropped. An entry already tried
         # against one wordlist but not another must still run.
-        if all(key in already for key in keys):
+        if all(entry_h in covered_by_slot[wl_id] for wl_id in slots):
             continue
-        novel.append(entries[index])
-        novel_display.append(display[index] if display else entries[index])
-        record_keys.extend(keys)
+        novel.append(entry)
+        record_rows.extend((wl_id, entry_h) for wl_id in slots)
 
-    covered_count = len(entries) - len(novel)
+    return _finish_plan(
+        kind=kind,
+        total=len(entries),
+        novel=novel,
+        display=novel,
+        record_rows=record_rows,
+        source_path=source_path,
+        filterable=filterable,
+        target=target,
+        variant=variant,
+        wordlist_ids=wordlist_ids,
+    )
 
+
+def _plan_wordlists(
+    spec: CoverageSpec,
+    *,
+    target: str,
+    variant: str,
+    lookup: Callable[[str, int, list[int]], set[int]],
+    wordlist_ids: tuple[int, ...],
+) -> RunPlan:
+    """A rule-less dictionary attack: each wordlist is itself the unit.
+
+    Its row is ``(wl_id=<that wordlist>, entry_h=0)``.
+    """
+    novel_display: list[str] = []
+    record_rows: list[tuple[int, int]] = []
+    for path, wl_id in zip(spec.wordlists, wordlist_ids):
+        if 0 in lookup("wordlist", wl_id, [0]):
+            continue
+        novel_display.append(path)
+        record_rows.append((wl_id, 0))
+    return _finish_plan(
+        kind="wordlist",
+        total=len(spec.wordlists),
+        novel=novel_display,
+        display=novel_display,
+        record_rows=record_rows,
+        source_path=None,
+        filterable=True,
+        target=target,
+        variant=variant,
+        wordlist_ids=wordlist_ids,
+    )
+
+
+def _finish_plan(
+    *,
+    kind: str,
+    total: int,
+    novel: list[str],
+    display: list[str],
+    record_rows: list[tuple[int, int]],
+    source_path: str | None,
+    filterable: bool,
+    target: str,
+    variant: str,
+    wordlist_ids: tuple[int, ...],
+) -> RunPlan:
+    covered_count = total - len(novel)
     if not novel:
         return RunPlan(
             kind=kind,
             skip=True,
             covered_count=covered_count,
-            total_count=len(entries),
+            total_count=total,
             source_path=source_path,
             target=target,
-            wordlist_fps=tuple(run_wordlist_fps),
+            variant=variant,
+            wordlist_ids=wordlist_ids,
         )
-
     return RunPlan(
         kind=kind,
         skip=False,
         covered_count=covered_count,
-        total_count=len(entries),
-        filtered_entries=novel_display if (filterable and covered_count) else None,
+        total_count=total,
+        filtered_entries=display if (filterable and covered_count) else None,
         source_path=source_path,
-        record_keys=record_keys,
         target=target,
-        wordlist_fps=tuple(run_wordlist_fps),
+        variant=variant,
+        record_rows=tuple(record_rows),
+        wordlist_ids=wordlist_ids,
     )

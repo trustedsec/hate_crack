@@ -61,6 +61,7 @@ from hate_crack.api import (  # noqa: E402
 )
 from hate_crack.cli import (  # noqa: E402
     configure_completion,
+    preserve_tty,
     prompt_int,
     resolve_path,
     setup_logging,
@@ -69,6 +70,7 @@ from hate_crack import attacks as _attacks  # noqa: E402
 from hate_crack.menu_registry import menu_items, menu_options  # noqa: E402
 from hate_crack import config_loader as _config_loader  # noqa: E402
 from hate_crack import config_schema as _config_schema  # noqa: E402
+from hate_crack import pcfg_native  # noqa: E402
 from hate_crack import hashcat_paths as _hashcat_paths  # noqa: E402
 from hate_crack import config_writer as _config_writer  # noqa: E402
 from hate_crack import llm  # noqa: E402
@@ -1106,6 +1108,11 @@ hcatCorpusProfileMaxLines = int(config_parser.get("hcatCorpusProfileMaxLines", 5
 omenMaxCandidates = int(config_parser.get("omenMaxCandidates", 100000000))
 pcfgRuleset = config_parser.get("pcfgRuleset", "Default")
 pcfgMaxCandidates = int(config_parser.get("pcfgMaxCandidates", 50000000))
+pcfgMode = config_parser.get("pcfgMode", "true_prob_order")
+pcfgEngine = config_parser.get("pcfgEngine", "auto")
+pcfgNativeRuleset = config_parser.get("pcfgNativeRuleset", "default-passwords")
+pcfgSkipBrute = config_parser.get("pcfgSkipBrute", False)
+pcfgAllLower = config_parser.get("pcfgAllLower", False)
 pcfgPrinceLingMaxCandidates = int(
     config_parser.get("pcfgPrinceLingMaxCandidates", 10000000)
 )
@@ -1401,7 +1408,11 @@ if not SKIP_INIT and not _argv_requests_help_or_version():
             print(
                 "pcfg_cracker not found at " + os.path.join(hate_path, "pcfg_cracker")
             )
-            print("PCFG attacks will not be available. Run 'make' to fetch submodules.")
+            print(
+                "The pcfg_guesser.py pipe and PRINCE-LING will not be available. "
+                "Run 'make' to fetch submodules. PCFG still runs on hashcat's "
+                "built-in -a 4 when the build has it."
+            )
 
     except Exception as e:
         print(f"Module initialization error: {e}")
@@ -1455,6 +1466,12 @@ _DEBUG_MODE_UNSUPPORTED_MSG = b"Invalid --debug-mode value specified."
 # reachable: <reason>", "... rejected the password", and "... rejected our
 # link version".
 _BRAIN_FAILURE_PREFIX = b"Brain server"
+# A server that was reachable and authenticated but then failed during the run
+# (hashcat src/brain.c: "Brain server stopped answering after N candidates.
+# Nothing since the last commit was stored." and "Brain server refused the
+# commit after N candidates." -- no host:port). Unlike a connect/auth rejection, the server is not known to be
+# bad for later attacks, so only the current invocation falls back.
+_BRAIN_MIDRUN_MARKERS = (b"stopped answering", b"refused the commit")
 
 # Set from ``flags.rule_debug_mode_enabled`` in main(); --no-rule-debug-mode
 # (or ``rule_debug_mode_enabled: false`` in config.json) stops
@@ -1529,8 +1546,8 @@ def _debug_cmd(cmd):
         get_ui().say(f"[DEBUG] hashcat cmd: {_format_cmd(cmd)}")
 
 
-def _coverage_store():
-    return _coverage.get_store()
+def _coverage_store(hash_file):
+    return _coverage.get_store(hash_file)
 
 
 def _write_filtered_entries(entries, suffix):
@@ -1716,8 +1733,8 @@ def _apply_coverage(cmd, spec, attack_name: str, decision_cache: dict | None = N
     the shared dict; every later call sharing that same dict reuses it
     without prompting again, even though each has its own, different plan.
     """
-    store = _coverage_store()
-    plan = _coverage.plan_run(spec, store.covered, store=store)
+    store = _coverage_store(spec.hash_file)
+    plan = _coverage.plan_run(spec, store)
     if plan.is_inert:
         return cmd, None, []
 
@@ -1781,7 +1798,7 @@ def _coverage_report(hash_file: str) -> str:
     if target is None:
         return f"[!] Cannot read {hash_file}."
 
-    summary = _coverage_store().summary(target)
+    summary = _coverage_store(hash_file).summary(target)
     if not summary["runs"]:
         return f"No attacks recorded against {os.path.basename(hash_file)} yet."
 
@@ -1810,7 +1827,7 @@ def _coverage_history_report(hash_file: str) -> str:
     target = _coverage.target_id(hash_file)
     if target is None:
         return f"[!] Cannot read {hash_file}."
-    rows = _coverage_store().history(target)
+    rows = _coverage_store(hash_file).history(target)
     if not rows:
         return f"No attacks recorded against {os.path.basename(hash_file)} yet."
     lines = [f"Run history for {os.path.basename(hash_file)}", ""]
@@ -1824,7 +1841,7 @@ def _coverage_forget(hash_file: str) -> str:
     target = _coverage.target_id(hash_file)
     if target is None:
         return f"[!] Cannot read {hash_file}."
-    dropped = _coverage_store().forget_target(target)
+    dropped = _coverage_store(hash_file).forget_target(target)
     return (
         f"Dropped {dropped} covered entr{'y' if dropped == 1 else 'ies'} and the "
         f"run history for {os.path.basename(hash_file)}. It will be attacked as "
@@ -1971,7 +1988,20 @@ def _maybe_add_brain(cmd, hash_file, stdin):
     except (TypeError, ValueError):
         return cmd
 
-    if not _brain.is_slow(mode, config_parser, hcat_bin=hcatBin):
+    # is_slow picks the features value rather than gating brain outright. A
+    # slow mode always gets brain_client_features. On hashcat >= 8 a fast mode
+    # also gets brain, with features=2: that keeps the Device Generator and
+    # needs no -S, unlike features 1/3 which imply host generation. Verified on
+    # hashcat 8.0.0-73. Older hashcat has no such mode, so fast modes get none.
+    if _brain.is_slow(mode, config_parser, hcat_bin=hcatBin):
+        features = config_parser.get("brain_client_features", 3)
+        fast = False
+    elif (config_parser.get("brain_fast_hashes", True) is not False) and (
+        (_hashcat_paths.hashcat_major_version(hcatBin) or 0) >= 8
+    ):
+        features = 2
+        fast = True
+    else:
         return cmd
 
     session = _brain.session_id(hash_file)
@@ -1982,21 +2012,40 @@ def _maybe_add_brain(cmd, hash_file, stdin):
     if server is None:
         if not _brain_notice_fail_printed:
             get_ui().warn(
-                "[!] Hash mode {0} is slow, but no brain server could be "
-                "reached; running without candidate de-duplication.".format(mode)
+                "[!] Hash mode {0} qualifies for brain, but no brain server "
+                "could be reached; running without candidate de-duplication.".format(
+                    mode
+                )
             )
             _brain_notice_fail_printed = True
             _brain_notice_ok_printed = False
         return cmd
 
     if not _brain_notice_ok_printed:
-        get_ui().say(
-            "[*] Brain enabled for slow mode {0} (session {1}, server {2}:{3}). "
-            "The server holds roughly 12 bytes per candidate in RAM; set "
-            "brain_client_features to 2 in config.json if that is too much.".format(
-                mode, session, server.host, server.port
+        if fast:
+            get_ui().say(
+                "[*] Brain enabled for fast mode {0} with client features 2 "
+                "(session {1}, server {2}:{3}); the device generator is kept. "
+                "Set brain_fast_hashes to false in config.json to turn this "
+                "off.".format(mode, session, server.host, server.port)
             )
-        )
+        elif features in (2, 2.0, "2"):
+            # features=2 never implies -S, so the -S warning would be false.
+            get_ui().say(
+                "[*] Brain enabled for slow mode {0} with client features 2 "
+                "(session {1}, server {2}:{3}).".format(
+                    mode, session, server.host, server.port
+                )
+            )
+        else:
+            get_ui().say(
+                "[*] Brain enabled for slow mode {0} (session {1}, server "
+                "{2}:{3}). Brain forces -S and the server holds roughly 12 "
+                "bytes per candidate in RAM; set brain_client_features to 2 "
+                "in config.json if that is too much.".format(
+                    mode, session, server.host, server.port
+                )
+            )
         _brain_notice_ok_printed = True
         _brain_notice_fail_printed = False
 
@@ -2004,7 +2053,7 @@ def _maybe_add_brain(cmd, hash_file, stdin):
         host=server.host,
         port=server.port,
         password=server.password,
-        features=config_parser.get("brain_client_features", 3),
+        features=features,
         session=session,
     )
 
@@ -2032,6 +2081,18 @@ def _is_brain_failure(stderr: bytes) -> bool:
     looser match even though it is not exact.
     """
     return _BRAIN_FAILURE_PREFIX in stderr
+
+
+def _is_brain_midrun_failure(stderr: bytes) -> bool:
+    """Whether a brain failure happened mid-run rather than at connect/auth.
+
+    Still requires the ``"Brain server"`` prefix, so an unrelated message that
+    happens to contain one of the markers is not mistaken for one. Callers
+    check ``_is_brain_failure`` first; this only refines which recovery to use.
+    """
+    return _BRAIN_FAILURE_PREFIX in stderr and any(
+        marker in stderr for marker in _BRAIN_MIDRUN_MARKERS
+    )
 
 
 _BRAIN_VALUELESS_FLAGS = frozenset({"-z", "--brain-client", "--brain-server"})
@@ -2134,12 +2195,13 @@ def _run_hcat_cmd(
                 os.unlink(path)
 
     if plan is not None and completed:
-        _coverage_store().record(
-            plan.record_keys,
+        _coverage_store(coverage.hash_file).record(
             target=plan.target,
             kind=plan.kind,
+            variant=plan.variant,
             attack=attack_name,
-            wordlist_fps=plan.wordlist_fps,
+            wordlist_ids=plan.wordlist_ids,
+            rows=plan.record_rows,
         )
     elif completed and _coverage_enabled and attack_name and hash_file:
         # Attacks that carry no spec are never filtered, but the issue asks for
@@ -2148,7 +2210,7 @@ def _run_hcat_cmd(
         # no fixed keyspace to diff. One row, no keys.
         target = _coverage.target_id(hash_file)
         if target:
-            _coverage_store().log_run(target, attack=attack_name, kind="history")
+            _coverage_store(hash_file).log_run(target, attack=attack_name)
 
 
 def _run_hcat_cmd_uncovered(
@@ -2227,26 +2289,29 @@ def _run_hcat_cmd_uncovered(
     def _run_hashcat() -> "tuple[subprocess.Popen[Any], bool]":
         """Spawn and await hashcat; returns (process, was_interrupted)."""
         global hcatProcess
-        hcatProcess = subprocess.Popen(cmd, **popen_kwargs)
         interrupted = False
-        try:
-            hcatProcess.wait()
-            for gen in companions:
-                try:
-                    gen.wait()
-                except Exception:
-                    pass
-        except KeyboardInterrupt:
-            interrupted = True
-            get_ui().say("Killing PID {0}...".format(str(hcatProcess.pid)))
-            hcatProcess.kill()
-            for gen in companions:
-                try:
-                    gen.kill()
-                except Exception:
-                    pass
-        finally:
-            _notify.stop_tailer(tailer)
+        # hashcat leaves the tty in no-echo/non-canonical mode when killed, so
+        # restore it however this block exits.
+        with preserve_tty():
+            hcatProcess = subprocess.Popen(cmd, **popen_kwargs)
+            try:
+                hcatProcess.wait()
+                for gen in companions:
+                    try:
+                        gen.wait()
+                    except Exception:
+                        pass
+            except KeyboardInterrupt:
+                interrupted = True
+                get_ui().say("Killing PID {0}...".format(str(hcatProcess.pid)))
+                hcatProcess.kill()
+                for gen in companions:
+                    try:
+                        gen.kill()
+                    except Exception:
+                        pass
+            finally:
+                _notify.stop_tailer(tailer)
         return hcatProcess, interrupted
 
     finished_process, interrupted = _run_hashcat()
@@ -2301,11 +2366,20 @@ def _run_hcat_cmd_uncovered(
             # rather than being retried per attack. Never on a plain
             # KeyboardInterrupt (``interrupted`` guards that), and at most
             # once per invocation (``_brain_retry`` guards that).
-            get_ui().warn(
-                "[!] hashcat rejected the brain connection; disabling brain "
-                "for the rest of this run and retrying without it."
-            )
-            _brain_enabled = False
+            if _is_brain_midrun_failure(captured_stderr):
+                # The server was fine at connect time and failed during the
+                # run, so brain stays on for later attacks; only this
+                # invocation retries without it.
+                get_ui().warn(
+                    "[!] The brain server failed mid-run; retrying this attack "
+                    "without brain (brain stays enabled for later attacks)."
+                )
+            else:
+                get_ui().warn(
+                    "[!] hashcat rejected the brain connection; disabling "
+                    "brain for the rest of this run and retrying without it."
+                )
+                _brain_enabled = False
             fallback_cmd = _strip_brain_flags(cmd)
             # Re-enter the inner runner, not the coverage wrapper: coverage
             # has already been applied to this cmd, and applying it twice
@@ -2883,6 +2957,84 @@ def lineCount(file):
         return 0
 
 
+def _as_positive_int(value):
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return None
+    return n if n > 0 else None
+
+
+_STDIN_FLUSH_SECONDS = 10
+
+
+def _stdin_progress_flags(hcat_bin, count=None):
+    """Flags that give a piped (stdin-mode) hashcat run progress and an ETA.
+
+    ``--stdin-count N`` tells hashcat how many candidates to expect, so the
+    status screen can show a percentage; an overstated N is harmless (the run
+    just ends short of 100%). ``--stdin-timeout-flush`` makes hashcat process a
+    partial buffer after a quiet spell so a slow generator still shows
+    progress. Each flag is gated on ``hashcat --help`` mentioning it, so older
+    builds (7.x) get neither and the command is unchanged.
+    """
+    flags = []
+    if count and count > 0 and _hashcat_paths.help_mentions(hcat_bin, r"--stdin-count"):
+        flags += ["--stdin-count", str(int(count))]
+    if _hashcat_paths.help_mentions(hcat_bin, r"--stdin-timeout-flush"):
+        flags += ["--stdin-timeout-flush", str(_STDIN_FLUSH_SECONDS)]
+    return flags
+
+
+def _wordlist_line_total(path):
+    """Candidate-line count of *path*, counting an unterminated last line."""
+    n = lineCount(path)
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            if f.tell() > 0:
+                f.seek(-1, os.SEEK_END)
+                if f.read(1) != b"\n":
+                    n += 1
+    except OSError:
+        return 0
+    return n
+
+
+def _product_count(paths):
+    """Exact combinator output size, or None if any list is empty/unreadable."""
+    total = 1
+    for path in paths:
+        n = _wordlist_line_total(path)
+        if n <= 0:
+            return None
+        total *= n
+    return total
+
+
+def _combipow_count(path):
+    """``2**n - 1`` for *n* non-empty lines, or None when combipow would refuse.
+
+    combipow.bin emits every non-empty subset of the input lines (verified
+    against the bundled binary). It aborts above 63 lines and splits lines
+    longer than its 64-byte buffer, so those cases return None.
+    """
+    n = 0
+    try:
+        with open(path, "rb") as f:
+            for line in f:
+                stripped = line.rstrip(b"\r\n")
+                if len(line) > 62:
+                    return None
+                if stripped:
+                    n += 1
+                    if n > 63:
+                        return None
+    except OSError:
+        return None
+    return (2**n) - 1 if n else None
+
+
 def _write_delimited_field(
     input_path, output_path, field_index, delimiter=":", last_field=False
 ):
@@ -3444,9 +3596,8 @@ def _prime_coverage_decision(
     name had ever touched this hash file -- so selecting a brand-new corpus
     produced the "has run before" prompt with nothing recorded that could
     possibly be skipped, because a rule counts as covered only for the
-    wordlist it ran against. Fingerprinting the wordlists costs nothing extra
-    overall: ``plan_run`` computes the same fingerprints moments later for the
-    first chain, and they are memoized.
+    wordlist it ran against. Identifying the wordlists is one ``stat()`` each and
+    reads nothing.
 
     Returns an empty dict when there is nothing to ask about: coverage is
     disabled, the batch is empty, it is a record-only (loopback) run that
@@ -3461,15 +3612,15 @@ def _prime_coverage_decision(
     if target is None:
         return {}
 
-    store = _coverage_store()
+    store = _coverage_store(hash_file)
     selection = _expand_wordlist_dirs(wordlists)
-    fingerprints = [
-        fingerprint
-        for fingerprint in (store.wordlist_fingerprint(path) for path in selection)
-        if fingerprint is not None
+    wordlist_ids = [
+        wl_id
+        for wl_id in (store.wordlist_id(path) for path in selection)
+        if wl_id is not None
     ]
-    if wordlists and not fingerprints:
-        # Wordlists were named but none can be fingerprinted -- they vanished,
+    if wordlists and not wordlist_ids:
+        # Wordlists were named but none can be identified -- they vanished,
         # or a directory expanded to nothing. Either way plan_run will go inert
         # for every chain and no filtering is possible, so asking whether to
         # filter would be noise; this is the shape that used to prompt on every
@@ -3490,7 +3641,7 @@ def _prime_coverage_decision(
     kinds = {"rule" if "-r" in shlex.split(chain) else "wordlist" for chain in chains}
     asked = [kind for kind in ("rule", "wordlist") if kind in kinds]
     if not any(
-        store.has_prior_run(target, attack_name, fingerprints, kind=kind)
+        store.has_prior_run(target, attack_name, wordlist_ids, kind=kind)
         for kind in asked
     ):
         return {}
@@ -4951,6 +5102,7 @@ def hcatCombinator3(hcatHashType, hcatHashFile, wordlists):
             _insert_optimized_flag(hashcat_cmd)
         hashcat_cmd.extend(shlex.split(hcatTuning))
         _append_potfile_arg(hashcat_cmd)
+        hashcat_cmd.extend(_stdin_progress_flags(hcatBin, _product_count(resolved)))
         generator_proc = subprocess.Popen(generator_cmd, stdout=subprocess.PIPE)
         assert generator_proc.stdout is not None
         _run_hcat_cmd(
@@ -4997,6 +5149,7 @@ def hcatCombinatorX(hcatHashType, hcatHashFile, wordlists, separator=None):
             _insert_optimized_flag(hashcat_cmd)
         hashcat_cmd.extend(shlex.split(hcatTuning))
         _append_potfile_arg(hashcat_cmd)
+        hashcat_cmd.extend(_stdin_progress_flags(hcatBin, _product_count(resolved)))
         generator_proc = subprocess.Popen(generator_cmd, stdout=subprocess.PIPE)
         assert generator_proc.stdout is not None
         _run_hcat_cmd(
@@ -5034,6 +5187,7 @@ def hcatNgramX(hcatHashType, hcatHashFile, corpus, group_size=3):
             _insert_optimized_flag(hashcat_cmd)
         hashcat_cmd.extend(shlex.split(hcatTuning))
         _append_potfile_arg(hashcat_cmd)
+        hashcat_cmd.extend(_stdin_progress_flags(hcatBin))
         generator_proc = subprocess.Popen(generator_cmd, stdout=subprocess.PIPE)
         assert generator_proc.stdout is not None
         _run_hcat_cmd(
@@ -5063,14 +5217,17 @@ _HYBRID_MASK_LENGTHS = (1, 2, 3, 4)
 # It comes second because it is the same ground plus more, at 24x the cost.
 #
 # Run as one invocation per length rather than as a single `--increment 1-4`,
-# for two reasons verified against hashcat 7.1.2 and not documented anywhere
-# obvious. The candidates are identical either way -- `--increment` queues each
-# length as its own job (`Guess.Queue.Mod: 2/6`) -- but:
+# for reasons verified against hashcat and not documented anywhere obvious. The
+# candidates are identical either way -- `--increment` queues each length as its
+# own job (`Guess.Queue.Mod: 2/6`) -- but:
 #
-#   * `--runtime` is applied per queued length, not to the invocation, so one
-#     `--increment` pass under a one-hour cap can spend four hours. Separate
-#     invocations let one deadline govern the attack as a whole.
-#   * a length cut short inside an `--increment` run still exits 1, the code
+#   * on hashcat 7.1.2, `--runtime` was applied per queued length, so one
+#     `--increment` pass under a one-hour cap could spend four hours. On
+#     8.0.0-73 it is a shared whole-run deadline across the increment lengths
+#     instead. Separate invocations are kept either way so each length is
+#     governed (and banked) on its own.
+#   * a length cut short inside an `--increment` run still exits 1 (on 7.1.2
+#     and on 8.0.0-73 alike), the code
 #     _run_hcat_cmd_uncovered reads as "keyspace exhausted", so coverage would
 #     record ground that was never enumerated. A standalone mask cut short by
 #     `--runtime` exits 4 instead, which is not recorded -- so each length that
@@ -6547,6 +6704,9 @@ def hcatCombipow(hcatHashType, hcatHashFile, wordlist, use_space_sep=True):
             _insert_optimized_flag(hashcat_cmd)
         hashcat_cmd.extend(shlex.split(hcatTuning))
         _append_potfile_arg(hashcat_cmd)
+        hashcat_cmd.extend(
+            _stdin_progress_flags(hcatBin, _combipow_count(wordlist_path))
+        )
         generator_proc = subprocess.Popen(generator_cmd, stdout=subprocess.PIPE)
         _run_hcat_cmd(
             hashcat_cmd,
@@ -6596,6 +6756,7 @@ def hcatPrince(hcatHashType, hcatHashFile, attack_name="PRINCE"):
     hashcat_cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(hashcat_cmd)
     hashcat_cmd = _add_debug_mode_for_rules(hashcat_cmd)
+    hashcat_cmd.extend(_stdin_progress_flags(hcatBin))
     with (
         _wordlist_path(prince_base) as resolved_base,
         open(resolved_base, "rb") as base,
@@ -6637,29 +6798,41 @@ def _resolve_pcfg_ruleset_dir(pcfg_root, ruleset_name):
 
 
 def hcatPCFG(hcatHashType, hcatHashFile):
-    """Mode A: pipe pcfg_guesser.py output into hashcat in stdin mode."""
+    """Pipe pcfg_guesser.py output into hashcat in stdin mode."""
     pcfg_guesser_script = os.path.join(hate_path, "pcfg_cracker", "pcfg_guesser.py")
     if not os.path.isfile(pcfg_guesser_script):
         get_ui().say(f"pcfg_guesser.py not found at {pcfg_guesser_script}")
         return
     pcfg_root = os.path.join(hate_path, "pcfg_cracker")
     resolved_ruleset_dir = _resolve_pcfg_ruleset_dir(pcfg_root, pcfgRuleset)
+    if not os.path.isdir(resolved_ruleset_dir):
+        get_ui().say(f"PCFG ruleset not found: {resolved_ruleset_dir}")
+        return
     resolved_ruleset_name = os.path.basename(resolved_ruleset_dir)
+    session_id = generate_session_id(hcatHashFile, "PCFG")
     pcfg_cmd = [
         sys.executable,
         pcfg_guesser_script,
         "--rule",
         resolved_ruleset_name,
+        "--session",
+        session_id,
         "--limit",
         str(pcfgMaxCandidates),
     ]
+    if pcfgMode != "true_prob_order":
+        pcfg_cmd.extend(["--mode", pcfgMode])
+    if pcfgSkipBrute:
+        pcfg_cmd.append("--skip_brute")
+    if pcfgAllLower:
+        pcfg_cmd.append("--all_lower")
     hashcat_cmd = [
         hcatBin,
         "-m",
         hcatHashType,
         hcatHashFile,
         "--session",
-        generate_session_id(hcatHashFile, "PCFG"),
+        session_id,
         "-o",
         f"{hcatHashFile}.out",
     ]
@@ -6667,6 +6840,10 @@ def hcatPCFG(hcatHashType, hcatHashFile):
         _insert_optimized_flag(hashcat_cmd)
     hashcat_cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(hashcat_cmd)
+    # pcfgMaxCandidates is an upper bound (--limit); hashcat tolerates that.
+    hashcat_cmd.extend(
+        _stdin_progress_flags(hcatBin, _as_positive_int(pcfgMaxCandidates))
+    )
     pcfg_proc = subprocess.Popen(
         pcfg_cmd, stdout=subprocess.PIPE, stdin=subprocess.PIPE
     )
@@ -6683,8 +6860,107 @@ def hcatPCFG(hcatHashType, hcatHashFile):
         pcfg_proc.stdin.close()
 
 
+def pcfg_engine():
+    """Which PCFG implementation menu 20 should use: ``native`` or ``legacy``."""
+    if pcfgEngine == "legacy":
+        return "legacy"
+    if pcfgEngine == "native":
+        return "native"
+    if pcfg_native.supports_pcfg(hcatBin):
+        return "native"
+    get_ui().say(
+        "[*] PCFG: this hashcat build has no attack mode 4 (or could not be "
+        "probed); using the pcfg_guesser.py pipe."
+    )
+    return "legacy"
+
+
+def hcatPCFGNative(
+    hcatHashType, hcatHashFile, rulesets=None, *, attack_name="PCFG", **settings
+):
+    """Attack mode 4: hashcat's built-in PCFG engine.
+
+    ``rulesets`` are positional (names or paths); ``settings`` are the
+    ``key=value`` options of :func:`pcfg_native.build_settings`. ``attack_name``
+    is the label the notification consent and history row use. No ``-O``: the
+    engine refuses it on modes with only a pure kernel. No ``coverage=``: PCFG
+    is a dynamic generator and is never filtered.
+
+    Returns ``True`` when hashcat was launched and ``False`` when the run was
+    refused (the build has no ``-a 4``, or a setting is invalid); the refusal
+    reason has already been shown.
+    """
+    if not pcfg_native.supports_pcfg(hcatBin):
+        get_ui().error(
+            f"[!] {hcatBin} does not support attack mode 4 (PCFG). "
+            'Set "pcfgEngine" to "auto" or "legacy" to use pcfg_guesser.py.'
+        )
+        return False
+    # weights is validated against the ruleset count, which only this layer
+    # knows; callers never pass ruleset_count themselves.
+    settings.setdefault("ruleset_count", len(rulesets) if rulesets else 1)
+    try:
+        setting_args = pcfg_native.build_settings(**settings)
+    except ValueError as exc:
+        get_ui().error(f"[!] {exc}")
+        return False
+    cmd = [
+        hcatBin,
+        "-m",
+        hcatHashType,
+        hcatHashFile,
+        "-a",
+        "4",
+        "--session",
+        generate_session_id(hcatHashFile, "PCFG_native"),
+        "-o",
+        f"{hcatHashFile}.out",
+    ]
+    cmd.extend(shlex.split(hcatTuning))
+    _append_potfile_arg(cmd)
+    # An empty default adds no positional; hashcat then uses its own ruleset.
+    cmd.extend(rulesets or ([pcfgNativeRuleset] if pcfgNativeRuleset else []))
+    cmd.extend(setting_args)
+    _run_hcat_cmd(cmd, attack_name=attack_name, hash_file=hcatHashFile)
+    return True
+
+
+def hcatPCFGHints(
+    hcatHashType, hcatHashFile, hintwords=None, hintfile=None, **settings
+):
+    """Attack mode 4 with the bundled ``hints`` ruleset and known words.
+
+    The ruleset supplies structure (digits, years, symbols, capitalization);
+    every candidate contains at least one supplied word.
+
+    Returns what :func:`hcatPCFGNative` returns, or ``False`` when no hint source
+    was given.
+    """
+    if not hintwords and not hintfile:
+        get_ui().error("[!] PCFG hints needs hint words or a hint file.")
+        return False
+    if "hints" not in pcfg_native.list_rulesets():
+        # Advisory only: list_rulesets knows just a few directories, so an
+        # install elsewhere would be refused wrongly, and native mode cannot
+        # be pointed at a ruleset path to work around that.
+        get_ui().warn(
+            "[!] The 'hints' ruleset was not found in "
+            + ", ".join(pcfg_native.ruleset_search_dirs())
+            + "; continuing, hashcat will report it if it is missing."
+        )
+    return hcatPCFGNative(
+        hcatHashType,
+        hcatHashFile,
+        rulesets=["hints"],
+        attack_name="PCFG Hints",
+        hintwords=hintwords,
+        hintfile=hintfile,
+        **settings,
+    )
+
+
 def hcatPrinceLing(hcatHashType, hcatHashFile):
-    """Mode B: prince_ling generates a wordlist (with cache+staleness check),
+    """prince_ling generates a wordlist (with cache+staleness check),
     then we delegate to the existing hcatPrince attack with hcatPrinceBaseList
     temporarily rebound to the cached wordlist.
     """
@@ -7429,6 +7705,7 @@ def hcatPermute(hcatHashType, hcatHashFile, wordlist):
         _insert_optimized_flag(hashcat_cmd)
     hashcat_cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(hashcat_cmd)
+    hashcat_cmd.extend(_stdin_progress_flags(hcatBin))
     with (
         _wordlist_path(wordlist) as resolved_wordlist,
         open(resolved_wordlist, "rb") as wl_file,
@@ -7579,6 +7856,8 @@ def hcatOmen(hcatHashType, hcatHashFile, max_candidates, hcatChains=""):
     hashcat_cmd.extend(shlex.split(hcatTuning))
     _append_potfile_arg(hashcat_cmd)
     hashcat_cmd = _add_debug_mode_for_rules(hashcat_cmd)
+    # max_candidates is an upper bound (enumNG -m); hashcat tolerates that.
+    hashcat_cmd.extend(_stdin_progress_flags(hcatBin, _as_positive_int(max_candidates)))
     get_ui().say(f"[*] Running: {_format_cmd(enum_cmd)} | {_format_cmd(hashcat_cmd)}")
     _debug_cmd(hashcat_cmd)
     enum_proc = subprocess.Popen(
@@ -9002,6 +9281,10 @@ def smart_mask_crack():
     return _attacks.smart_mask_crack(_attack_ctx())
 
 
+def pcfg_hints_attack():
+    return _attacks.pcfg_hints_attack(_attack_ctx())
+
+
 def combinator_crack():
     return _attacks.combinator_crack(_attack_ctx())
 
@@ -9430,7 +9713,7 @@ def pipal():
             get_ui().say("Pipal file is at " + hcatHashFilePipal + ".pipal\n")
             import sys
 
-            if not sys.stdin.isatty():
+            if not sys.stdin.isatty() or non_interactive:
                 view_choice = "y"
             else:
                 view_choice = (
@@ -9919,7 +10202,7 @@ def main():
 
         coverage_parser = subparsers.add_parser(
             "coverage",
-            help="Inspect or reset per-target attack coverage",
+            help="Inspect or reset attack coverage (stored beside the hash file as <hashfile>.coverage.sqlite3)",
         )
         coverage_subparsers = coverage_parser.add_subparsers(dest="coverage_command")
         for name, blurb in (
@@ -10095,6 +10378,8 @@ def main():
             f"[!] ui_backend '{_ui_config}' was removed; using "
             f"'{_ui.RETIRED_BACKENDS[_ui_config]}'. Update ui_backend in config.json."
         )
+    if not SKIP_INIT:
+        _coverage.remove_legacy_store()
     if _ui_name != "plain":
         get_ui().say(f"[*] UI backend: {_ui_name}")
 

@@ -27,6 +27,7 @@ class TestHcatPCFG:
         pcfg_dir = tmp_path / "pcfg_cracker"
         pcfg_dir.mkdir()
         (pcfg_dir / "pcfg_guesser.py").write_text("# stub")
+        (pcfg_dir / "Rules" / "Default").mkdir(parents=True)
 
         captured_calls = []
 
@@ -45,6 +46,7 @@ class TestHcatPCFG:
             patch.object(main_module, "hcatBin", "hashcat"),
             patch.object(main_module, "hcatTuning", ""),
             patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "pcfgRuleset", "Default"),
             patch.object(
                 main_module, "generate_session_id", return_value="test_session"
             ),
@@ -88,6 +90,7 @@ class TestHcatPCFG:
         pcfg_dir = tmp_path / "pcfg_cracker"
         pcfg_dir.mkdir()
         (pcfg_dir / "pcfg_guesser.py").write_text("# stub")
+        (pcfg_dir / "Rules" / "Default").mkdir(parents=True)
 
         captured_calls = []
 
@@ -106,6 +109,7 @@ class TestHcatPCFG:
             patch.object(main_module, "hcatBin", "hashcat"),
             patch.object(main_module, "hcatTuning", ""),
             patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "pcfgRuleset", "Default"),
             patch.object(
                 main_module, "generate_session_id", return_value="test_session"
             ),
@@ -117,6 +121,120 @@ class TestHcatPCFG:
 
         fake_proc = mock_run.call_args.kwargs["companion_procs"][0]
         assert fake_proc.stdin.close.called
+
+    def test_guesser_gets_per_hashfile_session(self, main_module, tmp_path):
+        """Without --session the guesser saves to <script dir>/default_run.sav."""
+        hash_file = str(tmp_path / "hashes.txt")
+        Path(hash_file).write_text("dummy")
+        pcfg_dir = tmp_path / "pcfg_cracker"
+        pcfg_dir.mkdir()
+        (pcfg_dir / "pcfg_guesser.py").write_text("# stub")
+        (pcfg_dir / "Rules" / "Default").mkdir(parents=True)
+
+        captured = []
+
+        class FakeProc:
+            def __init__(self, *args, **kwargs):
+                captured.append(args)
+                self.stdout = MagicMock()
+                self.stdin = MagicMock()
+
+        with (
+            patch("hate_crack.main.subprocess.Popen", side_effect=FakeProc),
+            patch("hate_crack.main._run_hcat_cmd"),
+            patch.object(main_module, "hate_path", str(tmp_path)),
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", ""),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "pcfgRuleset", "Default"),
+        ):
+            main_module.hcatPCFG("0", hash_file)
+
+        producer_cmd = captured[0][0]
+        session = producer_cmd[producer_cmd.index("--session") + 1]
+        assert session == "hashes_PCFG"
+        assert session != "default_run"
+
+    def test_missing_ruleset_launches_nothing(self, main_module, tmp_path):
+        hash_file = str(tmp_path / "hashes.txt")
+        Path(hash_file).write_text("dummy")
+        pcfg_dir = tmp_path / "pcfg_cracker"
+        pcfg_dir.mkdir()
+        (pcfg_dir / "pcfg_guesser.py").write_text("# stub")
+        (pcfg_dir / "Rules").mkdir()  # no ruleset inside
+
+        with (
+            patch("hate_crack.main.subprocess.Popen") as popen,
+            patch("hate_crack.main._run_hcat_cmd") as run,
+            patch.object(main_module, "hate_path", str(tmp_path)),
+            patch.object(main_module, "pcfgRuleset", "Nope"),
+        ):
+            main_module.hcatPCFG("0", hash_file)
+
+        popen.assert_not_called()
+        run.assert_not_called()
+
+    def test_guesser_flags_follow_config(self, main_module, tmp_path):
+        hash_file = str(tmp_path / "hashes.txt")
+        Path(hash_file).write_text("dummy")
+        pcfg_dir = tmp_path / "pcfg_cracker"
+        pcfg_dir.mkdir()
+        (pcfg_dir / "pcfg_guesser.py").write_text("# stub")
+        (pcfg_dir / "Rules" / "Default").mkdir(parents=True)
+        captured = []
+
+        class FakeProc:
+            def __init__(self, *args, **kwargs):
+                captured.append(args)
+                self.stdout = MagicMock()
+                self.stdin = MagicMock()
+
+        with (
+            patch("hate_crack.main.subprocess.Popen", side_effect=FakeProc),
+            patch("hate_crack.main._run_hcat_cmd"),
+            patch.object(main_module, "hate_path", str(tmp_path)),
+            patch.object(main_module, "pcfgRuleset", "Default"),
+            patch.object(main_module, "pcfgMode", "random_walk"),
+            patch.object(main_module, "pcfgSkipBrute", True),
+            patch.object(main_module, "pcfgAllLower", True),
+        ):
+            main_module.hcatPCFG("0", hash_file)
+
+        cmd = captured[0][0]
+        assert cmd[cmd.index("--mode") + 1] == "random_walk"
+        assert "--skip_brute" in cmd
+        assert "--all_lower" in cmd
+
+    def test_guesser_flags_absent_by_default(self, main_module, tmp_path):
+        hash_file = str(tmp_path / "hashes.txt")
+        Path(hash_file).write_text("dummy")
+        pcfg_dir = tmp_path / "pcfg_cracker"
+        pcfg_dir.mkdir()
+        (pcfg_dir / "pcfg_guesser.py").write_text("# stub")
+        (pcfg_dir / "Rules" / "Default").mkdir(parents=True)
+        captured = []
+
+        class FakeProc:
+            def __init__(self, *args, **kwargs):
+                captured.append(args)
+                self.stdout = MagicMock()
+                self.stdin = MagicMock()
+
+        with (
+            patch("hate_crack.main.subprocess.Popen", side_effect=FakeProc),
+            patch("hate_crack.main._run_hcat_cmd"),
+            patch.object(main_module, "hate_path", str(tmp_path)),
+            patch.object(main_module, "pcfgRuleset", "Default"),
+            patch.object(main_module, "pcfgMode", "true_prob_order"),
+            patch.object(main_module, "pcfgSkipBrute", False),
+            patch.object(main_module, "pcfgAllLower", False),
+        ):
+            main_module.hcatPCFG("0", hash_file)
+
+        cmd = captured[0][0]
+        assert "--skip_brute" not in cmd
+        assert "--all_lower" not in cmd
+        assert "--mode" not in cmd
 
 
 class TestHcatPrinceLing:
@@ -398,3 +516,246 @@ class TestHcatPrinceLing:
         assert cmd[cmd.index("--rule") + 1] == "Default"
         assert cache.exists()
         assert mock_prince.called
+
+
+class TestHcatPCFGNative:
+    def _run(self, main_module, tmp_path, **kwargs):
+        hash_file = str(tmp_path / "hashes.txt")
+        Path(hash_file).write_text("dummy")
+        with (
+            patch("hate_crack.main._run_hcat_cmd") as run,
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", "-w 3"),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "pcfgNativeRuleset", "default-passwords"),
+            patch.object(main_module, "pcfgEngine", "auto"),
+            patch("hate_crack.main.pcfg_native.supports_pcfg", return_value=True),
+        ):
+            main_module.hcatPCFGNative("0", hash_file, **kwargs)
+        return run, hash_file
+
+    def test_command_shape(self, main_module, tmp_path):
+        run, hash_file = self._run(main_module, tmp_path, costmax=48)
+        cmd = run.call_args.args[0]
+        assert cmd[:2] == ["hashcat", "-m"]
+        assert cmd[cmd.index("-a") + 1] == "4"
+        assert "-O" not in cmd
+        assert cmd[-2:] == ["default-passwords", "costmax=48"]
+        assert cmd.index("-w") < cmd.index("default-passwords")
+        assert cmd[cmd.index("--session") + 1] == "hashes_PCFG_native"
+        assert run.call_args.kwargs["attack_name"] == "PCFG"
+        assert "coverage" not in run.call_args.kwargs
+
+    def test_named_rulesets_replace_default(self, main_module, tmp_path):
+        run, _ = self._run(main_module, tmp_path, rulesets=["alpha", "beta"])
+        cmd = run.call_args.args[0]
+        assert cmd[-2:] == ["alpha", "beta"]
+        assert "default-passwords" not in cmd
+
+    def test_returns_true_on_a_normal_run(self, main_module, tmp_path):
+        hash_file = str(tmp_path / "hashes.txt")
+        Path(hash_file).write_text("dummy")
+        with (
+            patch("hate_crack.main._run_hcat_cmd"),
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", "-w 3"),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch("hate_crack.main.pcfg_native.supports_pcfg", return_value=True),
+        ):
+            assert main_module.hcatPCFGNative("0", hash_file) is True
+
+    def test_refuses_when_unsupported(self, main_module, tmp_path):
+        hash_file = str(tmp_path / "hashes.txt")
+        Path(hash_file).write_text("dummy")
+        with (
+            patch("hate_crack.main._run_hcat_cmd") as run,
+            patch("hate_crack.main.get_ui") as get_ui,
+            patch("hate_crack.main.pcfg_native.supports_pcfg", return_value=False),
+        ):
+            result = main_module.hcatPCFGNative("0", hash_file)
+        assert result is False
+        run.assert_not_called()
+        msg = get_ui.return_value.error.call_args.args[0]
+        assert "does not support attack mode 4" in msg
+
+    def test_refuses_an_invalid_setting(self, main_module, tmp_path):
+        hash_file = str(tmp_path / "hashes.txt")
+        Path(hash_file).write_text("dummy")
+        with (
+            patch("hate_crack.main._run_hcat_cmd") as run,
+            patch("hate_crack.main.get_ui") as get_ui,
+            patch("hate_crack.main.pcfg_native.supports_pcfg", return_value=True),
+        ):
+            result = main_module.hcatPCFGNative("0", hash_file, costmax=0)
+        assert result is False
+        run.assert_not_called()
+        assert "costmax" in get_ui.return_value.error.call_args.args[0]
+
+    def test_empty_default_ruleset_passes_no_positional(self, main_module, tmp_path):
+        hash_file = str(tmp_path / "hashes.txt")
+        Path(hash_file).write_text("dummy")
+        with (
+            patch("hate_crack.main._run_hcat_cmd") as run,
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", "-w 3"),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "pcfgNativeRuleset", ""),
+            patch("hate_crack.main.pcfg_native.supports_pcfg", return_value=True),
+        ):
+            main_module.hcatPCFGNative("0", hash_file, costmax=48)
+        cmd = run.call_args.args[0]
+        assert "" not in cmd
+        assert cmd[-1] == "costmax=48"
+
+    def test_weights_match_named_ruleset_count(self, main_module, tmp_path):
+        hash_file = str(tmp_path / "hashes.txt")
+        Path(hash_file).write_text("dummy")
+        with (
+            patch("hate_crack.main._run_hcat_cmd") as run,
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", "-w 3"),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch("hate_crack.main.pcfg_native.supports_pcfg", return_value=True),
+        ):
+            result = main_module.hcatPCFGNative(
+                "0", hash_file, rulesets=["alpha", "beta"], weights=[9, 1]
+            )
+        assert result is True
+        cmd = run.call_args.args[0]
+        assert cmd[-3:] == ["alpha", "beta", "weights=9:1"]
+
+    def test_weights_mismatch_with_named_rulesets_is_refused(
+        self, main_module, tmp_path
+    ):
+        hash_file = str(tmp_path / "hashes.txt")
+        Path(hash_file).write_text("dummy")
+        with (
+            patch("hate_crack.main._run_hcat_cmd") as run,
+            patch("hate_crack.main.get_ui") as get_ui,
+            patch("hate_crack.main.pcfg_native.supports_pcfg", return_value=True),
+        ):
+            result = main_module.hcatPCFGNative(
+                "0", hash_file, rulesets=["alpha"], weights=[9, 1]
+            )
+        assert result is False
+        run.assert_not_called()
+        assert "weights" in get_ui.return_value.error.call_args.args[0]
+
+    def test_weights_default_ruleset_counts_as_one(self, main_module, tmp_path):
+        hash_file = str(tmp_path / "hashes.txt")
+        Path(hash_file).write_text("dummy")
+        with (
+            patch("hate_crack.main._run_hcat_cmd") as run,
+            patch.object(main_module, "hcatBin", "hashcat"),
+            patch.object(main_module, "hcatTuning", "-w 3"),
+            patch.object(main_module, "hcatPotfilePath", ""),
+            patch.object(main_module, "pcfgNativeRuleset", "default-passwords"),
+            patch("hate_crack.main.pcfg_native.supports_pcfg", return_value=True),
+        ):
+            result = main_module.hcatPCFGNative("0", hash_file, weights=[1])
+        assert result is True
+        cmd = run.call_args.args[0]
+        assert cmd[-2:] == ["default-passwords", "weights=1"]
+
+
+class TestHcatPCFGHints:
+    def test_delegates_with_hints_ruleset(self, main_module):
+        with (
+            patch("hate_crack.main.hcatPCFGNative", return_value=True) as native,
+            patch("hate_crack.main.pcfg_native.list_rulesets", return_value=["hints"]),
+        ):
+            result = main_module.hcatPCFGHints(
+                "0", "/tmp/h.txt", hintwords=["alpha", "beta"], pwmax=12
+            )
+        assert result is True
+        native.assert_called_once_with(
+            "0",
+            "/tmp/h.txt",
+            rulesets=["hints"],
+            attack_name="PCFG Hints",
+            hintwords=["alpha", "beta"],
+            hintfile=None,
+            pwmax=12,
+        )
+
+    def test_passes_through_a_refused_run(self, main_module):
+        with (
+            patch("hate_crack.main.hcatPCFGNative", return_value=False),
+            patch("hate_crack.main.pcfg_native.list_rulesets", return_value=["hints"]),
+        ):
+            assert (
+                main_module.hcatPCFGHints("0", "/tmp/h.txt", hintwords=["alpha"])
+                is False
+            )
+
+    def test_requires_a_hint_source(self, main_module):
+        with (
+            patch("hate_crack.main.hcatPCFGNative") as native,
+            patch("hate_crack.main.get_ui") as get_ui,
+        ):
+            result = main_module.hcatPCFGHints("0", "/tmp/h.txt")
+        assert result is False
+        native.assert_not_called()
+        assert "hint" in get_ui.return_value.error.call_args.args[0]
+
+    def test_warns_but_proceeds_when_hints_ruleset_missing(self, main_module):
+        dirs = ["/data/one", "/data/two"]
+        with (
+            patch("hate_crack.main.hcatPCFGNative", return_value=True) as native,
+            patch("hate_crack.main.get_ui") as get_ui,
+            patch(
+                "hate_crack.main.pcfg_native.list_rulesets",
+                return_value=["default-passwords"],
+            ),
+            patch("hate_crack.main.pcfg_native.ruleset_search_dirs", return_value=dirs),
+        ):
+            result = main_module.hcatPCFGHints("0", "/tmp/h.txt", hintwords=["alpha"])
+        assert result is True
+        native.assert_called_once()
+        msg = get_ui.return_value.warn.call_args.args[0]
+        assert "/data/one" in msg and "/data/two" in msg
+        get_ui.return_value.error.assert_not_called()
+
+
+class TestPcfgEngine:
+    @pytest.mark.parametrize(
+        ("configured", "supported", "expected"),
+        [
+            ("auto", True, "native"),
+            ("auto", False, "legacy"),
+            ("legacy", True, "legacy"),
+            ("native", False, "native"),
+        ],
+    )
+    def test_engine_choice(self, main_module, configured, supported, expected):
+        with (
+            patch.object(main_module, "pcfgEngine", configured),
+            patch("hate_crack.main.pcfg_native.supports_pcfg", return_value=supported),
+        ):
+            assert main_module.pcfg_engine() == expected
+
+    @pytest.mark.parametrize(
+        ("configured", "supported", "expect_message"),
+        [
+            ("auto", False, True),
+            ("auto", True, False),
+            ("legacy", False, False),
+            ("legacy", True, False),
+            ("native", False, False),
+            ("native", True, False),
+        ],
+    )
+    def test_only_auto_to_legacy_is_announced(
+        self, main_module, configured, supported, expect_message
+    ):
+        with (
+            patch.object(main_module, "pcfgEngine", configured),
+            patch("hate_crack.main.pcfg_native.supports_pcfg", return_value=supported),
+            patch("hate_crack.main.get_ui") as get_ui,
+        ):
+            main_module.pcfg_engine()
+        if expect_message:
+            msg = get_ui.return_value.say.call_args.args[0]
+            assert "pcfg_guesser.py" in msg
+        else:
+            get_ui.return_value.say.assert_not_called()

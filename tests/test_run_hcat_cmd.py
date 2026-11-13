@@ -386,6 +386,64 @@ class TestRunHcatCmd:
         assert not any(str(a).startswith("--brain-") for a in second_cmd)
         assert main_module._brain_enabled is False
 
+    @pytest.mark.parametrize(
+        "message",
+        [
+            b"Brain server 127.0.0.1:6863 stopped answering after 3 attempts\n",
+            b"Brain server 127.0.0.1:6863 refused the commit\n",
+        ],
+    )
+    def test_midrun_brain_failure_retries_without_brain_but_keeps_it_on(
+        self, main_module, tmp_path, monkeypatch, message
+    ):
+        monkeypatch.setattr(main_module, "_brain_enabled", True)
+        hash_file = str(tmp_path / "hashes.txt")
+        fail_proc = _make_mock_proc()
+        fail_proc.returncode = 255
+        ok_proc = _make_mock_proc()
+        ok_proc.returncode = 0
+        popen_calls = []
+
+        def fake_popen(cmd, **kwargs):
+            popen_calls.append(list(cmd))
+            if len(popen_calls) == 1:
+                kwargs["stderr"].write(message)
+                return fail_proc
+            return ok_proc
+
+        with (
+            patch("hate_crack.main.subprocess.Popen", side_effect=fake_popen),
+            patch("hate_crack.main._notify") as mock_notify,
+        ):
+            mock_notify.is_suppressed.return_value = False
+            mock_notify.get_settings.return_value = MagicMock(enabled=False)
+            mock_notify.start_tailer.return_value = None
+            with patch.object(main_module, "get_ui") as get_ui:
+                main_module._run_hcat_cmd(
+                    list(self._BRAIN_CMD),
+                    attack_name="Dictionary",
+                    hash_file=hash_file,
+                )
+
+        warnings = " ".join(
+            str(c.args[0]) for c in get_ui.return_value.warn.call_args_list
+        )
+        assert "failed mid-run" in warnings
+        assert "rejected the brain connection" not in warnings
+        assert len(popen_calls) == 2
+        assert "-z" in popen_calls[0]
+        assert not any(str(a).startswith("--brain-") for a in popen_calls[1])
+        assert main_module._brain_enabled is True
+
+    def test_midrun_markers_need_the_brain_server_prefix(self, main_module):
+        assert main_module._is_brain_midrun_failure(
+            b"Brain server 1.2.3.4:6863 stopped answering\n"
+        )
+        assert not main_module._is_brain_midrun_failure(b"something stopped answering")
+        assert not main_module._is_brain_midrun_failure(
+            b"Brain server 1.2.3.4:6863 is not reachable: refused\n"
+        )
+
     def test_brain_rejection_retries_at_most_once(
         self, main_module, tmp_path, monkeypatch
     ):

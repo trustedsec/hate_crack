@@ -88,6 +88,38 @@ def _isolate_config_file_discovery(monkeypatch):
     yield
 
 
+# Modules that exercise the real ``help_mentions`` probe themselves.
+_REAL_HELP_PROBE_MODULES = ("test_hashcat_paths", "test_pcfg_native")
+
+
+class _UnsupportedProbe:
+    """Stand-in for the lru_cached ``help_mentions``: nothing is supported."""
+
+    def __call__(self, _bin, _pattern):
+        return False
+
+    def cache_clear(self):
+        pass
+
+
+@pytest.fixture(autouse=True)
+def _no_hashcat_help_probe(request, monkeypatch):
+    """Keep tests from spawning ``hashcat --help`` through ``help_mentions``.
+
+    The piped attacks probe the binary for ``--stdin-count`` and friends, and
+    the probe goes through ``subprocess.run`` -- which, in a test that mocks
+    ``subprocess.Popen`` with a fixed ``side_effect`` list, would consume one
+    of the mocked processes. Default every probe to "unsupported" (the 7.x
+    command line); a test that wants a capability patches ``help_mentions``
+    itself.
+    """
+    if request.module.__name__.rsplit(".", 1)[-1] in _REAL_HELP_PROBE_MODULES:
+        return
+    from hate_crack import hashcat_paths
+
+    monkeypatch.setattr(hashcat_paths, "help_mentions", _UnsupportedProbe())
+
+
 @pytest.fixture(autouse=True)
 def _isolate_notify_state():
     """Reset notify module state between tests.

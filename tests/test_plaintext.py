@@ -289,3 +289,19 @@ def test_encode_hex_wrapper_wraps_undecodable_bytes():
         )
         == raw
     )
+
+
+_WPA_HASH = "WPA*01*4d4fe7aac3a2cecab195321ceb99a7d0*fc690c158264*f4747f87f9f4*686173686361742d6573736964***"
+
+
+def test_strips_a_wpa_hash_line_to_the_plaintext():
+    assert plaintext.strip_hash_prefix(f"{_WPA_HASH}:testpass1") == "testpass1"
+
+
+def test_wpa_plaintext_containing_a_colon_survives():
+    assert plaintext.strip_hash_prefix(f"{_WPA_HASH}:pass:word") == "pass:word"
+
+
+def test_wpa_pmkid_style_line_is_stripped():
+    line = "WPA*01*4d4fe7aac3a2cecab195321ceb99a7d0*fc690c158264*f4747f87f9f4*68***:testpass1"
+    assert plaintext.strip_hash_prefix(line) == "testpass1"

@@ -5,6 +5,8 @@ from collections.abc import Callable
 from typing import Any
 
 from hate_crack import notify as _notify
+from hate_crack import pcfg_native
+from hate_crack.pipal_hints import pipal_hint_words
 from hate_crack.ui import get_ui
 from hate_crack.api import (
     download_all_hashmob_archives,
@@ -293,6 +295,20 @@ def loopback_attack(ctx: Any) -> None:
         )
 
 
+def _extensive_pipal_hints(ctx: Any) -> None:
+    """Optional Extensive stage: PCFG Hints seeded from Pipal's basewords.
+
+    Runs only where it can work unattended -- hashcat's native PCFG engine and a
+    configured Pipal -- and is skipped silently otherwise, so it never changes
+    what Extensive does on an install without them.
+    """
+    if ctx.pcfg_engine() != "native" or not os.path.isfile(ctx.pipalPath or ""):
+        return
+    words = pipal_hint_words(ctx)
+    if words:
+        ctx.hcatPCFGHints(ctx.hcatHashType, ctx.hcatHashFile, hintwords=words)
+
+
 def extensive_crack(ctx: Any) -> None:
     # Orchestrator attack: chains ~14 primitives. We suppress each primitive's
     # own notifications and fire exactly one "Extensive Crack complete" at the
@@ -322,6 +338,7 @@ def extensive_crack(ctx: Any) -> None:
         ctx.hcatRecycle(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatCombinationCount)
         ctx.hcatHybrid(ctx.hcatHashType, ctx.hcatHashFile)
         ctx.hcatRecycle(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatHybridCount)
+        _extensive_pipal_hints(ctx)
         ctx.hcatGoodMeasure(ctx.hcatHashType, ctx.hcatHashFile)
         ctx.hcatRecycle(ctx.hcatHashType, ctx.hcatHashFile, ctx.hcatExtraCount)
     cracked_after = ctx.lineCount(out_path) if os.path.exists(out_path) else 0
@@ -674,9 +691,121 @@ def prince_attack(ctx: Any) -> None:
     ctx.hcatPrince(ctx.hcatHashType, ctx.hcatHashFile)
 
 
+def _prompt_pcfg_constraints(ctx: Any) -> dict[str, Any] | None:
+    """Ask for optional PCFG shape constraints; return only the filled keys.
+
+    ``mask`` and ``contains`` are alternatives (hashcat refuses both), and a
+    mask fixes the length, so neither contains nor pwmin/pwmax is asked once a
+    mask is given. Returns None, after showing
+    an error, when pwmin/pwmax is not a positive integer.
+    """
+    ui = get_ui()
+    out: dict[str, Any] = {}
+    mask = ui.ask("Mask to constrain guesses (e.g. ?u?l?l?l?d?d, blank to skip): ")
+    mask = mask.strip()
+    if mask:
+        # A mask fixes the length, and hashcat refuses a pwmin/pwmax that
+        # contradicts it, so neither the contains nor the length prompts follow.
+        out["mask"] = mask
+        return out
+    raw = ui.ask("Substrings guesses must contain (comma separated, blank to skip): ")
+    contains = [part.strip() for part in raw.split(",") if part.strip()]
+    if contains:
+        out["contains"] = contains
+    for key, label in (("pwmin", "Minimum"), ("pwmax", "Maximum")):
+        raw = ui.ask(f"{label} password length (blank to skip): ").strip()
+        if not raw:
+            continue
+        try:
+            value = int(raw)
+        except ValueError:
+            value = 0
+        if value <= 0:
+            ui.error(f"[!] {label} password length must be a positive integer.")
+            return None
+        out[key] = value
+    return out
+
+
 def pcfg_attack(ctx: Any) -> None:
     _notify.prompt_notify_for_attack("PCFG")
-    ctx.hcatPCFG(ctx.hcatHashType, ctx.hcatHashFile)
+    if ctx.pcfg_engine() == "native":
+        constraints = _prompt_pcfg_constraints(ctx)
+        if constraints is None:
+            return
+        extra: dict[str, Any] = {}
+        layouts = [
+            n for n in pcfg_native.list_rulesets() if n.startswith("keyboard-walks-")
+        ]
+        if layouts:
+            ui = get_ui()
+            for i, name in enumerate(layouts, start=1):
+                ui.say(f"\t({i}) {name}")
+            answer = ui.ask(
+                "Add a keyboard-walk ruleset? (blank to skip): ",
+                choices=[(str(i), n) for i, n in enumerate(layouts, start=1)],
+            ).strip()
+            if answer:
+                try:
+                    idx = int(answer)
+                    if not 1 <= idx <= len(layouts):
+                        raise ValueError(answer)
+                except ValueError:
+                    ui.error(f"[!] Invalid keyboard-walk selection: {answer}")
+                    return
+                extra["rulesets"] = [
+                    ctx.pcfgNativeRuleset or "default-passwords",
+                    layouts[idx - 1],
+                ]
+                extra["weights"] = [9, 1]
+        ctx.hcatPCFGNative(ctx.hcatHashType, ctx.hcatHashFile, **constraints, **extra)
+    else:
+        ctx.hcatPCFG(ctx.hcatHashType, ctx.hcatHashFile)
+
+
+def pcfg_hints_attack(ctx: Any) -> None:
+    ui = get_ui()
+    if ctx.pcfg_engine() != "native":
+        ui.error(
+            "[!] PCFG Hints needs hashcat's built-in PCFG (-a 4), which this "
+            "hashcat build does not provide."
+        )
+        return
+    _notify.prompt_notify_for_attack("PCFG Hints")
+    answer = ui.ask(
+        "Hint words (comma separated), path to a file, or 'pipal' to use "
+        "the top basewords Pipal finds in the cracked passwords: "
+    ).strip()
+    if not answer:
+        return
+    hintfile = None
+    hintwords = None
+    candidate = os.path.expanduser(answer)
+    if answer.lower() == "pipal":
+        hintwords = pipal_hint_words(ctx)
+        if not hintwords:
+            ui.error(
+                "[!] Pipal produced no basewords (is PIPAL_PATH set, and has "
+                "anything been cracked yet?)."
+            )
+            return
+        ui.say("[*] Using Pipal basewords as hints: " + ", ".join(hintwords))
+    elif os.path.isfile(candidate):
+        hintfile = candidate
+    else:
+        hintwords = [w.strip() for w in answer.split(",") if w.strip()]
+        if not hintwords:
+            return
+    constraints = _prompt_pcfg_constraints(ctx)
+    if constraints is None:
+        return
+    ctx.hcatPCFGHints(
+        ctx.hcatHashType,
+        ctx.hcatHashFile,
+        hintwords=hintwords,
+        hintfile=hintfile,
+        **constraints,
+    )
 
 
 def prince_ling_attack(ctx: Any) -> None:

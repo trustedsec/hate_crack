@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=84.0.0", "setuptools-scm>=10.2.3"]
+requires = ["setuptools>=84.0.0", "setuptools-scm>=10.3.4"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -15,7 +15,7 @@ dependencies = [
     "simple-term-menu==1.6.6",
     "click>=8.5.0",
     "rich>=13.9.4",
-    "atomic-agents>=2.10.2",
+    "atomic-agents>=2.15.0",
     # Imported directly by hate_crack/llm.py; declared explicitly rather than
     # relying on atomic-agents pulling them in transitively.
     "instructor>=1.14.5",
@@ -152,14 +152,14 @@ testpaths = [
 
 [dependency-groups]
 dev = [
-    "ty==0.0.82",
-    "ruff==0.16.8",
+    "ty==0.0.94",
+    "ruff==0.17.3",
     "pytest==9.1.1",
     "pytest-cov==7.1.0",
     "pytest-timeout>=2.4.0",
     "pexpect>=4.9.0",
     # Drives version bumps in the release workflows; see [tool.commitizen].
-    "commitizen==4.18.1",
+    "commitizen==4.19.3",
     # Used by tests/test_release_versioning.py to parse the workflow YAML.
     "pyyaml==6.0.3",
 ]

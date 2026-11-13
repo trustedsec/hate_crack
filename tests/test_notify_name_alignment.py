@@ -313,3 +313,69 @@ class TestHandlersPassThroughPromptName:
             main_module.hcatPrinceLing("1000", hash_file)
         prince.assert_called_once()
         assert prince.call_args.kwargs.get("attack_name") == "PRINCE-LING"
+
+
+class TestPcfgAttackNames:
+    """PCFG and PCFG Hints share ``hcatPCFGNative``; each must reach
+    ``_run_hcat_cmd`` under the name its handler consented with."""
+
+    def _run_native(self, main_module, fn, *args, **kwargs):
+        with ExitStack() as stack:
+            run = stack.enter_context(patch("hate_crack.main._run_hcat_cmd"))
+            stack.enter_context(patch("hate_crack.main.get_ui"))
+            stack.enter_context(
+                patch("hate_crack.main.pcfg_native.supports_pcfg", return_value=True)
+            )
+            stack.enter_context(
+                patch(
+                    "hate_crack.main.pcfg_native.list_rulesets", return_value=["hints"]
+                )
+            )
+            stack.enter_context(patch.object(main_module, "pcfgNativeRuleset", ""))
+            _enter_all(stack, _common_patches(main_module))
+            fn(*args, **kwargs)
+        return run
+
+    def test_plain_native_passes_pcfg(self, main_module, tmp_path: Path) -> None:
+        run = self._run_native(
+            main_module, main_module.hcatPCFGNative, "1000", str(tmp_path / "h.txt")
+        )
+        assert run.call_args.kwargs["attack_name"] == "PCFG"
+
+    def test_hints_passes_pcfg_hints_and_matches_consent(
+        self, main_module, tmp_path: Path
+    ) -> None:
+        from hate_crack.attacks import pcfg_hints_attack
+
+        ctx = MagicMock()
+        ctx.pcfg_engine.return_value = "native"
+        ctx.hcatHashType = "1000"
+        ctx.hcatHashFile = str(tmp_path / "h.txt")
+        ctx.hcatPCFGHints = main_module.hcatPCFGHints
+        with (
+            patch("hate_crack.attacks._notify.prompt_notify_for_attack") as notify,
+            patch(
+                "builtins.input",
+                side_effect=[
+                    "alpha",
+                    "?l?l?l",
+                ],
+            ),
+        ):
+            run = self._run_native(
+                main_module,
+                pcfg_hints_attack,
+                ctx,
+            )
+        consented = notify.call_args.args[0]
+        assert consented == "PCFG Hints"
+        assert run.call_args.kwargs["attack_name"] == consented
+
+    def test_pcfg_attack_consents_under_pcfg(self) -> None:
+        from hate_crack.attacks import pcfg_attack
+
+        ctx = MagicMock()
+        ctx.pcfg_engine.return_value = "legacy"
+        with patch("hate_crack.attacks._notify.prompt_notify_for_attack") as notify:
+            pcfg_attack(ctx)
+        notify.assert_called_once_with("PCFG")

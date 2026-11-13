@@ -37,6 +37,10 @@ def test_brain_flags_added_for_a_slow_mode(wired, monkeypatch):
 
 def test_no_brain_flags_for_a_fast_mode(wired, monkeypatch):
     main, hash_file = wired
+    # hashcat 7 semantics: fast modes get no brain (8+ is covered below).
+    monkeypatch.setattr(
+        main._hashcat_paths, "hashcat_major_version", lambda _b="hashcat": 7
+    )
     monkeypatch.setattr(main, "hcatHashType", "1000")
     assert "-z" not in main._maybe_add_brain(["hashcat", "-m", "1000"], hash_file, None)
 
@@ -189,3 +193,111 @@ def test_notices_delatch_on_each_state_transition(wired, monkeypatch, capsys):
     )
     main._maybe_add_brain(["hashcat", "-m", "3200"], hash_file, None)
     assert "Brain enabled" in capsys.readouterr().out
+
+
+@pytest.fixture
+def fast8(wired, monkeypatch):
+    """hashcat 8 with brain_fast_hashes unset (default on)."""
+    main, hash_file = wired
+    monkeypatch.setattr(
+        main._hashcat_paths, "hashcat_major_version", lambda _b="hashcat": 8
+    )
+    monkeypatch.setitem(main.config_parser, "brain_client_features", 3)
+    monkeypatch.delitem(main.config_parser, "brain_fast_hashes", raising=False)
+    return main, hash_file
+
+
+def _features(cmd):
+    return cmd[cmd.index("--brain-client-features") + 1]
+
+
+def test_fast_mode_gets_features_2_on_hashcat_8(fast8, monkeypatch):
+    main, hash_file = fast8
+    monkeypatch.setattr(main, "hcatHashType", "1000")
+    cmd = main._maybe_add_brain(["hashcat", "-m", "1000"], hash_file, None)
+    assert "-z" in cmd
+    assert _features(cmd) == "2"
+
+
+def test_slow_mode_keeps_configured_features_on_hashcat_8(fast8, monkeypatch):
+    main, hash_file = fast8
+    monkeypatch.setattr(main, "hcatHashType", "3200")
+    cmd = main._maybe_add_brain(["hashcat", "-m", "3200"], hash_file, None)
+    assert _features(cmd) == "3"
+
+
+def test_fast_mode_gets_no_brain_on_hashcat_7(fast8, monkeypatch):
+    main, hash_file = fast8
+    monkeypatch.setattr(
+        main._hashcat_paths, "hashcat_major_version", lambda _b="hashcat": 7
+    )
+    monkeypatch.setattr(main, "hcatHashType", "1000")
+    assert "-z" not in main._maybe_add_brain(["hashcat", "-m", "1000"], hash_file, None)
+
+
+def test_fast_mode_gets_no_brain_when_version_unknown(fast8, monkeypatch):
+    main, hash_file = fast8
+    monkeypatch.setattr(
+        main._hashcat_paths, "hashcat_major_version", lambda _b="hashcat": None
+    )
+    monkeypatch.setattr(main, "hcatHashType", "1000")
+    assert "-z" not in main._maybe_add_brain(["hashcat", "-m", "1000"], hash_file, None)
+
+
+def test_brain_fast_hashes_false_disables_fast_brain(fast8, monkeypatch):
+    main, hash_file = fast8
+    monkeypatch.setitem(main.config_parser, "brain_fast_hashes", False)
+    monkeypatch.setattr(main, "hcatHashType", "1000")
+    assert "-z" not in main._maybe_add_brain(["hashcat", "-m", "1000"], hash_file, None)
+
+
+@pytest.mark.parametrize(
+    "extra, attack",
+    [
+        (["--potfile-disable"], "0"),
+        ([], "6"),
+        ([], "7"),
+    ],
+)
+def test_fast_brain_keeps_the_exclusions(fast8, monkeypatch, extra, attack):
+    main, hash_file = fast8
+    monkeypatch.setattr(main, "hcatHashType", "1000")
+    cmd = ["hashcat", "-m", "1000", "-a", attack, *extra]
+    assert "-z" not in main._maybe_add_brain(cmd, hash_file, None)
+
+
+def test_fast_brain_skipped_for_a_piped_generator(fast8, monkeypatch):
+    main, hash_file = fast8
+    monkeypatch.setattr(main, "hcatHashType", "1000")
+    assert "-z" not in main._maybe_add_brain(
+        ["hashcat", "-m", "1000"], hash_file, object()
+    )
+
+
+class _UI:
+    def __init__(self):
+        self.said = []
+
+    def say(self, msg, *a, **k):
+        self.said.append(msg)
+
+    def warn(self, msg, *a, **k):
+        self.said.append(msg)
+
+
+@pytest.mark.parametrize(
+    "mode, features, expect_s",
+    [("1000", 3, False), ("3200", 3, True), ("3200", 2, False)],
+)
+def test_s_notice_only_when_features_imply_host_generation(
+    fast8, monkeypatch, mode, features, expect_s
+):
+    main, hash_file = fast8
+    ui = _UI()
+    monkeypatch.setattr(main, "get_ui", lambda: ui)
+    monkeypatch.setitem(main.config_parser, "brain_client_features", features)
+    monkeypatch.setattr(main, "hcatHashType", mode)
+    main._maybe_add_brain(["hashcat", "-m", mode], hash_file, None)
+    text = " ".join(ui.said)
+    assert "Brain enabled" in text
+    assert ("-S" in text) is expect_s

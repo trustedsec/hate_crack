@@ -63,7 +63,7 @@ something you need to do anything about: maintainers merge an approved branch
 into `nightly-dev` with a local fast-forward rather than with GitHub's merge
 button, because `nightly-dev` requires linear history. GitHub marks your pull
 request merged either way. Releases are separate: `nightly-dev` is promoted to
-`main` by a reviewed pull request merged with a merge commit.
+`main` by a maintainer's pull request merged with a merge commit.
 
 ## Setting up
 

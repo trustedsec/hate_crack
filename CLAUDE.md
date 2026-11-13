@@ -332,12 +332,22 @@ default branch to `nightly-dev`.
 
 `main` sits behind the `main-reviewed-promotion` ruleset. Direct pushes are
 rejected; **the only way to change `main` is a pull request from `nightly-dev`**
-that has one approving review from someone other than the last pusher (a new
-push dismisses earlier approvals), passes the required checks (Lint, type-check,
-and tests; Bandit SAST; pip-audit; Workflow lint; Promotion source), and is
-merged with a **merge commit** — the only allowed method. Squash and rebase are
-blocked, and nobody, admins included, can bypass it. `git push origin main` is
-rejected; do not try.
+that passes the required checks (Lint, type-check, and tests; Bandit SAST;
+pip-audit; Workflow lint; Promotion source) and is merged with a **merge
+commit** — the only allowed method. Squash and rebase are blocked, and nobody,
+admins included, can bypass it. `git push origin main` is rejected; do not try.
+
+**No approving review is required (since 2026-10-31).** The ruleset used to
+require one approval from someone other than the last pusher. GitHub never lets
+a pull request's author approve it, and the maintainer who opens a promotion PR
+has usually also pushed its head commit, so in practice every release waited on
+the second maintainer. That requirement was dropped deliberately so one
+maintainer can release; the ruleset name still says "reviewed" for continuity.
+The same change made `Promotion source` a **required** check — it had been
+listed in this section as required while the ruleset did not actually list it,
+so it was advisory until then. Restoring the two-person rule means setting
+`required_approving_review_count` back to 1 and `require_last_push_approval`
+to true on that ruleset, and updating this section.
 
 **The ruleset itself cannot say "from `nightly-dev`".** GitHub rulesets have no
 rule for a PR's head branch, so until 2026-10-29 a fork PR aimed at `main` could
@@ -374,8 +384,9 @@ Before merging that PR:
    otherwise stays open until somebody notices. Entries carry their issue
    inline as `(#NNN)` for exactly this reason; grep the section rather than
    trusting memory.
-3. Confirm the full suite and every CI job pass on the PR, including Workflow lint.
-4. Get the other maintainer's approval. Every release needs it.
+3. Confirm the full suite and every CI job pass on the PR, including Workflow
+   lint and Promotion source. No approval is required (see above), so these
+   checks and your own read of the batch are the whole gate.
 
 Then merge with **"Create a merge commit"** in the GitHub UI, or
 `gh pr merge --merge`. This is the one place in the repo where a merge commit is
@@ -394,8 +405,9 @@ other change, then through a promotion PR, and can be promoted immediately. Say
 so in the PR body.
 
 **Emergency path.** An admin can set the `main-reviewed-promotion` ruleset
-enforcement to `disabled`; that is audit-logged. It is not a way around review
-in normal use: every release needs the other maintainer's approval.
+enforcement to `disabled`; that is audit-logged. It is not for normal use: it
+also lifts the required checks and the from-`nightly-dev`-only rule, which the
+normal path keeps.
 
 **Release tags are immutable.** A separate tag ruleset stops `v*` tags from being
 moved or deleted.
@@ -641,7 +653,8 @@ small single-purpose ones:
 | `config_loader.py` | 467 | the one config loader (see Config System) |
 | `config_schema.py` | 434 | `CONFIG_SCHEMA` source of truth (see Config System) |
 | `corpus_stats.py` | 322 | Pipal-adjacent corpus stats |
-| `attack_coverage.py` | ~470 | per-target rule/mask/wordlist coverage store — see below |
+| `attack_coverage.py` | ~560 | planning: target identity, entry parsing, mask canonicalization, skip/filter decision — see below |
+| `coverage_store.py` | ~680 | the per-hash-file SQLite coverage store — see below |
 | `brain.py` | 388 | hashcat brain oracle, slow/fast policy, session identity, client flags, local server lifecycle — see below |
 | `plaintext.py`, `noninteractive.py`, `username_detect.py`, `menu.py`, `formatting.py`, `progress.py`, `cli.py`, `hashview_cache.py` | 60–165 each | small, single-purpose helpers |
 | `ui/` | 434 total | UI backend seam: a `UI` Protocol with `PlainUI` and `RichUI` implementations, `resolve_backend_name`/`build_ui`, and `get_ui`/`set_ui`/`reset_ui` — see Config System for `ui_backend` |
@@ -649,12 +662,19 @@ small single-purpose ones:
 
 **`attack_coverage.py`** (#273) records which rule lines, mask lines and
 wordlists have already run against a hash file, so `_run_hcat_cmd` can offer to
-skip the overlap. Backed by SQLite at
-`~/.hate_crack/coverage/attack_coverage.sqlite3` — deliberately *not* the
-append-only key file `hashview_cache.py` uses, because that cache is bounded by
-hash-list size while this one is bounded by rules x wordlists (~191k keys from
-one Dictionary attack, where an append-only file grows on every repeat).
-Two invariants to preserve when touching it: **every failure to establish
+skip the overlap. The store (`coverage_store.py`) is a SQLite file **beside the
+hash file**, `<hashfile>.coverage.sqlite3`, so coverage moves and is deleted
+with the engagement. It is all integers: targets (content sha256), wordlists
+and variants are interned, and a covered rule or mask line is a signed 64-bit
+blake2b. **Wordlists are identified by `(realpath, size, mtime_ns)` from one
+`stat()` and are never read** — the central store this replaced content-hashed
+them, so the first plan against a 40 GB corpus was a multi-minute read, and a
+read-only store made that happen every session without a word. A store that
+cannot be opened or written now prints `[!] Coverage disabled for ...` once and
+goes inert. The old central `~/.hate_crack/coverage/attack_coverage.sqlite3`
+is deleted on first start of the new version (`remove_legacy_store`); its keys
+were not convertible. Network filesystems get a rollback journal instead of
+WAL. Two invariants to preserve when touching it: **every failure to establish
 identity returns an inert plan** (never filter on a guess — a wrongly filtered
 run silently skips untried candidates), and **coverage is recorded only on clean
 completion** (hashcat exit 0 or 1, not interrupted). Chained `-r a -r b` runs are
@@ -719,7 +739,7 @@ later silently ignores `ui_backend` and nothing else fails.
 
 Alongside the interactive menu, `main.py` exposes scripted entry points:
 
-- **Scripted attacks** — 21 subcommands covering all but five of the menu
+- **Scripted attacks** — 22 subcommands covering all but five of the menu
   attacks (#340). Every one is a row in `hate_crack/noninteractive.py`'s
   **`ATTACK_SPECS`**, which is the source of truth: `ATTACK_COMMANDS` is
   derived from it, and both `add_attack_subparsers` and `_dispatch` iterate
@@ -819,11 +839,11 @@ file is ignored, with a warning naming the key and its real home.
   gitignored. Home is chosen per key by "is this a secret", not by "is this
   bundled vs. third-party"; those two questions usually agree, and
   `BRAIN_PASSWORD` is the key where they don't.
-- **`config.json`** owns the other 49 settings — wordlists, masks, rules,
+- **`config.json`** owns the other 55 settings — wordlists, masks, rules,
   tuning, potfile, hashcat path and binary, pcfg/omen/prince limits, notify
-  toggles, the seven other `brain_*` keys, and five preferences promoted from
+  toggles, the eight other `brain_*` keys, and five preferences promoted from
   CLI flags. It is **first-class forever**; it was never deprecated and there
-  is no removal timeline. `ui_backend` is one of the 49; its `choices` is
+  is no removal timeline. `ui_backend` is one of the 55; its `choices` is
   pinned to `ui.BACKENDS` plus `ui.RETIRED_BACKENDS` by
   `tests/test_ui_config_key.py`, so adding a backend without offering it as a
   config value fails the suite.

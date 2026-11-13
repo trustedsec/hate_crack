@@ -328,12 +328,36 @@ CONFIG_SCHEMA: tuple[ConfigKey, ...] = (
     ConfigKey("OMEN_MAX_CANDIDATES", "omenMaxCandidates", "int", 100000000),
     ConfigKey("PCFG_RULESET", "pcfgRuleset", "str", "Default"),
     ConfigKey("PCFG_MAX_CANDIDATES", "pcfgMaxCandidates", "int", 50000000),
+    # pcfg_guesser.py options hate_crack used to leave at the guesser's own
+    # defaults. "honeywords" is deliberately not a choice: it generates decoys
+    # for defenders and is useless for cracking.
+    ConfigKey(
+        "PCFG_MODE",
+        "pcfgMode",
+        "str",
+        "true_prob_order",
+        choices=("true_prob_order", "random_walk"),
+    ),
+    ConfigKey("PCFG_SKIP_BRUTE", "pcfgSkipBrute", "bool", False),
+    ConfigKey("PCFG_ALL_LOWER", "pcfgAllLower", "bool", False),
     ConfigKey(
         "PCFG_PRINCE_LING_MAX_CANDIDATES",
         "pcfgPrinceLingMaxCandidates",
         "int",
         10000000,
     ),
+    # "auto" uses hashcat's built-in PCFG (-a 4) when the build has it and the
+    # pcfg_guesser.py pipe otherwise. pcfgRuleset names a pcfg_cracker directory
+    # for the pipe; pcfgNativeRuleset names a hashcat ruleset (directory or
+    # .tar.xz) for -a 4.
+    ConfigKey(
+        "PCFG_ENGINE",
+        "pcfgEngine",
+        "str",
+        "auto",
+        choices=("auto", "native", "legacy"),
+    ),
+    ConfigKey("PCFG_NATIVE_RULESET", "pcfgNativeRuleset", "str", "default-passwords"),
     ConfigKey(
         "HCAT_SMART_MASK_MIN_CLUSTER_SIZE", "hcatSmartMaskMinClusterSize", "int", 3
     ),
@@ -411,6 +435,9 @@ CONFIG_SCHEMA: tuple[ConfigKey, ...] = (
     # 1 hashed passwords, 2 attack positions, 3 both. 3 is what de-duplicates
     # across differing attacks; 2 is the low-memory escape hatch.
     ConfigKey("BRAIN_CLIENT_FEATURES", "brain_client_features", "int", 3),
+    # hashcat >= 8 only: put brain on fast hashes too, with features=2 (attack
+    # positions only, device generator kept). Off means fast hashes get none.
+    ConfigKey("BRAIN_FAST_HASHES", "brain_fast_hashes", "bool", True),
     ConfigKey("BRAIN_SERVER_TIMER", "brain_server_timer", "int", 300),
     ConfigKey("BRAIN_MODES_FORCE", "brain_modes_force", "csv_list", []),
     ConfigKey("BRAIN_MODES_EXCLUDE", "brain_modes_exclude", "csv_list", []),

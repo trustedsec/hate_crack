@@ -15,6 +15,7 @@ interactive prompt still live, waiting on a stdin nobody is attached to.
 
 import os
 from typing import Any, Callable, NamedTuple
+from hate_crack.pipal_hints import pipal_hint_words
 from hate_crack.ui import get_ui
 
 
@@ -710,6 +711,198 @@ def _spoonman_args(p) -> None:
     )
 
 
+def _add_pcfg_shape_arguments(p) -> None:
+    """Flags shared by pcfg and pcfghints; all need the native engine."""
+    p.add_argument(
+        "--mask",
+        default=None,
+        help="restrict candidates to a hashcat mask (native engine only)",
+    )
+    p.add_argument(
+        "--contains",
+        action="append",
+        default=None,
+        help="require candidates to contain this string; repeat for more "
+        "(native engine only)",
+    )
+    p.add_argument(
+        "--pwmin",
+        type=int,
+        default=None,
+        help="minimum password length (native engine only)",
+    )
+    p.add_argument(
+        "--pwmax",
+        type=int,
+        default=None,
+        help="maximum password length (native engine only)",
+    )
+
+
+def _pcfg_shape_kwargs(args: Any) -> dict[str, Any]:
+    """The given shape flags as hcatPCFGNative/Hints kwargs; omitted stays omitted."""
+    kwargs: dict[str, Any] = {}
+    if args.mask is not None:
+        kwargs["mask"] = args.mask
+    if args.contains:
+        kwargs["contains"] = args.contains
+    if args.pwmin is not None:
+        kwargs["pwmin"] = _positive_int(args.pwmin, "--pwmin")
+    if args.pwmax is not None:
+        kwargs["pwmax"] = _positive_int(args.pwmax, "--pwmax")
+    return kwargs
+
+
+def _parse_weights(value: str) -> list[int]:
+    try:
+        return [int(part) for part in value.split(":")]
+    except ValueError:
+        raise _BadInput(
+            f"--weights must be colon-separated integers, got {value!r}"
+        ) from None
+
+
+def _add_pcfg_arguments(p) -> None:
+    p.add_argument(
+        "--ruleset",
+        action="append",
+        default=None,
+        help="hashcat PCFG ruleset name or path; repeat to merge (native engine only)",
+    )
+    p.add_argument(
+        "--costmax",
+        type=int,
+        default=None,
+        help="how deep to enumerate, in bits (native engine only)",
+    )
+    _add_pcfg_shape_arguments(p)
+    p.add_argument(
+        "--weights",
+        default=None,
+        help="colon-separated merge weights, one value per ruleset, e.g. 9:1 "
+        "(native engine only)",
+    )
+
+
+@_validated
+def _run_pcfg(ctx: Any, args: Any) -> int:
+    native_only = (
+        args.ruleset
+        or args.costmax is not None
+        or args.mask is not None
+        or args.contains
+        or args.pwmin is not None
+        or args.pwmax is not None
+        or args.weights is not None
+    )
+    if ctx.pcfg_engine() == "native":
+        kwargs: dict[str, Any] = {}
+        if args.ruleset:
+            kwargs["rulesets"] = args.ruleset
+        if args.costmax is not None:
+            kwargs["costmax"] = _positive_int(args.costmax, "--costmax")
+        kwargs.update(_pcfg_shape_kwargs(args))
+        if args.weights is not None:
+            kwargs["weights"] = _parse_weights(args.weights)
+        # ``is False``: a recorder that returns None must still exit 0.
+        if ctx.hcatPCFGNative(*_target(ctx), **kwargs) is False:
+            raise _BadInput(
+                "hashcat did not start the PCFG attack; see the message above"
+            )
+        return 0
+    # The legacy pipe has no ruleset or cost-depth knob, so refuse rather than
+    # silently ignoring a flag the caller asked for.
+    if native_only:
+        raise _BadInput(
+            "--ruleset, --costmax, --mask, --contains, --pwmin, --pwmax and "
+            "--weights need hashcat's built-in PCFG (-a 4); "
+            "this run is using the pcfg_guesser.py pipe"
+        )
+    ctx.hcatPCFG(*_target(ctx))
+    return 0
+
+
+def _add_pcfghints_arguments(p) -> None:
+    p.add_argument(
+        "--hintwords",
+        default=None,
+        help="comma-separated hint words",
+    )
+    p.add_argument(
+        "--hintfile",
+        default=None,
+        help="file of hint words, one per line",
+    )
+    p.add_argument(
+        "--from-pipal",
+        action="store_true",
+        dest="from_pipal",
+        help="add the top basewords Pipal finds in the cracked passwords "
+        "(needs PIPAL_PATH); combines with --hintwords",
+    )
+    p.add_argument(
+        "--hintrank",
+        choices=("zipf", "linear", "flat"),
+        default=None,
+        help="how hint words are ranked",
+    )
+    p.add_argument(
+        "--hintrepeat",
+        action="store_true",
+        help="allow a hint word to appear more than once in a candidate",
+    )
+    _add_pcfg_shape_arguments(p)
+    p.add_argument(
+        "--costmax",
+        type=int,
+        default=None,
+        help="how deep to enumerate, in bits",
+    )
+
+
+@_validated
+def _run_pcfghints(ctx: Any, args: Any) -> int:
+    if ctx.pcfg_engine() != "native":
+        raise _BadInput(
+            "pcfghints needs hashcat's built-in PCFG (-a 4); "
+            "this run is using the pcfg_guesser.py pipe"
+        )
+    kwargs: dict[str, Any] = {}
+    if args.hintwords is not None:
+        words = [w.strip() for w in args.hintwords.split(",") if w.strip()]
+        if words:
+            kwargs["hintwords"] = words
+    if args.from_pipal:
+        pipal_words = pipal_hint_words(ctx)
+        if not pipal_words:
+            raise _BadInput(
+                "--from-pipal found no basewords (is PIPAL_PATH set, and has "
+                "anything been cracked yet?)"
+            )
+        kwargs["hintwords"] = list(
+            dict.fromkeys([*kwargs.get("hintwords", []), *pipal_words])
+        )
+    if args.hintfile is not None:
+        hintfile = os.path.expanduser(args.hintfile)
+        if not os.path.isfile(hintfile):
+            raise _BadInput(f"--hintfile {hintfile!r} is not a file")
+        kwargs["hintfile"] = hintfile
+    if not kwargs:
+        raise _BadInput("pcfghints needs --hintwords, --hintfile or --from-pipal")
+    if args.hintrank is not None:
+        kwargs["hintrank"] = args.hintrank
+    if args.hintrepeat:
+        kwargs["hintrepeat"] = True
+    if args.costmax is not None:
+        kwargs["costmax"] = _positive_int(args.costmax, "--costmax")
+    kwargs.update(_pcfg_shape_kwargs(args))
+    if ctx.hcatPCFGHints(*_target(ctx), **kwargs) is False:
+        raise _BadInput(
+            "hashcat did not start the PCFG hints attack; see the message above"
+        )
+    return 0
+
+
 def _omen_args(p) -> None:
     p.add_argument(
         "--max-candidates",
@@ -769,7 +962,10 @@ ATTACK_SPECS: tuple[AttackSpec, ...] = (
         _run_bare("hcatPathwellBruteForce"),
     ),
     AttackSpec("prince", "PRINCE attack", None, _run_bare("hcatPrince")),
-    AttackSpec("pcfg", "PCFG attack", None, _run_bare("hcatPCFG")),
+    AttackSpec("pcfg", "PCFG attack", _add_pcfg_arguments, _run_pcfg),
+    AttackSpec(
+        "pcfghints", "PCFG hints attack", _add_pcfghints_arguments, _run_pcfghints
+    ),
     AttackSpec("princeling", "PRINCE-LING attack", None, _run_bare("hcatPrinceLing")),
     AttackSpec(
         "smartmask",

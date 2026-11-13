@@ -223,6 +223,10 @@ hate_crack fingerprint hashes.txt 1000
 hate_crack pathwell    hashes.txt 1000
 hate_crack prince      hashes.txt 1000
 hate_crack pcfg        hashes.txt 1000
+hate_crack pcfg        hashes.txt 1000 --ruleset default-passwords --costmax 48
+hate_crack pcfg        hashes.txt 1000 --mask '?u?l?l?l?l?d?d?d'
+hate_crack pcfg        hashes.txt 1000 --contains alpha --contains beta --pwmin 8 --pwmax 14
+hate_crack pcfghints   hashes.txt 1000 --hintwords alpha,beta
 hate_crack princeling  hashes.txt 1000
 hate_crack smartmask   hashes.txt 1000
 hate_crack corporate   hashes.txt 1000
@@ -749,19 +753,31 @@ The attack offers three generation modes:
 
 #### PCFG Configuration
 
-The PCFG Attack (option 20) and PRINCE-LING Attack (option 21) use the `pcfg_cracker` submodule. Configure them in `config.json`:
+The PCFG Attack (option 20) uses hashcat's built-in attack mode 4 when the hashcat build supports it, and the `pcfg_cracker` submodule otherwise. The PRINCE-LING Attack (option 21) always uses the submodule. Configure them in `config.json`:
 
 ```json
 {
-  "pcfgRuleset": "DEFAULT",
+  "pcfgEngine": "auto",
+  "pcfgNativeRuleset": "default-passwords",
+  "pcfgRuleset": "Default",
   "pcfgMaxCandidates": 50000000,
-  "pcfgPrinceLingMaxCandidates": 10000000
+  "pcfgPrinceLingMaxCandidates": 10000000,
+  "pcfgMode": "true_prob_order",
+  "pcfgSkipBrute": false,
+  "pcfgAllLower": false
 }
 ```
 
-- **`pcfgRuleset`** — Name of the trained grammar to use (default: `DEFAULT`), resolved to `pcfg_cracker/Rules/<name>/`. Train your own with pcfg_cracker's `trainer.py` and set this to the ruleset name.
+- **`pcfgEngine`** — Which engine menu 20 uses: `auto` (default: native `-a 4` when the hashcat build has it, otherwise the `pcfg_guesser.py` pipe), `native` or `legacy` (always the pipe).
+- **`pcfgNativeRuleset`** — Ruleset for the native engine (default: `default-passwords`): a hashcat ruleset name, a ruleset directory, or a `.tar.xz`. Rulesets are looked up in `~/.local/share/hashcat/pcfg/` or the shared hashcat install directory; hashcat ships `default-passwords` and `hints`.
+- **`pcfgRuleset`** — Pipe only (and PRINCE-LING). Name of the trained grammar to use (default: `Default`), resolved to `pcfg_cracker/Rules/<name>/`. Train your own with pcfg_cracker's `trainer.py` and set this to the ruleset name.
 - **`pcfgMaxCandidates`** — Maximum candidates `pcfg_guesser.py` emits for the PCFG attack (default: `50000000`).
 - **`pcfgPrinceLingMaxCandidates`** — Maximum base words `prince_ling.py` writes into the cached PRINCE base wordlist (default: `10000000`).
+- **`pcfgMode`** — How `pcfg_guesser.py` orders guesses: `true_prob_order` (default, strict probability order) or `random_walk` (samples from the grammar).
+- **`pcfgSkipBrute`** — Skip the guesser's built-in OMEN/Markov tail (default: `false`). Use it when you already run a dedicated Markov attack.
+- **`pcfgAllLower`** — Emit lowercase guesses only, with no case mangling (default: `false`).
+
+`pcfgRuleset`, `pcfgMaxCandidates`, `pcfgMode`, `pcfgSkipBrute` and `pcfgAllLower` apply to the `pcfg_guesser.py` pipe only; the native engine ignores them.
 
 ### Optimized kernels (`optimizedKernelAttacks`)
 
@@ -770,7 +786,10 @@ but cap candidate length (roughly 31 characters, lower for some modes) and
 silently skip anything longer. `optimizedKernelAttacks` in `config.json` lists
 the attacks that run with `-O`; omit an attack from the list to run it with
 full-length kernels. The list in `config.json.example` matches the built-in
-default that applies when no `config.json` exists.
+default that applies when no `config.json` exists. The native PCFG engine
+(`-a 4`) never receives `-O` regardless of this setting, because hashcat refuses
+`-O` on modes whose only PCFG kernel is the pure one; the `hcatPCFG` list entry
+governs the pipe only.
 
 Four attacks honour the setting but are **not** optimized by default, because
 they feed candidates that can exceed the `-O` ceiling — add them to the list to
@@ -902,8 +921,11 @@ automatically, with no menu step required: whenever it is about to launch an
 attack against a hash mode hashcat reports as slow (bcrypt, scrypt, and other
 KDF-backed modes, where the hash itself is the bottleneck rather than
 candidate generation), it starts or reuses a local brain server and adds the
-`--brain-*` flags to the hashcat invocation for you. A fast mode is left
-alone, unless its mode number is listed in `brain_modes_force`, and a mode
+`--brain-*` flags to the hashcat invocation for you. On hashcat 8 or newer a fast mode
+also gets brain, with `--brain-client-features=2` (attack positions only, which
+keeps hashcat's device generator and does not force `-S`); set
+`brain_fast_hashes` to `false` to leave fast modes alone. On older hashcat a
+fast mode is left alone, unless its mode number is listed in `brain_modes_force`, and a mode
 listed in `brain_modes_exclude` never engages brain regardless of hashcat's
 own verdict — exclude always wins.
 
@@ -919,11 +941,11 @@ different wordlists within the same run, and — as the round trip in
 second, separate hashcat run against the same target. Both can be enabled at
 once with no conflict.
 
-Seven keys in `config.json` control it, all under the `brain_*` prefix:
+Eight keys in `config.json` control it, all under the `brain_*` prefix:
 `brain_enabled` (master switch, default on), `brain_host` (empty means
 hate_crack manages a local server on loopback; a value means connect to that
 host only — hate_crack never spawns a server it wasn't told to manage),
-`brain_port` (default `6863`), `brain_client_features` (`1` hashed passwords,
+`brain_fast_hashes` (default on; hashcat 8+ only, see above), `brain_port` (default `6863`), `brain_client_features` (`1` hashed passwords,
 `2` attack positions, `3` both — `3` de-duplicates the most but costs the
 server roughly 12 bytes of RAM per candidate seen), `brain_server_timer`
 (hashcat's own setting for how often the server writes its `.ldmp`/`.admp`
@@ -938,7 +960,7 @@ reused across every attack in the session. At the default of `300`, that
 means a dump write to `~/.hate_crack/brain/` every five minutes for as long
 as hate_crack is running.
 
-An eighth key, `BRAIN_PASSWORD`, lives in `.env` instead of `config.json`
+A ninth key, `BRAIN_PASSWORD`, lives in `.env` instead of `config.json`
 because it is a shared secret, not because brain is a third-party
 integration — it is used only when connecting to a remote brain server you
 already run; the auto-spawned local server generates its own random password
@@ -1253,6 +1275,7 @@ All tests use mocked API calls, so they can run without connectivity to a Hashvi
   (23) Rosetta Attack
   (24) Corporate Masks Brute Force
   (25) Smart Mask Attack
+  (26) PCFG Hints
 
   (80) Wordlist Tools
   (81) Rule File Tools
@@ -1531,18 +1554,39 @@ Generates all unique non-empty subset combinations from a short wordlist using `
 * Candidates are piped directly to hashcat stdin
 
 #### PCFG Attack
-Uses [pcfg_cracker](https://github.com/lakiw/pcfg_cracker) to generate candidates from a Probabilistic Context-Free Grammar, piping `pcfg_guesser.py` output directly into hashcat's stdin mode. A PCFG models password *structure* (baseword + digits + symbol, capitalization habits, keyboard walks) with learned probabilities, so candidates come out roughly in descending likelihood order.
+Generates candidates from a Probabilistic Context-Free Grammar. A PCFG models password *structure* (baseword + digits + symbol, capitalization habits, keyboard walks) with learned probabilities, so candidates come out roughly in descending likelihood order.
 
-* Requires the `pcfg_cracker` submodule. Presence is checked at startup and reported non-fatally: if it is missing, the PCFG attacks are simply unavailable. Run `make` to fetch it.
-* Uses the trained grammar named by `pcfgRuleset` in `config.json` (default `DEFAULT`), read from `pcfg_cracker/Rules/<name>/`
+When the hashcat build supports attack mode 4 (checked by probing `hashcat --help`), hate_crack runs hashcat's built-in PCFG engine: candidates are generated on the GPU with no pipe, and hashcat's own restore and skip work. Native runs pass no `-O`, are not filtered by attack coverage, and use the hashcat session label `PCFG_native`. The ruleset comes from `pcfgNativeRuleset` (default `default-passwords`). Set `pcfgEngine` to `legacy` to force the pipe, or `native` to require the built-in engine.
+
+Fallback (pipe) path, used when the build has no `-a 4` or `pcfgEngine` is `legacy`: uses [pcfg_cracker](https://github.com/lakiw/pcfg_cracker), piping `pcfg_guesser.py` output directly into hashcat's stdin mode.
+
+* Requires the `pcfg_cracker` submodule, but only for this pipe fallback and for PRINCE-LING (option 21). The native engine needs no submodule. Presence is checked at startup and reported non-fatally; run `make` to fetch it.
+* Uses the trained grammar named by `pcfgRuleset` in `config.json` (default `Default`), read from `pcfg_cracker/Rules/<name>/`
 * Candidate count is capped by `pcfgMaxCandidates` (default 50,000,000)
 * hate_crack does not wrap grammar training. To build a grammar from a target-specific password set, run pcfg_cracker's own `trainer.py` and point `pcfgRuleset` at the resulting ruleset name
+
+On the native engine, option 20 also asks for optional shape constraints (blank skips each): a `mask` in hashcat mask syntax, else `contains` (comma-separated substrings that must all appear), then a minimum and a maximum length. A mask and `contains` are alternatives, since hashcat refuses both together, and a mask drops the OMEN escape. A mask fixes the length, so the length prompts are skipped after one. `contains` needs a hashcat build whose PCFG feed has that setting (added after hashcat v7.1.2-907; the v8.0.0 source tree has it); an older build prints `contains: no such setting` and the attack does not run. hate_crack does not currently propagate hashcat's exit status, so a scripted `hate_crack pcfg --contains ...` can still exit 0. After the constraints, if any `keyboard-walks-<layout>` rulesets are installed, an optional picker merges the chosen one with the default ruleset at weights 9:1. See hashcat's own `docs/hashcat-pcfg.md` for what these settings do.
+
+Non-interactively, `hate_crack pcfg <hashfile> <hashtype> [--ruleset NAME_OR_PATH ...] [--costmax N] [--mask M] [--contains S ...] [--pwmin N] [--pwmax N] [--weights A:B[:C...]]` accepts `--ruleset` (repeatable, rulesets are merged), `--costmax`, the shape flags `--mask`, `--contains` (repeatable), `--pwmin` and `--pwmax`, and `--weights` (one value per ruleset). All of them work only on the native engine; the command exits 1 with a message on the pipe or when hashcat refuses the settings.
+
+#### PCFG Hints Attack
+Menu option 26. Runs hashcat's bundled `hints` ruleset, which models structure only: every candidate contains at least one of the words you supply, and each hint word appears at most once per candidate unless `hintrepeat` is set. It needs the native `-a 4` engine and refuses with an error on the pipe.
+
+* Prompts for hint words, a file path, or the keyword `pipal`. An existing file path is read as a hint file, one word per line; `pipal` runs Pipal over the passwords cracked so far and uses its top basewords (`PIPAL_COUNT`, default 10; needs `PIPAL_PATH` set and at least one crack); anything else is a comma-separated list (for example `alpha,beta`)
+* Scripted runs use `--from-pipal` for the same thing; it combines with `--hintwords` and `--hintfile`
+* Every Pipal-derived list is also saved to `<hashfile>.hints`, one word per line, so you can edit it and reuse it with `--hintfile`
+* Extensive Pure_Hate runs this attack automatically (Pipal basewords as hints, just before the Good Measure step) when hashcat has the native `-a 4` engine and `PIPAL_PATH` is set; otherwise it skips the step silently
+* Then asks for the same optional shape constraints as the PCFG attack (mask or contains, then minimum and maximum length; a mask fixes the length, so the length prompts are skipped after one; `contains` has the same hashcat build requirement described under the PCFG Attack)
+* `hintrank` and `hintrepeat` are not asked by the menu; they are scripted-flag-only (`--hintrank zipf|linear|flat`, default `zipf`, and `--hintrepeat`)
+* See hashcat's `docs/hashcat-pcfg.md` for the ruleset's behaviour
+
+Non-interactively: `hate_crack pcfghints <hashfile> <hashtype> (--hintwords a,b | --hintfile FILE) [--hintrank zipf|linear|flat] [--hintrepeat] [--mask M] [--contains S ...] [--pwmin N] [--pwmax N] [--costmax N]`. Native engine only; exits 1 otherwise or when hashcat refuses the run.
 
 #### PRINCE-LING Attack
 Uses pcfg_cracker's `prince_ling.py` to derive an optimized PRINCE base wordlist from a trained grammar, then hands it to the existing PRINCE attack. PRINCE-LING picks base words the grammar says are actually productive, so the PRINCE combination space is far less wasteful than pointing PRINCE at a generic wordlist.
 
 * Requires the `pcfg_cracker` submodule and a trained ruleset directory, same as the PCFG attack
-* The generated wordlist is cached at `<hcatOptimizedWordlists>/pcfg_prince_ling_<ruleset>.txt` and reused across sessions
+* The generated wordlist is cached at `<hcatOptimizedWordlists>/pcfg_prince_ling_<ruleset>_<pcfgPrinceLingMaxCandidates>.txt` and reused across sessions
 * Regenerates only when the ruleset directory is newer than the cached wordlist, so retraining a grammar invalidates the cache automatically
 * Generation is written to a temporary file and atomically moved into place; a failed or interrupted run cleans up its partial file and leaves any existing cache intact
 * Base wordlist size is capped by `pcfgPrinceLingMaxCandidates` (default 10,000,000)
