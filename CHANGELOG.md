@@ -9,6 +9,8 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ## [Unreleased]
 
+## [2.40.0] - 2026-11-12
+
 ### Fixed
 - **Two hate_crack sessions on the same hash file no longer turn coverage off.** A store briefly locked by the other session skips recording that one run instead of disabling coverage for the rest of the session.
 - **Ctrl-C out of hashcat no longer leaves the terminal broken.** hashcat switches the tty to no-echo, non-canonical mode for its keypress menu and restores it only on a clean exit; hate_crack kills it on Ctrl-C, so the next menu prompt came back with Backspace and echo not working. The terminal mode is now saved before hashcat starts and restored on every exit path, and keys typed while hashcat owned the terminal are discarded rather than leaking into the next prompt.
