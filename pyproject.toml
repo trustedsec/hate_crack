@@ -28,7 +28,7 @@ dependencies = [
     # carries a dozen advisories; that in turn pulls huggingface-hub 1.x and a
     # vulnerable filelock 3.x. Drop each floor once a fresh resolve no longer
     # lands below it.
-    "litellm>=1.96.2",
+    "litellm>=1.106.6",
     "filelock>=4.2.1",
 ]
 
