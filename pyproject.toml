@@ -29,7 +29,7 @@ dependencies = [
     # vulnerable filelock 3.x. Drop each floor once a fresh resolve no longer
     # lands below it.
     "litellm>=1.96.2",
-    "filelock>=4.2.1",
+    "filelock>=4.2.6",
 ]
 
 [project.scripts]
