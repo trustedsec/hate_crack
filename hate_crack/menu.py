@@ -13,6 +13,8 @@ from __future__ import annotations
 import os
 import sys
 
+from hate_crack import cli
+
 try:
     from simple_term_menu import TerminalMenu
 
@@ -67,7 +69,7 @@ def _numbered_menu(
     w = max(len(key) for key, _ in items)
     for key, label in items:
         print(f"\t[{key:>{w}}] {label}")
-    choice = input(prompt).strip()
+    choice = cli.read_line(prompt).strip()
     if not choice:
         return None
     return choice

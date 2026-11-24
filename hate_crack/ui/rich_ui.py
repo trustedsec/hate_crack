@@ -88,7 +88,7 @@ class RichUI:
         # redraws a prompt it was given, so printing it separately let every
         # Tab-completion redraw overwrite it (and a match listing erase it).
         with cli.choice_history(choices):
-            return input(prompt) or default
+            return cli.read_line(prompt) or default
 
     def ask_int(
         self,
@@ -102,7 +102,7 @@ class RichUI:
     def confirm(self, prompt: str, *, default: bool = True) -> bool:
         while True:
             try:
-                answer = input(prompt).strip().lower()
+                answer = cli.read_line(prompt).strip().lower()
             except EOFError:
                 return default
             if not answer:

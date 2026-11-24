@@ -61,6 +61,24 @@ def configure_completion(completer, display_matches_hook=None) -> None:
     readline.set_completer(completer)
 
 
+def read_line(prompt: str = "") -> str:
+    """``input(prompt)``, except the line editor only ever sees the last line.
+
+    libedit measures a prompt containing a newline as one long line, so it
+    places the editable text after the *whole* prompt's width: a long
+    multi-line prompt is soft-wrapped mid-line, and every redraw -- typing,
+    backspace, a Tab completion -- lands at the wrong column. Writing the
+    leading lines ourselves keeps the screen byte-identical while handing
+    readline a prompt it can measure. Resolves ``input`` at call time so
+    tests that patch ``builtins.input`` still land.
+    """
+    head, newline, tail = prompt.rpartition("\n")
+    if newline:
+        sys.stdout.write(head + newline)
+        sys.stdout.flush()
+    return input(tail)
+
+
 def prompt_int(
     prompt: str,
     default: Optional[int] = None,
@@ -79,7 +97,7 @@ def prompt_int(
     """
     while True:
         try:
-            raw = input(prompt).strip()
+            raw = read_line(prompt).strip()
         except EOFError:
             return None
         if raw.lower() == "q":

@@ -9,6 +9,9 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ## [Unreleased]
 
+### Fixed
+- **Tab completion works again at long multi-line prompts such as Quick Crack's wordlist picker.** On macOS's libedit, a prompt containing a newline was measured as one long line, so once it was wider than the terminal the line editor wrapped it mid-line and drew every keystroke and completion at the wrong column. The completed path landed far to the right of the typed text, which looked like Tab doing nothing. Every prompt now prints its leading lines itself and hands the line editor only the last one.
+
 ## [2.40.0] - 2026-11-12
 
 ### Fixed

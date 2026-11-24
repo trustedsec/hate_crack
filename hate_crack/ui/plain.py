@@ -34,7 +34,7 @@ class PlainUI:
         choices: list[tuple[str, str]] | None = None,
     ) -> str:
         with cli.choice_history(choices):
-            return input(prompt) or default
+            return cli.read_line(prompt) or default
 
     def ask_int(
         self,
@@ -48,7 +48,7 @@ class PlainUI:
     def confirm(self, prompt: str, *, default: bool = True) -> bool:
         while True:
             try:
-                answer = input(prompt).strip().lower()
+                answer = cli.read_line(prompt).strip().lower()
             except EOFError:
                 return default
             if not answer:
