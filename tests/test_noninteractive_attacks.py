@@ -63,6 +63,7 @@ def test_issue_340_attacks_are_all_present():
         "bandrel",
         "permute",
         "adhocmask",
+        "tokenmask",
         "ngram",
         "combipow",
         "spoonman",
@@ -1374,3 +1375,178 @@ def test_pcfghints_from_pipal_without_basewords_exits_1(tmp_path, pipal_result):
     args = _parse(["pcfghints", ctx.hcatHashFile, "1000", "--from-pipal"])
     assert ni.run_noninteractive(ctx, args) == 1
     assert ctx.calls == []
+
+
+# --------------------------------------------------------------------------
+# tokenmask (hashcat -a 13)
+# --------------------------------------------------------------------------
+
+
+def _tokenmask_ctx(tmp_path, monkeypatch, supported=True, result=True):
+    from hate_crack import tokenmask
+
+    ctx = _spy_ctx(tmp_path, hcatBin="hashcat", hcatPath=str(tmp_path / "hc"))
+    ctx.hcatTokenMask = lambda *a, **k: (
+        ctx.calls.append(("hcatTokenMask", a, k)) or result
+    )
+    monkeypatch.setattr(tokenmask, "supports_tokenmask", lambda b: supported)
+    monkeypatch.setattr(tokenmask, "tokenset_search_dirs", lambda *a, **k: [])
+    return ctx
+
+
+def test_tokenmask_is_registered():
+    assert "tokenmask" in ni.ATTACK_COMMANDS
+
+
+def test_tokenmask_parses_dash_digit_options():
+    args = _parse(["tokenmask", "h.txt", "0", "--mask", "?1?d", "-1", "cyrillic"])
+    assert args.charset1 == "cyrillic"
+    assert args.charset2 is None
+
+
+def test_tokenmask_inline_charset(tmp_path, monkeypatch):
+    ctx = _tokenmask_ctx(tmp_path, monkeypatch)
+    args = _parse(
+        ["tokenmask", ctx.hcatHashFile, "1000", "--mask", "?1?1?d", "-1", "?l?d"]
+    )
+    assert ni.run_noninteractive(ctx, args) == 0
+    name, a, k = ctx.calls[0]
+    assert name == "hcatTokenMask"
+    assert a == ("1000", ctx.hcatHashFile, "?1?1?d", {1: "?l?d"})
+    assert k["increment"] is False
+
+
+def test_tokenmask_file_charset(tmp_path, monkeypatch):
+    ctx = _tokenmask_ctx(tmp_path, monkeypatch)
+    f = tmp_path / "tok.tokenset"
+    f.write_text("ab\ncd\n")
+    args = _parse(
+        ["tokenmask", ctx.hcatHashFile, "1000", "--mask", "?1?d", "-1", str(f)]
+    )
+    assert ni.run_noninteractive(ctx, args) == 0
+    assert ctx.calls[0][1][3] == {1: str(f)}
+
+
+def test_tokenmask_tokenset_name(tmp_path, monkeypatch):
+    from hate_crack import tokenmask
+
+    ctx = _tokenmask_ctx(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        tokenmask, "list_tokensets", lambda dirs: [("cyrillic", "/x/cyrillic.tokenset")]
+    )
+    args = _parse(
+        ["tokenmask", ctx.hcatHashFile, "1000", "--mask", "?1?d", "-1", "cyrillic"]
+    )
+    assert ni.run_noninteractive(ctx, args) == 0
+    assert ctx.calls[0][1][3] == {1: "/x/cyrillic.tokenset"}
+
+
+def test_tokenmask_missing_charset_for_used_slot(tmp_path, monkeypatch, capsys):
+    ctx = _tokenmask_ctx(tmp_path, monkeypatch)
+    args = _parse(["tokenmask", ctx.hcatHashFile, "1000", "--mask", "?1?2", "-1", "?l"])
+    assert ni.run_noninteractive(ctx, args) == 1
+    assert ctx.calls == []
+    assert "?2 is used by the mask but -2 was not given" in capsys.readouterr().out
+
+
+def test_tokenmask_mask_without_slots(tmp_path, monkeypatch):
+    ctx = _tokenmask_ctx(tmp_path, monkeypatch)
+    args = _parse(["tokenmask", ctx.hcatHashFile, "1000", "--mask", "?d?d"])
+    assert ni.run_noninteractive(ctx, args) == 1
+    assert ctx.calls == []
+
+
+def test_tokenmask_rejects_a_mask_file(tmp_path, monkeypatch):
+    ctx = _tokenmask_ctx(tmp_path, monkeypatch)
+    mf = tmp_path / "m.hcmask"
+    mf.write_text("?1?d\n")
+    args = _parse(
+        ["tokenmask", ctx.hcatHashFile, "1000", "--mask", str(mf), "-1", "?l"]
+    )
+    assert ni.run_noninteractive(ctx, args) == 1
+    assert ctx.calls == []
+
+
+def test_tokenmask_unsupported_hashcat(tmp_path, monkeypatch):
+    ctx = _tokenmask_ctx(tmp_path, monkeypatch, supported=False)
+    args = _parse(["tokenmask", ctx.hcatHashFile, "1000", "--mask", "?1", "-1", "?l"])
+    assert ni.run_noninteractive(ctx, args) == 1
+    assert ctx.calls == []
+
+
+def test_tokenmask_ascii_widens_a_file_slot(tmp_path, monkeypatch):
+    ctx = _tokenmask_ctx(tmp_path, monkeypatch)
+    f = tmp_path / "tok.tokenset"
+    f.write_text("ab\n")
+    args = _parse(
+        [
+            "tokenmask",
+            ctx.hcatHashFile,
+            "1000",
+            "--mask",
+            "?1?d",
+            "-1",
+            str(f),
+            "--ascii",
+            "1",
+        ]
+    )
+    assert ni.run_noninteractive(ctx, args) == 0
+    assert ctx.calls[0][1][3] == {1: "?l?u?2", 2: str(f)}
+
+
+def test_tokenmask_ascii_needs_a_file_slot(tmp_path, monkeypatch):
+    ctx = _tokenmask_ctx(tmp_path, monkeypatch)
+    for extra in (["-1", "?l", "--ascii", "1"], ["-1", "?l", "--ascii", "2"]):
+        args = _parse(["tokenmask", ctx.hcatHashFile, "1000", "--mask", "?1?d", *extra])
+        assert ni.run_noninteractive(ctx, args) == 1
+    assert ctx.calls == []
+
+
+def test_tokenmask_increment_bounds(tmp_path, monkeypatch):
+    ctx = _tokenmask_ctx(tmp_path, monkeypatch)
+    args = _parse(
+        [
+            "tokenmask",
+            ctx.hcatHashFile,
+            "1000",
+            "--mask",
+            "?1?1",
+            "-1",
+            "?l",
+            "--increment-min",
+            "1",
+            "--increment-max",
+            "2",
+        ]
+    )
+    assert ni.run_noninteractive(ctx, args) == 0
+    k = ctx.calls[0][2]
+    assert (k["increment"], k["increment_min"], k["increment_max"]) == (True, "1", "2")
+
+
+def test_tokenmask_rejects_inverted_increment(tmp_path, monkeypatch):
+    ctx = _tokenmask_ctx(tmp_path, monkeypatch)
+    args = _parse(
+        [
+            "tokenmask",
+            ctx.hcatHashFile,
+            "1000",
+            "--mask",
+            "?1?1",
+            "-1",
+            "?l",
+            "--increment-min",
+            "3",
+            "--increment-max",
+            "2",
+        ]
+    )
+    assert ni.run_noninteractive(ctx, args) == 1
+    assert ctx.calls == []
+
+
+def test_tokenmask_refusal_returns_1(tmp_path, monkeypatch):
+    ctx = _tokenmask_ctx(tmp_path, monkeypatch, result=False)
+    args = _parse(["tokenmask", ctx.hcatHashFile, "1000", "--mask", "?1", "-1", "?l"])
+    assert ni.run_noninteractive(ctx, args) == 1

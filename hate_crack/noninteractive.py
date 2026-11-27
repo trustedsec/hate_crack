@@ -15,6 +15,7 @@ interactive prompt still live, waiting on a stdin nobody is attached to.
 
 import os
 from typing import Any, Callable, NamedTuple
+from hate_crack import tokenmask
 from hate_crack.pipal_hints import pipal_hint_words
 from hate_crack.ui import get_ui
 
@@ -390,6 +391,58 @@ def _run_adhocmask(ctx: Any, args: Any) -> int:
 
 
 @_validated
+def _run_tokenmask(ctx: Any, args: Any) -> int:
+    if not tokenmask.supports_tokenmask(ctx.hcatBin):
+        raise _BadInput(
+            "this hashcat build has no attack mode 13 (Token Mask); it needs a "
+            "hashcat built from master after 2026-11-26"
+        )
+    mask = args.mask
+    if os.path.isfile(mask):
+        raise _BadInput("-a 13 takes one literal mask; mask files are not supported")
+    slots = tokenmask.custom_charset_slots(mask)
+    if not slots:
+        raise _BadInput(
+            "this mask uses no ?1-?8 slot, so it is an ordinary byte mask; "
+            "use adhocmask"
+        )
+    tokensets = tokenmask.list_tokensets(
+        tokenmask.tokenset_search_dirs(ctx.hcatBin, getattr(ctx, "hcatPath", ""))
+    )
+    charsets: dict[int, str] = {}
+    for slot in slots:
+        raw = getattr(args, f"charset{slot}", None)
+        if raw is None:
+            raise _BadInput(f"?{slot} is used by the mask but -{slot} was not given")
+        try:
+            charsets[slot] = tokenmask.resolve_charset(raw, tokensets)
+        except ValueError:
+            raise _BadInput(f"-{slot} must not be blank") from None
+    for slot in args.ascii or []:
+        value = charsets.get(slot)
+        if value is None or not os.path.isfile(value):
+            raise _BadInput(f"--ascii {slot} needs -{slot} to be a tokenset file")
+        try:
+            charsets = tokenmask.widen_with_ascii(charsets, slot, value, slots)
+        except ValueError as exc:
+            raise _BadInput(f"--ascii {slot}: {exc}") from exc
+    inc_min = _increment_bound(args.increment_min, "--increment-min")
+    inc_max = _increment_bound(args.increment_max, "--increment-max")
+    increment = bool(args.increment or inc_min or inc_max)
+    if inc_min and inc_max and int(inc_min) > int(inc_max):
+        raise _BadInput("--increment-min must not exceed --increment-max")
+    launched = ctx.hcatTokenMask(
+        *_target(ctx),
+        mask,
+        charsets,
+        increment=increment,
+        increment_min=inc_min or "",
+        increment_max=inc_max or "",
+    )
+    return 1 if launched is False else 0
+
+
+@_validated
 def _run_ngram(ctx: Any, args: Any) -> int:
     corpus = _existing_file(ctx, args.corpus, "corpus")
     ctx.hcatNgramX(
@@ -647,6 +700,49 @@ def _adhocmask_args(p) -> None:
         dest="increment",
         help="Increment the mask length. Implied by either bound below; pass "
         "it alone to increment over the full keyspace of the mask.",
+    )
+    p.add_argument(
+        "--increment-min",
+        default="",
+        dest="increment_min",
+        help="Enable mask increment starting at this length",
+    )
+    p.add_argument(
+        "--increment-max",
+        default="",
+        dest="increment_max",
+        help="Enable mask increment stopping at this length",
+    )
+
+
+def _tokenmask_args(p) -> None:
+    p.add_argument(
+        "--mask",
+        required=True,
+        help="A token mask, e.g. ?1?1?d. Mask files are not supported.",
+    )
+    for n in range(1, 9):
+        p.add_argument(
+            f"-{n}",
+            default=None,
+            dest=f"charset{n}",
+            help=f"Charset for ?{n}: a tokenset name (e.g. cyrillic), a file "
+            "of tokens, or an inline charset",
+        )
+    p.add_argument(
+        "--ascii",
+        action="append",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Widen slot N (a tokenset file) with a-z and A-Z; repeatable",
+    )
+    p.add_argument(
+        "--increment",
+        action="store_true",
+        dest="increment",
+        help="Increment the mask length in token positions. Implied by "
+        "either bound below.",
     )
     p.add_argument(
         "--increment-min",
@@ -993,6 +1089,12 @@ ATTACK_SPECS: tuple[AttackSpec, ...] = (
         _run_permute,
     ),
     AttackSpec("adhocmask", "Ad-hoc mask attack", _adhocmask_args, _run_adhocmask),
+    AttackSpec(
+        "tokenmask",
+        "Token mask attack (hashcat -a 13)",
+        _tokenmask_args,
+        _run_tokenmask,
+    ),
     AttackSpec(
         "ngram",
         "N-gram attack (candidates generated from a corpus)",

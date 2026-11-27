@@ -1539,26 +1539,7 @@ _EXTENDED_CHARSET_SLOTS = ("5", "6", "7", "8")
 _EXTENDED_CHARSET_MAJOR = 7
 
 
-def _custom_charset_slots(mask: str) -> list[int]:
-    """Return the `?1`-`?8` slots a mask references, ascending and deduplicated.
-
-    Scans token by token rather than substring-matching, because `??` is
-    hashcat's escape for a literal `?`: in `??1` the `1` is a literal
-    character, not a reference to charset 1.
-    """
-    slots: set[int] = set()
-    i = 0
-    while i < len(mask) - 1:
-        if mask[i] == "?":
-            code = mask[i + 1]
-            if code in _CLASSIC_CHARSET_SLOTS + _EXTENDED_CHARSET_SLOTS:
-                slots.add(int(code))
-            # Skip the token character too, so an escaped `??` cannot let the
-            # second `?` open a token with whatever follows it.
-            i += 2
-            continue
-        i += 1
-    return sorted(slots)
+_custom_charset_slots = tokenmask.custom_charset_slots
 
 
 def _hashcat_major(ctx: Any) -> int | None:

@@ -141,3 +141,25 @@ def build_charset_args(charsets: dict[int, str]) -> list[str]:
             raise ValueError(f"charset slot out of range 1..8: {slot}")
         args += [f"-{slot}", charsets[slot]]
     return args
+
+
+def custom_charset_slots(mask: str) -> list[int]:
+    """Return the `?1`-`?8` slots a mask references, ascending and deduplicated.
+
+    Scans token by token rather than substring-matching, because `??` is
+    hashcat's escape for a literal `?`: in `??1` the `1` is a literal
+    character, not a reference to charset 1.
+    """
+    slots: set[int] = set()
+    i = 0
+    while i < len(mask) - 1:
+        if mask[i] == "?":
+            code = mask[i + 1]
+            if code in "12345678":
+                slots.add(int(code))
+            # Skip the token character too, so an escaped `??` cannot let the
+            # second `?` open a token with whatever follows it.
+            i += 2
+            continue
+        i += 1
+    return sorted(slots)
