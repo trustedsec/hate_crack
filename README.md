@@ -275,6 +275,10 @@ hate_crack adhocmask hashes.txt 1000 --mask '?a?a?a?a?a?a?a?a' \
     --increment-min 4 --increment-max 8
 hate_crack adhocmask hashes.txt 1000 --mask '?a?a?a?a' --increment
 
+# Token mask: ?1 is a tokenset (a name, a file, or an inline charset)
+hate_crack tokenmask hashes.txt 1000 --mask '?1?1?1?d' -1 cyrillic
+hate_crack tokenmask hashes.txt 1000 --mask '?1?1?1?d' -1 german --ascii 1
+
 # N-gram candidates from a corpus
 hate_crack ngram hashes.txt 1000 --corpus corpus.txt --group-size 3
 
@@ -1276,6 +1280,7 @@ All tests use mocked API calls, so they can run without connectivity to a Hashvi
   (24) Corporate Masks Brute Force
   (25) Smart Mask Attack
   (26) PCFG Hints
+  (27) Token Mask Attack
 
   (80) Wordlist Tools
   (81) Rule File Tools
@@ -1581,6 +1586,19 @@ Menu option 26. Runs hashcat's bundled `hints` ruleset, which models structure o
 * See hashcat's `docs/hashcat-pcfg.md` for the ruleset's behaviour
 
 Non-interactively: `hate_crack pcfghints <hashfile> <hashtype> (--hintwords a,b | --hintfile FILE) [--hintrank zipf|linear|flat] [--hintrepeat] [--mask M] [--contains S ...] [--pwmin N] [--pwmax N] [--costmax N]`. Native engine only; exits 1 otherwise or when hashcat refuses the run.
+
+#### Token Mask Attack
+Menu option 27. Runs hashcat's token mask attack (`-a 13`), where a custom charset slot holds multi-byte tokens instead of single bytes, so `?1?1?1` over a tokenset of accented or non-Latin characters builds candidates a byte-wise mask cannot express. Tokensets are the `.tokenset` files that ship with hashcat.
+
+* Needs a hashcat build with attack mode 13 (master after 2026-11-26); the menu and the `tokenmask` subcommand refuse, with a message, when `hashcat --help` does not list it
+* Prompts for one mask. A mask file is not accepted, only a literal mask
+* For each `?N` slot in the mask, shows a numbered list of the tokensets found and accepts a number, a file path, or an inline charset
+* Tokensets are searched for, in order, in `<hcatPath>/tokensets`, `tokensets` beside the resolved hashcat binary, `$XDG_DATA_HOME/hashcat/tokensets` (default `~/.local/share/hashcat/tokensets`), `/usr/local/share/hashcat/tokensets` and `/usr/share/hashcat/tokensets`. A tokenset may be given with or without the `.tokenset` suffix
+* When a slot holds an accent-only Latin set, the menu offers (default yes) to add `a-z` and `A-Z` by borrowing a free slot, so the mask becomes `?l?u?N` for that position and plain letters mix with the accented ones
+* The increment prompt counts token positions, not bytes, because each position is one token
+* No `-O` and no attack-coverage tracking; the run is a plain hashcat invocation
+
+Non-interactively: `hate_crack tokenmask <hashfile> <hashtype> --mask M [-1 .. -8 TOKENSET] [--ascii N ...] [--increment] [--increment-min N] [--increment-max N]`. `-1` through `-8` take a tokenset name, a file, or an inline charset. `--ascii N` (repeatable) adds `a-z` and `A-Z` to slot `N`, which must hold a tokenset file. Either increment bound implies `--increment`. Exits 1 on bad input or a hashcat without mode 13.
 
 #### PRINCE-LING Attack
 Uses pcfg_cracker's `prince_ling.py` to derive an optimized PRINCE base wordlist from a trained grammar, then hands it to the existing PRINCE attack. PRINCE-LING picks base words the grammar says are actually productive, so the PRINCE combination space is far less wasteful than pointing PRINCE at a generic wordlist.

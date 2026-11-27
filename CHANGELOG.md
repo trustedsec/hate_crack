@@ -9,6 +9,9 @@ Dates are omitted for releases predating this file; see the git tags for exact t
 
 ## [Unreleased]
 
+### Added
+- **Token Mask attack (menu 27) and the `hate_crack tokenmask` subcommand.** Runs hashcat's `-a 13`, where a custom charset slot holds multi-byte tokens, so a mask like `?1?1?1?d` over a tokenset builds candidates a byte-wise mask cannot. Each slot takes a tokenset name, a file or an inline charset, found in hashcat's `tokensets` directories; accent-only Latin sets can be widened with `a-z`/`A-Z` (`--ascii N` on the command line). Increment bounds count token positions. Refuses with exit 1 on a hashcat without attack mode 13 (master after 2026-11-26) and on a mask file.
+
 ### Fixed
 - **Tab completion works again at long multi-line prompts such as Quick Crack's wordlist picker.** On macOS's libedit, a prompt containing a newline was measured as one long line, so once it was wider than the terminal the line editor wrapped it mid-line and drew every keystroke and completion at the wrong column. The completed path landed far to the right of the typed text, which looked like Tab doing nothing. Every prompt now prints its leading lines itself and hands the line editor only the last one.
 

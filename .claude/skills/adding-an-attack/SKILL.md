@@ -1,17 +1,21 @@
 ---
 name: adding-an-attack
-description: Use when adding a new attack mode to hate_crack — the exact six wiring steps across main.py, attacks.py, and hate_crack.py, including the duplicate menu mapping that is easy to miss.
+description: Use when adding a new attack mode to hate_crack — the wiring across main.py, attacks.py, menu_registry.py, the menu test, and an optional non-interactive subcommand.
 ---
 
 # Adding a New Attack
 
-An attack spans three files (see "Three-Layer Attack Pattern" in `CLAUDE.md`).
-Do all six steps — skipping step 6 leaves the attack invisible from the root
-entry point even though it works via `main.py`.
+An attack spans `main.py`, `attacks.py` and `hate_crack/menu_registry.py` (see
+"Three-Layer Attack Pattern" in `CLAUDE.md`). The menu is described once, in
+the registry; `hate_crack.py` has no mapping of its own.
 
 1. Add the hashcat wrapper function in `main.py` (e.g. `hcatMyAttack(...)`)
 2. Add the handler in `attacks.py` (e.g. `def my_attack(ctx: Any)`)
 3. Add a dispatcher in `main.py`: `def my_attack(): return _attacks.my_attack(_attack_ctx())`
-4. Add the print line in `main.py`'s menu display loop (~line 3807+)
-5. Add the menu entry in `main.py`'s `get_main_menu_options()`
-6. Add the menu entry in `hate_crack.py`'s `get_main_menu_options()` (the duplicate)
+4. Add ONE `MenuAction("<key>", "<label>", _late("my_attack"))` row to `MAIN_MENU`
+   in `hate_crack/menu_registry.py`. The handler is looked up by name at call
+   time, so the name must match the dispatcher in step 3
+5. Add a row to the table in `tests/test_ui_menu_options.py`
+6. Optional: for a scripted subcommand, add one `AttackSpec` row to
+   `ATTACK_SPECS` in `hate_crack/noninteractive.py`. Do not edit
+   `ATTACK_COMMANDS` or the subparser wiring separately; both derive from it

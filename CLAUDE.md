@@ -803,13 +803,13 @@ Every attack spans three files with a specific wiring pattern:
    - Receives `ctx` (the main module itself) via `_attack_ctx()`, which returns `sys.modules['hate_crack.main']`
    - Handles user prompts, then calls `ctx.hcatBruteForce(ctx.hcatHashType, ctx.hcatHashFile)`
 
-3. **`hate_crack.py`** (root) - Menu registration + dispatcher
-   - Has its own `get_main_menu_options()` that maps keys to `_attacks.<handler>`
-   - **Important**: `hate_crack.py` has a DUPLICATE menu mapping separate from `main.py`'s `get_main_menu_options()`. Both must be updated when adding attacks.
+3. **`hate_crack/menu_registry.py`** - Menu registration
+   - One `MenuAction` row per menu key in `MAIN_MENU`, the single source of truth. Handlers are resolved late, by name, against `hate_crack.main`
+   - `hate_crack.py` no longer keeps its own mapping; its `get_main_menu_options()` and `get_main_menu_items()` delegate to the registry
 
 ### Adding a New Attack
 
-Six wiring steps across the three layers — see the `adding-an-attack` skill.
+The wiring steps (wrapper, handler, dispatcher, one registry row, test row, optional subcommand row) — see the `adding-an-attack` skill.
 
 ### hate_crack.py <-> main.py Proxy
 
