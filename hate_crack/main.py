@@ -71,6 +71,7 @@ from hate_crack.menu_registry import menu_items, menu_options  # noqa: E402
 from hate_crack import config_loader as _config_loader  # noqa: E402
 from hate_crack import config_schema as _config_schema  # noqa: E402
 from hate_crack import pcfg_native  # noqa: E402
+from hate_crack import tokenmask  # noqa: E402
 from hate_crack import hashcat_paths as _hashcat_paths  # noqa: E402
 from hate_crack import config_writer as _config_writer  # noqa: E402
 from hate_crack import llm  # noqa: E402
@@ -6534,6 +6535,66 @@ def hcatAdHocMask(
     )
 
 
+def hcatTokenMask(
+    hcatHashType,
+    hcatHashFile,
+    mask,
+    charsets=None,
+    increment=False,
+    increment_min="",
+    increment_max="",
+):
+    """Run hashcat's Token Mask attack (``-a 13``).
+
+    Each ``?1``-``?8`` mask position draws a whole token: a line of a tokenset
+    file or an inline charset. ``charsets`` maps slot number to that value.
+
+    No ``-O``: the optimized kernels cap candidates at 31 bytes and a token
+    can be several bytes wide, so the length limit would silently drop
+    candidates. No coverage tracking: coverage keys are built from byte masks
+    and custom-charset strings, and a token file's contents are not part of
+    that identity, so a recorded run could wrongly filter a later one.
+
+    Returns True when hashcat was launched, False when it was refused (the
+    build has no mode 13, or a charset slot is invalid).
+    """
+    if not tokenmask.supports_tokenmask(hcatBin):
+        get_ui().error(
+            "[!] The configured hashcat build has no attack mode 13 (Token "
+            "Mask). Use a hashcat built from master after 2026-11-26."
+        )
+        return False
+    try:
+        charset_args = tokenmask.build_charset_args(charsets or {})
+    except ValueError as exc:
+        get_ui().error(f"[!] {exc}")
+        return False
+    cmd = [
+        hcatBin,
+        "-m",
+        hcatHashType,
+        hcatHashFile,
+        "--session",
+        generate_session_id(hcatHashFile, "Token Mask"),
+        "-o",
+        f"{hcatHashFile}.out",
+        "-a",
+        "13",
+    ]
+    cmd.extend(charset_args)
+    if increment:
+        cmd.append("--increment")
+        if increment_min:
+            cmd.append(f"--increment-min={increment_min}")
+        if increment_max:
+            cmd.append(f"--increment-max={increment_max}")
+    cmd.append(mask)
+    cmd.extend(shlex.split(hcatTuning))
+    _append_potfile_arg(cmd)
+    _run_hcat_cmd(cmd, attack_name="Token Mask", hash_file=hcatHashFile)
+    return True
+
+
 def _adhoc_mask_coverage(
     hash_file, mask, custom_charsets, increment, increment_min, increment_max
 ):
@@ -9331,6 +9392,10 @@ def combinator_submenu():
 
 def adhoc_mask_crack():
     return _attacks.adhoc_mask_crack(_attack_ctx())
+
+
+def token_mask_crack():
+    return _attacks.token_mask_crack(_attack_ctx())
 
 
 def markov_brute_force():

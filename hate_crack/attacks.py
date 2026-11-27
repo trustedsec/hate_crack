@@ -6,6 +6,7 @@ from typing import Any
 
 from hate_crack import notify as _notify
 from hate_crack import pcfg_native
+from hate_crack import tokenmask
 from hate_crack.pipal_hints import pipal_hint_words
 from hate_crack.ui import get_ui
 from hate_crack.api import (
@@ -1690,6 +1691,102 @@ def adhoc_mask_crack(ctx: Any) -> None:
         ctx.hcatHashFile,
         mask,
         " ".join(charset_flags),
+        increment=increment,
+        increment_min=inc_min,
+        increment_max=inc_max,
+    )
+
+
+def token_mask_crack(ctx: Any) -> None:
+    _notify.prompt_notify_for_attack("Token Mask")
+    get_ui().say("\n\tToken Mask Attack")
+    if not tokenmask.supports_tokenmask(ctx.hcatBin):
+        get_ui().warn(
+            "\t[!] This hashcat build has no attack mode 13 (Token Mask). "
+            "It needs a hashcat built from master after 2026-11-26."
+        )
+        return
+    get_ui().say(
+        "\tEach ?1-?8 position draws a whole token: a line of a tokenset file, "
+        "or an inline charset."
+    )
+    get_ui().say(
+        "\tThe built-ins ?l ?u ?d ?s ?a ?b are still single bytes. One mask "
+        "per run; mask files are not supported."
+    )
+    mask = get_ui().ask("\tMask (e.g. ?1?1?d?d): ").strip()
+    if not mask:
+        return
+
+    slots = _custom_charset_slots(mask)
+    if not slots:
+        get_ui().warn(
+            "\t[!] This mask uses no ?1-?8 slot, so it is an ordinary byte mask. "
+            "Use Ad-hoc Mask (menu 14) instead."
+        )
+        return
+
+    tokensets = tokenmask.list_tokensets(
+        tokenmask.tokenset_search_dirs(ctx.hcatBin, getattr(ctx, "hcatPath", ""))
+    )
+    choices = [(str(n), name) for n, (name, _path) in enumerate(tokensets, 1)]
+    names_by_path = {path: name for name, path in tokensets}
+    charsets: dict[int, str] = {}
+    for slot in slots:
+        if slot in charsets:
+            continue
+        while True:
+            if tokensets:
+                get_ui().say("\n\tAvailable tokensets:")
+                for n, name in choices:
+                    get_ui().say(f"\t[{n}] {name}")
+            else:
+                get_ui().say("\n\tNo shipped tokensets were found.")
+            answer = (
+                get_ui()
+                .ask(
+                    f"\tCharset for ?{slot} (number, file path, or inline like ?l?d): ",
+                    choices=choices,
+                )
+                .strip()
+            )
+            if answer.isdigit() and tokensets:
+                index = int(answer)
+                if not 1 <= index <= len(tokensets):
+                    get_ui().warn(
+                        f"\t[!] Pick a number from 1 to {len(tokensets)}, "
+                        "or type a path or charset."
+                    )
+                    continue
+                value = tokensets[index - 1][1]
+            else:
+                try:
+                    value = tokenmask.resolve_charset(answer, tokensets)
+                except ValueError:
+                    get_ui().warn("\t[!] A charset is required.")
+                    continue
+            break
+
+        if names_by_path.get(value) in tokenmask.LATIN_ACCENT_SETS:
+            widen = get_ui().ask(
+                f"\tThat set holds only accented letters. Add a-z and A-Z to ?{slot}? (Y/n): "
+            )
+            if widen.strip().lower() not in ("n", "no"):
+                try:
+                    charsets = tokenmask.widen_with_ascii(charsets, slot, value, slots)
+                    continue
+                except ValueError as exc:
+                    get_ui().warn(f"\t[!] {exc}; keeping the file as-is.")
+        charsets[slot] = value
+
+    get_ui().say("\n\tIncrement bounds count token positions, not bytes.")
+    increment, inc_min, inc_max = _prompt_increment()
+
+    ctx.hcatTokenMask(
+        ctx.hcatHashType,
+        ctx.hcatHashFile,
+        mask,
+        charsets,
         increment=increment,
         increment_min=inc_min,
         increment_max=inc_max,
