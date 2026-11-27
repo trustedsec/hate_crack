@@ -89,7 +89,7 @@ def _isolate_config_file_discovery(monkeypatch):
 
 
 # Modules that exercise the real ``help_mentions`` probe themselves.
-_REAL_HELP_PROBE_MODULES = ("test_hashcat_paths", "test_pcfg_native")
+_REAL_HELP_PROBE_MODULES = ("test_hashcat_paths", "test_pcfg_native", "test_tokenmask")
 
 
 class _UnsupportedProbe:
