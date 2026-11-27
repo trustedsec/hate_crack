@@ -1449,29 +1449,32 @@ def test_tokenmask_missing_charset_for_used_slot(tmp_path, monkeypatch, capsys):
     assert "?2 is used by the mask but -2 was not given" in capsys.readouterr().out
 
 
-def test_tokenmask_mask_without_slots(tmp_path, monkeypatch):
+def test_tokenmask_mask_without_slots(tmp_path, monkeypatch, capsys):
     ctx = _tokenmask_ctx(tmp_path, monkeypatch)
     args = _parse(["tokenmask", ctx.hcatHashFile, "1000", "--mask", "?d?d"])
     assert ni.run_noninteractive(ctx, args) == 1
     assert ctx.calls == []
+    assert "uses no ?1-?8 slot" in capsys.readouterr().out
 
 
-def test_tokenmask_rejects_a_mask_file(tmp_path, monkeypatch):
+def test_tokenmask_rejects_a_mask_file(tmp_path, monkeypatch, capsys):
     ctx = _tokenmask_ctx(tmp_path, monkeypatch)
-    mf = tmp_path / "m.hcmask"
+    mf = tmp_path / "m?1.hcmask"
     mf.write_text("?1?d\n")
     args = _parse(
         ["tokenmask", ctx.hcatHashFile, "1000", "--mask", str(mf), "-1", "?l"]
     )
     assert ni.run_noninteractive(ctx, args) == 1
     assert ctx.calls == []
+    assert "mask files are not supported" in capsys.readouterr().out
 
 
-def test_tokenmask_unsupported_hashcat(tmp_path, monkeypatch):
+def test_tokenmask_unsupported_hashcat(tmp_path, monkeypatch, capsys):
     ctx = _tokenmask_ctx(tmp_path, monkeypatch, supported=False)
     args = _parse(["tokenmask", ctx.hcatHashFile, "1000", "--mask", "?1", "-1", "?l"])
     assert ni.run_noninteractive(ctx, args) == 1
     assert ctx.calls == []
+    assert "no attack mode 13" in capsys.readouterr().out
 
 
 def test_tokenmask_ascii_widens_a_file_slot(tmp_path, monkeypatch):
