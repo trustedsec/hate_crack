@@ -865,7 +865,11 @@ Three deliberate limits:
   ctrl-C or an error records nothing, and neither does exit 0 — that means every
   hash cracked, which hashcat reports *without* finishing the keyspace, and in
   the degenerate "all hashes found as potfile entries" case without trying a
-  single candidate. Under-recording only costs a redundant run later.
+  single candidate. Nor does a run in which hashcat **bypassed** a queue item —
+  pressing `b`, `--bypass-eta`/`--bypass-threshold` in `hcatTuning`, or a mask
+  too long for the kernel. hashcat still exits 1 for those, so hate_crack reads
+  the `status-after-work` lines its session log gained during the run. Under-
+  recording only costs a redundant run later.
 - **Dynamic candidate generators are never filtered.** PRINCE, PCFG, OMEN,
   Markov brute force and the LLM modes have no fixed set to diff, so they are
   logged as having run and otherwise left alone. Chained rule files (`-r a -r b`)

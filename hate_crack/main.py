@@ -73,6 +73,7 @@ from hate_crack import config_schema as _config_schema  # noqa: E402
 from hate_crack import pcfg_native  # noqa: E402
 from hate_crack import tokenmask  # noqa: E402
 from hate_crack import hashcat_paths as _hashcat_paths  # noqa: E402
+from hate_crack import session_log as _session_log  # noqa: E402
 from hate_crack import config_writer as _config_writer  # noqa: E402
 from hate_crack import llm  # noqa: E402
 from hate_crack import noninteractive as _noninteractive  # noqa: E402
@@ -2179,6 +2180,16 @@ def _run_hcat_cmd(
 
     cmd = _maybe_add_brain(cmd, hash_file, stdin)
 
+    # hashcat exits 1 for a queue whose last item was bypassed (b1b1f3ea), so
+    # the exit code alone cannot prove the keyspace was enumerated. Snapshot
+    # the session log now; only lines appended during this run count.
+    log_offsets: dict[str, int] = {}
+    session = _session_log.session_name(cmd)
+    if session and _coverage_enabled:
+        log_offsets = _session_log.snapshot(
+            _session_log.candidate_log_paths(session, hcatBin)
+        )
+
     _hcat_launch_count += 1
     try:
         completed = _run_hcat_cmd_uncovered(
@@ -2194,6 +2205,13 @@ def _run_hcat_cmd(
         for path in temp_paths:
             with contextlib.suppress(OSError):
                 os.unlink(path)
+
+    if completed and log_offsets and _session_log.bypassed_since(log_offsets):
+        get_ui().warn(
+            f"[!] hashcat bypassed part of {attack_name or 'this attack'}; "
+            "not recording it as covered."
+        )
+        completed = False
 
     if plan is not None and completed:
         _coverage_store(coverage.hash_file).record(
