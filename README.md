@@ -275,7 +275,9 @@ hate_crack adhocmask hashes.txt 1000 --mask '?a?a?a?a?a?a?a?a' \
     --increment-min 4 --increment-max 8
 hate_crack adhocmask hashes.txt 1000 --mask '?a?a?a?a' --increment
 
-# Token mask: ?1 is a tokenset (a name, a file, or an inline charset)
+# Token mask: ?1 is a tokenset (a name, a file, or an inline charset).
+# Names need hashcat's tokensets installed; a name that is not found warns and
+# is then used as an inline charset of its literal bytes.
 hate_crack tokenmask hashes.txt 1000 --mask '?1?1?1?d' -1 cyrillic
 hate_crack tokenmask hashes.txt 1000 --mask '?1?1?1?d' -1 german --ascii 1
 
@@ -1594,9 +1596,9 @@ Menu option 27. Runs hashcat's token mask attack (`-a 13`), where a custom chars
 * Prompts for one mask. A mask file is not accepted, only a literal mask
 * For each `?N` slot in the mask, shows a numbered list of the tokensets found and accepts a number, a file path, or an inline charset
 * Tokensets are searched for, in order, in `<hcatPath>/tokensets`, `tokensets` beside the resolved hashcat binary, `$XDG_DATA_HOME/hashcat/tokensets` (default `~/.local/share/hashcat/tokensets`), `/usr/local/share/hashcat/tokensets` and `/usr/share/hashcat/tokensets`. A tokenset may be given with or without the `.tokenset` suffix
-* When a slot holds an accent-only Latin set, the menu offers (default yes) to add `a-z` and `A-Z` by borrowing a free slot, so the mask becomes `?l?u?N` for that position and plain letters mix with the accented ones
+* When a slot holds an accent-only Latin set, the menu offers (default yes) to add `a-z` and `A-Z` by moving the tokenset file to a free slot `J` and setting the original slot's charset to `?l?u?J`; the mask itself is unchanged, and plain letters mix with the accented ones
 * The increment prompt counts token positions, not bytes, because each position is one token
-* No `-O` and no attack-coverage tracking; the run is a plain hashcat invocation
+* No attack-coverage tracking, and hate_crack never adds `-O` to this attack. An `-O` in `hcatTuning` is passed through, though: depending on the hash mode hashcat then either refuses the run ("The device engine has no optimized kernel for this hash-mode. Run this without -O.") or lowers the maximum candidate length and skips longer token candidates without an error. Leave `-O` out of `hcatTuning` for this attack
 
 Non-interactively: `hate_crack tokenmask <hashfile> <hashtype> --mask M [-1 .. -8 TOKENSET] [--ascii N ...] [--increment] [--increment-min N] [--increment-max N]`. `-1` through `-8` take a tokenset name, a file, or an inline charset. `--ascii N` (repeatable) adds `a-z` and `A-Z` to slot `N`, which must hold a tokenset file. Either increment bound implies `--increment`. Exits 1 on bad input or a hashcat without mode 13.
 

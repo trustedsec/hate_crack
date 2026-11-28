@@ -6549,9 +6549,11 @@ def hcatTokenMask(
     Each ``?1``-``?8`` mask position draws a whole token: a line of a tokenset
     file or an inline charset. ``charsets`` maps slot number to that value.
 
-    No ``-O``: the optimized kernels cap candidates at 31 bytes and a token
-    can be several bytes wide, so the length limit would silently drop
-    candidates. No coverage tracking: coverage keys are built from byte masks
+    hate_crack never adds ``-O`` here, but an ``-O`` in ``hcatTuning`` is
+    passed through (the operator owns tuning). Depending on the hash mode
+    hashcat then either refuses the run or lowers the maximum candidate
+    length, and longer token candidates are skipped without an error, so
+    leave ``-O`` out of ``hcatTuning`` for this attack. No coverage tracking: coverage keys are built from byte masks
     and custom-charset strings, and a token file's contents are not part of
     that identity, so a recorded run could wrongly filter a later one.
 
