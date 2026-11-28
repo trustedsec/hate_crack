@@ -115,6 +115,20 @@ def resolve_charset(value: str, tokensets: list[tuple[str, str]]) -> str:
     return value
 
 
+def looks_like_missing_tokenset(value: str, resolved: str) -> bool:
+    """True when *value* is a bare name that matched nothing.
+
+    ``resolve_charset`` hands such a value back unchanged, so hashcat would
+    read it as an inline charset of its literal bytes. Values carrying a
+    ``?`` or a path separator are deliberate inline or path forms and never
+    count.
+    """
+    value = value.strip()
+    if not value or "?" in value or os.path.sep in value or "/" in value:
+        return False
+    return resolved == value
+
+
 def widen_with_ascii(
     charsets: dict[int, str], slot: int, path: str, mask_slots: list[int]
 ) -> dict[int, str]:

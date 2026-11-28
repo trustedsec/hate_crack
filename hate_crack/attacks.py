@@ -1746,6 +1746,11 @@ def token_mask_crack(ctx: Any) -> None:
                 except ValueError:
                     get_ui().warn("\t[!] A charset is required.")
                     continue
+                if tokenmask.looks_like_missing_tokenset(answer, value):
+                    get_ui().warn(
+                        f"\t[!] No tokenset named '{value}' was found; using it "
+                        "as an inline charset of its literal bytes."
+                    )
             break
 
         if names_by_path.get(value) in tokenmask.LATIN_ACCENT_SETS:

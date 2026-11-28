@@ -185,6 +185,16 @@ class TestTokenMaskHandler:
         ctx, _ = _drive(["?1?2", "?l?d", "abc", "n"], tokensets=SETS)
         assert ctx.hcatTokenMask.call_args.args[3] == {1: "?l?d", 2: "abc"}
 
+    def test_unmatched_bare_name_warns_once(self):
+        ctx, ui = _drive(["?1", "cyrilic", "n"], tokensets=SETS)
+        assert ctx.hcatTokenMask.call_args.args[3] == {1: "cyrilic"}
+        hits = [w for w in ui.warned if "No tokenset named 'cyrilic'" in w]
+        assert len(hits) == 1
+
+    def test_inline_charset_does_not_warn_about_tokensets(self):
+        _, ui = _drive(["?1", "?l?d", "n"], tokensets=SETS)
+        assert not any("No tokenset named" in w for w in ui.warned)
+
     def test_out_of_range_and_blank_reask(self):
         ctx, ui = _drive(["?1", "9", "", "?d", "n"], tokensets=SETS)
         assert ctx.hcatTokenMask.call_args.args[3] == {1: "?d"}

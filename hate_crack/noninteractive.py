@@ -418,6 +418,11 @@ def _run_tokenmask(ctx: Any, args: Any) -> int:
             charsets[slot] = tokenmask.resolve_charset(raw, tokensets)
         except ValueError:
             raise _BadInput(f"-{slot} must not be blank") from None
+        if tokenmask.looks_like_missing_tokenset(raw, charsets[slot]):
+            get_ui().warn(
+                f"[!] No tokenset named '{charsets[slot]}' was found; using it "
+                "as an inline charset of its literal bytes."
+            )
     for slot in args.ascii or []:
         value = charsets.get(slot)
         if value is None or not os.path.isfile(value):

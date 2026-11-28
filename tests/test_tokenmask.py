@@ -173,3 +173,29 @@ def test_build_charset_args_order():
 def test_build_charset_args_bad_slot(slot):
     with pytest.raises(ValueError):
         tokenmask.build_charset_args({slot: "x"})
+
+
+def test_missing_tokenset_bare_name_warns(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    resolved = tokenmask.resolve_charset("cyrilic", [("cyrillic", "/x/c.tokenset")])
+    assert tokenmask.looks_like_missing_tokenset("cyrilic", resolved)
+    # A bare run of letters is also literal bytes; the warning says so.
+    assert tokenmask.looks_like_missing_tokenset("abc", "abc")
+
+
+def test_missing_tokenset_inline_and_path_forms_do_not_warn(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    for value in ("?l?d", "?1", "./missing.tokenset", "/no/such.tokenset"):
+        resolved = tokenmask.resolve_charset(value, [])
+        assert not tokenmask.looks_like_missing_tokenset(value, resolved)
+
+
+def test_missing_tokenset_existing_file_and_known_name_do_not_warn(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "mine.txt").write_text("x")
+    ts = [("french", "/x/french.tokenset")]
+    for value in ("mine.txt", "french", "french.tokenset"):
+        resolved = tokenmask.resolve_charset(value, ts)
+        assert not tokenmask.looks_like_missing_tokenset(value, resolved)

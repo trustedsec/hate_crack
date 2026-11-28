@@ -1553,3 +1553,24 @@ def test_tokenmask_refusal_returns_1(tmp_path, monkeypatch):
     ctx = _tokenmask_ctx(tmp_path, monkeypatch, result=False)
     args = _parse(["tokenmask", ctx.hcatHashFile, "1000", "--mask", "?1", "-1", "?l"])
     assert ni.run_noninteractive(ctx, args) == 1
+
+
+def test_tokenmask_warns_when_name_matches_no_tokenset(tmp_path, monkeypatch, capsys):
+    ctx = _tokenmask_ctx(tmp_path, monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    args = _parse(
+        ["tokenmask", ctx.hcatHashFile, "1000", "--mask", "?1?d", "-1", "cyrilic"]
+    )
+    assert ni.run_noninteractive(ctx, args) == 0
+    out = capsys.readouterr().out
+    assert out.count("No tokenset named 'cyrilic' was found") == 1
+    assert ctx.calls[0][1][3] == {1: "cyrilic"}
+
+
+def test_tokenmask_no_warning_for_inline_charset(tmp_path, monkeypatch, capsys):
+    ctx = _tokenmask_ctx(tmp_path, monkeypatch)
+    args = _parse(
+        ["tokenmask", ctx.hcatHashFile, "1000", "--mask", "?1?d", "-1", "?l?d"]
+    )
+    assert ni.run_noninteractive(ctx, args) == 0
+    assert "No tokenset named" not in capsys.readouterr().out
