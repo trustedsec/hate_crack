@@ -69,7 +69,9 @@ def test_search_dirs_default_order(monkeypatch, tmp_path):
         str(hc / "tokensets"),
         str(tmp_path / "xdg" / "hashcat" / "tokensets"),
         "/usr/local/share/hashcat/tokensets",
+        "/usr/local/share/doc/hashcat/tokensets",
         "/usr/share/hashcat/tokensets",
+        "/usr/share/doc/hashcat/tokensets",
     ]
 
 
@@ -86,6 +88,29 @@ def test_search_dirs_binary_dir(monkeypatch, tmp_path):
     binary.write_text("")
     dirs = tokenmask.tokenset_search_dirs(str(binary), "")
     assert dirs[0] == os.path.join(os.path.realpath(binary.parent), "tokensets")
+
+
+def test_search_dirs_install_prefix(monkeypatch, tmp_path):
+    # `make install` puts tokensets under DOCUMENT_FOLDER
+    # (<prefix>/share/doc/hashcat), not beside the binary or in SHARED_FOLDER.
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
+    prefix = tmp_path / "prefix"
+    binary = prefix / "bin" / "hashcat"
+    binary.parent.mkdir(parents=True)
+    binary.write_text("")
+    docdir = prefix / "share" / "doc" / "hashcat" / "tokensets"
+    docdir.mkdir(parents=True)
+    (docdir / "greek.tokenset").write_text("a\n")
+    real_prefix = os.path.realpath(prefix)
+    dirs = tokenmask.tokenset_search_dirs(str(binary), "")
+    assert dirs[:3] == [
+        os.path.join(real_prefix, "bin", "tokensets"),
+        os.path.join(real_prefix, "share", "hashcat", "tokensets"),
+        os.path.join(real_prefix, "share", "doc", "hashcat", "tokensets"),
+    ]
+    assert dict(tokenmask.list_tokensets(dirs))["greek"] == os.path.join(
+        real_prefix, "share", "doc", "hashcat", "tokensets", "greek.tokenset"
+    )
 
 
 def test_search_dirs_dedupes_by_realpath(monkeypatch, tmp_path):

@@ -57,14 +57,22 @@ def tokenset_search_dirs(hcat_bin: str = "", hcat_path: str = "") -> list[str]:
     if hcat_bin:
         resolved = shutil.which(hcat_bin) or hcat_bin
         if os.path.exists(resolved):
-            candidates.append(
-                os.path.join(os.path.dirname(os.path.realpath(resolved)), "tokensets")
-            )
+            bindir = os.path.dirname(os.path.realpath(resolved))
+            prefix = os.path.dirname(bindir)
+            # A source checkout keeps tokensets beside the binary; `make
+            # install` puts them in DOCUMENT_FOLDER, <prefix>/share/doc/hashcat.
+            candidates += [
+                os.path.join(bindir, "tokensets"),
+                os.path.join(prefix, "share", "hashcat", "tokensets"),
+                os.path.join(prefix, "share", "doc", "hashcat", "tokensets"),
+            ]
     data_home = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
     candidates += [
         os.path.join(data_home, "hashcat", "tokensets"),
         "/usr/local/share/hashcat/tokensets",
+        "/usr/local/share/doc/hashcat/tokensets",
         "/usr/share/hashcat/tokensets",
+        "/usr/share/doc/hashcat/tokensets",
     ]
     seen: set[str] = set()
     out: list[str] = []
