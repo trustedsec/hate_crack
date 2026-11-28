@@ -2182,7 +2182,11 @@ def _run_hcat_cmd(
 
     # hashcat exits 1 for a queue whose last item was bypassed (b1b1f3ea), so
     # the exit code alone cannot prove the keyspace was enumerated. Snapshot
-    # the session log now; only lines appended during this run count.
+    # the session log now; only lines appended during this run count. The one
+    # snapshot spans any debug-mode/brain fallback re-run inside
+    # _run_hcat_cmd_uncovered, and two hate_crack instances running the same
+    # attack on one hash file share a session log; in both cases a bypass seen
+    # in the log demotes the run, which under-records (the safe direction).
     log_offsets: dict[str, int] = {}
     session = _session_log.session_name(cmd)
     if session and _coverage_enabled:

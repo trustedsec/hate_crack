@@ -868,8 +868,9 @@ Three deliberate limits:
   single candidate. Nor does a run in which hashcat **bypassed** a queue item —
   pressing `b`, `--bypass-eta`/`--bypass-threshold` in `hcatTuning`, or a mask
   too long for the kernel. hashcat still exits 1 for those, so hate_crack reads
-  the `status-after-work` lines its session log gained during the run. Under-
-  recording only costs a redundant run later.
+  the `status-after-work` lines its session log gained during the run; when that
+  log cannot be read, it falls back to the exit code alone. Under-recording only
+  costs a redundant run later.
 - **Dynamic candidate generators are never filtered.** PRINCE, PCFG, OMEN,
   Markov brute force and the LLM modes have no fixed set to diff, so they are
   logged as having run and otherwise left alone. Chained rule files (`-r a -r b`)

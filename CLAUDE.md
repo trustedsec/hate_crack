@@ -656,7 +656,7 @@ small single-purpose ones:
 | `attack_coverage.py` | ~560 | planning: target identity, entry parsing, mask canonicalization, skip/filter decision — see below |
 | `coverage_store.py` | ~680 | the per-hash-file SQLite coverage store — see below |
 | `brain.py` | 388 | hashcat brain oracle, slow/fast policy, session identity, client flags, local server lifecycle — see below |
-| `plaintext.py`, `noninteractive.py`, `username_detect.py`, `menu.py`, `formatting.py`, `progress.py`, `cli.py`, `hashview_cache.py` | 60–165 each | small, single-purpose helpers |
+| `plaintext.py`, `noninteractive.py`, `username_detect.py`, `menu.py`, `formatting.py`, `progress.py`, `cli.py`, `hashview_cache.py`, `session_log.py` | 60–165 each | small, single-purpose helpers |
 | `ui/` | 434 total | UI backend seam: a `UI` Protocol with `PlainUI` and `RichUI` implementations, `resolve_backend_name`/`build_ui`, and `get_ui`/`set_ui`/`reset_ui` — see Config System for `ui_backend` |
 | `notify/` | 871 total | Pushover notifications — see below |
 
@@ -677,7 +677,7 @@ were not convertible. Network filesystems get a rollback journal instead of
 WAL. Two invariants to preserve when touching it: **every failure to establish
 identity returns an inert plan** (never filter on a guess — a wrongly filtered
 run silently skips untried candidates), and **coverage is recorded only on clean
-completion** (hashcat exit 0 or 1, not interrupted). Chained `-r a -r b` runs are
+completion** (hashcat exit 1, not interrupted, and no queue item bypassed -- see `session_log.py`). Chained `-r a -r b` runs are
 tracked as one all-or-nothing unit because hashcat applies the *cartesian
 product* of the two files. Attacks opt in by passing `coverage=` to
 `_run_hcat_cmd`; dynamic generators (PRINCE, PCFG, OMEN, Markov, LLM) pass

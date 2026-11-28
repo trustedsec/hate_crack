@@ -17,6 +17,16 @@ def test_session_name_equals_form():
     assert sl.session_name(["hashcat", "--session=t_Dict"]) == "t_Dict"
 
 
+def test_session_name_last_separate_value_wins():
+    cmd = ["hashcat", "--session", "first", "--session", "last"]
+    assert sl.session_name(cmd) == "last"
+
+
+def test_session_name_last_wins_across_mixed_forms():
+    cmd = ["hashcat", "--session", "a", "--session=b"]
+    assert sl.session_name(cmd) == "b"
+
+
 def test_session_name_absent():
     assert sl.session_name(["hashcat", "-a", "0", "h", "w"]) is None
 

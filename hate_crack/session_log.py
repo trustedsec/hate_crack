@@ -30,13 +30,19 @@ _KEY = "status-after-work"
 
 
 def session_name(cmd: Sequence[str]) -> str | None:
-    """The ``--session`` value in a hashcat argv, or ``None``."""
+    """The ``--session`` value in a hashcat argv, or ``None``.
+
+    hashcat honours the last ``--session``, and attacks append the operator's
+    ``hcatTuning`` after their own, so the last valid occurrence wins.
+    """
+    name: str | None = None
     for index, arg in enumerate(cmd):
         if arg == "--session":
-            return str(cmd[index + 1]) if index + 1 < len(cmd) else None
-        if isinstance(arg, str) and arg.startswith("--session="):
-            return arg.split("=", 1)[1] or None
-    return None
+            if index + 1 < len(cmd):
+                name = str(cmd[index + 1])
+        elif isinstance(arg, str) and arg.startswith("--session="):
+            name = arg.split("=", 1)[1] or name
+    return name
 
 
 def candidate_log_paths(session: str, hcat_bin: str) -> list[str]:
